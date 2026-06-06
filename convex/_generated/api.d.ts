@@ -10,6 +10,7 @@
 
 import type * as availability from "../availability.js";
 import type * as catalog from "../catalog.js";
+import type * as crons from "../crons.js";
 import type * as sync from "../sync.js";
 
 import type {
@@ -21,6 +22,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   availability: typeof availability;
   catalog: typeof catalog;
+  crons: typeof crons;
   sync: typeof sync;
 }>;
 
