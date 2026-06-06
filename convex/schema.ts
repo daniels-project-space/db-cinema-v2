@@ -38,6 +38,8 @@ export default defineSchema({
     description: v.optional(v.string()),
     category: v.string(),
     itemType: v.optional(v.string()),
+    sizeScore: v.optional(v.number()),
+    weightKg: v.optional(v.number()),
     heroImageR2Key: v.optional(v.string()),
     gallery: v.optional(v.array(v.string())),
     sourceImages: v.optional(v.array(v.string())),

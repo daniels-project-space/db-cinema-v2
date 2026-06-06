@@ -1,7 +1,7 @@
 import { action, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { deriveItemType } from "./lib/taxonomy";
+import { deriveItemType, DELIVERY_BY_TYPE } from "./lib/taxonomy";
 
 /**
  * RMv2 availability/catalog bridge.
@@ -97,6 +97,8 @@ export const syncFromRmv2 = action({
       const unavailable = (p.unavailableDates ?? []).map((d) =>
         typeof d === "string" ? d : JSON.stringify(d),
       );
+      const itemType = deriveItemType(title);
+      const spec = DELIVERY_BY_TYPE[itemType];
       return {
         hyggloProductId: p.productId,
         masterItemId: p.masterItemId,
@@ -104,7 +106,9 @@ export const syncFromRmv2 = action({
         slug: `${slugify(title)}-${p.productId}`,
         title,
         category: deriveCategory(title),
-        itemType: deriveItemType(title),
+        itemType,
+        sizeScore: spec.sizeScore,
+        weightKg: spec.weightKg,
         sourceImages,
         pricing: {
           daily,
@@ -136,6 +140,8 @@ export const applyCatalog = internalMutation({
         title: v.string(),
         category: v.string(),
         itemType: v.string(),
+        sizeScore: v.number(),
+        weightKg: v.number(),
         sourceImages: v.array(v.string()),
         pricing: v.object({
           daily: v.number(),
@@ -222,6 +228,8 @@ export const applyCatalog = internalMutation({
         title: it.title,
         category: it.category,
         itemType: it.itemType,
+        sizeScore: it.sizeScore,
+        weightKg: it.weightKg,
         sourceImages: it.sourceImages,
         pricing: it.pricing,
         depositAmount: it.depositAmount,

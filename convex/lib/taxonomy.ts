@@ -51,6 +51,30 @@ export function deriveItemType(name: string): ItemType {
   return "accessory";
 }
 
+// Delivery size/weight per itemType — grounded in v1 delivery-specs size_score
+// system (1 XS … 5 XL). Used to pick courier vehicle + quote. Covers every
+// listing since each has an itemType.
+export const DELIVERY_BY_TYPE: Record<ItemType, { sizeScore: number; weightKg: number }> = {
+  "nd-filter": { sizeScore: 1, weightKg: 0.1 },
+  accessory: { sizeScore: 1, weightKg: 0.3 },
+  headphones: { sizeScore: 1, weightKg: 0.4 },
+  "wireless-mic": { sizeScore: 1, weightKg: 0.5 },
+  recorder: { sizeScore: 2, weightKg: 0.6 },
+  "boom-mic": { sizeScore: 2, weightKg: 1.0 },
+  lens: { sizeScore: 2, weightKg: 1.0 },
+  monitor: { sizeScore: 2, weightKg: 1.0 },
+  drone: { sizeScore: 2, weightKg: 1.5 },
+  battery: { sizeScore: 2, weightKg: 1.5 },
+  "camera-body": { sizeScore: 3, weightKg: 2.0 },
+  gimbal: { sizeScore: 3, weightKg: 1.5 },
+  mixer: { sizeScore: 3, weightKg: 3.0 },
+  tripod: { sizeScore: 3, weightKg: 3.0 },
+  light: { sizeScore: 3, weightKg: 3.0 },
+  slider: { sizeScore: 3, weightKg: 4.0 },
+  "dj-deck": { sizeScore: 4, weightKg: 6.0 },
+  speaker: { sizeScore: 4, weightKg: 8.0 },
+};
+
 // itemType -> complementary itemTypes that are commonly rented together.
 export const COMPLEMENTS: Record<ItemType, ItemType[]> = {
   "camera-body": ["lens", "nd-filter", "battery", "monitor", "gimbal", "tripod", "wireless-mic"],

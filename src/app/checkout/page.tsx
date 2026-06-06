@@ -10,31 +10,53 @@ import { usePromo } from "@/components/cart/usePromo";
 import { useAccount } from "@/components/account/AccountProvider";
 import { AGREEMENTS } from "@/lib/legal";
 
-const DELIVERY_FEE = 25;
 const ms = (iso: string) => Date.parse(iso + "T00:00:00Z");
+const PC_RE = /([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})/i;
 
 export default function CheckoutPage() {
   const { items, subtotal, eligibleSubtotal, depositTotal } = useCart();
   const account = useAccount();
   const promo = usePromo(eligibleSubtotal);
   const start = useAction(api.checkout.start);
+  const getQuote = useAction(api.delivery.quote);
 
+  const acctPostcode = account.me?.address?.match(PC_RE)?.[1] ?? "";
   const [email, setEmail] = useState(account.me?.email ?? "");
   const [name, setName] = useState(account.me?.name ?? "");
   const [phone, setPhone] = useState(account.me?.phone ?? "");
   const [fulfilment, setFulfilment] = useState<"pickup" | "delivery">("pickup");
   const [address, setAddress] = useState(account.me?.address ?? "");
+  const [postcode, setPostcode] = useState(acctPostcode);
+  const [dq, setDq] = useState<any>(null); // delivery quote result
+  const [quoting, setQuoting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState("");
 
-  const deliveryFee = fulfilment === "delivery" ? DELIVERY_FEE : 0;
+  const deliveryFee = fulfilment === "delivery" && dq?.ok ? dq.fee : 0;
+
+  async function quoteDelivery() {
+    if (!postcode.trim()) return;
+    setQuoting(true);
+    setDq(null);
+    try {
+      const r = await getQuote({
+        postcode: postcode.trim(),
+        listingIds: items.map((i) => i.listingId as any),
+      });
+      setDq(r);
+    } catch (e: any) {
+      setDq({ ok: false, reason: e?.message ?? "Quote failed" });
+    } finally {
+      setQuoting(false);
+    }
+  }
   const total = subtotal + depositTotal + deliveryFee - promo.discount;
   const valid =
     items.length > 0 &&
     /\S+@\S+\.\S+/.test(email) &&
-    (fulfilment === "pickup" || address.trim().length > 5) &&
+    (fulfilment === "pickup" || (dq?.ok && address.trim().length > 5)) &&
     agreed &&
     signature.trim().length > 2;
 
@@ -111,12 +133,35 @@ export default function CheckoutPage() {
               <div className="flex gap-3">
                 {(["pickup", "delivery"] as const).map((f) => (
                   <button key={f} onClick={() => setFulfilment(f)} className={`flex-1 rounded-lg px-4 py-2.5 text-sm capitalize transition-colors ${fulfilment === f ? "bg-accent-500 text-white" : "glass text-white/60 hover:text-white"}`}>
-                    {f}{f === "delivery" ? ` (+£${DELIVERY_FEE})` : ""}
+                    {f}{f === "delivery" ? " (quote by distance)" : ""}
                   </button>
                 ))}
               </div>
               {fulfilment === "delivery" && (
-                <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Delivery address *" rows={3} className="mt-3 w-full rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
+                <div className="mt-3 flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <input
+                      value={postcode}
+                      onChange={(e) => { setPostcode(e.target.value); setDq(null); }}
+                      placeholder="Delivery postcode *"
+                      className="flex-1 rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm uppercase text-white/80 outline-none placeholder:normal-case placeholder:text-white/30"
+                    />
+                    <button onClick={quoteDelivery} disabled={quoting || !postcode.trim()} className="rounded-lg bg-accent-500 px-4 text-sm text-white hover:bg-accent-600 disabled:opacity-40">
+                      {quoting ? "…" : "Get quote"}
+                    </button>
+                  </div>
+                  {dq && (dq.ok ? (
+                    <div className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+                      {dq.vehicle === "van" ? "Large van" : dq.vehicle === "car" ? "Small car courier" : "Motorcycle courier"} · ~{dq.km}km · <span className="font-semibold">£{dq.fee}</span> (incl. margin & buffer)
+                    </div>
+                  ) : (
+                    <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{dq.reason}</div>
+                  ))}
+                  {acctPostcode && (
+                    <p className="text-[11px] text-white/25">Using the postcode on your account — change it above if needed.</p>
+                  )}
+                  <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Full delivery address *" rows={3} className="mt-1 w-full rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
+                </div>
               )}
             </div>
 
