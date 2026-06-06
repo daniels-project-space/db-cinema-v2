@@ -1,4 +1,4 @@
-import { query } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
 /** Public catalog reads. heroImage/gallery prefer migrated R2 over source. */
@@ -84,6 +84,46 @@ export const categories = query({
     return Array.from(counts.entries())
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count);
+  },
+});
+
+// ── R2 image migration helpers ────────────────────────────────
+export const listForMigration = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("listings").collect();
+    return rows
+      .filter(
+        (l) =>
+          (l.sourceImages?.length ?? 0) > 0 && (l.r2Images?.length ?? 0) === 0,
+      )
+      .map((l) => ({
+        slug: l.slug,
+        hyggloProductId: l.hyggloProductId ?? 0,
+        sourceImages: l.sourceImages ?? [],
+      }));
+  },
+});
+
+export const applyR2Images = mutation({
+  args: {
+    items: v.array(
+      v.object({ slug: v.string(), r2Images: v.array(v.string()) }),
+    ),
+  },
+  handler: async (ctx, { items }) => {
+    let n = 0;
+    for (const it of items) {
+      const l = await ctx.db
+        .query("listings")
+        .withIndex("by_slug", (q) => q.eq("slug", it.slug))
+        .first();
+      if (l) {
+        await ctx.db.patch(l._id, { r2Images: it.r2Images });
+        n++;
+      }
+    }
+    return { updated: n };
   },
 });
 
