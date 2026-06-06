@@ -6,6 +6,9 @@ const crons = cronJobs();
 // Release expired soft cart holds.
 crons.interval("release-holds", { minutes: 5 }, internal.bookings.releaseExpiredHolds, {});
 
+// Pickup-tomorrow / return-today reminders (email + Telegram).
+crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {});
+
 // Keep the storefront catalog fresh from RMv2 (listings, pricing, images-source).
 crons.interval("sync-rmv2-catalog", { minutes: 30 }, api.sync.syncFromRmv2, {});
 

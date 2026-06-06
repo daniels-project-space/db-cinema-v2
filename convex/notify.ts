@@ -1,5 +1,5 @@
 import { internalAction } from "./_generated/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -68,5 +68,41 @@ export const contactAlert = internalAction({
     await telegram(
       `✉️ <b>New contact message</b>\nFrom: ${a.name} (${a.email})\n\n${a.message}`,
     );
+  },
+});
+
+/** Daily-ish reminders: pickup tomorrow / return today (email + Telegram). */
+export const sendReminders = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const feed: any[] = await ctx.runQuery(internal.bookings.remindersFeed, {});
+    const today = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    let sent = 0;
+    for (const b of feed) {
+      const startDay = new Date(b.start).toISOString().slice(0, 10);
+      const endDay = new Date(b.end).toISOString().slice(0, 10);
+      if (startDay === tomorrow && !b.remindedPickup) {
+        await email(
+          b.guestEmail,
+          "Your Db Cinema pickup is tomorrow 🎬",
+          `<p>Quick reminder — your rental ${b.fulfilment === "delivery" ? "delivery" : "pickup"} is <b>tomorrow</b>${b.pickupTime ? " at " + b.pickupTime : ""}.</p><p>${b.summary}</p><p>Windows: 10:00–12:00 and 19:00–21:00.</p>`,
+        );
+        await telegram(`⏰ <b>Pickup tomorrow</b>\n${b.guestEmail} ${b.pickupTime ?? ""}\n${b.summary}`);
+        await ctx.runMutation(internal.bookings.markReminded, { bookingId: b._id, which: "pickup" });
+        sent++;
+      }
+      if (endDay === today && !b.remindedReturn) {
+        await email(
+          b.guestEmail,
+          "Your Db Cinema return is due today",
+          `<p>Reminder — your rental return is <b>due today</b>${b.returnTime ? " at " + b.returnTime : ""}. Late returns are charged per extra day.</p><p>${b.summary}</p>`,
+        );
+        await telegram(`⏰ <b>Return due today</b>\n${b.guestEmail} ${b.returnTime ?? ""}\n${b.summary}`);
+        await ctx.runMutation(internal.bookings.markReminded, { bookingId: b._id, which: "return" });
+        sent++;
+      }
+    }
+    return { checked: feed.length, sent };
   },
 });

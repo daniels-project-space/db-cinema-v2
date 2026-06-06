@@ -157,6 +157,8 @@ export default defineSchema({
       v.array(v.object({ kind: v.string(), version: v.string() })),
     ),
     stripeIdentitySessionId: v.optional(v.string()),
+    remindedPickup: v.optional(v.boolean()),
+    remindedReturn: v.optional(v.boolean()),
     protection: v.optional(v.string()),
     pickupTime: v.optional(v.string()),
     returnTime: v.optional(v.string()),

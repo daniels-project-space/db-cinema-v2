@@ -247,6 +247,47 @@ export const markDepositRefunded = internalMutation({
   },
 });
 
+export const remindersFeed = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const confirmed = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "confirmed"))
+      .collect();
+    const active = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .collect();
+    return [...confirmed, ...active]
+      .map((b) => ({
+        _id: b._id,
+        start: Math.min(...b.lineItems.map((li) => li.start)),
+        end: Math.max(...b.lineItems.map((li) => li.end)),
+        guestEmail: b.guestEmail ?? "",
+        fulfilment: b.fulfilment,
+        pickupTime: b.pickupTime ?? null,
+        returnTime: b.returnTime ?? null,
+        remindedPickup: b.remindedPickup ?? false,
+        remindedReturn: b.remindedReturn ?? false,
+        summary: b.lineItems.map((li) => li.title).join(", "),
+      }))
+      .filter((b) => b.guestEmail);
+  },
+});
+
+export const markReminded = internalMutation({
+  args: {
+    bookingId: v.id("bookings"),
+    which: v.union(v.literal("pickup"), v.literal("return")),
+  },
+  handler: async (ctx, { bookingId, which }) => {
+    await ctx.db.patch(
+      bookingId,
+      which === "pickup" ? { remindedPickup: true } : { remindedReturn: true },
+    );
+  },
+});
+
 export const get = query({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
