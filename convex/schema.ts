@@ -37,6 +37,7 @@ export default defineSchema({
     title: v.string(),
     description: v.optional(v.string()),
     category: v.string(),
+    itemType: v.optional(v.string()),
     heroImageR2Key: v.optional(v.string()),
     gallery: v.optional(v.array(v.string())),
     sourceImages: v.optional(v.array(v.string())),
@@ -152,7 +153,8 @@ export default defineSchema({
   })
     .index("by_customer", ["customerId"])
     .index("by_status", ["status"])
-    .index("by_stripePaymentIntentId", ["stripePaymentIntentId"]),
+    .index("by_stripePaymentIntentId", ["stripePaymentIntentId"])
+    .index("by_guestEmail", ["guestEmail"]),
 
   customers: defineTable({
     email: v.string(),
@@ -250,6 +252,22 @@ export default defineSchema({
   }).index("by_kind", ["kind"]),
 
   // ── RMv2 availability bridge state ────────────────────────────
+  accounts: defineTable({
+    email: v.string(),
+    salt: v.string(),
+    hash: v.string(),
+    name: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    address: v.optional(v.string()),
+    marketingEmails: v.optional(v.boolean()),
+    createdAt: v.number(),
+  }).index("by_email", ["email"]),
+
+  sessions: defineTable({
+    token: v.string(),
+    accountId: v.id("accounts"),
+  }).index("by_token", ["token"]),
+
   rmv2_sync_state: defineTable({
     key: v.string(), // e.g. "hygglo-availability"
     lastSyncedAt: v.number(),

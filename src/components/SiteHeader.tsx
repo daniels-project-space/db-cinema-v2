@@ -12,12 +12,18 @@ export function SiteHeader() {
           <span className="text-white/90">DB</span>{" "}
           <span className="gradient-text">CINEMA</span>
         </Link>
-        <nav className="flex items-center gap-5 text-sm text-white/50 sm:gap-6">
+        <nav className="flex items-center gap-4 text-sm text-white/50 sm:gap-5">
           <Link href="/gear" className="transition-colors hover:text-white">
             Gear
           </Link>
-          <Link href="/#reviews" className="hidden transition-colors hover:text-white sm:inline">
-            Reviews
+          <Link href="/how-it-works" className="hidden transition-colors hover:text-white sm:inline">
+            How it works
+          </Link>
+          <Link href="/about" className="hidden transition-colors hover:text-white sm:inline">
+            About
+          </Link>
+          <Link href="/account" className="transition-colors hover:text-white">
+            Account
           </Link>
           <button
             onClick={open}

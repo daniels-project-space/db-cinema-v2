@@ -29,6 +29,8 @@ export function Footer() {
             Company
           </div>
           <ul className="flex flex-col gap-2 text-sm text-white/50">
+            <li><Link href="/about" className="hover:text-white">About us</Link></li>
+            <li><Link href="/how-it-works" className="hover:text-white">How it works</Link></li>
             <li><Link href="/contact" className="hover:text-white">Contact us</Link></li>
             <li><Link href="/legal/rental-terms" className="hover:text-white">Rental terms</Link></li>
             <li><Link href="/legal/cancellation" className="hover:text-white">Cancellation</Link></li>

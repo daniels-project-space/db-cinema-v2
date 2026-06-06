@@ -24,6 +24,7 @@ export const start = action({
         qty: v.number(),
         total: v.number(),
         deposit: v.number(),
+        offerType: v.optional(v.string()),
       }),
     ),
     customer: v.object({
@@ -34,6 +35,7 @@ export const start = action({
     fulfilment: v.union(v.literal("pickup"), v.literal("delivery")),
     address: v.optional(v.string()),
     deliveryFee: v.number(),
+    promoCode: v.optional(v.string()),
     origin: v.string(),
   },
   handler: async (ctx, a): Promise<{ url: string }> => {
@@ -53,7 +55,25 @@ export const start = action({
 
     const subtotal = a.items.reduce((n, i) => n + i.total, 0);
     const depositAmount = a.items.reduce((n, i) => n + i.deposit, 0);
-    const total = subtotal + a.deliveryFee + depositAmount;
+
+    // promo discount applies ONLY to non-offer rental lines (non-stackable)
+    let discount = 0;
+    let appliedCode: string | undefined;
+    if (a.promoCode) {
+      const eligible = a.items
+        .filter((i) => !i.offerType)
+        .reduce((n, i) => n + i.total, 0);
+      const res: any = await ctx.runQuery(api.promo.validate, {
+        code: a.promoCode,
+        eligibleSubtotal: eligible,
+      });
+      if (res?.valid) {
+        discount = res.discount;
+        appliedCode = res.code;
+      }
+    }
+
+    const total = subtotal + a.deliveryFee + depositAmount - discount;
 
     const bookingId = await ctx.runMutation(internal.bookings.createPending, {
       customerEmail: a.customer.email,
@@ -72,6 +92,8 @@ export const start = action({
       })),
       subtotal,
       depositAmount,
+      promoCode: appliedCode,
+      discount,
       total,
       currency: "GBP",
     });
@@ -109,9 +131,22 @@ export const start = action({
       });
     }
 
-    const session = await stripe().checkout.sessions.create({
+    const sb = stripe();
+    let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
+    if (discount > 0 && appliedCode) {
+      const coupon = await sb.coupons.create({
+        amount_off: pence(discount),
+        currency: "gbp",
+        name: appliedCode.toUpperCase(),
+        duration: "once",
+      });
+      discounts = [{ coupon: coupon.id }];
+    }
+
+    const session = await sb.checkout.sessions.create({
       mode: "payment",
       line_items,
+      discounts,
       customer_email: a.customer.email,
       success_url: `${a.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${a.origin}/cart`,

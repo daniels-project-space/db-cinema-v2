@@ -4,6 +4,7 @@ import "./globals.css";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { CartProvider } from "@/components/cart/CartProvider";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { AccountProvider } from "@/components/account/AccountProvider";
 import { Footer } from "@/components/Footer";
 
 const inter = Inter({
@@ -32,11 +33,13 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
       <body className="font-sans antialiased bg-charcoal-950 text-white/90">
         <ConvexClientProvider>
-          <CartProvider>
-            {children}
-            <Footer />
-            <CartDrawer />
-          </CartProvider>
+          <AccountProvider>
+            <CartProvider>
+              {children}
+              <Footer />
+              <CartDrawer />
+            </CartProvider>
+          </AccountProvider>
         </ConvexClientProvider>
         <div className="film-grain" aria-hidden />
       </body>

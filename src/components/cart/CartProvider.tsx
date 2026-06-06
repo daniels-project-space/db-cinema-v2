@@ -10,17 +10,18 @@ import {
 } from "react";
 
 export type CartItem = {
-  key: string; // listingId|start|days
+  key: string;
   listingId: string;
   slug: string;
   title: string;
   heroImage: string | null;
-  start: string; // ISO date
+  start: string;
   end: string;
   days: number;
   perDay: number;
   total: number;
   deposit: number;
+  offerType?: string; // tripod50 / gimbal30 — excluded from promo discount
 };
 
 type CartCtx = {
@@ -28,39 +29,50 @@ type CartCtx = {
   add: (item: Omit<CartItem, "key">) => void;
   remove: (key: string) => void;
   clear: () => void;
+  has: (listingId: string) => boolean;
   count: number;
-  subtotal: number;
+  subtotal: number; // all rental lines
+  eligibleSubtotal: number; // non-offer lines (promo applies here)
   depositTotal: number;
+  promo: string | null;
+  setPromo: (code: string | null) => void;
   isOpen: boolean;
   open: () => void;
   close: () => void;
 };
 
 const Ctx = createContext<CartCtx | null>(null);
-const STORAGE_KEY = "dbc_cart_v1";
+const KEY = "dbc_cart_v1";
+const PKEY = "dbc_promo_v1";
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
+  const [promo, setPromoState] = useState<string | null>(null);
   const [isOpen, setOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(KEY);
       if (raw) setItems(JSON.parse(raw));
+      setPromoState(localStorage.getItem(PKEY));
     } catch {}
     setHydrated(true);
   }, []);
 
   useEffect(() => {
-    if (hydrated) localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    if (hydrated) localStorage.setItem(KEY, JSON.stringify(items));
   }, [items, hydrated]);
 
+  const setPromo = useCallback((code: string | null) => {
+    setPromoState(code);
+    if (code) localStorage.setItem(PKEY, code);
+    else localStorage.removeItem(PKEY);
+  }, []);
+
   const add = useCallback((item: Omit<CartItem, "key">) => {
-    const key = `${item.listingId}|${item.start}|${item.days}`;
-    setItems((prev) =>
-      prev.some((p) => p.key === key) ? prev : [...prev, { ...item, key }],
-    );
+    const key = `${item.listingId}|${item.start}|${item.days}|${item.offerType ?? ""}`;
+    setItems((prev) => (prev.some((p) => p.key === key) ? prev : [...prev, { ...item, key }]));
     setOpen(true);
   }, []);
 
@@ -68,9 +80,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
     (key: string) => setItems((prev) => prev.filter((p) => p.key !== key)),
     [],
   );
-  const clear = useCallback(() => setItems([]), []);
+  const clear = useCallback(() => {
+    setItems([]);
+    setPromo(null);
+  }, [setPromo]);
+  const has = useCallback(
+    (listingId: string) => items.some((i) => i.listingId === listingId),
+    [items],
+  );
 
   const subtotal = items.reduce((n, i) => n + i.total, 0);
+  const eligibleSubtotal = items.filter((i) => !i.offerType).reduce((n, i) => n + i.total, 0);
   const depositTotal = items.reduce((n, i) => n + i.deposit, 0);
 
   return (
@@ -80,9 +100,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
         add,
         remove,
         clear,
+        has,
         count: items.length,
         subtotal,
+        eligibleSubtotal,
         depositTotal,
+        promo,
+        setPromo,
         isOpen,
         open: () => setOpen(true),
         close: () => setOpen(false),

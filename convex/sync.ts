@@ -1,6 +1,7 @@
 import { action, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { deriveItemType } from "./lib/taxonomy";
 
 /**
  * RMv2 availability/catalog bridge.
@@ -103,6 +104,7 @@ export const syncFromRmv2 = action({
         slug: `${slugify(title)}-${p.productId}`,
         title,
         category: deriveCategory(title),
+        itemType: deriveItemType(title),
         sourceImages,
         pricing: {
           daily,
@@ -133,6 +135,7 @@ export const applyCatalog = internalMutation({
         slug: v.string(),
         title: v.string(),
         category: v.string(),
+        itemType: v.string(),
         sourceImages: v.array(v.string()),
         pricing: v.object({
           daily: v.number(),
@@ -218,6 +221,7 @@ export const applyCatalog = internalMutation({
         slug: it.slug,
         title: it.title,
         category: it.category,
+        itemType: it.itemType,
         sourceImages: it.sourceImages,
         pricing: it.pricing,
         depositAmount: it.depositAmount,
