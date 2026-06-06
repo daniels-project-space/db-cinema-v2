@@ -74,14 +74,14 @@ export default function CartPage() {
                 <span>Due now</span>
                 <span>£{subtotal + depositTotal}</span>
               </div>
-              <button
-                disabled
-                className="mt-5 w-full cursor-not-allowed rounded-full bg-accent-500 py-3 font-medium text-white opacity-40"
+              <Link
+                href="/checkout"
+                className="mt-5 block w-full rounded-full bg-accent-500 py-3 text-center font-medium text-white transition-colors hover:bg-accent-600"
               >
                 Secure checkout
-              </button>
+              </Link>
               <p className="mt-2 text-center text-[11px] text-white/25">
-                Stripe payments + deposit hold land in P2.
+                Secured by Stripe · test mode
               </p>
             </aside>
           </div>
