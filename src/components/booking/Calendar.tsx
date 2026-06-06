@@ -15,41 +15,29 @@ export function addDaysIso(start: string, n: number): string {
   return iso(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate());
 }
 
-export function rangeIsoSet(start: string, days: number): Set<string> {
-  const set = new Set<string>();
-  for (let i = 0; i < days; i++) set.add(addDaysIso(start, i));
-  return set;
+export function daysInclusive(start: string, end: string): number {
+  const a = Date.parse(start + "T00:00:00Z");
+  const b = Date.parse(end + "T00:00:00Z");
+  return Math.max(1, Math.round((b - a) / 86400000) + 1);
 }
 
 type Props = {
   month: Date;
   onMonthChange: (d: Date) => void;
-  selectedStart: string | null;
-  rangeDays: number;
+  start: string | null;
+  end: string | null;
   unavailable: Set<string>;
-  onSelectStart: (isoDate: string) => void;
+  onPick: (isoDate: string) => void;
 };
 
-export function Calendar({
-  month,
-  onMonthChange,
-  selectedStart,
-  rangeDays,
-  unavailable,
-  onSelectStart,
-}: Props) {
+export function Calendar({ month, onMonthChange, start, end, unavailable, onPick }: Props) {
   const y = month.getFullYear();
   const m = month.getMonth();
-  const first = new Date(y, m, 1);
-  const startWeekday = (first.getDay() + 6) % 7; // Mon=0
+  const startWeekday = (new Date(y, m, 1).getDay() + 6) % 7; // Mon=0
   const daysInMonth = new Date(y, m + 1, 0).getDate();
 
-  const todayIso = (() => {
-    const t = new Date();
-    return iso(t.getFullYear(), t.getMonth(), t.getDate());
-  })();
-
-  const range = selectedStart ? rangeIsoSet(selectedStart, rangeDays) : new Set<string>();
+  const t = new Date();
+  const todayIso = iso(t.getFullYear(), t.getMonth(), t.getDate());
 
   const cells: (number | null)[] = [];
   for (let i = 0; i < startWeekday; i++) cells.push(null);
@@ -89,24 +77,26 @@ export function Calendar({
           const dayIso = iso(y, m, d);
           const isPast = dayIso < todayIso;
           const isBlocked = unavailable.has(dayIso);
-          const inRange = range.has(dayIso);
-          const isStart = dayIso === selectedStart;
-          const rangeBlocked = inRange && isBlocked;
+          const isStart = dayIso === start;
+          const isEnd = dayIso === end;
+          const inRange =
+            !!start && !!end && dayIso > start && dayIso < end;
+          const rangeBlocked = (inRange || isStart || isEnd) && isBlocked;
           const disabled = isPast || isBlocked;
 
           let cls =
             "relative h-9 rounded-lg text-sm transition-colors flex items-center justify-center ";
-          if (isStart) cls += "bg-accent-500 text-white font-semibold ";
+          if (isStart || isEnd) cls += "bg-accent-500 text-white font-semibold ";
           else if (rangeBlocked) cls += "bg-red-500/25 text-red-200 ";
           else if (inRange) cls += "bg-accent-500/20 text-accent-200 ";
           else if (disabled) cls += "text-white/15 line-through cursor-not-allowed ";
-          else cls += "text-white/70 hover:bg-white/8 cursor-pointer ";
+          else cls += "text-white/70 hover:bg-white/10 cursor-pointer ";
 
           return (
             <button
               key={i}
               disabled={disabled}
-              onClick={() => onSelectStart(dayIso)}
+              onClick={() => onPick(dayIso)}
               className={cls}
               title={isBlocked ? "Unavailable" : undefined}
             >
@@ -116,16 +106,12 @@ export function Calendar({
         })}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-white/30">
-        <span className="flex items-center gap-1">
-          <span className="h-2.5 w-2.5 rounded bg-accent-500" /> Start
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="h-2.5 w-2.5 rounded bg-accent-500/20" /> Booked range
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="h-2.5 w-2.5 rounded bg-red-500/25" /> Unavailable
-        </span>
+      <div className="mt-3 text-center text-[11px] text-white/35">
+        {!start
+          ? "Tap your start date"
+          : !end
+            ? "Now tap your end date"
+            : `${start} → ${end}`}
       </div>
     </div>
   );

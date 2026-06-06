@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useCart } from "@/components/cart/CartProvider";
 
 export function SiteHeader() {
+  const { count, open } = useCart();
   return (
     <header className="sticky top-0 z-40 glass border-b border-white/5">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
@@ -10,19 +12,25 @@ export function SiteHeader() {
           <span className="text-white/90">DB</span>{" "}
           <span className="gradient-text">CINEMA</span>
         </Link>
-        <nav className="flex items-center gap-6 text-sm text-white/50">
+        <nav className="flex items-center gap-5 text-sm text-white/50 sm:gap-6">
           <Link href="/gear" className="transition-colors hover:text-white">
             Gear
           </Link>
-          <Link href="/#how" className="transition-colors hover:text-white">
-            How it works
+          <Link href="/#reviews" className="hidden transition-colors hover:text-white sm:inline">
+            Reviews
           </Link>
-          <Link
-            href="/gear"
-            className="rounded-full bg-accent-500 px-4 py-1.5 font-medium text-white transition-colors hover:bg-accent-600"
+          <button
+            onClick={open}
+            className="relative flex items-center gap-1.5 rounded-full glass px-4 py-1.5 text-white/80 transition-colors hover:text-white"
+            aria-label="Open kit"
           >
-            Browse
-          </Link>
+            <span>Kit</span>
+            {count > 0 && (
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-500 px-1 text-xs font-semibold text-white">
+                {count}
+              </span>
+            )}
+          </button>
         </nav>
       </div>
     </header>

@@ -87,6 +87,46 @@ export const categories = query({
   },
 });
 
+// ── Smart "complete your kit" recommendations ─────────────────
+const COMPLEMENTS: Record<string, string[]> = {
+  Cameras: ["Lenses", "Audio", "Monitors", "Power", "Stabilizers"],
+  Lenses: ["Cameras", "Stabilizers", "Power"],
+  Lighting: ["Grip", "Power", "Stabilizers"],
+  Audio: ["Cameras", "Accessories"],
+  Drones: ["Power", "Monitors", "Accessories"],
+  Stabilizers: ["Cameras", "Lenses", "Power"],
+  Monitors: ["Cameras", "Power", "Accessories"],
+  Power: ["Cameras", "Lighting", "Monitors"],
+  Grip: ["Lighting", "Cameras", "Stabilizers"],
+  Accessories: ["Cameras", "Lenses", "Audio"],
+};
+
+export const recommendations = query({
+  args: { slug: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { slug, limit }) => {
+    const base = await ctx.db
+      .query("listings")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .first();
+    if (!base) return [];
+    const wanted = COMPLEMENTS[base.category] ?? ["Cameras", "Lenses"];
+    const out: any[] = [];
+    const perCat = Math.max(2, Math.ceil((limit ?? 6) / wanted.length));
+    for (const cat of wanted) {
+      const rows = await ctx.db
+        .query("listings")
+        .withIndex("by_category", (q) => q.eq("category", cat))
+        .collect();
+      const picks = rows
+        .filter((r) => r.active && r.slug !== slug && images(r).length > 0)
+        .sort((a, b) => (b.pricing?.daily ?? 0) - (a.pricing?.daily ?? 0))
+        .slice(0, perCat);
+      out.push(...picks);
+    }
+    return out.slice(0, limit ?? 6).map(card);
+  },
+});
+
 // ── R2 image migration helpers ────────────────────────────────
 export const listForMigration = query({
   args: {},

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ReviewCarousel } from "@/components/ReviewCarousel";
 import { HomeStats } from "@/components/HomeStats";
+import { HeroBackdrop } from "@/components/HeroBackdrop";
 
 export default function Home() {
   return (
@@ -15,6 +16,8 @@ export default function Home() {
           aria-hidden
         />
         <div className="lens-flare left-1/4 top-1/2 w-1/2" aria-hidden />
+        {/* floating 3D cinema gear behind the wordmark */}
+        <HeroBackdrop />
         <div className="relative z-10 flex flex-col items-center text-center">
           <h1 className="font-display text-6xl font-bold tracking-[-0.02em] text-white/90 sm:text-8xl">
             DB
