@@ -56,6 +56,9 @@ export default defineSchema({
     ),
     hyggloListingSlug: v.optional(v.string()),
     hyggloProductId: v.optional(v.number()),
+    unavailableDates: v.optional(v.array(v.string())),
+    publicUrl: v.optional(v.string()),
+    minimumRentalDays: v.optional(v.number()),
     featured: v.optional(v.boolean()),
     active: v.boolean(),
   })

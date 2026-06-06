@@ -8,13 +8,21 @@
  * @module
  */
 
+import type * as availability from "../availability.js";
+import type * as catalog from "../catalog.js";
+import type * as sync from "../sync.js";
+
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{}>;
+declare const fullApi: ApiFromModules<{
+  availability: typeof availability;
+  catalog: typeof catalog;
+  sync: typeof sync;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
