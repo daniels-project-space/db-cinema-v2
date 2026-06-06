@@ -10,25 +10,34 @@ function images(l: any): string[] {
 const days = (start: number, end: number) =>
   Math.max(1, Math.round((end - start) / 86400000) + 1);
 
-async function pickByType(ctx: any, itemType: string) {
+/**
+ * Contextual add-on offers — each only appears when the cart contains gear it
+ * actually complements, and you don't already have that type. Priority order;
+ * capped so the cart isn't spammed. (No "spend £300" tripod-for-anyone deal.)
+ */
+const RULES: { want: string; pct: number; needs: string[]; reason: string }[] = [
+  { want: "nd-filter", pct: 50, needs: ["lens", "camera-body"], reason: "Control exposure on your lens" },
+  { want: "tripod", pct: 50, needs: ["camera-body", "light", "monitor", "slider"], reason: "Lock off steady shots" },
+  { want: "gimbal", pct: 30, needs: ["camera-body"], reason: "Smooth movement for your camera" },
+  { want: "wireless-mic", pct: 40, needs: ["camera-body", "speaker", "dj-deck"], reason: "Clean wireless audio" },
+  { want: "battery", pct: 40, needs: ["camera-body", "light", "monitor", "drone"], reason: "Power for a full day" },
+  { want: "mixer", pct: 25, needs: ["dj-deck", "speaker"], reason: "Mix your set" },
+  { want: "monitor", pct: 30, needs: ["camera-body"], reason: "See your shot in detail" },
+];
+const MAX_OFFERS = 3;
+
+async function pickByType(ctx: any, itemType: string, exclude: Set<string>) {
   const all = await ctx.db
     .query("listings")
     .withIndex("by_active", (q: any) => q.eq("active", true))
     .collect();
   const cands = all.filter(
-    (l: any) => (l.itemType ?? "") === itemType && images(l).length > 0,
+    (l: any) => (l.itemType ?? "") === itemType && images(l).length > 0 && !exclude.has(l._id),
   );
-  // a representative mid-priced one (not the most expensive)
   cands.sort((a: any, b: any) => (a.pricing?.daily ?? 0) - (b.pricing?.daily ?? 0));
   return cands[Math.floor(cands.length / 2)] ?? cands[0] ?? null;
 }
 
-/**
- * Cart-conditional offers:
- *  - spend > £300  -> a tripod at 50% off (if none in cart)
- *  - renting a camera -> a gimbal at 30% off (if none in cart)
- * Offer items are excluded from promo-code discounts (non-stackable).
- */
 export const forCart = query({
   args: {
     items: v.array(
@@ -42,28 +51,32 @@ export const forCart = query({
   },
   handler: async (ctx, { items }) => {
     if (items.length === 0) return [];
-    const subtotal = items.reduce((n, i) => n + i.total, 0);
-    let hasCamera = false,
-      hasTripod = false,
-      hasGimbal = false;
+
+    // what's in the cart: types present + ids to exclude
+    const present = new Set<string>();
+    const cartIds = new Set<string>();
     for (const i of items) {
+      cartIds.add(i.listingId);
       const l = await ctx.db.get(i.listingId);
-      const t = l?.itemType ?? "";
-      if (t === "camera-body") hasCamera = true;
-      if (t === "tripod") hasTripod = true;
-      if (t === "gimbal") hasGimbal = true;
+      if (l) present.add((l as any).itemType ?? "accessory");
     }
+
     const range = items[0];
     const d = days(range.start, range.end);
-
     const offers: any[] = [];
-    const build = (l: any, pct: number, offerType: string, reason: string) => {
+
+    for (const rule of RULES) {
+      if (offers.length >= MAX_OFFERS) break;
+      if (present.has(rule.want)) continue; // already have this type
+      if (!rule.needs.some((t) => present.has(t))) continue; // not relevant to cart
+      const l = await pickByType(ctx, rule.want, cartIds);
+      if (!l) continue;
       const q = quote(l.pricing, d);
-      const offerTotal = Math.round(q.total * (1 - pct / 100));
+      const offerTotal = Math.round(q.total * (1 - rule.pct / 100));
       offers.push({
-        offerType,
-        pct,
-        reason,
+        offerType: `${rule.want}${rule.pct}`,
+        pct: rule.pct,
+        reason: rule.reason,
         listingId: l._id,
         slug: l.slug,
         title: l.title,
@@ -76,15 +89,6 @@ export const forCart = query({
         perDay: Math.round(offerTotal / d),
         deposit: l.depositAmount,
       });
-    };
-
-    if (subtotal > 300 && !hasTripod) {
-      const l = await pickByType(ctx, "tripod");
-      if (l) build(l, 50, "tripod50", "You've spent over £300");
-    }
-    if (hasCamera && !hasGimbal) {
-      const l = await pickByType(ctx, "gimbal");
-      if (l) build(l, 30, "gimbal30", "Great with your camera");
     }
     return offers;
   },
