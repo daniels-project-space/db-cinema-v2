@@ -53,6 +53,57 @@ const DOCS: Record<string, Doc> = {
       { h: "Draft notice", p: "This is a review-ready draft and must be checked by a qualified solicitor before go-live." },
     ],
   },
+  "rental-agreement": {
+    title: "Rental Agreement",
+    updated: "June 2026 (v1)",
+    sections: [
+      { h: "1. Parties & equipment", p: "This agreement is between Db Cinema Rentals (\"Owner\") and the person named at checkout (\"Renter\") for the equipment listed in the booking, for the dates booked." },
+      { h: "2. Possession & care", p: "The Renter takes possession of the equipment for the rental period and agrees to keep it secure, use it only for its intended purpose, and not sub-hire, sell, or take it outside the UK without written consent." },
+      { h: "3. Return", p: "The Renter must return all equipment, cables, batteries and cases by the agreed return date/time in the condition supplied. Late returns are charged at the daily rate per extra day plus a late fee." },
+      { h: "4. Loss & damage", p: "The Renter is responsible for loss, theft or damage occurring while the equipment is in their possession, up to the equipment's stated replacement value, subject to the Equipment Protection & Liability Policy and any applicable excess." },
+      { h: "5. Identity & deposit", p: "The Renter agrees to complete identity verification and authorises the refundable damage deposit described in the Deposit Agreement before handover." },
+      { h: "6. Liability", p: "The Owner's liability is limited to the value of the rental and excludes indirect or consequential loss (including lost footage or missed productions)." },
+      { h: "7. Governing law", p: "Governed by the laws of England and Wales." },
+      { h: "Draft notice", p: "Review-ready draft — have a qualified solicitor and your insurer review before go-live." },
+    ],
+  },
+  "deposit-agreement": {
+    title: "Refundable Deposit Agreement",
+    updated: "June 2026 (v1)",
+    sections: [
+      { h: "1. Purpose", p: "A refundable damage deposit is taken to cover loss of, or damage to, the rented equipment. The amount is shown at checkout and corresponds to the equipment's risk/replacement value." },
+      { h: "2. Hold & release", p: "The deposit is collected with payment and released back to the Renter after the equipment is returned and inspected in the condition supplied, normally within a few business days." },
+      { h: "3. Deductions", p: "The Owner may deduct from the deposit the cost of repair, cleaning, missing accessories, late return fees, or replacement (up to the stated replacement value) for loss or damage attributable to the Renter." },
+      { h: "4. Beyond the deposit", p: "Where loss or damage exceeds the deposit, the Renter remains liable for the balance up to the replacement value, subject to the Equipment Protection & Liability Policy." },
+      { h: "5. Disputes", p: "The Owner will provide evidence (photos/invoices) for any deduction. Disputes are handled in good faith and under English law." },
+      { h: "Draft notice", p: "Review-ready draft — confirm deposit handling with your payment processor and insurer." },
+    ],
+  },
+  insurance: {
+    title: "Equipment Protection & Liability Policy",
+    updated: "June 2026 (v1)",
+    sections: [
+      { h: "1. Scope", p: "This policy sets out the Renter's responsibility for the equipment and the protection that applies during the rental period. It supplements, and does not replace, any insurance the Renter holds." },
+      { h: "2. Renter responsibility", p: "While in the Renter's possession the equipment is at the Renter's risk. The Renter must take reasonable care, never leave equipment unattended in a public place or visible in a vehicle, and follow manufacturer guidance." },
+      { h: "3. Cover & excess", p: "Accidental damage may be covered subject to an excess and to the equipment being used as intended. Loss, theft (without evidence of forced entry), water/sand damage, negligence and unauthorised use are excluded." },
+      { h: "4. Claims & reporting", p: "The Renter must report any loss or damage immediately, and report theft to the police within 24 hours and provide a crime reference number. Failure to report promptly may void protection." },
+      { h: "5. Renter liability", p: "The Renter remains liable for the applicable excess and for any loss/damage falling outside cover, up to the equipment's replacement value." },
+      { h: "Draft notice", p: "IMPORTANT: This is illustrative wording only and is NOT a binding insurance contract. Final terms must reflect an actual underwritten policy reviewed by your insurer and solicitor before go-live." },
+    ],
+  },
+  "data-processing": {
+    title: "Data Processing Terms",
+    updated: "June 2026 (v1)",
+    sections: [
+      { h: "1. Controller", p: "Db Cinema Rentals is the data controller for personal data collected to provide the rental service." },
+      { h: "2. What we process", p: "Contact and booking details; delivery address; payment metadata (card data is handled by Stripe, never stored by us); and identity verification data processed by Stripe Identity to confirm who you are." },
+      { h: "3. Identity verification", p: "Identity documents and biometric checks are processed by our verification provider (Stripe Identity) as processor. We receive only the verification result and limited metadata, not your raw documents, save as needed for fraud prevention and legal compliance." },
+      { h: "4. Processors", p: "We use Stripe (payments + identity), Convex (application database), Vercel (hosting) and Cloudflare (media). Each processes data under contract on our instructions." },
+      { h: "5. Lawful basis & retention", p: "We process data to perform the rental contract, comply with legal obligations, and our legitimate interest in preventing fraud. Records are retained only as long as necessary for legal and accounting purposes." },
+      { h: "6. Your rights", p: "Under UK GDPR you may request access, correction, deletion or restriction. Contact us to exercise these rights or to raise a concern." },
+      { h: "Draft notice", p: "Review-ready draft — confirm processor list and retention periods with your DPO/solicitor before go-live." },
+    ],
+  },
 };
 
 export function generateStaticParams() {

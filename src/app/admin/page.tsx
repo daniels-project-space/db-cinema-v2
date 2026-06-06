@@ -19,6 +19,7 @@ export default function AdminPage() {
   const bookings = useQuery(api.bookings.adminList, token ? { token } : "skip");
   const contacts = useQuery(api.contact.adminList, token ? { token } : "skip");
   const setStatus = useMutation(api.bookings.adminSetStatus);
+  const setId = useMutation(api.bookings.adminSetIdStatus);
   const refund = useAction(api.checkout.refundDeposit);
   const markHandled = useMutation(api.contact.adminMarkHandled);
 
@@ -108,6 +109,27 @@ export default function AdminPage() {
               {b.address && (
                 <div className="mt-1 text-xs text-white/30">📍 {b.address}</div>
               )}
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className={b.agreementName ? "text-emerald-300" : "text-red-300"}>
+                  {b.agreementName ? `✍ signed by ${b.agreementName}` : "✗ not signed"}
+                </span>
+                <span className="text-white/20">·</span>
+                <span
+                  className={
+                    b.idVerifyStatus === "verified" ? "text-emerald-300" : "text-amber-300"
+                  }
+                >
+                  ID: {b.idVerifyStatus}
+                </span>
+                {b.idVerifyStatus !== "verified" && (
+                  <button
+                    onClick={() => setId({ token, bookingId: b._id, status: "verified" })}
+                    className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-300 hover:bg-emerald-500/30"
+                  >
+                    mark ID verified
+                  </button>
+                )}
+              </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {STATUSES.map((s) => (
                   <button

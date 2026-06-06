@@ -174,6 +174,7 @@ export const myBookings = query({
       lineItems: b.lineItems,
       total: b.total,
       depositAmount: b.depositAmount,
+      idVerifyStatus: b.idVerifyStatus ?? "required",
       at: b._creationTime,
     }));
   },

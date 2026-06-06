@@ -8,6 +8,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
 import { usePromo } from "@/components/cart/usePromo";
 import { useAccount } from "@/components/account/AccountProvider";
+import { AGREEMENTS } from "@/lib/legal";
 
 const DELIVERY_FEE = 25;
 const ms = (iso: string) => Date.parse(iso + "T00:00:00Z");
@@ -25,13 +26,17 @@ export default function CheckoutPage() {
   const [address, setAddress] = useState(account.me?.address ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [agreed, setAgreed] = useState(false);
+  const [signature, setSignature] = useState("");
 
   const deliveryFee = fulfilment === "delivery" ? DELIVERY_FEE : 0;
   const total = subtotal + depositTotal + deliveryFee - promo.discount;
   const valid =
     items.length > 0 &&
     /\S+@\S+\.\S+/.test(email) &&
-    (fulfilment === "pickup" || address.trim().length > 5);
+    (fulfilment === "pickup" || address.trim().length > 5) &&
+    agreed &&
+    signature.trim().length > 2;
 
   async function pay() {
     if (!valid) return;
@@ -54,6 +59,10 @@ export default function CheckoutPage() {
         address: fulfilment === "delivery" ? address : undefined,
         deliveryFee,
         promoCode: promo.applied ?? undefined,
+        agreement: {
+          name: signature.trim(),
+          documents: AGREEMENTS.map((d) => ({ kind: d.kind, version: d.version })),
+        },
         origin: window.location.origin,
       });
       window.location.href = url;
@@ -109,6 +118,53 @@ export default function CheckoutPage() {
               {fulfilment === "delivery" && (
                 <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Delivery address *" rows={3} className="mt-3 w-full rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
               )}
+            </div>
+
+            {/* agreements + e-signature */}
+            <div className="glass gradient-border rounded-2xl p-5">
+              <h2 className="mb-1 font-display font-semibold text-white/80">
+                Agreements &amp; signature
+              </h2>
+              <p className="text-xs text-white/40">
+                Required for your booking, deposit and insurance cover.
+              </p>
+              <label className="mt-3 flex items-start gap-2 text-sm text-white/60">
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  className="mt-0.5 accent-accent-500"
+                />
+                <span>
+                  I have read and agree to the{" "}
+                  {AGREEMENTS.map((d, i) => (
+                    <span key={d.kind}>
+                      <a
+                        href={`/legal/${d.kind}`}
+                        target="_blank"
+                        className="text-accent-400 hover:underline"
+                      >
+                        {d.title}
+                      </a>
+                      {i < AGREEMENTS.length - 1 ? ", " : "."}
+                    </span>
+                  ))}
+                </span>
+              </label>
+              <div className="mt-3">
+                <label className="text-xs text-white/40">Type your full name to sign</label>
+                <input
+                  value={signature}
+                  onChange={(e) => setSignature(e.target.value)}
+                  placeholder="Full name"
+                  className="mt-1 w-full rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm italic text-white/80 outline-none placeholder:text-white/30"
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-white/25">
+                After payment you'll verify your ID (photo of an ID document)
+                before handover — this protects both sides and is required for
+                insurance.
+              </p>
             </div>
           </div>
 

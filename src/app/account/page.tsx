@@ -6,6 +6,7 @@ import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useAccount } from "@/components/account/AccountProvider";
+import { IdVerify } from "@/components/IdVerify";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -149,6 +150,9 @@ function Dashboard() {
                   {b.lineItems.map((li: any, i: number) => (
                     <div key={i}>{li.title} · {day(li.start)}→{day(li.end)}</div>
                   ))}
+                </div>
+                <div className="mt-3">
+                  <IdVerify bookingId={b._id} status={b.idVerifyStatus} compact />
                 </div>
               </div>
             ))

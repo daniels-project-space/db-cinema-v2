@@ -7,6 +7,7 @@ import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
+import { IdVerify } from "@/components/IdVerify";
 
 function SuccessInner() {
   const params = useSearchParams();
@@ -81,6 +82,21 @@ function SuccessInner() {
           <div className="mt-1 text-right text-xs text-white/35">
             incl. £{booking.depositAmount} refundable deposit
           </div>
+        </div>
+      )}
+
+      {booking && (
+        <div className="mx-auto mt-6 max-w-md text-left">
+          {booking.idVerifyStatus === "verified" ? (
+            <IdVerify bookingId={booking._id} status="verified" />
+          ) : (
+            <>
+              <p className="mb-2 text-sm text-white/50">
+                One last step before handover — verify your identity:
+              </p>
+              <IdVerify bookingId={booking._id} status={booking.idVerifyStatus} />
+            </>
+          )}
         </div>
       )}
 

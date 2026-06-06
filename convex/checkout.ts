@@ -36,10 +36,18 @@ export const start = action({
     address: v.optional(v.string()),
     deliveryFee: v.number(),
     promoCode: v.optional(v.string()),
+    agreement: v.optional(
+      v.object({
+        name: v.string(),
+        documents: v.array(v.object({ kind: v.string(), version: v.string() })),
+      }),
+    ),
     origin: v.string(),
   },
   handler: async (ctx, a): Promise<{ url: string }> => {
     if (a.items.length === 0) throw new Error("empty cart");
+    if (!a.agreement || !a.agreement.name.trim())
+      throw new Error("Please sign the rental agreement to continue.");
 
     // server-side availability re-check
     for (const it of a.items) {
@@ -96,6 +104,8 @@ export const start = action({
       discount,
       total,
       currency: "GBP",
+      agreementName: a.agreement?.name,
+      agreementDocs: a.agreement?.documents,
     });
 
     const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = a.items.map(

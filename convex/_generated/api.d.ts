@@ -15,6 +15,7 @@ import type * as catalog from "../catalog.js";
 import type * as checkout from "../checkout.js";
 import type * as contact from "../contact.js";
 import type * as crons from "../crons.js";
+import type * as identity from "../identity.js";
 import type * as lib_pricing from "../lib/pricing.js";
 import type * as lib_taxonomy from "../lib/taxonomy.js";
 import type * as notify from "../notify.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   checkout: typeof checkout;
   contact: typeof contact;
   crons: typeof crons;
+  identity: typeof identity;
   "lib/pricing": typeof lib_pricing;
   "lib/taxonomy": typeof lib_taxonomy;
   notify: typeof notify;

@@ -150,6 +150,11 @@ export default defineSchema({
     idVerifyStatus: v.optional(v.string()),
     depositRefunded: v.optional(v.boolean()),
     agreementSignedAt: v.optional(v.number()),
+    agreementName: v.optional(v.string()),
+    agreementDocs: v.optional(
+      v.array(v.object({ kind: v.string(), version: v.string() })),
+    ),
+    stripeIdentitySessionId: v.optional(v.string()),
   })
     .index("by_customer", ["customerId"])
     .index("by_status", ["status"])

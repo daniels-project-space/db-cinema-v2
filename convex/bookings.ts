@@ -37,6 +37,10 @@ export const createPending = internalMutation({
     discount: v.optional(v.number()),
     total: v.number(),
     currency: v.string(),
+    agreementName: v.optional(v.string()),
+    agreementDocs: v.optional(
+      v.array(v.object({ kind: v.string(), version: v.string() })),
+    ),
   },
   handler: async (ctx, a) => {
     let customer = await ctx.db
@@ -65,6 +69,10 @@ export const createPending = internalMutation({
       depositAmount: a.depositAmount,
       total: a.total,
       currency: a.currency,
+      agreementName: a.agreementName,
+      agreementSignedAt: a.agreementName ? Date.now() : undefined,
+      agreementDocs: a.agreementDocs,
+      idVerifyStatus: "required",
     });
     return bookingId;
   },
@@ -122,6 +130,10 @@ export const adminList = query({
       depositAmount: b.depositAmount,
       total: b.total,
       depositRefunded: b.depositRefunded ?? false,
+      idVerifyStatus: b.idVerifyStatus ?? "required",
+      agreementName: b.agreementName ?? null,
+      promoCode: b.promoCode ?? null,
+      discount: b.discount ?? 0,
       at: b._creationTime,
     }));
     return { authorized: true as const, items };
@@ -192,6 +204,42 @@ export const get = query({
       currency: b.currency,
       fulfilment: b.fulfilment,
       guestEmail: b.guestEmail,
+      idVerifyStatus: b.idVerifyStatus ?? "required",
+      agreementName: b.agreementName ?? null,
+      agreementSignedAt: b.agreementSignedAt ?? null,
     };
+  },
+});
+
+export const getIdentity = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    return {
+      sessionId: b.stripeIdentitySessionId ?? null,
+      status: b.idVerifyStatus ?? "required",
+    };
+  },
+});
+
+export const setIdentity = internalMutation({
+  args: {
+    bookingId: v.id("bookings"),
+    sessionId: v.optional(v.string()),
+    status: v.string(),
+  },
+  handler: async (ctx, { bookingId, sessionId, status }) => {
+    const patch: any = { idVerifyStatus: status };
+    if (sessionId) patch.stripeIdentitySessionId = sessionId;
+    await ctx.db.patch(bookingId, patch);
+  },
+});
+
+export const adminSetIdStatus = mutation({
+  args: { token: v.string(), bookingId: v.id("bookings"), status: v.string() },
+  handler: async (ctx, { token, bookingId, status }) => {
+    assertAdmin(token);
+    await ctx.db.patch(bookingId, { idVerifyStatus: status });
   },
 });
