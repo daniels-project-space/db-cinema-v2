@@ -1,126 +1,91 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
-import { Float } from "@react-three/drei";
-import { Suspense, useEffect, useState } from "react";
+import { Float, useGLTF } from "@react-three/drei";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import * as THREE from "three";
 
-/* ── Stylized cinema camera, built from primitives (on-brand, no asset deps) ── */
-function CinemaCamera() {
-  const body = "#1a1a20";
-  const metal = "#2a2a33";
-  const accent = "#38bdf8";
-  return (
-    <group rotation={[0.2, 0.5, 0]}>
-      {/* body */}
-      <mesh castShadow>
-        <boxGeometry args={[1.1, 0.85, 0.7]} />
-        <meshStandardMaterial color={body} metalness={0.7} roughness={0.35} />
-      </mesh>
-      {/* lens barrel */}
-      <mesh position={[0, 0, 0.6]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.32, 0.34, 0.5, 32]} />
-        <meshStandardMaterial color={metal} metalness={0.85} roughness={0.25} />
-      </mesh>
-      {/* lens glass */}
-      <mesh position={[0, 0, 0.86]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.26, 0.26, 0.04, 32]} />
-        <meshStandardMaterial
-          color={accent}
-          emissive={accent}
-          emissiveIntensity={0.5}
-          metalness={0.9}
-          roughness={0.1}
-        />
-      </mesh>
-      {/* top handle */}
-      <mesh position={[0, 0.6, 0]}>
-        <boxGeometry args={[0.7, 0.12, 0.5]} />
-        <meshStandardMaterial color={metal} metalness={0.6} roughness={0.4} />
-      </mesh>
-      {/* viewfinder */}
-      <mesh position={[-0.45, 0.25, -0.2]}>
-        <boxGeometry args={[0.3, 0.25, 0.3]} />
-        <meshStandardMaterial color={body} metalness={0.6} roughness={0.4} />
-      </mesh>
-      {/* record light */}
-      <mesh position={[0.45, 0.25, 0.36]}>
-        <sphereGeometry args={[0.05, 16, 16]} />
-        <meshStandardMaterial color="#ff3b3b" emissive="#ff3b3b" emissiveIntensity={1} />
-      </mesh>
-    </group>
-  );
-}
+const R2 = "https://pub-761e4d18b3b84542809dddc11936a8df.r2.dev/models";
+const CANON = `${R2}/canon-dslr.glb`;
+const LEICA = `${R2}/leica.glb`;
+const LENS = `${R2}/lens.glb`;
 
-/* ── Stylized prime lens ── */
-function PrimeLens() {
-  const metal = "#26262e";
-  const accent = "#38bdf8";
+/** Loads a GLB, normalises it to a target size, and recenters it at origin. */
+function Model({
+  url,
+  target,
+  rotation = [0, 0, 0],
+}: {
+  url: string;
+  target: number;
+  rotation?: [number, number, number];
+}) {
+  const { scene } = useGLTF(url);
+  const obj = useMemo(() => scene.clone(true), [scene]);
+  const ref = useRef<THREE.Group>(null);
+
+  useLayoutEffect(() => {
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const s = target / maxDim;
+    obj.scale.setScalar(s);
+    const box2 = new THREE.Box3().setFromObject(obj);
+    const center = box2.getCenter(new THREE.Vector3());
+    obj.position.sub(center);
+  }, [obj, target]);
+
   return (
-    <group rotation={[Math.PI / 2, 0, 0.3]}>
-      <mesh>
-        <cylinderGeometry args={[0.36, 0.4, 1.0, 40]} />
-        <meshStandardMaterial color={metal} metalness={0.85} roughness={0.3} />
-      </mesh>
-      {/* focus rings */}
-      {[-0.25, 0, 0.25].map((y, i) => (
-        <mesh key={i} position={[0, y, 0]}>
-          <torusGeometry args={[0.41, 0.03, 12, 40]} />
-          <meshStandardMaterial color="#15151a" metalness={0.6} roughness={0.5} />
-        </mesh>
-      ))}
-      {/* front element */}
-      <mesh position={[0, 0.52, 0]}>
-        <cylinderGeometry args={[0.3, 0.3, 0.06, 40]} />
-        <meshStandardMaterial
-          color={accent}
-          emissive={accent}
-          emissiveIntensity={0.6}
-          metalness={0.95}
-          roughness={0.08}
-        />
-      </mesh>
+    <group ref={ref} rotation={rotation}>
+      <primitive object={obj} />
     </group>
   );
 }
 
 type Item = {
+  url: string;
   pos: [number, number, number];
-  scale: number;
-  kind: "camera" | "lens";
+  target: number;
+  rot: [number, number, number];
   speed: number;
 };
 
-// positioned around the edges — clear of the centred wordmark/text
+// edge-positioned, clear of the centred wordmark (text spans ~x[-2,2] y[-1.2,1.2])
 const ITEMS: Item[] = [
-  { pos: [-3.4, 1.3, -1], scale: 0.95, kind: "camera", speed: 1.1 },
-  { pos: [3.5, 1.0, -0.5], scale: 1.0, kind: "lens", speed: 1.4 },
-  { pos: [-3.1, -1.6, -0.8], scale: 0.8, kind: "lens", speed: 1.25 },
-  { pos: [3.2, -1.5, -1.3], scale: 0.8, kind: "camera", speed: 0.95 },
+  { url: CANON, pos: [-3.5, 1.05, -0.5], target: 2.3, rot: [0.15, 0.7, 0], speed: 1.1 },
+  { url: LEICA, pos: [3.55, -1.05, -1.0], target: 2.0, rot: [0.15, -0.6, 0], speed: 0.95 },
+  { url: LENS, pos: [3.4, 1.4, -0.8], target: 1.4, rot: [1.25, 0, 0.4], speed: 1.35 },
+  { url: LENS, pos: [-3.15, -1.55, -1.2], target: 1.1, rot: [1.0, 0.6, 0], speed: 1.2 },
 ];
 
 function Scene({ reduced }: { reduced: boolean }) {
   return (
     <>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[5, 5, 5]} intensity={1.1} color="#fff5e6" />
-      <pointLight position={[-5, 2, 3]} intensity={40} color="#38bdf8" />
-      <pointLight position={[4, -3, 2]} intensity={25} color="#0ea5e9" />
+      <ambientLight intensity={0.65} />
+      <directionalLight position={[5, 6, 5]} intensity={1.4} color="#fff5e6" />
+      <directionalLight position={[-4, 2, -3]} intensity={0.5} color="#94b8ff" />
+      <pointLight position={[-5, 2, 3]} intensity={45} color="#38bdf8" />
+      <pointLight position={[4, -3, 2]} intensity={28} color="#0ea5e9" />
       {ITEMS.map((it, i) => (
         <Float
           key={i}
           speed={reduced ? 0 : it.speed}
-          rotationIntensity={reduced ? 0 : 0.4}
-          floatIntensity={reduced ? 0 : 1.4}
+          rotationIntensity={reduced ? 0 : 0.35}
+          floatIntensity={reduced ? 0 : 1.3}
           floatingRange={[-0.18, 0.18]}
         >
-          <group position={it.pos} scale={it.scale}>
-            {it.kind === "camera" ? <CinemaCamera /> : <PrimeLens />}
+          <group position={it.pos}>
+            <Model url={it.url} target={it.target} rotation={it.rot} />
           </group>
         </Float>
       ))}
     </>
   );
 }
+
+useGLTF.preload(CANON);
+useGLTF.preload(LEICA);
+useGLTF.preload(LENS);
 
 export default function Hero3D() {
   const [reduced, setReduced] = useState(false);

@@ -83,6 +83,9 @@ export default function Home() {
         >
           Browse Gear
         </Link>
+        <p className="mt-10 text-[10px] text-white/15">
+          3D models via Icosa Gallery / Google Poly, CC-BY.
+        </p>
       </section>
     </>
   );
