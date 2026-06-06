@@ -23,25 +23,27 @@ export type ItemType =
   | "battery"
   | "accessory";
 
-// Ordered specific-first; first match wins.
+// Ordered. Camera bodies are matched FIRST so camera kits that also mention an
+// accessory ("BMPCC + tripod") classify as the camera (the hero), not the
+// accessory. Standalone accessories (no camera token) fall through to their type.
 const RULES: [ItemType, RegExp][] = [
+  ["camera-body", /\b(camera|bmpcc|fx3|fx6|fx30|fx9|a7|a7s|a7r|a7c|a7iii|a73|a7iv|a6\d00|alexa|\bred\b|ursa|c70|c300|c200|c500|komodo|raptor|gh5|gh6|gh7|s1h|s5|pocket cinema|z ?cam|zv-?e|lumix|eos ?r|\br5\b|\br6\b)\b/i],
+  ["lens", /\b(lens|lenses|24-70|70-200|16-35|24-105|50mm|35mm|85mm|24mm|sigma|samyang|prime|zoom lens|cine lens|anamorphic|dzo|laowa|f1\.[248]|f2\.8)\b/i],
   ["nd-filter", /\b(nd[\s-]?filter|variable nd|vnd|cpl|polari[sz]|filter kit|nd ?kit)\b/i],
   ["gimbal", /\b(gimbal|ronin|rs ?\d|rsc|crane|zhiyun|moza|stabili[sz]er)\b/i],
   ["slider", /\b(slider|dolly|track)\b/i],
-  ["tripod", /\b(tripod|fluid head|monopod|legs|sticks)\b/i],
-  ["dj-deck", /\b(\bdj\b|cdj|ddj|xdj|pioneer|turntable|controller|rekordbox|serato)\b/i],
+  ["tripod", /\b(tripod|fluid head|monopod|\blegs\b|sticks)\b/i],
+  ["dj-deck", /\b(\bdj\b|cdj|ddj|xdj|pioneer|turntable|rekordbox|serato)\b/i],
   ["mixer", /\b(mixer|mixing desk|djm)\b/i],
-  ["speaker", /\b(speaker|partybox|\bjbl\b|\bpa\b|sub ?woofer|sound ?system|monitor speaker)\b/i],
+  ["speaker", /\b(speaker|partybox|\bjbl\b|\bpa\b|sub ?woofer|sound ?system)\b/i],
   ["wireless-mic", /\b(wireless mic|wireless go|dji mic|rode wireless|lav|lavalier|sennheiser ew|handheld mic|radio mic)\b/i],
   ["boom-mic", /\b(boom|shotgun|ntg|mkh|boom pole|hypercardioid)\b/i],
   ["recorder", /\b(recorder|zoom h\d|tascam|mixpre|field recorder)\b/i],
-  ["headphones", /\b(headphone|headphones|cans|monitoring)\b/i],
-  ["drone", /\b(drone|mavic|mini ?\d|fpv|avata|air ?\d)\b/i],
-  ["monitor", /\b(monitor|atomos|ninja|shinobi|smallhd|director|feelworld)\b/i],
-  ["light", /\b(light|aputure|godox|nanlite|amaran|led|softbox|hmi|fresnel|forza|lantern|rgb)\b/i],
+  ["headphones", /\b(headphone|headphones)\b/i],
+  ["drone", /\b(drone|mavic|fpv|avata)\b/i],
+  ["monitor", /\b(monitor|atomos|ninja|shinobi|smallhd|feelworld)\b/i],
+  ["light", /\b(light|aputure|godox|nanlite|amaran|led|softbox|hmi|fresnel|forza|lantern)\b/i],
   ["battery", /\b(battery|batteries|v-?mount|v-?lock|charger|np-?f|d-?tap|power station|anker)\b/i],
-  ["camera-body", /\b(camera|bmpcc|fx3|fx6|fx30|a7|a7s|a7iv|alexa|\bred\b|ursa|c70|c300|c200|komodo|gh5|gh6|gh7|pocket cinema|z ?cam|s1h|zv-?e|a6\d00)\b/i],
-  ["lens", /\b(lens|lenses|24-70|70-200|16-35|24-105|50mm|35mm|85mm|24mm|sigma|samyang|prime|zoom lens|cine lens|dzo|laowa|f1\.[248]|f2\.8)\b/i],
 ];
 
 export function deriveItemType(name: string): ItemType {
