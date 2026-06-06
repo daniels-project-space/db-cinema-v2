@@ -53,19 +53,21 @@ type Item = {
 // edge-positioned, clear of the centred wordmark (text spans ~x[-2,2] y[-1.2,1.2])
 const ITEMS: Item[] = [
   { url: CANON, pos: [-3.5, 1.05, -0.5], target: 2.3, rot: [0.15, 0.7, 0], speed: 1.1 },
-  { url: LEICA, pos: [3.55, -1.05, -1.0], target: 2.0, rot: [0.15, -0.6, 0], speed: 0.95 },
-  { url: LENS, pos: [3.4, 1.4, -0.8], target: 1.4, rot: [1.25, 0, 0.4], speed: 1.35 },
-  { url: LENS, pos: [-3.15, -1.55, -1.2], target: 1.1, rot: [1.0, 0.6, 0], speed: 1.2 },
+  { url: LEICA, pos: [3.7, -1.25, -1.0], target: 2.0, rot: [0.15, -0.6, 0], speed: 0.95 },
+  { url: LENS, pos: [3.45, 1.45, -0.6], target: 1.7, rot: [1.2, 0, 0.4], speed: 1.35 },
+  { url: LENS, pos: [-3.2, -1.55, -1.0], target: 1.45, rot: [1.0, 0.6, 0], speed: 1.2 },
 ];
 
 function Scene({ reduced }: { reduced: boolean }) {
   return (
     <>
-      <ambientLight intensity={0.65} />
-      <directionalLight position={[5, 6, 5]} intensity={1.4} color="#fff5e6" />
-      <directionalLight position={[-4, 2, -3]} intensity={0.5} color="#94b8ff" />
-      <pointLight position={[-5, 2, 3]} intensity={45} color="#38bdf8" />
-      <pointLight position={[4, -3, 2]} intensity={28} color="#0ea5e9" />
+      <ambientLight intensity={0.95} />
+      <directionalLight position={[5, 6, 5]} intensity={1.5} color="#fff5e6" />
+      <directionalLight position={[-4, 2, -3]} intensity={0.7} color="#94b8ff" />
+      {/* front fill so the dark lens/camera bodies read clearly */}
+      <directionalLight position={[0, 0, 8]} intensity={1.0} color="#ffffff" />
+      <pointLight position={[-5, 2, 3]} intensity={50} color="#38bdf8" />
+      <pointLight position={[4, -3, 2]} intensity={32} color="#0ea5e9" />
       {ITEMS.map((it, i) => (
         <Float
           key={i}
