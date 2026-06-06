@@ -30,8 +30,15 @@ export default function HowItWorksPage() {
         </div>
         <div className="mt-10 rounded-2xl border border-white/5 bg-white/[0.015] p-6 text-sm text-white/50">
           <span className="font-semibold text-white/70">Discounts &amp; offers:</span> multi-day
-          rates apply automatically, spend over £300 to unlock add-on deals, and
-          use code <span className="text-accent-300">DB15OFF</span> for 15% off your rental.
+          rates apply automatically, and spending over £300 unlocks add-on deals.
+        </div>
+        <div className="mt-4 rounded-2xl border border-white/5 bg-white/[0.015] p-6 text-sm text-white/50">
+          <span className="font-semibold text-white/70">Opening hours &amp; delivery:</span>{" "}
+          pickup, return and delivery windows are <span className="text-white/70">10:00–12:00</span> and{" "}
+          <span className="text-white/70">19:00–21:00</span>, every day. You choose your time slots at checkout.
+          Local delivery is quoted by distance and item size as a round trip (delivery + collection), within
+          ~30km of central London — beyond that, pickup only. Delivery uses a third-party courier; times are
+          estimates and may be affected by traffic.
         </div>
         <Link href="/gear" className="mt-8 inline-block rounded-full bg-accent-500 px-7 py-3 font-medium text-white hover:bg-accent-600">
           Start browsing

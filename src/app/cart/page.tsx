@@ -8,12 +8,14 @@ import { useCart } from "@/components/cart/CartProvider";
 import { usePromo } from "@/components/cart/usePromo";
 import { Offers } from "@/components/Offers";
 import { Recommendations } from "@/components/Recommendations";
+import { smallDamageHold } from "@/lib/pricing";
 
 const ms = (iso: string) => Date.parse(iso + "T00:00:00Z");
 
 export default function CartPage() {
   const { items, remove, clear, subtotal, eligibleSubtotal, depositTotal } = useCart();
   const promo = usePromo(eligibleSubtotal);
+  const hold = smallDamageHold(depositTotal); // default ID+insurance damage hold
 
   const avail =
     useQuery(
@@ -24,7 +26,7 @@ export default function CartPage() {
     ) ?? {};
   const blocked = Object.values(avail).some((a: any) => !a.ok);
 
-  const total = subtotal + depositTotal - promo.discount;
+  const total = subtotal + hold - promo.discount;
   const first = items[0];
 
   return (
@@ -139,8 +141,11 @@ export default function CartPage() {
                     </div>
                   )}
                   <div className="flex justify-between text-white/35 text-xs">
-                    <span>Refundable deposits</span>
-                    <span>£{depositTotal}</span>
+                    <span>Refundable damage hold</span>
+                    <span>£{hold}</span>
+                  </div>
+                  <div className="text-[11px] text-white/25">
+                    Choose ID+insurance (small hold) or a full security deposit at checkout.
                   </div>
                   <div className="mt-2 flex justify-between border-t border-white/5 pt-2 font-display text-lg font-bold text-white/90">
                     <span>Due now</span>

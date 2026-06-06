@@ -131,3 +131,19 @@ export function quote(p: Pricing, days: number): Quote {
     next,
   };
 }
+
+// ── Protection model: ID+insurance (small damage hold) vs full deposit ──
+export type Protection = "verify" | "deposit";
+
+export function smallDamageHold(replacementSum: number): number {
+  return Math.max(50, Math.min(200, Math.round(replacementSum * 0.05)));
+}
+
+export function depositFor(protection: Protection, replacementSum: number): number {
+  return protection === "deposit" ? replacementSum : smallDamageHold(replacementSum);
+}
+
+export const PROTECTION_LABEL: Record<Protection, string> = {
+  verify: "Refundable damage hold (covers minor damage)",
+  deposit: "Refundable security deposit",
+};

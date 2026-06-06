@@ -31,6 +31,12 @@ export function IdVerify({
         ✓ ID verified
       </span>
     );
+  if (status === "not_required")
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs text-white/50">
+        Secured by deposit — no ID check needed
+      </span>
+    );
 
   async function go() {
     setBusy(true);

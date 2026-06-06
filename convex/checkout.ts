@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { action } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
+import { depositFor } from "./lib/pricing";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 
@@ -36,6 +37,9 @@ export const start = action({
     address: v.optional(v.string()),
     deliveryFee: v.number(),
     promoCode: v.optional(v.string()),
+    protection: v.optional(v.union(v.literal("verify"), v.literal("deposit"))),
+    pickupTime: v.optional(v.string()),
+    returnTime: v.optional(v.string()),
     agreement: v.optional(
       v.object({
         name: v.string(),
@@ -62,7 +66,10 @@ export const start = action({
     }
 
     const subtotal = a.items.reduce((n, i) => n + i.total, 0);
-    const depositAmount = a.items.reduce((n, i) => n + i.deposit, 0);
+    const protection = a.protection ?? "verify";
+    const replacementSum = a.items.reduce((n, i) => n + i.deposit, 0);
+    const depositAmount = depositFor(protection, replacementSum);
+    const idVerifyStatus = protection === "verify" ? "required" : "not_required";
 
     // promo discount applies ONLY to non-offer rental lines (non-stackable)
     let discount = 0;
@@ -106,6 +113,10 @@ export const start = action({
       currency: "GBP",
       agreementName: a.agreement?.name,
       agreementDocs: a.agreement?.documents,
+      protection,
+      idVerifyStatus,
+      pickupTime: a.pickupTime,
+      returnTime: a.returnTime,
     });
 
     const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = a.items.map(
@@ -135,7 +146,10 @@ export const start = action({
           currency: "gbp",
           unit_amount: pence(depositAmount),
           product_data: {
-            name: "Refundable damage deposit (released on safe return)",
+            name:
+              protection === "deposit"
+                ? "Refundable security deposit (released on safe return)"
+                : "Refundable damage hold (covers minor damage, refunded on return)",
           },
         },
       });

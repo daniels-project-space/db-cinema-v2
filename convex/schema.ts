@@ -157,6 +157,9 @@ export default defineSchema({
       v.array(v.object({ kind: v.string(), version: v.string() })),
     ),
     stripeIdentitySessionId: v.optional(v.string()),
+    protection: v.optional(v.string()),
+    pickupTime: v.optional(v.string()),
+    returnTime: v.optional(v.string()),
   })
     .index("by_customer", ["customerId"])
     .index("by_status", ["status"])

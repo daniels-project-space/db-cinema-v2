@@ -41,6 +41,10 @@ export const createPending = internalMutation({
     agreementDocs: v.optional(
       v.array(v.object({ kind: v.string(), version: v.string() })),
     ),
+    protection: v.optional(v.string()),
+    idVerifyStatus: v.optional(v.string()),
+    pickupTime: v.optional(v.string()),
+    returnTime: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
     let customer = await ctx.db
@@ -72,7 +76,10 @@ export const createPending = internalMutation({
       agreementName: a.agreementName,
       agreementSignedAt: a.agreementName ? Date.now() : undefined,
       agreementDocs: a.agreementDocs,
-      idVerifyStatus: "required",
+      protection: a.protection,
+      idVerifyStatus: a.idVerifyStatus ?? "required",
+      pickupTime: a.pickupTime,
+      returnTime: a.returnTime,
     });
     return bookingId;
   },
