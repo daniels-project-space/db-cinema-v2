@@ -53,15 +53,26 @@ export const start = action({
     if (!a.agreement || !a.agreement.name.trim())
       throw new Error("Please sign the rental agreement to continue.");
 
-    // server-side availability re-check
+    // server-side availability re-check (quantity-aware, grouped by listing)
+    const demand = new Map<string, { count: number; start: number; end: number; title: string }>();
     for (const it of a.items) {
-      const av: any = await ctx.runQuery(api.availability.check, {
-        listingId: it.listingId,
-        start: it.start,
-        end: it.end,
+      const g = demand.get(it.listingId);
+      if (g) {
+        g.count += 1;
+        g.start = Math.min(g.start, it.start);
+        g.end = Math.max(g.end, it.end);
+      } else {
+        demand.set(it.listingId, { count: 1, start: it.start, end: it.end, title: it.title });
+      }
+    }
+    for (const [lid, g] of demand) {
+      const av: any = await ctx.runQuery(api.availability.forListing, {
+        listingId: lid as any,
+        start: g.start,
+        end: g.end,
       });
-      if (!av?.available) {
-        throw new Error(`"${it.title}" is no longer available for those dates`);
+      if (!av || av.available < g.count) {
+        throw new Error(`"${g.title}" isn't available in that quantity for those dates`);
       }
     }
 

@@ -49,6 +49,12 @@ function deriveCategory(name: string): string {
 }
 
 const cleanTitle = (name: string) => name.replace(/\s+/g, " ").trim();
+// leading "2x" / "2×" / "3 x" => bundle consumes that many physical units
+function parseQty(title: string): number {
+  const m = title.match(/^\s*(\d+)\s*[x×]/i);
+  const q = m ? parseInt(m[1], 10) : 1;
+  return Math.min(Math.max(q, 1), 6);
+}
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 
@@ -107,6 +113,7 @@ export const syncFromRmv2 = action({
         title,
         category: deriveCategory(title),
         itemType,
+        componentQty: parseQty(title),
         sizeScore: spec.sizeScore,
         weightKg: spec.weightKg,
         sourceImages,
@@ -140,6 +147,7 @@ export const applyCatalog = internalMutation({
         title: v.string(),
         category: v.string(),
         itemType: v.string(),
+        componentQty: v.number(),
         sizeScore: v.number(),
         weightKg: v.number(),
         sourceImages: v.array(v.string()),
@@ -233,7 +241,7 @@ export const applyCatalog = internalMutation({
         sourceImages: it.sourceImages,
         pricing: it.pricing,
         depositAmount: it.depositAmount,
-        components: [{ inventoryUnitId: unitId as any, qty: 1 }],
+        components: [{ inventoryUnitId: unitId as any, qty: it.componentQty }],
         hyggloListingSlug: it.hyggloListingSlug,
         hyggloProductId: it.hyggloProductId,
         unavailableDates: it.unavailableDates,
@@ -252,5 +260,107 @@ export const applyCatalog = internalMutation({
     }
 
     return { listings: listingCount, units: unitCount };
+  },
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+//  Hygglo reservation mirror — cross-check active + upcoming Hygglo rentals so
+//  storefront availability reflects what's already booked on Hygglo (by unit +
+//  dates + qty). Source of truth: RMv2 reservations:listForReconcile(dbcinema).
+// ──────────────────────────────────────────────────────────────────────────
+const DAY_MS = 86400000;
+const dms = (iso?: string) => (iso ? Date.parse(iso + "T00:00:00Z") : NaN);
+
+export const syncHyggloReservations = action({
+  args: {},
+  handler: async (ctx): Promise<{ mirrored: number; rows: number }> => {
+    const all: any[] = await rmv2Query("reservations:listForReconcile", {
+      account_slug: ACCOUNT,
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    const live = all.filter(
+      (r) =>
+        !r.is_obsolete &&
+        !["cancelled", "canceled", "declined"].includes(String(r.status)) &&
+        r.order_step !== "CANCELED" &&
+        (r.end_date || r.return_date || r.start_date || "") >= today,
+    );
+    const rows = live.map((r) => {
+      const start = dms(r.start_date || r.pickup_date);
+      const end = dms(r.end_date || r.return_date || r.start_date);
+      const resolved = Array.isArray(r.resolved_items) ? r.resolved_items : [];
+      const items = resolved.length
+        ? resolved.map((i: any) => ({ itemId: i.item_id, qty: Math.round(i.qty || 1) }))
+        : (Array.isArray(r.items) ? r.items : []).map((i: any) => ({
+            productId: typeof i.product_id === "number" ? i.product_id : undefined,
+            qty: Math.round(i.qty || 1),
+          }));
+      return { ref: String(r.hygglo_order_id ?? r._id), start, end, items };
+    }).filter((r) => !isNaN(r.start) && !isNaN(r.end));
+
+    return await ctx.runMutation(internal.sync.applyHygglo, { rows });
+  },
+});
+
+export const applyHygglo = internalMutation({
+  args: {
+    rows: v.array(
+      v.object({
+        ref: v.string(),
+        start: v.number(),
+        end: v.number(),
+        items: v.array(
+          v.object({
+            itemId: v.optional(v.string()),
+            productId: v.optional(v.number()),
+            qty: v.number(),
+          }),
+        ),
+      }),
+    ),
+  },
+  handler: async (ctx, { rows }) => {
+    // unit lookup maps
+    const units = await ctx.db.query("inventory_units").collect();
+    const byRmv2 = new Map<string, any>();
+    const byProduct = new Map<number, any>();
+    for (const u of units) {
+      if (u.rmv2ItemId) byRmv2.set(u.rmv2ItemId, u._id);
+      if (u.hyggloProductId) byProduct.set(u.hyggloProductId, u._id);
+    }
+    // also map productId via listings -> first component unit
+    const listings = await ctx.db.query("listings").collect();
+    for (const l of listings) {
+      if (l.hyggloProductId && l.components[0] && !byProduct.has(l.hyggloProductId))
+        byProduct.set(l.hyggloProductId, l.components[0].inventoryUnitId);
+    }
+
+    // clear previous hygglo mirror
+    const existing = await ctx.db
+      .query("reservations")
+      .withIndex("by_source", (q) => q.eq("source", "hygglo"))
+      .collect();
+    for (const r of existing) await ctx.db.delete(r._id);
+
+    let mirrored = 0;
+    for (const row of rows) {
+      for (const it of row.items) {
+        const unitId =
+          (it.itemId && byRmv2.get(it.itemId)) ||
+          (it.productId && byProduct.get(it.productId));
+        if (!unitId) continue;
+        await ctx.db.insert("reservations", {
+          inventoryUnitId: unitId,
+          start: row.start,
+          end: row.end,
+          qty: it.qty,
+          source: "hygglo",
+          status: "confirmed",
+          externalRef: row.ref,
+        });
+        mirrored++;
+      }
+    }
+    return { mirrored, rows: rows.length };
   },
 });

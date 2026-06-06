@@ -3,12 +3,15 @@ import { api } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Keep the storefront catalog + Hygglo availability mirror fresh from RMv2.
-// Convex-native scheduling — no Trigger.dev project required for this job.
+// Keep the storefront catalog fresh from RMv2 (listings, pricing, images-source).
+crons.interval("sync-rmv2-catalog", { minutes: 30 }, api.sync.syncFromRmv2, {});
+
+// Cross-check active + upcoming Hygglo rentals into the availability ledger so
+// stock reflects what's already booked on Hygglo (by unit, dates, qty).
 crons.interval(
-  "sync-rmv2-catalog",
-  { minutes: 30 },
-  api.sync.syncFromRmv2,
+  "sync-hygglo-reservations",
+  { minutes: 15 },
+  api.sync.syncHyggloReservations,
   {},
 );
 

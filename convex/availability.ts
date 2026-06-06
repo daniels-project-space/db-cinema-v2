@@ -1,14 +1,7 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 
-/**
- * P1 read-path availability: a listing is available for [start,end] if none of
- * the requested days fall in the mirrored Hygglo `unavailableDates`.
- *
- * P2 will replace this with the full BOM-over-reservation-ledger check (walk
- * components → free = quantityOwned − overlapping reservations from all
- * sources) once site bookings write into the ledger.
- */
+const DAY = 86400000;
 
 function dayRange(startMs: number, endMs: number): string[] {
   const out: string[] = [];
@@ -23,7 +16,6 @@ function dayRange(startMs: number, endMs: number): string[] {
   return out;
 }
 
-/** Normalise stored unavailable entries (ISO strings or {from,to} JSON). */
 function blockedSet(raw: string[]): Set<string> {
   const set = new Set<string>();
   for (const entry of raw) {
@@ -35,63 +27,76 @@ function blockedSet(raw: string[]): Set<string> {
       const o = JSON.parse(entry);
       const from = o.from ?? o.start ?? o.date;
       const to = o.to ?? o.end ?? from;
-      if (from) {
-        for (const day of dayRange(Date.parse(from), Date.parse(to)))
-          set.add(day);
-      }
+      if (from) for (const day of dayRange(Date.parse(from), Date.parse(to))) set.add(day);
     } catch {
-      /* ignore unparseable */
+      /* ignore */
     }
   }
   return set;
 }
 
-/**
- * Quantity-aware availability for a listing over [start,end]: how many can be
- * booked, given physical units owned minus overlapping reservations (site +
- * subscription + hygglo), and Hygglo blocked dates.
- */
+type Iv = { start: number; end: number; qty: number };
+/** Max concurrent qty across overlapping intervals (end inclusive). */
+function peak(intervals: Iv[]): number {
+  const ev: [number, number][] = [];
+  for (const i of intervals) {
+    ev.push([i.start, i.qty]);
+    ev.push([i.end + DAY, -i.qty]); // end inclusive: frees the day after
+  }
+  ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let cur = 0,
+    mx = 0;
+  for (const [, delta] of ev) {
+    cur += delta;
+    if (cur > mx) mx = cur;
+  }
+  return mx;
+}
+
+const ACTIVE = new Set(["confirmed", "active", "hold"]);
+
+async function unitReservations(ctx: any, unitId: any, lo: number, hi: number): Promise<Iv[]> {
+  const res = await ctx.db
+    .query("reservations")
+    .withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", unitId))
+    .collect();
+  return res
+    .filter((r: any) => ACTIVE.has(r.status) && r.start <= hi && r.end >= lo)
+    .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty || 1 }));
+}
+
+/** Quantity-aware availability for one listing over [start,end]. */
 export const forListing = query({
   args: { listingId: v.id("listings"), start: v.number(), end: v.number() },
   handler: async (ctx, { listingId, start, end }) => {
     const l = await ctx.db.get(listingId);
     if (!l || !l.active) return { available: 0, owned: 0 };
-
     const requested = dayRange(start, end);
-    const blocked = blockedSet(l.unavailableDates ?? []);
-    if (requested.some((d) => blocked.has(d)))
+    if (requested.some((d) => blockedSet(l.unavailableDates ?? []).has(d)))
       return { available: 0, owned: 0, blocked: true };
 
     let minAvail = Infinity;
     let owned = 0;
     for (const comp of l.components) {
-      const unit = await ctx.db.get(comp.inventoryUnitId);
+      const unit: any = await ctx.db.get(comp.inventoryUnitId);
       const ownedQ = unit?.quantityOwned ?? 1;
       owned = ownedQ;
-      const res = await ctx.db
-        .query("reservations")
-        .withIndex("by_unit", (q) => q.eq("inventoryUnitId", comp.inventoryUnitId))
-        .collect();
-      const used = res
-        .filter(
-          (r) =>
-            (r.status === "confirmed" || r.status === "active" || r.status === "hold") &&
-            r.start <= end &&
-            r.end >= start,
-        )
-        .reduce((n, r) => n + (r.qty || 1), 0);
-      const free = Math.max(0, ownedQ - used);
-      const perBooking = comp.qty || 1;
-      minAvail = Math.min(minAvail, Math.floor(free / perBooking));
+      const ivs = (await unitReservations(ctx, comp.inventoryUnitId, start, end)).map((r) => ({
+        start: Math.max(r.start, start),
+        end: Math.min(r.end, end),
+        qty: r.qty,
+      }));
+      const free = Math.max(0, ownedQ - peak(ivs));
+      minAvail = Math.min(minAvail, Math.floor(free / (comp.qty || 1)));
     }
     return { available: minAvail === Infinity ? 0 : minAvail, owned };
   },
 });
 
 /**
- * Cart-level check: for each distinct listing, how many can be booked over the
- * cart's date span vs how many the cart demands. Powers grey-out + over-stock
- * blocking ("2 speaker sets but only 2 in stock").
+ * Cart-level, UNIT-aware check: aggregates demand per physical unit across ALL
+ * cart lines (respecting each bundle's BOM qty) plus site + Hygglo + subscription
+ * reservations, then flags every listing that pushes any shared unit over stock.
  */
 export const forCart = query({
   args: {
@@ -100,63 +105,56 @@ export const forCart = query({
     ),
   },
   handler: async (ctx, { items }) => {
-    const groups = new Map<string, { start: number; end: number; demanded: number }>();
+    if (items.length === 0) return {};
+    const lo = Math.min(...items.map((i) => i.start));
+    const hi = Math.max(...items.map((i) => i.end));
+
+    // resolve each cart line's components
+    const lines: { listingId: string; start: number; end: number; comps: any[] }[] = [];
     for (const it of items) {
-      const g = groups.get(it.listingId);
-      if (g) {
-        g.start = Math.min(g.start, it.start);
-        g.end = Math.max(g.end, it.end);
-        g.demanded += 1;
-      } else {
-        groups.set(it.listingId, { start: it.start, end: it.end, demanded: 1 });
-      }
+      const l = await ctx.db.get(it.listingId);
+      if (l && (l as any).active)
+        lines.push({ listingId: it.listingId, start: it.start, end: it.end, comps: (l as any).components });
+    }
+
+    // per-unit: owned, reservation intervals, standalone free
+    const unitIds = new Set<string>();
+    for (const ln of lines) for (const c of ln.comps) unitIds.add(c.inventoryUnitId);
+    const owned: Record<string, number> = {};
+    const resIvs: Record<string, Iv[]> = {};
+    for (const uid of unitIds) {
+      const unit: any = await ctx.db.get(uid as any);
+      owned[uid] = unit?.quantityOwned ?? 1;
+      resIvs[uid] = await unitReservations(ctx, uid, lo, hi);
+    }
+
+    // per-unit peak WITH cart demand, and standalone free (reservations only)
+    const unitOver: Record<string, boolean> = {};
+    const unitFree: Record<string, number> = {};
+    for (const uid of unitIds) {
+      const cartIvs: Iv[] = [];
+      for (const ln of lines)
+        for (const c of ln.comps)
+          if (c.inventoryUnitId === uid) cartIvs.push({ start: ln.start, end: ln.end, qty: c.qty || 1 });
+      unitOver[uid] = peak([...resIvs[uid], ...cartIvs]) > owned[uid];
+      unitFree[uid] = Math.max(0, owned[uid] - peak(resIvs[uid]));
+    }
+
+    // per-listing result
+    const groups = new Map<string, { comps: any[]; demanded: number }>();
+    for (const ln of lines) {
+      const g = groups.get(ln.listingId);
+      if (g) g.demanded += 1;
+      else groups.set(ln.listingId, { comps: ln.comps, demanded: 1 });
     }
     const result: Record<string, { available: number; demanded: number; ok: boolean }> = {};
     for (const [listingId, g] of groups) {
-      const l = await ctx.db.get(listingId as any);
-      let available = 0;
-      if (l && (l as any).active) {
-        const requested = dayRange(g.start, g.end);
-        const blocked = blockedSet((l as any).unavailableDates ?? []);
-        if (!requested.some((d) => blocked.has(d))) {
-          let minAvail = Infinity;
-          for (const comp of (l as any).components) {
-            const unit: any = await ctx.db.get(comp.inventoryUnitId);
-            const ownedQ = unit?.quantityOwned ?? 1;
-            const res = await ctx.db
-              .query("reservations")
-              .withIndex("by_unit", (q) => q.eq("inventoryUnitId", comp.inventoryUnitId))
-              .collect();
-            const used = res
-              .filter(
-                (r) =>
-                  (r.status === "confirmed" || r.status === "active" || r.status === "hold") &&
-                  r.start <= g.end &&
-                  r.end >= g.start,
-              )
-              .reduce((n, r) => n + (r.qty || 1), 0);
-            minAvail = Math.min(minAvail, Math.floor(Math.max(0, ownedQ - used) / (comp.qty || 1)));
-          }
-          available = minAvail === Infinity ? 0 : minAvail;
-        }
-      }
-      result[listingId] = { available, demanded: g.demanded, ok: g.demanded <= available };
+      const ok = g.comps.every((c) => !unitOver[c.inventoryUnitId]);
+      const available = Math.min(
+        ...g.comps.map((c) => Math.floor((unitFree[c.inventoryUnitId] ?? 0) / (c.qty || 1))),
+      );
+      result[listingId] = { available, demanded: g.demanded, ok };
     }
     return result;
-  },
-});
-
-export const check = query({
-  args: { listingId: v.id("listings"), start: v.number(), end: v.number() },
-  handler: async (ctx, { listingId, start, end }) => {
-    const l = await ctx.db.get(listingId);
-    if (!l || !l.active) return { available: false, reason: "unavailable" };
-    const requested = dayRange(start, end);
-    const blocked = blockedSet(l.unavailableDates ?? []);
-    const clash = requested.filter((d) => blocked.has(d));
-    const minDays = l.minimumRentalDays ?? 1;
-    if (requested.length < minDays)
-      return { available: false, reason: `min ${minDays} days`, blocked: clash };
-    return { available: clash.length === 0, blocked: clash };
   },
 });
