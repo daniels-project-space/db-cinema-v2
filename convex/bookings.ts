@@ -85,6 +85,52 @@ export const createPending = internalMutation({
   },
 });
 
+/** Soft holds: reserve the units for a TTL while the renter is at checkout, so
+ *  two people can't grab the last unit at once. Released on confirm or by cron. */
+export const placeHolds = internalMutation({
+  args: { bookingId: v.id("bookings"), ttlMs: v.number() },
+  handler: async (ctx, { bookingId, ttlMs }) => {
+    const booking = await ctx.db.get(bookingId);
+    if (!booking) return;
+    const expires = Date.now() + ttlMs;
+    for (const li of booking.lineItems) {
+      const listing = await ctx.db.get(li.listingId);
+      if (!listing) continue;
+      for (const comp of listing.components) {
+        await ctx.db.insert("reservations", {
+          inventoryUnitId: comp.inventoryUnitId,
+          listingId: li.listingId,
+          bookingId,
+          start: li.start,
+          end: li.end,
+          qty: comp.qty * li.qty,
+          source: "site",
+          status: "hold",
+          holdExpiresAt: expires,
+        });
+      }
+    }
+  },
+});
+
+export const releaseExpiredHolds = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const holds = await ctx.db
+      .query("reservations")
+      .withIndex("by_status", (q) => q.eq("status", "hold"))
+      .collect();
+    let n = 0;
+    for (const h of holds)
+      if ((h.holdExpiresAt ?? 0) < now) {
+        await ctx.db.delete(h._id);
+        n++;
+      }
+    return { released: n };
+  },
+});
+
 export const confirm = internalMutation({
   args: { bookingId: v.id("bookings"), paymentIntentId: v.optional(v.string()) },
   handler: async (ctx, { bookingId, paymentIntentId }) => {
@@ -93,6 +139,12 @@ export const confirm = internalMutation({
     if (booking.status === "confirmed" || booking.status === "active") {
       return { already: true };
     }
+    // clear this booking's soft holds before writing the real reservations
+    const holds = await ctx.db
+      .query("reservations")
+      .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
+      .collect();
+    for (const h of holds) if (h.status === "hold") await ctx.db.delete(h._id);
     await ctx.db.patch(bookingId, {
       status: "confirmed",
       stripePaymentIntentId: paymentIntentId,

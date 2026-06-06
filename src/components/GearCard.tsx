@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAccount } from "@/components/account/AccountProvider";
 
 export type GearListing = {
   _id: string;
@@ -15,11 +17,34 @@ export type GearListing = {
 
 export function GearCard({ listing }: { listing: GearListing }) {
   const { slug, title, category, heroImage, pricing } = listing;
+  const account = useAccount();
+  const router = useRouter();
+  const faved = !!account.me?.favorites?.includes(listing._id);
+
+  function toggleFav(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!account.me) {
+      router.push("/account");
+      return;
+    }
+    account.toggleFavorite(listing._id);
+  }
+
   return (
     <Link
       href={`/gear/${slug}`}
-      className="group glass glass-hover gradient-border flex flex-col overflow-hidden rounded-2xl"
+      className="group glass glass-hover gradient-border relative flex flex-col overflow-hidden rounded-2xl"
     >
+      <button
+        onClick={toggleFav}
+        aria-label={faved ? "Remove favourite" : "Add favourite"}
+        className={`absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full backdrop-blur transition-colors ${
+          faved ? "bg-accent-500/90 text-white" : "bg-black/40 text-white/70 hover:text-white"
+        }`}
+      >
+        {faved ? "♥" : "♡"}
+      </button>
       <div className="aspect-[4/3] overflow-hidden bg-charcoal-800">
         {heroImage ? (
           // eslint-disable-next-line @next/next/no-img-element

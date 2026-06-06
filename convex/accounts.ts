@@ -127,7 +127,22 @@ export const me = query({
       phone: a.phone ?? null,
       address: a.address ?? null,
       marketingEmails: a.marketingEmails ?? false,
+      favorites: (a.favorites ?? []) as string[],
     };
+  },
+});
+
+export const toggleFavorite = mutation({
+  args: { token: v.string(), listingId: v.string() },
+  handler: async (ctx, { token, listingId }) => {
+    const a: any = await resolve(ctx, token);
+    if (!a) throw new Error("unauthorized");
+    const cur: string[] = a.favorites ?? [];
+    const next = cur.includes(listingId)
+      ? cur.filter((x) => x !== listingId)
+      : [...cur, listingId];
+    await ctx.db.patch(a._id, { favorites: next });
+    return { favorites: next };
   },
 });
 
@@ -168,14 +183,25 @@ export const myBookings = query({
       .withIndex("by_guestEmail", (q) => q.eq("guestEmail", a.email))
       .order("desc")
       .take(50);
-    return rows.map((b) => ({
-      _id: b._id,
-      status: b.status,
-      lineItems: b.lineItems,
-      total: b.total,
-      depositAmount: b.depositAmount,
-      idVerifyStatus: b.idVerifyStatus ?? "required",
-      at: b._creationTime,
-    }));
+    const allReviews = await ctx.db.query("reviews").collect();
+    const reviewed = new Set(allReviews.map((r) => r.verifiedBookingId).filter(Boolean));
+    const out = [];
+    for (const b of rows) {
+      const firstListing = b.lineItems[0]
+        ? await ctx.db.get(b.lineItems[0].listingId)
+        : null;
+      out.push({
+        _id: b._id,
+        status: b.status,
+        lineItems: b.lineItems,
+        total: b.total,
+        depositAmount: b.depositAmount,
+        idVerifyStatus: b.idVerifyStatus ?? "required",
+        reviewed: reviewed.has(b._id),
+        firstSlug: (firstListing as any)?.slug ?? null,
+        at: b._creationTime,
+      });
+    }
+    return out;
   },
 });

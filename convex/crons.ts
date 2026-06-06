@@ -1,7 +1,10 @@
 import { cronJobs } from "convex/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 const crons = cronJobs();
+
+// Release expired soft cart holds.
+crons.interval("release-holds", { minutes: 5 }, internal.bookings.releaseExpiredHolds, {});
 
 // Keep the storefront catalog fresh from RMv2 (listings, pricing, images-source).
 crons.interval("sync-rmv2-catalog", { minutes: 30 }, api.sync.syncFromRmv2, {});

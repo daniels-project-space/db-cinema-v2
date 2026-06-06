@@ -130,6 +130,12 @@ export const start = action({
       returnTime: a.returnTime,
     });
 
+    // soft-hold the units for 20 min so nobody else grabs them mid-checkout
+    await ctx.runMutation(internal.bookings.placeHolds, {
+      bookingId,
+      ttlMs: 20 * 60 * 1000,
+    });
+
     const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = a.items.map(
       (i) => ({
         quantity: 1,

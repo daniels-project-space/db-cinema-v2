@@ -18,6 +18,7 @@ type Me = {
   phone: string | null;
   address: string | null;
   marketingEmails: boolean;
+  favorites: string[];
 } | null;
 
 type AccountCtx = {
@@ -33,6 +34,7 @@ type AccountCtx = {
     address?: string;
     marketingEmails?: boolean;
   }) => Promise<void>;
+  toggleFavorite: (listingId: string) => Promise<void>;
 };
 
 const Ctx = createContext<AccountCtx | null>(null);
@@ -52,6 +54,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const signInA = useAction(api.accounts.signIn);
   const signOutM = useMutation(api.accounts.signOut);
   const updateM = useMutation(api.accounts.updateProfile);
+  const favM = useMutation(api.accounts.toggleFavorite);
 
   const persist = (t: string | null) => {
     setToken(t);
@@ -83,6 +86,12 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     },
     [token, updateM],
   );
+  const toggleFavorite = useCallback(
+    async (listingId: string) => {
+      if (token) await favM({ token, listingId });
+    },
+    [token, favM],
+  );
 
   // invalid token (me === null) → clear it
   useEffect(() => {
@@ -99,6 +108,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         updateProfile,
+        toggleFavorite,
       }}
     >
       {children}

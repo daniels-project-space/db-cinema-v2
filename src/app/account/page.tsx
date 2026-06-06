@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useAccount } from "@/components/account/AccountProvider";
 import { IdVerify } from "@/components/IdVerify";
+import { GearCard } from "@/components/GearCard";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -133,6 +134,9 @@ function Dashboard() {
         </div>
       </section>
 
+      {/* favourites */}
+      <Favourites />
+
       {/* my bookings */}
       <section className="mt-8">
         <h2 className="font-display font-semibold text-white/80">My bookings</h2>
@@ -151,9 +155,15 @@ function Dashboard() {
                     <div key={i}>{li.title} · {day(li.start)}→{day(li.end)}</div>
                   ))}
                 </div>
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap items-center gap-3">
                   <IdVerify bookingId={b._id} status={b.idVerifyStatus} compact />
+                  {b.firstSlug && (
+                    <Link href={`/gear/${b.firstSlug}`} className="rounded-full glass px-3 py-1 text-xs text-white/60 hover:text-white">
+                      Rent again
+                    </Link>
+                  )}
                 </div>
+                <BookingReview bookingId={b._id} reviewed={b.reviewed} token={account.token!} />
               </div>
             ))
           ) : (
@@ -163,6 +173,102 @@ function Dashboard() {
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function Favourites() {
+  const account = useAccount();
+  const ids = (account.me?.favorites ?? []) as any[];
+  const favs = useQuery(api.catalog.listingsByIds, ids.length ? { ids } : "skip") ?? [];
+  if (ids.length === 0) return null;
+  return (
+    <section className="mt-8">
+      <h2 className="font-display font-semibold text-white/80">Favourites</h2>
+      <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-4">
+        {favs.map((l: any) => (
+          <GearCard key={l._id} listing={l} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Stars({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  return (
+    <div className="flex gap-1 text-xl">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange(n)}
+          className={n <= value ? "text-accent-400" : "text-white/20"}
+        >
+          ★
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function BookingReview({
+  bookingId,
+  reviewed,
+  token,
+}: {
+  bookingId: string;
+  reviewed: boolean;
+  token: string;
+}) {
+  const submit = useMutation(api.reviews.submitNative);
+  const [open, setOpen] = useState(false);
+  const [rating, setRating] = useState(5);
+  const [text, setText] = useState("");
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  if (reviewed || done)
+    return <div className="mt-3 text-xs text-emerald-300">✓ Reviewed — thank you!</div>;
+
+  if (!open)
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mt-3 text-xs text-accent-400 hover:underline"
+      >
+        Leave a review
+      </button>
+    );
+
+  async function send() {
+    setErr(null);
+    try {
+      await submit({ token, bookingId: bookingId as any, rating, text });
+      setDone(true);
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed");
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-white/5 bg-white/[0.02] p-3">
+      <Stars value={rating} onChange={setRating} />
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="How was the gear & service?"
+        rows={2}
+        className="mt-2 w-full rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none placeholder:text-white/30"
+      />
+      {err && <div className="mt-1 text-xs text-red-300">{err}</div>}
+      <div className="mt-2 flex gap-2">
+        <button onClick={send} className="rounded-full bg-accent-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-600">
+          Submit review
+        </button>
+        <button onClick={() => setOpen(false)} className="text-xs text-white/40 hover:text-white">
+          cancel
+        </button>
+      </div>
     </div>
   );
 }

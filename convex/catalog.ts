@@ -49,6 +49,18 @@ export const listListings = query({
   },
 });
 
+export const listingsByIds = query({
+  args: { ids: v.array(v.id("listings")) },
+  handler: async (ctx, { ids }) => {
+    const out: any[] = [];
+    for (const id of ids) {
+      const l = await ctx.db.get(id);
+      if (l && l.active) out.push(card(l));
+    }
+    return out;
+  },
+});
+
 export const getListingBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {

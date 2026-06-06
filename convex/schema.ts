@@ -270,6 +270,7 @@ export default defineSchema({
     phone: v.optional(v.string()),
     address: v.optional(v.string()),
     marketingEmails: v.optional(v.boolean()),
+    favorites: v.optional(v.array(v.string())),
     createdAt: v.number(),
   }).index("by_email", ["email"]),
 

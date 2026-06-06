@@ -86,3 +86,35 @@ export const insertChunk = mutation({
     return { inserted: items.length };
   },
 });
+
+/** A logged-in customer leaves a verified review for one of their bookings. */
+export const submitNative = mutation({
+  args: { token: v.string(), bookingId: v.id("bookings"), rating: v.number(), text: v.string() },
+  handler: async (ctx, { token, bookingId, rating, text }) => {
+    const s = await ctx.db
+      .query("sessions")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .first();
+    const acct: any = s ? await ctx.db.get(s.accountId) : null;
+    if (!acct) throw new Error("Please sign in to review.");
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.guestEmail !== acct.email) throw new Error("Not your booking.");
+    if (rating < 1 || rating > 5) throw new Error("Rating must be 1-5.");
+    const dupe = (await ctx.db.query("reviews").collect()).some(
+      (r) => r.verifiedBookingId === bookingId,
+    );
+    if (dupe) throw new Error("You've already reviewed this booking.");
+    await ctx.db.insert("reviews", {
+      source: "native",
+      author: acct.name ?? acct.email.split("@")[0],
+      rating,
+      text: text.trim(),
+      product: b.lineItems[0]?.title,
+      listingId: b.lineItems[0]?.listingId,
+      verifiedBookingId: bookingId,
+      date: Date.now(),
+      published: true,
+    });
+    return { ok: true };
+  },
+});
