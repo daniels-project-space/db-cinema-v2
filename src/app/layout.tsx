@@ -24,6 +24,8 @@ export const metadata: Metadata = {
   title: "Db Cinema Rentals — Pro film & cinema gear, daily rates, delivered",
   description:
     "Rent professional cinema cameras, lenses, lighting, audio and drones. Daily, weekly and monthly rates with delivery across the UK.",
+  // pre-launch: don't index while in test mode
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({
@@ -32,6 +34,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
       <body className="font-sans antialiased bg-charcoal-950 text-white/90">
+        <div className="bg-amber-500/90 py-1 text-center text-[11px] font-medium text-black">
+          TEST MODE — demo only. No real payments are taken.
+        </div>
         <ConvexClientProvider>
           <AccountProvider>
             <CartProvider>
