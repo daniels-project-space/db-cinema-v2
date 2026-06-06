@@ -5,10 +5,14 @@ import { v } from "convex/values";
 /**
  * RMv2 availability/catalog bridge.
  *
- * RMv2 (hearty-oyster-600) is the source of truth. Its Convex allows anonymous
+ * RMv2 (hearty-oyster-600) is the source of truth and allows anonymous
  * /api/query, so the storefront pulls the dbcinema catalog directly — no RMv2
  * code change. `poll-hygglo` keeps `hygglo_products` (incl. unavailableDates)
  * fresh upstream; this job mirrors it into our own listings/inventory ledger.
+ *
+ * Images: sync only ever writes `sourceImages` (the imgix hotlinks). The R2
+ * migration owns `r2Images` and is NEVER touched here, so the 30-min cron can't
+ * undo a migration. Readers prefer r2Images and fall back to sourceImages.
  */
 const RMV2_URL = "https://hearty-oyster-600.convex.cloud";
 const ACCOUNT = "dbcinema";
@@ -29,13 +33,13 @@ async function rmv2Query(path: string, args: Record<string, unknown>) {
 const CATEGORY_RULES: [string, RegExp][] = [
   ["Cameras", /\b(camera|bmpcc|fx3|fx6|fx30|a7|a7s|a7iv|alexa|red\b|ursa|c70|c300|c200|pocket cinema|gh5|gh6|gh7|komodo|raptor|z\s?cam|s5|s1h|zv-?e)\b/i],
   ["Lenses", /\b(lens|lenses|sigma|samyang|24-70|70-200|16-35|50mm|35mm|85mm|24mm|18-?35|prime|zoom lens|ef\b|rf\b|e-?mount|cine lens|dzo|laowa)\b/i],
-  ["Lighting", /\b(light|lighting|aputure|godox|nanlite|amaran|led panel|softbox|hmi|fresnel|600d|300d|120d|forza|lantern|tube)\b/i],
-  ["Audio", /\b(mic|microphone|rode|røde|sennheiser|zoom h\d|recorder|wireless go|lav|lavalier|boom|deity|tascam|ntg|shotgun)\b/i],
+  ["Lighting", /\b(aputure|godox|nanlite|amaran|led panel|softbox|hmi|fresnel|600d|300d|120d|forza|light panel|key light|fill light)\b/i],
+  ["Audio", /\b(mic|microphone|rode|røde|sennheiser|zoom h\d|recorder|wireless go|lav|lavalier|boom|deity|tascam|ntg|shotgun|speaker|partybox)\b/i],
   ["Drones", /\b(drone|mavic|mini\s?\d|air\s?\d|fpv|avata|dji (air|mini|neo))\b/i],
   ["Stabilizers", /\b(gimbal|ronin|crane|stabilizer|dji rs|rs\s?\d|rsc|moza|zhiyun)\b/i],
   ["Monitors", /\b(monitor|atomos|ninja|shinobi|smallhd|director|feelworld)\b/i],
-  ["Power", /\b(battery|batteries|v-?mount|v-?lock|power|charger|np-?f|d-?tap)\b/i],
-  ["Grip", /\b(tripod|slider|dolly|clamp|magic arm|c-?stand|sandbag|mount|cage|rig|matte box|follow focus)\b/i],
+  ["Power", /\b(battery|batteries|v-?mount|v-?lock|charger|np-?f|d-?tap)\b/i],
+  ["Grip", /\b(tripod|slider|dolly|clamp|magic arm|c-?stand|sandbag|cage|rig|matte box|follow focus)\b/i],
 ];
 
 function deriveCategory(name: string): string {
@@ -43,17 +47,9 @@ function deriveCategory(name: string): string {
   return "Accessories";
 }
 
-function cleanTitle(name: string): string {
-  return name.replace(/\s+/g, " ").trim();
-}
-
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
+const cleanTitle = (name: string) => name.replace(/\s+/g, " ").trim();
+const slugify = (s: string) =>
+  s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 
 type RawProduct = {
   productId: number;
@@ -69,7 +65,6 @@ type RawProduct = {
   masterItemId?: string;
 };
 
-/** Pull dbcinema catalog from RMv2 and upsert listings + inventory units. */
 export const syncFromRmv2 = action({
   args: {},
   handler: async (ctx): Promise<{ listings: number; units: number }> => {
@@ -88,16 +83,16 @@ export const syncFromRmv2 = action({
 
     const payload = live.map((p) => {
       const prices = p.prices ?? [];
-      const pick = (d: number) =>
-        prices.find((x) => x.days === d)?.pricePerDay ??
-        prices.find((x) => x.days === d)?.price;
+      const pick = (d: number) => {
+        const row = prices.find((x) => x.days === d);
+        return row?.pricePerDay ?? row?.price;
+      };
       const daily = pick(1) ?? prices[0]?.pricePerDay ?? 0;
-      const images = (p.images ?? [])
+      const sourceImages = (p.images ?? [])
         .map((i) => i.fullSizeUrl ?? i.thumbnailUrl)
         .filter((u): u is string => !!u);
       const firstListing = (p.listings ?? [])[0];
       const title = cleanTitle(p.name!);
-      // unavailableDates: keep ISO strings; Hygglo sends strings or {from,to}
       const unavailable = (p.unavailableDates ?? []).map((d) =>
         typeof d === "string" ? d : JSON.stringify(d),
       );
@@ -108,12 +103,12 @@ export const syncFromRmv2 = action({
         slug: `${slugify(title)}-${p.productId}`,
         title,
         category: deriveCategory(title),
-        heroImageUrl: images[0],
-        gallery: images,
+        sourceImages,
         pricing: {
           daily,
           day3: pick(3),
           day7: pick(7),
+          day30: pick(30),
         },
         depositAmount: p.valuation ?? 0,
         replacementCost: p.valuation ?? 0,
@@ -138,12 +133,12 @@ export const applyCatalog = internalMutation({
         slug: v.string(),
         title: v.string(),
         category: v.string(),
-        heroImageUrl: v.optional(v.string()),
-        gallery: v.array(v.string()),
+        sourceImages: v.array(v.string()),
         pricing: v.object({
           daily: v.number(),
           day3: v.optional(v.number()),
           day7: v.optional(v.number()),
+          day30: v.optional(v.number()),
         }),
         depositAmount: v.number(),
         replacementCost: v.number(),
@@ -157,8 +152,6 @@ export const applyCatalog = internalMutation({
   handler: async (ctx, { items }) => {
     let unitCount = 0;
     let listingCount = 0;
-
-    // unit key = masterItemId when present, else the product itself
     const unitCache = new Map<string, string>();
 
     async function ensureUnit(
@@ -204,9 +197,7 @@ export const applyCatalog = internalMutation({
 
     for (const it of items) {
       const unitKey = it.masterItemId ?? `prod-${it.hyggloProductId}`;
-      const sku = it.masterItemId
-        ? `mi-${it.masterItemId}`
-        : `prod-${it.hyggloProductId}`;
+      const sku = it.masterItemId ? `mi-${it.masterItemId}` : `prod-${it.hyggloProductId}`;
       const unitId = await ensureUnit(
         unitKey,
         sku,
@@ -221,12 +212,13 @@ export const applyCatalog = internalMutation({
         .query("listings")
         .withIndex("by_slug", (q) => q.eq("slug", it.slug))
         .first();
-      const doc = {
+
+      // shared fields synced from RMv2 every run
+      const synced = {
         slug: it.slug,
         title: it.title,
         category: it.category,
-        heroImageR2Key: it.heroImageUrl, // hotlink for now; R2 migration later
-        gallery: it.gallery,
+        sourceImages: it.sourceImages,
         pricing: it.pricing,
         depositAmount: it.depositAmount,
         components: [{ inventoryUnitId: unitId as any, qty: 1 }],
@@ -237,10 +229,12 @@ export const applyCatalog = internalMutation({
         minimumRentalDays: it.minimumRentalDays,
         active: true,
       };
+
       if (existing) {
-        await ctx.db.patch(existing._id, doc);
+        // never overwrite r2Images here — the migration owns that field
+        await ctx.db.patch(existing._id, synced);
       } else {
-        await ctx.db.insert("listings", doc);
+        await ctx.db.insert("listings", synced);
         listingCount++;
       }
     }

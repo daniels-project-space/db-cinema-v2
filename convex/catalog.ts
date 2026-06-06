@@ -1,14 +1,20 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 
-/** Public catalog reads for the storefront. */
+/** Public catalog reads. heroImage/gallery prefer migrated R2 over source. */
 
-const PUBLIC_FIELDS = (l: any) => ({
+function images(l: any): string[] {
+  const r2 = l.r2Images ?? [];
+  if (r2.length) return r2;
+  return l.sourceImages ?? (l.gallery ?? []);
+}
+
+const card = (l: any) => ({
   _id: l._id,
   slug: l.slug,
   title: l.title,
   category: l.category,
-  heroImage: l.heroImageR2Key ?? null,
+  heroImage: images(l)[0] ?? null,
   pricing: l.pricing,
   depositAmount: l.depositAmount,
   minimumRentalDays: l.minimumRentalDays ?? 1,
@@ -39,7 +45,7 @@ export const listListings = query({
       rows = rows.filter((r) => r.title.toLowerCase().includes(s));
     }
     rows.sort((a, b) => a.title.localeCompare(b.title));
-    return rows.slice(0, limit ?? 120).map(PUBLIC_FIELDS);
+    return rows.slice(0, limit ?? 120).map(card);
   },
 });
 
@@ -56,8 +62,8 @@ export const getListingBySlug = query({
       slug: l.slug,
       title: l.title,
       category: l.category,
-      heroImage: l.heroImageR2Key ?? null,
-      gallery: l.gallery ?? [],
+      heroImage: images(l)[0] ?? null,
+      gallery: images(l),
       pricing: l.pricing,
       depositAmount: l.depositAmount,
       minimumRentalDays: l.minimumRentalDays ?? 1,
@@ -87,10 +93,9 @@ export const featured = query({
     const rows = await ctx.db
       .query("listings")
       .withIndex("by_active", (q) => q.eq("active", true))
-      .take(200);
-    // prefer ones with images, highest daily price (hero gear)
-    const withImg = rows.filter((r) => r.heroImageR2Key);
+      .take(300);
+    const withImg = rows.filter((r) => images(r).length > 0);
     withImg.sort((a, b) => (b.pricing?.daily ?? 0) - (a.pricing?.daily ?? 0));
-    return withImg.slice(0, limit ?? 12).map(PUBLIC_FIELDS);
+    return withImg.slice(0, limit ?? 12).map(card);
   },
 });
