@@ -147,6 +147,7 @@ export default defineSchema({
     stripePaymentIntentId: v.optional(v.string()),
     stripeDepositIntentId: v.optional(v.string()),
     idVerifyStatus: v.optional(v.string()),
+    depositRefunded: v.optional(v.boolean()),
     agreementSignedAt: v.optional(v.number()),
   })
     .index("by_customer", ["customerId"])

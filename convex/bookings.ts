@@ -1,5 +1,17 @@
-import { internalMutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
+
+function assertAdmin(token: string) {
+  if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+    throw new Error("unauthorized");
+  }
+}
 
 const lineItem = v.object({
   listingId: v.id("listings"),
@@ -84,7 +96,80 @@ export const confirm = internalMutation({
         });
       }
     }
+    await ctx.scheduler.runAfter(0, internal.notify.bookingAlert, { bookingId });
     return { already: false };
+  },
+});
+
+export const adminList = query({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+      return { authorized: false as const, items: [] };
+    }
+    const rows = await ctx.db.query("bookings").order("desc").take(100);
+    const items = rows.map((b) => ({
+      _id: b._id,
+      status: b.status,
+      guestEmail: b.guestEmail,
+      lineItems: b.lineItems,
+      fulfilment: b.fulfilment,
+      address: b.address,
+      subtotal: b.subtotal,
+      depositAmount: b.depositAmount,
+      total: b.total,
+      depositRefunded: b.depositRefunded ?? false,
+      at: b._creationTime,
+    }));
+    return { authorized: true as const, items };
+  },
+});
+
+export const adminSetStatus = mutation({
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    status: v.union(
+      v.literal("confirmed"),
+      v.literal("active"),
+      v.literal("returned"),
+      v.literal("cancelled"),
+    ),
+  },
+  handler: async (ctx, { token, bookingId, status }) => {
+    assertAdmin(token);
+    await ctx.db.patch(bookingId, { status });
+    // free the ledger when a booking ends
+    if (status === "returned" || status === "cancelled") {
+      const res = await ctx.db
+        .query("reservations")
+        .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
+        .collect();
+      for (const r of res)
+        await ctx.db.patch(r._id, {
+          status: status === "returned" ? "returned" : "cancelled",
+        });
+    }
+  },
+});
+
+export const getForRefund = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    return {
+      paymentIntentId: b.stripePaymentIntentId ?? null,
+      depositAmount: b.depositAmount,
+      depositRefunded: b.depositRefunded ?? false,
+    };
+  },
+});
+
+export const markDepositRefunded = internalMutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    await ctx.db.patch(bookingId, { depositRefunded: true });
   },
 });
 

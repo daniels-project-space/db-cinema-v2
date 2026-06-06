@@ -124,6 +124,27 @@ export const start = action({
   },
 });
 
+export const refundDeposit = action({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }): Promise<{ refunded: boolean }> => {
+    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+      throw new Error("unauthorized");
+    }
+    const b: any = await ctx.runQuery(internal.bookings.getForRefund, {
+      bookingId,
+    });
+    if (!b || !b.paymentIntentId || b.depositRefunded || b.depositAmount <= 0) {
+      return { refunded: false };
+    }
+    await stripe().refunds.create({
+      payment_intent: b.paymentIntentId,
+      amount: pence(b.depositAmount),
+    });
+    await ctx.runMutation(internal.bookings.markDepositRefunded, { bookingId });
+    return { refunded: true };
+  },
+});
+
 export const finalize = action({
   args: { sessionId: v.string() },
   handler: async (

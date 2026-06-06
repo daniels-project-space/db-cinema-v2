@@ -12,7 +12,9 @@ import type * as availability from "../availability.js";
 import type * as bookings from "../bookings.js";
 import type * as catalog from "../catalog.js";
 import type * as checkout from "../checkout.js";
+import type * as contact from "../contact.js";
 import type * as crons from "../crons.js";
+import type * as notify from "../notify.js";
 import type * as reviews from "../reviews.js";
 import type * as sync from "../sync.js";
 
@@ -27,7 +29,9 @@ declare const fullApi: ApiFromModules<{
   bookings: typeof bookings;
   catalog: typeof catalog;
   checkout: typeof checkout;
+  contact: typeof contact;
   crons: typeof crons;
+  notify: typeof notify;
   reviews: typeof reviews;
   sync: typeof sync;
 }>;
