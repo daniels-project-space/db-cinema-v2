@@ -43,13 +43,22 @@ export function BookingPanel({
 
   const startMs = start ? Date.parse(start + "T00:00:00Z") : 0;
   const endMs = end ? Date.parse(end + "T00:00:00Z") : 0;
-  const avail = useQuery(
-    api.availability.forListing,
-    start && end ? { listingId: listing._id as any, start: startMs, end: endMs } : "skip",
+  const msOf = (iso: string) => Date.parse(iso + "T00:00:00Z");
+  // evaluate the PROSPECTIVE cart (everything already in the kit + one more of
+  // this listing) so shared physical units across different bundles are counted
+  const prospective =
+    start && end
+      ? [
+          ...cart.items.map((i) => ({ listingId: i.listingId as any, start: msOf(i.start), end: msOf(i.end) })),
+          { listingId: listing._id as any, start: startMs, end: endMs },
+        ]
+      : [];
+  const fit = useQuery(
+    api.availability.forCart,
+    start && end ? { items: prospective } : "skip",
   );
-  const inKit = cart.items.filter((i) => i.listingId === listing._id).length;
-  const remaining = avail ? Math.max(0, avail.available - inKit) : 0;
-  const canAdd = !!(start && end && q && remaining > 0);
+  const cand: any = fit ? (fit as any)[listing._id] : undefined;
+  const canAdd = !!(start && end && q && cand?.ok);
 
   function addToKit() {
     if (!canAdd || !q || !start || !end) return;
@@ -119,20 +128,18 @@ export function BookingPanel({
           </div>
         )}
 
-        {/* availability (quantity-aware) */}
+        {/* availability (unit-aware, whole-cart) */}
         {start && end && (
           <div className="mt-3 text-center text-xs">
-            {avail === undefined ? (
+            {fit === undefined ? (
               <span className="text-white/30">Checking availability…</span>
-            ) : avail.available === 0 ? (
+            ) : cand?.ok ? (
+              <span className="text-emerald-300">✓ Available for these dates</span>
+            ) : cand && cand.available === 0 ? (
               <span className="text-red-300">✕ Not available for these dates</span>
-            ) : remaining > 0 ? (
-              <span className="text-emerald-300">
-                ✓ Available — {remaining} left{inKit > 0 ? ` (${inKit} in your kit)` : ""}
-              </span>
             ) : (
               <span className="text-amber-300">
-                All {avail.available} already in your kit
+                ✕ That exceeds our stock — you've already got the max in your kit
               </span>
             )}
           </div>
@@ -143,7 +150,7 @@ export function BookingPanel({
           disabled={!canAdd}
           className="mt-5 w-full rounded-full bg-accent-500 py-3 font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-30"
         >
-          {remaining <= 0 && start && end && avail && avail.available > 0 ? "Max in kit" : "Add to kit"}
+          {start && end && cand && !cand.ok && cand.available > 0 ? "Max in kit" : "Add to kit"}
         </button>
       </div>
     </div>
