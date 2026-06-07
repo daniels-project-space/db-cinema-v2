@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     const out: any = res?.object ?? res?.structuredOutput ?? null;
     const reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
     const cards = out ? await buildCards(c, out) : [];
-    return NextResponse.json({ reply, cards });
+    return NextResponse.json({ reply, cards, _dbg: { hasObj: !!out, start: out?.start, end: out?.end, props: out?.proposals?.length ?? null, swaps: out?.swaps?.length ?? null } });
   } catch {
     return NextResponse.json({
       reply: "Sorry, I'm having a moment — please try again, or reach us via the contact page.",
