@@ -53,6 +53,72 @@ export function deriveItemType(name: string): ItemType {
   return "accessory";
 }
 
+// ── hard spec inference (mount, filter thread, battery, bundle) ────
+export type Specs = {
+  mount: string | null; // E | RF | EF | PL | MFT | fixed | null
+  filterThreadMm: number | null;
+  batteryType: string | null; // NP-FZ100 | LP-E6 | V-mount | NP-F | action
+  includesLens: boolean;
+  lensFocal: string | null; // "28-70"
+  tier: string | null; // premium | standard (lenses)
+};
+
+export function mountOf(title: string): string | null {
+  const t = title.toLowerCase();
+  const any = (...k: string[]) => k.some((x) => t.includes(x));
+  if (any("gopro", "osmo action", "insta360", "action 4", "action 5", "action4", "action5", "osmo pocket", "pocket 3")) return "fixed";
+  if (any("mft", "m4/3", "micro four", "gh5", "gh6", "gh7", "bmpcc 4k", "pocket 4k")) return "MFT";
+  if (any("komodo", "raptor")) return "RF";
+  if (any(" rf", "rf ", "r5", "r6", "r3", "r8", "canon r")) return "RF";
+  if (any("pl mount", " pl ", "arri", "alexa", "amira")) return "PL";
+  if (any("bmpcc", "pocket cinema", "6k pro", "6k g2")) return "EF";
+  if (any(" ef", "ef ", "ef-", "canon ef")) return "EF";
+  if (any("sony", "fx3", "fx6", "fx9", "fx30", "a7", "a1", "a9", "burano", " fe ", "gm", "g master", "e-mount", "emount", "sigma e", "tamron e")) return "E";
+  return null;
+}
+
+export function deriveSpecs(title: string, itemType: ItemType): Specs {
+  const t = title.toLowerCase();
+  const has = (re: RegExp) => re.test(t);
+  const mount = itemType === "camera-body" || itemType === "lens" ? mountOf(title) : null;
+
+  let filterThreadMm: number | null = null;
+  if (itemType === "nd-filter") {
+    const m = t.match(/(\d{2})\s?(?:mm|and|\/)/);
+    if (m) filterThreadMm = +m[1];
+  } else if (itemType === "lens") {
+    const ex = t.match(/(\d{2,3})\s?mm\s?(?:filter|thread|front)/);
+    if (ex) filterThreadMm = +ex[1];
+    else if (has(/g master|gm\b|24-70.*2\.8|16-35.*2\.8/)) filterThreadMm = 82;
+    else if (has(/24-105/)) filterThreadMm = 77;
+    else if (has(/70-200/)) filterThreadMm = 77;
+    else if (has(/28-70/)) filterThreadMm = 67;
+    else if (has(/16-35(?!.*(gm|g master))/)) filterThreadMm = 72;
+    else if (has(/85mm|50mm|35mm/)) filterThreadMm = 67;
+  }
+
+  let batteryType: string | null = null;
+  if (itemType === "camera-body") {
+    if (has(/fx6|fx9|c300|c500|alexa|amira|ursa|komodo|raptor|burano/)) batteryType = "V-mount";
+    else if (has(/gopro|osmo action|insta360/)) batteryType = "action";
+    else if (has(/sony|fx3|fx30|a7|a1\b|a9\b|zv-?e/)) batteryType = "NP-FZ100";
+    else if (has(/canon r|r5|r6|r3|r8|c70/)) batteryType = "LP-E6";
+    else if (has(/bmpcc|pocket cinema/)) batteryType = "NP-F/LP-E6";
+    else if (has(/gh5|gh6|gh7|s1h|s5|lumix/)) batteryType = "DMW-BLK22";
+  } else if (itemType === "battery") {
+    if (has(/np-?fz100|fz100/)) batteryType = "NP-FZ100";
+    else if (has(/lp-?e6|lpe6/)) batteryType = "LP-E6";
+    else if (has(/v-?mount|v-?lock/)) batteryType = "V-mount";
+    else if (has(/np-?f\b|npf|np-?970|np-?750/)) batteryType = "NP-F";
+  }
+
+  const includesLens = itemType === "camera-body" && has(/\d{2}-\d{2,3}\s?mm|\bmm lens|with lens|\+\s?[a-z0-9 ]*lens/);
+  const lensFocal = (t.match(/(\d{2}-\d{2,3})\s?mm/) || [])[1] || null;
+  const tier = itemType === "lens" ? (has(/gm\b|g master|master|cine|cooke|anamorphic/) ? "premium" : "standard") : null;
+
+  return { mount, filterThreadMm, batteryType, includesLens, lensFocal, tier };
+}
+
 // Delivery size/weight per itemType — grounded in v1 delivery-specs size_score
 // system (1 XS … 5 XL). Used to pick courier vehicle + quote.
 export const DELIVERY_BY_TYPE: Record<ItemType, { sizeScore: number; weightKg: number }> = {

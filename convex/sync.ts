@@ -1,7 +1,7 @@
 import { action, internalMutation, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { deriveItemType, DELIVERY_BY_TYPE } from "./lib/taxonomy";
+import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE } from "./lib/taxonomy";
 
 /**
  * RMv2 availability/catalog bridge.
@@ -378,5 +378,27 @@ export const reclassify = mutation({
       }
     }
     return { updated: n, total: ls.length };
+  },
+});
+
+
+export const respec = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const ls = await ctx.db.query("listings").collect();
+    let n = 0;
+    for (const l of ls) {
+      const it = ((l as any).itemType || deriveItemType(l.title)) as any;
+      const sp = deriveSpecs(l.title, it);
+      const clean: any = { includesLens: sp.includesLens };
+      if (sp.mount) clean.mount = sp.mount;
+      if (sp.filterThreadMm) clean.filterThreadMm = sp.filterThreadMm;
+      if (sp.batteryType) clean.batteryType = sp.batteryType;
+      if (sp.lensFocal) clean.lensFocal = sp.lensFocal;
+      if (sp.tier) clean.tier = sp.tier;
+      await ctx.db.patch(l._id, { specs: clean });
+      n++;
+    }
+    return { respecced: n };
   },
 });

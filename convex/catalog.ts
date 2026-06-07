@@ -15,6 +15,7 @@ const card = (l: any) => ({
   title: l.title,
   category: l.category,
   itemType: l.itemType ?? null,
+  specs: l.specs ?? null,
   heroImage: images(l)[0] ?? null,
   pricing: l.pricing,
   depositAmount: l.depositAmount,

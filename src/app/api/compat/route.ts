@@ -1,87 +1,108 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { generateObject } from "ai";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
 
 export const maxDuration = 60;
 const msOf = (d: string) => { const t = Date.parse(/T/.test(d) ? d : d + "T00:00:00Z"); return Number.isNaN(t) ? 0 : t; };
-
-const SCHEMA = z.object({
-  warnings: z.array(z.object({
-    level: z.enum(["error", "warn", "info"]),
-    text: z.string(),
-  })),
-  upgrades: z.array(z.object({
-    replace: z.string().describe("the lesser item in the kit being upgraded from"),
-    toQuery: z.string().describe("short search phrase for the better item, e.g. 'Sony 24-70mm GM'"),
-    reason: z.string(),
-  })),
-});
+const FOCAL_THREAD: Record<string, number> = { "28-70": 67, "24-70": 82, "16-35": 72, "24-105": 77, "70-200": 77, "24-240": 67 };
+const battOk = (camBatt: string, batt: string) =>
+  camBatt === batt || camBatt.includes(batt) || batt.includes(camBatt);
 
 export async function POST(req: NextRequest) {
-  if (!process.env.OPENROUTER_API_KEY) return NextResponse.json({ warnings: [], upgrades: [] });
   const b: any = await req.json().catch(() => ({}));
   const items: any[] = b.items || [];
   if (items.length === 0) return NextResponse.json({ warnings: [], upgrades: [] });
+  const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
-  const list = items.map((i) => `- ${i.title} (£${i.total ?? "?"})`).join("\n");
-  let out: any = { warnings: [], upgrades: [] };
-  try {
-    const or = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
-    const { object } = await generateObject({
-      model: or(process.env.BOT_MODEL || "deepseek/deepseek-chat") as any,
-      schema: SCHEMA,
-      prompt: `You are a meticulous cinema-gear rental compatibility expert at Db Cinema (London). Analyse the customer's current KIT and flag ONLY real problems and genuine upgrade opportunities. Reason carefully about:
+  const ids = items.map((i) => i.listingId).filter(Boolean);
+  let cards: any[] = [];
+  try { cards = await c.query(api.catalog.listingsByIds, { ids: ids as any }); } catch {}
+  const specOf = new Map(cards.map((cd) => [cd._id, cd]));
+  const days = items[0]?.start && items[0]?.end ? Math.max(1, Math.round((msOf(items[0].end) - msOf(items[0].start)) / 86400000) + 1) : 1;
 
-1) REDUNDANCY / basket awareness: many camera listings are BUNDLES whose title already INCLUDES a lens (e.g. "Sony a7III + 28-70mm"). If the kit has such a camera AND a separate lens, warn that the camera already includes a lens (name it) — the extra lens is a second lens, not required.
-2) LENS MOUNT vs camera mount (Sony E, Canon RF, EF, MFT, PL). Action cameras (GoPro/Osmo Action) take no interchangeable lenses.
-3) ND FILTER THREAD: an ND filter has a thread size (mm). It must match the lens FRONT filter thread or need a step-ring. Infer typical threads: Sony 28-70 kit ≈ 67mm; Sony 24-70 GM / 16-35 GM ≈ 82mm; 24-105 ≈ 77mm. If the ND size ≠ the kit lens thread and no adapter, warn it won't fit.
-4) BATTERY type vs camera: e.g. Sony mirrorless use NP-FZ100; Canon R use LP-E6; cine cameras use V-mount. If a battery clearly won't power the camera in the kit, warn.
-5) UPGRADES: if the kit's lens is a standard/kit zoom (e.g. 28-70), offer a premium upgrade (e.g. Sony 24-70mm GM, 16-35mm GM) via toQuery.
+  // enrich cart items with itemType + specs + perDay
+  const kit = items.map((i) => {
+    const cd: any = specOf.get(i.listingId) || {};
+    return { ...i, itemType: cd.itemType ?? null, specs: cd.specs ?? {}, perDay: i.total ? Math.round(i.total / days) : null };
+  });
+  const cameras = kit.filter((x) => x.itemType === "camera-body");
+  const lenses = kit.filter((x) => x.itemType === "lens");
+  const nds = kit.filter((x) => x.itemType === "nd-filter");
+  const batteries = kit.filter((x) => x.itemType === "battery");
+  const warnings: any[] = [];
 
-Be specific (name the items). Only flag REAL issues — return empty arrays if the kit is fine. Keep each warning to one sentence.
+  // 1) redundant lens — camera bundle already includes a lens
+  for (const cam of cameras)
+    if (cam.specs.includesLens && lenses.length)
+      warnings.push({ level: "info", text: `Your ${cam.title.slice(0, 34)} already includes a ${cam.specs.lensFocal || "kit"}mm lens — the ${lenses[0].title.slice(0, 28)} would be a second lens.` });
 
-KIT:
-${list}`,
-    });
-    out = object;
-  } catch {
-    out = { warnings: [], upgrades: [] };
+  // 2) lens mount vs camera
+  const camMounts = cameras.map((c) => c.specs.mount).filter(Boolean);
+  const actionOnly = cameras.length > 0 && cameras.every((c) => c.specs.mount === "fixed");
+  if (actionOnly && lenses.length)
+    warnings.push({ level: "error", text: `Your action camera has a fixed lens — separate lenses won't attach.` });
+  for (const l of lenses) {
+    const lm = l.specs.mount;
+    if (!lm || camMounts.length === 0 || actionOnly) continue;
+    if (camMounts.includes(lm)) continue;
+    if (lm === "EF" && camMounts.some((m) => m === "E" || m === "RF"))
+      warnings.push({ level: "warn", text: `${l.title.slice(0, 30)} is EF mount — needs an EF→${camMounts[0]} adapter for your camera.` });
+    else
+      warnings.push({ level: "error", text: `${l.title.slice(0, 30)} (${lm} mount) doesn't fit your ${camMounts[0]}-mount camera.` });
   }
 
-  // resolve upgrade suggestions to real, available lens listings (using the kit's dates)
-  const start = items[0]?.start, end = items[0]?.end;
-  let upgradeCards: any[] = [];
-  if (start && end && (out.upgrades || []).length) {
-    const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
-    const lenses: any[] = await c.query(api.catalog.byItemType, { types: ["lens"] });
-    const days = Math.max(1, Math.round((msOf(end) - msOf(start)) / 86400000) + 1);
-    const have = new Set(items.map((i) => i.listingId));
-    for (const u of out.upgrades.slice(0, 3)) {
-      const toks = (u.toQuery || "").toLowerCase().match(/[a-z0-9.\-]{2,}/g) || [];
-      let best: any = null, score = 0;
-      for (const l of lenses) {
-        if (have.has(l._id)) continue;
-        const t = l.title.toLowerCase();
-        const s = toks.reduce((n: number, k: string) => n + (t.includes(k) ? 1 : 0), 0);
-        if (s > score) { score = s; best = l; }
-      }
-      if (best && score > 0) {
-        const av: any = await c.query(api.availability.forListing, { listingId: best._id, start: msOf(start), end: msOf(end) });
-        if ((av?.available ?? 0) > 0) {
-          const q: any = quote(best.pricing, days);
-          upgradeCards.push({
-            listingId: best._id, slug: best.slug, title: best.title, image: best.heroImage ?? null,
-            start, end, days, perDay: q.perDay, total: q.total, deposit: best.depositAmount ?? 0,
-            reason: u.reason, replace: u.replace,
-          });
-        }
-      }
+  // 3) ND thread vs lens / kit-lens thread
+  const lensThreads = lenses.map((l) => l.specs.filterThreadMm).filter(Boolean);
+  for (const cam of cameras) if (cam.specs.includesLens && cam.specs.lensFocal && FOCAL_THREAD[cam.specs.lensFocal]) lensThreads.push(FOCAL_THREAD[cam.specs.lensFocal]);
+  for (const nd of nds) {
+    const ndT = nd.specs.filterThreadMm;
+    if (ndT && lensThreads.length && !lensThreads.includes(ndT))
+      warnings.push({ level: "warn", text: `The ${ndT}mm ${nd.title.slice(0, 20)} won't fit your lens (Ø${[...new Set(lensThreads)].join("/")}mm) — no step-ring available.` });
+  }
+
+  // 4) battery vs camera
+  const camBatts = cameras.map((c) => c.specs.batteryType).filter(Boolean);
+  for (const bat of batteries) {
+    const bt = bat.specs.batteryType;
+    if (bt && camBatts.length && !camBatts.some((cb) => battOk(cb, bt)))
+      warnings.push({ level: "error", text: `The ${bat.title.slice(0, 26)} (${bt}) won't power your camera (needs ${camBatts[0]}).` });
+  }
+
+  // ── upgrades: swap a standard lens (or kit lens) for a premium (GM), priced as the difference ──
+  const upgrades: any[] = [];
+  const wantsUpgrade = lenses.some((l) => l.specs.tier !== "premium") || cameras.some((c) => c.specs.includesLens);
+  if (wantsUpgrade && items[0]?.start && items[0]?.end) {
+    const replaced = lenses.find((l) => l.specs.tier !== "premium") || null;
+    const allLenses: any[] = await c.query(api.catalog.byItemType, { types: ["lens"] });
+    const candidates = allLenses
+      .filter((l) => l.specs?.tier === "premium" && !ids.includes(l._id))
+      .filter((l) => camMounts.length === 0 || !l.specs?.mount || camMounts.includes(l.specs.mount) || (l.specs.mount === "EF"));
+    // prefer a GM zoom matching the kit focal
+    const kitFocal = replaced?.specs?.lensFocal || cameras.find((c) => c.specs.includesLens)?.specs?.lensFocal;
+    candidates.sort((a, z) => {
+      const am = kitFocal && a.title.includes(kitFocal) ? 0 : 1;
+      const zm = kitFocal && z.title.includes(kitFocal) ? 0 : 1;
+      const ag = /gm|g master/i.test(a.title) ? 0 : 1;
+      const zg = /gm|g master/i.test(z.title) ? 0 : 1;
+      return am - zm || ag - zg;
+    });
+    for (const cand of candidates.slice(0, 2)) {
+      const av: any = await c.query(api.availability.forListing, { listingId: cand._id, start: msOf(items[0].start), end: msOf(items[0].end) });
+      if ((av?.available ?? 0) <= 0) continue;
+      const q: any = quote(cand.pricing, days);
+      const diffPerDay = replaced?.perDay ? Math.max(0, q.perDay - replaced.perDay) : q.perDay;
+      upgrades.push({
+        listingId: cand._id, slug: cand.slug, title: cand.title, image: cand.heroImage ?? null,
+        start: items[0].start, end: items[0].end, days, perDay: q.perDay, total: q.total, deposit: cand.depositAmount ?? 0,
+        replaceListingId: replaced?.listingId ?? null,
+        replaceTitle: replaced?.title ?? null,
+        diffPerDay,
+        reason: replaced ? `Upgrade from ${replaced.title.slice(0, 24)} to pro GM glass` : "Premium GM upgrade over your kit lens",
+      });
+      break;
     }
   }
 
-  return NextResponse.json({ warnings: out.warnings || [], upgrades: upgradeCards });
+  return NextResponse.json({ warnings, upgrades });
 }

@@ -52,21 +52,29 @@ export function KitCompatibility() {
         <div className="mt-3">
           <div className="mb-2 text-[11px] uppercase tracking-wide text-white/40">Suggested upgrades</div>
           <div className="flex gap-3 overflow-x-auto pb-1">
-            {data.upgrades.map((u: any) => (
-              <div key={u.listingId} className="flex w-64 shrink-0 gap-3 rounded-xl border border-amber-400/30 bg-amber-500/[0.05] p-2">
-                {u.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={u.image} alt="" className="h-14 w-14 rounded object-cover" />}
-                <div className="min-w-0 flex-1">
-                  <div className="line-clamp-2 text-xs font-medium text-white/85">{u.title}</div>
-                  <div className="text-[11px] text-white/45">£{u.total} · {u.days}d</div>
-                  <button
-                    onClick={() => cart.add({ listingId: u.listingId, slug: u.slug, title: u.title, heroImage: u.image ?? null, start: u.start, end: u.end, days: u.days, perDay: u.perDay, total: u.total, deposit: u.deposit ?? 0 })}
-                    className="press mt-1 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-medium text-black hover:bg-amber-300"
-                  >
-                    Add upgrade
-                  </button>
+            {data.upgrades.map((u: any) => {
+              const add = () =>
+                cart.add({ listingId: u.listingId, slug: u.slug, title: u.title, heroImage: u.image ?? null, start: u.start, end: u.end, days: u.days, perDay: u.perDay, total: u.total, deposit: u.deposit ?? 0 });
+              const isSwap = !!u.replaceListingId;
+              const swap = () => {
+                const hit = cart.items.find((i) => i.listingId === u.replaceListingId);
+                if (hit) cart.remove(hit.key);
+                add();
+              };
+              return (
+                <div key={u.listingId} className="flex w-64 shrink-0 gap-3 rounded-xl border border-amber-400/30 bg-amber-500/[0.05] p-2">
+                  {u.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={u.image} alt="" className="h-14 w-14 rounded object-cover" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="line-clamp-2 text-xs font-medium text-white/85">{u.title}</div>
+                    <div className="text-[11px] font-medium text-amber-300">{isSwap ? `+£${u.diffPerDay}/day vs your lens` : `£${u.total} · ${u.days}d`}</div>
+                    <div className="line-clamp-1 text-[10px] text-white/35">{u.reason}</div>
+                    <button onClick={isSwap ? swap : add} className="press mt-1 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-medium text-black hover:bg-amber-300">
+                      {isSwap ? "Swap to this" : "Add upgrade"}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
