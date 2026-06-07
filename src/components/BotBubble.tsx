@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useAccount } from "@/components/account/AccountProvider";
 
 type Msg = { role: "user" | "assistant"; content: string };
 const GREETING =
@@ -12,6 +13,7 @@ export function BotBubble() {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const account = useAccount();
 
   useEffect(() => {
     const raw = localStorage.getItem("dbc_bot");
@@ -33,7 +35,7 @@ export function BotBubble() {
       const r = await fetch("/api/bot", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: next }),
+        body: JSON.stringify({ messages: next, token: account.token ?? undefined }),
       });
       const d = await r.json();
       setMsgs((m) => [...m, { role: "assistant", content: d.reply || "…" }]);
