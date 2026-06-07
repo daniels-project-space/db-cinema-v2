@@ -8,6 +8,7 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
 import { IdVerify } from "@/components/IdVerify";
+import { tierByKey } from "@/lib/membership";
 
 function SuccessInner() {
   const params = useSearchParams();
@@ -19,6 +20,7 @@ function SuccessInner() {
     "working",
   );
   const [bookingId, setBookingId] = useState<string | null>(null);
+  const [membership, setMembership] = useState<string | null>(null);
   const ran = useRef(false);
 
   useEffect(() => {
@@ -28,8 +30,9 @@ function SuccessInner() {
       .then((r) => {
         if (r.paid) {
           setBookingId(r.bookingId);
+          setMembership((r as any).membership ?? null);
           setState("paid");
-          clear();
+          if (!(r as any).membership) clear();
         } else {
           setState("unpaid");
         }
@@ -45,17 +48,36 @@ function SuccessInner() {
   if (!sessionId)
     return <Msg title="No session" body="Missing checkout session." />;
   if (state === "working")
-    return <Msg title="Confirming your booking…" body="One moment." />;
+    return <Msg title="Confirming…" body="One moment." />;
   if (state === "unpaid")
     return (
-      <Msg
-        title="Payment not completed"
-        body="Your card was not charged."
-        cta
-      />
+      <Msg title="Payment not completed" body="Your card was not charged." cta />
     );
   if (state === "error")
     return <Msg title="Something went wrong" body="Please contact us." cta />;
+
+  // membership subscription confirmation
+  if (membership) {
+    const t = tierByKey(membership);
+    return (
+      <div className="mx-auto max-w-2xl px-6 py-16 text-center">
+        <div className="text-5xl">🎟️</div>
+        <h1 className="mt-4 font-display text-3xl font-bold text-white/90">
+          Welcome to <span className="gradient-text">{t?.name ?? "membership"}</span>
+        </h1>
+        <p className="mt-2 text-white/40">
+          {t ? `${t.pct}% off every rental` : "Your membership"} is now active
+          {t?.freeDelivery ? " — plus free local delivery." : "."}
+        </p>
+        <Link
+          href="/gear"
+          className="mt-8 inline-block rounded-full bg-accent-500 px-7 py-3 font-medium text-white transition-colors hover:bg-accent-600"
+        >
+          Start saving
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-16 text-center">

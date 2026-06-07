@@ -19,6 +19,7 @@ import type * as contact from "../contact.js";
 import type * as crons from "../crons.js";
 import type * as delivery from "../delivery.js";
 import type * as identity from "../identity.js";
+import type * as lib_membership from "../lib/membership.js";
 import type * as lib_pricing from "../lib/pricing.js";
 import type * as lib_taxonomy from "../lib/taxonomy.js";
 import type * as notify from "../notify.js";
@@ -47,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   delivery: typeof delivery;
   identity: typeof identity;
+  "lib/membership": typeof lib_membership;
   "lib/pricing": typeof lib_pricing;
   "lib/taxonomy": typeof lib_taxonomy;
   notify: typeof notify;

@@ -20,6 +20,8 @@ type Me = {
   marketingEmails: boolean;
   favorites: string[];
   idVerified: boolean;
+  membershipTier: string | null;
+  membershipActive: boolean;
 } | null;
 
 type AccountCtx = {

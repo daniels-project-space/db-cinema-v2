@@ -129,7 +129,25 @@ export const me = query({
       marketingEmails: a.marketingEmails ?? false,
       favorites: (a.favorites ?? []) as string[],
       idVerified: a.idVerified ?? false,
+      membershipTier: a.membershipTier ?? null,
+      membershipActive: a.membershipActive ?? false,
     };
+  },
+});
+
+export const _setMembership = internalMutation({
+  args: { email: v.string(), tier: v.string(), subscriptionId: v.optional(v.string()) },
+  handler: async (ctx, { email, tier, subscriptionId }) => {
+    const a = await ctx.db
+      .query("accounts")
+      .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
+      .first();
+    if (a)
+      await ctx.db.patch(a._id, {
+        membershipTier: tier,
+        membershipActive: true,
+        stripeSubscriptionId: subscriptionId,
+      });
   },
 });
 

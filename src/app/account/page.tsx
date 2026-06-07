@@ -9,6 +9,7 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { IdVerify } from "@/components/IdVerify";
 import { GearCard } from "@/components/GearCard";
 import { RenterChat } from "@/components/RenterChat";
+import { tierByKey } from "@/lib/membership";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -145,6 +146,9 @@ function Dashboard() {
           </button>
         </div>
       </section>
+
+      {/* membership */}
+      <Membership />
 
       {/* security */}
       <AccountSecurity />
@@ -337,6 +341,54 @@ function AccountSecurity() {
           </div>
         )}
       </div>
+    </section>
+  );
+}
+
+function Membership() {
+  const account = useAccount();
+  const portal = useAction(api.checkout.billingPortal);
+  const [busy, setBusy] = useState(false);
+  const tier = account.me?.membershipActive ? tierByKey(account.me.membershipTier) : null;
+
+  async function manage() {
+    setBusy(true);
+    try {
+      const { url } = await portal({ token: account.token!, origin: window.location.origin });
+      window.location.href = url;
+    } catch {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-8 rounded-2xl glass gradient-border p-5">
+      <h2 className="font-display font-semibold text-white/80">Membership</h2>
+      {tier ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-white/60">
+            You're on <span className="font-medium text-accent-300">{tier.name}</span> —{" "}
+            {tier.pct}% off every rental{tier.freeDelivery ? " + free delivery" : ""}.
+          </div>
+          <button
+            onClick={manage}
+            disabled={busy}
+            className="rounded-full glass px-4 py-2 text-sm text-white/70 hover:text-white disabled:opacity-40"
+          >
+            {busy ? "…" : "Manage membership"}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-white/50">Save up to 30% on every rental with a membership.</div>
+          <Link
+            href="/membership"
+            className="rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white hover:bg-accent-600"
+          >
+            View plans
+          </Link>
+        </div>
+      )}
     </section>
   );
 }

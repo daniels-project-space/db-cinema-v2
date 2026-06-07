@@ -275,6 +275,9 @@ export default defineSchema({
     favorites: v.optional(v.array(v.string())),
     idVerified: v.optional(v.boolean()),
     stripeCustomerId: v.optional(v.string()),
+    membershipTier: v.optional(v.string()),
+    membershipActive: v.optional(v.boolean()),
+    stripeSubscriptionId: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_email", ["email"]),
 

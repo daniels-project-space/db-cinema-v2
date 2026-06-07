@@ -27,6 +27,7 @@ export function SiteHeader() {
         </Link>
         <nav className="flex items-center gap-4 text-sm sm:gap-5">
           <Link href="/gear" className={`transition-colors ${linkBase}`}>Gear</Link>
+          <Link href="/membership" className={`hidden transition-colors sm:inline ${linkBase}`}>Membership</Link>
           <Link href="/how-it-works" className={`hidden transition-colors sm:inline ${linkBase}`}>How it works</Link>
           <Link href="/about" className={`hidden transition-colors sm:inline ${linkBase}`}>About</Link>
 

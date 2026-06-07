@@ -5,6 +5,7 @@ import { action } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 import { depositFor } from "./lib/pricing";
+import { tierByKey } from "./lib/membership";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 
@@ -107,15 +108,24 @@ export const start = action({
       }
     }
     const reminderDiscount = acct?.marketingEmails ? Math.round(eligible * 0.05) : 0;
+    const member = acct?.membershipActive ? tierByKey(acct.membershipTier) : null;
+    const memberDiscount = member ? Math.round(eligible * (member.pct / 100)) : 0;
     let discount = promoDiscount;
     let discountLabel = appliedCode?.toUpperCase();
-    if (reminderDiscount > promoDiscount) {
+    if (reminderDiscount > discount) {
       discount = reminderDiscount;
       discountLabel = "Reminder member −5%";
       appliedCode = undefined;
     }
+    if (memberDiscount > discount) {
+      discount = memberDiscount;
+      discountLabel = `${member!.name} member −${member!.pct}%`;
+      appliedCode = undefined;
+    }
 
-    const total = subtotal + a.deliveryFee + depositAmount - discount;
+    // members on Pro/Studio get free local delivery
+    const deliveryFee = member?.freeDelivery && a.fulfilment === "delivery" ? 0 : a.deliveryFee;
+    const total = subtotal + deliveryFee + depositAmount - discount;
 
     const bookingId = await ctx.runMutation(internal.bookings.createPending, {
       customerEmail: a.customer.email,
@@ -123,7 +133,7 @@ export const start = action({
       phone: a.customer.phone,
       fulfilment: a.fulfilment,
       address: a.address,
-      deliveryFee: a.deliveryFee,
+      deliveryFee,
       lineItems: a.items.map((i) => ({
         listingId: i.listingId,
         title: i.title,
@@ -162,12 +172,12 @@ export const start = action({
         },
       }),
     );
-    if (a.deliveryFee > 0) {
+    if (deliveryFee > 0) {
       line_items.push({
         quantity: 1,
         price_data: {
           currency: "gbp",
-          unit_amount: pence(a.deliveryFee),
+          unit_amount: pence(deliveryFee),
           product_data: { name: "Local delivery" },
         },
       });
@@ -287,6 +297,69 @@ export const startAddon = action({
   },
 });
 
+async function ensurePrice(sb: Stripe, tier: { key: string; name: string; monthlyGbp: number }) {
+  const lookup = `dbc_member_${tier.key}`;
+  const existing = await sb.prices.list({ lookup_keys: [lookup], active: true, limit: 1 });
+  if (existing.data[0]) return existing.data[0].id;
+  const product = await sb.products.create({ name: `Db Cinema ${tier.name} membership` });
+  const price = await sb.prices.create({
+    product: product.id,
+    unit_amount: pence(tier.monthlyGbp),
+    currency: "gbp",
+    recurring: { interval: "month" },
+    lookup_key: lookup,
+  });
+  return price.id;
+}
+
+/** Subscribe to a membership tier (Stripe Billing). */
+export const startMembership = action({
+  args: { token: v.string(), tier: v.string(), origin: v.string() },
+  handler: async (ctx, a): Promise<{ url: string }> => {
+    const me: any = await ctx.runQuery(api.accounts.me, { token: a.token });
+    if (!me) throw new Error("Please sign in to subscribe.");
+    const tier = tierByKey(a.tier);
+    if (!tier) throw new Error("Unknown plan.");
+    const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: me.email });
+
+    const sb = stripe();
+    let customerId = acct?.stripeCustomerId;
+    if (!customerId) {
+      const c = await sb.customers.create({ email: me.email, name: me.name ?? undefined });
+      customerId = c.id;
+      await ctx.runMutation(internal.accounts._setStripeCustomer, { email: me.email, customerId });
+    }
+    const priceId = await ensurePrice(sb, tier);
+    const session = await sb.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: priceId, quantity: 1 }],
+      customer: customerId,
+      success_url: `${a.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${a.origin}/membership`,
+      metadata: { membershipTier: tier.key, accountEmail: me.email },
+      subscription_data: { metadata: { accountEmail: me.email, membershipTier: tier.key } },
+    });
+    if (!session.url) throw new Error("Stripe did not return a checkout URL");
+    return { url: session.url };
+  },
+});
+
+/** Open the Stripe billing portal to manage/cancel the membership. */
+export const billingPortal = action({
+  args: { token: v.string(), origin: v.string() },
+  handler: async (ctx, a): Promise<{ url: string }> => {
+    const me: any = await ctx.runQuery(api.accounts.me, { token: a.token });
+    if (!me) throw new Error("unauthorized");
+    const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: me.email });
+    if (!acct?.stripeCustomerId) throw new Error("No billing account yet — subscribe first.");
+    const ps = await stripe().billingPortal.sessions.create({
+      customer: acct.stripeCustomerId,
+      return_url: `${a.origin}/account`,
+    });
+    return { url: ps.url };
+  },
+});
+
 export const refundDeposit = action({
   args: { token: v.string(), bookingId: v.id("bookings") },
   handler: async (ctx, { token, bookingId }): Promise<{ refunded: boolean }> => {
@@ -313,10 +386,20 @@ export const finalize = action({
   handler: async (
     ctx,
     { sessionId },
-  ): Promise<{ bookingId: string | null; paid: boolean }> => {
+  ): Promise<{ bookingId: string | null; paid: boolean; membership?: string }> => {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
     const m = session.metadata ?? {};
     const paid = session.payment_status === "paid";
+
+    // membership subscription → activate the tier on the account
+    if (paid && m.membershipTier) {
+      await ctx.runMutation(internal.accounts._setMembership, {
+        email: m.accountEmail ?? "",
+        tier: m.membershipTier,
+        subscriptionId: typeof session.subscription === "string" ? session.subscription : undefined,
+      });
+      return { bookingId: null, paid, membership: m.membershipTier };
+    }
 
     // add-on payment → attach to the existing booking
     if (paid && m.addonBookingId) {
