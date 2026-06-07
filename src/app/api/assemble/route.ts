@@ -108,7 +108,9 @@ export async function POST(req: NextRequest) {
   const stages: any[] = [];
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
-    const options = await optionsForType(c, k, start, end);
+    let options = await optionsForType(c, k, start, end);
+    if (k === "lens") options = options.filter((o: any) => o.role === "lens"); // no camera bodies in the lens stage
+    if (k === "camera") options = options.filter((o: any) => o.role === "camera");
     if (options.length)
       stages.push({
         key: k,
