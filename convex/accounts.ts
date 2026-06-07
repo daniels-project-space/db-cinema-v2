@@ -131,7 +131,22 @@ export const me = query({
       idVerified: a.idVerified ?? false,
       membershipTier: a.membershipTier ?? null,
       membershipActive: a.membershipActive ?? false,
+      freeAccessoryMonth: a.freeAccessoryMonth ?? null,
+      freeAccessoryUsed: a.freeAccessoryUsed ?? 0,
     };
+  },
+});
+
+export const _useFreeAccessories = internalMutation({
+  args: { email: v.string(), month: v.string(), count: v.number() },
+  handler: async (ctx, { email, month, count }) => {
+    const a: any = await ctx.db
+      .query("accounts")
+      .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
+      .first();
+    if (!a) return;
+    const used = a.freeAccessoryMonth === month ? a.freeAccessoryUsed ?? 0 : 0;
+    await ctx.db.patch(a._id, { freeAccessoryMonth: month, freeAccessoryUsed: used + count });
   },
 });
 

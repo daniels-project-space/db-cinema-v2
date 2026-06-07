@@ -22,6 +22,8 @@ type Me = {
   idVerified: boolean;
   membershipTier: string | null;
   membershipActive: boolean;
+  freeAccessoryMonth: string | null;
+  freeAccessoryUsed: number;
 } | null;
 
 type AccountCtx = {

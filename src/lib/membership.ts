@@ -1,12 +1,17 @@
-// Membership tiers — core perk is % off every rental (higher tiers add free delivery).
+// Membership tiers — core perk is % off every rental (higher tiers add free
+// delivery + monthly free accessories).
 export type MemberTier = {
   key: string;
   name: string;
   monthlyGbp: number;
   pct: number;
   freeDelivery: boolean;
+  freeAccessories: number; // free accessory rentals per calendar month
   perks: string[];
 };
+
+// Accessory itemTypes eligible for the free-accessory perk.
+export const FREE_ACCESSORY_TYPES = ["tripod", "gimbal", "nd-filter", "battery"];
 
 export const TIERS: MemberTier[] = [
   {
@@ -15,6 +20,7 @@ export const TIERS: MemberTier[] = [
     monthlyGbp: 19,
     pct: 10,
     freeDelivery: false,
+    freeAccessories: 0,
     perks: ["10% off every rental", "Member-only offers", "Priority support"],
   },
   {
@@ -23,7 +29,13 @@ export const TIERS: MemberTier[] = [
     monthlyGbp: 49,
     pct: 20,
     freeDelivery: true,
-    perks: ["20% off every rental", "Free local delivery", "Priority availability"],
+    freeAccessories: 2,
+    perks: [
+      "20% off every rental",
+      "2 free accessories / month",
+      "Free local delivery",
+      "Priority availability",
+    ],
   },
   {
     key: "studio",
@@ -31,7 +43,14 @@ export const TIERS: MemberTier[] = [
     monthlyGbp: 99,
     pct: 30,
     freeDelivery: true,
-    perks: ["30% off every rental", "Free local delivery", "For production teams", "Dedicated line"],
+    freeAccessories: 2,
+    perks: [
+      "30% off every rental",
+      "2 free accessories / month",
+      "Free local delivery",
+      "For production teams",
+      "Dedicated line",
+    ],
   },
 ];
 

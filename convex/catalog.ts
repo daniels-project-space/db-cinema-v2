@@ -60,6 +60,18 @@ export const allSlugs = query({
   },
 });
 
+export const itemTypes = query({
+  args: { ids: v.array(v.id("listings")) },
+  handler: async (ctx, { ids }) => {
+    const out: Record<string, string> = {};
+    for (const id of ids) {
+      const l = await ctx.db.get(id);
+      if (l) out[id] = (l as any).itemType ?? "";
+    }
+    return out;
+  },
+});
+
 export const listingsByIds = query({
   args: { ids: v.array(v.id("listings")) },
   handler: async (ctx, { ids }) => {

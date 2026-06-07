@@ -5,7 +5,7 @@ import { action } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 import { depositFor } from "./lib/pricing";
-import { tierByKey } from "./lib/membership";
+import { tierByKey, FREE_ACCESSORY_TYPES } from "./lib/membership";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 
@@ -92,9 +92,38 @@ export const start = action({
     let idVerifyStatus = protection === "verify" ? "required" : "not_required";
     if (protection === "verify" && acct?.idVerified) idVerifyStatus = "verified";
 
-    // discounts apply ONLY to non-offer rental lines, and are NON-STACKABLE:
-    // the renter gets the single best of {promo code, reminder-member 5%}.
-    const eligible = a.items.filter((i) => !i.offerType).reduce((n, i) => n + i.total, 0);
+    const member = acct?.membershipActive ? tierByKey(acct.membershipTier) : null;
+
+    // Pro/Studio: 2 free accessories per month (tripod, gimbal, filters, batteries)
+    const month = new Date().toISOString().slice(0, 7);
+    const allowance = member?.freeAccessories ?? 0;
+    let creditsLeft = 0;
+    if (allowance > 0) {
+      const used = acct?.freeAccessoryMonth === month ? acct?.freeAccessoryUsed ?? 0 : 0;
+      creditsLeft = Math.max(0, allowance - used);
+    }
+    const freed = new Set<number>();
+    let freeAccessoryValue = 0;
+    if (creditsLeft > 0) {
+      const types: Record<string, string> = await ctx.runQuery(api.catalog.itemTypes, {
+        ids: a.items.map((i) => i.listingId),
+      });
+      const elig = a.items
+        .map((it, i) => ({ i, it }))
+        .filter((x) => !x.it.offerType && FREE_ACCESSORY_TYPES.includes(types[x.it.listingId] ?? ""))
+        .sort((x, y) => y.it.total - x.it.total)
+        .slice(0, creditsLeft);
+      for (const e of elig) {
+        freed.add(e.i);
+        freeAccessoryValue += e.it.total;
+      }
+    }
+    const freedCount = freed.size;
+
+    // % discounts apply to non-offer, non-freed lines, NON-STACKABLE (best of three)
+    const eligible = a.items
+      .filter((i, idx) => !i.offerType && !freed.has(idx))
+      .reduce((n, i) => n + i.total, 0);
     let promoDiscount = 0;
     let appliedCode: string | undefined;
     if (a.promoCode) {
@@ -109,7 +138,6 @@ export const start = action({
       }
     }
     const reminderDiscount = acct?.marketingEmails ? Math.round(eligible * 0.05) : 0;
-    const member = acct?.membershipActive ? tierByKey(acct.membershipTier) : null;
     const memberDiscount = member ? Math.round(eligible * (member.pct / 100)) : 0;
     let discount = promoDiscount;
     let discountLabel = appliedCode?.toUpperCase();
@@ -124,9 +152,18 @@ export const start = action({
       appliedCode = undefined;
     }
 
+    // free accessories are an ADDITIONAL perk on top of the best % discount
+    const totalReduction = discount + freeAccessoryValue;
+    const reductionLabel =
+      freeAccessoryValue > 0
+        ? discount > 0
+          ? "Member perks"
+          : `${freedCount} free accessor${freedCount > 1 ? "ies" : "y"}`
+        : discountLabel;
+
     // members on Pro/Studio get free local delivery
     const deliveryFee = member?.freeDelivery && a.fulfilment === "delivery" ? 0 : a.deliveryFee;
-    const total = subtotal + deliveryFee + depositAmount - discount;
+    const total = subtotal + deliveryFee + depositAmount - totalReduction;
 
     const bookingId = await ctx.runMutation(internal.bookings.createPending, {
       customerEmail: a.customer.email,
@@ -146,7 +183,7 @@ export const start = action({
       subtotal,
       depositAmount,
       promoCode: appliedCode,
-      discount,
+      discount: totalReduction,
       total,
       currency: "GBP",
       agreementName: a.agreement?.name,
@@ -201,14 +238,21 @@ export const start = action({
 
     const sb = stripe();
     let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
-    if (discount > 0) {
+    if (totalReduction > 0) {
       const coupon = await sb.coupons.create({
-        amount_off: pence(discount),
+        amount_off: pence(totalReduction),
         currency: "gbp",
-        name: discountLabel ?? "Discount",
+        name: reductionLabel ?? "Discount",
         duration: "once",
       });
       discounts = [{ coupon: coupon.id }];
+    }
+    if (freedCount > 0 && acct) {
+      await ctx.runMutation(internal.accounts._useFreeAccessories, {
+        email: acct.email,
+        month,
+        count: freedCount,
+      });
     }
 
     // saved cards: attach a Stripe customer so returning renters skip re-entry

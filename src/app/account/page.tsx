@@ -371,6 +371,18 @@ function Membership() {
           <div className="text-sm text-white/60">
             You're on <span className="font-medium text-accent-300">{tier.name}</span> —{" "}
             {tier.pct}% off every rental{tier.freeDelivery ? " + free delivery" : ""}.
+            {tier.freeAccessories > 0 &&
+              (() => {
+                const mo = new Date().toISOString().slice(0, 10).slice(0, 7);
+                const used = account.me?.freeAccessoryMonth === mo ? account.me?.freeAccessoryUsed ?? 0 : 0;
+                const left = Math.max(0, tier.freeAccessories - used);
+                return (
+                  <span className="mt-1 block text-amber-300">
+                    🎁 {left} of {tier.freeAccessories} free accessories left this month
+                    (tripod, gimbal, filters or batteries).
+                  </span>
+                );
+              })()}
           </div>
           <button
             onClick={manage}
