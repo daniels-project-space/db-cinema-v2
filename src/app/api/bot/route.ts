@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
   const messages = ctx ? [{ role: "system", content: ctx }, ...history] : history;
   try {
     const agent = mastra.getAgent("renterBot");
-    const res: any = await agent.generate(messages, { maxSteps: 6, structuredOutput: { schema: OUT } });
+    const res: any = await agent.generate(messages, { maxSteps: 12, structuredOutput: { schema: OUT } });
     const out: any = res?.object ?? res?.structuredOutput ?? null;
     const reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
     const cards = out ? await buildCards(c, out) : [];
