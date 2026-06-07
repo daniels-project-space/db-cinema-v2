@@ -1,13 +1,45 @@
 import Link from "next/link";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ReviewCarousel } from "@/components/ReviewCarousel";
 import { HomeStats } from "@/components/HomeStats";
 import { Particles } from "@/components/Particles";
 import { Reveal } from "@/components/Reveal";
 
-export default function Home() {
+export default async function Home() {
+  let rating: { ratingValue: number; reviewCount: number } | null = null;
+  try {
+    const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+    const s: any = await c.query(api.reviews.stats, {});
+    if (s?.count) rating = { ratingValue: Number(s.average ?? 4.9), reviewCount: s.count };
+  } catch {}
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    name: "Db Cinema Rentals",
+    url: "https://dbcinemarentals.com",
+    description:
+      "Professional cinema camera, lens, lighting, audio and drone rental in London. Daily, 3-day and weekly rates, delivered.",
+    priceRange: "££",
+    areaServed: "London, United Kingdom",
+    address: { "@type": "PostalAddress", addressLocality: "London", addressCountry: "GB" },
+    openingHoursSpecification: [
+      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"], opens: "10:00", closes: "12:00" },
+      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"], opens: "19:00", closes: "21:00" },
+    ],
+    ...(rating
+      ? { aggregateRating: { "@type": "AggregateRating", ratingValue: rating.ratingValue, reviewCount: rating.reviewCount } }
+      : {}),
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <SiteHeader />
 
       {/* hero */}

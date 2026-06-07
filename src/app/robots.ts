@@ -1,9 +1,17 @@
 import type { MetadataRoute } from "next";
 
-// Pre-launch / test mode: keep the storefront out of search engines so the
-// public can't stumble in. Remove this block (return allow) at go-live.
+// Indexable only once NEXT_PUBLIC_SITE_LIVE=true (set at launch).
+const LIVE = process.env.NEXT_PUBLIC_SITE_LIVE === "true";
+
 export default function robots(): MetadataRoute.Robots {
+  if (!LIVE) return { rules: { userAgent: "*", disallow: "/" } };
   return {
-    rules: { userAgent: "*", disallow: "/" },
+    rules: {
+      userAgent: "*",
+      allow: "/",
+      disallow: ["/admin", "/checkout", "/account", "/verify"],
+    },
+    sitemap: "https://dbcinemarentals.com/sitemap.xml",
+    host: "https://dbcinemarentals.com",
   };
 }

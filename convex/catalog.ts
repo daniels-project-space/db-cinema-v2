@@ -49,6 +49,17 @@ export const listListings = query({
   },
 });
 
+export const allSlugs = query({
+  args: {},
+  handler: async (ctx) => {
+    const ls = await ctx.db
+      .query("listings")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+    return ls.map((l) => ({ slug: l.slug }));
+  },
+});
+
 export const listingsByIds = query({
   args: { ids: v.array(v.id("listings")) },
   handler: async (ctx, { ids }) => {

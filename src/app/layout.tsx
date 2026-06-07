@@ -23,12 +23,46 @@ const outfit = Outfit({
   display: "swap",
 });
 
+// Flip NEXT_PUBLIC_SITE_LIVE=true on Vercel at launch → site becomes indexable.
+const LIVE = process.env.NEXT_PUBLIC_SITE_LIVE === "true";
+
 export const metadata: Metadata = {
-  title: "Db Cinema Rentals — Pro film & cinema gear, daily rates, delivered",
+  metadataBase: new URL("https://dbcinemarentals.com"),
+  title: {
+    default: "Db Cinema Rentals — Rent pro cinema cameras, lenses & lighting in London",
+    template: "%s | Db Cinema Rentals",
+  },
   description:
-    "Rent professional cinema cameras, lenses, lighting, audio and drones. Daily, weekly and monthly rates with delivery across the UK.",
-  // pre-launch: don't index while in test mode
-  robots: { index: false, follow: false },
+    "Rent professional cinema cameras, lenses, lighting, audio and drones in London. Daily, 3-day and weekly rates, delivered. Verified gear, 875+ five-star reviews.",
+  keywords: [
+    "camera rental London",
+    "cinema camera hire",
+    "lens rental London",
+    "film gear rental",
+    "video equipment hire London",
+    "RED ARRI Sony FX rental",
+    "lighting rental",
+    "drone hire London",
+  ],
+  applicationName: "Db Cinema Rentals",
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    siteName: "Db Cinema Rentals",
+    title: "Db Cinema Rentals — Pro film & cinema gear, delivered across London",
+    description:
+      "Rent cinema cameras, lenses, lighting, audio and drones. Daily rates, delivery, 875+ five-star reviews.",
+    locale: "en_GB",
+    url: "https://dbcinemarentals.com",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Db Cinema Rentals — Pro film & cinema gear in London",
+    description: "Rent cinema cameras, lenses, lighting and more. Daily rates, delivered.",
+  },
+  robots: LIVE
+    ? { index: true, follow: true }
+    : { index: false, follow: false },
 };
 
 export default function RootLayout({
