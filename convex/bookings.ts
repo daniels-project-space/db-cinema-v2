@@ -167,7 +167,75 @@ export const confirm = internalMutation({
       }
     }
     await ctx.scheduler.runAfter(0, internal.notify.bookingAlert, { bookingId });
+    await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
     return { already: false };
+  },
+});
+
+/** Booking context for the chat assistant (resolves the owning account). */
+export const getForChat = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    const acct = await ctx.db
+      .query("accounts")
+      .withIndex("by_email", (q) => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()))
+      .first();
+    return {
+      accountId: acct?._id ?? null,
+      lineItems: b.lineItems,
+      fulfilment: b.fulfilment,
+      address: b.address ?? null,
+      pickupTime: b.pickupTime ?? null,
+    };
+  },
+});
+
+/** Attach a paid add-on to an existing booking (instant upsell checkout). */
+export const attachAddon = internalMutation({
+  args: {
+    bookingId: v.id("bookings"),
+    listingId: v.id("listings"),
+    title: v.string(),
+    start: v.number(),
+    end: v.number(),
+    total: v.number(),
+  },
+  handler: async (ctx, { bookingId, listingId, title, start, end, total }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return;
+    await ctx.db.patch(bookingId, {
+      lineItems: [...b.lineItems, { listingId, title, start, end, qty: 1, lineTotal: total }],
+      total: b.total + total,
+    });
+    const listing = await ctx.db.get(listingId);
+    if (listing)
+      for (const comp of listing.components) {
+        await ctx.db.insert("reservations", {
+          inventoryUnitId: comp.inventoryUnitId,
+          listingId,
+          bookingId,
+          start,
+          end,
+          qty: comp.qty,
+          source: "site",
+          status: "confirmed",
+        });
+      }
+    const acct = await ctx.db
+      .query("accounts")
+      .withIndex("by_email", (q) => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()))
+      .first();
+    if (acct)
+      await ctx.db.insert("messages", {
+        accountId: acct._id,
+        bookingId,
+        sender: "system",
+        text: `Added to your rental: ${title} ✓`,
+        at: Date.now(),
+        readByOwner: true,
+      });
   },
 });
 

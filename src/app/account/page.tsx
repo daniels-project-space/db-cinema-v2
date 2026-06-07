@@ -8,6 +8,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { useAccount } from "@/components/account/AccountProvider";
 import { IdVerify } from "@/components/IdVerify";
 import { GearCard } from "@/components/GearCard";
+import { RenterChat } from "@/components/RenterChat";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -123,6 +124,9 @@ function Dashboard() {
           Sign out
         </button>
       </div>
+
+      {/* renter chat */}
+      <RenterChat />
 
       {/* profile + settings */}
       <section className="mt-8 rounded-2xl glass gradient-border p-5">

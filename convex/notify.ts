@@ -106,3 +106,11 @@ export const sendReminders = internalAction({
     return { checked: feed.length, sent };
   },
 });
+
+/** Forward a renter chat message to the owner/bot via Telegram. */
+export const renterChat = internalAction({
+  args: { email: v.string(), text: v.string() },
+  handler: async (_ctx, { email, text }) => {
+    await telegram(`💬 <b>Renter message</b>\nFrom: ${email}\n\n${text}`);
+  },
+});

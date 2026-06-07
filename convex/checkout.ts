@@ -216,6 +216,61 @@ export const start = action({
   },
 });
 
+/** Instant add-on checkout: pay for one extra item attached to an existing
+ *  booking. Blocked within 1 hour of the rental start. */
+export const startAddon = action({
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    listingId: v.id("listings"),
+    title: v.string(),
+    start: v.number(),
+    end: v.number(),
+    total: v.number(),
+    origin: v.string(),
+  },
+  handler: async (ctx, a): Promise<{ url: string }> => {
+    const me: any = await ctx.runQuery(api.accounts.me, { token: a.token });
+    const owner: any = await ctx.runQuery(internal.bookings.getForChat, { bookingId: a.bookingId });
+    if (!me || !owner || owner.accountId !== me._id) throw new Error("unauthorized");
+    if (Date.now() > a.start - 60 * 60 * 1000)
+      throw new Error("Too close to your rental start to add gear — add-ons close 1 hour before pickup.");
+    const av: any = await ctx.runQuery(api.availability.forListing, {
+      listingId: a.listingId,
+      start: a.start,
+      end: a.end,
+    });
+    if (!av || av.available < 1) throw new Error("That add-on isn't available for your dates.");
+
+    const session = await stripe().checkout.sessions.create({
+      mode: "payment",
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "gbp",
+            unit_amount: pence(a.total),
+            product_data: { name: `Add-on: ${a.title.slice(0, 110)}` },
+          },
+        },
+      ],
+      customer_email: me.email,
+      success_url: `${a.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${a.origin}/account`,
+      metadata: {
+        addonBookingId: a.bookingId,
+        addonListingId: a.listingId,
+        addonTitle: a.title.slice(0, 200),
+        addonStart: String(a.start),
+        addonEnd: String(a.end),
+        addonTotal: String(a.total),
+      },
+    });
+    if (!session.url) throw new Error("Stripe did not return a checkout URL");
+    return { url: session.url };
+  },
+});
+
 export const refundDeposit = action({
   args: { token: v.string(), bookingId: v.id("bookings") },
   handler: async (ctx, { token, bookingId }): Promise<{ refunded: boolean }> => {
@@ -244,8 +299,23 @@ export const finalize = action({
     { sessionId },
   ): Promise<{ bookingId: string | null; paid: boolean }> => {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
-    const bookingId = (session.metadata?.bookingId as string) ?? null;
+    const m = session.metadata ?? {};
     const paid = session.payment_status === "paid";
+
+    // add-on payment → attach to the existing booking
+    if (paid && m.addonBookingId) {
+      await ctx.runMutation(internal.bookings.attachAddon, {
+        bookingId: m.addonBookingId as any,
+        listingId: m.addonListingId as any,
+        title: m.addonTitle ?? "Add-on",
+        start: Number(m.addonStart),
+        end: Number(m.addonEnd),
+        total: Number(m.addonTotal),
+      });
+      return { bookingId: m.addonBookingId as string, paid };
+    }
+
+    const bookingId = (m.bookingId as string) ?? null;
     if (paid && bookingId) {
       await ctx.runMutation(internal.bookings.confirm, {
         bookingId: bookingId as any,

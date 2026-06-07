@@ -282,6 +282,18 @@ export default defineSchema({
     accountId: v.id("accounts"),
   }).index("by_token", ["token"]),
 
+  messages: defineTable({
+    accountId: v.id("accounts"),
+    bookingId: v.optional(v.id("bookings")),
+    sender: v.union(v.literal("renter"), v.literal("bot"), v.literal("system")),
+    text: v.string(),
+    meta: v.optional(v.any()),
+    at: v.number(),
+    readByOwner: v.optional(v.boolean()),
+  })
+    .index("by_account", ["accountId"])
+    .index("by_unread", ["sender", "readByOwner"]),
+
   events: defineTable({
     type: v.string(),
     path: v.optional(v.string()),
