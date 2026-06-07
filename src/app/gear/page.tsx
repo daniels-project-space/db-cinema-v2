@@ -79,8 +79,13 @@ export default function GearPage() {
                 cat === t.name
                   ? "bg-accent-500 text-white"
                   : "glass text-white/50 hover:text-white"
+              } ${
+                t.name === "Packages"
+                  ? "ring-1 ring-amber-400/70 shadow-[0_0_14px_-4px_rgba(251,191,36,0.7)]"
+                  : ""
               }`}
             >
+              {t.name === "Packages" && <span className="mr-1">📦</span>}
               {t.name}{" "}
               <span className="text-xs opacity-60">{t.count}</span>
             </button>

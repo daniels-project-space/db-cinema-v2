@@ -44,6 +44,8 @@ const CATEGORY_RULES: [string, RegExp][] = [
 ];
 
 function deriveCategory(name: string): string {
+  // camera bundles / sets go in Packages
+  if (CATEGORY_RULES[0][1].test(name) && /(\bset\b|\bkit\b|bundle|package|\+|operator|\d{2}-\d{2,3}\s?mm)/i.test(name)) return "Packages";
   for (const [cat, re] of CATEGORY_RULES) if (re.test(name)) return cat;
   return "Accessories";
 }
@@ -85,7 +87,10 @@ export const syncFromRmv2 = action({
     const qtyByItem = new Map(items.map((i) => [i._id, i.qty ?? 1]));
 
     const live = products.filter(
-      (p) => p.isPublished && !p.isMarketingOnly && p.name,
+      (p) =>
+        p.isPublished &&
+        p.name &&
+        (p.prices ?? []).some((x) => (x.pricePerDay ?? x.price ?? 0) > 0),
     );
 
     const payload = live.map((p) => {
