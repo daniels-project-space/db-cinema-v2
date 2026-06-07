@@ -267,3 +267,14 @@ export const deleteAccount = mutation({
     return { ok: true };
   },
 });
+
+export const _setStripeCustomer = internalMutation({
+  args: { email: v.string(), customerId: v.string() },
+  handler: async (ctx, { email, customerId }) => {
+    const a = await ctx.db
+      .query("accounts")
+      .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
+      .first();
+    if (a) await ctx.db.patch(a._id, { stripeCustomerId: customerId });
+  },
+});

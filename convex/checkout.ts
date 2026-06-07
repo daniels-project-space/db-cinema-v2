@@ -200,15 +200,31 @@ export const start = action({
       discounts = [{ coupon: coupon.id }];
     }
 
+    // saved cards: attach a Stripe customer so returning renters skip re-entry
+    let stripeCustomerId: string | undefined = acct?.stripeCustomerId;
+    if (acct && !stripeCustomerId) {
+      const c = await sb.customers.create({ email: acct.email, name: a.customer.name });
+      stripeCustomerId = c.id;
+      await ctx.runMutation(internal.accounts._setStripeCustomer, {
+        email: acct.email,
+        customerId: c.id,
+      });
+    }
+
     const session = await sb.checkout.sessions.create({
       mode: "payment",
       line_items,
       discounts,
-      customer_email: a.customer.email,
+      ...(stripeCustomerId
+        ? { customer: stripeCustomerId }
+        : { customer_email: a.customer.email }),
       success_url: `${a.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${a.origin}/cart`,
       metadata: { bookingId },
-      payment_intent_data: { metadata: { bookingId } },
+      payment_intent_data: {
+        metadata: { bookingId },
+        setup_future_usage: "on_session", // save the card to the customer
+      },
     });
 
     if (!session.url) throw new Error("Stripe did not return a checkout URL");
