@@ -205,6 +205,9 @@ export default defineSchema({
     maxUses: v.optional(v.number()),
     usedCount: v.number(),
     memberOnly: v.optional(v.boolean()),
+    minTier: v.optional(v.string()),
+    onceOnly: v.optional(v.boolean()),
+    monthly: v.optional(v.boolean()),
     minSubtotal: v.optional(v.number()),
     active: v.boolean(),
   }).index("by_code", ["code"]),
@@ -301,6 +304,12 @@ export default defineSchema({
   })
     .index("by_account", ["accountId"])
     .index("by_unread", ["sender", "readByOwner"]),
+
+  promo_redemptions: defineTable({
+    email: v.string(),
+    code: v.string(),
+    at: v.number(),
+  }).index("by_email", ["email"]),
 
   member_offers: defineTable({
     title: v.string(),

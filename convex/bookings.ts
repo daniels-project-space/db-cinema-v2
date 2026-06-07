@@ -166,6 +166,14 @@ export const confirm = internalMutation({
         });
       }
     }
+    // record promo redemption (enforces one-time / once-a-month limits)
+    if (booking.promoCode && booking.guestEmail) {
+      await ctx.db.insert("promo_redemptions", {
+        email: booking.guestEmail.trim().toLowerCase(),
+        code: booking.promoCode,
+        at: Date.now(),
+      });
+    }
     await ctx.scheduler.runAfter(0, internal.notify.bookingAlert, { bookingId });
     await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
     return { already: false };

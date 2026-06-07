@@ -130,7 +130,9 @@ export const start = action({
       const res: any = await ctx.runQuery(api.promo.validate, {
         code: a.promoCode,
         eligibleSubtotal: eligible,
-        isMember: !!acct?.membershipActive,
+        tier: acct?.membershipTier ?? undefined,
+        membershipActive: !!acct?.membershipActive,
+        email: a.customer.email,
       });
       if (res?.valid) {
         promoDiscount = res.discount;

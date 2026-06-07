@@ -5,7 +5,7 @@ import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useAccount } from "@/components/account/AccountProvider";
-import { TIERS } from "@/lib/membership";
+import { TIERS, BENEFITS } from "@/lib/membership";
 import { Reveal } from "@/components/Reveal";
 import { MemberOffers } from "@/components/MemberOffers";
 
@@ -92,6 +92,45 @@ export default function MembershipPage() {
           })}
         </div>
         {err && <div className="mt-4 text-center text-sm text-red-300">{err}</div>}
+
+        {/* benefit comparison chart */}
+        <div className="mt-16 overflow-x-auto">
+          <h2 className="font-display text-2xl font-bold text-white/90">What's included</h2>
+          <table className="mt-5 w-full min-w-[520px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="py-3 text-left font-medium text-white/40">Benefit</th>
+                {TIERS.map((t) => (
+                  <th key={t.key} className="px-3 py-3 text-center font-display font-semibold text-white/85">
+                    {t.name}
+                    <div className="text-[11px] font-normal text-white/35">£{t.monthlyGbp}/mo</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {BENEFITS.map((b) => (
+                <tr key={b.label} className="border-b border-white/5">
+                  <td className="py-3 text-white/60">{b.label}</td>
+                  {TIERS.map((t) => {
+                    const v = b.get(t);
+                    return (
+                      <td key={t.key} className="px-3 py-3 text-center">
+                        {v === true ? (
+                          <span className="text-emerald-400">✓</span>
+                        ) : v === false ? (
+                          <span className="text-white/15">—</span>
+                        ) : (
+                          <span className="font-medium text-white/85">{v}</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         <MemberOffers />
 

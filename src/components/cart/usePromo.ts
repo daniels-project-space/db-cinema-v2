@@ -9,12 +9,19 @@ import { useAccount } from "@/components/account/AccountProvider";
 export function usePromo(eligibleSubtotal: number) {
   const { promo, setPromo } = useCart();
   const account = useAccount();
-  const isMember = !!account.me?.membershipActive;
   const [draft, setDraft] = useState(promo ?? "");
 
   const res = useQuery(
     api.promo.validate,
-    promo ? { code: promo, eligibleSubtotal, isMember } : "skip",
+    promo
+      ? {
+          code: promo,
+          eligibleSubtotal,
+          tier: account.me?.membershipTier ?? undefined,
+          membershipActive: !!account.me?.membershipActive,
+          email: account.me?.email,
+        }
+      : "skip",
   );
   const discount = res && res.valid ? res.discount : 0;
 

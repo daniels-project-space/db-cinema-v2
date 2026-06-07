@@ -382,7 +382,7 @@ function AdminMemberOffers({ token }: { token: string }) {
   const res = useQuery(api.promo.adminListMemberOffers, { token });
   const create = useMutation(api.promo.adminCreateMemberOffer);
   const toggle = useMutation(api.promo.adminToggleMemberOffer);
-  const [f, setF] = useState({ title: "", blurb: "", badge: "", code: "", type: "percent", value: "20" });
+  const [f, setF] = useState({ title: "", blurb: "", badge: "", code: "", type: "percent", value: "20", limit: "monthly", expiryDays: "" });
   const [err, setErr] = useState<string | null>(null);
   if (!res || !(res as any).authorized) return null;
 
@@ -397,8 +397,10 @@ function AdminMemberOffers({ token }: { token: string }) {
         code: f.code,
         type: f.type as any,
         value: Number(f.value),
+        limit: f.limit as any,
+        expiryDays: f.expiryDays ? Number(f.expiryDays) : undefined,
       });
-      setF({ title: "", blurb: "", badge: "", code: "", type: "percent", value: "20" });
+      setF({ title: "", blurb: "", badge: "", code: "", type: "percent", value: "20", limit: "monthly", expiryDays: "" });
     } catch (e: any) {
       setErr(e?.message ?? "Failed");
     }
@@ -432,8 +434,16 @@ function AdminMemberOffers({ token }: { token: string }) {
             <option value="fixed">£</option>
           </select>
           <input value={f.value} onChange={(e) => setF({ ...f, value: e.target.value })} type="number" className={`${inp} w-20`} />
+        </div>
+        <div className="flex items-center gap-2 sm:col-span-2">
+          <select value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value })} className={`${inp} [color-scheme:dark]`}>
+            <option value="monthly">once a month</option>
+            <option value="once">one-time only</option>
+          </select>
+          <input value={f.expiryDays} onChange={(e) => setF({ ...f, expiryDays: e.target.value })} type="number" placeholder="expires in N days (optional)" className={`${inp} flex-1`} />
           <button onClick={add} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-medium text-black hover:bg-amber-300">Add offer</button>
         </div>
+        <p className="text-[11px] text-white/30 sm:col-span-2">Pro &amp; Studio only · non-stacking · {f.limit === "once" ? "one-time use" : "once a month"}.</p>
         {err && <span className="text-xs text-red-300 sm:col-span-2">{err}</span>}
       </div>
     </section>

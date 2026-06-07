@@ -4,20 +4,21 @@ import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { useAccount } from "@/components/account/AccountProvider";
+import { isProPlus } from "@/lib/membership";
 
-/** Member-only deals, shown in a distinct gold frame (vs the blue regular offers). */
+/** Pro+ exclusive deals, shown in a distinct gold frame (vs the blue regular offers). */
 export function MemberOffers() {
   const offers = useQuery(api.promo.memberOffers, {}) ?? [];
   const account = useAccount();
-  const isMember = !!account.me?.membershipActive;
+  const isMember = isProPlus(account.me?.membershipTier, account.me?.membershipActive);
   if (offers.length === 0) return null;
 
   return (
     <section className="mt-10">
       <div className="flex items-center gap-2">
-        <h2 className="font-display text-xl font-semibold text-amber-200">Member-only offers</h2>
+        <h2 className="font-display text-xl font-semibold text-amber-200">Pro member offers</h2>
         <span className="rounded-full border border-amber-400/30 bg-amber-400/15 px-2 py-0.5 text-[11px] font-medium text-amber-300">
-          ✦ exclusive
+          ✦ Pro &amp; Studio · once a month
         </span>
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -46,7 +47,7 @@ export function MemberOffers() {
                   MEMBERS
                 </span>
                 <Link href="/membership" className="text-xs font-medium text-amber-300 hover:underline">
-                  Join to unlock →
+                  Join Pro to unlock →
                 </Link>
               </div>
             )}

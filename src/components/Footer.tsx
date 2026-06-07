@@ -64,8 +64,9 @@ export async function Footer() {
           </ul>
         </div>
       </div>
-      <div className="mx-auto mt-10 max-w-7xl border-t border-white/5 pt-6 text-xs text-white/25">
-        © 2026 Db Cinema Rentals. Cinema camera &amp; film equipment hire, London.
+      <div className="mx-auto mt-10 flex max-w-7xl flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-6 text-xs text-white/25">
+        <span>© 2026 Db Cinema Rentals. Cinema camera &amp; film equipment hire, London.</span>
+        <Link href="/admin" className="text-white/20 hover:text-white/50">Owner login</Link>
       </div>
     </footer>
   );

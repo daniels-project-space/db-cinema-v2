@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { TIER_RANK } from "./lib/membership";
 
 /**
  * Validate a promo code against the ELIGIBLE subtotal (non-offer rental lines
@@ -7,19 +8,55 @@ import { v } from "convex/values";
  * stack on those discounts).
  */
 export const validate = query({
-  args: { code: v.string(), eligibleSubtotal: v.number(), isMember: v.optional(v.boolean()) },
-  handler: async (ctx, { code, eligibleSubtotal, isMember }) => {
+  args: {
+    code: v.string(),
+    eligibleSubtotal: v.number(),
+    tier: v.optional(v.string()),
+    membershipActive: v.optional(v.boolean()),
+    email: v.optional(v.string()),
+  },
+  handler: async (ctx, { code, eligibleSubtotal, tier, membershipActive, email }) => {
     const norm = code.trim().toLowerCase();
     if (!norm) return { valid: false as const, reason: "empty" };
-    const promo = await ctx.db
+    const promo: any = await ctx.db
       .query("promo_codes")
       .withIndex("by_code", (q) => q.eq("code", norm))
       .first();
     if (!promo || !promo.active) return { valid: false as const, reason: "unknown code" };
-    if ((promo as any).memberOnly && !isMember)
+
+    // tier gate: minTier ("pro" → Pro & Studio) or legacy memberOnly (any member)
+    if (promo.minTier) {
+      const ok = membershipActive && (TIER_RANK[tier ?? ""] ?? 0) >= (TIER_RANK[promo.minTier] ?? 0);
+      if (!ok)
+        return {
+          valid: false as const,
+          reason: promo.minTier === "pro" ? "Pro members only — upgrade to use this" : "members only",
+        };
+    } else if (promo.memberOnly && !membershipActive) {
       return { valid: false as const, reason: "members only — join to use this code" };
+    }
+
     if (promo.expiry && promo.expiry < Date.now())
-      return { valid: false as const, reason: "expired" };
+      return { valid: false as const, reason: "this offer has expired" };
+
+    // per-account usage limits (one-time / once a month)
+    if ((promo.onceOnly || promo.monthly) && email) {
+      const e = email.trim().toLowerCase();
+      const mine = (
+        await ctx.db
+          .query("promo_redemptions")
+          .withIndex("by_email", (q) => q.eq("email", e))
+          .collect()
+      ).filter((r) => r.code === norm);
+      if (promo.onceOnly && mine.length)
+        return { valid: false as const, reason: "you've already used this one-time offer" };
+      if (promo.monthly) {
+        const mo = new Date(Date.now()).toISOString().slice(0, 7);
+        if (mine.some((r) => new Date(r.at).toISOString().slice(0, 7) === mo))
+          return { valid: false as const, reason: "once per month — already used this month" };
+      }
+    }
+
     if (promo.minSubtotal && eligibleSubtotal < promo.minSubtotal)
       return { valid: false as const, reason: `min spend £${promo.minSubtotal}` };
     const discount =
@@ -160,12 +197,20 @@ export const adminCreateMemberOffer = mutation({
     type: v.union(v.literal("percent"), v.literal("fixed")),
     value: v.number(),
     minSubtotal: v.optional(v.number()),
+    limit: v.optional(v.union(v.literal("monthly"), v.literal("once"))),
+    expiryDays: v.optional(v.number()),
   },
-  handler: async (ctx, { token, title, blurb, badge, code, type, value, minSubtotal }) => {
+  handler: async (ctx, { token, title, blurb, badge, code, type, value, minSubtotal, limit, expiryDays }) => {
     assertAdmin(token);
     const norm = code.trim().toLowerCase();
     if (!norm || !title.trim()) throw new Error("title and code required");
-    // create the redeemable member-only promo code (if not already there)
+    // Pro+ exclusive, non-stacking, with a usage limit (default: once a month)
+    const flags: any = {
+      minTier: "pro",
+      monthly: limit !== "once",
+      onceOnly: limit === "once",
+      expiry: expiryDays ? Date.now() + expiryDays * 86400000 : undefined,
+    };
     const existing = await ctx.db
       .query("promo_codes")
       .withIndex("by_code", (q) => q.eq("code", norm))
@@ -178,18 +223,23 @@ export const adminCreateMemberOffer = mutation({
         minSubtotal,
         usedCount: 0,
         active: true,
-        memberOnly: true,
+        ...flags,
       } as any);
     } else {
-      await ctx.db.patch(existing._id, { memberOnly: true, active: true } as any);
+      await ctx.db.patch(existing._id, { active: true, ...flags } as any);
     }
-    await ctx.db.insert("member_offers", {
+    const offerDoc = {
       title: title.trim(),
       blurb: blurb.trim(),
       badge: badge.trim(),
       code: norm,
       active: true,
-    });
+    };
+    const existingOffer = (await ctx.db.query("member_offers").collect()).find(
+      (o) => o.code === norm,
+    );
+    if (existingOffer) await ctx.db.patch(existingOffer._id, offerDoc);
+    else await ctx.db.insert("member_offers", offerDoc);
     return { ok: true };
   },
 });
