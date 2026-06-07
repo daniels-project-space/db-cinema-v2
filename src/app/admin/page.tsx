@@ -216,6 +216,9 @@ function AdminSettings({ token }: { token: string }) {
       deliveryMaxKm: Number(f.deliveryMaxKm),
       openingHours: f.openingHours,
       acceptingOrders: f.acceptingOrders,
+      googleReviewUrl: f.googleReviewUrl ?? "",
+      businessAddress: f.businessAddress ?? "",
+      businessPhone: f.businessPhone ?? "",
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -239,6 +242,18 @@ function AdminSettings({ token }: { token: string }) {
         <label className="flex items-center justify-between text-white/60">
           Accepting orders
           <input type="checkbox" className="accent-accent-500 h-4 w-4" checked={f.acceptingOrders} onChange={(e) => setF({ ...f, acceptingOrders: e.target.checked })} />
+        </label>
+        <label className="flex items-center justify-between gap-3 text-white/60">
+          Google review link
+          <input className="flex-1 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none" placeholder="https://g.page/r/…/review" value={f.googleReviewUrl ?? ""} onChange={(e) => setF({ ...f, googleReviewUrl: e.target.value })} />
+        </label>
+        <label className="flex items-center justify-between gap-3 text-white/60">
+          Business address
+          <input className="flex-1 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none" placeholder="123 Example St, London" value={f.businessAddress ?? ""} onChange={(e) => setF({ ...f, businessAddress: e.target.value })} />
+        </label>
+        <label className="flex items-center justify-between gap-3 text-white/60">
+          Business phone
+          <input className="flex-1 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none" placeholder="+44 20 …" value={f.businessPhone ?? ""} onChange={(e) => setF({ ...f, businessPhone: e.target.value })} />
         </label>
         <button onClick={save} className="w-fit rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white hover:bg-accent-600">
           {saved ? "Saved ✓" : "Save settings"}

@@ -49,20 +49,32 @@ export default async function Page({
     if (l) {
       jsonLd = {
         "@context": "https://schema.org",
-        "@type": "Product",
-        name: l.title,
-        category: l.category,
-        image: l.gallery?.length ? l.gallery : l.heroImage ? [l.heroImage] : [],
-        description: `Rent the ${l.title} in London from Db Cinema Rentals — daily, 3-day and weekly rates, delivered.`,
-        brand: { "@type": "Brand", name: "Db Cinema Rentals" },
-        offers: {
-          "@type": "Offer",
-          priceCurrency: "GBP",
-          price: l.pricing?.daily ?? undefined,
-          availability: "https://schema.org/InStock",
-          url: `${BASE}/gear/${slug}`,
-          priceValidUntil: "2027-12-31",
-        },
+        "@graph": [
+          {
+            "@type": "Product",
+            name: l.title,
+            category: l.category,
+            image: l.gallery?.length ? l.gallery : l.heroImage ? [l.heroImage] : [],
+            description: `Rent the ${l.title} in London from Db Cinema Rentals — daily, 3-day and weekly rates, delivered.`,
+            brand: { "@type": "Brand", name: "Db Cinema Rentals" },
+            offers: {
+              "@type": "Offer",
+              priceCurrency: "GBP",
+              price: l.pricing?.daily ?? undefined,
+              availability: "https://schema.org/InStock",
+              url: `${BASE}/gear/${slug}`,
+              priceValidUntil: "2027-12-31",
+            },
+          },
+          {
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              { "@type": "ListItem", position: 1, name: "Home", item: BASE },
+              { "@type": "ListItem", position: 2, name: "Gear", item: `${BASE}/gear` },
+              { "@type": "ListItem", position: 3, name: l.title, item: `${BASE}/gear/${slug}` },
+            ],
+          },
+        ],
       };
     }
   } catch {}

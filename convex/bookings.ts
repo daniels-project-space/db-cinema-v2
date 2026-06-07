@@ -326,33 +326,49 @@ export const remindersFeed = internalQuery({
       .query("bookings")
       .withIndex("by_status", (q) => q.eq("status", "active"))
       .collect();
-    return [...confirmed, ...active]
-      .map((b) => ({
+    const returned = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "returned"))
+      .collect();
+    const out = [];
+    for (const b of [...confirmed, ...active, ...returned]) {
+      if (!b.guestEmail) continue;
+      const acct = await ctx.db
+        .query("accounts")
+        .withIndex("by_email", (q) => q.eq("email", b.guestEmail!.trim().toLowerCase()))
+        .first();
+      out.push({
         _id: b._id,
         start: Math.min(...b.lineItems.map((li) => li.start)),
         end: Math.max(...b.lineItems.map((li) => li.end)),
-        guestEmail: b.guestEmail ?? "",
+        guestEmail: b.guestEmail,
+        accountId: acct?._id ?? null,
         fulfilment: b.fulfilment,
         pickupTime: b.pickupTime ?? null,
         returnTime: b.returnTime ?? null,
         remindedPickup: b.remindedPickup ?? false,
         remindedReturn: b.remindedReturn ?? false,
+        remindedReview: b.remindedReview ?? false,
         summary: b.lineItems.map((li) => li.title).join(", "),
-      }))
-      .filter((b) => b.guestEmail);
+      });
+    }
+    return out;
   },
 });
 
 export const markReminded = internalMutation({
   args: {
     bookingId: v.id("bookings"),
-    which: v.union(v.literal("pickup"), v.literal("return")),
+    which: v.union(v.literal("pickup"), v.literal("return"), v.literal("review")),
   },
   handler: async (ctx, { bookingId, which }) => {
-    await ctx.db.patch(
-      bookingId,
-      which === "pickup" ? { remindedPickup: true } : { remindedReturn: true },
-    );
+    const patch =
+      which === "pickup"
+        ? { remindedPickup: true }
+        : which === "return"
+          ? { remindedReturn: true }
+          : { remindedReview: true };
+    await ctx.db.patch(bookingId, patch);
   },
 });
 

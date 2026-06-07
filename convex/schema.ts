@@ -159,6 +159,7 @@ export default defineSchema({
     stripeIdentitySessionId: v.optional(v.string()),
     remindedPickup: v.optional(v.boolean()),
     remindedReturn: v.optional(v.boolean()),
+    remindedReview: v.optional(v.boolean()),
     protection: v.optional(v.string()),
     pickupTime: v.optional(v.string()),
     returnTime: v.optional(v.string()),
@@ -310,6 +311,9 @@ export default defineSchema({
     deliveryMaxKm: v.optional(v.number()),
     openingHours: v.optional(v.string()),
     acceptingOrders: v.optional(v.boolean()),
+    googleReviewUrl: v.optional(v.string()),
+    businessAddress: v.optional(v.string()),
+    businessPhone: v.optional(v.string()),
   }),
 
   rmv2_sync_state: defineTable({

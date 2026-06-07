@@ -76,12 +76,31 @@ export const sendReminders = internalAction({
   args: {},
   handler: async (ctx) => {
     const feed: any[] = await ctx.runQuery(internal.bookings.remindersFeed, {});
+    const cfg: any = await ctx.runQuery(api.settings.get, {});
     const today = new Date().toISOString().slice(0, 10);
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     let sent = 0;
     for (const b of feed) {
       const startDay = new Date(b.start).toISOString().slice(0, 10);
       const endDay = new Date(b.end).toISOString().slice(0, 10);
+
+      // day after return → ask for a Google review (drives local-SEO review velocity)
+      if (endDay === yesterday && !b.remindedReview && cfg.googleReviewUrl) {
+        await email(
+          b.guestEmail,
+          "How was your Db Cinema rental? ⭐",
+          `<p>Thanks for renting with us! If it went well, a quick Google review really helps us out:</p><p><a href="${cfg.googleReviewUrl}">Leave a review →</a></p><p>${b.summary}</p>`,
+        );
+        if (b.accountId)
+          await ctx.runMutation(internal.chat.postSystem, {
+            accountId: b.accountId,
+            bookingId: b._id,
+            text: `Hope the shoot went well! 🎬 If you have a sec, we'd love a quick review: ${cfg.googleReviewUrl}`,
+          });
+        await ctx.runMutation(internal.bookings.markReminded, { bookingId: b._id, which: "review" });
+        sent++;
+      }
       if (startDay === tomorrow && !b.remindedPickup) {
         await email(
           b.guestEmail,

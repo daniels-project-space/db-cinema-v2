@@ -6,7 +6,22 @@ const DEFAULTS = {
   deliveryMaxKm: 30,
   openingHours: "10:00–12:00 & 19:00–21:00, daily",
   acceptingOrders: true,
+  googleReviewUrl: "",
+  businessAddress: "",
+  businessPhone: "",
 };
+
+function configFrom(d: any) {
+  return {
+    deliveryMarginPct: d?.deliveryMarginPct ?? DEFAULTS.deliveryMarginPct,
+    deliveryMaxKm: d?.deliveryMaxKm ?? DEFAULTS.deliveryMaxKm,
+    openingHours: d?.openingHours ?? DEFAULTS.openingHours,
+    acceptingOrders: d?.acceptingOrders ?? DEFAULTS.acceptingOrders,
+    googleReviewUrl: d?.googleReviewUrl ?? DEFAULTS.googleReviewUrl,
+    businessAddress: d?.businessAddress ?? DEFAULTS.businessAddress,
+    businessPhone: d?.businessPhone ?? DEFAULTS.businessPhone,
+  };
+}
 
 function assertAdmin(token: string) {
   if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN)
@@ -18,12 +33,7 @@ export const get = query({
   args: {},
   handler: async (ctx) => {
     const d = await ctx.db.query("settings").first();
-    return {
-      deliveryMarginPct: d?.deliveryMarginPct ?? DEFAULTS.deliveryMarginPct,
-      deliveryMaxKm: d?.deliveryMaxKm ?? DEFAULTS.deliveryMaxKm,
-      openingHours: d?.openingHours ?? DEFAULTS.openingHours,
-      acceptingOrders: d?.acceptingOrders ?? DEFAULTS.acceptingOrders,
-    };
+    return configFrom(d);
   },
 });
 
@@ -33,15 +43,7 @@ export const adminGet = query({
     if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN)
       return { authorized: false as const };
     const d = await ctx.db.query("settings").first();
-    return {
-      authorized: true as const,
-      config: {
-        deliveryMarginPct: d?.deliveryMarginPct ?? DEFAULTS.deliveryMarginPct,
-        deliveryMaxKm: d?.deliveryMaxKm ?? DEFAULTS.deliveryMaxKm,
-        openingHours: d?.openingHours ?? DEFAULTS.openingHours,
-        acceptingOrders: d?.acceptingOrders ?? DEFAULTS.acceptingOrders,
-      },
-    };
+    return { authorized: true as const, config: configFrom(d) };
   },
 });
 
@@ -52,6 +54,9 @@ export const adminUpdate = mutation({
     deliveryMaxKm: v.optional(v.number()),
     openingHours: v.optional(v.string()),
     acceptingOrders: v.optional(v.boolean()),
+    googleReviewUrl: v.optional(v.string()),
+    businessAddress: v.optional(v.string()),
+    businessPhone: v.optional(v.string()),
   },
   handler: async (ctx, { token, ...patch }) => {
     assertAdmin(token);
