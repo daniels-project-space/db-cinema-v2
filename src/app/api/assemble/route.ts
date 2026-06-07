@@ -14,42 +14,65 @@ const msOf = (d: string) => {
 };
 
 const TERM: Record<string, string> = {
-  camera: "camera", "camera-body": "camera", lens: "lens", gimbal: "gimbal",
-  light: "light", "key-light": "light", "fill-light": "light", "tube-light": "tube",
-  "nd-filter": "filter", filter: "filter", battery: "battery", monitor: "monitor",
-  mic: "mic", "lav-mic": "lav", "shotgun-mic": "shotgun", "wireless-mic": "wireless mic",
-  tripod: "tripod", drone: "drone", speaker: "speaker", slider: "slider", haze: "haze",
+  camera: "camera", lens: "lens", gimbal: "gimbal", light: "light",
+  "tube-light": "tube", "nd-filter": "filter", battery: "battery", monitor: "monitor",
+  "lav-mic": "lav", "shotgun-mic": "shotgun", "wireless-mic": "wireless mic",
+  tripod: "tripod", drone: "drone", speaker: "speaker", slider: "slider",
 };
+const ORDER = ["camera", "lens", "gimbal", "monitor", "lav-mic", "shotgun-mic", "wireless-mic", "light", "tube-light", "nd-filter", "battery", "tripod", "slider", "drone", "speaker"];
+const MULTI = new Set(["lens", "light", "tube-light", "nd-filter", "battery", "lav-mic"]); // can pick several
 
 const FALLBACK: Record<string, string[]> = {
-  interview: ["camera", "lens", "lav-mic", "shotgun-mic", "key-light", "fill-light", "tripod", "monitor"],
-  "music video": ["camera", "lens", "gimbal", "tube-light", "light", "nd-filter"],
+  interview: ["camera", "lens", "lav-mic", "shotgun-mic", "light", "monitor", "tripod"],
+  "music video": ["camera", "lens", "gimbal", "tube-light", "light", "nd-filter", "monitor"],
   documentary: ["camera", "lens", "shotgun-mic", "wireless-mic", "light", "tripod"],
   event: ["camera", "lens", "light", "shotgun-mic", "tripod"],
-  product: ["camera", "lens", "light", "tripod", "monitor"],
+  product: ["camera", "lens", "light", "tripod", "monitor", "nd-filter"],
   wedding: ["camera", "lens", "gimbal", "shotgun-mic", "light"],
-  default: ["camera", "lens", "light", "mic", "tripod"],
+  default: ["camera", "lens", "light", "shotgun-mic", "tripod"],
 };
+
+// ── compatibility inference ───────────────────────────────────
+function mountOf(title: string): string {
+  const t = title.toLowerCase();
+  const any = (...k: string[]) => k.some((x) => t.includes(x));
+  if (any("gopro", "osmo action", "insta360", "action 4", "action 5", "action4", "action5", "osmo pocket", "pocket 3")) return "fixed";
+  if (any("mft", "m4/3", "micro four", "gh5", "gh6", "gh7", "bmpcc 4k", "pocket 4k")) return "MFT";
+  if (any("komodo", "raptor")) return "RF";
+  if (any(" rf", "rf ", "r5", "r6", "r3", "r8", "canon r")) return "RF";
+  if (any("pl mount", " pl ", "arri", "alexa", "amira")) return "PL";
+  if (any("bmpcc", "pocket cinema", "6k pro", "6k g2")) return "EF";
+  if (any(" ef", "ef ", "ef-", "canon ef")) return "EF";
+  if (any("sony", "fx3", "fx6", "fx9", "fx30", "a7", "a1", "a9", "burano", " fe ", "gm", "g master", "e-mount", "emount", "sigma e", "tamron e")) return "E";
+  return "any";
+}
+function roleOf(cat: string): string {
+  const c = (cat || "").toLowerCase();
+  if (c.includes("lens")) return "lens";
+  if (c.includes("camera")) return "camera";
+  return "other";
+}
 
 const SCHEMA = z.object({
   reply: z.string(),
-  sections: z.array(z.object({ type: z.string(), label: z.string(), note: z.string(), qty: z.number() })),
+  stages: z.array(z.object({ key: z.string(), label: z.string(), note: z.string(), upsell: z.boolean().optional() })),
   compatibility: z.array(z.string()),
-  upsell: z.array(z.object({ type: z.string(), label: z.string(), note: z.string() })),
 });
 
-async function optionsForType(c: ConvexHttpClient, type: string, start: string, end: string, limit = 8) {
-  const term = TERM[type] || type.replace(/-/g, " ");
+async function optionsForType(c: ConvexHttpClient, key: string, start: string, end: string, limit = 12) {
+  const term = TERM[key] || key.replace(/-/g, " ");
   const r: any[] = await c.query(api.catalog.listListings, { search: term });
   const days = Math.max(1, Math.round((msOf(end) - msOf(start)) / 86400000) + 1);
   const out: any[] = [];
-  for (const l of (r || []).slice(0, 14)) {
+  for (const l of (r || []).slice(0, 18)) {
     const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: msOf(start), end: msOf(end) });
     if ((av?.available ?? 0) <= 0) continue;
     const q: any = quote(l.pricing, days);
+    const role = roleOf(l.category);
     out.push({
-      listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null,
-      category: l.category, start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
+      listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, category: l.category,
+      start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
+      role, mount: role === "camera" || role === "lens" ? mountOf(l.title) : null,
     });
     if (out.length >= limit) break;
   }
@@ -64,45 +87,42 @@ export async function POST(req: NextRequest) {
   if (!start || !end) return NextResponse.json({ error: "dates required" }, { status: 400 });
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
-  // 1) design the kit (categories + notes) — model decides, heuristic fallback
   let design: any = null;
   try {
     const or = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
     const { object } = await generateObject({
       model: or(process.env.BOT_MODEL || "deepseek/deepseek-chat") as any,
       schema: SCHEMA,
-      prompt: `You are a senior kit designer at Db Cinema Rentals (London cinema-gear hire). Design a rental kit for this shoot. Pick the gear CATEGORIES needed as "sections" (use these type keywords: camera, lens, gimbal, light, key-light, fill-light, tube-light, nd-filter, battery, monitor, lav-mic, shotgun-mic, wireless-mic, tripod, drone, slider, haze, speaker). Give each section a friendly label, a one-line note, and a recommended quantity. Be thorough and shoot-appropriate. Add 2-4 "upsell" sections (premium add-ons that elevate the shoot — push hard). Add 2-4 short "compatibility" notes (mounts, power, media, etc.). Tailor to the budget, crew size and camera count.\n\nSHOOT: ${b.shootType || "general"}. Dates ${start} to ${end}. Budget around £${b.budget ?? "flexible"} total. Cameras needed: ${b.cameras ?? 1}. Crew/size: ${b.size || "small"}. Notes: ${b.note || "none"}.`,
+      prompt: `You are a senior kit designer at Db Cinema Rentals (London cinema hire). Plan a STAGE-BY-STAGE kit build for this shoot. Output ordered "stages" — each a gear category the customer will choose from. Use these keys only: camera, lens, gimbal, monitor, lav-mic, shotgun-mic, wireless-mic, light, tube-light, nd-filter, battery, tripod, slider, drone, speaker. ALWAYS put camera first and lens second. Each stage: short friendly label + one-line note guiding the choice. Mark 1-3 stages upsell:true (premium add-ons to push). Add 3-5 short "compatibility" notes (mounts, power, media, adapters). Tailor to budget, crew size, camera count.\n\nSHOOT: ${b.shootType || "general"}. Dates ${start} to ${end}. Budget ~£${b.budget ?? "flexible"}. Cameras: ${b.cameras ?? 1}. Crew: ${b.size || "small"}. Notes: ${b.note || "none"}.`,
     });
     design = object;
   } catch {
     design = null;
   }
 
-  const types: string[] = design?.sections?.length
-    ? design.sections.map((s: any) => s.type)
-    : FALLBACK[(b.shootType || "default").toLowerCase()] || FALLBACK.default;
+  let keys: string[] = design?.stages?.length ? design.stages.map((s: any) => s.key) : FALLBACK[(b.shootType || "default").toLowerCase()] || FALLBACK.default;
+  keys = Array.from(new Set(keys));
+  const oi = (k: string) => (ORDER.indexOf(k) === -1 ? 99 : ORDER.indexOf(k));
+  keys.sort((a, z) => oi(a) - oi(z)); // enforce camera, then lens, then the rest
 
-  // 2) fill each section with real available, priced options (server-authoritative)
-  const seen = new Set<string>();
-  const sections: any[] = [];
-  for (const t of types.slice(0, 8)) {
-    const meta = design?.sections?.find((s: any) => s.type === t);
-    const options = (await optionsForType(c, t, start, end)).filter((o) => !seen.has(o.listingId));
-    options.forEach((o) => seen.add(o.listingId));
+  const stages: any[] = [];
+  for (const k of keys.slice(0, 9)) {
+    const meta = design?.stages?.find((s: any) => s.key === k);
+    const options = await optionsForType(c, k, start, end);
     if (options.length)
-      sections.push({ type: t, label: meta?.label || t, note: meta?.note || "", qty: meta?.qty || 1, upsell: false, options });
-  }
-  // upsell sections
-  for (const u of (design?.upsell || []).slice(0, 4)) {
-    const options = (await optionsForType(c, u.type, start, end, 6)).filter((o) => !seen.has(o.listingId));
-    options.forEach((o) => seen.add(o.listingId));
-    if (options.length)
-      sections.push({ type: u.type, label: u.label || u.type, note: u.note || "", qty: 1, upsell: true, options });
+      stages.push({
+        key: k,
+        label: meta?.label || k,
+        note: meta?.note || "",
+        multi: MULTI.has(k),
+        upsell: !!meta?.upsell,
+        options,
+      });
   }
 
   return NextResponse.json({
-    reply: design?.reply || `Here's a suggested kit for your ${b.shootType || "shoot"} — pick what you like from each row.`,
+    reply: design?.reply || `Let's build your ${b.shootType || "shoot"} kit step by step.`,
     compatibility: design?.compatibility || [],
-    sections,
+    stages,
   });
 }
