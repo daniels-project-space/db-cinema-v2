@@ -65,7 +65,7 @@ const SCHEMA = z.object({
   compatibility: z.array(z.string()),
 });
 
-async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string) {
+async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, lensPref?: string) {
   const def = STAGE[key];
   if (!def) return [];
   let items: any[] = await c.query(api.catalog.byItemType, { types: def.types });
@@ -87,6 +87,11 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
     if (out.length >= 16) break;
   }
   out.sort((a, b) => {
+    if (key === "lens" && lensPref) {
+      const ac = a.specs?.lensClass === lensPref ? 0 : 1;
+      const bc = b.specs?.lensClass === lensPref ? 0 : 1;
+      if (ac !== bc) return ac - bc; // preferred lens class first (af for small, cine for large)
+    }
     const pa = def.prefer && def.prefer.test(a.title) ? 0 : 1;
     const pb = def.prefer && def.prefer.test(b.title) ? 0 : 1;
     return pa - pb || a.total - b.total;
@@ -135,15 +140,23 @@ export async function POST(req: NextRequest) {
   const oi = (k: string) => (ORDER.indexOf(k) === -1 ? 99 : ORDER.indexOf(k));
   keys.sort((a, z) => oi(a) - oi(z));
 
+  // small/solo shoots favour autofocus glass (run-and-gun); large productions favour cinema glass
+  const lensPref = (b.size || "").toLowerCase().includes("large") ? "cine" : "af";
+
   const stages: any[] = [];
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
-    const options = await optionsForStage(c, k, start, end);
+    const options = await optionsForStage(c, k, start, end, lensPref);
     if (!options.length) continue;
+    let note = meta?.note || "";
+    if (k === "lens")
+      note += (note ? " " : "") + (lensPref === "cine"
+        ? "Cinema glass first for a larger crew (manual focus, focus puller recommended)."
+        : "Autofocus glass first for fast, small-crew shooting.");
     stages.push({
       key: k,
       label: meta?.label || k,
-      note: meta?.note || "",
+      note,
       multi: MULTI.has(k),
       upsell: !!meta?.upsell,
       recommendedId: pickRecommended(options, meta?.recommend),

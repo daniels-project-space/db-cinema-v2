@@ -396,6 +396,8 @@ export const respec = mutation({
       if (sp.batteryType) clean.batteryType = sp.batteryType;
       if (sp.lensFocal) clean.lensFocal = sp.lensFocal;
       if (sp.tier) clean.tier = sp.tier;
+      if (sp.lensClass) clean.lensClass = sp.lensClass;
+      if (sp.hasAutofocus !== null && sp.hasAutofocus !== undefined) clean.hasAutofocus = sp.hasAutofocus;
       await ctx.db.patch(l._id, { specs: clean });
       n++;
     }

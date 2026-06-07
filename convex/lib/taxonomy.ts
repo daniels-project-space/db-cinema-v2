@@ -61,6 +61,8 @@ export type Specs = {
   includesLens: boolean;
   lensFocal: string | null; // "28-70"
   tier: string | null; // premium | standard (lenses)
+  lensClass: string | null; // "af" (autofocus) | "cine" (manual cinema glass)
+  hasAutofocus: boolean | null; // cameras: AF-centric body (Sony/Canon mirrorless) vs cine
 };
 
 export function mountOf(title: string): string | null {
@@ -116,7 +118,20 @@ export function deriveSpecs(title: string, itemType: ItemType): Specs {
   const lensFocal = (t.match(/(\d{2}-\d{2,3})\s?mm/) || [])[1] || null;
   const tier = itemType === "lens" ? (has(/gm\b|g master|master|cine|cooke|anamorphic/) ? "premium" : "standard") : null;
 
-  return { mount, filterThreadMm, batteryType, includesLens, lensFocal, tier };
+  // lens class: manual cinema glass vs autofocus stills/native glass
+  let lensClass: string | null = null;
+  if (itemType === "lens") {
+    const cine = has(/\bcine\b|cinema lens|anamorphic|blazar|dzo|great joy|laowa|samyang|rokinon|\bpl\b|cooke|t1\.5|t2\.\d|manual focus/);
+    lensClass = cine ? "cine" : "af";
+  }
+  // camera autofocus: mirrorless stills/hybrid bodies have strong AF; cine cameras don't
+  let hasAutofocus: boolean | null = null;
+  if (itemType === "camera-body") {
+    if (has(/alexa|amira|\bred\b|komodo|raptor|ursa|bmpcc|pocket cinema|varicam/)) hasAutofocus = false;
+    else if (has(/sony|fx3|fx30|fx6|a7|a1\b|a9\b|canon r|r5|r6|r3|r8|gh5|gh6|gh7|s5|lumix|zv-?e|gopro|osmo/)) hasAutofocus = true;
+  }
+
+  return { mount, filterThreadMm, batteryType, includesLens, lensFocal, tier, lensClass, hasAutofocus };
 }
 
 // Delivery size/weight per itemType — grounded in v1 delivery-specs size_score

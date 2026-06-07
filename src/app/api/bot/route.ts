@@ -49,7 +49,7 @@ async function buildOne(c: ConvexHttpClient, slugOrTerm: string, start: string, 
   return {
     listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null,
     start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0, available,
-    itemType: l.itemType ?? null, mount: l.specs?.mount ?? null,
+    itemType: l.itemType ?? null, mount: l.specs?.mount ?? null, lensClass: l.specs?.lensClass ?? null,
   };
 }
 
@@ -62,13 +62,20 @@ function lensFits(lensMount: string | null, camMounts: string[]) {
 async function firstAvailableByType(c: ConvexHttpClient, type: string, start: string, end: string, seen: Set<string>, camMounts: string[] = []) {
   const term = TERM[type] || type;
   const r: any[] = await c.query(api.catalog.listListings, { search: term });
+  let fallback: any = null;
   for (const l of r || []) {
     if (seen.has(l._id)) continue;
     const item = await buildOne(c, l.slug, start, end, true);
-    if (item && item.itemType === "lens" && !lensFits(item.mount, camMounts)) continue;
-    if (item && item.available) return item;
+    if (!item || !item.available) continue;
+    if (item.itemType === "lens") {
+      if (!lensFits(item.mount, camMounts)) continue;
+      if (item.lensClass === "af") return item; // prefer autofocus glass for default kits
+      if (!fallback) fallback = item;
+      continue;
+    }
+    return item;
   }
-  return null;
+  return fallback;
 }
 
 async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = []) {
