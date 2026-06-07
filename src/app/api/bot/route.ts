@@ -27,7 +27,12 @@ const OUT = z.object({
 });
 
 async function buildOne(c: ConvexHttpClient, slug: string, start?: string, end?: string, checkAvail = true) {
-  const l: any = await c.query(api.catalog.getListingBySlug, { slug });
+  let l: any = await c.query(api.catalog.getListingBySlug, { slug });
+  if (!l) {
+    // model gave an approximate slug — resolve it by search
+    const r: any[] = await c.query(api.catalog.listListings, { search: slug.replace(/-/g, " ") });
+    l = (r || [])[0];
+  }
   if (!l) return null;
   const have = !!(start && end);
   const days = have ? Math.max(1, Math.round((msOf(end!) - msOf(start!)) / 86400000) + 1) : 0;
@@ -59,9 +64,13 @@ async function buildOne(c: ConvexHttpClient, slug: string, start?: string, end?:
 async function buildCards(c: ConvexHttpClient, out: any) {
   const cards: any[] = [];
   if (!out?.start || !out?.end) return cards; // cards need a period
+  const seen = new Set<string>();
   for (const p of out.proposals ?? []) {
     const item = await buildOne(c, p.slug, out.start, out.end, true);
-    if (item && item.available) cards.push({ kind: "add", reason: p.reason, item });
+    if (item && item.available && !seen.has(item.listingId)) {
+      seen.add(item.listingId);
+      cards.push({ kind: "add", reason: p.reason, item });
+    }
   }
   for (const s of out.swaps ?? []) {
     const removed = await buildOne(c, s.removeSlug, out.start, out.end, false);
