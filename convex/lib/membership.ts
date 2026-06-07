@@ -37,11 +37,11 @@ export const TIERS: MemberTier[] = [
     monthlyGbp: 49,
     pct: 20,
     freeDelivery: false,
-    freeAccessories: 2,
+    freeAccessories: 1,
     exclusiveOffers: true,
     perks: [
       "20% off every rental",
-      "2 free accessories / month",
+      "1 free accessory / month",
       "Exclusive member offers",
       "Priority availability",
     ],
