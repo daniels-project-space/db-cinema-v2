@@ -281,6 +281,13 @@ export default defineSchema({
     accountId: v.id("accounts"),
   }).index("by_token", ["token"]),
 
+  settings: defineTable({
+    deliveryMarginPct: v.optional(v.number()),
+    deliveryMaxKm: v.optional(v.number()),
+    openingHours: v.optional(v.string()),
+    acceptingOrders: v.optional(v.boolean()),
+  }),
+
   rmv2_sync_state: defineTable({
     key: v.string(), // e.g. "hygglo-availability"
     lastSyncedAt: v.number(),

@@ -188,7 +188,107 @@ export default function AdminPage() {
             <div className="text-sm text-white/30">No messages.</div>
           )}
         </div>
+
+        <AdminSettings token={token} />
+        <AdminPromos token={token} />
       </main>
     </>
+  );
+}
+
+function AdminSettings({ token }: { token: string }) {
+  const res = useQuery(api.settings.adminGet, { token });
+  const update = useMutation(api.settings.adminUpdate);
+  const [f, setF] = useState<any>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (res && (res as any).authorized) setF((res as any).config);
+  }, [res]);
+  if (!res || !(res as any).authorized || !f) return null;
+
+  const field = "rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none w-28";
+  async function save() {
+    await update({
+      token,
+      deliveryMarginPct: Number(f.deliveryMarginPct),
+      deliveryMaxKm: Number(f.deliveryMaxKm),
+      openingHours: f.openingHours,
+      acceptingOrders: f.acceptingOrders,
+    });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+  return (
+    <section className="mt-10">
+      <h2 className="font-display text-lg font-semibold text-white/80">Settings</h2>
+      <div className="mt-3 rounded-2xl glass gradient-border p-5 flex flex-col gap-3 text-sm">
+        <label className="flex items-center justify-between text-white/60">
+          Delivery margin %
+          <input className={field} type="number" value={f.deliveryMarginPct} onChange={(e) => setF({ ...f, deliveryMarginPct: e.target.value })} />
+        </label>
+        <label className="flex items-center justify-between text-white/60">
+          Max delivery distance (km)
+          <input className={field} type="number" value={f.deliveryMaxKm} onChange={(e) => setF({ ...f, deliveryMaxKm: e.target.value })} />
+        </label>
+        <label className="flex items-center justify-between gap-3 text-white/60">
+          Opening hours
+          <input className="flex-1 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none" value={f.openingHours} onChange={(e) => setF({ ...f, openingHours: e.target.value })} />
+        </label>
+        <label className="flex items-center justify-between text-white/60">
+          Accepting orders
+          <input type="checkbox" className="accent-accent-500 h-4 w-4" checked={f.acceptingOrders} onChange={(e) => setF({ ...f, acceptingOrders: e.target.checked })} />
+        </label>
+        <button onClick={save} className="w-fit rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white hover:bg-accent-600">
+          {saved ? "Saved ✓" : "Save settings"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function AdminPromos({ token }: { token: string }) {
+  const res = useQuery(api.promo.adminList, { token });
+  const create = useMutation(api.promo.adminCreate);
+  const toggle = useMutation(api.promo.adminToggle);
+  const [code, setCode] = useState("");
+  const [type, setType] = useState<"percent" | "fixed">("percent");
+  const [value, setValue] = useState("15");
+  const [err, setErr] = useState<string | null>(null);
+  if (!res || !(res as any).authorized) return null;
+
+  async function add() {
+    setErr(null);
+    try {
+      await create({ token, code, type, value: Number(value) });
+      setCode("");
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed");
+    }
+  }
+  return (
+    <section className="mt-10">
+      <h2 className="font-display text-lg font-semibold text-white/80">Promo codes</h2>
+      <div className="mt-3 flex flex-col gap-2">
+        {(res as any).items.map((p: any) => (
+          <div key={p._id} className="flex items-center justify-between rounded-xl glass px-4 py-2 text-sm">
+            <span className="font-mono uppercase text-white/80">{p.code}</span>
+            <span className="text-white/50">{p.type === "percent" ? `${p.value}%` : `£${p.value}`} · used {p.usedCount}</span>
+            <button onClick={() => toggle({ token, id: p._id })} className={`rounded-full px-3 py-1 text-xs ${p.active ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/40"}`}>
+              {p.active ? "active" : "inactive"}
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-end gap-2 rounded-2xl glass p-4">
+        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="CODE" className="rounded-lg bg-white/[0.04] px-3 py-2 text-sm uppercase text-white/80 outline-none" />
+        <select value={type} onChange={(e) => setType(e.target.value as any)} className="rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none [color-scheme:dark]">
+          <option value="percent">%</option>
+          <option value="fixed">£</option>
+        </select>
+        <input value={value} onChange={(e) => setValue(e.target.value)} type="number" className="w-20 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none" />
+        <button onClick={add} className="rounded-full bg-accent-500 px-4 py-2 text-sm font-medium text-white hover:bg-accent-600">Add code</button>
+        {err && <span className="text-xs text-red-300">{err}</span>}
+      </div>
+    </section>
   );
 }

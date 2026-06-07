@@ -50,6 +50,9 @@ export const start = action({
   },
   handler: async (ctx, a): Promise<{ url: string }> => {
     if (a.items.length === 0) throw new Error("empty cart");
+    const cfg: any = await ctx.runQuery(api.settings.get, {});
+    if (!cfg.acceptingOrders)
+      throw new Error("We're not accepting new bookings right now — please check back soon.");
     if (!a.agreement || !a.agreement.name.trim())
       throw new Error("Please sign the rental agreement to continue.");
 

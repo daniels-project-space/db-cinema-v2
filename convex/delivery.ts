@@ -1,5 +1,5 @@
 import { action, internalQuery } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 
 // Origin: 23 Whitcomb Street WC2H 7ER (Trafalgar Square) — v1 delivery base.
@@ -70,11 +70,13 @@ export const quote = action({
     }
     if (!res?.latitude) return { ok: false, reason: "We couldn't find that postcode" };
 
+    const cfg: any = await ctx.runQuery(api.settings.get, {});
+    const maxKm = cfg.deliveryMaxKm ?? MAX_KM;
     const km = haversineKm(ORIGIN, { lat: res.latitude, lng: res.longitude });
-    if (km > MAX_KM)
+    if (km > maxKm)
       return {
         ok: false,
-        reason: `That's ~${Math.round(km)}km from us — beyond our ${MAX_KM}km delivery range. Please choose pickup.`,
+        reason: `That's ~${Math.round(km)}km from us — beyond our ${maxKm}km delivery range. Please choose pickup.`,
       };
 
     const specs: any[] = await ctx.runQuery(internal.delivery.specsFor, { ids: listingIds });
@@ -106,8 +108,8 @@ export const quote = action({
     const t = clamp01((load - ls) / (le - ls));
     const oneWay = Math.round(lo + (hi - lo) * t);
 
-    // round trip (there + back) + 10% margin
-    const fee = Math.round(oneWay * 2 * 1.1);
+    // round trip (there + back) + configurable margin
+    const fee = Math.round(oneWay * 2 * (1 + (cfg.deliveryMarginPct ?? 10) / 100));
 
     return { ok: true, fee, oneWay, vehicle, vehicleLabel, km: Math.round(km * 10) / 10, load: Math.round(load) };
   },

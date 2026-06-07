@@ -205,3 +205,52 @@ export const myBookings = query({
     return out;
   },
 });
+
+// ── account management: change password / delete ─────────────────
+export const _authFor = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const s = await ctx.db
+      .query("sessions")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .first();
+    if (!s) return null;
+    const a: any = await ctx.db.get(s.accountId);
+    if (!a) return null;
+    return { accountId: a._id, salt: a.salt, hash: a.hash };
+  },
+});
+
+export const _setPassword = internalMutation({
+  args: { accountId: v.id("accounts"), salt: v.string(), hash: v.string() },
+  handler: async (ctx, { accountId, salt, hash }) => {
+    await ctx.db.patch(accountId, { salt, hash });
+  },
+});
+
+export const changePassword = action({
+  args: { token: v.string(), oldPassword: v.string(), newPassword: v.string() },
+  handler: async (ctx, { token, oldPassword, newPassword }) => {
+    if (newPassword.length < 6) throw new Error("New password must be 6+ characters.");
+    const a: any = await ctx.runQuery(internal.accounts._authFor, { token });
+    if (!a) throw new Error("unauthorized");
+    const oldHash = await pbkdf2(oldPassword, a.salt);
+    if (oldHash !== a.hash) throw new Error("Current password is incorrect.");
+    const salt = randomHex(16);
+    const hash = await pbkdf2(newPassword, salt);
+    await ctx.runMutation(internal.accounts._setPassword, { accountId: a.accountId, salt, hash });
+    return { ok: true };
+  },
+});
+
+export const deleteAccount = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const a: any = await resolve(ctx, token);
+    if (!a) throw new Error("unauthorized");
+    const sessions = await ctx.db.query("sessions").collect();
+    for (const s of sessions) if (s.accountId === a._id) await ctx.db.delete(s._id);
+    await ctx.db.delete(a._id);
+    return { ok: true };
+  },
+});

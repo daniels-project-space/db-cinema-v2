@@ -24,6 +24,7 @@ import type * as offers from "../offers.js";
 import type * as promo from "../promo.js";
 import type * as recommendations from "../recommendations.js";
 import type * as reviews from "../reviews.js";
+import type * as settings from "../settings.js";
 import type * as sync from "../sync.js";
 
 import type {
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   promo: typeof promo;
   recommendations: typeof recommendations;
   reviews: typeof reviews;
+  settings: typeof settings;
   sync: typeof sync;
 }>;
 
