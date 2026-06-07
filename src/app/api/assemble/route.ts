@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
       note,
       multi: MULTI.has(k),
       upsell: !!meta?.upsell,
-      recommendedId: pickRecommended(options, meta?.recommend),
+      recommendedId: k === "lens" ? options[0].listingId : pickRecommended(options, meta?.recommend),
       options,
     });
   }
