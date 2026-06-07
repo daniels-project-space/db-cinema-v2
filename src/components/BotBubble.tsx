@@ -8,6 +8,8 @@ type Card = any;
 type Msg = { role: "user" | "assistant"; content: string; cards?: Card[] };
 const GREETING =
   "Hi! I'm the Db Cinema assistant 🎬 Tell me what you're shooting and your dates, and I'll build you a kit — or ask about any gear, prices and availability.";
+const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding"];
+const SIZES = ["Solo", "Small crew", "Large production"];
 
 export function BotBubble() {
   const [open, setOpen] = useState(false);
@@ -15,6 +17,8 @@ export function BotBubble() {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<Record<string, "added" | "declined">>({});
+  const [onb, setOnb] = useState(0); // conversational onboarding step (4 = done/dismissed)
+  const [brief, setBrief] = useState({ shoot: "", size: "", start: "", end: "", budget: 600 });
   const endRef = useRef<HTMLDivElement>(null);
   const account = useAccount();
   const cart = useCart();
@@ -28,9 +32,18 @@ export function BotBubble() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs, busy]);
 
+  function startBuild() {
+    const b = brief;
+    setOnb(4);
+    send(
+      `Build me a ${b.shoot.toLowerCase()} kit for a ${b.size.toLowerCase()}, from ${b.start} to ${b.end}, budget around £${b.budget}. Recommend a complete, compatible kit.`,
+    );
+  }
+
   async function send(override?: string) {
     const t = (override ?? text).trim();
     if (!t || busy) return;
+    setOnb(4); // any message dismisses the onboarding prompts
     const next: Msg[] = [...msgs, { role: "user", content: t }];
     setMsgs(next);
     setText("");
@@ -94,7 +107,44 @@ export function BotBubble() {
           </header>
 
           <div className="flex-1 space-y-3 overflow-y-auto p-4">
-            {msgs.length === 0 && <Bubble role="assistant" text={GREETING} />}
+            {msgs.length === 0 && onb >= 4 && <Bubble role="assistant" text={GREETING} />}
+            {msgs.length === 0 && onb < 4 && (
+              <div className="space-y-2">
+                <Bubble role="assistant" text="Hi! I'm the Db Cinema assistant 🎬 Let's build your kit — what are you shooting?" />
+                {onb >= 1 && <Bubble role="user" text={brief.shoot} />}
+                {onb === 0 && (
+                  <Chips opts={SHOOTS} onPick={(v) => { setBrief((b) => ({ ...b, shoot: v })); setOnb(1); }} />
+                )}
+
+                {onb >= 1 && <Bubble role="assistant" text="Nice — how big is the crew?" />}
+                {onb >= 2 && <Bubble role="user" text={brief.size} />}
+                {onb === 1 && (
+                  <Chips opts={SIZES} onPick={(v) => { setBrief((b) => ({ ...b, size: v })); setOnb(2); }} />
+                )}
+
+                {onb >= 2 && <Bubble role="assistant" text="When do you need the gear?" />}
+                {onb >= 3 && <Bubble role="user" text={`${brief.start} → ${brief.end}`} />}
+                {onb === 2 && (
+                  <div className="flex flex-wrap items-end gap-2 pl-1">
+                    <input type="date" value={brief.start} onChange={(e) => setBrief((b) => ({ ...b, start: e.target.value }))} className="rounded-lg bg-white/[0.06] px-2 py-1.5 text-xs text-white/80 outline-none [color-scheme:dark]" />
+                    <input type="date" value={brief.end} onChange={(e) => setBrief((b) => ({ ...b, end: e.target.value }))} className="rounded-lg bg-white/[0.06] px-2 py-1.5 text-xs text-white/80 outline-none [color-scheme:dark]" />
+                    <button onClick={() => brief.start && brief.end && setOnb(3)} disabled={!brief.start || !brief.end} className="press rounded-full bg-accent-500 px-3 py-1.5 text-xs text-white disabled:opacity-30">Next</button>
+                  </div>
+                )}
+
+                {onb >= 3 && <Bubble role="assistant" text="Last thing — your budget, then I'll build it." />}
+                {onb === 3 && (
+                  <div className="space-y-2 pl-1">
+                    <div className="flex items-center gap-2 text-xs text-white/60">
+                      <span className="w-12 text-accent-300">£{brief.budget}</span>
+                      <input type="range" min={100} max={3000} step={50} value={brief.budget} onChange={(e) => setBrief((b) => ({ ...b, budget: Number(e.target.value) }))} className="flex-1 accent-accent-500" />
+                    </div>
+                    <button onClick={startBuild} className="press rounded-full bg-gradient-to-r from-accent-500 to-indigo-500 px-4 py-2 text-xs font-medium text-white">✨ Build my kit</button>
+                    <button onClick={() => setOnb(4)} className="ml-2 text-xs text-white/35 hover:text-white/60">or just chat →</button>
+                  </div>
+                )}
+              </div>
+            )}
             {msgs.map((m, mi) => (
               <div key={mi} className="space-y-2">
                 <Bubble role={m.role} text={m.content} />
@@ -165,6 +215,16 @@ function Bubble({ role, text }: { role: string; text: string }) {
       >
         {text}
       </div>
+    </div>
+  );
+}
+
+function Chips({ opts, onPick }: { opts: string[]; onPick: (v: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 pl-1">
+      {opts.map((s) => (
+        <button key={s} onClick={() => onPick(s)} className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/70 transition-colors hover:border-accent-400/50 hover:text-white">{s}</button>
+      ))}
     </div>
   );
 }
