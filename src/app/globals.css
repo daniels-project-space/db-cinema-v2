@@ -255,3 +255,20 @@ body {
   50% { box-shadow: 0 0 34px 2px rgba(56, 189, 248, 0.85); }
 }
 .glow { animation: glow 2.6s ease-in-out infinite; }
+
+/* assembler: per-slide stage transition + card slide-in */
+@keyframes stage-in {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: none; }
+}
+.stage-in { animation: stage-in 0.5s var(--ease-out-expo) both; }
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.card-in { animation: card-in 0.5s var(--ease-out-expo) both; }
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.msg-in { animation: msg-in 0.45s var(--ease-out-expo) both; }
