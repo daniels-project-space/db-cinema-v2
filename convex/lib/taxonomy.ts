@@ -30,8 +30,8 @@ const RULES: [ItemType, RegExp][] = [
   ["drone", /\b(drone|mavic|\bfpv\b|avata|air ?[23]|mini ?[34]|inspire|neo)\b/i],
   ["camera-body", /\b(camera|bmpcc|fx3|fx6|fx30|fx9|a7|a7s|a7r|a7c|a7iii|a73|a7iv|a6\d00|a1\b|a9\b|burano|alexa|\bred\b|ursa|c70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|s5|pocket cinema|z ?cam|zv-?e|lumix|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b)\b/i],
   ["lens", /\b(lens|lenses|\d{2}-\d{2,3}mm|\d{2,3}-\d{2,3}|50mm|35mm|85mm|24mm|28mm|14mm|16mm|135mm|gm\b|g ?master|ultra ?wide|wide ?angle|telephoto|sigma|samyang|tamron|rokinon|\bfe\b|prime|zoom lens|cine lens|anamorphic|blazar|dzo|laowa|cooke|f1\.[248]|f2\.8|t1\.5|t2\.\d)\b/i],
-  // matte boxes are a lens accessory, NOT a screw-in ND filter
-  ["accessory", /\b(matte ?box|mattebox|french flag|follow ?focus|cage rig)\b/i],
+  // matte boxes + atmosphere machines are accessories, not ND/monitor/light
+  ["accessory", /\b(matte ?box|mattebox|french flag|follow ?focus|cage rig|haze|hazer|smoke machine|fog machine)\b/i],
   ["nd-filter", /\b(nd[\s-]?filter|variable nd|vnd|cpl|polari[sz]|filter kit|nd ?kit|nd ?set)\b/i],
   ["gimbal", /\b(gimbal|ronin|rs ?\d|rsc|crane|zhiyun|moza|stabili[sz]er)\b/i],
   ["slider", /\b(slider|dolly|track)\b/i],
@@ -43,7 +43,7 @@ const RULES: [ItemType, RegExp][] = [
   ["boom-mic", /\b(boom|shotgun|ntg|mkh|boom pole|hypercardioid|deity)\b/i],
   ["recorder", /\b(recorder|zoom h\d|tascam|mixpre|field recorder)\b/i],
   ["headphones", /\b(headphone|headphones)\b/i],
-  ["monitor", /\b(monitor|atomos|ninja|shinobi|smallhd|feelworld|director)\b/i],
+  ["monitor", /\b(monitor|atomos|ninja v|shinobi|smallhd|feelworld|field monitor|on-?camera monitor)\b/i],
   ["light", /\b(light|aputure|godox|nanlite|amaran|forza|led|softbox|hmi|fresnel|lantern|pavotube|tube light|rgb|astera|titan tube|key ?light|panel|sky ?panel|cob|300d|600d|1200d|montura)\b/i],
   ["battery", /\b(battery|batteries|v-?mount|v-?lock|charger|np-?f|d-?tap|power station|anker)\b/i],
 ];
