@@ -204,6 +204,7 @@ export default defineSchema({
     expiry: v.optional(v.number()),
     maxUses: v.optional(v.number()),
     usedCount: v.number(),
+    memberOnly: v.optional(v.boolean()),
     minSubtotal: v.optional(v.number()),
     active: v.boolean(),
   }).index("by_code", ["code"]),
@@ -298,6 +299,14 @@ export default defineSchema({
   })
     .index("by_account", ["accountId"])
     .index("by_unread", ["sender", "readByOwner"]),
+
+  member_offers: defineTable({
+    title: v.string(),
+    blurb: v.string(),
+    badge: v.string(),
+    code: v.string(),
+    active: v.boolean(),
+  }),
 
   events: defineTable({
     type: v.string(),

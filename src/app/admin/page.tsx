@@ -193,6 +193,7 @@ export default function AdminPage() {
 
         <AdminSettings token={token} />
         <AdminPromos token={token} />
+        <AdminMemberOffers token={token} />
       </main>
     </>
   );
@@ -373,6 +374,68 @@ function AdminAnalytics({ token }: { token: string }) {
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+function AdminMemberOffers({ token }: { token: string }) {
+  const res = useQuery(api.promo.adminListMemberOffers, { token });
+  const create = useMutation(api.promo.adminCreateMemberOffer);
+  const toggle = useMutation(api.promo.adminToggleMemberOffer);
+  const [f, setF] = useState({ title: "", blurb: "", badge: "", code: "", type: "percent", value: "20" });
+  const [err, setErr] = useState<string | null>(null);
+  if (!res || !(res as any).authorized) return null;
+
+  async function add() {
+    setErr(null);
+    try {
+      await create({
+        token,
+        title: f.title,
+        blurb: f.blurb,
+        badge: f.badge,
+        code: f.code,
+        type: f.type as any,
+        value: Number(f.value),
+      });
+      setF({ title: "", blurb: "", badge: "", code: "", type: "percent", value: "20" });
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed");
+    }
+  }
+  const inp = "rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none";
+  return (
+    <section className="mt-10">
+      <h2 className="font-display text-lg font-semibold text-amber-200">Member-only offers</h2>
+      <div className="mt-3 flex flex-col gap-2">
+        {(res as any).items.map((o: any) => (
+          <div key={o._id} className="flex items-center justify-between gap-3 rounded-xl border border-amber-400/30 bg-amber-500/[0.06] px-4 py-2 text-sm">
+            <div className="min-w-0">
+              <span className="font-medium text-white/85">{o.title}</span>{" "}
+              <span className="font-mono text-amber-300">{String(o.code).toUpperCase()}</span>{" "}
+              <span className="text-white/40">· {o.badge}</span>
+            </div>
+            <button onClick={() => toggle({ token, id: o._id })} className={`shrink-0 rounded-full px-3 py-1 text-xs ${o.active ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/40"}`}>
+              {o.active ? "active" : "inactive"}
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 grid gap-2 rounded-2xl glass p-4 sm:grid-cols-2">
+        <input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Title (e.g. Free ND filter)" className={inp} />
+        <input value={f.badge} onChange={(e) => setF({ ...f, badge: e.target.value })} placeholder="Badge (e.g. −40% or FREE)" className={inp} />
+        <input value={f.blurb} onChange={(e) => setF({ ...f, blurb: e.target.value })} placeholder="Short description" className={`${inp} sm:col-span-2`} />
+        <input value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="CODE" className={`${inp} uppercase`} />
+        <div className="flex gap-2">
+          <select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })} className={`${inp} [color-scheme:dark]`}>
+            <option value="percent">%</option>
+            <option value="fixed">£</option>
+          </select>
+          <input value={f.value} onChange={(e) => setF({ ...f, value: e.target.value })} type="number" className={`${inp} w-20`} />
+          <button onClick={add} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-medium text-black hover:bg-amber-300">Add offer</button>
+        </div>
+        {err && <span className="text-xs text-red-300 sm:col-span-2">{err}</span>}
+      </div>
     </section>
   );
 }

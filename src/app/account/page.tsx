@@ -10,6 +10,7 @@ import { IdVerify } from "@/components/IdVerify";
 import { GearCard } from "@/components/GearCard";
 import { RenterChat } from "@/components/RenterChat";
 import { tierByKey } from "@/lib/membership";
+import { MemberOffers } from "@/components/MemberOffers";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -149,6 +150,7 @@ function Dashboard() {
 
       {/* membership */}
       <Membership />
+      <MemberOffers />
 
       {/* security */}
       <AccountSecurity />

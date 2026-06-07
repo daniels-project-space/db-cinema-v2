@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { useAccount } from "@/components/account/AccountProvider";
 import { TIERS } from "@/lib/membership";
 import { Reveal } from "@/components/Reveal";
+import { MemberOffers } from "@/components/MemberOffers";
 
 export default function MembershipPage() {
   const account = useAccount();
@@ -91,6 +92,9 @@ export default function MembershipPage() {
           })}
         </div>
         {err && <div className="mt-4 text-center text-sm text-red-300">{err}</div>}
+
+        <MemberOffers />
+
         <p className="mt-8 text-center text-xs text-white/30">
           Billed monthly via Stripe · cancel anytime from your account · TEST MODE — no real charge.
         </p>
