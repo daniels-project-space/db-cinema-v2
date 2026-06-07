@@ -165,7 +165,6 @@ export async function POST(req: NextRequest) {
           tool_choice: "auto",
           temperature: 0.3,
           max_tokens: 700,
-          provider: { only: ["deepseek", "alibaba"] },
         }),
       });
       if (!res.ok) throw new Error(`status ${res.status}`);
