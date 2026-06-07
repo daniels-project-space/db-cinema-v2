@@ -16,54 +16,56 @@ const OUT = z.object({
   reply: z.string().describe("short conversational reply to the customer"),
   start: z.string().optional().describe("rental start YYYY-MM-DD if known"),
   end: z.string().optional().describe("rental end YYYY-MM-DD if known"),
-  proposals: z
-    .array(z.object({ slug: z.string(), reason: z.string() }))
+  wantsKit: z.boolean().optional().describe("true if the customer wants gear recommended or a kit built"),
+  itemTypes: z
+    .array(z.string())
     .optional()
-    .describe("items to offer as add-to-kit cards (must be real slugs from search_catalog)"),
-  swaps: z
-    .array(z.object({ removeSlug: z.string(), addSlug: z.string(), reason: z.string() }))
-    .optional()
-    .describe("substitutions: remove one item (red) and add a replacement (green)"),
+    .describe("gear types to include, e.g. ['camera','lens','gimbal','light','nd-filter','battery','monitor','mic','tripod']"),
+  proposals: z.array(z.object({ slug: z.string(), reason: z.string() })).optional(),
+  swaps: z.array(z.object({ removeSlug: z.string(), addSlug: z.string(), reason: z.string() })).optional(),
 });
 
-async function buildOne(c: ConvexHttpClient, slug: string, start?: string, end?: string, checkAvail = true) {
-  let l: any = await c.query(api.catalog.getListingBySlug, { slug });
+const TERM: Record<string, string> = {
+  "camera-body": "camera", camera: "camera", lens: "lens", lenses: "lens",
+  gimbal: "gimbal", light: "light", lighting: "light", "nd-filter": "filter",
+  filter: "filter", battery: "battery", monitor: "monitor", "wireless-mic": "mic",
+  mic: "mic", audio: "mic", tripod: "tripod", drone: "drone", speaker: "speaker",
+};
+
+async function buildOne(c: ConvexHttpClient, slugOrTerm: string, start: string, end: string, checkAvail = true) {
+  let l: any = await c.query(api.catalog.getListingBySlug, { slug: slugOrTerm });
   if (!l) {
-    // model gave an approximate slug — resolve it by search
-    const r: any[] = await c.query(api.catalog.listListings, { search: slug.replace(/-/g, " ") });
+    const r: any[] = await c.query(api.catalog.listListings, { search: slugOrTerm.replace(/-/g, " ") });
     l = (r || [])[0];
   }
   if (!l) return null;
-  const have = !!(start && end);
-  const days = have ? Math.max(1, Math.round((msOf(end!) - msOf(start!)) / 86400000) + 1) : 0;
+  const days = Math.max(1, Math.round((msOf(end) - msOf(start)) / 86400000) + 1);
   let available = true;
-  if (have && checkAvail) {
-    const av: any = await c.query(api.availability.forListing, {
-      listingId: l._id,
-      start: msOf(start!),
-      end: msOf(end!),
-    });
+  if (checkAvail) {
+    const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: msOf(start), end: msOf(end) });
     available = (av?.available ?? 0) > 0;
   }
-  const q: any = have ? quote(l.pricing, days) : null;
+  const q: any = quote(l.pricing, days);
   return {
-    listingId: l._id,
-    slug: l.slug,
-    title: l.title,
-    image: l.heroImage ?? null,
-    start: start ?? null,
-    end: end ?? null,
-    days,
-    perDay: q ? q.perDay : l.pricing?.daily ?? null,
-    total: q ? q.total : null,
-    deposit: l.depositAmount ?? 0,
-    available,
+    listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null,
+    start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0, available,
   };
+}
+
+async function firstAvailableByType(c: ConvexHttpClient, type: string, start: string, end: string, seen: Set<string>) {
+  const term = TERM[type] || type;
+  const r: any[] = await c.query(api.catalog.listListings, { search: term });
+  for (const l of r || []) {
+    if (seen.has(l._id)) continue;
+    const item = await buildOne(c, l.slug, start, end, true);
+    if (item && item.available) return item;
+  }
+  return null;
 }
 
 async function buildCards(c: ConvexHttpClient, out: any) {
   const cards: any[] = [];
-  if (!out?.start || !out?.end) return cards; // cards need a period
+  if (!out?.start || !out?.end) return cards;
   const seen = new Set<string>();
   for (const p of out.proposals ?? []) {
     const item = await buildOne(c, p.slug, out.start, out.end, true);
@@ -75,19 +77,34 @@ async function buildCards(c: ConvexHttpClient, out: any) {
   for (const s of out.swaps ?? []) {
     const removed = await buildOne(c, s.removeSlug, out.start, out.end, false);
     const added = await buildOne(c, s.addSlug, out.start, out.end, true);
-    if (added && added.available) cards.push({ kind: "swap", reason: s.reason, removed, added });
+    if (added && added.available && !seen.has(added.listingId)) {
+      seen.add(added.listingId);
+      cards.push({ kind: "swap", reason: s.reason, removed, added });
+    }
+  }
+  // deterministic kit fill: guarantee available cards even if the model's slugs miss
+  if (out.wantsKit && cards.length < 5) {
+    const types = out.itemTypes?.length ? out.itemTypes : ["camera", "lens", "light"];
+    for (const t of types) {
+      if (cards.length >= 6) break;
+      const item = await firstAvailableByType(c, t, out.start, out.end, seen);
+      if (item) {
+        seen.add(item.listingId);
+        cards.push({ kind: "add", reason: `Recommended ${t}`, item });
+      }
+    }
   }
   return cards;
 }
 
 export async function POST(req: NextRequest) {
   if (!process.env.OPENROUTER_API_KEY)
-    return NextResponse.json({ reply: "The assistant isn't configured yet." });
+    return NextResponse.json({ reply: "The assistant isn't configured yet.", cards: [] });
   let body: any;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ reply: "Sorry, I didn't catch that." });
+    return NextResponse.json({ reply: "Sorry, I didn't catch that.", cards: [] });
   }
   const history = Array.isArray(body?.messages) ? body.messages.slice(-12) : [];
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
@@ -104,17 +121,14 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
   }
-  // pass the kit already in the cart so the bot assembles around it
-  if (body?.cart && Array.isArray(body.cart) && body.cart.length) {
+  if (Array.isArray(body?.cart) && body.cart.length)
     ctx += ` Items currently in their kit: ${body.cart.map((x: any) => `${x.title} (${x.start}→${x.end})`).join("; ")}.`;
-  }
 
   const messages = ctx ? [{ role: "system", content: ctx }, ...history] : history;
   try {
     const agent = mastra.getAgent("renterBot");
     const res: any = await agent.generate(messages, { maxSteps: 12, structuredOutput: { schema: OUT } });
     const out: any = res?.object ?? res?.structuredOutput ?? null;
-    // date fallback: the model sometimes fills proposals but omits start/end
     if (out && (!out.start || !out.end)) {
       const joined = history.map((m: any) => String(m.content || "")).join(" ");
       const ds = joined.match(/\d{4}-\d{2}-\d{2}/g);
@@ -125,15 +139,7 @@ export async function POST(req: NextRequest) {
     }
     const reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
     const cards = out ? await buildCards(c, out) : [];
-    // temp debug: resolve each proposal
-    let probe: any[] = [];
-    if (out?.proposals && out.start && out.end) {
-      for (const p of out.proposals.slice(0, 4)) {
-        const it = await buildOne(c, p.slug, out.start, out.end, true);
-        probe.push({ slug: p.slug, resolved: it?.title ?? null, available: it?.available ?? null });
-      }
-    }
-    return NextResponse.json({ reply, cards, _dbg: { start: out?.start, end: out?.end, props: out?.proposals?.length ?? null, probe } });
+    return NextResponse.json({ reply, cards });
   } catch {
     return NextResponse.json({
       reply: "Sorry, I'm having a moment — please try again, or reach us via the contact page.",
