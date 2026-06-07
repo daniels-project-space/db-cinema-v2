@@ -80,7 +80,9 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
     out.push({
       listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, category: l.category,
       start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
-      role, mount: role === "camera" || role === "lens" ? mountOf(l.title) : null,
+      role,
+      mount: l.specs?.mount ?? (role === "camera" || role === "lens" ? mountOf(l.title) : null),
+      specs: l.specs ?? {},
     });
     if (out.length >= 16) break;
   }

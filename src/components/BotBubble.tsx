@@ -42,7 +42,7 @@ export function BotBubble() {
         body: JSON.stringify({
           messages: next.map((m) => ({ role: m.role, content: m.content })),
           token: account.token ?? undefined,
-          cart: cart.items.map((i) => ({ title: i.title, start: i.start, end: i.end, slug: i.slug })),
+          cart: cart.items.map((i) => ({ listingId: i.listingId, title: i.title, start: i.start, end: i.end, slug: i.slug })),
         }),
       });
       const d = await r.json();

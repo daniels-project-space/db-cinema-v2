@@ -49,26 +49,36 @@ async function buildOne(c: ConvexHttpClient, slugOrTerm: string, start: string, 
   return {
     listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null,
     start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0, available,
+    itemType: l.itemType ?? null, mount: l.specs?.mount ?? null,
   };
 }
 
-async function firstAvailableByType(c: ConvexHttpClient, type: string, start: string, end: string, seen: Set<string>) {
+function lensFits(lensMount: string | null, camMounts: string[]) {
+  if (!lensMount || camMounts.length === 0) return true;
+  if (camMounts.every((m) => m === "fixed")) return false;
+  return camMounts.some((m) => m === lensMount || (lensMount === "EF" && (m === "E" || m === "RF")));
+}
+
+async function firstAvailableByType(c: ConvexHttpClient, type: string, start: string, end: string, seen: Set<string>, camMounts: string[] = []) {
   const term = TERM[type] || type;
   const r: any[] = await c.query(api.catalog.listListings, { search: term });
   for (const l of r || []) {
     if (seen.has(l._id)) continue;
     const item = await buildOne(c, l.slug, start, end, true);
+    if (item && item.itemType === "lens" && !lensFits(item.mount, camMounts)) continue;
     if (item && item.available) return item;
   }
   return null;
 }
 
-async function buildCards(c: ConvexHttpClient, out: any) {
+async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = []) {
   const cards: any[] = [];
   if (!out?.start || !out?.end) return cards;
   const seen = new Set<string>();
   for (const p of out.proposals ?? []) {
     const item = await buildOne(c, p.slug, out.start, out.end, true);
+    // never propose a lens that won't mount on the camera already in the kit
+    if (item && item.itemType === "lens" && !lensFits(item.mount, camMounts)) continue;
     if (item && item.available && !seen.has(item.listingId)) {
       seen.add(item.listingId);
       cards.push({ kind: "add", reason: p.reason, item });
@@ -87,7 +97,7 @@ async function buildCards(c: ConvexHttpClient, out: any) {
     const types = out.itemTypes?.length ? out.itemTypes : ["camera", "lens", "light"];
     for (const t of types) {
       if (cards.length >= 6) break;
-      const item = await firstAvailableByType(c, t, out.start, out.end, seen);
+      const item = await firstAvailableByType(c, t, out.start, out.end, seen, camMounts);
       if (item) {
         seen.add(item.listingId);
         cards.push({ kind: "add", reason: `Recommended ${t}`, item });
@@ -121,8 +131,18 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
   }
-  if (Array.isArray(body?.cart) && body.cart.length)
+  // camera mounts already in the kit — to refuse incompatible lens proposals
+  let camMounts: string[] = [];
+  if (Array.isArray(body?.cart) && body.cart.length) {
     ctx += ` Items currently in their kit: ${body.cart.map((x: any) => `${x.title} (${x.start}→${x.end})`).join("; ")}.`;
+    try {
+      const ids = body.cart.map((x: any) => x.listingId).filter(Boolean);
+      if (ids.length) {
+        const cds: any[] = await c.query(api.catalog.listingsByIds, { ids });
+        camMounts = cds.filter((cd) => cd.itemType === "camera-body" && cd.specs?.mount).map((cd) => cd.specs.mount);
+      }
+    } catch {}
+  }
 
   const messages = ctx ? [{ role: "system", content: ctx }, ...history] : history;
   try {
@@ -138,7 +158,7 @@ export async function POST(req: NextRequest) {
       }
     }
     const reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
-    const cards = out ? await buildCards(c, out) : [];
+    const cards = out ? await buildCards(c, out, camMounts) : [];
     return NextResponse.json({ reply, cards });
   } catch {
     return NextResponse.json({

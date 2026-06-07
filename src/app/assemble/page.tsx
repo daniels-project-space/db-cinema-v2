@@ -9,6 +9,7 @@ import { tierByKey } from "@/lib/membership";
 
 const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding", "Other"];
 const SIZES = ["Solo", "Small crew", "Large production"];
+const FOCAL_THREAD: Record<string, number> = { "28-70": 67, "24-70": 82, "16-35": 72, "24-105": 77, "70-200": 77 };
 
 // camera-mount ↔ lens-mount compatibility
 function lensFits(lensMount: string, camMounts: string[]) {
@@ -44,6 +45,13 @@ export default function AssemblePage() {
   const cams = selList.filter((x) => x.role === "camera");
   const camMounts = cams.map((c) => c.mount);
   const actionOnly = camMounts.length > 0 && camMounts.every((m) => m === "fixed");
+  const camBatts = cams.map((c) => c.specs?.batteryType).filter(Boolean);
+  const camIncludesLens = cams.some((c) => c.specs?.includesLens);
+  const battOk = (cb: string, x: string) => cb === x || cb.includes(x) || x.includes(cb);
+  const lensThreads = [
+    ...selList.filter((x) => x.role === "lens").map((x) => x.specs?.filterThreadMm).filter(Boolean),
+    ...cams.filter((c) => c.specs?.includesLens && c.specs?.lensFocal && FOCAL_THREAD[c.specs.lensFocal]).map((c) => FOCAL_THREAD[c.specs.lensFocal]),
+  ];
 
   const subtotal = selList.reduce((n, c) => n + (c.total || 0), 0);
   const memberDiscount = Math.round((subtotal * memberPct) / 100);
@@ -125,11 +133,15 @@ export default function AssemblePage() {
   const stage = !onReview ? stages[stageIdx] : null;
 
   // visible options for the current stage (lens stage = compatibility-filtered)
-  const visibleOpts = useMemo(() => {
-    if (!stage) return [];
-    if (stage.key === "lens" && camMounts.length) return stage.options.filter((o: any) => lensFits(o.mount, camMounts));
-    return stage.options;
-  }, [stage, camKey]);
+  let visibleOpts: any[] = stage ? stage.options : [];
+  if (stage) {
+    if (stage.key === "lens" && camMounts.length)
+      visibleOpts = stage.options.filter((o: any) => lensFits(o.mount, camMounts));
+    else if (stage.key === "nd-filter" && lensThreads.length)
+      visibleOpts = stage.options.filter((o: any) => !o.specs?.filterThreadMm || lensThreads.includes(o.specs.filterThreadMm));
+    else if (stage.key === "battery" && camBatts.length)
+      visibleOpts = stage.options.filter((o: any) => !o.specs?.batteryType || camBatts.some((cb: string) => battOk(cb, o.specs.batteryType)));
+  }
   const lensSkipped = stage?.key === "lens" && actionOnly;
 
   // compatibility warnings for the review
@@ -225,6 +237,10 @@ export default function AssemblePage() {
             {lensSkipped ? (
               <div className="mt-6 rounded-2xl glass p-6 text-center text-sm text-white/55">
                 Your action camera has a fixed lens — no interchangeable lenses needed. Skipping ahead.
+              </div>
+            ) : stage.key === "lens" && camIncludesLens ? (
+              <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/[0.05] p-3 text-xs text-amber-200">
+                Your camera already includes a lens — these are extra or upgrade lenses (optional).
               </div>
             ) : stage.key === "lens" && camMounts.length === 0 ? (
               <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/[0.05] p-3 text-xs text-amber-200">
