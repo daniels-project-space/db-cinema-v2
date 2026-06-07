@@ -394,7 +394,7 @@ function Membership() {
         </div>
       ) : (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-white/50">Save up to 30% on every rental with a membership.</div>
+          <div className="text-sm text-white/50">Save up to 20% on every rental with a membership.</div>
           <Link
             href="/membership"
             className="rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white hover:bg-accent-600"
