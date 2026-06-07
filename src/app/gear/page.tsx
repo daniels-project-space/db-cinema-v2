@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import Link from "next/link";
 import { GearCard } from "@/components/GearCard";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
@@ -50,6 +51,13 @@ export default function GearPage() {
           Professional cameras, lenses, lighting, audio and more. Daily, 3-day
           and 7-day rates. Delivered across London.
         </p>
+
+        <Link
+          href="/assemble"
+          className="glow press mt-6 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-accent-500 to-indigo-500 px-6 py-3 font-medium text-white"
+        >
+          ✨ AI Item Assembly — build my kit
+        </Link>
 
         {/* search */}
         <div className="mt-8">

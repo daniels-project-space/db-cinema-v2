@@ -248,3 +248,10 @@ body {
   to { opacity: 1; transform: none; }
 }
 .toast-in { animation: toast-in 0.45s var(--ease-spring) both; }
+
+/* glowing CTA (AI Item Assembly) */
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 20px -4px rgba(56, 189, 248, 0.5); }
+  50% { box-shadow: 0 0 34px 2px rgba(56, 189, 248, 0.85); }
+}
+.glow { animation: glow 2.6s ease-in-out infinite; }
