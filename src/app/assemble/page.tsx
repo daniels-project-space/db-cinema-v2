@@ -34,6 +34,7 @@ export default function AssemblePage() {
   const [cameras, setCameras] = useState(1);
   const [size, setSize] = useState("Small crew");
   const [note, setNote] = useState("");
+  const [intake, setIntake] = useState(0); // conversational onboarding step
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
@@ -166,54 +167,72 @@ export default function AssemblePage() {
           Build the perfect <span className="gradient-text">kit</span>
         </h1>
 
-        {/* ── BRIEF ── */}
+        {/* ── CONVERSATIONAL ONBOARDING ── */}
         {!data && (
-          <section className="mt-8 rounded-3xl glass gradient-border p-6">
-            <div className="grid gap-6 md:grid-cols-2">
-              <div>
-                <label className="text-xs uppercase tracking-wide text-white/40">Shoot type</label>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {SHOOTS.map((s) => <button key={s} onClick={() => setShootType(s)} className={chip(shootType === s)}>{s}</button>)}
+          <section className="mt-8 space-y-3">
+            <Ai>Hi! I'm your kit builder 🎬 Let's start — what are you shooting?</Ai>
+            {intake === 0 ? (
+              <Controls>
+                {SHOOTS.map((s) => (
+                  <button key={s} onClick={() => { setShootType(s); setIntake(1); }} className={chip(false)}>{s}</button>
+                ))}
+              </Controls>
+            ) : (
+              <UserMsg>{shootType}</UserMsg>
+            )}
+
+            {intake >= 1 && <Ai>Nice — how big is the crew?</Ai>}
+            {intake === 1 ? (
+              <Controls>
+                {SIZES.map((s) => (
+                  <button key={s} onClick={() => { setSize(s); setIntake(2); }} className={chip(false)}>{s}</button>
+                ))}
+              </Controls>
+            ) : intake > 1 ? (
+              <UserMsg>{size}</UserMsg>
+            ) : null}
+
+            {intake >= 2 && <Ai>When do you need the gear?</Ai>}
+            {intake === 2 ? (
+              <Controls>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="text-[11px] text-white/40">From</label>
+                    <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="mt-1 block rounded-lg bg-white/[0.06] px-3 py-2 text-sm text-white/80 outline-none [color-scheme:dark]" />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-white/40">To</label>
+                    <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="mt-1 block rounded-lg bg-white/[0.06] px-3 py-2 text-sm text-white/80 outline-none [color-scheme:dark]" />
+                  </div>
+                  <button onClick={() => start && end && setIntake(3)} disabled={!start || !end} className="press rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-30">Next →</button>
                 </div>
-              </div>
-              <div>
-                <label className="text-xs uppercase tracking-wide text-white/40">Crew size</label>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {SIZES.map((s) => <button key={s} onClick={() => setSize(s)} className={chip(size === s)}>{s}</button>)}
+              </Controls>
+            ) : intake > 2 ? (
+              <UserMsg>{start} → {end}</UserMsg>
+            ) : null}
+
+            {intake >= 3 && <Ai>Last bit — your budget, how many cameras, and anything else I should know?</Ai>}
+            {intake >= 3 && (
+              <Controls>
+                <div className="space-y-4">
+                  <div>
+                    <label className="flex justify-between text-[11px] text-white/40"><span>Budget</span><span className="text-accent-300">£{budget}</span></label>
+                    <input type="range" min={100} max={3000} step={50} value={budget} onChange={(e) => setBudget(Number(e.target.value))} className="mt-1 w-full accent-accent-500" />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-white/40">Cameras</span>
+                    <button onClick={() => setCameras((n) => Math.max(1, n - 1))} className="h-8 w-8 rounded-full glass text-white/70">–</button>
+                    <span className="w-6 text-center font-display text-white/90">{cameras}</span>
+                    <button onClick={() => setCameras((n) => Math.min(6, n + 1))} className="h-8 w-8 rounded-full glass text-white/70">+</button>
+                  </div>
+                  <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. low light, handheld, two presenters…" className="w-full rounded-lg bg-white/[0.06] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
+                  {err && <div className="text-sm text-red-300">{err}</div>}
+                  <button onClick={build} disabled={loading} className="press glow rounded-full bg-gradient-to-r from-accent-500 to-indigo-500 px-7 py-3 font-medium text-white disabled:opacity-40">
+                    {loading ? "Designing your kit…" : "✨ Build my kit"}
+                  </button>
                 </div>
-              </div>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <label className="text-xs uppercase tracking-wide text-white/40">From</label>
-                  <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="mt-2 w-full rounded-lg bg-white/[0.05] px-3 py-2 text-sm text-white/80 outline-none [color-scheme:dark]" />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs uppercase tracking-wide text-white/40">To</label>
-                  <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="mt-2 w-full rounded-lg bg-white/[0.05] px-3 py-2 text-sm text-white/80 outline-none [color-scheme:dark]" />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs uppercase tracking-wide text-white/40">Cameras needed</label>
-                <div className="mt-2 flex items-center gap-3">
-                  <button onClick={() => setCameras((n) => Math.max(1, n - 1))} className="h-9 w-9 rounded-full glass text-white/70">–</button>
-                  <span className="w-8 text-center font-display text-lg text-white/90">{cameras}</span>
-                  <button onClick={() => setCameras((n) => Math.min(6, n + 1))} className="h-9 w-9 rounded-full glass text-white/70">+</button>
-                </div>
-              </div>
-              <div className="md:col-span-2">
-                <label className="flex justify-between text-xs uppercase tracking-wide text-white/40">
-                  <span>Budget</span><span className="text-accent-300">£{budget}</span>
-                </label>
-                <input type="range" min={100} max={3000} step={50} value={budget} onChange={(e) => setBudget(Number(e.target.value))} className="mt-2 w-full accent-accent-500" />
-              </div>
-              <div className="md:col-span-2">
-                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything else? (low light, handheld, two presenters…)" className="w-full rounded-lg bg-white/[0.05] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
-              </div>
-            </div>
-            {err && <div className="mt-3 text-sm text-red-300">{err}</div>}
-            <button onClick={build} disabled={loading} className="press glow mt-5 rounded-full bg-gradient-to-r from-accent-500 to-indigo-500 px-7 py-3 font-medium text-white disabled:opacity-40">
-              {loading ? "Designing your kit…" : "✨ Start building"}
-            </button>
+              </Controls>
+            )}
           </section>
         )}
 
@@ -388,4 +407,23 @@ export default function AssemblePage() {
       )}
     </>
   );
+}
+
+function Ai({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="msg-in flex items-start gap-3">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-base">🎬</div>
+      <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-white/5 bg-white/[0.04] px-4 py-2.5 text-sm leading-relaxed text-white/75">{children}</div>
+    </div>
+  );
+}
+function UserMsg({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex justify-end">
+      <div className="msg-in rounded-2xl rounded-tr-sm bg-accent-500 px-4 py-2 text-sm text-white">{children}</div>
+    </div>
+  );
+}
+function Controls({ children }: { children: React.ReactNode }) {
+  return <div className="msg-in pl-11">{children}</div>;
 }

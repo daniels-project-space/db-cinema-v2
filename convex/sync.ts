@@ -409,3 +409,14 @@ export const respec = mutation({
     return { respecced: n };
   },
 });
+
+
+export const applyClassification = mutation({
+  args: { token: v.string(), items: v.array(v.object({ id: v.id("listings"), itemType: v.string(), category: v.string(), isPackage: v.boolean(), specs: v.any() })) },
+  handler: async (ctx, { token, items }) => {
+    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) throw new Error("unauthorized");
+    let n = 0;
+    for (const it of items) { await ctx.db.patch(it.id, { itemType: it.itemType, category: it.category, isPackage: it.isPackage, specs: it.specs }); n++; }
+    return { updated: n };
+  },
+});

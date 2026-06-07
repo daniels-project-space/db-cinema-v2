@@ -22,6 +22,17 @@ const card = (l: any) => ({
   minimumRentalDays: l.minimumRentalDays ?? 1,
 });
 
+export const allBasic = query({
+  args: {},
+  handler: async (ctx) => {
+    const ls = await ctx.db
+      .query("listings")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+    return ls.map((l) => ({ _id: l._id, title: l.title }));
+  },
+});
+
 export const bestSellers = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit }) => {
