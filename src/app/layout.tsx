@@ -4,8 +4,10 @@ import "./globals.css";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { CartProvider } from "@/components/cart/CartProvider";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { CartToast } from "@/components/cart/CartToast";
 import { AccountProvider } from "@/components/account/AccountProvider";
 import { Footer } from "@/components/Footer";
+import { AmbientBackground } from "@/components/AmbientBackground";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -34,15 +36,19 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
       <body className="font-sans antialiased bg-charcoal-950 text-white/90">
-        <div className="bg-amber-500/90 py-1 text-center text-[11px] font-medium text-black">
+        <AmbientBackground />
+        <div className="relative z-20 bg-amber-500/90 py-1 text-center text-[11px] font-medium text-black">
           TEST MODE — demo only. No real payments are taken.
         </div>
         <ConvexClientProvider>
           <AccountProvider>
             <CartProvider>
-              {children}
-              <Footer />
+              <div className="relative z-10">
+                {children}
+                <Footer />
+              </div>
               <CartDrawer />
+              <CartToast />
             </CartProvider>
           </AccountProvider>
         </ConvexClientProvider>

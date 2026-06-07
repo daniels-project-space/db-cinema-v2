@@ -8,6 +8,7 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { BookingPanel } from "@/components/booking/BookingPanel";
 import { Recommendations } from "@/components/Recommendations";
+import { SmartImage } from "@/components/SmartImage";
 import { addDaysIso, daysInclusive } from "@/components/booking/Calendar";
 
 function expandUnavailable(raw: string[]): Set<string> {
@@ -96,17 +97,11 @@ export default function GearDetailPage() {
         <div className="mt-6 grid gap-10 lg:grid-cols-2">
           {/* gallery + copy */}
           <div>
-            <div className="aspect-[4/3] overflow-hidden rounded-2xl bg-charcoal-800">
-              {gallery[0] ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={gallery[0]} alt={listing.title} className="h-full w-full object-cover" />
-              ) : null}
-            </div>
+            <SmartImage src={gallery[0]} alt={listing.title} className="aspect-[4/3] rounded-2xl" />
             {gallery.length > 1 && (
               <div className="mt-3 grid grid-cols-4 gap-3">
                 {gallery.slice(1, 5).map((g, i) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img key={i} src={g} alt="" className="aspect-square w-full rounded-lg object-cover" />
+                  <SmartImage key={i} src={g} className="aspect-square rounded-lg" />
                 ))}
               </div>
             )}

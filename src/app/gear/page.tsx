@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { GearCard } from "@/components/GearCard";
 import { SiteHeader } from "@/components/SiteHeader";
+import { Reveal } from "@/components/Reveal";
 
 export default function GearPage() {
   const [cat, setCat] = useState("All");
@@ -65,15 +66,28 @@ export default function GearPage() {
 
         {/* grid */}
         {listings === undefined ? (
-          <div className="mt-16 text-center text-white/30">Loading gear…</div>
+          <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="overflow-hidden rounded-2xl glass">
+                <div className="shimmer aspect-[4/3] bg-charcoal-800" />
+                <div className="space-y-2 p-4">
+                  <div className="shimmer h-3 w-1/3 rounded bg-charcoal-800" />
+                  <div className="shimmer h-3 w-2/3 rounded bg-charcoal-800" />
+                  <div className="shimmer h-5 w-1/4 rounded bg-charcoal-800" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : listings.length === 0 ? (
           <div className="mt-16 text-center text-white/30">
             Nothing matches that search.
           </div>
         ) : (
           <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {listings.map((l) => (
-              <GearCard key={l._id} listing={l} />
+            {listings.map((l, i) => (
+              <Reveal key={l._id} delay={Math.min(i, 8) * 50}>
+                <GearCard listing={l} />
+              </Reveal>
             ))}
           </div>
         )}

@@ -3,6 +3,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { ReviewCarousel } from "@/components/ReviewCarousel";
 import { HomeStats } from "@/components/HomeStats";
 import { Particles } from "@/components/Particles";
+import { Reveal } from "@/components/Reveal";
 
 export default function Home() {
   return (
@@ -55,7 +56,7 @@ export default function Home() {
         id="reviews"
         className="section-glass px-6 py-20"
       >
-        <div className="mx-auto max-w-6xl">
+        <Reveal className="mx-auto max-w-6xl">
           <div className="mb-2 text-center text-xs uppercase tracking-widest text-accent-400">
             What renters say
           </div>
@@ -66,11 +67,12 @@ export default function Home() {
           <div className="mt-10">
             <ReviewCarousel />
           </div>
-        </div>
+        </Reveal>
       </section>
 
       {/* CTA */}
       <section className="section-window px-6 py-20 text-center">
+        <Reveal>
         <h2 className="font-display text-3xl font-bold text-white/90">
           Ready to <span className="gradient-text">roll</span>?
         </h2>
@@ -83,6 +85,7 @@ export default function Home() {
         >
           Browse Gear
         </Link>
+        </Reveal>
       </section>
     </>
   );

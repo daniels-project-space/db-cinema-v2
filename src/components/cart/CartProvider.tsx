@@ -39,6 +39,8 @@ type CartCtx = {
   isOpen: boolean;
   open: () => void;
   close: () => void;
+  toast: string | null;
+  clearToast: () => void;
 };
 
 const Ctx = createContext<CartCtx | null>(null);
@@ -50,6 +52,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [promo, setPromoState] = useState<string | null>(null);
   const [isOpen, setOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -73,7 +76,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const add = useCallback((item: Omit<CartItem, "key">) => {
     const key = `${item.listingId}|${item.start}|${item.days}|${item.offerType ?? ""}`;
     setItems((prev) => (prev.some((p) => p.key === key) ? prev : [...prev, { ...item, key }]));
-    setOpen(true);
+    setToast(`${item.title.slice(0, 40)} added to your kit`);
   }, []);
 
   const remove = useCallback(
@@ -110,6 +113,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         isOpen,
         open: () => setOpen(true),
         close: () => setOpen(false),
+        toast,
+        clearToast: () => setToast(null),
       }}
     >
       {children}

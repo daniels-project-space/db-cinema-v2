@@ -147,3 +147,104 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ════════════════════════════════════════════════════════════
+   Apple-style motion system
+   ════════════════════════════════════════════════════════════ */
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+/* scroll reveal — fade + rise + blur-to-sharp */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  filter: blur(6px);
+  transition: opacity 0.9s var(--ease-out-expo),
+    transform 0.9s var(--ease-out-expo), filter 0.9s var(--ease-out-expo);
+  will-change: opacity, transform;
+}
+.reveal.in {
+  opacity: 1;
+  transform: none;
+  filter: blur(0);
+}
+
+/* page mount fade */
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.page-in { animation: page-in 0.6s var(--ease-out-expo) both; }
+
+/* image load: shimmer placeholder + fade-in */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+  animation: shimmer 1.6s infinite;
+}
+.smart-img {
+  opacity: 0;
+  transform: scale(1.04);
+  transition: opacity 0.7s var(--ease-out-expo), transform 0.7s var(--ease-out-expo);
+}
+.smart-img.loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ambient animated background — multi-layer drifting orbs */
+@keyframes orb-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(6%, -4%) scale(1.15); }
+}
+@keyframes orb-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-5%, 5%) scale(1.12); }
+}
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ambient .orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(100px);
+}
+.ambient .orb1 {
+  width: 55vw; height: 55vw; left: -12vw; top: -12vw;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.16), transparent 70%);
+  animation: orb-a 24s ease-in-out infinite;
+}
+.ambient .orb2 {
+  width: 42vw; height: 42vw; right: -8vw; top: 25vh;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.13), transparent 70%);
+  animation: orb-b 28s ease-in-out infinite;
+}
+.ambient .orb3 {
+  width: 48vw; height: 48vw; left: 18vw; bottom: -18vw;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.11), transparent 70%);
+  animation: orb-a 32s ease-in-out infinite reverse;
+}
+
+/* hover lift */
+.lift { transition: transform 0.4s var(--ease-out-expo), box-shadow 0.4s var(--ease-out-expo); }
+.lift:hover { transform: translateY(-5px); box-shadow: 0 24px 48px -24px rgba(56, 189, 248, 0.3); }
+.press:active { transform: scale(0.96); }
+
+/* toast */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(24px) scale(0.95); }
+  to { opacity: 1; transform: none; }
+}
+.toast-in { animation: toast-in 0.45s var(--ease-spring) both; }

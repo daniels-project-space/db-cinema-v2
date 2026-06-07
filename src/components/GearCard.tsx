@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAccount } from "@/components/account/AccountProvider";
+import { SmartImage } from "@/components/SmartImage";
 
 export type GearListing = {
   _id: string;
@@ -34,7 +35,7 @@ export function GearCard({ listing }: { listing: GearListing }) {
   return (
     <Link
       href={`/gear/${slug}`}
-      className="group glass glass-hover gradient-border relative flex flex-col overflow-hidden rounded-2xl"
+      className="group lift glass glass-hover gradient-border relative flex flex-col overflow-hidden rounded-2xl"
     >
       <button
         onClick={toggleFav}
@@ -45,21 +46,12 @@ export function GearCard({ listing }: { listing: GearListing }) {
       >
         {faved ? "♥" : "♡"}
       </button>
-      <div className="aspect-[4/3] overflow-hidden bg-charcoal-800">
-        {heroImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={heroImage}
-            alt={title}
-            loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-white/20">
-            <span className="text-3xl">🎬</span>
-          </div>
-        )}
-      </div>
+      <SmartImage
+        src={heroImage}
+        alt={title}
+        className="aspect-[4/3]"
+        imgClassName="transition-transform duration-500 group-hover:scale-105"
+      />
       <div className="flex flex-1 flex-col gap-2 p-4">
         <span className="text-xs uppercase tracking-widest text-accent-400">
           {category}
