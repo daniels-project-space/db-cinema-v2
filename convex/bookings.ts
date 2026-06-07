@@ -333,13 +333,25 @@ export const setIdentity = internalMutation({
     const patch: any = { idVerifyStatus: status };
     if (sessionId) patch.stripeIdentitySessionId = sessionId;
     await ctx.db.patch(bookingId, patch);
+    if (status === "verified") await markAccountVerified(ctx, bookingId);
   },
 });
+
+async function markAccountVerified(ctx: any, bookingId: any) {
+  const b = await ctx.db.get(bookingId);
+  if (!b?.guestEmail) return;
+  const acct = await ctx.db
+    .query("accounts")
+    .withIndex("by_email", (q: any) => q.eq("email", b.guestEmail.trim().toLowerCase()))
+    .first();
+  if (acct) await ctx.db.patch(acct._id, { idVerified: true });
+}
 
 export const adminSetIdStatus = mutation({
   args: { token: v.string(), bookingId: v.id("bookings"), status: v.string() },
   handler: async (ctx, { token, bookingId, status }) => {
     assertAdmin(token);
     await ctx.db.patch(bookingId, { idVerifyStatus: status });
+    if (status === "verified") await markAccountVerified(ctx, bookingId);
   },
 });

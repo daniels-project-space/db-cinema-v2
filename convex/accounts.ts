@@ -128,7 +128,20 @@ export const me = query({
       address: a.address ?? null,
       marketingEmails: a.marketingEmails ?? false,
       favorites: (a.favorites ?? []) as string[],
+      idVerified: a.idVerified ?? false,
     };
+  },
+});
+
+/** Mark an account ID-verified once any of its bookings clears Stripe Identity. */
+export const _markVerifiedByEmail = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const a = await ctx.db
+      .query("accounts")
+      .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
+      .first();
+    if (a) await ctx.db.patch(a._id, { idVerified: true });
   },
 });
 

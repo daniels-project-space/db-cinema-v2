@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { GearCard } from "@/components/GearCard";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
+import { getSessionId } from "@/lib/session";
 
 export default function GearPage() {
   const [cat, setCat] = useState("All");
@@ -20,6 +21,20 @@ export default function GearPage() {
 
   const total = cats.reduce((n, c) => n + c.count, 0);
   const tabs = [{ name: "All", count: total }, ...cats];
+
+  // log searches that return nothing (demand signal for the owner dashboard)
+  const track = useMutation(api.analytics.track);
+  useEffect(() => {
+    const q = search.trim();
+    if (!q || listings === undefined) return;
+    if (listings.length === 0) {
+      const t = setTimeout(
+        () => track({ type: "search_no_results", path: q, sessionId: getSessionId() }).catch(() => {}),
+        700,
+      );
+      return () => clearTimeout(t);
+    }
+  }, [search, listings, track]);
 
   return (
     <>

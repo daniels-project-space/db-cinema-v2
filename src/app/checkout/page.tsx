@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useAction } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { getSessionId } from "@/lib/session";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
@@ -21,6 +22,7 @@ export default function CheckoutPage() {
   const promo = usePromo(eligibleSubtotal);
   const start = useAction(api.checkout.start);
   const getQuote = useAction(api.delivery.quote);
+  const track = useMutation(api.analytics.track);
 
   const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
   const acctPostcode = account.me?.address?.match(PC_RE)?.[1] ?? "";
@@ -73,6 +75,7 @@ export default function CheckoutPage() {
     if (!valid) return;
     setBusy(true);
     setErr(null);
+    track({ type: "checkout_start", sessionId: getSessionId() }).catch(() => {});
     try {
       const docs: { kind: string; version: string }[] = AGREEMENTS.map((d) => ({ kind: d.kind, version: d.version }));
       if (fulfilment === "delivery") docs.push({ kind: "delivery-disclaimer", version: "2026-06-v1" });

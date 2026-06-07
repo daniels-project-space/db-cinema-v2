@@ -83,23 +83,36 @@ export const start = action({
     const protection = a.protection ?? "verify";
     const replacementSum = a.items.reduce((n, i) => n + i.deposit, 0);
     const depositAmount = depositFor(protection, replacementSum);
-    const idVerifyStatus = protection === "verify" ? "required" : "not_required";
 
-    // promo discount applies ONLY to non-offer rental lines (non-stackable)
-    let discount = 0;
+    // look up the account (perks: saved ID verification + reminder-member 5%)
+    const acct: any = await ctx.runQuery(internal.accounts._byEmail, {
+      email: a.customer.email.trim().toLowerCase(),
+    });
+    let idVerifyStatus = protection === "verify" ? "required" : "not_required";
+    if (protection === "verify" && acct?.idVerified) idVerifyStatus = "verified";
+
+    // discounts apply ONLY to non-offer rental lines, and are NON-STACKABLE:
+    // the renter gets the single best of {promo code, reminder-member 5%}.
+    const eligible = a.items.filter((i) => !i.offerType).reduce((n, i) => n + i.total, 0);
+    let promoDiscount = 0;
     let appliedCode: string | undefined;
     if (a.promoCode) {
-      const eligible = a.items
-        .filter((i) => !i.offerType)
-        .reduce((n, i) => n + i.total, 0);
       const res: any = await ctx.runQuery(api.promo.validate, {
         code: a.promoCode,
         eligibleSubtotal: eligible,
       });
       if (res?.valid) {
-        discount = res.discount;
+        promoDiscount = res.discount;
         appliedCode = res.code;
       }
+    }
+    const reminderDiscount = acct?.marketingEmails ? Math.round(eligible * 0.05) : 0;
+    let discount = promoDiscount;
+    let discountLabel = appliedCode?.toUpperCase();
+    if (reminderDiscount > promoDiscount) {
+      discount = reminderDiscount;
+      discountLabel = "Reminder member −5%";
+      appliedCode = undefined;
     }
 
     const total = subtotal + a.deliveryFee + depositAmount - discount;
@@ -177,11 +190,11 @@ export const start = action({
 
     const sb = stripe();
     let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
-    if (discount > 0 && appliedCode) {
+    if (discount > 0) {
       const coupon = await sb.coupons.create({
         amount_off: pence(discount),
         currency: "gbp",
-        name: appliedCode.toUpperCase(),
+        name: discountLabel ?? "Discount",
         duration: "once",
       });
       discounts = [{ coupon: coupon.id }];
@@ -241,6 +254,7 @@ export const finalize = action({
             ? session.payment_intent
             : undefined,
       });
+      await ctx.runMutation(api.analytics.track, { type: "purchase" });
     }
     return { bookingId, paid };
   },

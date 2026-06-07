@@ -273,6 +273,7 @@ export default defineSchema({
     address: v.optional(v.string()),
     marketingEmails: v.optional(v.boolean()),
     favorites: v.optional(v.array(v.string())),
+    idVerified: v.optional(v.boolean()),
     createdAt: v.number(),
   }).index("by_email", ["email"]),
 
@@ -280,6 +281,13 @@ export default defineSchema({
     token: v.string(),
     accountId: v.id("accounts"),
   }).index("by_token", ["token"]),
+
+  events: defineTable({
+    type: v.string(),
+    path: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
+    at: v.number(),
+  }).index("by_type", ["type"]),
 
   settings: defineTable({
     deliveryMarginPct: v.optional(v.number()),

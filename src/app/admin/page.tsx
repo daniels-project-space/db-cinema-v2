@@ -66,6 +66,8 @@ export default function AdminPage() {
           Admin <span className="gradient-text">dashboard</span>
         </h1>
 
+        <AdminAnalytics token={token} />
+
         {/* bookings */}
         <h2 className="mt-8 font-display text-lg font-semibold text-white/80">
           Bookings {bookings ? `(${bookings.items.length})` : ""}
@@ -289,6 +291,73 @@ function AdminPromos({ token }: { token: string }) {
         <button onClick={add} className="rounded-full bg-accent-500 px-4 py-2 text-sm font-medium text-white hover:bg-accent-600">Add code</button>
         {err && <span className="text-xs text-red-300">{err}</span>}
       </div>
+    </section>
+  );
+}
+
+function Stat({ label, value, accent }: { label: string; value: number | string; accent?: boolean }) {
+  return (
+    <div className="rounded-2xl glass p-4">
+      <div className={`font-display text-2xl font-bold ${accent ? "gradient-text" : "text-white/90"}`}>{value}</div>
+      <div className="mt-1 text-[11px] uppercase tracking-wide text-white/40">{label}</div>
+    </div>
+  );
+}
+
+function AdminAnalytics({ token }: { token: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
+  const s = useQuery(api.analytics.adminSummary, { token, now });
+  if (!s || !(s as any).authorized) return null;
+  const a: any = s;
+  const fmtDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+  return (
+    <section className="mt-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="Live viewers · 15m" value={a.live} accent />
+        <Stat label="Views · 24h" value={a.views24} />
+        <Stat label="Add to cart · 24h" value={a.carts24} />
+        <Stat label="Purchases · 24h" value={a.purchases24} />
+      </div>
+      <div className="mt-2 rounded-xl glass px-4 py-2 text-xs text-white/50">
+        Funnel (24h): <b className="text-white/80">{a.views24}</b> views →{" "}
+        <b className="text-white/80">{a.carts24}</b> cart →{" "}
+        <b className="text-white/80">{a.checkouts24}</b> checkout →{" "}
+        <b className="text-white/80">{a.purchases24}</b> paid · conversion{" "}
+        <b className="text-accent-300">{a.conversion}%</b> · views 7d {a.views7}
+      </div>
+
+      <h2 className="mt-8 font-display text-lg font-semibold text-white/80">
+        Ongoing rentals ({a.ongoing.length})
+      </h2>
+      <div className="mt-3 flex flex-col gap-2">
+        {a.ongoing.length === 0 && <div className="text-sm text-white/30">Nothing out right now.</div>}
+        {a.ongoing.map((b: any) => (
+          <div key={b._id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl glass px-4 py-2 text-sm">
+            <span className="text-white/80">{b.guestEmail}</span>
+            <span className="text-white/45">{b.items.slice(0, 50)}</span>
+            <span className="text-white/50">{fmtDay(b.start)} → {fmtDay(b.end)} · {b.fulfilment}</span>
+            <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase text-emerald-300">{b.status}</span>
+          </div>
+        ))}
+      </div>
+
+      {a.topMisses.length > 0 && (
+        <div className="mt-6">
+          <h3 className="font-display text-sm font-semibold text-white/70">Searches with no results (7d)</h3>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {a.topMisses.map(([term, n]: [string, number]) => (
+              <span key={term} className="rounded-full glass px-3 py-1 text-xs text-white/60">
+                {term} <span className="text-white/30">×{n}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

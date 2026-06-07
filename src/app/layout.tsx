@@ -8,6 +8,7 @@ import { CartToast } from "@/components/cart/CartToast";
 import { AccountProvider } from "@/components/account/AccountProvider";
 import { Footer } from "@/components/Footer";
 import { AmbientBackground } from "@/components/AmbientBackground";
+import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -41,6 +42,7 @@ export default function RootLayout({
           TEST MODE — demo only. No real payments are taken.
         </div>
         <ConvexClientProvider>
+          <AnalyticsTracker />
           <AccountProvider>
             <CartProvider>
               <div className="relative z-10">

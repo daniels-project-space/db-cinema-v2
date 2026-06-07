@@ -110,7 +110,14 @@ function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-3xl font-bold text-white/90">My account</h1>
-          <p className="mt-1 text-sm text-white/40">{me.email}</p>
+          <p className="mt-1 flex items-center gap-2 text-sm text-white/40">
+            {me.email}
+            {me.idVerified && (
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                ✓ ID verified
+              </span>
+            )}
+          </p>
         </div>
         <button onClick={() => account.signOut()} className="rounded-full glass px-4 py-2 text-sm text-white/60 hover:text-white">
           Sign out
@@ -124,9 +131,10 @@ function Dashboard() {
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
           <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Default delivery address" rows={2} className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
-          <label className="flex items-center gap-2 text-sm text-white/60">
+          <label className="flex flex-wrap items-center gap-2 text-sm text-white/60">
             <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} className="accent-accent-500" />
-            Email me occasional offers
+            Email me booking reminders &amp; offers
+            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">−5% on every rental</span>
           </label>
           <button onClick={save} className="w-fit rounded-full bg-accent-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-accent-600">
             {saved ? "Saved ✓" : "Save changes"}

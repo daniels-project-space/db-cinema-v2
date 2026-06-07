@@ -19,6 +19,7 @@ type Me = {
   address: string | null;
   marketingEmails: boolean;
   favorites: string[];
+  idVerified: boolean;
 } | null;
 
 type AccountCtx = {
