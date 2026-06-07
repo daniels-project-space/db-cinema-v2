@@ -9,6 +9,7 @@ import { AccountProvider } from "@/components/account/AccountProvider";
 import { Footer } from "@/components/Footer";
 import { AmbientBackground } from "@/components/AmbientBackground";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
+import { BotBubble } from "@/components/BotBubble";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -85,6 +86,7 @@ export default function RootLayout({
               </div>
               <CartDrawer />
               <CartToast />
+              <BotBubble />
             </CartProvider>
           </AccountProvider>
         </ConvexClientProvider>
