@@ -105,6 +105,15 @@ export async function POST(req: NextRequest) {
     const agent = mastra.getAgent("renterBot");
     const res: any = await agent.generate(messages, { maxSteps: 12, structuredOutput: { schema: OUT } });
     const out: any = res?.object ?? res?.structuredOutput ?? null;
+    // date fallback: the model sometimes fills proposals but omits start/end
+    if (out && (!out.start || !out.end)) {
+      const joined = history.map((m: any) => String(m.content || "")).join(" ");
+      const ds = joined.match(/\d{4}-\d{2}-\d{2}/g);
+      if (ds && ds.length >= 2) {
+        out.start = out.start || ds[ds.length - 2];
+        out.end = out.end || ds[ds.length - 1];
+      }
+    }
     const reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
     const cards = out ? await buildCards(c, out) : [];
     return NextResponse.json({ reply, cards, _dbg: { hasObj: !!out, start: out?.start, end: out?.end, props: out?.proposals?.length ?? null, swaps: out?.swaps?.length ?? null } });
