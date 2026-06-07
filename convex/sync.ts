@@ -1,4 +1,4 @@
-import { action, internalMutation } from "./_generated/server";
+import { action, internalMutation, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { deriveItemType, DELIVERY_BY_TYPE } from "./lib/taxonomy";
@@ -362,5 +362,21 @@ export const applyHygglo = internalMutation({
       }
     }
     return { mirrored, rows: rows.length };
+  },
+});
+
+export const reclassify = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const ls = await ctx.db.query("listings").collect();
+    let n = 0;
+    for (const l of ls) {
+      const t = deriveItemType(l.title);
+      if ((l as any).itemType !== t) {
+        await ctx.db.patch(l._id, { itemType: t });
+        n++;
+      }
+    }
+    return { updated: n, total: ls.length };
   },
 });

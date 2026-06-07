@@ -14,10 +14,23 @@ const card = (l: any) => ({
   slug: l.slug,
   title: l.title,
   category: l.category,
+  itemType: l.itemType ?? null,
   heroImage: images(l)[0] ?? null,
   pricing: l.pricing,
   depositAmount: l.depositAmount,
   minimumRentalDays: l.minimumRentalDays ?? 1,
+});
+
+export const byItemType = query({
+  args: { types: v.array(v.string()) },
+  handler: async (ctx, { types }) => {
+    const set = new Set(types);
+    const ls = await ctx.db
+      .query("listings")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+    return ls.filter((l) => set.has((l as any).itemType ?? "")).map(card);
+  },
 });
 
 export const listListings = query({

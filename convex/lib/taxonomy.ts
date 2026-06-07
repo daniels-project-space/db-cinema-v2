@@ -23,13 +23,16 @@ export type ItemType =
   | "battery"
   | "accessory";
 
-// Ordered. Camera bodies are matched FIRST so camera kits that also mention an
-// accessory ("BMPCC + tripod") classify as the camera (the hero), not the
-// accessory. Standalone accessories (no camera token) fall through to their type.
+// Ordered, first match wins. Drone is matched FIRST so a "Mavic + ND filters"
+// bundle classifies as a drone (not an ND filter). Camera bodies next so camera
+// kits that also mention an accessory classify as the camera (the hero).
 const RULES: [ItemType, RegExp][] = [
-  ["camera-body", /\b(camera|bmpcc|fx3|fx6|fx30|fx9|a7|a7s|a7r|a7c|a7iii|a73|a7iv|a6\d00|alexa|\bred\b|ursa|c70|c300|c200|c500|komodo|raptor|gh5|gh6|gh7|s1h|s5|pocket cinema|z ?cam|zv-?e|lumix|eos ?r|\br5\b|\br6\b)\b/i],
-  ["lens", /\b(lens|lenses|24-70|70-200|16-35|24-105|50mm|35mm|85mm|24mm|sigma|samyang|prime|zoom lens|cine lens|anamorphic|dzo|laowa|f1\.[248]|f2\.8)\b/i],
-  ["nd-filter", /\b(nd[\s-]?filter|variable nd|vnd|cpl|polari[sz]|filter kit|nd ?kit)\b/i],
+  ["drone", /\b(drone|mavic|\bfpv\b|avata|air ?[23]|mini ?[34]|inspire|neo)\b/i],
+  ["camera-body", /\b(camera|bmpcc|fx3|fx6|fx30|fx9|a7|a7s|a7r|a7c|a7iii|a73|a7iv|a6\d00|a1\b|a9\b|burano|alexa|\bred\b|ursa|c70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|s5|pocket cinema|z ?cam|zv-?e|lumix|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b)\b/i],
+  ["lens", /\b(lens|lenses|\d{2}-\d{2,3}mm|\d{2,3}-\d{2,3}|50mm|35mm|85mm|24mm|28mm|14mm|16mm|135mm|gm\b|g ?master|ultra ?wide|wide ?angle|telephoto|sigma|samyang|tamron|rokinon|\bfe\b|prime|zoom lens|cine lens|anamorphic|blazar|dzo|laowa|cooke|f1\.[248]|f2\.8|t1\.5|t2\.\d)\b/i],
+  // matte boxes are a lens accessory, NOT a screw-in ND filter
+  ["accessory", /\b(matte ?box|mattebox|french flag|follow ?focus|cage rig)\b/i],
+  ["nd-filter", /\b(nd[\s-]?filter|variable nd|vnd|cpl|polari[sz]|filter kit|nd ?kit|nd ?set)\b/i],
   ["gimbal", /\b(gimbal|ronin|rs ?\d|rsc|crane|zhiyun|moza|stabili[sz]er)\b/i],
   ["slider", /\b(slider|dolly|track)\b/i],
   ["tripod", /\b(tripod|fluid head|monopod|\blegs\b|sticks)\b/i],
@@ -37,12 +40,11 @@ const RULES: [ItemType, RegExp][] = [
   ["mixer", /\b(mixer|mixing desk|djm)\b/i],
   ["speaker", /\b(speaker|partybox|\bjbl\b|\bpa\b|sub ?woofer|sound ?system)\b/i],
   ["wireless-mic", /\b(wireless mic|wireless go|dji mic|rode wireless|lav|lavalier|sennheiser ew|handheld mic|radio mic)\b/i],
-  ["boom-mic", /\b(boom|shotgun|ntg|mkh|boom pole|hypercardioid)\b/i],
+  ["boom-mic", /\b(boom|shotgun|ntg|mkh|boom pole|hypercardioid|deity)\b/i],
   ["recorder", /\b(recorder|zoom h\d|tascam|mixpre|field recorder)\b/i],
   ["headphones", /\b(headphone|headphones)\b/i],
-  ["drone", /\b(drone|mavic|fpv|avata)\b/i],
-  ["monitor", /\b(monitor|atomos|ninja|shinobi|smallhd|feelworld)\b/i],
-  ["light", /\b(light|aputure|godox|nanlite|amaran|led|softbox|hmi|fresnel|forza|lantern)\b/i],
+  ["monitor", /\b(monitor|atomos|ninja|shinobi|smallhd|feelworld|director)\b/i],
+  ["light", /\b(light|aputure|godox|nanlite|amaran|forza|led|softbox|hmi|fresnel|lantern|pavotube|tube light|rgb|astera|titan tube|key ?light|panel|sky ?panel|cob|300d|600d|1200d|montura)\b/i],
   ["battery", /\b(battery|batteries|v-?mount|v-?lock|charger|np-?f|d-?tap|power station|anker)\b/i],
 ];
 
@@ -52,8 +54,7 @@ export function deriveItemType(name: string): ItemType {
 }
 
 // Delivery size/weight per itemType — grounded in v1 delivery-specs size_score
-// system (1 XS … 5 XL). Used to pick courier vehicle + quote. Covers every
-// listing since each has an itemType.
+// system (1 XS … 5 XL). Used to pick courier vehicle + quote.
 export const DELIVERY_BY_TYPE: Record<ItemType, { sizeScore: number; weightKg: number }> = {
   "nd-filter": { sizeScore: 1, weightKg: 0.1 },
   accessory: { sizeScore: 1, weightKg: 0.3 },

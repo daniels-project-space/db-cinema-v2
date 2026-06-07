@@ -233,25 +233,42 @@ export default function AssemblePage() {
             ) : null}
 
             {!lensSkipped && (
-              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                {visibleOpts.map((o: any) => {
-                  const on = !!sel[o.listingId];
-                  return (
-                    <button key={o.listingId} onClick={() => toggle(o, stage)}
-                      className={`relative overflow-hidden rounded-xl border text-left transition-all ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : "border-white/10 hover:border-white/25"}`}>
-                      {on && <span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs text-white">✓</span>}
-                      <div className="aspect-[4/3] bg-charcoal-800">
-                        {o.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={o.image} alt="" className="h-full w-full object-cover" />}
-                      </div>
-                      <div className="p-2">
-                        <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
-                        <div className="mt-1 flex items-center gap-1 text-[11px] text-white/45">
-                          £{o.total} · {o.days}d {o.mount && o.mount !== "any" && o.mount !== "fixed" && <span className="rounded bg-white/10 px-1 text-[9px] uppercase text-white/50">{o.mount}</span>}
+              <div className="mt-5 flex gap-3 overflow-x-auto pb-3">
+                {[...visibleOpts]
+                  .sort((a: any, b: any) =>
+                    (a.listingId === stage.recommendedId ? -1 : 0) - (b.listingId === stage.recommendedId ? -1 : 0),
+                  )
+                  .map((o: any) => {
+                    const on = !!sel[o.listingId];
+                    const rec = o.listingId === stage.recommendedId;
+                    return (
+                      <button
+                        key={o.listingId}
+                        onClick={() => toggle(o, stage)}
+                        className={`relative w-44 shrink-0 overflow-hidden rounded-xl border text-left transition-all ${
+                          on
+                            ? "border-emerald-400 ring-2 ring-emerald-400/40"
+                            : rec
+                              ? "border-amber-400/70 ring-2 ring-amber-400/30"
+                              : "border-white/10 hover:border-white/25"
+                        }`}
+                      >
+                        {rec && !on && (
+                          <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-black">★ Recommended</span>
+                        )}
+                        {on && <span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs text-white">✓</span>}
+                        <div className="aspect-[4/3] bg-charcoal-800">
+                          {o.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={o.image} alt="" className="h-full w-full object-cover" />}
                         </div>
-                      </div>
-                    </button>
-                  );
-                })}
+                        <div className="p-2">
+                          <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
+                          <div className="mt-1 flex items-center gap-1 text-[11px] text-white/45">
+                            £{o.total} · {o.days}d {o.mount && o.mount !== "any" && o.mount !== "fixed" && <span className="rounded bg-white/10 px-1 text-[9px] uppercase text-white/50">{o.mount}</span>}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
               </div>
             )}
 
@@ -304,22 +321,41 @@ export default function AssemblePage() {
       {/* sticky live budget bar */}
       {data && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-charcoal-900/95 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-3">
-            <div className="min-w-0">
-              <div className="text-sm">
-                <span className="text-white/70">{selList.length} item{selList.length !== 1 ? "s" : ""} · </span>
-                {memberDiscount > 0 && <span className="text-white/35 line-through">£{subtotal} </span>}
-                <span className={overBudget ? "font-semibold text-red-400" : "font-semibold text-emerald-300"}>£{finalTotal}</span>
-                <span className="text-white/35"> / £{budget}{memberDiscount > 0 ? ` · ${tier?.name} −${memberPct}%` : ""}</span>
-                {overBudget && <span className="ml-2 text-red-400">over budget</span>}
+          <div className="mx-auto max-w-5xl px-6 py-3">
+            {selList.length > 0 && (
+              <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+                {selList.map((c) => (
+                  <div key={c.listingId} className="flex shrink-0 items-center gap-2 rounded-full bg-white/[0.06] py-1 pl-1 pr-2 ring-1 ring-emerald-400/20">
+                    {c.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={c.image} alt="" className="h-7 w-7 rounded-full object-cover" />}
+                    <span className="max-w-[130px] truncate text-xs text-white/75">{c.title}</span>
+                    <button
+                      onClick={() => setSel((p) => { const n = { ...p }; delete n[c.listingId]; return n; })}
+                      className="flex h-4 w-4 items-center justify-center rounded-full bg-white/10 text-[10px] text-white/50 hover:bg-red-500/40 hover:text-white"
+                      aria-label="Remove"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
               </div>
-              <div className="mt-1 h-1.5 w-56 overflow-hidden rounded-full bg-white/10">
-                <div className={`h-full transition-all ${overBudget ? "bg-red-400" : finalTotal > budget * 0.9 ? "bg-amber-400" : "bg-emerald-400"}`} style={{ width: `${Math.min(100, (finalTotal / budget) * 100)}%` }} />
+            )}
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-sm">
+                  <span className="text-white/70">{selList.length} item{selList.length !== 1 ? "s" : ""} · </span>
+                  {memberDiscount > 0 && <span className="text-white/35 line-through">£{subtotal} </span>}
+                  <span className={overBudget ? "font-semibold text-red-400" : "font-semibold text-emerald-300"}>£{finalTotal}</span>
+                  <span className="text-white/35"> / £{budget}{memberDiscount > 0 ? ` · ${tier?.name} −${memberPct}%` : ""}</span>
+                  {overBudget && <span className="ml-2 text-red-400">over budget</span>}
+                </div>
+                <div className="mt-1 h-1.5 w-56 overflow-hidden rounded-full bg-white/10">
+                  <div className={`h-full transition-all ${overBudget ? "bg-red-400" : finalTotal > budget * 0.9 ? "bg-amber-400" : "bg-emerald-400"}`} style={{ width: `${Math.min(100, (finalTotal / budget) * 100)}%` }} />
+                </div>
               </div>
+              <button onClick={addAll} disabled={selList.length === 0} className="press shrink-0 rounded-full bg-accent-500 px-6 py-3 font-medium text-white hover:bg-accent-600 disabled:opacity-40">
+                Add {selList.length || ""} to kit →
+              </button>
             </div>
-            <button onClick={addAll} disabled={selList.length === 0} className="press shrink-0 rounded-full bg-accent-500 px-6 py-3 font-medium text-white hover:bg-accent-600 disabled:opacity-40">
-              Add {selList.length || ""} to kit →
-            </button>
           </div>
         </div>
       )}
