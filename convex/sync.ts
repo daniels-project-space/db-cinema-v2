@@ -194,7 +194,7 @@ export const applyCatalog = internalMutation({
       if (existing) {
         await ctx.db.patch(existing._id, {
           name,
-          quantityOwned: qty,
+          quantityOwned: Math.max((existing as any).quantityOwned ?? 0, qty),
           replacementCost,
           rmv2ItemId,
           hyggloProductId,
@@ -224,7 +224,7 @@ export const applyCatalog = internalMutation({
         unitKey,
         sku,
         it.title,
-        it.masterQty,
+        Math.max(it.masterQty, it.componentQty ?? 1),
         it.replacementCost,
         it.masterItemId,
         it.hyggloProductId,
@@ -418,5 +418,18 @@ export const applyClassification = mutation({
     let n = 0;
     for (const it of items) { await ctx.db.patch(it.id, { itemType: it.itemType, category: it.category, isPackage: it.isPackage, specs: it.specs }); n++; }
     return { updated: n };
+  },
+});
+
+
+export const fixUnitQty = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const ls = await ctx.db.query("listings").collect();
+    const need = new Map();
+    for (const l of ls) for (const c of (l.components || [])) { const q = c.qty || 1; need.set(c.inventoryUnitId, Math.max(need.get(c.inventoryUnitId) || 0, q)); }
+    let n = 0;
+    for (const [uid, q] of need) { const u: any = await ctx.db.get(uid as any); if (u && (u.quantityOwned ?? 1) < q) { await ctx.db.patch(uid as any, { quantityOwned: q }); n++; } }
+    return { bumped: n };
   },
 });
