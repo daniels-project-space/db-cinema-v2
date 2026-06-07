@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
@@ -35,6 +35,7 @@ export default function AssemblePage() {
   const [size, setSize] = useState("Small crew");
   const [note, setNote] = useState("");
   const [intake, setIntake] = useState(0); // conversational onboarding step
+  const endRef = useRef<HTMLDivElement>(null);
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
@@ -75,6 +76,11 @@ export default function AssemblePage() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camKey]);
+
+  // keep the conversation scrolled to the newest message/stage
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [intake, stageIdx, data]);
 
   async function build() {
     if (!start || !end) {
@@ -133,17 +139,15 @@ export default function AssemblePage() {
   const onReview = data && stageIdx >= stages.length;
   const stage = !onReview ? stages[stageIdx] : null;
 
-  // visible options for the current stage (lens stage = compatibility-filtered)
-  let visibleOpts: any[] = stage ? stage.options : [];
-  if (stage) {
-    if (stage.key === "lens" && camMounts.length)
-      visibleOpts = stage.options.filter((o: any) => lensFits(o.mount, camMounts));
-    else if (stage.key === "nd-filter" && lensThreads.length)
-      visibleOpts = stage.options.filter((o: any) => !o.specs?.filterThreadMm || lensThreads.includes(o.specs.filterThreadMm));
-    else if (stage.key === "battery" && camBatts.length)
-      visibleOpts = stage.options.filter((o: any) => !o.specs?.batteryType || camBatts.some((cb: string) => battOk(cb, o.specs.batteryType)));
-  }
-  const lensSkipped = stage?.key === "lens" && actionOnly;
+  // per-stage compatibility-filtered options (works for any stage, not just current)
+  const visibleFor = (s: any): any[] => {
+    if (!s) return [];
+    if (s.key === "lens" && camMounts.length) return s.options.filter((o: any) => lensFits(o.mount, camMounts));
+    if (s.key === "nd-filter" && lensThreads.length) return s.options.filter((o: any) => !o.specs?.filterThreadMm || lensThreads.includes(o.specs.filterThreadMm));
+    if (s.key === "battery" && camBatts.length) return s.options.filter((o: any) => !o.specs?.batteryType || camBatts.some((cb: string) => battOk(cb, o.specs.batteryType)));
+    return s.options;
+  };
+  const skipped = (s: any) => s?.key === "lens" && actionOnly;
 
   // compatibility warnings for the review
   const warnings = useMemo(() => {
@@ -236,132 +240,96 @@ export default function AssemblePage() {
           </section>
         )}
 
-        {/* ── STAGES ── */}
-        {data && !onReview && stage && (
-          <section className="mt-8">
-            {/* progress */}
-            <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        {/* ── BOT-DRIVEN BUILD THREAD ── */}
+        {data && (
+          <section className="mt-6 space-y-4">
+            <div className="flex flex-wrap items-center gap-1.5 pl-11">
               {stages.map((s: any, i: number) => (
-                <button key={i} onClick={() => setStageIdx(i)} className={`h-1.5 rounded-full transition-all ${i === stageIdx ? "w-8 bg-accent-400" : i < stageIdx ? "w-4 bg-emerald-400/60" : "w-4 bg-white/15"}`} title={s.label} />
+                <button key={i} onClick={() => i <= stageIdx && setStageIdx(i)} className={`h-1.5 rounded-full transition-all ${i === stageIdx && !onReview ? "w-8 bg-accent-400" : i < stageIdx || onReview ? "w-4 bg-emerald-400/60" : "w-4 bg-white/15"}`} title={s.label} />
               ))}
-              <span className="ml-2 text-[11px] text-white/40">Step {stageIdx + 1} of {stages.length}</span>
+              <span className="ml-2 text-[11px] text-white/40">{onReview ? "Review" : `Step ${stageIdx + 1} of ${stages.length}`}</span>
             </div>
 
-            <div key={stageIdx} className="stage-in">
-              {/* AI assistant guiding this stage */}
-              <div className="msg-in flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-lg">🎬</div>
-                <div className="rounded-2xl rounded-tl-sm border border-white/5 bg-white/[0.04] px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-display font-semibold text-white/90">{stage.label}</span>
-                    {stage.upsell && <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[11px] text-amber-300">🔥 upgrade</span>}
-                    <span className="text-[11px] text-white/35">· step {stageIdx + 1}/{stages.length}</span>
-                  </div>
-                  {stage.note && <p className="mt-1 text-sm leading-relaxed text-white/60">{stage.note}</p>}
-                  {stage.key === "lens" && camIncludesLens && !lensSkipped && (
-                    <p className="mt-1 text-xs text-amber-300">Your camera already includes a lens — these are optional extras/upgrades.</p>
-                  )}
-                  {stage.key === "lens" && camMounts.length === 0 && !lensSkipped && (
-                    <p className="mt-1 text-xs text-amber-300">Pick a camera first and I'll only show lenses that fit its mount.</p>
-                  )}
-                </div>
-              </div>
+            <Ai><Stream text={data.reply || "Let's build your kit."} /></Ai>
 
-              {lensSkipped ? (
-                <div className="mt-5 rounded-2xl glass p-6 text-center text-sm text-white/55">
-                  Your action camera has a fixed lens — no interchangeable lenses needed. Let's skip ahead.
-                </div>
-              ) : (
-                <div className="mt-5 flex gap-3 overflow-x-auto pb-3">
-                  {[...visibleOpts]
-                    .sort((a: any, b: any) =>
-                      (a.listingId === stage.recommendedId ? -1 : 0) - (b.listingId === stage.recommendedId ? -1 : 0),
-                    )
-                    .map((o: any, i: number) => {
-                      const on = !!sel[o.listingId];
-                      const rec = o.listingId === stage.recommendedId;
-                      return (
-                        <button
-                          key={o.listingId}
-                          onClick={() => toggle(o, stage)}
-                          style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }}
-                          className={`card-in lift relative w-44 shrink-0 overflow-hidden rounded-xl border text-left transition-all ${
-                            on
-                              ? "border-emerald-400 ring-2 ring-emerald-400/40"
-                              : rec
-                                ? "border-amber-400/70 ring-2 ring-amber-400/30"
-                                : "border-white/10 hover:border-white/25"
-                          }`}
-                        >
-                          {rec && !on && (
-                            <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-black">★ Recommended</span>
-                          )}
-                          {on && <span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs text-white">✓</span>}
-                          <div className="aspect-[4/3] bg-charcoal-800">
-                            {o.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={o.image} alt="" className="h-full w-full object-cover" />}
-                          </div>
-                          <div className="p-2">
-                            <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
-                            <div className="mt-1 flex items-center gap-1 text-[11px] text-white/45">
-                              £{o.total} · {o.days}d {o.mount && o.mount !== "any" && o.mount !== "fixed" && <span className="rounded bg-white/10 px-1 text-[9px] uppercase text-white/50">{o.mount}</span>}
+            {stages.slice(0, onReview ? stages.length : stageIdx + 1).map((s: any, si: number) => {
+              const opts = visibleFor(s);
+              const isSkip = skipped(s);
+              return (
+                <div key={si} className="stage-in space-y-2">
+                  <div className="msg-in flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-lg">🎬</div>
+                    <div className="rounded-2xl rounded-tl-sm border border-white/5 bg-white/[0.04] px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-display font-semibold text-white/90">{s.label}</span>
+                        {s.upsell && <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[11px] text-amber-300">🔥 upgrade</span>}
+                      </div>
+                      {s.note && <p className="mt-1 text-sm leading-relaxed text-white/60"><Stream text={s.note} /></p>}
+                      {s.key === "lens" && camIncludesLens && !isSkip && <p className="mt-1 text-xs text-amber-300">Your camera already includes a lens — these are optional extras/upgrades.</p>}
+                    </div>
+                  </div>
+
+                  {isSkip ? (
+                    <div className="pl-11 text-sm text-white/50">Action camera has a fixed lens — skipping ahead.</div>
+                  ) : (
+                    <div className="flex gap-3 overflow-x-auto pb-2 pl-11">
+                      {[...opts].sort((a: any, b: any) => (a.listingId === s.recommendedId ? -1 : 0) - (b.listingId === s.recommendedId ? -1 : 0)).map((o: any, i: number) => {
+                        const on = !!sel[o.listingId];
+                        const rec = o.listingId === s.recommendedId;
+                        return (
+                          <button key={o.listingId} onClick={() => toggle(o, s)} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
+                            {rec && !on && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-black">★</span>}
+                            {on && <span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs text-white">✓</span>}
+                            <div className="aspect-[4/3] bg-charcoal-800">
+                              {o.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={o.image} alt="" className="h-full w-full object-cover" />}
                             </div>
-                          </div>
-                        </button>
-                      );
-                    })}
+                            <div className="p-2">
+                              <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
+                              <div className="mt-1 text-[11px] text-white/45">£{o.total} · {o.days}d {o.mount && o.mount !== "any" && o.mount !== "fixed" && <span className="rounded bg-white/10 px-1 text-[9px] uppercase text-white/50">{o.mount}</span>}</div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              )}
+              );
+            })}
 
-              <div className="mt-6 flex justify-between">
+            {!onReview ? (
+              <div className="flex justify-between pl-11">
                 <button onClick={() => setStageIdx((i) => Math.max(0, i - 1))} disabled={stageIdx === 0} className="rounded-full glass px-5 py-2 text-sm text-white/60 hover:text-white disabled:opacity-30">← Back</button>
-                <button onClick={() => setStageIdx((i) => i + 1)} className="press rounded-full bg-accent-500 px-6 py-2 text-sm font-medium text-white hover:bg-accent-600">
-                  {stageIdx >= stages.length - 1 ? "Review kit →" : "Next →"}
-                </button>
+                <button onClick={() => setStageIdx((i) => i + 1)} className="press rounded-full bg-accent-500 px-6 py-2 text-sm font-medium text-white hover:bg-accent-600">{stageIdx >= stages.length - 1 ? "Review kit →" : "Next →"}</button>
               </div>
-            </div>
-          </section>
-        )}
-
-        {/* ── REVIEW ── */}
-        {onReview && (
-          <section className="stage-in mt-8">
-            <div className="msg-in flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-lg">🎬</div>
-              <div className="rounded-2xl rounded-tl-sm border border-white/5 bg-white/[0.04] px-4 py-3">
-                <span className="font-display font-semibold text-white/90">Here's your kit</span>
-                <p className="mt-1 text-sm leading-relaxed text-white/60">{data.reply}</p>
-              </div>
-            </div>
-
-            <div className="mt-5 flex flex-col gap-2">
-              {selList.length === 0 && <div className="text-sm text-white/40">Nothing selected yet — go back and pick some gear.</div>}
-              {selList.map((c) => (
-                <div key={c.listingId} className="flex items-center gap-3 rounded-xl glass p-2">
-                  {c.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={c.image} alt="" className="h-12 w-12 rounded object-cover" />}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-white/85">{c.title}</div>
-                    <div className="text-[11px] text-white/40">£{c.total} · {c.stageKey}</div>
-                  </div>
-                  <button onClick={() => setSel((p) => { const n = { ...p }; delete n[c.listingId]; return n; })} className="rounded-full px-3 py-1 text-xs text-white/35 hover:text-red-300">remove</button>
+            ) : (
+              <div className="stage-in space-y-3">
+                <Ai><Stream text="Here's your kit — check it over, then add it to your basket." /></Ai>
+                <div className="flex flex-col gap-2 pl-11">
+                  {selList.length === 0 && <div className="text-sm text-white/40">Nothing selected yet — scroll up and pick some gear.</div>}
+                  {selList.map((c) => (
+                    <div key={c.listingId} className="flex items-center gap-3 rounded-xl glass p-2">
+                      {c.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={c.image} alt="" className="h-12 w-12 rounded object-cover" />}
+                      <div className="min-w-0 flex-1"><div className="truncate text-sm text-white/85">{c.title}</div><div className="text-[11px] text-white/40">£{c.total} · {c.stageKey}</div></div>
+                      <button onClick={() => setSel((p) => { const n = { ...p }; delete n[c.listingId]; return n; })} className="rounded-full px-3 py-1 text-xs text-white/35 hover:text-red-300">remove</button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-
-            {(warnings.length > 0 || data.compatibility?.length > 0) && (
-              <div className="mt-6 rounded-2xl glass p-5">
-                <h3 className="font-display font-semibold text-white/80">Compatibility check</h3>
-                <ul className="mt-3 space-y-1.5 text-sm text-white/55">
-                  {warnings.map((w, i) => <li key={`w${i}`} className="flex gap-2"><span className="text-amber-400">!</span> {w}</li>)}
-                  {(data.compatibility || []).map((n: string, i: number) => <li key={`c${i}`} className="flex gap-2"><span className="text-accent-400">✓</span> {n}</li>)}
-                </ul>
+                {(warnings.length > 0 || data.compatibility?.length > 0) && (
+                  <div className="ml-11 rounded-2xl glass p-5">
+                    <h3 className="font-display font-semibold text-white/80">Compatibility check</h3>
+                    <ul className="mt-3 space-y-1.5 text-sm text-white/55">
+                      {warnings.map((w, i) => <li key={`w${i}`} className="flex gap-2"><span className="text-amber-400">!</span> {w}</li>)}
+                      {(data.compatibility || []).map((n: string, i: number) => <li key={`c${i}`} className="flex gap-2"><span className="text-accent-400">✓</span> {n}</li>)}
+                    </ul>
+                  </div>
+                )}
+                <div className="pl-11"><button onClick={() => setStageIdx(stages.length - 1)} className="rounded-full glass px-5 py-2 text-sm text-white/60 hover:text-white">← Back to gear</button></div>
               </div>
             )}
-
-            <div className="mt-6 flex justify-between">
-              <button onClick={() => setStageIdx(stages.length - 1)} className="rounded-full glass px-5 py-2 text-sm text-white/60 hover:text-white">← Back to gear</button>
-            </div>
+            <div ref={endRef} />
           </section>
         )}
+
       </main>
 
       {/* sticky live budget bar */}
@@ -426,4 +394,25 @@ function UserMsg({ children }: { children: React.ReactNode }) {
 }
 function Controls({ children }: { children: React.ReactNode }) {
   return <div className="msg-in pl-11">{children}</div>;
+}
+
+function Stream({ text }: { text: string }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    setN(0);
+    if (!text) return;
+    let i = 0;
+    const id = setInterval(() => {
+      i += 2;
+      setN(i);
+      if (i >= text.length) clearInterval(id);
+    }, 16);
+    return () => clearInterval(id);
+  }, [text]);
+  return (
+    <>
+      {text.slice(0, n)}
+      {n < text.length && <span className="opacity-50">▋</span>}
+    </>
+  );
 }
