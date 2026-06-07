@@ -14,6 +14,7 @@ export default function GearPage() {
   const [search, setSearch] = useState("");
 
   const cats = useQuery(api.catalog.categories) ?? [];
+  const best = useQuery(api.catalog.bestSellers, { limit: 6 }) ?? [];
   const listings =
     useQuery(api.catalog.listListings, {
       category: cat === "All" ? undefined : cat,
@@ -91,6 +92,23 @@ export default function GearPage() {
             </button>
           ))}
         </div>
+
+        {/* best sellers (data-driven) — only on All, no search */}
+        {cat === "All" && !search && best.length > 0 && (
+          <section className="mt-8">
+            <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-white/85">
+              🔥 Best sellers
+            </h2>
+            <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+              {best.map((l, i) => (
+                <Reveal key={l._id} delay={i * 40}>
+                  <GearCard listing={l} />
+                </Reveal>
+              ))}
+            </div>
+            <div className="mt-8 border-t border-white/5" />
+          </section>
+        )}
 
         {/* grid */}
         {listings === undefined ? (

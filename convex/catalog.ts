@@ -22,6 +22,40 @@ const card = (l: any) => ({
   minimumRentalDays: l.minimumRentalDays ?? 1,
 });
 
+export const bestSellers = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    const n = limit ?? 6;
+    // real demand signal: bookings + add-to-cart events
+    const bookings = await ctx.db.query("bookings").collect();
+    const bk = new Map<string, number>();
+    for (const b of bookings) for (const li of b.lineItems) bk.set(li.listingId, (bk.get(li.listingId) ?? 0) + 1);
+    const events = await ctx.db
+      .query("events")
+      .withIndex("by_type", (q) => q.eq("type", "add_to_cart"))
+      .collect();
+    const cartBySlug = new Map<string, number>();
+    for (const e of events) if (e.path) cartBySlug.set(e.path, (cartBySlug.get(e.path) ?? 0) + 1);
+
+    const ls = await ctx.db
+      .query("listings")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+    const scored = ls.map((l: any) => {
+      const t = (l.title || "").toLowerCase();
+      let base = 0;
+      if (l.category === "Packages") base += 3;
+      if (l.itemType === "camera-body") base += 2;
+      if (/fx3|fx6|a7s|a7 ?iii|a7iv|sony|burano|komodo|ronin/.test(t)) base += 2;
+      if (/\bset\b|\bkit\b|bundle|package/.test(t)) base += 1;
+      const score = (bk.get(l._id) ?? 0) * 5 + (cartBySlug.get(l.slug) ?? 0) * 2 + base;
+      return { l, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, n).map((x) => card(x.l));
+  },
+});
+
 export const byItemType = query({
   args: { types: v.array(v.string()) },
   handler: async (ctx, { types }) => {
