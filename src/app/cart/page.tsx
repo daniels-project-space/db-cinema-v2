@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
+import { KitCompatibility } from "@/components/cart/KitCompatibility";
 import { useCart } from "@/components/cart/CartProvider";
 import { usePromo } from "@/components/cart/usePromo";
 import { Offers } from "@/components/Offers";
@@ -46,6 +47,7 @@ export default function CartPage() {
           </div>
         ) : (
           <>
+            <KitCompatibility />
             <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_320px]">
               <div className="flex flex-col gap-3">
                 {items.map((it) => {
