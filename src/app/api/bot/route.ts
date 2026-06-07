@@ -125,7 +125,15 @@ export async function POST(req: NextRequest) {
     }
     const reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
     const cards = out ? await buildCards(c, out) : [];
-    return NextResponse.json({ reply, cards, _dbg: { hasObj: !!out, start: out?.start, end: out?.end, props: out?.proposals?.length ?? null, swaps: out?.swaps?.length ?? null } });
+    // temp debug: resolve each proposal
+    let probe: any[] = [];
+    if (out?.proposals && out.start && out.end) {
+      for (const p of out.proposals.slice(0, 4)) {
+        const it = await buildOne(c, p.slug, out.start, out.end, true);
+        probe.push({ slug: p.slug, resolved: it?.title ?? null, available: it?.available ?? null });
+      }
+    }
+    return NextResponse.json({ reply, cards, _dbg: { start: out?.start, end: out?.end, props: out?.proposals?.length ?? null, probe } });
   } catch {
     return NextResponse.json({
       reply: "Sorry, I'm having a moment — please try again, or reach us via the contact page.",
