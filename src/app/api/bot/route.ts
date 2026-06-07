@@ -158,7 +158,14 @@ export async function POST(req: NextRequest) {
       }
     }
     const reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
-    const cards = out ? await buildCards(c, out, camMounts) : [];
+    let cards = out ? await buildCards(c, out, camMounts) : [];
+    // safety net: if they clearly asked for a kit but the model returned none, build a default
+    const lastUser = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
+    if (out?.start && out?.end && cards.length === 0 && /\b(kit|build|assemble|recommend|set ?up|shoot|gear for|need)\b/i.test(lastUser)) {
+      out.wantsKit = true;
+      out.itemTypes = out.itemTypes?.length ? out.itemTypes : ["camera", "lens", "light", "mic"];
+      cards = await buildCards(c, out, camMounts);
+    }
     return NextResponse.json({ reply, cards });
   } catch {
     return NextResponse.json({
