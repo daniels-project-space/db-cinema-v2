@@ -5,6 +5,34 @@ import { api } from "@cvx/_generated/api";
 import { mastra } from "@/mastra";
 import { quote } from "@/lib/pricing";
 import { tierByKey } from "@/lib/membership";
+import { generateText } from "ai";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+
+// deterministic, grounded Q&A: retrieve item knowledge then answer with a plain LLM call
+async function knowledgeAnswer(c: ConvexHttpClient, userMsg: string, memberPct: number): Promise<string | null> {
+  try {
+    const results: any[] = await c.query(api.catalog.listListings, { search: userMsg.slice(0, 60) });
+    const top = (results || []).slice(0, 3);
+    const facts: string[] = [];
+    for (const r of top) {
+      const l: any = await c.query(api.catalog.getListingBySlug, { slug: r.slug });
+      const k = l?.knowledge;
+      if (!k) continue;
+      facts.push(
+        `${l.title} [${l.category}${l.specs?.mount ? `, ${l.specs.mount} mount` : ""}]: ${k.summary}. Features: ${(k.features || []).join(", ")}. Limits: ${(k.limits || []).join(", ")}. Pairs with: ${(k.pairsWith || []).join(", ")}. From £${l.pricing?.daily}/day${memberPct ? ` (£${Math.round((l.pricing?.daily || 0) * (1 - memberPct / 100))}/day for you as a member)` : ""}.`,
+      );
+    }
+    if (!facts.length) return null;
+    const or = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY! });
+    const { text } = await generateText({
+      model: or(process.env.BOT_MODEL || "deepseek/deepseek-chat") as any,
+      prompt: `You are the Db Cinema rental assistant. Answer the customer's question concisely (2-4 sentences, warm, plain language) using ONLY these facts. Be specific about limits and compatibility — lens mounts: Sony = E, Canon mirrorless = RF, Canon EF needs an EF→E/RF adapter, cine/PL is manual. Never invent specs.\n\nFACTS:\n${facts.join("\n")}\n\nCUSTOMER: ${userMsg}\n\nANSWER:`,
+    });
+    return text?.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 export const maxDuration = 60;
 
@@ -187,28 +215,19 @@ export async function POST(req: NextRequest) {
     }
     let reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
     let cards = out ? await buildCards(c, out, camMounts, memberPct) : [];
+    const lastUser = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
 
-    // no-defer guard: DeepSeek sometimes replies "let me check…" without ever answering.
-    // Detect that and re-run once, forcing a complete answer in this turn.
-    const isDefer = /\b(let me|i['’]?ll|one moment|give me a moment|hang on|fetch|pull up|look(ing)?\s*(it|that)?\s*up|check (the|on|compat|details)|will check|getting that)\b/i.test(reply) && cards.length === 0;
-    if (isDefer) {
-      try {
-        const retry: any = await agent.generate(
-          [...messages, { role: "user", content: "Answer my question NOW, in full, in this message — call your tools (get_listing / search_catalog / check_availability) and give the actual details, prices, limits and compatible pairings. Do NOT say you'll check or fetch anything." }],
-          { maxSteps: 12, structuredOutput: { schema: OUT } },
-        );
-        const out2: any = retry?.object ?? null;
-        if (out2?.reply && !/\b(let me|i['’]?ll|fetch|pull up|will check)\b/i.test(out2.reply)) {
-          reply = out2.reply;
-          out2.start = out2.start || out?.start;
-          out2.end = out2.end || out?.end;
-          const c2 = await buildCards(c, out2, camMounts, memberPct);
-          if (c2.length) cards = c2;
-        }
-      } catch {}
+    // no-defer guard: DeepSeek often replies "let me check…" (or empty) without answering.
+    // Fall back to deterministic knowledge retrieval + a plain grounded answer.
+    const isDefer =
+      cards.length === 0 &&
+      (reply.trim().length < 12 ||
+        /\b(let me|i['’]?ll|one moment|give me a moment|hang on|fetch|pull(ing)? up|look(ing)?\s*(it|that)?\s*up|check (the|on|compat|details)|will check|getting (that|the)|moment)\b/i.test(reply));
+    if (isDefer && lastUser) {
+      const ka = await knowledgeAnswer(c, lastUser, memberPct);
+      if (ka) reply = ka;
     }
     // safety net: if they clearly asked for a kit but the model returned none, build a default
-    const lastUser = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
     if (out?.start && out?.end && cards.length === 0 && /\b(kit|build|assemble|recommend|set ?up|shoot|gear for|need)\b/i.test(lastUser)) {
       out.wantsKit = true;
       out.itemTypes = out.itemTypes?.length ? out.itemTypes : ["camera", "lens", "light", "mic"];
