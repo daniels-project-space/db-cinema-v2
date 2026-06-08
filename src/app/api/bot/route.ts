@@ -11,8 +11,15 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 // deterministic, grounded Q&A: retrieve item knowledge then answer with a plain LLM call
 async function knowledgeAnswer(c: ConvexHttpClient, userMsg: string, memberPct: number): Promise<string | null> {
   try {
-    const results: any[] = await c.query(api.catalog.listListings, { search: userMsg.slice(0, 60) });
-    const top = (results || []).slice(0, 3);
+    const STOP = new Set(["what", "are", "the", "limitations", "limits", "of", "and", "or", "should", "i", "pair", "with", "it", "does", "do", "work", "for", "an", "my", "to", "is", "can", "you", "will", "how", "much", "price", "about", "tell", "me", "on", "use", "using", "need", "that", "this", "they", "them", "get", "have", "has", "which", "good", "best", "vs", "compatible", "compatibility", "lens", "camera"]);
+    const allToks = (userMsg.toLowerCase().match(/[a-z0-9][a-z0-9-]+/g) || []).filter((t) => !STOP.has(t));
+    const distinctive = allToks.filter((t) => /\d/.test(t) || t.length >= 4);
+    const queries = [distinctive.join(" "), allToks.join(" "), ...distinctive].filter(Boolean);
+    let top: any[] = [];
+    for (const qy of queries) {
+      const r: any[] = await c.query(api.catalog.listListings, { search: qy });
+      if (r && r.length) { top = r.slice(0, 3); break; }
+    }
     const facts: string[] = [];
     for (const r of top) {
       const l: any = await c.query(api.catalog.getListingBySlug, { slug: r.slug });
