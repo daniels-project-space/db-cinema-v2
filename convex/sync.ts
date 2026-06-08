@@ -433,3 +433,14 @@ export const fixUnitQty = mutation({
     return { bumped: n };
   },
 });
+
+
+export const applyKnowledge = mutation({
+  args: { token: v.string(), items: v.array(v.object({ id: v.id("listings"), knowledge: v.any() })) },
+  handler: async (ctx, { token, items }) => {
+    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) throw new Error("unauthorized");
+    let n = 0;
+    for (const it of items) { await ctx.db.patch(it.id, { knowledge: it.knowledge }); n++; }
+    return { updated: n };
+  },
+});

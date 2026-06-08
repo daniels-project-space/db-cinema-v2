@@ -83,6 +83,7 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
       role,
       mount: l.specs?.mount ?? (role === "camera" || role === "lens" ? mountOf(l.title) : null),
       specs: l.specs ?? {},
+      tip: l.tip ?? null,
     });
     if (out.length >= 16) break;
   }

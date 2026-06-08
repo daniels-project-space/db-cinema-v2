@@ -286,6 +286,7 @@ export default function AssemblePage() {
                             <div className="p-2">
                               <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
                               <div className="mt-1 text-[11px] text-white/45">£{o.total} · {o.days}d {o.mount && o.mount !== "any" && o.mount !== "fixed" && <span className="rounded bg-white/10 px-1 text-[9px] uppercase text-white/50">{o.mount}</span>}</div>
+                              {o.tip && <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-white/35">{o.tip}</div>}
                             </div>
                           </button>
                         );

@@ -37,17 +37,27 @@ export const searchCatalog = createTool({
 export const getListing = createTool({
   id: "get_listing",
   description:
-    "Get details for one item by slug: category and daily price. Accessories named in the title are INCLUDED in the price.",
+    "Get full knowledge for one item by slug: category, daily price, mount/specs, and a knowledge profile (summary, key features, real limitations/gotchas, best-for use cases, practical tips, and what it pairs well with). Use this to give accurate advice, flag an item's limits, judge compatibility, and recommend genuinely complementary gear. Accessories named in the title are INCLUDED in the price.",
   inputSchema: z.object({ slug: z.string() }),
   execute: async (a: any) => {
     const { slug } = inp(a);
     const l: any = await cx().query(api.catalog.getListingBySlug, { slug });
     if (!l) return { error: "no such item" };
+    const k = l.knowledge || {};
     return {
       title: l.title,
       category: l.category,
+      itemType: l.itemType ?? null,
+      mount: l.specs?.mount ?? null,
+      specs: l.specs ?? null,
       dailyFrom: l.pricing?.daily ?? null,
-      note: "Accessories named in the title are included in the price.",
+      summary: k.summary ?? null,
+      features: k.features ?? [],
+      limits: k.limits ?? [],
+      bestFor: k.bestFor ?? [],
+      tips: k.tips ?? [],
+      pairsWith: k.pairsWith ?? [],
+      note: "Accessories named in the title are included in the price. Only state features/limits listed here — never invent specs.",
     };
   },
 });
