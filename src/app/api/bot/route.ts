@@ -4,6 +4,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { mastra } from "@/mastra";
 import { quote } from "@/lib/pricing";
+import { tierByKey } from "@/lib/membership";
 
 export const maxDuration = 60;
 
@@ -78,9 +79,13 @@ async function firstAvailableByType(c: ConvexHttpClient, type: string, start: st
   return fallback;
 }
 
-async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = []) {
+async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [], memberPct = 0) {
   const cards: any[] = [];
   if (!out?.start || !out?.end) return cards;
+  const mp = (it: any) => {
+    if (it && memberPct > 0) { it.memberPct = memberPct; it.memberTotal = Math.round(it.total * (1 - memberPct / 100)); }
+    return it;
+  };
   const seen = new Set<string>();
   for (const p of out.proposals ?? []) {
     const item = await buildOne(c, p.slug, out.start, out.end, true);
@@ -88,7 +93,7 @@ async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [
     if (item && item.itemType === "lens" && !lensFits(item.mount, camMounts)) continue;
     if (item && item.available && !seen.has(item.listingId)) {
       seen.add(item.listingId);
-      cards.push({ kind: "add", reason: p.reason, item });
+      cards.push({ kind: "add", reason: p.reason, item: mp(item) });
     }
   }
   for (const s of out.swaps ?? []) {
@@ -96,7 +101,7 @@ async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [
     const added = await buildOne(c, s.addSlug, out.start, out.end, true);
     if (added && added.available && !seen.has(added.listingId)) {
       seen.add(added.listingId);
-      cards.push({ kind: "swap", reason: s.reason, removed, added });
+      cards.push({ kind: "swap", reason: s.reason, removed, added: mp(added) });
     }
   }
   // deterministic kit fill: guarantee available cards even if the model's slugs miss
@@ -107,7 +112,7 @@ async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [
       const item = await firstAvailableByType(c, t, out.start, out.end, seen, camMounts);
       if (item) {
         seen.add(item.listingId);
-        cards.push({ kind: "add", reason: `Recommended ${t}`, item });
+        cards.push({ kind: "add", reason: `Recommended ${t}`, item: mp(item) });
       }
     }
   }
@@ -127,14 +132,30 @@ export async function POST(req: NextRequest) {
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
   let ctx = "";
+  let memberPct = 0;
   if (body?.token) {
     try {
       const me: any = await c.query(api.accounts.me, { token: body.token });
       if (me) {
-        ctx = `Signed-in customer: ${me.name || me.email}` + (me.membershipActive ? ` (${me.membershipTier} member)` : "") + ".";
+        const tier = me.membershipActive ? tierByKey(me.membershipTier) : null;
+        memberPct = tier?.pct ?? 0;
+        const name = me.name || (me.email ? me.email.split("@")[0] : "there");
         const bk: any = await c.query(api.accounts.myBookings, { token: body.token });
-        if (Array.isArray(bk) && bk.length)
-          ctx += ` Latest booking is ${bk[0].status}: ${bk[0].lineItems.map((li: any) => li.title).join(", ")}.`;
+        const past: any[] = Array.isArray(bk) ? bk : [];
+        const recent = (past[0]?.lineItems ?? []).map((li: any) => li.title).slice(0, 3);
+        const openB = past.find((b: any) => ["confirmed", "pending", "reserved", "active", "paid"].includes(String(b.status).toLowerCase()));
+        const bits: string[] = [];
+        bits.push(
+          past.length >= 2
+            ? `Returning, reliable customer ${name} (${past.length} past bookings) — greet them back warmly BY NAME.`
+            : past.length === 1
+              ? `Customer ${name} (1 previous booking) — welcome them back by name.`
+              : `Customer ${name} (first time) — be welcoming.`,
+        );
+        if (tier) bits.push(`${tier.name} member (active): apply their ${memberPct}% member discount to every quote and mention the saving.`);
+        if (recent.length) bits.push(`Previously rented: ${recent.join(", ")} — personalise suggestions to this.`);
+        if (openB) bits.push(`They have a ${openB.status} booking (${(openB.lineItems ?? []).map((li: any) => li.title).join(", ")}); gear can be added to it up to 1h before pickup — offer relevant add-ons.`);
+        ctx = bits.join(" ");
       }
     } catch {}
   }
@@ -165,13 +186,13 @@ export async function POST(req: NextRequest) {
       }
     }
     const reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
-    let cards = out ? await buildCards(c, out, camMounts) : [];
+    let cards = out ? await buildCards(c, out, camMounts, memberPct) : [];
     // safety net: if they clearly asked for a kit but the model returned none, build a default
     const lastUser = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
     if (out?.start && out?.end && cards.length === 0 && /\b(kit|build|assemble|recommend|set ?up|shoot|gear for|need)\b/i.test(lastUser)) {
       out.wantsKit = true;
       out.itemTypes = out.itemTypes?.length ? out.itemTypes : ["camera", "lens", "light", "mic"];
-      cards = await buildCards(c, out, camMounts);
+      cards = await buildCards(c, out, camMounts, memberPct);
     }
     return NextResponse.json({ reply, cards });
   } catch {

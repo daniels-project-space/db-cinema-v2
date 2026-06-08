@@ -147,7 +147,7 @@ export function BotBubble() {
             )}
             {msgs.map((m, mi) => (
               <div key={mi} className="space-y-2">
-                <Bubble role={m.role} text={m.content} />
+                <Bubble role={m.role} text={m.content} stream={m.role === "assistant" && mi === msgs.length - 1 && !busy} />
                 {m.cards?.map((card: Card, ci: number) => {
                   const id = `${mi}:${ci}`;
                   return (
@@ -204,7 +204,28 @@ export function BotBubble() {
   );
 }
 
-function Bubble({ role, text }: { role: string; text: string }) {
+function Stream({ text }: { text: string }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    setN(0);
+    if (!text) return;
+    let i = 0;
+    const id = setInterval(() => {
+      i += 2;
+      setN(i);
+      if (i >= text.length) clearInterval(id);
+    }, 16);
+    return () => clearInterval(id);
+  }, [text]);
+  return (
+    <>
+      {text.slice(0, n)}
+      {n < text.length && <span className="opacity-50">▋</span>}
+    </>
+  );
+}
+
+function Bubble({ role, text, stream }: { role: string; text: string; stream?: boolean }) {
   const mine = role === "user";
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
@@ -213,7 +234,7 @@ function Bubble({ role, text }: { role: string; text: string }) {
           mine ? "bg-accent-500 text-white" : "glass text-white/80"
         }`}
       >
-        {text}
+        {stream ? <Stream text={text} /> : text}
       </div>
     </div>
   );
@@ -278,7 +299,7 @@ function CardView({ card, state, onAdd, onDecline, onAlt }: any) {
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium text-white/90">{card.item.title}</div>
             <div className="text-[11px] text-white/45">
-              {card.item.start}→{card.item.end} · £{card.item.total} ({card.item.days}d)
+              {card.item.start}→{card.item.end} · {card.item.memberTotal != null ? (<><span className="line-through">£{card.item.total}</span> <span className="text-emerald-300">£{card.item.memberTotal}</span> <span className="text-emerald-400/70">member −{card.item.memberPct}%</span></>) : (<>£{card.item.total}</>)} ({card.item.days}d)
             </div>
             <div className="mt-0.5 text-[11px] text-white/40">{card.reason}</div>
           </div>
