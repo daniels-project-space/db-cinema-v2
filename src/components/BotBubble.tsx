@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useAction } from "convex/react";
+import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { useCart } from "@/components/cart/CartProvider";
 
@@ -22,6 +24,29 @@ export function BotBubble() {
   const endRef = useRef<HTMLDivElement>(null);
   const account = useAccount();
   const cart = useCart();
+  const startAddon = useAction(api.checkout.startAddon);
+  const [addonBusy, setAddonBusy] = useState<string | null>(null);
+
+  async function addToBooking(item: any) {
+    if (!account.token || !item?.addonBookingId) return;
+    setAddonBusy(item.listingId);
+    try {
+      const { url } = await startAddon({
+        token: account.token,
+        bookingId: item.addonBookingId,
+        listingId: item.listingId,
+        title: item.title,
+        start: item.addonStart,
+        end: item.addonEnd,
+        total: item.addonTotal,
+        origin: window.location.origin,
+      });
+      window.location.href = url;
+    } catch (e: any) {
+      setMsgs((m) => [...m, { role: "assistant", content: e?.message ?? "Couldn't add that to your booking." }]);
+      setAddonBusy(null);
+    }
+  }
 
   useEffect(() => {
     const raw = localStorage.getItem("dbc_bot");
@@ -163,6 +188,8 @@ export function BotBubble() {
                         setDone((d) => ({ ...d, [id]: "added" }));
                       }}
                       onDecline={() => setDone((d) => ({ ...d, [id]: "declined" }))}
+                      onAddBooking={() => addToBooking(card.kind === "swap" ? card.added : card.item)}
+                      addonBusy={addonBusy}
                       onAlt={() => {
                         const t = card.kind === "swap" ? card.added?.title : card.item?.title;
                         send(`Can you suggest an alternative to ${t}?`);
@@ -275,10 +302,12 @@ function Tile({ item, tone }: { item: any; tone: "green" | "red" | "plain" }) {
   );
 }
 
-function CardView({ card, state, onAdd, onDecline, onAlt }: any) {
+function CardView({ card, state, onAdd, onDecline, onAlt, onAddBooking, addonBusy }: any) {
   if (state === "declined") return null;
   const added = state === "added";
   const swap = card.kind === "swap";
+  const addonItem = swap ? card.added : card.item;
+  const canAddBooking = !!addonItem?.addonBookingId;
   return (
     <div className="rounded-2xl border border-accent-400/20 bg-white/[0.03] p-3">
       {swap ? (
@@ -313,6 +342,15 @@ function CardView({ card, state, onAdd, onDecline, onAlt }: any) {
         >
           {added ? "✓ Added to kit" : swap ? "Accept swap" : "Add to kit"}
         </button>
+        {!added && canAddBooking && (
+          <button
+            onClick={onAddBooking}
+            disabled={addonBusy === addonItem.listingId}
+            className="press rounded-full bg-emerald-500 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+          >
+            {addonBusy === addonItem.listingId ? "…" : `Add to booking · £${addonItem.addonTotal}`}
+          </button>
+        )}
         {!added && (
           <>
             <button onClick={onAlt} className="rounded-full glass px-3 py-1.5 text-[11px] text-white/60 hover:text-white">

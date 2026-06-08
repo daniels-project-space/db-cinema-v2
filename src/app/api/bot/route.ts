@@ -86,6 +86,7 @@ async function buildOne(c: ConvexHttpClient, slugOrTerm: string, start: string, 
     listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null,
     start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0, available,
     itemType: l.itemType ?? null, mount: l.specs?.mount ?? null, lensClass: l.specs?.lensClass ?? null,
+    pricing: l.pricing,
   };
 }
 
@@ -114,11 +115,21 @@ async function firstAvailableByType(c: ConvexHttpClient, type: string, start: st
   return fallback;
 }
 
-async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [], memberPct = 0) {
+async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [], memberPct = 0, booking: any = null) {
   const cards: any[] = [];
   if (!out?.start || !out?.end) return cards;
+  const bookingDays = booking ? Math.max(1, Math.round((booking.end - booking.start) / 86400000) + 1) : 0;
   const mp = (it: any) => {
-    if (it && memberPct > 0) { it.memberPct = memberPct; it.memberTotal = Math.round(it.total * (1 - memberPct / 100)); }
+    if (!it) return it;
+    if (memberPct > 0) { it.memberPct = memberPct; it.memberTotal = Math.round(it.total * (1 - memberPct / 100)); }
+    if (booking && it.pricing) {
+      const q: any = quote(it.pricing, bookingDays);
+      it.addonBookingId = booking.id;
+      it.addonStart = booking.start;
+      it.addonEnd = booking.end;
+      it.addonTotal = q.total;
+      it.addonLabel = booking.label;
+    }
     return it;
   };
   const seen = new Set<string>();
@@ -168,6 +179,7 @@ export async function POST(req: NextRequest) {
 
   let ctx = "";
   let memberPct = 0;
+  let activeBooking: any = null;
   if (body?.token) {
     try {
       const me: any = await c.query(api.accounts.me, { token: body.token });
@@ -190,6 +202,8 @@ export async function POST(req: NextRequest) {
         if (tier) bits.push(`${tier.name} member (active): apply their ${memberPct}% member discount to every quote and mention the saving.`);
         if (recent.length) bits.push(`Previously rented: ${recent.join(", ")} — personalise suggestions to this.`);
         if (openB) bits.push(`They have a ${openB.status} booking (${(openB.lineItems ?? []).map((li: any) => li.title).join(", ")}); gear can be added to it up to 1h before pickup — offer relevant add-ons.`);
+        if (openB && openB.lineItems?.[0])
+          activeBooking = { id: openB._id, start: openB.lineItems[0].start, end: openB.lineItems[0].end, label: openB.lineItems[0].title };
         ctx = bits.join(" ");
       }
     } catch {}
@@ -221,7 +235,7 @@ export async function POST(req: NextRequest) {
       }
     }
     let reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
-    let cards = out ? await buildCards(c, out, camMounts, memberPct) : [];
+    let cards = out ? await buildCards(c, out, camMounts, memberPct, activeBooking) : [];
     const lastUser = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
 
     // no-defer guard: DeepSeek often replies "let me check…" (or empty) without answering.
@@ -238,9 +252,9 @@ export async function POST(req: NextRequest) {
     if (out?.start && out?.end && cards.length === 0 && /\b(kit|build|assemble|recommend|set ?up|shoot|gear for|need)\b/i.test(lastUser)) {
       out.wantsKit = true;
       out.itemTypes = out.itemTypes?.length ? out.itemTypes : ["camera", "lens", "light", "mic"];
-      cards = await buildCards(c, out, camMounts, memberPct);
+      cards = await buildCards(c, out, camMounts, memberPct, activeBooking);
     }
-    return NextResponse.json({ reply, cards });
+    return NextResponse.json({ reply, cards, booking: activeBooking });
   } catch {
     return NextResponse.json({
       reply: "Sorry, I'm having a moment — please try again, or reach us via the contact page.",
