@@ -185,8 +185,28 @@ export async function POST(req: NextRequest) {
         out.end = out.end || ds[ds.length - 1];
       }
     }
-    const reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
+    let reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
     let cards = out ? await buildCards(c, out, camMounts, memberPct) : [];
+
+    // no-defer guard: DeepSeek sometimes replies "let me check…" without ever answering.
+    // Detect that and re-run once, forcing a complete answer in this turn.
+    const isDefer = /\b(let me|i['’]?ll|one moment|give me a moment|hang on|fetch|pull up|look(ing)?\s*(it|that)?\s*up|check (the|on|compat|details)|will check|getting that)\b/i.test(reply) && cards.length === 0;
+    if (isDefer) {
+      try {
+        const retry: any = await agent.generate(
+          [...messages, { role: "user", content: "Answer my question NOW, in full, in this message — call your tools (get_listing / search_catalog / check_availability) and give the actual details, prices, limits and compatible pairings. Do NOT say you'll check or fetch anything." }],
+          { maxSteps: 12, structuredOutput: { schema: OUT } },
+        );
+        const out2: any = retry?.object ?? null;
+        if (out2?.reply && !/\b(let me|i['’]?ll|fetch|pull up|will check)\b/i.test(out2.reply)) {
+          reply = out2.reply;
+          out2.start = out2.start || out?.start;
+          out2.end = out2.end || out?.end;
+          const c2 = await buildCards(c, out2, camMounts, memberPct);
+          if (c2.length) cards = c2;
+        }
+      } catch {}
+    }
     // safety net: if they clearly asked for a kit but the model returned none, build a default
     const lastUser = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
     if (out?.start && out?.end && cards.length === 0 && /\b(kit|build|assemble|recommend|set ?up|shoot|gear for|need)\b/i.test(lastUser)) {
