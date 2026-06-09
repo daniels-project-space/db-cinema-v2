@@ -159,16 +159,14 @@ body {
 /* scroll reveal — fade + rise + blur-to-sharp */
 .reveal {
   opacity: 0;
-  transform: translateY(28px);
-  filter: blur(6px);
-  transition: opacity 0.9s var(--ease-out-expo),
-    transform 0.9s var(--ease-out-expo), filter 0.9s var(--ease-out-expo);
+  transform: translateY(22px);
+  transition: opacity 0.7s var(--ease-out-expo),
+    transform 0.7s var(--ease-out-expo);
   will-change: opacity, transform;
 }
 .reveal.in {
   opacity: 1;
   transform: none;
-  filter: blur(0);
 }
 
 /* page mount fade */
@@ -202,12 +200,12 @@ body {
 
 /* ambient animated background — multi-layer drifting orbs */
 @keyframes orb-a {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(6%, -4%) scale(1.15); }
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(6%, -4%); }
 }
 @keyframes orb-b {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(-5%, 5%) scale(1.12); }
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-5%, 5%); }
 }
 .ambient {
   position: fixed;
@@ -219,7 +217,8 @@ body {
 .ambient .orb {
   position: absolute;
   border-radius: 9999px;
-  filter: blur(100px);
+  filter: blur(55px);
+  will-change: transform;
 }
 .ambient .orb1 {
   width: 55vw; height: 55vw; left: -12vw; top: -12vw;
