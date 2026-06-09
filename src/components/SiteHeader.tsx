@@ -13,8 +13,8 @@ export function SiteHeader() {
 
   // logged-in: warm cream pastel bar with dark text; logged-out: dark glass
   const shell = me
-    ? "sticky top-0 z-40 border-b border-black/5 bg-[#f1ead7]/70 backdrop-blur-xl transition-colors duration-500"
-    : "sticky top-0 z-40 glass border-b border-white/5 transition-colors duration-500";
+    ? "sticky top-0 z-40 border-b border-black/5 bg-[#f1ead7]/95 transition-colors duration-500"
+    : "sticky top-0 z-40 bg-charcoal-950/90 border-b border-white/5 transition-colors duration-500";
   const linkBase = me ? "text-charcoal-900/60 hover:text-charcoal-900" : "text-white/50 hover:text-white";
   const logoDb = me ? "text-charcoal-900" : "text-white/90";
   const avatar = me ? `https://i.pravatar.cc/80?u=${encodeURIComponent(me.email)}` : "";

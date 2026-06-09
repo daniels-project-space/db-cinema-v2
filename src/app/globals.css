@@ -45,10 +45,8 @@ body {
 
 /* glass: the base translucent panel */
 .glass {
-  background: rgba(255, 255, 255, 0.02);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 .glass-hover {
   transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
@@ -87,9 +85,7 @@ body {
 }
 .section-glass {
   position: relative;
-  background: rgba(10, 10, 15, 0.15);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(10, 10, 15, 0.45);
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -180,14 +176,7 @@ body {
 @keyframes shimmer {
   100% { transform: translateX(100%); }
 }
-.shimmer::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
-  animation: shimmer 1.6s infinite;
-}
+.shimmer::after { content: none; }
 .smart-img {
   opacity: 0;
   transform: scale(1.04);
