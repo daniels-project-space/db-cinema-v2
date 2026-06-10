@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { IconSliders, IconCamera } from "@/components/icons";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -9,7 +10,7 @@ import { useCart } from "@/components/cart/CartProvider";
 type Card = any;
 type Msg = { role: "user" | "assistant"; content: string; cards?: Card[] };
 const GREETING =
-  "Hi! I'm the Db Cinema assistant 🎬 Tell me what you're shooting and your dates, and I'll build you a kit — or ask about any gear, prices and availability.";
+  "Hi! I'm the Db Cinema assistant Tell me what you're shooting and your dates, and I'll build you a kit — or ask about any gear, prices and availability.";
 const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding"];
 const SIZES = ["Solo", "Small crew", "Large production"];
 
@@ -124,7 +125,7 @@ export function BotBubble() {
       {open && (
         <div className="toast-in fixed bottom-24 right-5 z-50 flex h-[72vh] max-h-[600px] w-[92vw] max-w-sm flex-col overflow-hidden rounded-3xl border border-white/10 bg-charcoal-900/95 shadow-2xl backdrop-blur-xl">
           <header className="flex items-center gap-3 border-b border-white/5 bg-white/[0.03] px-4 py-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-500/20 text-lg">🎬</div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-500/20 text-accent-300"><IconCamera className="h-5 w-5" /></div>
             <div>
               <div className="text-sm font-semibold text-white/90">Db Cinema assistant</div>
               <div className="text-[11px] text-emerald-400">● builds your kit live</div>
@@ -135,7 +136,7 @@ export function BotBubble() {
             {msgs.length === 0 && onb >= 4 && <Bubble role="assistant" text={GREETING} />}
             {msgs.length === 0 && onb < 4 && (
               <div className="space-y-2">
-                <Bubble role="assistant" text="Hi! I'm the Db Cinema assistant 🎬 Let's build your kit — what are you shooting?" />
+                <Bubble role="assistant" text="Hi! I'm the Db Cinema assistant Let's build your kit — what are you shooting?" />
                 {onb >= 1 && <Bubble role="user" text={brief.shoot} />}
                 {onb === 0 && (
                   <Chips opts={SHOOTS} onPick={(v) => { setBrief((b) => ({ ...b, shoot: v })); setOnb(1); }} />
@@ -164,7 +165,7 @@ export function BotBubble() {
                       <span className="w-12 text-accent-300">£{brief.budget}</span>
                       <input type="range" min={100} max={3000} step={50} value={brief.budget} onChange={(e) => setBrief((b) => ({ ...b, budget: Number(e.target.value) }))} className="flex-1 accent-accent-500" />
                     </div>
-                    <button onClick={startBuild} className="press rounded-full bg-gradient-to-r from-accent-500 to-indigo-500 px-4 py-2 text-xs font-medium text-white">✨ Build my kit</button>
+                    <button onClick={startBuild} className="press inline-flex items-center gap-1.5 rounded-full bg-accent-500 px-4 py-2 text-xs font-medium text-white hover:bg-accent-600"><IconSliders className="h-3.5 w-3.5" />Build my kit</button>
                     <button onClick={() => setOnb(4)} className="ml-2 text-xs text-white/35 hover:text-white/60">or just chat →</button>
                   </div>
                 )}

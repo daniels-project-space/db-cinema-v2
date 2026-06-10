@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { IconStar } from "@/components/icons";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
@@ -225,7 +226,7 @@ function Stars({ value, onChange }: { value: number; onChange: (n: number) => vo
           onClick={() => onChange(n)}
           className={n <= value ? "text-accent-400" : "text-white/20"}
         >
-          ★
+          <IconStar filled className="h-5 w-5" />
         </button>
       ))}
     </div>

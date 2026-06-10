@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import { IconCamera } from "@/components/icons";
 import { useSearchParams } from "next/navigation";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -81,7 +82,7 @@ function SuccessInner() {
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-      <div className="text-5xl">🎬</div>
+      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent-500/15 text-accent-400"><IconCamera className="h-8 w-8" /></div>
       <h1 className="mt-4 font-display text-3xl font-bold text-white/90">
         Booking <span className="gradient-text">confirmed</span>
       </h1>

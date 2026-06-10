@@ -32,7 +32,7 @@ export default function AboutPage() {
         </div>
         <div className="mt-8 grid grid-cols-3 gap-4 text-center">
           {[
-            ["4.86★", "average rating"],
+            ["4.86", "average rating"],
             ["875+", "verified reviews"],
             ["200+", "items for hire"],
           ].map(([n, l]) => (

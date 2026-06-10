@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import { IconSliders, IconCamera, IconBolt } from "@/components/icons";
 import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
@@ -231,8 +232,9 @@ export default function AssemblePage() {
                   </div>
                   <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. low light, handheld, two presenters…" className="w-full rounded-lg bg-white/[0.06] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
                   {err && <div className="text-sm text-red-300">{err}</div>}
-                  <button onClick={build} disabled={loading} className="press glow rounded-full bg-gradient-to-r from-accent-500 to-indigo-500 px-7 py-3 font-medium text-white disabled:opacity-40">
-                    {loading ? "Designing your kit…" : "✨ Build my kit"}
+                  <button onClick={build} disabled={loading} className="press inline-flex items-center gap-2 rounded-full bg-accent-500 px-7 py-3 font-medium text-white transition-colors hover:bg-accent-600 disabled:opacity-40">
+                    <IconSliders className="h-[18px] w-[18px]" />
+                    {loading ? "Designing your kit…" : "Build my kit"}
                   </button>
                 </div>
               </Controls>
@@ -258,11 +260,11 @@ export default function AssemblePage() {
               return (
                 <div key={si} className="stage-in space-y-2">
                   <div className="msg-in flex items-start gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-lg">🎬</div>
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-accent-300"><IconCamera className="h-5 w-5" /></div>
                     <div className="rounded-2xl rounded-tl-sm border border-white/5 bg-white/[0.04] px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-display font-semibold text-white/90">{s.label}</span>
-                        {s.upsell && <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[11px] text-amber-300">🔥 upgrade</span>}
+                        {s.upsell && <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[11px] text-amber-300"><IconBolt className="h-3 w-3" />upgrade</span>}
                       </div>
                       {s.note && <p className="mt-1 text-sm leading-relaxed text-white/60"><Stream text={s.note} /></p>}
                       {s.key === "lens" && camIncludesLens && !isSkip && <p className="mt-1 text-xs text-amber-300">Your camera already includes a lens — these are optional extras/upgrades.</p>}
@@ -278,7 +280,7 @@ export default function AssemblePage() {
                         const rec = o.listingId === s.recommendedId;
                         return (
                           <button key={o.listingId} onClick={() => toggle(o, s)} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
-                            {rec && !on && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-black">★</span>}
+                            {rec && !on && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">Pick</span>}
                             {on && <span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs text-white">✓</span>}
                             <div className="aspect-[4/3] bg-charcoal-800">
                               {o.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={o.image} alt="" className="h-full w-full object-cover" />}

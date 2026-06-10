@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { IconLock } from "@/components/icons";
 import { useAction, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
@@ -127,7 +128,7 @@ export default function CheckoutPage() {
       <main className="section-window mx-auto max-w-4xl px-6 py-12">
         <h1 className="font-display text-3xl font-bold text-white/90">Check<span className="gradient-text">out</span></h1>
         <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
-          <span>🔒 Encrypted checkout by Stripe</span>
+          <span className="inline-flex items-center gap-1.5"><IconLock className="h-3.5 w-3.5" />Encrypted checkout by Stripe</span>
           <span className="text-white/20">·</span>
           <span>Your deposit is released after you return the gear</span>
           <span className="text-white/20">·</span>

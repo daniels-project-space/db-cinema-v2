@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { IconSliders, IconBox } from "@/components/icons";
 import { PageHero } from "@/components/PageHero";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -51,9 +52,11 @@ export default function GearPage() {
 
         <Link
           href="/assemble"
-          className="glow press mt-6 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-accent-500 to-indigo-500 px-6 py-3 font-medium text-white"
+          className="press group mt-6 inline-flex items-center gap-2.5 rounded-full border border-accent-400/40 bg-accent-500/10 px-6 py-3 font-medium text-accent-100 transition-colors hover:border-accent-400/70 hover:bg-accent-500/15"
         >
-          ✨ AI Item Assembly — build my kit
+          <IconSliders className="h-[18px] w-[18px] text-accent-300" />
+          AI item assembly
+          <span className="ml-1 text-sm font-normal text-accent-300/60">build your kit</span>
         </Link>
 
         {/* search */}
@@ -82,7 +85,7 @@ export default function GearPage() {
                   : ""
               }`}
             >
-              {t.name === "Packages" && <span className="mr-1">📦</span>}
+              {t.name === "Packages" && <IconBox className="mr-1.5 inline h-3.5 w-3.5 align-[-3px]" />}
               {t.name}{" "}
               <span className="text-xs opacity-60">{t.count}</span>
             </button>
@@ -93,7 +96,7 @@ export default function GearPage() {
         {cat === "All" && !search && best.length > 0 && (
           <section className="mt-8">
             <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-white/85">
-              🔥 Best sellers
+              Best sellers
             </h2>
             <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
               {best.map((l, i) => (
