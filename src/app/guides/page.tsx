@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PageHero } from "@/components/PageHero";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { GUIDES } from "@/lib/guides";
@@ -16,10 +17,7 @@ export default function GuidesPage() {
     <>
       <SiteHeader />
       <main className="section-window mx-auto max-w-4xl px-6 py-14">
-        <div className="mb-2 text-xs uppercase tracking-widest text-accent-400">Guides</div>
-        <h1 className="font-display text-4xl font-bold text-white/90">
-          Shoot <span className="gradient-text">smarter</span>
-        </h1>
+        <PageHero eyebrow="Guides" lead="Shoot" accent="smarter" />
         <p className="mt-3 max-w-xl text-white/40">
           Straight-talking advice on renting the right gear for your shoot in London.
         </p>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageHero } from "@/components/PageHero";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata = { title: "About — Db Cinema Rentals" };
@@ -8,10 +9,7 @@ export default function AboutPage() {
     <>
       <SiteHeader />
       <main className="section-window mx-auto max-w-3xl px-6 py-14">
-        <div className="mb-2 text-xs uppercase tracking-widest text-accent-400">About us</div>
-        <h1 className="font-display text-4xl font-bold text-white/90">
-          Cinema gear, <span className="gradient-text">ready to roll</span>
-        </h1>
+        <PageHero eyebrow="About us" lead="Cinema gear," accent="ready to roll" sub="We keep London film crews rolling with pro gear that just works, and people who actually pick up the phone." />
         <div className="mt-8 flex flex-col gap-5 text-white/55 leading-relaxed">
           <p>
             Db Cinema Rentals is a London-based hire house for professional film

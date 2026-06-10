@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageHero } from "@/components/PageHero";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata = { title: "How it works — Db Cinema Rentals" };
@@ -15,10 +16,7 @@ export default function HowItWorksPage() {
     <>
       <SiteHeader />
       <main className="section-window mx-auto max-w-4xl px-6 py-14">
-        <div className="mb-2 text-xs uppercase tracking-widest text-accent-400">How it works</div>
-        <h1 className="font-display text-4xl font-bold text-white/90">
-          Rent in <span className="gradient-text">four steps</span>
-        </h1>
+        <PageHero eyebrow="How it works" lead="Rent in" accent="four steps" sub="From first browse to back on set, here is the whole flow in four easy steps." />
         <div className="mt-10 grid gap-6 sm:grid-cols-2">
           {STEPS.map(([n, h, p]) => (
             <div key={n} className="rounded-2xl glass gradient-border p-6">

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PageHero } from "@/components/PageHero";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { FAQS } from "@/lib/guides";
@@ -25,10 +26,7 @@ export default function FAQPage() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <SiteHeader />
       <main className="section-window mx-auto max-w-2xl px-6 py-14">
-        <div className="mb-2 text-xs uppercase tracking-widest text-accent-400">FAQ</div>
-        <h1 className="font-display text-4xl font-bold text-white/90">
-          Questions, <span className="gradient-text">answered</span>
-        </h1>
+        <PageHero eyebrow="FAQ" lead="Questions," accent="answered" sub="Renting, delivery, deposits and dates, all explained in plain English." />
         <div className="mt-8 divide-y divide-white/5">
           {FAQS.map((f) => (
             <div key={f.q} className="py-5">

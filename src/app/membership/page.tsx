@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { PageHero } from "@/components/PageHero";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -38,10 +39,7 @@ export default function MembershipPage() {
       <SiteHeader />
       <main className="section-window mx-auto max-w-5xl px-6 py-14">
         <div className="text-center">
-          <div className="mb-2 text-xs uppercase tracking-widest text-accent-400">Membership</div>
-          <h1 className="font-display text-4xl font-bold text-white/90">
-            Rent more, <span className="gradient-text">pay less</span>
-          </h1>
+          <PageHero center eyebrow="Membership" lead="Rent more," accent="pay less" />
           <p className="mx-auto mt-3 max-w-lg text-white/40">
             Save on every rental, all year. Cancel anytime. Discounts stack on top of
             your multi-day rates and never below our floor.

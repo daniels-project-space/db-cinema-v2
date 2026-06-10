@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { PageHero } from "@/components/PageHero";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
@@ -42,12 +43,7 @@ export default function GearPage() {
     <>
       <SiteHeader />
       <main className="section-window mx-auto min-h-screen max-w-7xl px-6 py-12">
-        <div className="mb-2 text-xs uppercase tracking-widest text-accent-400">
-          The catalogue
-        </div>
-        <h1 className="font-display text-4xl font-bold tracking-tight text-white/90">
-          Rent <span className="gradient-text">cinema gear</span>
-        </h1>
+        <PageHero eyebrow="The catalogue" lead="Rent" accent="cinema gear" />
         <p className="mt-2 max-w-xl text-white/40">
           Professional cameras, lenses, lighting, audio and more. Daily, 3-day
           and 7-day rates. Delivered across London.
