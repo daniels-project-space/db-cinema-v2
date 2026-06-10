@@ -58,28 +58,37 @@ export default async function Home() {
           <h2 className="gradient-text font-display text-5xl font-bold tracking-[0.08em] sm:text-7xl">
             CINEMA
           </h2>
-          <p className="mt-6 text-sm uppercase tracking-widest text-white/40">
-            Pro gear. Daily rates. Delivered.
+          <p className="mt-6 text-xs uppercase tracking-[0.3em] text-white/40">
+            London cinema rental
           </p>
-          <p className="mt-8 max-w-md text-white/30">
-            Professional cinema cameras, lenses, lighting, audio and drones —
-            bookable online, delivered across London. The longer you rent, the
-            more you save.
+          <p className="mt-7 max-w-xl text-balance text-lg leading-relaxed text-white/60">
+            Rent the gear that makes the shot. Cameras, glass, light and sound the
+            pros actually book, delivered across London and ready when you are.
           </p>
-          <div className="mt-10 flex gap-4">
+          <p className="mt-3 text-sm text-white/35">Rent longer, pay less. Booked in two minutes.</p>
+          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
             <Link
               href="/gear"
-              className="rounded-full bg-accent-500 px-7 py-3 font-medium text-white transition-colors hover:bg-accent-600"
+              className="press rounded-full bg-accent-500 px-7 py-3 font-medium text-white transition-colors hover:bg-accent-600"
             >
-              Browse Gear
+              Browse the kit
             </Link>
             <Link
-              href="/#reviews"
+              href="/how-it-works"
               className="glass glass-hover rounded-full px-7 py-3 font-medium text-white/80"
             >
-              Read reviews
+              How it works
             </Link>
           </div>
+        </div>
+      </section>
+
+      {/* trust strip */}
+      <section className="section-window border-y border-white/5 px-6 py-9">
+        <div className="mx-auto grid max-w-4xl grid-cols-1 gap-7 text-center sm:grid-cols-3">
+          <div><div className="font-display text-white/85">Delivered across London</div><div className="mt-1 text-xs text-white/40">or collect in central London</div></div>
+          <div><div className="font-display text-white/85">Pro-maintained gear</div><div className="mt-1 text-xs text-white/40">checked and cleaned between rentals</div></div>
+          <div><div className="font-display text-white/85">Booked in minutes</div><div className="mt-1 text-xs text-white/40">online, any time, instant confirmation</div></div>
         </div>
       </section>
 
@@ -89,11 +98,11 @@ export default async function Home() {
         className="section-glass px-6 py-20"
       >
         <Reveal className="mx-auto max-w-6xl">
-          <div className="mb-2 text-center text-xs uppercase tracking-widest text-accent-400">
-            What renters say
+          <div className="mb-2 text-center text-xs uppercase tracking-[0.3em] text-accent-400">
+            What crews say
           </div>
           <h2 className="text-center font-display text-3xl font-bold text-white/90">
-            Trusted on <span className="gradient-text">Hygglo</span>
+            Loved by London&apos;s <span className="gradient-text">filmmakers</span>
           </h2>
           <HomeStats />
           <div className="mt-10">
@@ -106,16 +115,16 @@ export default async function Home() {
       <section className="section-window px-6 py-20 text-center">
         <Reveal>
         <h2 className="font-display text-3xl font-bold text-white/90">
-          Ready to <span className="gradient-text">roll</span>?
+          Your next shoot <span className="gradient-text">starts here</span>
         </h2>
-        <p className="mx-auto mt-3 max-w-md text-white/40">
-          Browse the full catalogue and lock in your dates.
+        <p className="mx-auto mt-3 max-w-md text-white/45">
+          Pick your dates, build your kit, and get back to the work that matters.
         </p>
         <Link
           href="/gear"
-          className="mt-8 inline-block rounded-full bg-accent-500 px-8 py-3 font-medium text-white transition-colors hover:bg-accent-600"
+          className="press mt-8 inline-block rounded-full bg-accent-500 px-8 py-3 font-medium text-white transition-colors hover:bg-accent-600"
         >
-          Browse Gear
+          Start your booking
         </Link>
         </Reveal>
       </section>
