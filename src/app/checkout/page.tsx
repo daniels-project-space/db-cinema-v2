@@ -126,6 +126,13 @@ export default function CheckoutPage() {
       <SiteHeader />
       <main className="section-window mx-auto max-w-4xl px-6 py-12">
         <h1 className="font-display text-3xl font-bold text-white/90">Check<span className="gradient-text">out</span></h1>
+        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
+          <span>🔒 Encrypted checkout by Stripe</span>
+          <span className="text-white/20">·</span>
+          <span>Your deposit is released after you return the gear</span>
+          <span className="text-white/20">·</span>
+          <span>Need a hand? Message us any time</span>
+        </p>
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_320px]">
           <div className="flex flex-col gap-5">

@@ -84,6 +84,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
   const gallery = listing.gallery.length
     ? listing.gallery
     : ([listing.heroImage].filter(Boolean) as string[]);
+  const k: any = (listing as any).knowledge ?? {};
 
   return (
     <>
@@ -103,17 +104,58 @@ export default function GearDetailClient({ slug }: { slug: string }) {
                 ))}
               </div>
             )}
-            <span className="mt-6 block text-xs uppercase tracking-widest text-accent-400">
+            <span className="mt-6 block text-xs uppercase tracking-[0.3em] text-accent-400">
               {listing.category}
             </span>
-            <h1 className="mt-2 font-display text-3xl font-bold text-white/90">
+            <h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-white/90">
               {listing.title}
             </h1>
-            <p className="mt-4 text-sm leading-relaxed text-white/40">
-              Professional {listing.category.toLowerCase()} for hire in London. Pick your
-              dates — the longer you rent, the better the per-day rate (applied
-              automatically). Delivery available across London.
+            <p className="mt-4 text-balance leading-relaxed text-white/60">
+              {k.summary ||
+                `Professional ${listing.category.toLowerCase()} for hire in London. Pick your dates and the longer you rent, the better the per-day rate. Delivered across London or collect central.`}
             </p>
+
+            {Array.isArray(k.features) && k.features.length > 0 && (
+              <ul className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {k.features.slice(0, 6).map((f: string, i: number) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-white/65">
+                    <span className="mt-0.5 text-accent-400">✓</span>
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {(k.bestFor?.length || k.tips?.length || k.limits?.length) && (
+              <div className="mt-6 space-y-4 rounded-2xl glass p-5 text-sm">
+                {k.bestFor?.length > 0 && (
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-white/40">Best for</div>
+                    <div className="mt-1 capitalize text-white/70">{k.bestFor.join("  ·  ")}</div>
+                  </div>
+                )}
+                {k.tips?.length > 0 && (
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-white/40">Pro tips</div>
+                    <ul className="mt-1 space-y-1 text-white/65">
+                      {k.tips.slice(0, 3).map((t: string, i: number) => (
+                        <li key={i} className="flex gap-2"><span className="text-accent-400">›</span>{t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {k.limits?.length > 0 && (
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-white/40">Good to know</div>
+                    <ul className="mt-1 space-y-1 text-white/55">
+                      {k.limits.slice(0, 3).map((t: string, i: number) => (
+                        <li key={i} className="flex gap-2"><span className="text-amber-400/80">!</span>{t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* booking */}
