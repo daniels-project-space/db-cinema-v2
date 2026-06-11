@@ -3,14 +3,13 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { IconStar, IconChevronLeft, IconChevronRight } from "@/components/icons";
 
 function Stars({ n }: { n: number }) {
   return (
     <div className="flex gap-0.5 text-accent-400">
       {Array.from({ length: 5 }).map((_, i) => (
-        <span key={i} className={i < n ? "" : "text-white/15"}>
-          ★
-        </span>
+        <IconStar key={i} filled={i < n} className={`h-3.5 w-3.5 ${i < n ? "" : "text-white/15"}`} />
       ))}
     </div>
   );
@@ -52,40 +51,43 @@ export function ReviewCarousel() {
   return (
     <div>
       <div
-        className={`grid gap-4 transition-opacity duration-200 md:grid-cols-3 ${
-          fade ? "opacity-100" : "opacity-0"
+        className={`grid gap-4 transition-[opacity,transform] duration-300 md:grid-cols-3 ${
+          fade ? "translate-y-0 opacity-100" : "translate-y-1.5 opacity-0"
         }`}
       >
         {slice.map((r) => (
-          <div
+          <figure
             key={r._id}
-            className="glass gradient-border flex flex-col gap-3 rounded-2xl p-5"
+            className="spot gradient-border relative flex flex-col gap-3 rounded-2xl p-5"
           >
+            <span className="serif-accent pointer-events-none absolute right-4 top-1 text-6xl leading-none text-accent-400/15" aria-hidden>
+              &rdquo;
+            </span>
             <Stars n={r.rating} />
-            <p className="flex-1 text-sm italic leading-relaxed text-white/70">
-              “{r.text}”
-            </p>
-            <div className="flex items-center gap-3 pt-2">
+            <blockquote className="flex-1 text-sm leading-relaxed text-white/70">
+              {r.text}
+            </blockquote>
+            <figcaption className="flex items-center gap-3 pt-2">
               {r.authorImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={r.authorImage}
                   alt={r.author}
-                  className="h-9 w-9 rounded-full object-cover"
+                  className="h-9 w-9 rounded-full object-cover ring-1 ring-white/10"
                 />
               ) : (
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-500/20 text-sm text-accent-300">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-500/20 font-display text-sm text-accent-300">
                   {r.author.charAt(0)}
                 </div>
               )}
               <div className="min-w-0">
                 <div className="text-sm text-white/80">{r.author}</div>
                 {r.product && (
-                  <div className="truncate text-xs text-white/30">{r.product}</div>
+                  <div className="truncate font-mono text-[11px] text-white/30">{r.product}</div>
                 )}
               </div>
-            </div>
-          </div>
+            </figcaption>
+          </figure>
         ))}
       </div>
 
@@ -93,10 +95,10 @@ export function ReviewCarousel() {
         <div className="mt-6 flex items-center justify-center gap-4">
           <button
             onClick={() => change((p) => (p - 1 + pages) % pages)}
-            className="flex h-9 w-9 items-center justify-center rounded-full glass text-white/60 transition-colors hover:text-white"
+            className="glass glass-hover flex h-9 w-9 items-center justify-center rounded-full text-white/60 transition-colors hover:text-white"
             aria-label="Previous reviews"
           >
-            ‹
+            <IconChevronLeft className="h-4 w-4" />
           </button>
           <div className="flex gap-1.5">
             {Array.from({ length: pages }).map((_, i) => (
@@ -104,18 +106,18 @@ export function ReviewCarousel() {
                 key={i}
                 onClick={() => change(() => i)}
                 aria-label={`Page ${i + 1}`}
-                className={`h-1.5 rounded-full transition-all ${
-                  i === page ? "w-6 bg-accent-400" : "w-1.5 bg-white/20"
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  i === page ? "w-6 bg-accent-400" : "w-1.5 bg-white/20 hover:bg-white/40"
                 }`}
               />
             ))}
           </div>
           <button
             onClick={() => change((p) => (p + 1) % pages)}
-            className="flex h-9 w-9 items-center justify-center rounded-full glass text-white/60 transition-colors hover:text-white"
+            className="glass glass-hover flex h-9 w-9 items-center justify-center rounded-full text-white/60 transition-colors hover:text-white"
             aria-label="Next reviews"
           >
-            ›
+            <IconChevronRight className="h-4 w-4" />
           </button>
         </div>
       )}

@@ -6,6 +6,7 @@ import { api } from "@cvx/_generated/api";
 import { quote as computeQuote, type Pricing } from "@/lib/pricing";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
 import { useCart } from "@/components/cart/CartProvider";
+import { IconCheck, IconX } from "@/components/icons";
 
 type Listing = {
   _id: string;
@@ -87,10 +88,10 @@ export function BookingPanel({
         onPick={onPick}
       />
 
-      <div className="glass gradient-border rounded-2xl p-5">
+      <div className="spot gradient-border rounded-2xl p-5">
         {/* base rate row */}
         <div className="flex items-baseline justify-between">
-          <span className="text-sm text-white/50">From</span>
+          <span className="hud-label">Day rate from</span>
           <div>
             <span className="font-display text-2xl font-bold text-accent-400">
               £{listing.pricing.daily}
@@ -104,42 +105,46 @@ export function BookingPanel({
             <div className="flex items-baseline justify-between">
               <span className="text-sm text-white/60">
                 £{q.perDay}/day × {days} day{days > 1 ? "s" : ""}
-                <span className="ml-2 rounded bg-accent-500/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-accent-300">
+                <span className="ml-2 rounded bg-accent-500/15 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-accent-300">
                   {q.tier.label}
                 </span>
               </span>
-              <span className="font-display text-2xl font-bold text-white/90">
+              <span className="font-display text-3xl font-bold text-white">
                 £{q.total}
               </span>
             </div>
             {q.saved > 0 && (
-              <div className="mt-1 text-right text-xs text-emerald-300">
+              <div className="mt-1.5 text-right text-xs text-emerald-300">
                 multi-day discount applied — save £{q.saved} ({q.savedPct}%)
               </div>
             )}
-            <div className="mt-2 flex justify-between text-xs text-white/35">
+            <div className="mt-2 flex justify-between font-mono text-xs text-white/35">
               <span>+ refundable deposit</span>
               <span>£{listing.depositAmount}</span>
             </div>
           </div>
         ) : (
-          <div className="mt-4 rounded-lg bg-white/[0.03] px-3 py-2 text-center text-xs text-white/40">
-            Pick your dates on the calendar
+          <div className="mt-4 rounded-lg bg-white/[0.03] px-3 py-2.5 text-center text-xs text-white/40">
+            Pick your dates on the calendar — longer rentals cost less per day
           </div>
         )}
 
         {/* availability (unit-aware, whole-cart) */}
         {start && end && (
-          <div className="mt-3 text-center text-xs">
+          <div className="mt-3 flex justify-center text-xs">
             {fit === undefined ? (
               <span className="text-white/30">Checking availability…</span>
             ) : cand?.ok ? (
-              <span className="text-emerald-300">✓ Available for these dates</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-300">
+                <IconCheck className="h-3 w-3" /> Available for these dates
+              </span>
             ) : cand && cand.available === 0 ? (
-              <span className="text-red-300">✕ Not available for these dates</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-rec-500/10 px-3 py-1 text-red-300">
+                <IconX className="h-3 w-3" /> Not available for these dates
+              </span>
             ) : (
-              <span className="text-amber-300">
-                ✕ That exceeds our stock — you've already got the max in your kit
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-amber-300">
+                <IconX className="h-3 w-3" /> That exceeds our stock — max already in your kit
               </span>
             )}
           </div>
@@ -148,7 +153,7 @@ export function BookingPanel({
         <button
           onClick={addToKit}
           disabled={!canAdd}
-          className="mt-5 w-full rounded-full bg-accent-500 py-3 font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-30"
+          className="btn-primary mt-5 w-full py-3"
         >
           {start && end && cand && !cand.ok && cand.available > 0 ? "Max in kit" : "Add to kit"}
         </button>

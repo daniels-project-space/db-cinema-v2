@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Outfit } from "next/font/google";
+import { Inter, Space_Grotesk, Anton, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { CartProvider } from "@/components/cart/CartProvider";
@@ -8,6 +8,9 @@ import { CartToast } from "@/components/cart/CartToast";
 import { AccountProvider } from "@/components/account/AccountProvider";
 import { Footer } from "@/components/Footer";
 import { AmbientBackground } from "@/components/AmbientBackground";
+import { CursorGlow } from "@/components/CursorGlow";
+import { SpotlightEffect } from "@/components/SpotlightEffect";
+import { ScrollProgress } from "@/components/ScrollProgress";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { BotBubble } from "@/components/BotBubble";
 
@@ -17,10 +20,32 @@ const inter = Inter({
   display: "swap",
 });
 
-const outfit = Outfit({
+const grotesk = Space_Grotesk({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  variable: "--font-outfit",
+  variable: "--font-grotesk",
+  display: "swap",
+});
+
+const anton = Anton({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-anton",
+  display: "swap",
+});
+
+const instrument = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+  variable: "--font-instrument",
+  display: "swap",
+});
+
+const jbmono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-jbmono",
   display: "swap",
 });
 
@@ -70,11 +95,17 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
+    <html
+      lang="en"
+      className={`${inter.variable} ${grotesk.variable} ${anton.variable} ${instrument.variable} ${jbmono.variable}`}
+    >
       <body className="font-sans antialiased bg-charcoal-950 text-white/90">
         <AmbientBackground />
-        <div className="relative z-20 bg-amber-500/90 py-1 text-center text-[11px] font-medium text-black">
-          TEST MODE — demo only. No real payments are taken.
+        <CursorGlow />
+        <SpotlightEffect />
+        <ScrollProgress />
+        <div className="relative z-20 border-b border-amber-400/20 bg-amber-500/10 py-1 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-amber-300/90">
+          Test mode — demo only · no real payments are taken
         </div>
         <ConvexClientProvider>
           <AnalyticsTracker />

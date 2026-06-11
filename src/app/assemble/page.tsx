@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { IconSliders, IconCamera, IconBolt } from "@/components/icons";
+import { IconSliders, IconCamera, IconBolt, IconCheck, IconX } from "@/components/icons";
 import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
@@ -167,15 +167,20 @@ export default function AssemblePage() {
     <>
       <SiteHeader />
       <main className="section-window mx-auto max-w-5xl px-6 py-12 pb-32">
-        <div className="mb-2 text-xs uppercase tracking-widest text-accent-400">AI item assembly</div>
-        <h1 className="font-display text-4xl font-bold text-white/90">
-          Build the perfect <span className="gradient-text">kit</span>
-        </h1>
+        <div className="page-in">
+          <div className="flex items-center gap-3">
+            <span className="hidden h-px w-8 bg-accent-400/60 sm:block" aria-hidden />
+            <span className="hud-label !text-accent-400/90">AI item assembly</span>
+          </div>
+          <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
+            Build the perfect <span className="serif-accent gradient-text text-[1.06em]">kit</span>
+          </h1>
+        </div>
 
         {/* ── CONVERSATIONAL ONBOARDING ── */}
         {!data && (
           <section className="mt-8 space-y-3">
-            <Ai>Hi! I'm your kit builder 🎬 Let's start — what are you shooting?</Ai>
+            <Ai>Hi! I'm your kit builder. Let's start — what are you shooting?</Ai>
             {intake === 0 ? (
               <Controls>
                 {SHOOTS.map((s) => (
@@ -209,7 +214,7 @@ export default function AssemblePage() {
                     <label className="text-[11px] text-white/40">To</label>
                     <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="mt-1 block rounded-lg bg-white/[0.06] px-3 py-2 text-sm text-white/80 outline-none [color-scheme:dark]" />
                   </div>
-                  <button onClick={() => start && end && setIntake(3)} disabled={!start || !end} className="press rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-30">Next →</button>
+                  <button onClick={() => start && end && setIntake(3)} disabled={!start || !end} className="btn-primary px-5 py-2 text-sm">Next →</button>
                 </div>
               </Controls>
             ) : intake > 2 ? (
@@ -232,7 +237,7 @@ export default function AssemblePage() {
                   </div>
                   <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. low light, handheld, two presenters…" className="w-full rounded-lg bg-white/[0.06] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
                   {err && <div className="text-sm text-red-300">{err}</div>}
-                  <button onClick={build} disabled={loading} className="press inline-flex items-center gap-2 rounded-full bg-accent-500 px-7 py-3 font-medium text-white transition-colors hover:bg-accent-600 disabled:opacity-40">
+                  <button onClick={build} disabled={loading} className="btn-primary px-7 py-3">
                     <IconSliders className="h-[18px] w-[18px]" />
                     {loading ? "Designing your kit…" : "Build my kit"}
                   </button>
@@ -281,7 +286,7 @@ export default function AssemblePage() {
                         return (
                           <button key={o.listingId} onClick={() => toggle(o, s)} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
                             {rec && !on && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">Pick</span>}
-                            {on && <span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs text-white">✓</span>}
+                            {on && <span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white"><IconCheck className="h-3 w-3" /></span>}
                             <div className="aspect-[4/3] bg-charcoal-800">
                               {o.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={o.image} alt="" className="h-full w-full object-cover" />}
                             </div>
@@ -301,8 +306,8 @@ export default function AssemblePage() {
 
             {!onReview ? (
               <div className="flex justify-between pl-11">
-                <button onClick={() => setStageIdx((i) => Math.max(0, i - 1))} disabled={stageIdx === 0} className="rounded-full glass px-5 py-2 text-sm text-white/60 hover:text-white disabled:opacity-30">← Back</button>
-                <button onClick={() => setStageIdx((i) => i + 1)} className="press rounded-full bg-accent-500 px-6 py-2 text-sm font-medium text-white hover:bg-accent-600">{stageIdx >= stages.length - 1 ? "Review kit →" : "Next →"}</button>
+                <button onClick={() => setStageIdx((i) => Math.max(0, i - 1))} disabled={stageIdx === 0} className="btn-ghost px-5 py-2 text-sm disabled:opacity-30">← Back</button>
+                <button onClick={() => setStageIdx((i) => i + 1)} className="btn-primary px-6 py-2 text-sm">{stageIdx >= stages.length - 1 ? "Review kit →" : "Next →"}</button>
               </div>
             ) : (
               <div className="stage-in space-y-3">
@@ -322,7 +327,7 @@ export default function AssemblePage() {
                     <h3 className="font-display font-semibold text-white/80">Compatibility check</h3>
                     <ul className="mt-3 space-y-1.5 text-sm text-white/55">
                       {warnings.map((w, i) => <li key={`w${i}`} className="flex gap-2"><span className="text-amber-400">!</span> {w}</li>)}
-                      {(data.compatibility || []).map((n: string, i: number) => <li key={`c${i}`} className="flex gap-2"><span className="text-accent-400">✓</span> {n}</li>)}
+                      {(data.compatibility || []).map((n: string, i: number) => <li key={`c${i}`} className="flex gap-2"><IconCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-400" /> {n}</li>)}
                     </ul>
                   </div>
                 )}
@@ -350,7 +355,7 @@ export default function AssemblePage() {
                       className="flex h-4 w-4 items-center justify-center rounded-full bg-white/10 text-[10px] text-white/50 hover:bg-red-500/40 hover:text-white"
                       aria-label="Remove"
                     >
-                      ✕
+                      <IconX className="h-2.5 w-2.5" />
                     </button>
                   </div>
                 ))}
@@ -369,7 +374,7 @@ export default function AssemblePage() {
                   <div className={`h-full transition-all ${overBudget ? "bg-red-400" : finalTotal > budget * 0.9 ? "bg-amber-400" : "bg-emerald-400"}`} style={{ width: `${Math.min(100, (finalTotal / budget) * 100)}%` }} />
                 </div>
               </div>
-              <button onClick={addAll} disabled={selList.length === 0} className="press shrink-0 rounded-full bg-accent-500 px-6 py-3 font-medium text-white hover:bg-accent-600 disabled:opacity-40">
+              <button onClick={addAll} disabled={selList.length === 0} className="btn-primary shrink-0 px-6 py-3">
                 Add {selList.length || ""} to kit →
               </button>
             </div>
@@ -383,7 +388,7 @@ export default function AssemblePage() {
 function Ai({ children }: { children: React.ReactNode }) {
   return (
     <div className="msg-in flex items-start gap-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-base">🎬</div>
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-accent-300"><IconCamera className="h-4 w-4" /></div>
       <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-white/5 bg-white/[0.04] px-4 py-2.5 text-sm leading-relaxed text-white/75">{children}</div>
     </div>
   );

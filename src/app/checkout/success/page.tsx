@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import { IconCamera } from "@/components/icons";
+import { IconCamera, IconTicket, IconCheck, IconArrowRight } from "@/components/icons";
 import { useSearchParams } from "next/navigation";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -49,7 +49,15 @@ function SuccessInner() {
   if (!sessionId)
     return <Msg title="No session" body="Missing checkout session." />;
   if (state === "working")
-    return <Msg title="Confirming…" body="One moment." />;
+    return (
+      <div className="mx-auto max-w-xl px-6 py-24 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center">
+          <span className="h-10 w-10 animate-spin rounded-full border-2 border-accent-400/20 border-t-accent-400" />
+        </div>
+        <div className="hud-label mt-6">Confirming payment</div>
+        <p className="mt-2 text-white/40">One moment.</p>
+      </div>
+    );
   if (state === "unpaid")
     return (
       <Msg title="Payment not completed" body="Your card was not charged." cta />
@@ -62,19 +70,19 @@ function SuccessInner() {
     const t = tierByKey(membership);
     return (
       <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-        <div className="text-5xl">🎟️</div>
-        <h1 className="mt-4 font-display text-3xl font-bold text-white/90">
-          Welcome to <span className="gradient-text">{t?.name ?? "membership"}</span>
+        <div className="page-in mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-400/15 text-amber-300 shadow-[0_0_44px_-8px_rgba(251,191,36,0.5)]">
+          <IconTicket className="h-8 w-8" />
+        </div>
+        <h1 className="mt-5 font-display text-3xl font-bold text-white sm:text-4xl">
+          Welcome to <span className="serif-accent gradient-text text-[1.06em]">{t?.name ?? "membership"}</span>
         </h1>
-        <p className="mt-2 text-white/40">
+        <p className="mt-3 text-white/40">
           {t ? `${t.pct}% off every rental` : "Your membership"} is now active
           {t?.freeDelivery ? " — plus free local delivery." : "."}
         </p>
-        <Link
-          href="/gear"
-          className="mt-8 inline-block rounded-full bg-accent-500 px-7 py-3 font-medium text-white transition-colors hover:bg-accent-600"
-        >
+        <Link href="/gear" className="btn-primary mt-8 px-7 py-3">
           Start saving
+          <IconArrowRight className="h-4 w-4" />
         </Link>
       </div>
     );
@@ -82,27 +90,36 @@ function SuccessInner() {
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent-500/15 text-accent-400"><IconCamera className="h-8 w-8" /></div>
-      <h1 className="mt-4 font-display text-3xl font-bold text-white/90">
-        Booking <span className="gradient-text">confirmed</span>
+      <div className="page-in mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent-500/15 text-accent-400 shadow-[0_0_44px_-8px_rgba(56,189,248,0.5)]">
+        <IconCamera className="h-8 w-8" />
+      </div>
+      <div className="hud-label mt-5 flex items-center justify-center gap-2">
+        <span className="rec-dot" /> Scene locked
+      </div>
+      <h1 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
+        Booking <span className="serif-accent gradient-text text-[1.06em]">confirmed</span>
       </h1>
-      <p className="mt-2 text-white/40">
+      <p className="mt-3 text-white/40">
         A confirmation has been sent to {booking?.guestEmail ?? "your email"}.
       </p>
 
       {booking && (
-        <div className="mx-auto mt-8 max-w-md rounded-2xl glass gradient-border p-5 text-left">
-          {booking.lineItems.map((li, i) => (
-            <div key={i} className="flex justify-between py-1 text-sm text-white/60">
-              <span className="mr-2 line-clamp-1">{li.title}</span>
-              <span>£{li.lineTotal}</span>
-            </div>
-          ))}
-          <div className="mt-3 flex justify-between border-t border-white/5 pt-3 font-display font-bold text-white/90">
-            <span>Paid</span>
-            <span>£{booking.total}</span>
+        <div className="ticket spot gradient-border mx-auto mt-8 max-w-md rounded-2xl p-5 text-left">
+          <div className="hud-label !text-accent-400/90">Your receipt</div>
+          <div className="mt-3">
+            {booking.lineItems.map((li, i) => (
+              <div key={i} className="flex justify-between py-1 text-sm text-white/60">
+                <span className="mr-2 line-clamp-1">{li.title}</span>
+                <span className="font-mono">£{li.lineTotal}</span>
+              </div>
+            ))}
           </div>
-          <div className="mt-1 text-right text-xs text-white/35">
+          <hr className="receipt-sep" />
+          <div className="flex justify-between font-display font-bold text-white">
+            <span>Paid</span>
+            <span className="font-mono">£{booking.total}</span>
+          </div>
+          <div className="mt-1 text-right font-mono text-xs text-white/35">
             incl. £{booking.depositAmount} refundable deposit
           </div>
         </div>
@@ -123,11 +140,9 @@ function SuccessInner() {
         </div>
       )}
 
-      <Link
-        href="/gear"
-        className="mt-8 inline-block rounded-full bg-accent-500 px-7 py-3 font-medium text-white transition-colors hover:bg-accent-600"
-      >
+      <Link href="/gear" className="btn-primary mt-8 px-7 py-3">
         Rent more gear
+        <IconArrowRight className="h-4 w-4" />
       </Link>
     </div>
   );
@@ -143,15 +158,15 @@ function Msg({
   cta?: boolean;
 }) {
   return (
-    <div className="mx-auto max-w-xl px-6 py-20 text-center">
+    <div className="mx-auto max-w-xl px-6 py-24 text-center">
       <h1 className="font-display text-2xl font-bold text-white/90">{title}</h1>
       <p className="mt-2 text-white/40">{body}</p>
       {cta && (
         <Link
           href="/cart"
-          className="mt-6 inline-block text-accent-400 hover:underline"
+          className="arrow-link mt-6 inline-block text-accent-400 hover:text-accent-300"
         >
-          Back to kit
+          Back to kit <span className="arrow">→</span>
         </Link>
       )}
     </div>

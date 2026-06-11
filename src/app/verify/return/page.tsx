@@ -6,6 +6,7 @@ import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
+import { IconCheck, IconShield } from "@/components/icons";
 
 function Inner() {
   const params = useSearchParams();
@@ -26,9 +27,25 @@ function Inner() {
   const pending = status === "processing" || status === null;
 
   return (
-    <div className="mx-auto max-w-md px-6 py-20 text-center">
-      <div className="text-4xl">{verified ? "✅" : pending ? "⏳" : "🪪"}</div>
-      <h1 className="mt-4 font-display text-2xl font-bold text-white/90">
+    <div className="page-in mx-auto max-w-md px-6 py-20 text-center">
+      <div
+        className={`mx-auto flex h-14 w-14 items-center justify-center rounded-full ${
+          verified
+            ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_36px_-8px_rgba(52,211,153,0.6)]"
+            : pending
+              ? "bg-accent-500/15 text-accent-400"
+              : "bg-amber-500/15 text-amber-400"
+        }`}
+      >
+        {verified ? (
+          <IconCheck className="h-7 w-7" />
+        ) : pending ? (
+          <span className="h-6 w-6 animate-spin rounded-full border-2 border-accent-400/20 border-t-accent-400" />
+        ) : (
+          <IconShield className="h-7 w-7" />
+        )}
+      </div>
+      <h1 className="mt-5 font-display text-2xl font-bold text-white/90">
         {verified
           ? "Identity verified"
           : pending
@@ -42,7 +59,7 @@ function Inner() {
             ? "Stripe is processing your documents. This can take a moment."
             : "You can retry verification from your account."}
       </p>
-      <Link href="/account" className="mt-6 inline-block rounded-full bg-accent-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-accent-600">
+      <Link href="/account" className="btn-primary mt-6 px-6 py-2.5 text-sm">
         Go to my account
       </Link>
     </div>

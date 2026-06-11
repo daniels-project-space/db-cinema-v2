@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { IconSliders, IconBox } from "@/components/icons";
+import { Suspense, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { IconSliders, IconBox, IconSearch } from "@/components/icons";
 import { PageHero } from "@/components/PageHero";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -11,8 +12,9 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
 import { getSessionId } from "@/lib/session";
 
-export default function GearPage() {
-  const [cat, setCat] = useState("All");
+function GearPageInner() {
+  const params = useSearchParams();
+  const [cat, setCat] = useState(() => params.get("cat") ?? "All");
   const [search, setSearch] = useState("");
 
   const cats = useQuery(api.catalog.categories) ?? [];
@@ -44,61 +46,75 @@ export default function GearPage() {
     <>
       <SiteHeader />
       <main className="section-window mx-auto min-h-screen max-w-7xl px-6 py-12">
-        <PageHero eyebrow="The catalogue" lead="Rent" accent="cinema gear" />
-        <p className="mt-2 max-w-xl text-white/40">
-          Professional cameras, lenses, lighting, audio and more. Daily, 3-day
-          and 7-day rates. Delivered across London.
-        </p>
+        <PageHero
+          eyebrow="The catalogue"
+          lead="Rent"
+          accent="cinema gear"
+          sub="Professional cameras, lenses, lighting, audio and more. Daily, 3-day and 7-day rates. Delivered across London."
+        />
 
         <Link
           href="/assemble"
-          className="press group mt-6 inline-flex items-center gap-2.5 rounded-full border border-accent-400/40 bg-accent-500/10 px-6 py-3 font-medium text-accent-100 transition-colors hover:border-accent-400/70 hover:bg-accent-500/15"
+          className="spot gradient-border press group mt-8 flex items-center gap-4 rounded-2xl p-4 sm:p-5"
         >
-          <IconSliders className="h-[18px] w-[18px] text-accent-300" />
-          AI item assembly
-          <span className="ml-1 text-sm font-normal text-accent-300/60">build your kit</span>
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400 transition-colors group-hover:bg-accent-500/20">
+            <IconSliders className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-display font-semibold text-white/90">AI item assembly</span>
+            <span className="mt-0.5 block text-sm text-white/40">
+              Tell us the shoot — we build the kit, priced for your dates.
+            </span>
+          </span>
+          <span className="arrow-link hidden text-sm text-accent-400 sm:block">
+            Build your kit <span className="arrow">→</span>
+          </span>
         </Link>
 
-        {/* search */}
-        <div className="mt-8">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search gear…"
-            className="w-full max-w-md rounded-full glass border border-white/10 bg-white/[0.02] px-5 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30 focus:border-accent-400/40"
-          />
-        </div>
-
-        {/* category tabs */}
-        <div className="mt-6 flex flex-wrap gap-2">
-          {tabs.map((t) => (
-            <button
-              key={t.name}
-              onClick={() => setCat(t.name)}
-              className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
-                cat === t.name
-                  ? "bg-accent-500 text-white"
-                  : "glass text-white/50 hover:text-white"
-              } ${
-                t.name === "Packages"
-                  ? "ring-1 ring-amber-400/70 shadow-[0_0_14px_-4px_rgba(251,191,36,0.7)]"
-                  : ""
-              }`}
-            >
-              {t.name === "Packages" && <IconBox className="mr-1.5 inline h-3.5 w-3.5 align-[-3px]" />}
-              {t.name}{" "}
-              <span className="text-xs opacity-60">{t.count}</span>
-            </button>
-          ))}
+        {/* sticky toolbar: search + category tabs */}
+        <div className="sticky top-[57px] z-30 -mx-6 mt-8 border-b border-white/[0.06] bg-[#060608]/95 px-6 py-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative w-full max-w-md">
+              <IconSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search gear…"
+                className="input w-full rounded-full !pl-11"
+              />
+            </div>
+            <div className="rail flex gap-2 overflow-x-auto lg:flex-wrap">
+              {tabs.map((t) => (
+                <button
+                  key={t.name}
+                  onClick={() => setCat(t.name)}
+                  className={`shrink-0 rounded-full px-4 py-1.5 text-sm transition-all ${
+                    cat === t.name
+                      ? "bg-accent-500 text-white shadow-[0_4px_20px_-6px_rgba(14,165,233,0.7)]"
+                      : "glass text-white/50 hover:text-white"
+                  } ${
+                    t.name === "Packages"
+                      ? "ring-1 ring-amber-400/70 shadow-[0_0_14px_-4px_rgba(251,191,36,0.7)]"
+                      : ""
+                  }`}
+                >
+                  {t.name === "Packages" && <IconBox className="mr-1.5 inline h-3.5 w-3.5 align-[-3px]" />}
+                  {t.name}{" "}
+                  <span className="font-mono text-xs opacity-60">{t.count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* best sellers (data-driven) — only on All, no search */}
         {cat === "All" && !search && best.length > 0 && (
           <section className="mt-8">
-            <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-white/85">
-              Best sellers
+            <h2 className="flex items-center gap-3 font-display text-lg font-semibold text-white/85">
+              <span className="hud-label !text-accent-400/90">Best sellers</span>
+              <span className="h-px flex-1 bg-white/[0.07]" aria-hidden />
             </h2>
-            <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+            <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
               {best.map((l, i) => (
                 <Reveal key={l._id} delay={i * 40}>
                   <GearCard listing={l} />
@@ -113,19 +129,29 @@ export default function GearPage() {
         {listings === undefined ? (
           <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="overflow-hidden rounded-2xl glass">
-                <div className="shimmer aspect-[4/3] bg-charcoal-800" />
+              <div key={i} className="glass overflow-hidden rounded-2xl">
+                <div className="aspect-[4/3] animate-pulse bg-charcoal-800" />
                 <div className="space-y-2 p-4">
-                  <div className="shimmer h-3 w-1/3 rounded bg-charcoal-800" />
-                  <div className="shimmer h-3 w-2/3 rounded bg-charcoal-800" />
-                  <div className="shimmer h-5 w-1/4 rounded bg-charcoal-800" />
+                  <div className="h-3 w-1/3 animate-pulse rounded bg-charcoal-800" />
+                  <div className="h-3 w-2/3 animate-pulse rounded bg-charcoal-800" />
+                  <div className="h-5 w-1/4 animate-pulse rounded bg-charcoal-800" />
                 </div>
               </div>
             ))}
           </div>
         ) : listings.length === 0 ? (
-          <div className="mt-16 text-center text-white/30">
-            Nothing matches that search.
+          <div className="mt-20 text-center">
+            <div className="hud-label">No matches</div>
+            <p className="mt-3 text-white/40">Nothing matches that search.</p>
+            <button
+              onClick={() => {
+                setSearch("");
+                setCat("All");
+              }}
+              className="btn-ghost mt-5 px-6 py-2.5 text-sm"
+            >
+              Clear filters
+            </button>
           </div>
         ) : (
           <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
@@ -138,5 +164,13 @@ export default function GearPage() {
         )}
       </main>
     </>
+  );
+}
+
+export default function GearPage() {
+  return (
+    <Suspense fallback={null}>
+      <GearPageInner />
+    </Suspense>
   );
 }

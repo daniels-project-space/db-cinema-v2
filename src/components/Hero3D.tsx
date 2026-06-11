@@ -1,6 +1,6 @@
 "use client";
 
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Float, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -58,6 +58,21 @@ const ITEMS: Item[] = [
   { url: LENS, pos: [-3.2, -1.55, -1.0], target: 1.45, rot: [1.0, 0.6, 0], speed: 1.2 },
 ];
 
+/** Whole-scene rig that eases toward the pointer — gear leans with the mouse. */
+function ParallaxRig({ reduced, children }: { reduced: boolean; children: React.ReactNode }) {
+  const ref = useRef<THREE.Group>(null);
+  const { pointer } = useThree();
+  useFrame(() => {
+    const g = ref.current;
+    if (!g || reduced) return;
+    g.rotation.y += (pointer.x * 0.16 - g.rotation.y) * 0.05;
+    g.rotation.x += (-pointer.y * 0.1 - g.rotation.x) * 0.05;
+    g.position.x += (pointer.x * 0.25 - g.position.x) * 0.05;
+    g.position.y += (pointer.y * 0.15 - g.position.y) * 0.05;
+  });
+  return <group ref={ref}>{children}</group>;
+}
+
 function Scene({ reduced }: { reduced: boolean }) {
   return (
     <>
@@ -68,19 +83,21 @@ function Scene({ reduced }: { reduced: boolean }) {
       <directionalLight position={[0, 0, 8]} intensity={1.0} color="#ffffff" />
       <pointLight position={[-5, 2, 3]} intensity={50} color="#38bdf8" />
       <pointLight position={[4, -3, 2]} intensity={32} color="#0ea5e9" />
-      {ITEMS.map((it, i) => (
-        <Float
-          key={i}
-          speed={reduced ? 0 : it.speed}
-          rotationIntensity={reduced ? 0 : 0.35}
-          floatIntensity={reduced ? 0 : 1.3}
-          floatingRange={[-0.18, 0.18]}
-        >
-          <group position={it.pos}>
-            <Model url={it.url} target={it.target} rotation={it.rot} />
-          </group>
-        </Float>
-      ))}
+      <ParallaxRig reduced={reduced}>
+        {ITEMS.map((it, i) => (
+          <Float
+            key={i}
+            speed={reduced ? 0 : it.speed}
+            rotationIntensity={reduced ? 0 : 0.35}
+            floatIntensity={reduced ? 0 : 1.3}
+            floatingRange={[-0.18, 0.18]}
+          >
+            <group position={it.pos}>
+              <Model url={it.url} target={it.target} rotation={it.rot} />
+            </group>
+          </Float>
+        ))}
+      </ParallaxRig>
     </>
   );
 }
@@ -91,6 +108,8 @@ useGLTF.preload(LENS);
 
 export default function Hero3D() {
   const [reduced, setReduced] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
     setReduced(mq.matches);
@@ -99,13 +118,35 @@ export default function Hero3D() {
     return () => mq.removeEventListener("change", h);
   }, []);
 
+  // fade the canvas out as the hero scrolls away (transform/opacity only)
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const vh = window.innerHeight || 1;
+        const p = Math.min(1, window.scrollY / (vh * 0.7));
+        el.style.opacity = String(1 - p);
+        el.style.transform = `translateY(${p * 60}px)`;
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+
   return (
-    <div className="pointer-events-none absolute inset-0" aria-hidden>
+    <div ref={wrap} className="pointer-events-none absolute inset-0 will-change-transform" aria-hidden>
       <Canvas
         camera={{ position: [0, 0, 7], fov: 50 }}
         dpr={[1, 1.5]}
         gl={{ alpha: true, antialias: true }}
         style={{ background: "transparent" }}
+        eventSource={typeof document !== "undefined" ? document.body : undefined}
       >
         <Suspense fallback={null}>
           <Scene reduced={reduced} />

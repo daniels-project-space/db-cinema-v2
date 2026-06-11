@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { IconCheck } from "@/components/icons";
 
 const LABEL: Record<string, string> = {
   required: "ID verification required",
@@ -27,8 +28,8 @@ export function IdVerify({
 
   if (status === "verified")
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-300">
-        ✓ ID verified
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-300">
+        <IconCheck className="h-3 w-3" /> ID verified
       </span>
     );
   if (status === "not_required")
@@ -60,7 +61,7 @@ export function IdVerify({
       <button
         onClick={go}
         disabled={busy}
-        className="mt-2 rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-40"
+        className="btn-primary mt-2 px-5 py-2 text-sm"
       >
         {busy ? "Opening…" : status === "processing" ? "Continue verification" : "Verify your ID"}
       </button>

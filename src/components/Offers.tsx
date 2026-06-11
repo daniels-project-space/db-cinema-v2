@@ -21,9 +21,7 @@ export function Offers() {
 
   return (
     <section className="mt-8">
-      <div className="mb-3 text-xs uppercase tracking-widest text-accent-400">
-        Exclusive add-on offers
-      </div>
+      <div className="hud-label mb-3 !text-emerald-400/90">Exclusive add-on offers</div>
       <div className="grid gap-4 sm:grid-cols-2">
         {offers.map((o) => (
           <div

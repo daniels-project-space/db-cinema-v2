@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
+import { Marquee } from "@/components/Marquee";
 
 export async function Footer() {
   let cfg: any = {};
@@ -10,24 +11,34 @@ export async function Footer() {
   } catch {}
 
   return (
-    <footer className="section-glass mt-20 border-t border-white/5 px-6 py-12">
-      <div className="mx-auto grid max-w-7xl gap-8 sm:grid-cols-2 lg:grid-cols-4">
+    <footer className="section-glass mt-24 border-t border-white/5">
+      <Marquee
+        items={["CAMERAS", "LENSES", "LIGHTING", "AUDIO", "DRONES", "STABILISERS", "MONITORS", "PACKAGES"]}
+        speed={42}
+        className="border-b border-white/5 py-4"
+        itemClassName="font-mono text-[11px] tracking-[0.3em] text-white/25"
+      />
+
+      <div className="mx-auto grid max-w-7xl gap-10 px-6 py-14 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <div className="font-display text-lg font-bold">
-            <span className="text-white/90">DB</span>{" "}
-            <span className="gradient-text">CINEMA</span>
+          <div className="font-poster text-4xl uppercase leading-none sm:text-5xl">
+            <span className="text-white">DB</span> <span className="gradient-text">Cinema</span>
           </div>
-          <p className="mt-3 max-w-xs text-sm text-white/35">
+          <div className="mt-2 flex items-center gap-2">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
+            <span className="hud-label !text-white/45">Booking online now</span>
+          </div>
+          <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/35">
             Professional cinema gear for hire in London. Cameras, lenses, lighting,
             audio and drones — daily rates, delivered.
           </p>
           {/* NAP — consistent name/address/phone for local SEO */}
-          <address className="mt-4 not-italic text-xs leading-relaxed text-white/30">
+          <address className="mt-4 not-italic font-mono text-[11px] leading-relaxed text-white/30">
             <div className="text-white/45">Db Cinema Rentals</div>
             {cfg.businessAddress ? <div>{cfg.businessAddress}</div> : <div>London, United Kingdom</div>}
             {cfg.businessPhone && (
               <div>
-                <a href={`tel:${String(cfg.businessPhone).replace(/\s/g, "")}`} className="hover:text-white">
+                <a href={`tel:${String(cfg.businessPhone).replace(/\s/g, "")}`} className="transition-colors hover:text-white">
                   {cfg.businessPhone}
                 </a>
               </div>
@@ -35,39 +46,65 @@ export async function Footer() {
             <div>Open {cfg.openingHours ?? "10:00–12:00 & 19:00–21:00, daily"}</div>
           </address>
         </div>
-        <div>
-          <div className="mb-3 text-xs uppercase tracking-widest text-accent-400">Rent</div>
-          <ul className="flex flex-col gap-2 text-sm text-white/50">
-            <li><Link href="/gear" className="hover:text-white">All gear</Link></li>
-            <li><Link href="/membership" className="hover:text-white">Membership</Link></li>
-            <li><Link href="/#reviews" className="hover:text-white">Reviews</Link></li>
-            <li><Link href="/cart" className="hover:text-white">Your kit</Link></li>
-          </ul>
-        </div>
-        <div>
-          <div className="mb-3 text-xs uppercase tracking-widest text-accent-400">Learn</div>
-          <ul className="flex flex-col gap-2 text-sm text-white/50">
-            <li><Link href="/guides" className="hover:text-white">Guides</Link></li>
-            <li><Link href="/faq" className="hover:text-white">FAQ</Link></li>
-            <li><Link href="/how-it-works" className="hover:text-white">How it works</Link></li>
-            <li><Link href="/about" className="hover:text-white">About us</Link></li>
-            <li><Link href="/contact" className="hover:text-white">Contact us</Link></li>
-          </ul>
-        </div>
-        <div>
-          <div className="mb-3 text-xs uppercase tracking-widest text-accent-400">Legal</div>
-          <ul className="flex flex-col gap-2 text-sm text-white/50">
-            <li><Link href="/legal/rental-terms" className="hover:text-white">Rental terms</Link></li>
-            <li><Link href="/legal/cancellation" className="hover:text-white">Cancellation</Link></li>
-            <li><Link href="/legal/terms" className="hover:text-white">Terms &amp; conditions</Link></li>
-            <li><Link href="/legal/privacy" className="hover:text-white">Privacy policy</Link></li>
-          </ul>
-        </div>
+
+        <FooterCol
+          title="Rent"
+          links={[
+            ["/gear", "All gear"],
+            ["/membership", "Membership"],
+            ["/#reviews", "Reviews"],
+            ["/cart", "Your kit"],
+          ]}
+        />
+        <FooterCol
+          title="Learn"
+          links={[
+            ["/guides", "Guides"],
+            ["/faq", "FAQ"],
+            ["/how-it-works", "How it works"],
+            ["/about", "About us"],
+            ["/contact", "Contact us"],
+          ]}
+        />
+        <FooterCol
+          title="Legal"
+          links={[
+            ["/legal/rental-terms", "Rental terms"],
+            ["/legal/cancellation", "Cancellation"],
+            ["/legal/terms", "Terms & conditions"],
+            ["/legal/privacy", "Privacy policy"],
+          ]}
+        />
       </div>
-      <div className="mx-auto mt-10 flex max-w-7xl flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-6 text-xs text-white/25">
-        <span>© 2026 Db Cinema Rentals. Cinema camera &amp; film equipment hire, London.</span>
-        <Link href="/admin" className="text-white/20 hover:text-white/50">Owner login</Link>
+
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 border-t border-white/5 px-6 py-6">
+        <span className="font-mono text-[11px] text-white/25">
+          © 2026 Db Cinema Rentals · cinema camera &amp; film equipment hire, London
+        </span>
+        <span className="flex items-center gap-4 font-mono text-[11px] text-white/20">
+          <span className="hidden sm:inline">51.5072°N 0.1276°W</span>
+          <Link href="/admin" className="transition-colors hover:text-white/50">
+            Owner login
+          </Link>
+        </span>
       </div>
     </footer>
+  );
+}
+
+function FooterCol({ title, links }: { title: string; links: [string, string][] }) {
+  return (
+    <div>
+      <div className="hud-label mb-4 !text-accent-400/90">{title}</div>
+      <ul className="flex flex-col gap-2.5 text-sm text-white/50">
+        {links.map(([href, label]) => (
+          <li key={href}>
+            <Link href={href} className="arrow-link transition-colors hover:text-white">
+              {label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

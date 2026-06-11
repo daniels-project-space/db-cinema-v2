@@ -2,14 +2,25 @@
 
 import { useEffect, useRef, useState, ReactNode } from "react";
 
-/** Scroll-into-view reveal: fade + rise + blur-to-sharp (Apple-style). */
+type Variant = "up" | "left" | "right" | "scale";
+
+const VARIANT_CLASS: Record<Variant, string> = {
+  up: "",
+  left: "from-left",
+  right: "from-right",
+  scale: "from-scale",
+};
+
+/** Scroll-into-view reveal: fade + rise (or slide/scale variant). */
 export function Reveal({
   children,
   delay = 0,
+  variant = "up",
   className = "",
 }: {
   children: ReactNode;
   delay?: number;
+  variant?: Variant;
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -34,7 +45,7 @@ export function Reveal({
   return (
     <div
       ref={ref}
-      className={`reveal ${shown ? "in" : ""} ${className}`}
+      className={`reveal ${VARIANT_CLASS[variant]} ${shown ? "in" : ""} ${className}`}
       style={{ transitionDelay: `${delay}ms` }}
     >
       {children}

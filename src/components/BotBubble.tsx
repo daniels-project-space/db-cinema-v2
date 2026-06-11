@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { IconSliders, IconCamera } from "@/components/icons";
+import { IconSliders, IconCamera, IconX } from "@/components/icons";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -117,9 +117,9 @@ export function BotBubble() {
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? "Close chat" : "Open chat"}
-        className="press fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-2xl text-white shadow-[0_10px_40px_-8px_rgba(56,189,248,0.6)] transition-transform hover:scale-105"
+        className="press fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-[0_10px_40px_-8px_rgba(56,189,248,0.6)] transition-transform hover:scale-105"
       >
-        {open ? "✕" : "💬"}
+        {open ? <IconX className="h-5 w-5" /> : <IconCamera className="h-6 w-6" />}
       </button>
 
       {open && (
@@ -128,7 +128,10 @@ export function BotBubble() {
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-500/20 text-accent-300"><IconCamera className="h-5 w-5" /></div>
             <div>
               <div className="text-sm font-semibold text-white/90">Db Cinema assistant</div>
-              <div className="text-[11px] text-emerald-400">● builds your kit live</div>
+              <div className="flex items-center gap-1.5 text-[11px] text-emerald-400">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]" />
+                builds your kit live
+              </div>
             </div>
           </header>
 
@@ -341,7 +344,7 @@ function CardView({ card, state, onAdd, onDecline, onAlt, onAddBooking, addonBus
           disabled={added}
           className="press rounded-full bg-accent-500 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-accent-600 disabled:bg-emerald-500/30 disabled:text-emerald-200"
         >
-          {added ? "✓ Added to kit" : swap ? "Accept swap" : "Add to kit"}
+          {added ? "Added to kit" : swap ? "Accept swap" : "Add to kit"}
         </button>
         {!added && canAddBooking && (
           <button

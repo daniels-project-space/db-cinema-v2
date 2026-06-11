@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { GUIDES } from "@/lib/guides";
 import { Reveal } from "@/components/Reveal";
+import { IconArrowRight } from "@/components/icons";
 
 export const metadata: Metadata = {
   title: "Guides — camera & film gear hire tips",
@@ -17,20 +18,31 @@ export default function GuidesPage() {
     <>
       <SiteHeader />
       <main className="section-window mx-auto max-w-4xl px-6 py-14">
-        <PageHero eyebrow="Guides" lead="Shoot" accent="smarter" />
-        <p className="mt-3 max-w-xl text-white/40">
-          Straight-talking advice on renting the right gear for your shoot in London.
-        </p>
-        <div className="mt-10 grid gap-5 md:grid-cols-2">
+        <PageHero
+          eyebrow="Guides"
+          lead="Shoot"
+          accent="smarter"
+          sub="Straight-talking advice on renting the right gear for your shoot in London."
+        />
+        <div className="mt-10 grid gap-4 md:grid-cols-2">
           {GUIDES.map((g, i) => (
-            <Reveal key={g.slug} delay={i * 60}>
+            <Reveal key={g.slug} delay={i * 70}>
               <Link
                 href={`/guides/${g.slug}`}
-                className="lift block h-full rounded-2xl glass gradient-border p-6"
+                className="lift spot gradient-border group relative block h-full overflow-hidden rounded-2xl p-6"
               >
-                <h2 className="font-display text-xl font-semibold text-white/90">{g.title}</h2>
-                <p className="mt-2 text-sm text-white/45">{g.description}</p>
-                <span className="mt-4 inline-block text-sm text-accent-400">Read guide →</span>
+                <span className="font-poster pointer-events-none absolute -right-2 -top-4 text-7xl text-white/[0.05] transition-colors group-hover:text-accent-400/15" aria-hidden>
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span className="hud-label !text-accent-400/80">Guide {String(i + 1).padStart(2, "0")}</span>
+                <h2 className="mt-3 font-display text-xl font-semibold text-white/90 transition-colors group-hover:text-white">
+                  {g.title}
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-white/45">{g.description}</p>
+                <span className="mt-4 inline-flex items-center gap-1.5 text-sm text-accent-400">
+                  Read guide
+                  <IconArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                </span>
               </Link>
             </Reveal>
           ))}

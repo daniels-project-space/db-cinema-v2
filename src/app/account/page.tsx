@@ -57,27 +57,29 @@ function AuthForm() {
   }
 
   return (
-    <div className="mx-auto max-w-sm">
-      <h1 className="font-display text-3xl font-bold text-white/90">
-        {mode === "signup" ? "Create account" : "Sign in"}
+    <div className="page-in mx-auto max-w-sm">
+      <div className="hud-label !text-accent-400/90">Members area</div>
+      <h1 className="mt-3 font-display text-3xl font-bold text-white sm:text-4xl">
+        {mode === "signup" ? "Create" : "Sign"}{" "}
+        <span className="serif-accent gradient-text text-[1.06em]">{mode === "signup" ? "account" : "in"}</span>
       </h1>
       <p className="mt-2 text-sm text-white/40">
         {mode === "signup" ? "Already have one? " : "New here? "}
         <button
           onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
-          className="text-accent-400 hover:underline"
+          className="text-accent-400 underline-offset-2 hover:underline"
         >
           {mode === "signup" ? "Sign in" : "Create one"}
         </button>
       </p>
       <div className="mt-6 flex flex-col gap-3">
         {mode === "signup" && (
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" />
         )}
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
-        <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (6+ chars)" type="password" className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
-        {err && <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
-        <button onClick={go} disabled={busy} className="rounded-full bg-accent-500 py-3 font-medium text-white hover:bg-accent-600 disabled:opacity-40">
+        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="input" />
+        <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (6+ chars)" type="password" className="input" />
+        {err && <div className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
+        <button onClick={go} disabled={busy} className="btn-primary py-3">
           {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
         </button>
       </div>
@@ -111,19 +113,22 @@ function Dashboard() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="page-in flex items-center justify-between">
         <div>
-          <h1 className="font-display text-3xl font-bold text-white/90">My account</h1>
-          <p className="mt-1 flex items-center gap-2 text-sm text-white/40">
+          <div className="hud-label !text-accent-400/90">Members area</div>
+          <h1 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
+            My <span className="serif-accent gradient-text text-[1.06em]">account</span>
+          </h1>
+          <p className="mt-2 flex items-center gap-2 text-sm text-white/40">
             {me.email}
             {me.idVerified && (
               <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
-                ✓ ID verified
+                ID verified
               </span>
             )}
           </p>
         </div>
-        <button onClick={() => account.signOut()} className="rounded-full glass px-4 py-2 text-sm text-white/60 hover:text-white">
+        <button onClick={() => account.signOut()} className="btn-ghost px-4 py-2 text-sm">
           Sign out
         </button>
       </div>
@@ -132,19 +137,19 @@ function Dashboard() {
       <RenterChat />
 
       {/* profile + settings */}
-      <section className="mt-8 rounded-2xl glass gradient-border p-5">
+      <section className="mt-8 spot gradient-border rounded-2xl p-5">
         <h2 className="font-display font-semibold text-white/80">Profile &amp; settings</h2>
         <div className="mt-4 flex flex-col gap-3">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
-          <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Default delivery address" rows={2} className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="input" />
+          <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Default delivery address" rows={2} className="input" />
           <label className="flex flex-wrap items-center gap-2 text-sm text-white/60">
             <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} className="accent-accent-500" />
             Email me booking reminders &amp; offers
             <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">−5% on every rental</span>
           </label>
-          <button onClick={save} className="w-fit rounded-full bg-accent-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-accent-600">
-            {saved ? "Saved ✓" : "Save changes"}
+          <button onClick={save} className="btn-primary w-fit px-6 py-2.5 text-sm">
+            {saved ? "Saved" : "Save changes"}
           </button>
         </div>
       </section>
@@ -167,20 +172,20 @@ function Dashboard() {
             <div className="text-sm text-white/30">Loading…</div>
           ) : bookings && bookings.length > 0 ? (
             bookings.map((b: any) => (
-              <div key={b._id} className="rounded-2xl glass p-4">
+              <div key={b._id} className="spot rounded-2xl p-4">
                 <div className="flex justify-between">
-                  <span className="rounded bg-accent-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-accent-300">{b.status}</span>
+                  <span className="rounded bg-accent-500/15 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-accent-300">{b.status}</span>
                   <span className="font-display font-bold text-white/90">£{b.total}</span>
                 </div>
-                <div className="mt-2 text-xs text-white/45">
+                <div className="mt-2 font-mono text-xs text-white/45">
                   {b.lineItems.map((li: any, i: number) => (
-                    <div key={i}>{li.title} · {day(li.start)}→{day(li.end)}</div>
+                    <div key={i}>{li.title} · {day(li.start)} → {day(li.end)}</div>
                   ))}
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <IdVerify bookingId={b._id} status={b.idVerifyStatus} compact />
                   {b.firstSlug && (
-                    <Link href={`/gear/${b.firstSlug}`} className="rounded-full glass px-3 py-1 text-xs text-white/60 hover:text-white">
+                    <Link href={`/gear/${b.firstSlug}`} className="btn-ghost px-3 py-1 text-xs">
                       Rent again
                     </Link>
                   )}
@@ -250,7 +255,7 @@ function BookingReview({
   const [err, setErr] = useState<string | null>(null);
 
   if (reviewed || done)
-    return <div className="mt-3 text-xs text-emerald-300">✓ Reviewed — thank you!</div>;
+    return <div className="mt-3 text-xs text-emerald-300">Reviewed — thank you!</div>;
 
   if (!open)
     return (
@@ -284,7 +289,7 @@ function BookingReview({
       />
       {err && <div className="mt-1 text-xs text-red-300">{err}</div>}
       <div className="mt-2 flex gap-2">
-        <button onClick={send} className="rounded-full bg-accent-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-600">
+        <button onClick={send} className="btn-primary px-4 py-1.5 text-xs">
           Submit review
         </button>
         <button onClick={() => setOpen(false)} className="text-xs text-white/40 hover:text-white">
@@ -309,7 +314,7 @@ function AccountSecurity() {
     setErr(null); setMsg(null);
     try {
       await changePassword({ token: account.token!, oldPassword: oldp, newPassword: newp });
-      setMsg("Password changed ✓"); setOldp(""); setNewp("");
+      setMsg("Password changed"); setOldp(""); setNewp("");
     } catch (e: any) { setErr(e?.message ?? "Failed"); }
   }
   async function del() {
@@ -320,14 +325,14 @@ function AccountSecurity() {
   }
 
   return (
-    <section className="mt-8 rounded-2xl glass gradient-border p-5">
+    <section className="mt-8 spot gradient-border rounded-2xl p-5">
       <h2 className="font-display font-semibold text-white/80">Security</h2>
       <div className="mt-4 flex flex-col gap-3">
-        <input type="password" value={oldp} onChange={(e) => setOldp(e.target.value)} placeholder="Current password" className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
-        <input type="password" value={newp} onChange={(e) => setNewp(e.target.value)} placeholder="New password (6+ chars)" className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
+        <input type="password" value={oldp} onChange={(e) => setOldp(e.target.value)} placeholder="Current password" className="input" />
+        <input type="password" value={newp} onChange={(e) => setNewp(e.target.value)} placeholder="New password (6+ chars)" className="input" />
         {msg && <div className="text-xs text-emerald-300">{msg}</div>}
         {err && <div className="text-xs text-red-300">{err}</div>}
-        <button onClick={changePw} disabled={!oldp || newp.length < 6} className="w-fit rounded-full bg-accent-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-40">
+        <button onClick={changePw} disabled={!oldp || newp.length < 6} className="btn-primary w-fit px-6 py-2.5 text-sm">
           Change password
         </button>
       </div>
@@ -365,7 +370,7 @@ function Membership() {
   }
 
   return (
-    <section className="mt-8 rounded-2xl glass gradient-border p-5">
+    <section className="mt-8 spot gradient-border rounded-2xl p-5">
       <h2 className="font-display font-semibold text-white/80">Membership</h2>
       {tier ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -379,7 +384,7 @@ function Membership() {
                 const left = Math.max(0, tier.freeAccessories - used);
                 return (
                   <span className="mt-1 block text-amber-300">
-                    🎁 {left} of {tier.freeAccessories} free accessories left this month
+                    {left} of {tier.freeAccessories} free accessories left this month
                     (tripod, gimbal, filters or batteries).
                   </span>
                 );
@@ -388,7 +393,7 @@ function Membership() {
           <button
             onClick={manage}
             disabled={busy}
-            className="rounded-full glass px-4 py-2 text-sm text-white/70 hover:text-white disabled:opacity-40"
+            className="btn-ghost px-4 py-2 text-sm disabled:opacity-40"
           >
             {busy ? "…" : "Manage membership"}
           </button>
@@ -396,10 +401,7 @@ function Membership() {
       ) : (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-white/50">Save up to 20% on every rental with a membership.</div>
-          <Link
-            href="/membership"
-            className="rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white hover:bg-accent-600"
-          >
+          <Link href="/membership" className="btn-primary px-5 py-2 text-sm">
             View plans
           </Link>
         </div>

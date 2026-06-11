@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useCart } from "@/components/cart/CartProvider";
+import { IconSpark } from "@/components/icons";
 
 export function KitCompatibility() {
   const cart = useCart();
@@ -36,9 +37,9 @@ export function KitCompatibility() {
     : "border-accent-400/30 bg-accent-500/[0.06] text-accent-200";
 
   return (
-    <section className="mb-6 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+    <section className="spot mb-6 rounded-2xl p-4">
       <h3 className="flex items-center gap-2 font-display text-sm font-semibold text-white/80">
-        🧠 Kit compatibility
+        <IconSpark className="h-4 w-4 text-accent-400" /> Kit compatibility
       </h3>
       <div className="mt-3 space-y-2">
         {data.warnings?.map((w: any, i: number) => (

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { IconLock } from "@/components/icons";
+import { IconLock, IconShield, IconCheck, IconTruck, IconPin, IconArrowRight } from "@/components/icons";
 import { useAction, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
+import { PageHero } from "@/components/PageHero";
 import { useCart } from "@/components/cart/CartProvider";
 import { usePromo } from "@/components/cart/usePromo";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -16,6 +17,47 @@ import { depositFor, smallDamageHold, type Protection } from "@/lib/pricing";
 const ms = (iso: string) => Date.parse(iso + "T00:00:00Z");
 const PC_RE = /([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})/i;
 const SLOTS = ["10:00", "11:00", "12:00", "19:00", "20:00", "21:00"];
+
+function StepCard({
+  n,
+  title,
+  sub,
+  done,
+  children,
+  delay = 0,
+}: {
+  n: string;
+  title: string;
+  sub?: string;
+  done?: boolean;
+  children: React.ReactNode;
+  delay?: number;
+}) {
+  return (
+    <section
+      className="spot gradient-border relative overflow-hidden rounded-2xl p-5 sm:p-6"
+      style={{ animation: `card-in 0.55s var(--ease-out-expo) ${delay}ms both` }}
+    >
+      <span className="font-poster pointer-events-none absolute -right-1 -top-3 text-7xl text-white/[0.04]" aria-hidden>
+        {n}
+      </span>
+      <div className="flex items-center gap-3">
+        <span
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-mono text-xs transition-colors ${
+            done ? "bg-emerald-500/20 text-emerald-300" : "bg-accent-500/15 text-accent-300"
+          }`}
+        >
+          {done ? <IconCheck className="h-3.5 w-3.5" /> : n}
+        </span>
+        <div>
+          <h2 className="font-display font-semibold text-white/90">{title}</h2>
+          {sub && <p className="text-xs text-white/40">{sub}</p>}
+        </div>
+      </div>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
 
 export default function CheckoutPage() {
   const { items, subtotal, eligibleSubtotal } = useCart();
@@ -49,14 +91,12 @@ export default function CheckoutPage() {
   const depositAmount = depositFor(protection, replacementSum);
   const total = subtotal + depositAmount + deliveryFee - promo.discount;
 
-  const valid =
-    items.length > 0 &&
-    /\S+@\S+\.\S+/.test(email) &&
-    pickupTime &&
-    returnTime &&
-    (fulfilment === "pickup" || (dq?.ok && address.trim().length > 5 && deliveryAgreed)) &&
-    agreed &&
-    signature.trim().length > 2;
+  const detailsDone = /\S+@\S+\.\S+/.test(email);
+  const fulfilmentDone =
+    !!pickupTime && !!returnTime && (fulfilment === "pickup" || (dq?.ok && address.trim().length > 5 && deliveryAgreed));
+  const signDone = agreed && signature.trim().length > 2;
+
+  const valid = items.length > 0 && detailsDone && fulfilmentDone && signDone;
 
   async function quoteDelivery() {
     if (!postcode.trim()) return;
@@ -113,68 +153,113 @@ export default function CheckoutPage() {
     return (
       <>
         <SiteHeader />
-        <main className="mx-auto max-w-4xl px-6 py-20 text-center text-white/40">
-          Your kit is empty.{" "}
-          <Link href="/gear" className="text-accent-400 hover:underline">Browse gear →</Link>
+        <main className="mx-auto max-w-4xl px-6 py-24 text-center">
+          <div className="hud-label">Nothing to check out</div>
+          <p className="mt-3 text-white/40">Your kit is empty.</p>
+          <Link href="/gear" className="btn-primary mt-6 px-7 py-3">
+            Browse gear
+            <IconArrowRight className="h-4 w-4" />
+          </Link>
         </main>
       </>
     );
 
-  const field = "rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30";
+  const label = "hud-label mb-1.5 block";
 
   return (
     <>
       <SiteHeader />
-      <main className="section-window mx-auto max-w-4xl px-6 py-12">
-        <h1 className="font-display text-3xl font-bold text-white/90">Check<span className="gradient-text">out</span></h1>
-        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
-          <span className="inline-flex items-center gap-1.5"><IconLock className="h-3.5 w-3.5" />Encrypted checkout by Stripe</span>
+      <main className="section-window mx-auto max-w-5xl px-6 py-12">
+        <PageHero eyebrow="Final step" lead="Check" accent="out" />
+        <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
+          <span className="inline-flex items-center gap-1.5">
+            <IconLock className="h-3.5 w-3.5 text-accent-400" />
+            Encrypted checkout by Stripe
+          </span>
           <span className="text-white/20">·</span>
           <span>Your deposit is released after you return the gear</span>
           <span className="text-white/20">·</span>
           <span>Need a hand? Message us any time</span>
         </p>
 
-        <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_320px]">
+        <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_330px]">
           <div className="flex flex-col gap-5">
-            {/* details */}
-            <div className="glass gradient-border rounded-2xl p-5">
-              <h2 className="mb-3 font-display font-semibold text-white/80">Your details</h2>
+            {/* 01 — details */}
+            <StepCard n="01" title="Your details" done={detailsDone} delay={0}>
               <div className="flex flex-col gap-3">
-                <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email *" type="email" className={field} />
-                <div className="flex gap-3">
-                  <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className={`flex-1 ${field}`} />
-                  <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className={`flex-1 ${field}`} />
+                <div>
+                  <label className={label} htmlFor="co-email">Email *</label>
+                  <input id="co-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@production.co" type="email" className="input w-full" />
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <div className="flex-1">
+                    <label className={label} htmlFor="co-name">Name</label>
+                    <input id="co-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="input w-full" />
+                  </div>
+                  <div className="flex-1">
+                    <label className={label} htmlFor="co-phone">Phone</label>
+                    <input id="co-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="For pickup coordination" className="input w-full" />
+                  </div>
                 </div>
               </div>
-            </div>
+            </StepCard>
 
-            {/* fulfilment */}
-            <div className="glass gradient-border rounded-2xl p-5">
-              <h2 className="mb-1 font-display font-semibold text-white/80">Fulfilment</h2>
-              <p className="mb-3 text-xs text-white/40">Pickup, return &amp; delivery windows: <span className="text-white/60">10:00–12:00</span> and <span className="text-white/60">19:00–21:00</span>, daily.</p>
+            {/* 02 — fulfilment */}
+            <StepCard
+              n="02"
+              title="Fulfilment"
+              sub="Pickup, return & delivery windows: 10:00–12:00 and 19:00–21:00, daily."
+              done={fulfilmentDone}
+              delay={70}
+            >
               <div className="flex gap-3">
-                {(["pickup", "delivery"] as const).map((f) => (
-                  <button key={f} onClick={() => setFulfilment(f)} className={`flex-1 rounded-lg px-4 py-2.5 text-sm capitalize transition-colors ${fulfilment === f ? "bg-accent-500 text-white" : "glass text-white/60 hover:text-white"}`}>
-                    {f}{f === "delivery" ? " (quote by distance)" : ""}
+                {(
+                  [
+                    ["pickup", IconPin, "Pickup", "central London"],
+                    ["delivery", IconTruck, "Delivery", "quoted by distance"],
+                  ] as const
+                ).map(([f, Icon, t, d]) => (
+                  <button
+                    key={f}
+                    onClick={() => setFulfilment(f)}
+                    className={`flex flex-1 items-center gap-3 rounded-xl border p-3.5 text-left transition-all ${
+                      fulfilment === f
+                        ? "border-accent-400 bg-accent-400/10 shadow-[0_0_24px_-8px_rgba(56,189,248,0.5)]"
+                        : "border-white/10 hover:border-white/25"
+                    }`}
+                  >
+                    <Icon className={`h-5 w-5 shrink-0 ${fulfilment === f ? "text-accent-400" : "text-white/40"}`} />
+                    <span>
+                      <span className="block text-sm font-medium text-white/85">{t}</span>
+                      <span className="block text-xs text-white/40">{d}</span>
+                    </span>
                   </button>
                 ))}
               </div>
               {fulfilment === "delivery" && (
                 <div className="mt-3 flex flex-col gap-2">
                   <div className="flex gap-2">
-                    <input value={postcode} onChange={(e) => { setPostcode(e.target.value); setDq(null); }} placeholder="Delivery postcode *" className={`flex-1 uppercase placeholder:normal-case ${field}`} />
-                    <button onClick={quoteDelivery} disabled={quoting || !postcode.trim()} className="rounded-lg bg-accent-500 px-4 text-sm text-white hover:bg-accent-600 disabled:opacity-40">{quoting ? "…" : "Get quote"}</button>
+                    <input
+                      value={postcode}
+                      onChange={(e) => { setPostcode(e.target.value); setDq(null); }}
+                      placeholder="Delivery postcode *"
+                      className="input min-w-0 flex-1 font-mono uppercase placeholder:normal-case placeholder:font-sans"
+                    />
+                    <button onClick={quoteDelivery} disabled={quoting || !postcode.trim()} className="btn-primary px-4 text-sm">
+                      {quoting ? "…" : "Get quote"}
+                    </button>
                   </div>
                   {dq && (dq.ok ? (
-                    <div className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
-                      {dq.vehicleLabel} · ~{dq.km}km · round trip (delivery + collection): 2 × £{dq.oneWay} <span className="font-semibold">= £{dq.fee}</span> <span className="text-emerald-300/60">(incl. margin)</span>
+                    <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+                      {dq.vehicleLabel} · ~{dq.km}km · round trip (delivery + collection): 2 × £{dq.oneWay}{" "}
+                      <span className="font-semibold">= £{dq.fee}</span>{" "}
+                      <span className="text-emerald-300/60">(incl. margin)</span>
                     </div>
                   ) : (
-                    <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{dq.reason}</div>
+                    <div className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{dq.reason}</div>
                   ))}
-                  <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Full delivery address *" rows={2} className={`w-full ${field}`} />
-                  <label className="flex items-start gap-2 text-xs text-white/55">
+                  <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Full delivery address *" rows={2} className="input w-full" />
+                  <label className="flex items-start gap-2 text-xs leading-relaxed text-white/55">
                     <input type="checkbox" checked={deliveryAgreed} onChange={(e) => setDeliveryAgreed(e.target.checked)} className="mt-0.5 accent-accent-500" />
                     <span>I understand delivery uses a third-party courier (Addison Lee). Times are estimates only — no exact time is guaranteed and delivery may be affected by traffic. Estimates are accurate within ~15%; the final price is confirmed by the courier. No refunds for courier delays.</span>
                   </label>
@@ -183,89 +268,138 @@ export default function CheckoutPage() {
 
               {/* times (both pickup & delivery) */}
               <div className="mt-4 flex gap-3">
-                <label className="flex-1 text-xs text-white/40">
-                  {fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"}
-                  <select value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} className={`mt-1 w-full [color-scheme:dark] ${field}`}>
+                <div className="flex-1">
+                  <label className={label} htmlFor="co-time-out">
+                    {fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"}
+                  </label>
+                  <select id="co-time-out" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} className="input w-full [color-scheme:dark]">
                     <option value="">Select…</option>
                     {SLOTS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
-                </label>
-                <label className="flex-1 text-xs text-white/40">
-                  {fulfilment === "delivery" ? "Collection time *" : "Return time *"}
-                  <select value={returnTime} onChange={(e) => setReturnTime(e.target.value)} className={`mt-1 w-full [color-scheme:dark] ${field}`}>
+                </div>
+                <div className="flex-1">
+                  <label className={label} htmlFor="co-time-back">
+                    {fulfilment === "delivery" ? "Collection time *" : "Return time *"}
+                  </label>
+                  <select id="co-time-back" value={returnTime} onChange={(e) => setReturnTime(e.target.value)} className="input w-full [color-scheme:dark]">
                     <option value="">Select…</option>
                     {SLOTS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
-                </label>
+                </div>
               </div>
-            </div>
+            </StepCard>
 
-            {/* protection */}
-            <div className="glass gradient-border rounded-2xl p-5">
-              <h2 className="mb-1 font-display font-semibold text-white/80">Protection</h2>
-              <p className="mb-3 text-xs text-white/40">Choose how you cover the gear.</p>
-              <div className="flex flex-col gap-2">
-                <button onClick={() => setProtection("verify")} className={`rounded-xl border p-3 text-left transition ${protection === "verify" ? "border-accent-400 bg-accent-400/10" : "border-white/10 hover:border-white/20"}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-white/85">ID verification + insurance <span className="ml-1 rounded bg-accent-500/20 px-1.5 py-0.5 text-[10px] uppercase text-accent-300">recommended</span></span>
-                    <span className="text-sm text-accent-300">£{smallDamageHold(replacementSum)} hold</span>
+            {/* 03 — protection */}
+            <StepCard n="03" title="Protection" sub="Choose how you cover the gear." done delay={140}>
+              <div className="flex flex-col gap-2.5">
+                <button
+                  onClick={() => setProtection("verify")}
+                  className={`group rounded-xl border p-4 text-left transition-all ${
+                    protection === "verify"
+                      ? "border-accent-400 bg-accent-400/10 shadow-[0_0_24px_-8px_rgba(56,189,248,0.5)]"
+                      : "border-white/10 hover:border-white/25"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-2.5 text-sm font-medium text-white/85">
+                      <IconShield className={`h-4.5 w-4.5 ${protection === "verify" ? "text-accent-400" : "text-white/40"}`} />
+                      ID verification + insurance
+                      <span className="rounded bg-accent-500/20 px-1.5 py-0.5 font-mono text-[10px] uppercase text-accent-300">
+                        recommended
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-mono text-sm text-accent-300">£{smallDamageHold(replacementSum)} hold</span>
                   </div>
-                  <p className="mt-1 text-xs text-white/40">Small refundable damage hold + a quick ID check before handover. No large deposit.</p>
+                  <p className="mt-1.5 text-xs text-white/40">
+                    Small refundable damage hold + a quick ID check before handover. No large deposit.
+                  </p>
                 </button>
-                <button onClick={() => setProtection("deposit")} className={`rounded-xl border p-3 text-left transition ${protection === "deposit" ? "border-accent-400 bg-accent-400/10" : "border-white/10 hover:border-white/20"}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-white/85">Security deposit</span>
-                    <span className="text-sm text-accent-300">£{replacementSum} deposit</span>
+                <button
+                  onClick={() => setProtection("deposit")}
+                  className={`rounded-xl border p-4 text-left transition-all ${
+                    protection === "deposit"
+                      ? "border-accent-400 bg-accent-400/10 shadow-[0_0_24px_-8px_rgba(56,189,248,0.5)]"
+                      : "border-white/10 hover:border-white/25"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-2.5 text-sm font-medium text-white/85">
+                      <IconLock className={`h-4.5 w-4.5 ${protection === "deposit" ? "text-accent-400" : "text-white/40"}`} />
+                      Security deposit
+                    </span>
+                    <span className="shrink-0 font-mono text-sm text-accent-300">£{replacementSum} deposit</span>
                   </div>
-                  <p className="mt-1 text-xs text-white/40">Full refundable deposit, released on safe return. No ID check.</p>
+                  <p className="mt-1.5 text-xs text-white/40">Full refundable deposit, released on safe return. No ID check.</p>
                 </button>
               </div>
-            </div>
+            </StepCard>
 
-            {/* agreements */}
-            <div className="glass gradient-border rounded-2xl p-5">
-              <h2 className="mb-1 font-display font-semibold text-white/80">Agreements &amp; signature</h2>
-              <p className="text-xs text-white/40">Required for your booking, deposit and insurance cover.</p>
-              <label className="mt-3 flex items-start gap-2 text-sm text-white/60">
-                <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 accent-accent-500" />
-                <span>I have read and agree to the{" "}
+            {/* 04 — agreements */}
+            <StepCard n="04" title="Agreements & signature" sub="Required for your booking, deposit and insurance cover." done={signDone} delay={210}>
+              <label className="flex items-start gap-2.5 text-sm leading-relaxed text-white/60">
+                <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-1 accent-accent-500" />
+                <span>
+                  I have read and agree to the{" "}
                   {AGREEMENTS.map((d, i) => (
                     <span key={d.kind}>
-                      <a href={`/legal/${d.kind}`} target="_blank" className="text-accent-400 hover:underline">{d.title}</a>
+                      <a href={`/legal/${d.kind}`} target="_blank" className="text-accent-400 underline-offset-2 hover:underline">{d.title}</a>
                       {i < AGREEMENTS.length - 1 ? ", " : "."}
                     </span>
                   ))}
                 </span>
               </label>
-              <input value={signature} onChange={(e) => setSignature(e.target.value)} placeholder="Type your full name to sign" className={`mt-3 w-full italic ${field}`} />
-            </div>
+              <div className="mt-4">
+                <label className={label} htmlFor="co-sig">Sign by typing your full name *</label>
+                <input
+                  id="co-sig"
+                  value={signature}
+                  onChange={(e) => setSignature(e.target.value)}
+                  placeholder="Your signature"
+                  className="input serif-accent w-full border-b-2 border-b-accent-400/30 !text-xl text-white/90 placeholder:font-sans placeholder:text-sm"
+                />
+              </div>
+            </StepCard>
           </div>
 
           {/* summary */}
-          <aside className="h-fit rounded-2xl glass gradient-border p-5">
-            <h2 className="font-display font-semibold text-white/80">Summary</h2>
+          <aside className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky lg:top-24">
+            <div className="hud-label !text-accent-400/90">Order summary</div>
             <div className="mt-4 flex flex-col gap-2 text-sm">
               {items.map((i) => (
                 <div key={i.key} className="flex justify-between text-white/55">
-                  <span className="mr-2 line-clamp-1">{i.title}{i.offerType ? " (offer)" : ""}</span>
-                  <span className="shrink-0">£{i.total}</span>
+                  <span className="mr-2 line-clamp-1">
+                    {i.title}
+                    {i.offerType ? " (offer)" : ""}
+                  </span>
+                  <span className="shrink-0 font-mono">£{i.total}</span>
                 </div>
               ))}
             </div>
-            <div className="mt-3 border-t border-white/5 pt-3 text-sm">
+            <hr className="receipt-sep" />
+            <div className="text-sm">
               <Row label="Rental subtotal" value={subtotal} />
-              {promo.discount > 0 && <div className="flex justify-between text-emerald-300"><span>{promo.applied?.toUpperCase()}</span><span>−£{promo.discount}</span></div>}
+              {promo.discount > 0 && (
+                <div className="flex justify-between text-emerald-300">
+                  <span>{promo.applied?.toUpperCase()}</span>
+                  <span className="font-mono">−£{promo.discount}</span>
+                </div>
+              )}
               {deliveryFee > 0 && <Row label="Delivery (round trip)" value={deliveryFee} />}
               <Row label={protection === "deposit" ? "Refundable deposit" : "Refundable damage hold"} value={depositAmount} muted />
-              <div className="mt-2 flex justify-between border-t border-white/5 pt-2 font-display text-lg font-bold text-white/90">
-                <span>Total due</span><span>£{total}</span>
+              <hr className="receipt-sep" />
+              <div className="flex justify-between font-display text-xl font-bold text-white">
+                <span>Total due</span>
+                <span className="font-mono">£{total}</span>
               </div>
             </div>
-            {err && <div className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
-            <button onClick={pay} disabled={!valid || busy} className="mt-5 w-full rounded-full bg-accent-500 py-3 font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-30">
+            {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
+            <button onClick={pay} disabled={!valid || busy} className="btn-primary mt-5 w-full py-3">
               {busy ? "Redirecting…" : "Pay with card"}
+              {!busy && <IconLock className="h-4 w-4" />}
             </button>
-            <p className="mt-2 text-center text-[11px] text-white/25">Secured by Stripe · test mode</p>
+            <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">
+              Secured by Stripe · test mode
+            </p>
           </aside>
         </div>
       </main>
@@ -276,7 +410,8 @@ export default function CheckoutPage() {
 function Row({ label, value, muted }: { label: string; value: number; muted?: boolean }) {
   return (
     <div className={`flex justify-between ${muted ? "text-white/35" : "text-white/60"}`}>
-      <span>{label}</span><span>£{value}</span>
+      <span>{label}</span>
+      <span className="font-mono">£{value}</span>
     </div>
   );
 }

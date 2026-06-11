@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { quote as computeQuote } from "@/lib/pricing";
 import { useCart } from "@/components/cart/CartProvider";
+import { IconCheck, IconPlus } from "@/components/icons";
 
 export function Recommendations({
   slug,
@@ -62,15 +63,13 @@ export function Recommendations({
 
   return (
     <section className="mt-14">
-      <div className="mb-1 text-xs uppercase tracking-widest text-accent-400">
-        Complete your kit
-      </div>
+      <div className="hud-label mb-2 !text-accent-400/90">Complete your kit</div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 className="font-display text-2xl font-bold text-white/90">{title}</h2>
         <button
           onClick={addSelected}
           disabled={selected.size === 0 || !haveDates}
-          className="rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-30"
+          className="btn-primary px-5 py-2 text-sm"
         >
           {haveDates ? `Add ${selected.size || ""} to kit`.trim() : "Pick dates to add"}
         </button>
@@ -84,15 +83,15 @@ export function Recommendations({
               key={r._id}
               onClick={() => toggle(r._id)}
               className={`group relative flex flex-col overflow-hidden rounded-2xl text-left transition-all ${
-                on ? "glass ring-2 ring-accent-400" : "glass glass-hover gradient-border"
+                on ? "spot ring-2 ring-accent-400" : "spot gradient-border"
               }`}
             >
               <span
-                className={`absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs ${
-                  on ? "bg-accent-500 text-white" : "bg-black/40 text-white/50"
+                className={`absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full transition-colors ${
+                  on ? "bg-accent-500 text-white" : "bg-black/40 text-white/50 group-hover:text-white"
                 }`}
               >
-                {on ? "✓" : "+"}
+                {on ? <IconCheck className="h-3 w-3" /> : <IconPlus className="h-3 w-3" />}
               </span>
               <div className="aspect-[4/3] overflow-hidden bg-charcoal-800">
                 {r.heroImage ? (
@@ -101,7 +100,7 @@ export function Recommendations({
                 ) : null}
               </div>
               <div className="flex flex-1 flex-col gap-1 p-3">
-                <span className="text-[10px] uppercase tracking-widest text-accent-400">
+                <span className="hud-label !text-accent-400/90">
                   {r.itemType?.replace("-", " ")}
                 </span>
                 <span className="line-clamp-2 text-xs text-white/70">{r.title}</span>

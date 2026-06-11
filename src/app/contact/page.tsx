@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
+import { PageHero } from "@/components/PageHero";
+import { IconCheck, IconClock, IconPin } from "@/components/icons";
 
 export default function ContactPage() {
   const submit = useMutation(api.contact.submit);
@@ -29,53 +31,72 @@ export default function ContactPage() {
   return (
     <>
       <SiteHeader />
-      <main className="section-window mx-auto max-w-xl px-6 py-12">
-        <div className="mb-2 text-xs uppercase tracking-widest text-accent-400">
-          Get in touch
-        </div>
-        <h1 className="font-display text-3xl font-bold text-white/90">
-          Contact <span className="gradient-text">us</span>
-        </h1>
-        <p className="mt-2 text-white/40">
-          Questions about gear, availability or delivery? Send us a message and
-          we&apos;ll get back to you.
-        </p>
+      <main className="section-window mx-auto max-w-4xl px-6 py-14">
+        <PageHero
+          eyebrow="Get in touch"
+          lead="Contact"
+          accent="us"
+          sub="Questions about gear, availability or delivery? Send us a message and we'll get back to you."
+        />
 
-        {sent ? (
-          <div className="mt-8 rounded-2xl glass gradient-border p-6 text-center text-emerald-300">
-            ✓ Message sent — we&apos;ll be in touch shortly.
+        <div className="mt-10 grid gap-8 md:grid-cols-[1fr_260px]">
+          <div>
+            {sent ? (
+              <div className="spot gradient-border card-in rounded-2xl p-8 text-center">
+                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
+                  <IconCheck className="h-6 w-6" />
+                </span>
+                <p className="mt-4 font-display text-lg font-semibold text-white/90">Message sent</p>
+                <p className="mt-1 text-sm text-white/45">We&apos;ll be in touch shortly.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div>
+                  <label className="hud-label mb-1.5 block" htmlFor="c-name">Your name</label>
+                  <input id="c-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" className="input w-full" />
+                </div>
+                <div>
+                  <label className="hud-label mb-1.5 block" htmlFor="c-email">Email</label>
+                  <input id="c-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@production.co" type="email" className="input w-full" />
+                </div>
+                <div>
+                  <label className="hud-label mb-1.5 block" htmlFor="c-msg">Message</label>
+                  <textarea id="c-msg" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="How can we help?" rows={5} className="input w-full" />
+                </div>
+                <button onClick={send} disabled={!valid || busy} className="btn-primary mt-1 py-3">
+                  {busy ? "Sending…" : "Send message"}
+                </button>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="mt-8 flex flex-col gap-3">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
-              className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30"
-            />
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              type="email"
-              className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30"
-            />
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="How can we help?"
-              rows={5}
-              className="rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30"
-            />
-            <button
-              onClick={send}
-              disabled={!valid || busy}
-              className="mt-1 rounded-full bg-accent-500 py-3 font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              {busy ? "Sending…" : "Send message"}
-            </button>
-          </div>
-        )}
+
+          <aside className="flex h-fit flex-col gap-3">
+            <div className="spot rounded-2xl p-5">
+              <div className="flex items-center gap-2.5">
+                <IconClock className="h-4 w-4 text-accent-400" />
+                <span className="hud-label !text-white/60">Hours</span>
+              </div>
+              <p className="mt-2 font-mono text-sm leading-relaxed text-white/60">
+                10:00–12:00
+                <br />
+                19:00–21:00
+                <br />
+                <span className="text-white/35">every day</span>
+              </p>
+            </div>
+            <div className="spot rounded-2xl p-5">
+              <div className="flex items-center gap-2.5">
+                <IconPin className="h-4 w-4 text-accent-400" />
+                <span className="hud-label !text-white/60">Where</span>
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-white/60">
+                Central London pickup
+                <br />
+                <span className="text-white/35">+ local delivery ~30km</span>
+              </p>
+            </div>
+          </aside>
+        </div>
       </main>
     </>
   );
