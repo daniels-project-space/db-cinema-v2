@@ -8,7 +8,6 @@ import { Particles } from "@/components/Particles";
 import { Reveal } from "@/components/Reveal";
 import { Marquee } from "@/components/Marquee";
 import { ViewfinderHUD } from "@/components/ViewfinderHUD";
-import { HeroVisual } from "@/components/HeroVisual";
 import { CountUp } from "@/components/CountUp";
 import { GearCard, type GearListing } from "@/components/GearCard";
 import { IconTruck, IconShield, IconClock, IconArrowRight, IconStar } from "@/components/icons";
@@ -66,7 +65,6 @@ export default async function Home() {
         />
         <div className="lens-flare left-1/4 top-1/2 w-1/2" aria-hidden />
         <Particles />
-        <HeroVisual />
         <ViewfinderHUD />
 
         <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
