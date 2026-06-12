@@ -8,13 +8,13 @@ import { Particles } from "@/components/Particles";
 import { Reveal } from "@/components/Reveal";
 import { Marquee } from "@/components/Marquee";
 import { ViewfinderHUD } from "@/components/ViewfinderHUD";
-import { HeroRig } from "@/components/HeroRig";
 import { CountUp } from "@/components/CountUp";
 import { GearCard, type GearListing } from "@/components/GearCard";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { Magnetic } from "@/components/Magnetic";
 import { ScrambleText } from "@/components/ScrambleText";
-import { IconTruck, IconShield, IconClock, IconArrowRight, IconStar } from "@/components/icons";
+import { IconArrowRight, IconStar } from "@/components/icons";
+import { BadgeTruck, BadgeShield, BadgeClock, BadgeBrowse, BadgeCalendar, BadgeLock } from "@/components/AnimatedIcons";
 import { SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 
 export default async function Home() {
@@ -76,7 +76,6 @@ export default async function Home() {
         <span className="meteor" style={{ top: "32%", left: "90%", animationDelay: "9s", animationDuration: "12s" }} aria-hidden />
         <Particles />
         <ViewfinderHUD />
-        <HeroRig />
 
         <div className="hero-push relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
           <div className="hero-rise hud-label" style={{ animationDelay: "0.15s" }}>
@@ -152,14 +151,14 @@ export default async function Home() {
       <section className="section-window border-y border-white/5 px-6 py-12">
         <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 sm:grid-cols-3">
           {[
-            [IconTruck, "Delivered across London", "or collect in central London"],
-            [IconShield, "Pro-maintained gear", "checked and cleaned between rentals"],
-            [IconClock, "Booked in minutes", "online, any time, instant confirmation"],
+            [BadgeTruck, "Delivered across London", "or collect in central London"],
+            [BadgeShield, "Pro-maintained gear", "checked and cleaned between rentals"],
+            [BadgeClock, "Booked in minutes", "online, any time, instant confirmation"],
           ].map(([Icon, h, p]: any, i) => (
             <Reveal key={h} delay={i * 90}>
               <div className="spot gradient-border flex items-start gap-4 rounded-2xl p-5">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400">
-                  <Icon className="h-5 w-5" />
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400">
+                  <Icon className="h-10 w-10" />
                 </span>
                 <span>
                   <span className="block font-display font-semibold text-white/90">{h}</span>
@@ -216,7 +215,7 @@ export default async function Home() {
                 <Reveal key={c.name} delay={Math.min(i, 8) * 50}>
                   <Link
                     href={`/gear?cat=${encodeURIComponent(c.name)}`}
-                    className="cat-tile spot lift group flex h-full flex-col rounded-2xl p-5"
+                    className="ci-host spot lift group flex h-full flex-col rounded-2xl p-5"
                   >
                     <span className="flex items-start justify-between">
                       <span className="flex h-14 w-14 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400 transition-all duration-300 group-hover:scale-105 group-hover:bg-accent-500/15 group-hover:accent-glow">
@@ -268,14 +267,19 @@ export default async function Home() {
           </Reveal>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              ["01", "Browse", "Pick from cameras, lenses, light and sound."],
-              ["02", "Dates", "Longer rentals unlock better day rates."],
-              ["03", "Book", "Pay securely by card with a refundable deposit."],
-              ["04", "Shoot", "Collect or get it delivered. Return. Done."],
-            ].map(([n, h, p], i) => (
+              ["01", "Browse", "Pick from cameras, lenses, light and sound.", BadgeBrowse],
+              ["02", "Dates", "Longer rentals unlock better day rates.", BadgeCalendar],
+              ["03", "Book", "Pay securely by card with a refundable deposit.", BadgeLock],
+              ["04", "Shoot", "Collect or get it delivered. Return. Done.", BadgeTruck],
+            ].map(([n, h, p, Icon]: any, i) => (
               <Reveal key={n} delay={i * 80}>
                 <div className="spot h-full rounded-2xl p-5">
-                  <div className="font-poster text-3xl text-accent-400/35">{n}</div>
+                  <div className="flex items-start justify-between">
+                    <div className="font-poster text-3xl text-accent-400/35">{n}</div>
+                    <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-accent-500/10 text-accent-400">
+                      <Icon className="h-8 w-8" />
+                    </span>
+                  </div>
                   <div className="mt-3 font-display text-lg font-semibold text-white/90">{h}</div>
                   <p className="mt-1.5 text-sm leading-relaxed text-white/45">{p}</p>
                 </div>

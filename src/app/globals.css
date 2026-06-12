@@ -582,8 +582,8 @@ body {
     radial-gradient(circle 9px at 100% 92px, transparent 97%, #000) right / 51% 100% no-repeat;
 }
 
-/* ── Category symbols — animated parts (trigger: .cat-tile hover) ───
-   All transform/opacity (plus one tiny dashoffset draw) — GPU-cheap. */
+/* ── Category symbols — animated parts (trigger: .ci-host hover) ───
+   All transform/opacity (plus tiny dashoffset draws) — GPU-cheap. */
 .ci-part {
   transform-box: fill-box;
   transform-origin: center;
@@ -595,22 +595,63 @@ body {
 @keyframes ci-rot {
   to { transform: rotate(360deg); }
 }
-.cat-tile:hover .ci-spin { animation: ci-rot 1.3s linear infinite; }
-.cat-tile:hover .ci-spin-fast { animation: ci-rot 0.45s linear infinite; }
+.ci-host:hover .ci-spin { animation: ci-rot 1.3s linear infinite; }
+.ci-host:hover .ci-spin-fast { animation: ci-rot 0.45s linear infinite; }
 
-.ci-gear {
+/* cine camera — lens pumps a zoom while the reels run */
+.ci-zoom {
   transform-box: fill-box;
-  transform-origin: center;
-  transition: transform 0.8s var(--ease-out-expo);
+  transform-origin: 0% 50%;
 }
-.cat-tile:hover .ci-gear { transform: rotate(90deg); }
+.ci-host:hover .ci-zoom { animation: ci-zoom-pump 1.4s ease-in-out infinite; }
+@keyframes ci-zoom-pump {
+  0%, 100% { transform: scaleX(1); }
+  50% { transform: scaleX(1.18); }
+}
 
+/* lens — iris twists fully open, holds wide, breathes shut */
 .ci-iris {
   transform-box: fill-box;
   transform-origin: center;
   transition: transform 0.7s var(--ease-out-expo);
 }
-.cat-tile:hover .ci-iris { transform: rotate(60deg); }
+.ci-host:hover .ci-iris { animation: ci-iris-cycle 2.8s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
+@keyframes ci-iris-cycle {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  38%, 58% { transform: rotate(80deg) scale(1.3); }
+}
+.ci-aperture {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0.45;
+}
+.ci-host:hover .ci-aperture { animation: ci-aperture-cycle 2.8s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
+@keyframes ci-aperture-cycle {
+  0%, 100% { transform: scale(1); opacity: 0.45; }
+  38%, 58% { transform: scale(2.4); opacity: 0.9; }
+}
+.ci-glint {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+}
+.ci-host:hover .ci-glint { animation: ci-glint-sweep 2.8s ease-in-out infinite; }
+@keyframes ci-glint-sweep {
+  0%, 34%, 66%, 100% { opacity: 0; transform: rotate(0deg); }
+  44%, 56% { opacity: 0.9; }
+  62% { transform: rotate(26deg); }
+}
+
+/* audio — mic bobs to the beat */
+.ci-mic {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ci-host:hover .ci-mic { animation: ci-mic-bob 1.1s ease-in-out infinite; }
+@keyframes ci-mic-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.6px); }
+}
 
 @keyframes ci-flicker {
   0%, 100% { opacity: 0.2; }
@@ -618,36 +659,123 @@ body {
 }
 .ci-ray,
 .ci-wave { opacity: 0.3; }
-.cat-tile:hover .ci-ray,
-.cat-tile:hover .ci-wave { animation: ci-flicker 1.3s ease-in-out infinite; }
+.ci-host:hover .ci-ray,
+.ci-host:hover .ci-wave { animation: ci-flicker 1.3s ease-in-out infinite; }
 .ci-d1 { animation-delay: 0.22s; }
 .ci-d2 { animation-delay: 0.44s; }
 
-@keyframes ci-sway {
-  0%, 100% { transform: rotate(-8deg); }
-  50% { transform: rotate(8deg); }
+/* accessories — meshed gears rock back and forth against each other */
+.ci-gear,
+.ci-gear2 {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.8s var(--ease-out-expo);
 }
-.cat-tile:hover .ci-sway { animation: ci-sway 1.5s ease-in-out infinite; }
+.ci-host:hover .ci-gear { animation: ci-gear-rock 2.4s ease-in-out infinite; }
+.ci-host:hover .ci-gear2 { animation: ci-gear-rock-r 2.4s ease-in-out infinite; }
+@keyframes ci-gear-rock {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(135deg); }
+}
+@keyframes ci-gear-rock-r {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-210deg); }
+}
 
-.ci-lid {
+/* lighting — fresnel head tilts on its yoke */
+.ci-head {
+  transform-box: fill-box;
+  transform-origin: 25% 100%;
+}
+.ci-host:hover .ci-head { animation: ci-head-tilt 2.6s ease-in-out infinite; }
+@keyframes ci-head-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(-4deg); }
+  70% { transform: rotate(3deg); }
+}
+
+/* power — cells fill in sequence, then the battery jolts alive,
+   a bolt flashes and sparks fly off the casing */
+.ci-cell { opacity: 0.15; }
+.ci-host:hover .ci-cell-a { animation: ci-fill-a 3s linear infinite; }
+.ci-host:hover .ci-cell-b { animation: ci-fill-b 3s linear infinite; }
+.ci-host:hover .ci-cell-c { animation: ci-fill-c 3s linear infinite; }
+@keyframes ci-fill-a {
+  0%, 4% { opacity: 0.15; }
+  10%, 88% { opacity: 1; }
+  94%, 100% { opacity: 0.15; }
+}
+@keyframes ci-fill-b {
+  0%, 14% { opacity: 0.15; }
+  20%, 88% { opacity: 1; }
+  94%, 100% { opacity: 0.15; }
+}
+@keyframes ci-fill-c {
+  0%, 24% { opacity: 0.15; }
+  30%, 88% { opacity: 1; }
+  94%, 100% { opacity: 0.15; }
+}
+.ci-batt {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ci-host:hover .ci-batt { animation: ci-energize 3s ease-in-out infinite; }
+@keyframes ci-energize {
+  0%, 31% { transform: scale(1) rotate(0deg); }
+  35% { transform: scale(1.08) rotate(-1.4deg); }
+  39% { transform: scale(1.04) rotate(1.4deg); }
+  43% { transform: scale(1.07) rotate(-1deg); }
+  47% { transform: scale(1.03) rotate(0.7deg); }
+  52%, 86% { transform: scale(1.05) rotate(0deg); }
+  96%, 100% { transform: scale(1) rotate(0deg); }
+}
+.ci-bolt {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+}
+.ci-host:hover .ci-bolt { animation: ci-bolt-flash 3s ease-out infinite; }
+@keyframes ci-bolt-flash {
+  0%, 32% { opacity: 0; transform: scale(0.4); }
+  37% { opacity: 1; transform: scale(1.25); }
+  43% { opacity: 1; transform: scale(1); }
+  56% { opacity: 0.55; }
+  68%, 100% { opacity: 0; transform: scale(1); }
+}
+.ci-spk { opacity: 0; }
+.ci-host:hover .ci-spk { animation: ci-spark-fly 3s ease-out infinite; }
+.ci-host:hover .ci-skd1 { animation-delay: 0.07s; }
+.ci-host:hover .ci-skd2 { animation-delay: 0.15s; }
+@keyframes ci-spark-fly {
+  0%, 33% { opacity: 0; transform: translate(0, 0); }
+  38% { opacity: 1; }
+  58%, 100% { opacity: 0; transform: translate(var(--sx), var(--sy)); }
+}
+
+/* stabilizer — arm sways like an operator on the move while the
+   camera counter-rotates and stays dead level */
+.ci-gimbal-arm {
   transform-box: fill-box;
   transform-origin: 50% 100%;
-  transition: transform 0.45s var(--ease-spring);
 }
-.cat-tile:hover .ci-lid { transform: translateY(-3px) rotate(-4deg); }
-
-.ci-leg { transition: transform 0.5s var(--ease-spring); }
-.cat-tile:hover .ci-leg-l { transform: rotate(-10deg); }
-.cat-tile:hover .ci-leg-r { transform: rotate(10deg); }
-
-.ci-bar {
-  opacity: 0.18;
-  transition: opacity 0.35s ease;
+.ci-host:hover .ci-gimbal-arm { animation: ci-gimbal-sway 2.6s ease-in-out infinite; }
+@keyframes ci-gimbal-sway {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-11deg); }
+  75% { transform: rotate(11deg); }
 }
-.cat-tile:hover .ci-bar { opacity: 1; }
-.cat-tile:hover .ci-bar.ci-bd1 { transition-delay: 0.14s; }
-.cat-tile:hover .ci-bar.ci-bd2 { transition-delay: 0.28s; }
+.ci-gimbal-steady {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ci-host:hover .ci-gimbal-steady { animation: ci-gimbal-counter 2.6s ease-in-out infinite; }
+@keyframes ci-gimbal-counter {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(11deg); }
+  75% { transform: rotate(-11deg); }
+}
 
+/* monitor — waveform draws across the screen */
 @keyframes ci-draw {
   0% { stroke-dashoffset: 42; }
   55%, 100% { stroke-dashoffset: 0; }
@@ -655,9 +783,249 @@ body {
 .ci-scanline {
   stroke-dasharray: 42;
 }
-.cat-tile:hover .ci-scanline { animation: ci-draw 1.6s var(--ease-out-expo) infinite; }
+.ci-host:hover .ci-scanline { animation: ci-draw 1.6s var(--ease-out-expo) infinite; }
 
-.cat-tile:hover .ci-rec { animation: rec-blink 1.2s steps(1) infinite; }
+/* grip — legs splay, arm dips as it takes the weight */
+.ci-leg { transition: transform 0.5s var(--ease-spring); }
+.ci-host:hover .ci-leg-l { transform: rotate(-10deg); }
+.ci-host:hover .ci-leg-r { transform: rotate(10deg); }
+.ci-grip-arm {
+  transform-box: fill-box;
+  transform-origin: 0% 50%;
+  transition: transform 0.5s var(--ease-spring);
+}
+.ci-host:hover .ci-grip-arm { transform: rotate(5deg); }
+
+/* drone — lifts into a hover bob */
+.ci-bob {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ci-host:hover .ci-bob { animation: ci-hover-bob 1.7s ease-in-out infinite; }
+@keyframes ci-hover-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2.4px); }
+}
+
+/* packages — lid swings open, kit boxes pop out and settle neatly
+   around the case (and climb back in on mouse-out) */
+.ci-lid {
+  transform-box: fill-box;
+  transform-origin: 12% 100%;
+  transition: transform 0.5s var(--ease-spring);
+}
+.ci-host:hover .ci-lid { transform: translateY(-4px) rotate(-13deg); }
+.ci-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  transform: translate(var(--px), var(--py)) scale(0.25) rotate(25deg);
+  transition: transform 0.55s var(--ease-spring), opacity 0.3s ease;
+}
+.ci-host:hover .ci-pop {
+  opacity: 1;
+  transform: translate(0, 0) scale(1) rotate(0deg);
+}
+.ci-host:hover .ci-pop-b { transition-delay: 0.09s; }
+.ci-host:hover .ci-pop-c { transition-delay: 0.18s; }
+
+/* always-on accents (REC light, monitor LED) + the hover step-up */
+.ci-host:hover .ci-rec { animation: rec-blink 0.9s steps(1) infinite; }
+@media (prefers-reduced-motion: no-preference) {
+  .ci-rec { animation: rec-blink 1.8s steps(1) infinite; }
+  .ci-pwr { animation: ci-flicker 2.6s ease-in-out infinite; }
+}
+
+/* ── Ambient badges (ab-*) — trust-strip & how-it-works symbols that
+   live on their own, no hover needed. Transform/opacity only (the road
+   scroll is a dashoffset). All motion sits behind the reduced-motion
+   gate so the icons fall back to clean statics. ── */
+.ab-truck,
+.ab-wheel,
+.ab-puff,
+.ab-flip,
+.ab-thumb,
+.ab-spark,
+.ab-conf,
+.ab-clockface,
+.ab-calcheck,
+.ab-lockspark {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ab-hand {
+  transform-box: view-box;
+  transform-origin: 24px 24px;
+}
+.ab-lockbody {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.ab-faceB,
+.ab-conf,
+.ab-wind,
+.ab-skid,
+.ab-puff,
+.ab-spark,
+.ab-lockspark,
+.ab-calcheck { opacity: 0; }
+.ab-road { opacity: 0.35; }
+.ab-card { opacity: 0.45; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* truck — rumble, rolling wheels, scrolling road, wind, skids, exhaust */
+  .ab-truck { animation: ab-rumble 0.42s linear infinite; }
+  .ab-wheel { animation: ci-rot 0.7s linear infinite; }
+  .ab-road { animation: ab-road-roll 0.6s linear infinite; }
+  .ab-wind { animation: ab-wind-streak 1.15s ease-out infinite; }
+  .ab-w2 { animation-delay: 0.38s; }
+  .ab-w3 { animation-delay: 0.76s; }
+  .ab-puff { animation: ab-exhaust 1.4s ease-out infinite; }
+  .ab-p2 { animation-delay: 0.7s; }
+  .ab-skid { animation: ab-skid-mark 0.9s linear infinite; }
+  .ab-s2 { animation-delay: 0.45s; }
+
+  /* shield — coin-flips to a thumbs up and back */
+  .ab-flip { animation: ab-coin-flip 5.2s ease-in-out infinite; }
+  .ab-faceA { animation: ab-face-a 5.2s linear infinite; }
+  .ab-faceB { animation: ab-face-b 5.2s linear infinite; }
+  .ab-thumb { animation: ab-thumb-settle 5.2s ease-out infinite; }
+  .ab-spark { animation: ab-approve-spark 5.2s ease-out infinite; }
+  .ab-spark2 { animation-delay: 0.12s; }
+
+  /* clock — hands race, then the booking lands and confetti goes off */
+  .ab-hand-m { animation: ab-sweep-m 4.8s cubic-bezier(0.5, 0.05, 0.3, 1) infinite; }
+  .ab-hand-h { animation: ab-sweep-h 4.8s cubic-bezier(0.5, 0.05, 0.3, 1) infinite; }
+  .ab-clockface { animation: ab-clock-pop 4.8s ease-out infinite; }
+  .ab-conf { animation: ab-confetti 4.8s ease-out infinite; }
+
+  /* browse — magnifier sweeps the catalogue */
+  .ab-scan { animation: ab-scan-sweep 6s ease-in-out infinite; }
+  .ab-card { animation: ab-card-lit 6s ease-in-out infinite; }
+  .ab-c2 { animation-delay: 1.5s; }
+  .ab-c4 { animation-delay: 3s; }
+  .ab-c3 { animation-delay: 4.5s; }
+
+  /* calendar — the chosen date hops cell to cell, lands with a tick */
+  .ab-day { animation: ab-day-hop 5s var(--ease-spring) infinite; }
+  .ab-calcheck { animation: ab-cal-check 5s ease-out infinite; }
+
+  /* lock — shackle lifts, clicks home with a spark */
+  .ab-shackle { animation: ab-shackle-click 4.2s ease-in-out infinite; }
+  .ab-lockbody { animation: ab-lock-click 4.2s ease-out infinite; }
+  .ab-lockspark { animation: ab-lock-spark 4.2s ease-out infinite; }
+  .ab-ls2 { animation-delay: 0.06s; }
+}
+
+@keyframes ab-rumble {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  20% { transform: translateY(-0.5px) rotate(0.3deg); }
+  40% { transform: translateY(0.25px) rotate(-0.25deg); }
+  60% { transform: translateY(-0.3px) rotate(0.2deg); }
+  80% { transform: translateY(0.4px) rotate(-0.3deg); }
+}
+@keyframes ab-road-roll {
+  to { stroke-dashoffset: -18; }
+}
+@keyframes ab-wind-streak {
+  0% { transform: translateX(7px); opacity: 0; }
+  30% { opacity: 0.85; }
+  100% { transform: translateX(-9px); opacity: 0; }
+}
+@keyframes ab-exhaust {
+  0% { transform: translate(0, 0) scale(0.3); opacity: 0; }
+  25% { opacity: 0.7; }
+  100% { transform: translate(-6px, -5px) scale(1.3); opacity: 0; }
+}
+@keyframes ab-skid-mark {
+  0% { transform: translateX(0); opacity: 0.7; }
+  100% { transform: translateX(-9px); opacity: 0; }
+}
+@keyframes ab-coin-flip {
+  0%, 38% { transform: scaleX(1); }
+  44% { transform: scaleX(0.06); }
+  50%, 80% { transform: scaleX(1); }
+  86% { transform: scaleX(0.06); }
+  92%, 100% { transform: scaleX(1); }
+}
+@keyframes ab-face-a {
+  0%, 43.9% { opacity: 1; }
+  44%, 85.9% { opacity: 0; }
+  86%, 100% { opacity: 1; }
+}
+@keyframes ab-face-b {
+  0%, 43.9% { opacity: 0; }
+  44%, 85.9% { opacity: 1; }
+  86%, 100% { opacity: 0; }
+}
+@keyframes ab-thumb-settle {
+  0%, 44% { transform: scale(1) rotate(0deg); }
+  49% { transform: scale(1.14) rotate(-7deg); }
+  56%, 100% { transform: scale(1) rotate(0deg); }
+}
+@keyframes ab-approve-spark {
+  0%, 47% { opacity: 0; transform: scale(0.4); }
+  53% { opacity: 1; transform: scale(1.2); }
+  64%, 100% { opacity: 0; transform: scale(1); }
+}
+@keyframes ab-sweep-m {
+  0% { transform: rotate(0deg); }
+  50%, 100% { transform: rotate(1080deg); }
+}
+@keyframes ab-sweep-h {
+  0% { transform: rotate(0deg); }
+  50%, 100% { transform: rotate(360deg); }
+}
+@keyframes ab-clock-pop {
+  0%, 50% { transform: scale(1); }
+  55% { transform: scale(1.1); }
+  60% { transform: scale(0.97); }
+  64%, 100% { transform: scale(1); }
+}
+@keyframes ab-confetti {
+  0%, 52% { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0.3); }
+  56% { opacity: 1; }
+  74% { opacity: 1; transform: translate(var(--cx), var(--cy)) rotate(var(--cr)) scale(1); }
+  88%, 100% { opacity: 0; transform: translate(var(--cx), calc(var(--cy) + 5px)) rotate(var(--cr)) scale(0.9); }
+}
+@keyframes ab-scan-sweep {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(12px, 1px); }
+  50% { transform: translate(11px, 12px); }
+  75% { transform: translate(-1px, 11px); }
+}
+@keyframes ab-card-lit {
+  0%, 10% { opacity: 1; }
+  22%, 92% { opacity: 0.45; }
+  100% { opacity: 1; }
+}
+@keyframes ab-day-hop {
+  0%, 20% { transform: translate(0, 0); }
+  27%, 45% { transform: translate(7.5px, 0); }
+  52%, 70% { transform: translate(15px, 0); }
+  77%, 100% { transform: translate(15px, 7px); }
+}
+@keyframes ab-cal-check {
+  0%, 76% { opacity: 0; transform: scale(0.4); }
+  82% { opacity: 1; transform: scale(1.25); }
+  90%, 100% { opacity: 1; transform: scale(1); }
+}
+@keyframes ab-shackle-click {
+  0%, 26% { transform: translateY(0); }
+  38%, 56% { transform: translateY(-3.5px); }
+  66%, 100% { transform: translateY(0); }
+}
+@keyframes ab-lock-click {
+  0%, 64% { transform: scale(1); }
+  69% { transform: scale(1.07, 0.94); }
+  75% { transform: scale(0.98, 1.03); }
+  81%, 100% { transform: scale(1); }
+}
+@keyframes ab-lock-spark {
+  0%, 65% { opacity: 0; transform: scale(0.4); }
+  70% { opacity: 1; transform: scale(1.15); }
+  80%, 100% { opacity: 0; transform: scale(1); }
+}
 
 /* ── Accent glows — themable replacements for hardcoded shadows ── */
 @utility accent-glow {

@@ -2,7 +2,8 @@
 
 import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { IconSliders, IconBox, IconSearch } from "@/components/icons";
+import { IconSliders, IconSearch } from "@/components/icons";
+import { CategoryIcon } from "@/components/CategoryIcon";
 import { PageHero } from "@/components/PageHero";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -88,7 +89,7 @@ function GearPageInner() {
                 <button
                   key={t.name}
                   onClick={() => setCat(t.name)}
-                  className={`shrink-0 rounded-full px-4 py-1.5 text-sm transition-all ${
+                  className={`ci-host flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-sm transition-all ${
                     cat === t.name
                       ? "accent-glow bg-accent-500 text-white"
                       : "glass text-white/50 hover:text-white"
@@ -98,7 +99,7 @@ function GearPageInner() {
                       : ""
                   }`}
                 >
-                  {t.name === "Packages" && <IconBox className="mr-1.5 inline h-3.5 w-3.5 align-[-3px]" />}
+                  {t.name !== "All" && <CategoryIcon name={t.name} className="h-4 w-4" />}
                   {t.name}{" "}
                   <span className="font-mono text-xs opacity-60">{t.count}</span>
                 </button>

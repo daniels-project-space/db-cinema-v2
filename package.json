@@ -12,8 +12,6 @@
     "@aws-sdk/s3-request-presigner": "^3.1062.0",
     "@mastra/core": "^1.41.0",
     "@openrouter/ai-sdk-provider": "^2.9.0",
-    "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.6.1",
     "@trigger.dev/sdk": "^4.4.6",
     "ai": "^6.0.197",
     "convex": "^1.40.0",
@@ -21,7 +19,6 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "stripe": "^22.2.0",
-    "three": "^0.184.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -29,7 +26,6 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/three": "^0.184.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

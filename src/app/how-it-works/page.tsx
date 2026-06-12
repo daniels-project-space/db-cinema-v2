@@ -3,16 +3,17 @@ import { PageHero } from "@/components/PageHero";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
 import { IconArrowRight, IconClock, IconBolt } from "@/components/icons";
+import { BadgeBrowse, BadgeCalendar, BadgeLock, BadgeTruck } from "@/components/AnimatedIcons";
 import { HOURS_WINDOWS } from "@/lib/site";
 
 export const metadata = { title: "How it works — Db Cinema Rentals" };
 
 const STEPS = [
-  ["01", "Browse", "Find the gear you need by category — cameras, lenses, lighting, audio and more. Each listing shows live availability and multi-day rates."],
-  ["02", "Pick your dates", "Choose your start and end date on the calendar. The longer you rent, the better the per-day rate — applied automatically. Add suggested kit in one tap."],
-  ["03", "Book & pay securely", "Checkout with card via Stripe. We take the rental plus a refundable deposit, released on safe return."],
-  ["04", "Pickup or delivery", "Collect from central London or get it delivered locally. Shoot, then return it on your end date — that's it."],
-];
+  ["01", "Browse", "Find the gear you need by category — cameras, lenses, lighting, audio and more. Each listing shows live availability and multi-day rates.", BadgeBrowse],
+  ["02", "Pick your dates", "Choose your start and end date on the calendar. The longer you rent, the better the per-day rate — applied automatically. Add suggested kit in one tap.", BadgeCalendar],
+  ["03", "Book & pay securely", "Checkout with card via Stripe. We take the rental plus a refundable deposit, released on safe return.", BadgeLock],
+  ["04", "Pickup or delivery", "Collect from central London or get it delivered locally. Shoot, then return it on your end date — that's it.", BadgeTruck],
+] as const;
 
 export default function HowItWorksPage() {
   return (
@@ -30,7 +31,7 @@ export default function HowItWorksPage() {
         <Reveal className="relative mt-12">
           <div className="timeline-line left-[19px] hidden sm:block" aria-hidden />
           <div className="flex flex-col gap-6">
-            {STEPS.map(([n, h, p], i) => (
+            {STEPS.map(([n, h, p, Icon], i) => (
               <Reveal key={n} delay={i * 110}>
                 <div className="relative flex gap-6 sm:pl-14">
                   <span
@@ -40,9 +41,16 @@ export default function HowItWorksPage() {
                     {n}
                   </span>
                   <div className="spot gradient-border flex-1 rounded-2xl p-6">
-                    <div className="font-poster text-3xl text-accent-400/30 sm:hidden">{n}</div>
-                    <h2 className="font-display text-xl font-semibold text-white/90 sm:mt-0">{h}</h2>
-                    <p className="mt-2 text-sm leading-relaxed text-white/50">{p}</p>
+                    <div className="flex items-start gap-5">
+                      <span className="mt-0.5 flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400">
+                        <Icon className="h-10 w-10" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-poster text-3xl text-accent-400/30 sm:hidden">{n}</div>
+                        <h2 className="font-display text-xl font-semibold text-white/90 sm:mt-0">{h}</h2>
+                        <p className="mt-2 text-sm leading-relaxed text-white/50">{p}</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </Reveal>
