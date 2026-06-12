@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
 import { IconSliders, IconX, IconSend, IconTrash, IconCheck, IconArrowRight } from "@/components/icons";
 import { useAction } from "convex/react";
@@ -368,15 +369,24 @@ function CardView({ card, state, onAdd, onDecline, onAlt, onAddBooking, addonBus
       ) : (
         <div className="flex gap-3">
           {card.item.image && (
-            <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg">
+            <Link href={`/gear/${card.item.slug}`} className="block h-16 w-16 shrink-0 overflow-hidden rounded-lg">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={card.item.image} alt="" className="h-full w-full object-cover transition-transform duration-500 hover:scale-110" />
-            </div>
+              <img src={card.item.image} alt={card.item.title} className="h-full w-full object-cover transition-transform duration-500 hover:scale-110" />
+            </Link>
           )}
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-white/90">{card.item.title}</div>
+            <Link
+              href={`/gear/${card.item.slug}`}
+              className="block truncate text-sm font-medium text-white/90 transition-colors hover:text-accent-300"
+            >
+              {card.item.title}
+            </Link>
             <div className="font-mono text-[11px] text-white/45">
-              {card.item.start} → {card.item.end} ·{" "}
+              {card.item.estimated ? (
+                <>£{card.item.perDay}/day · </>
+              ) : (
+                <>{card.item.start} → {card.item.end} · </>
+              )}
               {card.item.memberTotal != null ? (
                 <>
                   <span className="line-through">£{card.item.total}</span>{" "}
@@ -386,7 +396,9 @@ function CardView({ card, state, onAdd, onDecline, onAlt, onAddBooking, addonBus
               ) : (
                 <>£{card.item.total}</>
               )}{" "}
-              ({card.item.days}d)
+              <span className={card.item.estimated ? "text-white/30" : ""}>
+                ({card.item.days}d{card.item.estimated ? " est." : ""})
+              </span>
             </div>
             <div className="mt-0.5 text-[11px] leading-relaxed text-white/40">{card.reason}</div>
           </div>

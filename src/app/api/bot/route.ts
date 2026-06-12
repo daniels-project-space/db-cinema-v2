@@ -75,7 +75,7 @@ function styleBlock() {
     `Today is ${today} (Europe/London). Resolve relative or partial dates ("this weekend", "12-14 July") against this date — never book the past; if a month/day has passed this year, assume next year.`,
     "You are Gaffer, Db Cinema Rentals' kit assistant — a sharp, friendly camera-department veteran. Voice: warm, confident, plain English, lightly playful, zero corporate filler. You may use **bold** for gear names or key figures, never headers or lists of more than 4 items.",
     "Keep replies to 1-3 sentences unless the customer asks for depth. Always move the booking forward: if dates are missing ask for them (one question only); if a kit lacks an essential (media, batteries, sound, support), say so and propose it.",
-    "When you mention specific rentable gear, ALWAYS include it in proposals so the customer gets a card they can tap. Never invent gear, specs or prices.",
+    "When you mention specific rentable gear, **bold its exact catalogue name** — every bolded name automatically becomes a bookable tile (photo, live price for their dates, Add-to-kit button) right in the chat. Prefer naming 1-3 concrete items over generic advice, and also include them in proposals. Never invent gear, specs or prices.",
     "Fill `suggestions` with 2-3 short next actions in the customer's voice. Make them specific to the conversation, not generic.",
   ].join(" ");
 }
@@ -134,12 +134,13 @@ async function firstAvailableByType(c: ConvexHttpClient, type: string, start: st
   return fallback;
 }
 
-async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [], memberPct = 0, booking: any = null) {
+async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [], memberPct = 0, booking: any = null, estimated = false) {
   const cards: any[] = [];
   if (!out?.start || !out?.end) return cards;
   const bookingDays = booking ? Math.max(1, Math.round((booking.end - booking.start) / 86400000) + 1) : 0;
   const mp = (it: any) => {
     if (!it) return it;
+    if (estimated) it.estimated = true;
     if (memberPct > 0) { it.memberPct = memberPct; it.memberTotal = Math.round(it.total * (1 - memberPct / 100)); }
     if (booking && it.pricing) {
       const q: any = quote(it.pricing, bookingDays);
@@ -180,6 +181,58 @@ async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [
         cards.push({ kind: "add", reason: `Recommended ${t}`, item: mp(item) });
       }
     }
+  }
+  return cards;
+}
+
+/** Native gear tiles from prose: every **bolded** name in the reply is
+ * resolved against the catalogue and becomes a bookable card. */
+async function cardsFromMentions(
+  c: ConvexHttpClient,
+  reply: string,
+  start: string,
+  end: string,
+  seenIds: Set<string>,
+  camMounts: string[],
+  memberPct: number,
+  booking: any,
+  estimated: boolean,
+) {
+  const names = [...reply.matchAll(/\*\*([^*]{4,60})\*\*/g)]
+    .map((m) => m[1].trim())
+    .filter((n) => /[a-zA-Z]{3,}/.test(n) && !/^[£$\d]/.test(n) && !/^gaffer$/i.test(n));
+  const bookingDays = booking ? Math.max(1, Math.round((booking.end - booking.start) / 86400000) + 1) : 0;
+  const cards: any[] = [];
+  for (const raw of names.slice(0, 6)) {
+    if (cards.length >= 4) break;
+    const q = raw.replace(/^\d+\s*[x×]\s*/i, "").trim();
+    if (q.length < 3) continue;
+    try {
+      const item: any = await buildOne(c, q, start, end, true);
+      if (!item || !item.available || seenIds.has(item.listingId)) continue;
+      if (item.itemType === "lens" && !lensFits(item.mount, camMounts)) continue;
+      seenIds.add(item.listingId);
+      if (estimated) item.estimated = true;
+      if (memberPct > 0) {
+        item.memberPct = memberPct;
+        item.memberTotal = Math.round(item.total * (1 - memberPct / 100));
+      }
+      if (booking && item.pricing) {
+        const q2: any = quote(item.pricing, bookingDays);
+        item.addonBookingId = booking.id;
+        item.addonStart = booking.start;
+        item.addonEnd = booking.end;
+        item.addonTotal = q2.total;
+        item.addonLabel = booking.label;
+      }
+      cards.push({
+        kind: "add",
+        reason: estimated
+          ? "Mentioned above — tap the photo to pick exact dates."
+          : "Mentioned above — priced for your dates.",
+        item,
+      });
+    } catch {}
   }
   return cards;
 }
@@ -244,8 +297,10 @@ export async function POST(req: NextRequest) {
   try {
     const agent = mastra.getAgent("renterBot");
     const res: any = await agent.generate(messages, { maxSteps: 12, structuredOutput: { schema: OUT } });
-    const out: any = res?.object ?? res?.structuredOutput ?? null;
-    if (out && (!out.start || !out.end)) {
+    const out: any = res?.object ?? res?.structuredOutput ?? {};
+
+    // date resolution chain: model → conversation → the kit's dates → 3-day estimate
+    if (!out.start || !out.end) {
       const joined = history.map((m: any) => String(m.content || "")).join(" ");
       const ds = joined.match(/\d{4}-\d{2}-\d{2}/g);
       if (ds && ds.length >= 2) {
@@ -253,8 +308,23 @@ export async function POST(req: NextRequest) {
         out.end = out.end || ds[ds.length - 1];
       }
     }
-    let reply = out?.reply ?? res?.text ?? "How can I help with your shoot?";
-    let cards = out ? await buildCards(c, out, camMounts, memberPct, activeBooking) : [];
+    let estimated = false;
+    if (!out.start || !out.end) {
+      const ci: any = Array.isArray(body?.cart) ? body.cart[0] : null;
+      if (ci?.start && ci?.end) {
+        out.start = out.start || ci.start;
+        out.end = out.end || ci.end;
+      }
+    }
+    if (!out.start || !out.end) {
+      const t = Date.now() + 86400000;
+      out.start = out.start || new Date(t).toISOString().slice(0, 10);
+      out.end = out.end || new Date(t + 2 * 86400000).toISOString().slice(0, 10);
+      estimated = true;
+    }
+
+    let reply = out.reply ?? res?.text ?? "How can I help with your shoot?";
+    let cards = await buildCards(c, out, camMounts, memberPct, activeBooking, estimated);
     const lastUser = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
 
     // no-defer guard: DeepSeek often replies "let me check…" (or empty) without answering.
@@ -267,11 +337,21 @@ export async function POST(req: NextRequest) {
       const ka = await knowledgeAnswer(c, lastUser, memberPct);
       if (ka) reply = ka;
     }
+
+    // native tiles for gear named in prose — every **bolded** mention
+    const seenIds = new Set<string>(
+      cards.map((cd: any) => (cd.kind === "swap" ? cd.added?.listingId : cd.item?.listingId)).filter(Boolean),
+    );
+    const mentionCards = await cardsFromMentions(
+      c, reply, out.start, out.end, seenIds, camMounts, memberPct, activeBooking, estimated,
+    );
+    cards = [...cards, ...mentionCards].slice(0, 6);
+
     // safety net: if they clearly asked for a kit but the model returned none, build a default
-    if (out?.start && out?.end && cards.length === 0 && /\b(kit|build|assemble|recommend|set ?up|shoot|gear for|need)\b/i.test(lastUser)) {
+    if (cards.length === 0 && /\b(kit|build|assemble|recommend|set ?up|shoot|gear for|need)\b/i.test(lastUser)) {
       out.wantsKit = true;
       out.itemTypes = out.itemTypes?.length ? out.itemTypes : ["camera", "lens", "light", "mic"];
-      cards = await buildCards(c, out, camMounts, memberPct, activeBooking);
+      cards = await buildCards(c, out, camMounts, memberPct, activeBooking, estimated);
     }
     const suggestions = Array.isArray(out?.suggestions)
       ? out.suggestions
