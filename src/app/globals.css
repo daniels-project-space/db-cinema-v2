@@ -863,10 +863,12 @@ body {
   -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 30%, #000 30%, transparent 95%);
   mask-image: radial-gradient(ellipse 90% 80% at 50% 30%, #000 30%, transparent 95%);
 }
+/* one faint drift every ~16s (sweep ≈ 4s, then a long rest) */
 @keyframes chat-scan {
   0% { transform: translateY(-30px); opacity: 0; }
-  12% { opacity: 1; }
-  88% { opacity: 1; }
+  4% { opacity: 0.45; }
+  21% { opacity: 0.45; }
+  25% { transform: translateY(640px); opacity: 0; }
   100% { transform: translateY(640px); opacity: 0; }
 }
 .chat-scanline {
@@ -874,10 +876,10 @@ body {
   left: 0;
   right: 0;
   top: 0;
-  height: 1.5px;
+  height: 1px;
   pointer-events: none;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent-400) 28%, transparent), transparent);
-  animation: chat-scan 8s linear infinite;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent-400) 14%, transparent), transparent);
+  animation: chat-scan 16s ease-in-out infinite;
 }
 
 /* pointer spotlight on the panel (fed by SpotlightEffect, like .spot).
