@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { IconSliders, IconCamera, IconBolt, IconCheck, IconX, IconChevronLeft, IconArrowRight } from "@/components/icons";
+import { IconSliders, IconBolt, IconCheck, IconX, IconChevronLeft, IconArrowRight } from "@/components/icons";
+import { BotAvatarBadge, type BotMood } from "@/components/chat/BotAvatar";
+import { Stream, TypingIndicator } from "@/components/chat/ChatKit";
 import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
@@ -172,9 +174,16 @@ export default function AssemblePage() {
             <span className="hidden h-px w-8 bg-accent-400/60 sm:block" aria-hidden />
             <span className="hud-label !text-accent-400/90">AI item assembly</span>
           </div>
-          <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
-            Build the perfect <span className="serif-accent gradient-text text-[1.06em]">kit</span>
-          </h1>
+          <div className="mt-3 flex items-center gap-4">
+            <BotAvatarBadge mood={loading ? "thinking" : "idle"} size={52} className="hidden sm:flex" />
+            <h1 className="font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
+              Build the perfect <span className="serif-accent gradient-text text-[1.06em]">kit</span>
+            </h1>
+          </div>
+          <p className="mt-2 text-sm text-white/40">
+            <span className="font-medium text-white/60">Gaffer</span> picks compatible gear for your shoot, priced
+            for your dates — you approve every item.
+          </p>
         </div>
 
         {/* ── CONVERSATIONAL ONBOARDING ── */}
@@ -244,29 +253,44 @@ export default function AssemblePage() {
                 </div>
               </Controls>
             )}
+            {loading && <TypingIndicator label="designing your kit…" />}
           </section>
         )}
 
         {/* ── BOT-DRIVEN BUILD THREAD ── */}
         {data && (
           <section className="mt-6 space-y-4">
-            <div className="flex flex-wrap items-center gap-1.5 pl-11">
+            <div className="flex flex-wrap items-center gap-1.5 pl-12">
               {stages.map((s: any, i: number) => (
-                <button key={i} onClick={() => i <= stageIdx && setStageIdx(i)} className={`h-1.5 rounded-full transition-all ${i === stageIdx && !onReview ? "w-8 bg-accent-400" : i < stageIdx || onReview ? "w-4 bg-emerald-400/60" : "w-4 bg-white/15"}`} title={s.label} />
+                <button
+                  key={i}
+                  onClick={() => i <= stageIdx && setStageIdx(i)}
+                  aria-label={`Step ${i + 1}: ${s.label}`}
+                  className={`h-1.5 rounded-full transition-all duration-500 ${
+                    i === stageIdx && !onReview
+                      ? "accent-glow w-9 bg-accent-400"
+                      : i < stageIdx || onReview
+                        ? "w-4 bg-emerald-400/60 hover:bg-emerald-400"
+                        : "w-4 bg-white/15"
+                  }`}
+                  title={s.label}
+                />
               ))}
-              <span className="ml-2 text-[11px] text-white/40">{onReview ? "Review" : `Step ${stageIdx + 1} of ${stages.length}`}</span>
+              <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.14em] text-white/40">
+                {onReview ? "Review" : `Step ${stageIdx + 1} / ${stages.length}`}
+              </span>
             </div>
 
-            <Ai><Stream text={data.reply || "Let's build your kit."} /></Ai>
+            <Ai mood="talking"><Stream text={data.reply || "Let's build your kit."} /></Ai>
 
             {stages.slice(0, onReview ? stages.length : stageIdx + 1).map((s: any, si: number) => {
               const opts = visibleFor(s);
               const isSkip = skipped(s);
               return (
                 <div key={si} className="stage-in space-y-2">
-                  <div className="msg-in flex items-start gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-accent-300"><IconCamera className="h-5 w-5" /></div>
-                    <div className="rounded-2xl rounded-tl-sm border border-white/5 bg-white/[0.04] px-4 py-3">
+                  <div className="msg-left flex items-start gap-3">
+                    <BotAvatarBadge mood={si === stageIdx && !onReview ? "talking" : "idle"} size={34} />
+                    <div className="rounded-2xl rounded-tl-md border border-white/[0.07] bg-white/[0.045] px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-display font-semibold text-white/90">{s.label}</span>
                         {s.upsell && <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[11px] text-amber-300"><IconBolt className="h-3 w-3" />upgrade</span>}
@@ -277,9 +301,9 @@ export default function AssemblePage() {
                   </div>
 
                   {isSkip ? (
-                    <div className="pl-11 text-sm text-white/50">Action camera has a fixed lens — skipping ahead.</div>
+                    <div className="pl-12 text-sm text-white/50">Action camera has a fixed lens — skipping ahead.</div>
                   ) : (
-                    <div className="flex gap-3 overflow-x-auto pb-2 pl-11">
+                    <div className="flex gap-3 overflow-x-auto pb-2 pl-12">
                       {[...opts].sort((a: any, b: any) => (a.listingId === s.recommendedId ? -1 : 0) - (b.listingId === s.recommendedId ? -1 : 0)).map((o: any, i: number) => {
                         const on = !!sel[o.listingId];
                         const rec = o.listingId === s.recommendedId;
@@ -305,7 +329,7 @@ export default function AssemblePage() {
             })}
 
             {!onReview ? (
-              <div className="flex justify-between pl-11">
+              <div className="flex justify-between pl-12">
                 <button onClick={() => setStageIdx((i) => Math.max(0, i - 1))} disabled={stageIdx === 0} className="btn-ghost px-5 py-2 text-sm">
                   <IconChevronLeft className="h-4 w-4" /> Back
                 </button>
@@ -315,8 +339,8 @@ export default function AssemblePage() {
               </div>
             ) : (
               <div className="stage-in space-y-3">
-                <Ai><Stream text="Here's your kit — check it over, then add it to your basket." /></Ai>
-                <div className="flex flex-col gap-2 pl-11">
+                <Ai mood="talking"><Stream text="Here's your kit — check it over, then add it to your basket." /></Ai>
+                <div className="flex flex-col gap-2 pl-12">
                   {selList.length === 0 && <div className="text-sm text-white/40">Nothing selected yet — scroll up and pick some gear.</div>}
                   {selList.map((c) => (
                     <div key={c.listingId} className="flex items-center gap-3 rounded-xl glass p-2">
@@ -327,7 +351,7 @@ export default function AssemblePage() {
                   ))}
                 </div>
                 {(warnings.length > 0 || data.compatibility?.length > 0) && (
-                  <div className="ml-11 rounded-2xl glass p-5">
+                  <div className="ml-12 rounded-2xl glass p-5">
                     <h3 className="font-display font-semibold text-white/80">Compatibility check</h3>
                     <ul className="mt-3 space-y-1.5 text-sm text-white/55">
                       {warnings.map((w, i) => <li key={`w${i}`} className="flex gap-2"><span className="text-amber-400">!</span> {w}</li>)}
@@ -335,7 +359,7 @@ export default function AssemblePage() {
                     </ul>
                   </div>
                 )}
-                <div className="pl-11"><button onClick={() => setStageIdx(stages.length - 1)} className="btn-ghost px-5 py-2 text-sm"><IconChevronLeft className="h-4 w-4" /> Back to gear</button></div>
+                <div className="pl-12"><button onClick={() => setStageIdx(stages.length - 1)} className="btn-ghost px-5 py-2 text-sm"><IconChevronLeft className="h-4 w-4" /> Back to gear</button></div>
               </div>
             )}
             <div ref={endRef} />
@@ -374,12 +398,15 @@ export default function AssemblePage() {
                   <span className="text-white/35"> / £{budget}{memberDiscount > 0 ? ` · ${tier?.name} −${memberPct}%` : ""}</span>
                   {overBudget && <span className="ml-2 text-red-400">over budget</span>}
                 </div>
-                <div className="mt-1 h-1.5 w-56 overflow-hidden rounded-full bg-white/10">
-                  <div className={`h-full transition-all ${overBudget ? "bg-red-400" : finalTotal > budget * 0.9 ? "bg-amber-400" : "bg-emerald-400"}`} style={{ width: `${Math.min(100, (finalTotal / budget) * 100)}%` }} />
+                <div className={`mt-1 h-1.5 w-56 overflow-hidden rounded-full bg-white/10 ${overBudget ? "budget-over" : ""}`}>
+                  <div
+                    className={`budget-fill h-full w-full rounded-full ${overBudget ? "bg-red-400" : finalTotal > budget * 0.9 ? "bg-amber-400" : "bg-emerald-400"}`}
+                    style={{ transform: `scaleX(${Math.min(1, finalTotal / budget)})` }}
+                  />
                 </div>
               </div>
               <button onClick={addAll} disabled={selList.length === 0} className="btn-primary shrink-0 px-6 py-3">
-                Add {selList.length || ""} to kit →
+                Add {selList.length || ""} to kit
               </button>
             </div>
           </div>
@@ -389,42 +416,25 @@ export default function AssemblePage() {
   );
 }
 
-function Ai({ children }: { children: React.ReactNode }) {
+function Ai({ children, mood = "idle" as BotMood }: { children: React.ReactNode; mood?: BotMood }) {
   return (
-    <div className="msg-in flex items-start gap-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-accent-300"><IconCamera className="h-4 w-4" /></div>
-      <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-white/5 bg-white/[0.04] px-4 py-2.5 text-sm leading-relaxed text-white/75">{children}</div>
+    <div className="msg-left flex items-end gap-3">
+      <BotAvatarBadge mood={mood} size={34} className="mb-0.5" />
+      <div className="max-w-[80%] rounded-2xl rounded-bl-md border border-white/[0.07] bg-white/[0.045] px-4 py-2.5 text-sm leading-relaxed text-white/80">
+        {children}
+      </div>
     </div>
   );
 }
 function UserMsg({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex justify-end">
-      <div className="msg-in rounded-2xl rounded-tr-sm bg-accent-500 px-4 py-2 text-sm text-white">{children}</div>
+    <div className="msg-right flex justify-end">
+      <div className="rounded-2xl rounded-br-md bg-gradient-to-br from-accent-500 to-accent-600 px-4 py-2 text-sm text-white shadow-[0_6px_20px_-8px_color-mix(in_srgb,var(--color-accent-500)_70%,transparent)]">
+        {children}
+      </div>
     </div>
   );
 }
 function Controls({ children }: { children: React.ReactNode }) {
-  return <div className="msg-in pl-11">{children}</div>;
-}
-
-function Stream({ text }: { text: string }) {
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    setN(0);
-    if (!text) return;
-    let i = 0;
-    const id = setInterval(() => {
-      i += 2;
-      setN(i);
-      if (i >= text.length) clearInterval(id);
-    }, 16);
-    return () => clearInterval(id);
-  }, [text]);
-  return (
-    <>
-      {text.slice(0, n)}
-      {n < text.length && <span className="opacity-50">▋</span>}
-    </>
-  );
+  return <div className="chip-in pl-12">{children}</div>;
 }

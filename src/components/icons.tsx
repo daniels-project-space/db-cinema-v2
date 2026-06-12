@@ -222,6 +222,16 @@ export function IconTrash(p: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Send — chat composer. */
+export function IconSend(p: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(p)}>
+      <path d="M4.5 11.5L20 4l-4.5 16-4-7z" />
+      <path d="M11.5 13L20 4" />
+    </svg>
+  );
+}
+
 /** Ticket — membership. */
 export function IconTicket(p: SVGProps<SVGSVGElement>) {
   return (

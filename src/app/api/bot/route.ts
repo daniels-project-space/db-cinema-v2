@@ -59,7 +59,26 @@ const OUT = z.object({
     .describe("gear types to include, e.g. ['camera','lens','gimbal','light','nd-filter','battery','monitor','mic','tripod']"),
   proposals: z.array(z.object({ slug: z.string(), reason: z.string() })).optional(),
   swaps: z.array(z.object({ removeSlug: z.string(), addSlug: z.string(), reason: z.string() })).optional(),
+  suggestions: z
+    .array(z.string())
+    .max(3)
+    .optional()
+    .describe(
+      "2-3 short follow-up actions the customer would plausibly tap next, phrased in THEIR voice (e.g. 'Add a tripod', 'What about low light?', 'Cheaper option?'). Max 5 words each.",
+    ),
 });
+
+/** Persona + behaviour rules, prepended to every conversation. */
+function styleBlock() {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  return [
+    `Today is ${today} (Europe/London). Resolve relative or partial dates ("this weekend", "12-14 July") against this date — never book the past; if a month/day has passed this year, assume next year.`,
+    "You are Gaffer, Db Cinema Rentals' kit assistant — a sharp, friendly camera-department veteran. Voice: warm, confident, plain English, lightly playful, zero corporate filler. You may use **bold** for gear names or key figures, never headers or lists of more than 4 items.",
+    "Keep replies to 1-3 sentences unless the customer asks for depth. Always move the booking forward: if dates are missing ask for them (one question only); if a kit lacks an essential (media, batteries, sound, support), say so and propose it.",
+    "When you mention specific rentable gear, ALWAYS include it in proposals so the customer gets a card they can tap. Never invent gear, specs or prices.",
+    "Fill `suggestions` with 2-3 short next actions in the customer's voice. Make them specific to the conversation, not generic.",
+  ].join(" ");
+}
 
 const TERM: Record<string, string> = {
   "camera-body": "camera", camera: "camera", lens: "lens", lenses: "lens",
@@ -221,7 +240,7 @@ export async function POST(req: NextRequest) {
     } catch {}
   }
 
-  const messages = ctx ? [{ role: "system", content: ctx }, ...history] : history;
+  const messages = [{ role: "system", content: ctx ? `${styleBlock()} ${ctx}` : styleBlock() }, ...history];
   try {
     const agent = mastra.getAgent("renterBot");
     const res: any = await agent.generate(messages, { maxSteps: 12, structuredOutput: { schema: OUT } });
@@ -254,7 +273,10 @@ export async function POST(req: NextRequest) {
       out.itemTypes = out.itemTypes?.length ? out.itemTypes : ["camera", "lens", "light", "mic"];
       cards = await buildCards(c, out, camMounts, memberPct, activeBooking);
     }
-    return NextResponse.json({ reply, cards, booking: activeBooking });
+    const suggestions = Array.isArray(out?.suggestions)
+      ? out.suggestions.filter((s: any) => typeof s === "string" && s.trim()).slice(0, 3).map((s: string) => s.trim().slice(0, 48))
+      : [];
+    return NextResponse.json({ reply, cards, suggestions, booking: activeBooking });
   } catch {
     return NextResponse.json({
       reply: "Sorry, I'm having a moment — please try again, or reach us via the contact page.",
