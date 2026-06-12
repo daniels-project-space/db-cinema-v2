@@ -60,10 +60,8 @@ const _ray = new THREE.Raycaster();
 const _plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 const _cursor = new THREE.Vector3();
 
-/** AI-generated cinema rig (fal.ai flux → Rodin image-to-3D). The baked
- * albedo comes out washed grey — dark glossy objects delight badly — so the
- * material pass below regrades it to matte graphite at load: tint the base
- * colour down, drop the metallic/roughness maps, keep albedo + normal detail. */
+/** AI-generated cinema rig (fal.ai flux → Hunyuan3D-2.1 PBR paint stage —
+ * proper dark albedo + real metallic/roughness maps, used as baked). */
 function ModelRig({
   ptr,
   accent,
@@ -83,11 +81,6 @@ function ModelRig({
     glb.traverse((o) => {
       if (!(o as THREE.Mesh).isMesh) return;
       const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial;
-      m.color.setRGB(0.62, 0.62, 0.65);
-      m.metalnessMap = null;
-      m.roughnessMap = null;
-      m.metalness = 0.3;
-      m.roughness = 0.52;
       m.envMapIntensity = 1.1;
       m.needsUpdate = true;
     });
