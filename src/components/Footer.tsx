@@ -22,7 +22,7 @@ export async function Footer() {
       <div className="mx-auto grid max-w-7xl gap-10 px-6 py-14 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <div className="font-poster text-4xl uppercase leading-none sm:text-5xl">
-            <span className="text-white">DB</span> <span className="gradient-text">Cinema</span>
+            <span className="text-white">DB</span> <span className="gradient-text sheen">Cinema</span>
           </div>
           <div className="mt-2 flex items-center gap-2">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />

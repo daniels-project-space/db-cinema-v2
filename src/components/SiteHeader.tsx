@@ -86,7 +86,7 @@ export function SiteHeader() {
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={avatar} alt="" className="h-7 w-7 rounded-full object-cover ring-1 ring-accent-400/50" />
-                  <span className="max-w-[90px] truncate text-sm text-white/80">
+                  <span className="max-w-[90px] truncate text-sm text-white/80" title={me.name || me.email}>
                     {me.name || me.email.split("@")[0]}
                   </span>
                 </button>

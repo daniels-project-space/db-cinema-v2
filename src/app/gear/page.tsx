@@ -55,7 +55,7 @@ function GearPageInner() {
 
         <Link
           href="/assemble"
-          className="spot gradient-border press group mt-8 flex items-center gap-4 rounded-2xl p-4 sm:p-5"
+          className="spot border-beam press group mt-8 flex items-center gap-4 rounded-2xl p-4 sm:p-5"
         >
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400 transition-colors group-hover:bg-accent-500/20">
             <IconSliders className="h-5 w-5" />
@@ -90,7 +90,7 @@ function GearPageInner() {
                   onClick={() => setCat(t.name)}
                   className={`shrink-0 rounded-full px-4 py-1.5 text-sm transition-all ${
                     cat === t.name
-                      ? "bg-accent-500 text-white shadow-[0_4px_20px_-6px_rgba(14,165,233,0.7)]"
+                      ? "accent-glow bg-accent-500 text-white"
                       : "glass text-white/50 hover:text-white"
                   } ${
                     t.name === "Packages"
@@ -114,7 +114,7 @@ function GearPageInner() {
               <span className="hud-label !text-accent-400/90">Best sellers</span>
               <span className="h-px flex-1 bg-white/[0.07]" aria-hidden />
             </h2>
-            <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+            <div className="dim-grid mt-4 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
               {best.map((l, i) => (
                 <Reveal key={l._id} delay={i * 40}>
                   <GearCard listing={l} />
@@ -154,7 +154,7 @@ function GearPageInner() {
             </button>
           </div>
         ) : (
-          <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+          <div className="dim-grid mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
             {listings.map((l, i) => (
               <Reveal key={l._id} delay={Math.min(i, 8) * 50}>
                 <GearCard listing={l} />

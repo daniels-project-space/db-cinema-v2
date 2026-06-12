@@ -33,7 +33,7 @@ export default function HowItWorksPage() {
               <Reveal key={n} delay={i * 110}>
                 <div className="relative flex gap-6 sm:pl-14">
                   <span
-                    className="absolute left-0 top-1 hidden h-10 w-10 items-center justify-center rounded-full border border-accent-400/30 bg-charcoal-950 font-mono text-xs text-accent-300 shadow-[0_0_18px_-4px_rgba(56,189,248,0.5)] sm:flex"
+                    className="absolute left-0 top-1 hidden h-10 w-10 items-center justify-center rounded-full border border-accent-400/30 bg-charcoal-950 font-mono text-xs text-accent-300 accent-glow sm:flex"
                     aria-hidden
                   >
                     {n}

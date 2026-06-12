@@ -19,6 +19,7 @@ export function Accordion({ items }: { items: { q: string; a: string }[] }) {
             <button
               onClick={() => setOpen(isOpen ? null : i)}
               aria-expanded={isOpen}
+              aria-controls={`acc-panel-${i}`}
               className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
             >
               <span className={`font-display font-semibold transition-colors ${isOpen ? "text-white" : "text-white/80"}`}>
@@ -32,7 +33,7 @@ export function Accordion({ items }: { items: { q: string; a: string }[] }) {
                 <IconPlus className="h-3.5 w-3.5" />
               </span>
             </button>
-            <div className={`acc-body ${isOpen ? "open" : ""}`}>
+            <div id={`acc-panel-${i}`} className={`acc-body ${isOpen ? "open" : ""}`}>
               <div>
                 <p className="px-5 pb-5 text-sm leading-relaxed text-white/55">{f.a}</p>
               </div>

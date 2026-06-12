@@ -90,8 +90,13 @@ function SuccessInner() {
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-      <div className="page-in mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent-500/15 text-accent-400 shadow-[0_0_44px_-8px_rgba(56,189,248,0.5)]">
-        <IconCamera className="h-8 w-8" />
+      <div className="page-in relative mx-auto h-16 w-16">
+        <span className="ripple-ring" style={{ width: 96, height: 96, opacity: 0.5 }} aria-hidden />
+        <span className="ripple-ring" style={{ width: 144, height: 144, opacity: 0.3, animationDelay: "0.3s" }} aria-hidden />
+        <span className="ripple-ring" style={{ width: 196, height: 196, opacity: 0.15, animationDelay: "0.6s" }} aria-hidden />
+        <div className="accent-glow-lg relative flex h-16 w-16 items-center justify-center rounded-full bg-accent-500/15 text-accent-400">
+          <IconCamera className="h-8 w-8" />
+        </div>
       </div>
       <div className="hud-label mt-5 flex items-center justify-center gap-2">
         <span className="rec-dot" /> Scene locked

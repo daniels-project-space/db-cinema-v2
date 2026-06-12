@@ -100,6 +100,12 @@ export default function RootLayout({
       className={`${inter.variable} ${grotesk.variable} ${anton.variable} ${instrument.variable} ${jbmono.variable}`}
     >
       <body className="font-sans antialiased bg-charcoal-950 text-white/90">
+        {/* apply the saved accent before first paint (no flash) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var a=localStorage.getItem("dbc-accent");if(a)document.documentElement.dataset.accent=a}catch(e){}`,
+          }}
+        />
         <AmbientBackground />
         <CursorGlow />
         <SpotlightEffect />

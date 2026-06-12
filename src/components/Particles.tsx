@@ -22,14 +22,16 @@ export function Particles() {
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     let w = 0, h = 0, raf = 0, visible = true, running = false;
 
-    // cached glow sprite (drawn once)
+    // cached glow sprite (drawn once) — tinted to the active accent theme
+    const accent =
+      getComputedStyle(document.documentElement).getPropertyValue("--color-accent-400").trim() || "#38bdf8";
     const SP = 24;
     const sprite = document.createElement("canvas");
     sprite.width = sprite.height = SP;
     const sctx = sprite.getContext("2d")!;
     const sg = sctx.createRadialGradient(SP / 2, SP / 2, 0, SP / 2, SP / 2, SP / 2);
-    sg.addColorStop(0, "rgba(56,189,248,1)");
-    sg.addColorStop(1, "rgba(56,189,248,0)");
+    sg.addColorStop(0, accent);
+    sg.addColorStop(1, "transparent");
     sctx.fillStyle = sg;
     sctx.fillRect(0, 0, SP, SP);
 

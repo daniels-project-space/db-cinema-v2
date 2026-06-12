@@ -89,7 +89,7 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
           let cls =
             "relative h-9 rounded-lg text-sm transition-all duration-200 flex items-center justify-center tabular-nums ";
           if (isStart || isEnd)
-            cls += "bg-accent-500 text-white font-semibold shadow-[0_2px_14px_-2px_rgba(14,165,233,0.7)] scale-[1.04] ";
+            cls += "accent-glow bg-accent-500 text-white font-semibold scale-[1.04] ";
           else if (rangeBlocked) cls += "bg-rec-500/25 text-red-200 ";
           else if (inRange) cls += "bg-accent-500/20 text-accent-200 ";
           else if (disabled) cls += "text-white/15 line-through cursor-not-allowed ";

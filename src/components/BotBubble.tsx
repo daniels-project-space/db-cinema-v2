@@ -117,7 +117,7 @@ export function BotBubble() {
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? "Close chat" : "Open chat"}
-        className="press fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-[0_10px_40px_-8px_rgba(56,189,248,0.6)] transition-transform hover:scale-105"
+        className="press fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-[0_10px_40px_-8px_color-mix(in_srgb,var(--color-accent-400)_60%,transparent)] transition-transform hover:scale-105"
       >
         {open ? <IconX className="h-5 w-5" /> : <IconCamera className="h-6 w-6" />}
       </button>

@@ -32,7 +32,7 @@ export function ScrollProgress() {
     <div
       ref={ref}
       aria-hidden
-      className="fixed inset-x-0 top-0 z-[60] h-[2px] origin-left bg-gradient-to-r from-accent-500 via-accent-400 to-accent-300 shadow-[0_0_12px_rgba(56,189,248,0.6)]"
+      className="fixed inset-x-0 top-0 z-[60] h-[2px] origin-left bg-gradient-to-r from-accent-500 via-accent-400 to-accent-300 shadow-[0_0_12px_color-mix(in_srgb,var(--color-accent-400)_60%,transparent)]"
       style={{ transform: "scaleX(0)" }}
     />
   );

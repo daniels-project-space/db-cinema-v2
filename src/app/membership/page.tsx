@@ -58,7 +58,7 @@ export default function MembershipPage() {
                   <div
                     className={`relative flex h-full flex-col overflow-hidden rounded-3xl p-6 ${
                       featured
-                        ? "spot gradient-border bg-white/[0.045] ring-1 ring-accent-400/30 shadow-[0_0_60px_-22px_rgba(56,189,248,0.45)]"
+                        ? "spot border-beam accent-glow-lg bg-white/[0.045] ring-1 ring-accent-400/30"
                         : "spot"
                     }`}
                   >
@@ -92,7 +92,7 @@ export default function MembershipPage() {
                     <button
                       onClick={() => subscribe(t.key)}
                       disabled={isCurrent || busy === t.key}
-                      className={`mt-6 py-3 ${featured ? "btn-primary" : "btn-ghost"}`}
+                      className={`mt-6 w-full py-3 ${featured ? "btn-primary" : "btn-ghost"}`}
                     >
                       {isCurrent ? "Your plan" : busy === t.key ? "…" : `Get ${t.name}`}
                     </button>

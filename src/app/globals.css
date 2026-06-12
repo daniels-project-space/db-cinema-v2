@@ -28,10 +28,42 @@
 }
 
 :root {
-  --blue: #38bdf8;
-  --blue-glow: rgba(56, 189, 248, 0.15);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+/* ── Accent themes — pick yours in Account → Appearance.
+   Every accent-tinted surface (utilities, glows, gradients) reads the
+   --color-accent-* vars, so one attribute restyles the whole site. */
+html[data-accent="orange"] {
+  --color-accent-300: #fdba74;
+  --color-accent-400: #fb923c;
+  --color-accent-500: #f97316;
+  --color-accent-600: #ea580c;
+}
+html[data-accent="gold"] {
+  --color-accent-300: #fcd34d;
+  --color-accent-400: #fbbf24;
+  --color-accent-500: #f59e0b;
+  --color-accent-600: #d97706;
+}
+html[data-accent="emerald"] {
+  --color-accent-300: #6ee7b7;
+  --color-accent-400: #34d399;
+  --color-accent-500: #10b981;
+  --color-accent-600: #059669;
+}
+html[data-accent="violet"] {
+  --color-accent-300: #c4b5fd;
+  --color-accent-400: #a78bfa;
+  --color-accent-500: #8b5cf6;
+  --color-accent-600: #7c3aed;
+}
+html[data-accent="rose"] {
+  --color-accent-300: #fda4af;
+  --color-accent-400: #fb7185;
+  --color-accent-500: #f43f5e;
+  --color-accent-600: #e11d48;
 }
 
 html {
@@ -46,13 +78,13 @@ body {
 }
 
 ::selection {
-  background: rgba(56, 189, 248, 0.35);
+  background: color-mix(in srgb, var(--color-accent-400) 35%, transparent);
   color: #fff;
 }
 
 /* keyboard focus — glow ring, never the default outline */
 :focus-visible {
-  outline: 2px solid rgba(56, 189, 248, 0.7);
+  outline: 2px solid color-mix(in srgb, var(--color-accent-400) 70%, transparent);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -61,7 +93,7 @@ body {
 
 /* gradient-text: white→electric blue, the brand emphasis */
 .gradient-text {
-  background: linear-gradient(135deg, #fff 0%, #38bdf8 60%, #0ea5e9 100%);
+  background: linear-gradient(135deg, #fff 0%, var(--color-accent-400) 60%, var(--color-accent-500) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -83,7 +115,7 @@ body {
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.38);
 }
-.hud-label .tick { color: rgba(56, 189, 248, 0.85); }
+.hud-label .tick { color: color-mix(in srgb, var(--color-accent-400) 85%, transparent); }
 
 /* poster numerals / wordmark */
 .font-poster {
@@ -103,8 +135,8 @@ body {
 }
 .glass-hover:hover {
   background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(56, 189, 248, 0.18);
-  box-shadow: 0 0 34px rgba(56, 189, 248, 0.1);
+  border-color: color-mix(in srgb, var(--color-accent-400) 18%, transparent);
+  box-shadow: 0 0 34px color-mix(in srgb, var(--color-accent-400) 10%, transparent);
 }
 
 /* spotlight surface — radial highlight follows the cursor.
@@ -124,7 +156,7 @@ body {
   transition: opacity 0.4s ease;
   background: radial-gradient(
     420px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(56, 189, 248, 0.08),
+    color-mix(in srgb, var(--color-accent-400) 8%, transparent),
     transparent 65%
   );
   pointer-events: none;
@@ -143,9 +175,9 @@ body {
   padding: 1px;
   background: linear-gradient(
     135deg,
-    rgba(56, 189, 248, 0.25),
+    color-mix(in srgb, var(--color-accent-400) 25%, transparent),
     transparent 45%,
-    rgba(56, 189, 248, 0.08)
+    color-mix(in srgb, var(--color-accent-400) 8%, transparent)
   );
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
@@ -170,15 +202,15 @@ body {
   justify-content: center;
   gap: 0.5rem;
   border-radius: 9999px;
-  background: #0ea5e9;
+  background: var(--color-accent-500);
   color: #fff;
   font-weight: 500;
   overflow: hidden;
   transition: background 0.3s ease, box-shadow 0.3s ease, transform 0.3s var(--ease-out-expo);
 }
 .btn-primary:hover {
-  background: #0284c7;
-  box-shadow: 0 8px 32px -10px rgba(14, 165, 233, 0.65);
+  background: var(--color-accent-600);
+  box-shadow: 0 8px 32px -10px color-mix(in srgb, var(--color-accent-500) 65%, transparent);
 }
 .btn-primary:active { transform: scale(0.97); }
 /* shine sweep on hover */
@@ -198,6 +230,11 @@ body {
   opacity: 0.3;
   box-shadow: none;
 }
+.btn-ghost:disabled {
+  cursor: not-allowed;
+  opacity: 0.3;
+  box-shadow: none;
+}
 
 .btn-ghost {
   display: inline-flex;
@@ -213,8 +250,8 @@ body {
 }
 .btn-ghost:hover {
   background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(56, 189, 248, 0.35);
-  box-shadow: 0 0 26px rgba(56, 189, 248, 0.12);
+  border-color: color-mix(in srgb, var(--color-accent-400) 35%, transparent);
+  box-shadow: 0 0 26px color-mix(in srgb, var(--color-accent-400) 12%, transparent);
 }
 .btn-ghost:active { transform: scale(0.97); }
 
@@ -234,8 +271,8 @@ body {
 }
 .input::placeholder { color: rgba(255, 255, 255, 0.3); }
 .input:focus {
-  border-color: rgba(56, 189, 248, 0.5);
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12);
+  border-color: color-mix(in srgb, var(--color-accent-400) 50%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-400) 12%, transparent);
   background: rgba(255, 255, 255, 0.05);
 }
 
@@ -245,10 +282,10 @@ body {
 .lens-flare {
   position: absolute;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.6), transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent-400) 60%, transparent), transparent);
   box-shadow:
-    0 0 20px 4px rgba(56, 189, 248, 0.4),
-    0 0 60px 12px rgba(56, 189, 248, 0.15);
+    0 0 20px 4px color-mix(in srgb, var(--color-accent-400) 40%, transparent),
+    0 0 60px 12px color-mix(in srgb, var(--color-accent-400) 15%, transparent);
 }
 
 /* film-grain: static fractal-noise overlay over everything */
@@ -341,7 +378,7 @@ body {
 .scroll-cue {
   width: 1px;
   height: 44px;
-  background: linear-gradient(rgba(56, 189, 248, 0.9), transparent);
+  background: linear-gradient(color-mix(in srgb, var(--color-accent-400) 90%, transparent), transparent);
   animation: cue-drop 2.2s var(--ease-out-expo) infinite;
 }
 
@@ -414,17 +451,17 @@ body {
 }
 .ambient .orb1 {
   width: 55vw; height: 55vw; left: -12vw; top: -12vw;
-  background: radial-gradient(circle, rgba(56, 189, 248, 0.15), transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent-400) 15%, transparent), transparent 70%);
   animation: orb-a 24s ease-in-out infinite;
 }
 .ambient .orb2 {
   width: 42vw; height: 42vw; right: -8vw; top: 25vh;
-  background: radial-gradient(circle, rgba(14, 165, 233, 0.12), transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent-500) 12%, transparent), transparent 70%);
   animation: orb-b 28s ease-in-out infinite;
 }
 .ambient .orb3 {
   width: 48vw; height: 48vw; left: 18vw; bottom: -18vw;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.1), transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent-600) 10%, transparent), transparent 70%);
   animation: orb-a 32s ease-in-out infinite reverse;
 }
 
@@ -439,7 +476,7 @@ body {
   margin: -280px 0 0 -280px;
   border-radius: 9999px;
   pointer-events: none;
-  background: radial-gradient(circle, rgba(56, 189, 248, 0.07), transparent 65%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent-400) 7%, transparent), transparent 65%);
   will-change: transform;
 }
 
@@ -450,7 +487,7 @@ body {
 }
 .lift:hover {
   transform: translateY(-5px);
-  box-shadow: 0 24px 48px -24px rgba(56, 189, 248, 0.3);
+  box-shadow: 0 24px 48px -24px color-mix(in srgb, var(--color-accent-400) 30%, transparent);
 }
 
 /* arrow nudge on hover (wrap arrow in .arrow) */
@@ -471,7 +508,7 @@ body {
   bottom: -3px;
   height: 1px;
   width: 100%;
-  background: rgba(56, 189, 248, 0.8);
+  background: color-mix(in srgb, var(--color-accent-400) 80%, transparent);
   transform: scaleX(0);
   transform-origin: left;
   transition: transform 0.35s var(--ease-out-expo);
@@ -488,8 +525,8 @@ body {
 
 /* glowing CTA pulse */
 @keyframes glow {
-  0%, 100% { box-shadow: 0 0 20px -4px rgba(56, 189, 248, 0.5); }
-  50% { box-shadow: 0 0 34px 2px rgba(56, 189, 248, 0.85); }
+  0%, 100% { box-shadow: 0 0 20px -4px color-mix(in srgb, var(--color-accent-400) 50%, transparent); }
+  50% { box-shadow: 0 0 34px 2px color-mix(in srgb, var(--color-accent-400) 85%, transparent); }
 }
 .glow { animation: glow 2.6s ease-in-out infinite; }
 
@@ -535,7 +572,7 @@ body {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: linear-gradient(rgba(56, 189, 248, 0.5), rgba(56, 189, 248, 0.05));
+  background: linear-gradient(color-mix(in srgb, var(--color-accent-400) 50%, transparent), color-mix(in srgb, var(--color-accent-400) 5%, transparent));
   transform: scaleY(0);
   transform-origin: top;
   transition: transform 1.4s var(--ease-out-expo);
@@ -639,6 +676,179 @@ body {
 
 .cat-tile:hover .ci-rec { animation: rec-blink 1.2s steps(1) infinite; }
 
+/* ── Accent glows — themable replacements for hardcoded shadows ── */
+@utility accent-glow {
+  box-shadow: 0 0 26px -7px color-mix(in srgb, var(--color-accent-400) 55%, transparent);
+}
+@utility accent-glow-lg {
+  box-shadow: 0 0 60px -22px color-mix(in srgb, var(--color-accent-400) 45%, transparent);
+}
+
+/* ── Theatre dimming — hover one card, house lights down on the rest ── */
+@media (hover: hover) {
+  .dim-grid a.lift {
+    transition:
+      transform 0.4s var(--ease-out-expo),
+      box-shadow 0.4s var(--ease-out-expo),
+      opacity 0.35s ease;
+  }
+  .dim-grid:has(a.lift:hover) a.lift:not(:hover) {
+    opacity: 0.45;
+    transform: scale(0.985);
+  }
+}
+
+/* ── Meteors — anamorphic streaks crossing the hero ────────────── */
+@keyframes meteor {
+  0% { opacity: 0; transform: rotate(215deg) translateX(40px); }
+  8% { opacity: 1; }
+  46% { opacity: 1; }
+  60%, 100% { opacity: 0; transform: rotate(215deg) translateX(-560px); }
+}
+.meteor {
+  position: absolute;
+  width: 2.5px;
+  height: 2.5px;
+  border-radius: 9999px;
+  background: var(--color-accent-300);
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--color-accent-400) 55%, transparent);
+  opacity: 0;
+  animation-name: meteor;
+  animation-duration: 8s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  pointer-events: none;
+}
+.meteor::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 1px;
+  width: 78px;
+  height: 1px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-accent-400) 75%, transparent), transparent);
+}
+
+/* ── Ripple — breathing rings behind a confirmation mark ───────── */
+@keyframes ripple-breathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(0.9); }
+}
+.ripple-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-accent-400) 30%, transparent);
+  border-radius: 9999px;
+  transform: translate(-50%, -50%);
+  animation: ripple-breathe 2.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── Dolly push-in — hero scales away as you scroll (Chromium PE) ── */
+@supports (animation-timeline: scroll()) {
+  @keyframes hero-push {
+    to { transform: scale(1.06); opacity: 0.15; }
+  }
+  .hero-push {
+    animation: hero-push linear both;
+    animation-timeline: scroll(root);
+    animation-range: 0 90vh;
+  }
+}
+
+/* ── Border beam — a light point orbits the card edge ──────────── */
+@property --bb-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes bb-rot {
+  to { --bb-angle: 360deg; }
+}
+.border-beam {
+  position: relative;
+}
+.border-beam::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background:
+    conic-gradient(
+      from var(--bb-angle),
+      transparent 0deg,
+      transparent 300deg,
+      color-mix(in srgb, var(--color-accent-400) 90%, transparent) 345deg,
+      transparent 360deg
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-accent-400) 22%, transparent),
+      transparent 45%,
+      color-mix(in srgb, var(--color-accent-400) 8%, transparent)
+    );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: bb-rot 5.5s linear infinite;
+}
+
+/* ── Film-strip divider — sprocket holes between sections ──────── */
+.film-strip {
+  height: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.1) 2.5px, transparent 3.2px);
+  background-size: 26px 22px;
+  background-position: 13px center;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+
+/* ── Dot-grid hero texture, vignetted to the centre ────────────── */
+.hero-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1.6px);
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 62% at 50% 44%, #000 25%, transparent 72%);
+  mask-image: radial-gradient(ellipse 75% 62% at 50% 44%, #000 25%, transparent 72%);
+}
+
+/* ── Hero wordmark — letters rise one by one ───────────────────── */
+.hero-letter {
+  display: inline-block;
+  animation: hero-rise 0.85s var(--ease-out-expo) both;
+}
+
+/* ── Price pop — quote total settles in when it changes ────────── */
+@keyframes price-pop {
+  from { opacity: 0.25; transform: scale(1.12); }
+  to { opacity: 1; transform: scale(1); }
+}
+.price-pop {
+  display: inline-block;
+  animation: price-pop 0.45s var(--ease-spring) both;
+}
+
+/* ── Sheen — gradient text glints on hover ─────────────────────── */
+@keyframes sheen-slide {
+  from { background-position: 130% 0; }
+  to { background-position: -30% 0; }
+}
+.sheen {
+  background-size: 220% 100%;
+  background-position: -30% 0;
+}
+.sheen:hover {
+  animation: sheen-slide 1.1s var(--ease-out-expo);
+}
+
 /* tilt wrapper (set by JS) */
 .tilt {
   transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
@@ -653,7 +863,7 @@ body {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 9999px;
 }
-::-webkit-scrollbar-thumb:hover { background: rgba(56, 189, 248, 0.3); }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--color-accent-400) 30%, transparent); }
 
 /* hide scrollbars on horizontal rails but keep scrollability */
 .rail {
@@ -673,4 +883,6 @@ body {
   }
   .reveal { opacity: 1; transform: none; }
   .cursor-glow { display: none; }
+  .hero-push { animation: none !important; }
+  .meteor { display: none; }
 }

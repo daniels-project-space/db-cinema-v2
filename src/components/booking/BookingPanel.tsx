@@ -109,7 +109,7 @@ export function BookingPanel({
                   {q.tier.label}
                 </span>
               </span>
-              <span className="font-display text-3xl font-bold text-white">
+              <span key={q.total} className="price-pop font-display text-3xl font-bold text-white">
                 £{q.total}
               </span>
             </div>

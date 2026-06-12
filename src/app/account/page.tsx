@@ -12,6 +12,7 @@ import { GearCard } from "@/components/GearCard";
 import { RenterChat } from "@/components/RenterChat";
 import { tierByKey } from "@/lib/membership";
 import { MemberOffers } from "@/components/MemberOffers";
+import { AccentPicker } from "@/components/AccentPicker";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -74,10 +75,10 @@ function AuthForm() {
       </p>
       <div className="mt-6 flex flex-col gap-3">
         {mode === "signup" && (
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" aria-label="Name" className="input" />
         )}
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="input" />
-        <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (6+ chars)" type="password" className="input" />
+        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" aria-label="Email" className="input" />
+        <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (6+ chars)" type="password" aria-label="Password" className="input" />
         {err && <div className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
         <button onClick={go} disabled={busy} className="btn-primary py-3">
           {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
@@ -151,6 +152,17 @@ function Dashboard() {
           <button onClick={save} className="btn-primary w-fit px-6 py-2.5 text-sm">
             {saved ? "Saved" : "Save changes"}
           </button>
+        </div>
+      </section>
+
+      {/* appearance */}
+      <section className="spot gradient-border mt-8 rounded-2xl p-5">
+        <h2 className="font-display font-semibold text-white/80">Appearance</h2>
+        <p className="mt-1 text-xs text-white/40">
+          Pick your accent colour — the whole site follows, on this device.
+        </p>
+        <div className="mt-4">
+          <AccentPicker />
         </div>
       </section>
 

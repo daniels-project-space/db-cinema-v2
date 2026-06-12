@@ -224,7 +224,7 @@ export default function CheckoutPage() {
                     onClick={() => setFulfilment(f)}
                     className={`flex flex-1 items-center gap-3 rounded-xl border p-3.5 text-left transition-all ${
                       fulfilment === f
-                        ? "border-accent-400 bg-accent-400/10 shadow-[0_0_24px_-8px_rgba(56,189,248,0.5)]"
+                        ? "border-accent-400 bg-accent-400/10 accent-glow"
                         : "border-white/10 hover:border-white/25"
                     }`}
                   >
@@ -296,7 +296,7 @@ export default function CheckoutPage() {
                   onClick={() => setProtection("verify")}
                   className={`group rounded-xl border p-4 text-left transition-all ${
                     protection === "verify"
-                      ? "border-accent-400 bg-accent-400/10 shadow-[0_0_24px_-8px_rgba(56,189,248,0.5)]"
+                      ? "border-accent-400 bg-accent-400/10 accent-glow"
                       : "border-white/10 hover:border-white/25"
                   }`}
                 >
@@ -318,7 +318,7 @@ export default function CheckoutPage() {
                   onClick={() => setProtection("deposit")}
                   className={`rounded-xl border p-4 text-left transition-all ${
                     protection === "deposit"
-                      ? "border-accent-400 bg-accent-400/10 shadow-[0_0_24px_-8px_rgba(56,189,248,0.5)]"
+                      ? "border-accent-400 bg-accent-400/10 accent-glow"
                       : "border-white/10 hover:border-white/25"
                   }`}
                 >

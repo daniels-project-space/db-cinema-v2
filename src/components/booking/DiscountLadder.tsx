@@ -32,7 +32,7 @@ export function DiscountLadder({ quote }: { quote: Quote }) {
               <div
                 className={`h-3.5 w-3.5 rounded-full border-2 transition-colors ${
                   isCurrent
-                    ? "border-accent-300 bg-accent-400 shadow-[0_0_10px_rgba(56,189,248,0.6)]"
+                    ? "accent-glow border-accent-300 bg-accent-400"
                     : achieved
                       ? "border-emerald-400 bg-emerald-400"
                       : "border-white/20 bg-charcoal-900"

@@ -11,6 +11,8 @@ import { ViewfinderHUD } from "@/components/ViewfinderHUD";
 import { CountUp } from "@/components/CountUp";
 import { GearCard, type GearListing } from "@/components/GearCard";
 import { CategoryIcon } from "@/components/CategoryIcon";
+import { Magnetic } from "@/components/Magnetic";
+import { ScrambleText } from "@/components/ScrambleText";
 import { IconTruck, IconShield, IconClock, IconArrowRight, IconStar } from "@/components/icons";
 
 const BRANDS = ["SONY", "CANON", "RED", "BLACKMAGIC", "SIGMA", "DZOFILM", "APUTURE", "DJI", "SENNHEISER", "SMALLHD"];
@@ -65,43 +67,60 @@ export default async function Home() {
           aria-hidden
         />
         <div className="lens-flare left-1/4 top-1/2 w-1/2" aria-hidden />
+        <div className="hero-grid" aria-hidden />
+        <span className="meteor" style={{ top: "16%", left: "74%", animationDelay: "1.4s", animationDuration: "8s" }} aria-hidden />
+        <span className="meteor" style={{ top: "7%", left: "38%", animationDelay: "5.2s", animationDuration: "10s" }} aria-hidden />
+        <span className="meteor" style={{ top: "32%", left: "90%", animationDelay: "9s", animationDuration: "12s" }} aria-hidden />
         <Particles />
         <ViewfinderHUD />
 
-        <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
-          <div className="hero-rise hud-label flex items-center gap-3" style={{ animationDelay: "0.15s" }}>
-            <span>Camera</span><span className="tick">·</span>
-            <span>Lens</span><span className="tick">·</span>
-            <span>Light</span><span className="tick">·</span>
-            <span>Sound</span>
+        <div className="hero-push relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+          <div className="hero-rise hud-label" style={{ animationDelay: "0.15s" }}>
+            <ScrambleText text="CAMERA · LENS · LIGHT · SOUND" />
           </div>
 
-          <h1 className="hero-rise mt-6 font-poster uppercase leading-[0.92]" style={{ animationDelay: "0.25s" }}>
-            <span className="block text-7xl text-white sm:text-9xl">DB</span>
-            <span className="gradient-text block text-6xl tracking-[0.06em] sm:text-8xl">Cinema</span>
+          <h1 className="mt-6 font-poster uppercase leading-[0.92]" aria-label="DB Cinema">
+            <span className="block text-7xl text-white sm:text-9xl" aria-hidden>
+              {"DB".split("").map((ch, i) => (
+                <span key={i} className="hero-letter" style={{ animationDelay: `${0.2 + i * 0.07}s` }}>
+                  {ch}
+                </span>
+              ))}
+            </span>
+            <span className="block text-6xl tracking-[0.06em] sm:text-8xl" aria-hidden>
+              {"CINEMA".split("").map((ch, i) => (
+                <span key={i} className="hero-letter gradient-text" style={{ animationDelay: `${0.34 + i * 0.055}s` }}>
+                  {ch}
+                </span>
+              ))}
+            </span>
           </h1>
 
-          <p className="hero-rise serif-accent mt-6 text-2xl text-white/75 sm:text-3xl" style={{ animationDelay: "0.4s" }}>
+          <p className="hero-rise serif-accent mt-6 text-2xl text-white/75 sm:text-3xl" style={{ animationDelay: "0.55s" }}>
             the gear that makes the shot.
           </p>
 
-          <p className="hero-rise mt-6 max-w-xl text-balance leading-relaxed text-white/55" style={{ animationDelay: "0.5s" }}>
+          <p className="hero-rise mt-6 max-w-xl text-balance leading-relaxed text-white/55" style={{ animationDelay: "0.65s" }}>
             Cameras, glass, light and sound the pros actually book — delivered
             across London and ready when you are. Rent longer, pay less.
           </p>
 
-          <div className="hero-rise mt-9 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: "0.6s" }}>
-            <Link href="/gear" className="btn-primary px-8 py-3">
-              Browse the kit
-              <IconArrowRight className="h-4 w-4" />
-            </Link>
-            <Link href="/how-it-works" className="btn-ghost px-8 py-3">
-              How it works
-            </Link>
+          <div className="hero-rise mt-9 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: "0.75s" }}>
+            <Magnetic>
+              <Link href="/gear" className="btn-primary px-8 py-3">
+                Browse the kit
+                <IconArrowRight className="h-4 w-4" />
+              </Link>
+            </Magnetic>
+            <Magnetic>
+              <Link href="/how-it-works" className="btn-ghost px-8 py-3">
+                How it works
+              </Link>
+            </Magnetic>
           </div>
 
           {rating && (
-            <div className="hero-rise mt-9 flex items-center gap-2.5 text-sm text-white/50" style={{ animationDelay: "0.7s" }}>
+            <div className="hero-rise mt-9 flex items-center gap-2.5 text-sm text-white/50" style={{ animationDelay: "0.85s" }}>
               <span className="flex text-accent-400">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <IconStar key={i} className="h-3.5 w-3.5" />
@@ -148,6 +167,8 @@ export default async function Home() {
         </div>
       </section>
 
+      <div className="film-strip" aria-hidden />
+
       {/* ───────────────── featured gear ───────────────── */}
       {featured.length > 0 && (
         <section className="section-window px-6 py-20">
@@ -165,7 +186,7 @@ export default async function Home() {
                 </Link>
               </div>
             </Reveal>
-            <div className="rail mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">
+            <div className="dim-grid rail mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">
               {featured.slice(0, 8).map((l, i) => (
                 <Reveal key={l._id} delay={Math.min(i, 6) * 60} className="w-[240px] shrink-0 snap-start lg:w-auto">
                   <GearCard listing={l} />
@@ -186,7 +207,7 @@ export default async function Home() {
                 Every department, <span className="serif-accent gradient-text text-[1.06em]">covered</span>
               </h2>
             </Reveal>
-            <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+            <div className="dim-grid mt-8 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
               {categories.map((c, i) => (
                 <Reveal key={c.name} delay={Math.min(i, 8) * 50}>
                   <Link
@@ -194,7 +215,7 @@ export default async function Home() {
                     className="cat-tile spot lift group flex h-full flex-col rounded-2xl p-5"
                   >
                     <span className="flex items-start justify-between">
-                      <span className="flex h-14 w-14 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400 transition-all duration-300 group-hover:scale-105 group-hover:bg-accent-500/15 group-hover:shadow-[0_0_28px_-6px_rgba(56,189,248,0.55)]">
+                      <span className="flex h-14 w-14 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400 transition-all duration-300 group-hover:scale-105 group-hover:bg-accent-500/15 group-hover:accent-glow">
                         <CategoryIcon name={c.name} className="h-9 w-9" />
                       </span>
                       <span className="font-poster text-xl text-white/[0.1] transition-colors group-hover:text-accent-400/25">
@@ -299,6 +320,8 @@ export default async function Home() {
         </div>
       </section>
 
+      <div className="film-strip" aria-hidden />
+
       {/* ───────────────── CTA ───────────────── */}
       <section className="section-window relative overflow-hidden px-6 py-28 text-center">
         <div
@@ -313,10 +336,12 @@ export default async function Home() {
           <p className="mx-auto mt-4 max-w-md text-white/45">
             Pick your dates, build your kit, and get back to the work that matters.
           </p>
-          <Link href="/gear" className="btn-primary mt-9 px-9 py-3.5">
-            Start your booking
-            <IconArrowRight className="h-4 w-4" />
-          </Link>
+          <Magnetic className="mt-9">
+            <Link href="/gear" className="btn-primary px-9 py-3.5">
+              Start your booking
+              <IconArrowRight className="h-4 w-4" />
+            </Link>
+          </Magnetic>
         </Reveal>
       </section>
     </>

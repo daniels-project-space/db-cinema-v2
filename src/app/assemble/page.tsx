@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { IconSliders, IconCamera, IconBolt, IconCheck, IconX } from "@/components/icons";
+import { IconSliders, IconCamera, IconBolt, IconCheck, IconX, IconChevronLeft, IconArrowRight } from "@/components/icons";
 import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
@@ -306,8 +306,12 @@ export default function AssemblePage() {
 
             {!onReview ? (
               <div className="flex justify-between pl-11">
-                <button onClick={() => setStageIdx((i) => Math.max(0, i - 1))} disabled={stageIdx === 0} className="btn-ghost px-5 py-2 text-sm disabled:opacity-30">← Back</button>
-                <button onClick={() => setStageIdx((i) => i + 1)} className="btn-primary px-6 py-2 text-sm">{stageIdx >= stages.length - 1 ? "Review kit →" : "Next →"}</button>
+                <button onClick={() => setStageIdx((i) => Math.max(0, i - 1))} disabled={stageIdx === 0} className="btn-ghost px-5 py-2 text-sm">
+                  <IconChevronLeft className="h-4 w-4" /> Back
+                </button>
+                <button onClick={() => setStageIdx((i) => i + 1)} className="btn-primary px-6 py-2 text-sm">
+                  {stageIdx >= stages.length - 1 ? "Review kit" : "Next"} <IconArrowRight className="h-4 w-4" />
+                </button>
               </div>
             ) : (
               <div className="stage-in space-y-3">
@@ -331,7 +335,7 @@ export default function AssemblePage() {
                     </ul>
                   </div>
                 )}
-                <div className="pl-11"><button onClick={() => setStageIdx(stages.length - 1)} className="rounded-full glass px-5 py-2 text-sm text-white/60 hover:text-white">← Back to gear</button></div>
+                <div className="pl-11"><button onClick={() => setStageIdx(stages.length - 1)} className="btn-ghost px-5 py-2 text-sm"><IconChevronLeft className="h-4 w-4" /> Back to gear</button></div>
               </div>
             )}
             <div ref={endRef} />
