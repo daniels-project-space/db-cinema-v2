@@ -274,7 +274,10 @@ export async function POST(req: NextRequest) {
       cards = await buildCards(c, out, camMounts, memberPct, activeBooking);
     }
     const suggestions = Array.isArray(out?.suggestions)
-      ? out.suggestions.filter((s: any) => typeof s === "string" && s.trim()).slice(0, 3).map((s: string) => s.trim().slice(0, 48))
+      ? out.suggestions
+          .filter((s: any) => typeof s === "string" && s.trim().length > 0 && s.trim().length <= 56)
+          .slice(0, 3)
+          .map((s: string) => s.trim().replace(/[.?!]$/, (m: string) => (m === "?" ? "?" : "")))
       : [];
     return NextResponse.json({ reply, cards, suggestions, booking: activeBooking });
   } catch {
