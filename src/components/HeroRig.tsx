@@ -77,7 +77,7 @@ export function HeroRig() {
       const n = Math.round((pct / 100) * 8);
       barRef.current.textContent = "▰".repeat(n) + "▱".repeat(8 - n);
     }
-    if (statusRef.current) statusRef.current.textContent = pct < 12 ? "DRIFT" : pct < 88 ? "ASSEMBLING" : "LOCKED";
+    if (statusRef.current) statusRef.current.textContent = pct < 12 ? "IDLE" : pct < 88 ? "TRACKING" : "LOCKED";
   }, []);
 
   return (
@@ -95,7 +95,7 @@ export function HeroRig() {
       </div>
       <div className="pointer-events-none absolute right-4 top-1/2 z-10 hidden -translate-y-1/2 lg:block xl:right-6" aria-hidden>
         <span className="hud-label inline-flex items-center gap-3" style={{ writingMode: "vertical-rl" }}>
-          <span>RIG ASSEMBLY</span>
+          <span>LENS TRACKING</span>
           <span ref={barRef} className="text-accent-400/80">
             ▱▱▱▱▱▱▱▱
           </span>
@@ -103,7 +103,7 @@ export function HeroRig() {
             000%
           </span>
           <span ref={statusRef} className="text-accent-400">
-            DRIFT
+            IDLE
           </span>
         </span>
       </div>
