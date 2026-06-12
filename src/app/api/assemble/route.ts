@@ -5,13 +5,9 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
+import { dayMs as msOf } from "@/lib/dates";
 
 export const maxDuration = 60;
-
-const msOf = (d: string) => {
-  const t = Date.parse(/T/.test(d) ? d : d + "T00:00:00Z");
-  return Number.isNaN(t) ? 0 : t;
-};
 
 // stage key → which itemType(s) to pull, optional must-match / prefer-first
 const STAGE: Record<string, { types: string[]; must?: RegExp; prefer?: RegExp }> = {

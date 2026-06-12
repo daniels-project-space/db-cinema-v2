@@ -4,7 +4,7 @@ import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useCart } from "@/components/cart/CartProvider";
 
-const ms = (iso: string) => Date.parse(iso + "T00:00:00Z");
+import { dayMs as ms } from "@/lib/dates";
 
 export function Offers() {
   const cart = useCart();

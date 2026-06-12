@@ -1,27 +1,15 @@
 "use client";
 
 import { IconChevronLeft, IconChevronRight } from "@/components/icons";
+import { iso, addDaysIso, daysInclusive } from "@/lib/dates";
+
+export { iso, addDaysIso, daysInclusive };
 
 const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-
-const pad = (n: number) => String(n).padStart(2, "0");
-export const iso = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
-
-export function addDaysIso(start: string, n: number): string {
-  const [y, m, d] = start.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d + n));
-  return iso(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate());
-}
-
-export function daysInclusive(start: string, end: string): number {
-  const a = Date.parse(start + "T00:00:00Z");
-  const b = Date.parse(end + "T00:00:00Z");
-  return Math.max(1, Math.round((b - a) / 86400000) + 1);
-}
 
 type Props = {
   month: Date;

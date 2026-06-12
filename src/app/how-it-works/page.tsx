@@ -3,6 +3,7 @@ import { PageHero } from "@/components/PageHero";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
 import { IconArrowRight, IconClock, IconBolt } from "@/components/icons";
+import { HOURS_WINDOWS } from "@/lib/site";
 
 export const metadata = { title: "How it works — Db Cinema Rentals" };
 
@@ -68,11 +69,16 @@ export default function HowItWorksPage() {
                 <span className="font-display font-semibold text-white/80">Opening hours &amp; delivery</span>
               </div>
               <p className="mt-2.5">
-                Pickup, return and delivery windows are <span className="font-mono text-white/70">10:00–12:00</span> and{" "}
-                <span className="font-mono text-white/70">19:00–21:00</span>, every day. You choose your time slots at
-                checkout. Local delivery is quoted by distance and item size as a round trip (delivery + collection),
-                within ~30km of central London — beyond that, pickup only. Delivery uses a third-party courier; times
-                are estimates and may be affected by traffic.
+                Pickup, return and delivery windows are{" "}
+                {HOURS_WINDOWS.map((w, i) => (
+                  <span key={w.opens}>
+                    <span className="font-mono text-white/70">{w.opens}–{w.closes}</span>
+                    {i < HOURS_WINDOWS.length - 1 ? " and " : ""}
+                  </span>
+                ))}
+                , every day. You choose your time slots at checkout. Local delivery is quoted by distance and item
+                size as a round trip (delivery + collection), within ~30km of central London — beyond that, pickup
+                only. Delivery uses a third-party courier; times are estimates and may be affected by traffic.
               </p>
             </div>
           </Reveal>

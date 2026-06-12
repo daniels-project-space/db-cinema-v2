@@ -194,16 +194,6 @@ export function IconPin(p: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** Aperture — lens blades, decorative cinema mark. */
-export function IconAperture(p: SVGProps<SVGSVGElement>) {
-  return (
-    <svg {...base(p)}>
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 3.5L8.5 12M15.5 5l-7 .2M20 9.5l-6.3 4M19 16.5l-4.5-5.5M14 20.4l-2-8.4M6.5 18.5l5.5-4.5M4 13l8-1" />
-    </svg>
-  );
-}
-
 /** Brain/spark — AI compatibility hints. */
 export function IconSpark(p: SVGProps<SVGSVGElement>) {
   return (

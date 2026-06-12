@@ -1,8 +1,10 @@
+import { SITE_NAME, HOURS_SENTENCE } from "@/lib/site";
+
 // Site facts the assistant follows. NOT Hygglo rules — db-cinema is our own site.
 export const SITE_FACTS = `
-ABOUT: Db Cinema Rentals hires professional cinema cameras, lenses, lighting, audio and drones in London. Daily, 3-day and weekly rates — the longer the rental, the lower the per-day price (applied automatically).
+ABOUT: ${SITE_NAME} hires professional cinema cameras, lenses, lighting, audio and drones in London. Daily, 3-day and weekly rates — the longer the rental, the lower the per-day price (applied automatically).
 
-OPENING HOURS: pickups & returns run 10:00–12:00 and 19:00–21:00, every day. Delivery times are arranged when booking.
+OPENING HOURS: pickups & returns run ${HOURS_SENTENCE}. Delivery times are arranged when booking.
 
 DELIVERY: collect from central London, or have it delivered. Delivery is quoted both ways (there and back) by distance and load — larger kit (speakers, lighting, DJ rigs) travels by van. The customer picks pickup or delivery and a time window at checkout.
 

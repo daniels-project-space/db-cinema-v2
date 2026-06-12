@@ -6,6 +6,7 @@ import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { PageHero } from "@/components/PageHero";
 import { IconCheck, IconClock, IconPin } from "@/components/icons";
+import { HOURS_WINDOWS } from "@/lib/site";
 
 export default function ContactPage() {
   const submit = useMutation(api.contact.submit);
@@ -77,10 +78,12 @@ export default function ContactPage() {
                 <span className="hud-label !text-white/60">Hours</span>
               </div>
               <p className="mt-2 font-mono text-sm leading-relaxed text-white/60">
-                10:00–12:00
-                <br />
-                19:00–21:00
-                <br />
+                {HOURS_WINDOWS.map((w) => (
+                  <span key={w.opens}>
+                    {w.opens}–{w.closes}
+                    <br />
+                  </span>
+                ))}
                 <span className="text-white/35">every day</span>
               </p>
             </div>

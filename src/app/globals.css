@@ -407,9 +407,6 @@ body {
   transition: opacity 0.75s var(--ease-out-expo), transform 0.75s var(--ease-out-expo);
   will-change: opacity, transform;
 }
-.reveal.from-left { transform: translateX(-28px); }
-.reveal.from-right { transform: translateX(28px); }
-.reveal.from-scale { transform: scale(0.94); }
 .reveal.in {
   opacity: 1;
   transform: none;
@@ -425,7 +422,6 @@ body {
   opacity: 1;
   transform: scale(1);
 }
-.shimmer::after { content: none; }
 
 /* ── Ambient background — drifting orbs (constant blur, transform-only) ── */
 @keyframes orb-a {
@@ -523,13 +519,6 @@ body {
 }
 .toast-in { animation: toast-in 0.45s var(--ease-spring) both; }
 
-/* glowing CTA pulse */
-@keyframes glow {
-  0%, 100% { box-shadow: 0 0 20px -4px color-mix(in srgb, var(--color-accent-400) 50%, transparent); }
-  50% { box-shadow: 0 0 34px 2px color-mix(in srgb, var(--color-accent-400) 85%, transparent); }
-}
-.glow { animation: glow 2.6s ease-in-out infinite; }
-
 /* assembler / chat slide-ins */
 @keyframes stage-in {
   from { opacity: 0; transform: translateX(28px); }
@@ -541,12 +530,6 @@ body {
   to { opacity: 1; transform: none; }
 }
 .card-in { animation: card-in 0.5s var(--ease-out-expo) both; }
-@keyframes msg-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
-}
-.msg-in { animation: msg-in 0.45s var(--ease-out-expo) both; }
-
 /* drawer slide */
 @keyframes drawer-item-in {
   from { opacity: 0; transform: translateX(18px); }

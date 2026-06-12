@@ -14,9 +14,10 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { AGREEMENTS } from "@/lib/legal";
 import { depositFor, smallDamageHold, type Protection } from "@/lib/pricing";
 
-const ms = (iso: string) => Date.parse(iso + "T00:00:00Z");
+import { dayMs as ms } from "@/lib/dates";
+import { PICKUP_SLOTS as SLOTS } from "@/lib/site";
+
 const PC_RE = /([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})/i;
-const SLOTS = ["10:00", "11:00", "12:00", "19:00", "20:00", "21:00"];
 
 function StepCard({
   n,

@@ -26,9 +26,7 @@ export function SmartImage({
   }, [src]);
 
   return (
-    <div
-      className={`relative overflow-hidden bg-charcoal-800 ${!loaded ? "shimmer" : ""} ${className}`}
-    >
+    <div className={`relative overflow-hidden bg-charcoal-800 ${className}`}>
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img

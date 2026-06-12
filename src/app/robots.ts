@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { SITE_URL } from "@/lib/site";
 
 // Indexable only once NEXT_PUBLIC_SITE_LIVE=true (set at launch).
 const LIVE = process.env.NEXT_PUBLIC_SITE_LIVE === "true";
@@ -11,7 +12,7 @@ export default function robots(): MetadataRoute.Robots {
       allow: "/",
       disallow: ["/admin", "/checkout", "/account", "/verify"],
     },
-    sitemap: "https://dbcinemarentals.com/sitemap.xml",
-    host: "https://dbcinemarentals.com",
+    sitemap: `${SITE_URL}/sitemap.xml`,
+    host: SITE_URL,
   };
 }

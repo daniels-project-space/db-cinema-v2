@@ -13,6 +13,7 @@ import { SpotlightEffect } from "@/components/SpotlightEffect";
 import { ScrollProgress } from "@/components/ScrollProgress";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { BotBubble } from "@/components/BotBubble";
+import { SITE_URL } from "@/lib/site";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -53,7 +54,7 @@ const jbmono = JetBrains_Mono({
 const LIVE = process.env.NEXT_PUBLIC_SITE_LIVE === "true";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://dbcinemarentals.com"),
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "Db Cinema Rentals — Rent pro cinema cameras, lenses & lighting in London",
     template: "%s | Db Cinema Rentals",
@@ -79,7 +80,7 @@ export const metadata: Metadata = {
     description:
       "Rent cinema cameras, lenses, lighting, audio and drones. Daily rates, delivery, 875+ five-star reviews.",
     locale: "en_GB",
-    url: "https://dbcinemarentals.com",
+    url: SITE_URL,
   },
   twitter: {
     card: "summary_large_image",

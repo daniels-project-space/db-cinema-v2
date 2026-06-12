@@ -6,7 +6,7 @@ import { Reveal } from "@/components/Reveal";
 import { guideBySlug, GUIDES } from "@/lib/guides";
 import { IconChevronLeft, IconArrowRight } from "@/components/icons";
 
-const BASE = "https://dbcinemarentals.com";
+import { SITE_URL as BASE } from "@/lib/site";
 
 export function generateStaticParams() {
   return GUIDES.map((g) => ({ slug: g.slug }));

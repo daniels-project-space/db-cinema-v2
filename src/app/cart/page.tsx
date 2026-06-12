@@ -13,7 +13,7 @@ import { Recommendations } from "@/components/Recommendations";
 import { smallDamageHold } from "@/lib/pricing";
 import { IconX, IconArrowRight, IconLock } from "@/components/icons";
 
-const ms = (iso: string) => Date.parse(iso + "T00:00:00Z");
+import { dayMs as ms } from "@/lib/dates";
 
 export default function CartPage() {
   const { items, remove, clear, subtotal, eligibleSubtotal, depositTotal } = useCart();

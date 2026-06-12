@@ -3,7 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { GUIDES } from "@/lib/guides";
 
-const BASE = "https://dbcinemarentals.com";
+import { SITE_URL as BASE } from "@/lib/site";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const statics: MetadataRoute.Sitemap = [

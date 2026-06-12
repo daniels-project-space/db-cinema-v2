@@ -1,4 +1,5 @@
 import { TIERS } from "@/lib/membership";
+import { HOURS_SENTENCE } from "@/lib/site";
 
 const membership = TIERS.map(
   (t) =>
@@ -28,7 +29,7 @@ BOOKING & AVAILABILITY LOGIC:
 - Add-on gear can be added to an existing booking up to 1 hour before the rental start, from the customer's account.
 
 HOURS & PICKUP:
-- Pickup and return windows are 10:00–12:00 and 19:00–21:00, every day. Never offer off-hours times (e.g. 2pm, 4pm, 6pm); suggest a morning slot first.
+- Pickup and return windows are ${HOURS_SENTENCE}. Never offer off-hours times (e.g. 2pm, 4pm, 6pm); suggest a morning slot first.
 - A day-before evening pickup, or a next-day evening return, counts as one extra rental day — only mention this if asked or if it genuinely helps them fit a shoot.
 - Pickup is in central London; delivery is also available.
 

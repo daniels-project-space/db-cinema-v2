@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import GearDetailClient from "./GearDetailClient";
+import { SITE_URL as BASE } from "@/lib/site";
 
-const BASE = "https://dbcinemarentals.com";
 const client = () => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
 export async function generateMetadata({

@@ -14,8 +14,7 @@ import { CategoryIcon } from "@/components/CategoryIcon";
 import { Magnetic } from "@/components/Magnetic";
 import { ScrambleText } from "@/components/ScrambleText";
 import { IconTruck, IconShield, IconClock, IconArrowRight, IconStar } from "@/components/icons";
-
-const BRANDS = ["SONY", "CANON", "RED", "BLACKMAGIC", "SIGMA", "DZOFILM", "APUTURE", "DJI", "SENNHEISER", "SMALLHD"];
+import { SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 
 export default async function Home() {
   let rating: { ratingValue: number; reviewCount: number } | null = null;
@@ -33,20 +32,23 @@ export default async function Home() {
     categories = ((cats as any) ?? []).filter((x: any) => x.count > 0);
   } catch {}
 
+  const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
-    name: "Db Cinema Rentals",
-    url: "https://dbcinemarentals.com",
+    name: SITE_NAME,
+    url: SITE_URL,
     description:
       "Professional cinema camera, lens, lighting, audio and drone rental in London. Daily, 3-day and weekly rates, delivered.",
     priceRange: "££",
     areaServed: "London, United Kingdom",
     address: { "@type": "PostalAddress", addressLocality: "London", addressCountry: "GB" },
-    openingHoursSpecification: [
-      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"], opens: "10:00", closes: "12:00" },
-      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"], opens: "19:00", closes: "21:00" },
-    ],
+    openingHoursSpecification: HOURS_WINDOWS.map((w) => ({
+      "@type": "OpeningHoursSpecification",
+      dayOfWeek: DAYS,
+      opens: w.opens,
+      closes: w.closes,
+    })),
     ...(rating
       ? { aggregateRating: { "@type": "AggregateRating", ratingValue: rating.ratingValue, reviewCount: rating.reviewCount } }
       : {}),

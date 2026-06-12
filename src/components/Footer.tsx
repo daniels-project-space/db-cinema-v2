@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { Marquee } from "@/components/Marquee";
+import { HOURS_LABEL } from "@/lib/site";
 
 export async function Footer() {
   let cfg: any = {};
@@ -43,7 +44,7 @@ export async function Footer() {
                 </a>
               </div>
             )}
-            <div>Open {cfg.openingHours ?? "10:00–12:00 & 19:00–21:00, daily"}</div>
+            <div>Open {cfg.openingHours ?? HOURS_LABEL}</div>
           </address>
         </div>
 

@@ -5,6 +5,8 @@ import { api } from "@cvx/_generated/api";
 import { mastra } from "@/mastra";
 import { quote } from "@/lib/pricing";
 import { tierByKey } from "@/lib/membership";
+import { dayMs as msOf } from "@/lib/dates";
+import { lensFits } from "@/lib/gear";
 import { generateText } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
@@ -42,11 +44,6 @@ async function knowledgeAnswer(c: ConvexHttpClient, userMsg: string, memberPct: 
 }
 
 export const maxDuration = 60;
-
-const msOf = (d: string) => {
-  const t = Date.parse(/T/.test(d) ? d : d + "T00:00:00Z");
-  return Number.isNaN(t) ? 0 : t;
-};
 
 const OUT = z.object({
   reply: z.string().describe("short conversational reply to the customer"),
@@ -107,12 +104,6 @@ async function buildOne(c: ConvexHttpClient, slugOrTerm: string, start: string, 
     itemType: l.itemType ?? null, mount: l.specs?.mount ?? null, lensClass: l.specs?.lensClass ?? null,
     pricing: l.pricing,
   };
-}
-
-function lensFits(lensMount: string | null, camMounts: string[]) {
-  if (!lensMount || camMounts.length === 0) return true;
-  if (camMounts.every((m) => m === "fixed")) return false;
-  return camMounts.some((m) => m === lensMount || (lensMount === "EF" && (m === "E" || m === "RF")));
 }
 
 async function firstAvailableByType(c: ConvexHttpClient, type: string, start: string, end: string, seen: Set<string>, camMounts: string[] = []) {

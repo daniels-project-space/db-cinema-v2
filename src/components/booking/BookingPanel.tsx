@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { quote as computeQuote, type Pricing } from "@/lib/pricing";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
+import { dayMs } from "@/lib/dates";
 import { useCart } from "@/components/cart/CartProvider";
 import { IconCheck, IconX } from "@/components/icons";
 
@@ -42,15 +43,14 @@ export function BookingPanel({
     [listing.pricing, days],
   );
 
-  const startMs = start ? Date.parse(start + "T00:00:00Z") : 0;
-  const endMs = end ? Date.parse(end + "T00:00:00Z") : 0;
-  const msOf = (iso: string) => Date.parse(iso + "T00:00:00Z");
+  const startMs = start ? dayMs(start) : 0;
+  const endMs = end ? dayMs(end) : 0;
   // evaluate the PROSPECTIVE cart (everything already in the kit + one more of
   // this listing) so shared physical units across different bundles are counted
   const prospective =
     start && end
       ? [
-          ...cart.items.map((i) => ({ listingId: i.listingId as any, start: msOf(i.start), end: msOf(i.end) })),
+          ...cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end) })),
           { listingId: listing._id as any, start: startMs, end: endMs },
         ]
       : [];
