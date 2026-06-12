@@ -362,7 +362,7 @@ export default function CheckoutPage() {
           </div>
 
           {/* summary */}
-          <aside className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky lg:top-24">
+          <aside className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky! lg:top-24">
             <div className="hud-label !text-accent-400/90">Order summary</div>
             <div className="mt-4 flex flex-col gap-2 text-sm">
               {items.map((i) => (

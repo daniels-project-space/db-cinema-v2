@@ -880,10 +880,10 @@ body {
   animation: chat-scan 8s linear infinite;
 }
 
-/* pointer spotlight on the panel (fed by SpotlightEffect, like .spot) */
-.chat-panel {
-  position: relative;
-}
+/* pointer spotlight on the panel (fed by SpotlightEffect, like .spot).
+   NOTE: no `position` here — the panel itself is `fixed`; an unlayered
+   position:relative would beat the Tailwind utility and drop the panel
+   into document flow. */
 .chat-panel::before {
   content: "";
   position: absolute;

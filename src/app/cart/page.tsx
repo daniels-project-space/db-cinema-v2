@@ -113,7 +113,7 @@ export default function CartPage() {
                 </button>
               </div>
 
-              <aside className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky lg:top-24">
+              <aside className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky! lg:top-24">
                 <div className="hud-label !text-accent-400/90">Summary</div>
 
                 {/* promo */}
