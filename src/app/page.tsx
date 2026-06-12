@@ -8,6 +8,7 @@ import { Particles } from "@/components/Particles";
 import { Reveal } from "@/components/Reveal";
 import { Marquee } from "@/components/Marquee";
 import { ViewfinderHUD } from "@/components/ViewfinderHUD";
+import { HeroRig } from "@/components/HeroRig";
 import { CountUp } from "@/components/CountUp";
 import { GearCard, type GearListing } from "@/components/GearCard";
 import { CategoryIcon } from "@/components/CategoryIcon";
@@ -75,6 +76,7 @@ export default async function Home() {
         <span className="meteor" style={{ top: "32%", left: "90%", animationDelay: "9s", animationDuration: "12s" }} aria-hidden />
         <Particles />
         <ViewfinderHUD />
+        <HeroRig />
 
         <div className="hero-push relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
           <div className="hero-rise hud-label" style={{ animationDelay: "0.15s" }}>
