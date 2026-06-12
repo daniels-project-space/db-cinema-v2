@@ -10,6 +10,7 @@ import { Marquee } from "@/components/Marquee";
 import { ViewfinderHUD } from "@/components/ViewfinderHUD";
 import { CountUp } from "@/components/CountUp";
 import { GearCard, type GearListing } from "@/components/GearCard";
+import { CategoryIcon } from "@/components/CategoryIcon";
 import { IconTruck, IconShield, IconClock, IconArrowRight, IconStar } from "@/components/icons";
 
 const BRANDS = ["SONY", "CANON", "RED", "BLACKMAGIC", "SIGMA", "DZOFILM", "APUTURE", "DJI", "SENNHEISER", "SMALLHD"];
@@ -185,18 +186,23 @@ export default async function Home() {
                 Every department, <span className="serif-accent gradient-text text-[1.06em]">covered</span>
               </h2>
             </Reveal>
-            <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-3">
-              {categories.slice(0, 6).map((c, i) => (
-                <Reveal key={c.name} delay={i * 60}>
+            <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+              {categories.map((c, i) => (
+                <Reveal key={c.name} delay={Math.min(i, 8) * 50}>
                   <Link
                     href={`/gear?cat=${encodeURIComponent(c.name)}`}
-                    className="spot lift group flex h-full flex-col justify-between rounded-2xl p-5 sm:p-6"
+                    className="cat-tile spot lift group flex h-full flex-col rounded-2xl p-5"
                   >
-                    <span className="font-poster text-3xl text-white/[0.13] transition-colors group-hover:text-accent-400/30 sm:text-4xl">
-                      {String(i + 1).padStart(2, "0")}
+                    <span className="flex items-start justify-between">
+                      <span className="flex h-14 w-14 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400 transition-all duration-300 group-hover:scale-105 group-hover:bg-accent-500/15 group-hover:shadow-[0_0_28px_-6px_rgba(56,189,248,0.55)]">
+                        <CategoryIcon name={c.name} className="h-9 w-9" />
+                      </span>
+                      <span className="font-poster text-xl text-white/[0.1] transition-colors group-hover:text-accent-400/25">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
                     </span>
-                    <span className="mt-6">
-                      <span className="block font-display text-lg font-semibold text-white/90 transition-colors group-hover:text-white sm:text-xl">
+                    <span className="mt-5">
+                      <span className="block font-display text-lg font-semibold text-white/90 transition-colors group-hover:text-white">
                         {c.name}
                       </span>
                       <span className="mt-1 flex items-center justify-between">
@@ -207,6 +213,20 @@ export default async function Home() {
                   </Link>
                 </Reveal>
               ))}
+              <Reveal delay={Math.min(categories.length, 9) * 50}>
+                <Link
+                  href="/gear"
+                  className="spot lift group flex h-full min-h-[150px] flex-col items-center justify-center gap-3 rounded-2xl border-dashed p-5 text-center"
+                >
+                  <span className="font-display text-lg font-semibold text-white/70 transition-colors group-hover:text-white">
+                    View everything
+                  </span>
+                  <span className="flex items-center gap-1.5 font-mono text-xs text-accent-400">
+                    {categories.reduce((n, c) => n + c.count, 0)} items
+                    <IconArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                  </span>
+                </Link>
+              </Reveal>
             </div>
           </div>
         </section>

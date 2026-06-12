@@ -562,6 +562,83 @@ body {
     radial-gradient(circle 9px at 100% 92px, transparent 97%, #000) right / 51% 100% no-repeat;
 }
 
+/* ── Category symbols — animated parts (trigger: .cat-tile hover) ───
+   All transform/opacity (plus one tiny dashoffset draw) — GPU-cheap. */
+.ci-part {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ci-pivot-top {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+}
+@keyframes ci-rot {
+  to { transform: rotate(360deg); }
+}
+.cat-tile:hover .ci-spin { animation: ci-rot 1.3s linear infinite; }
+.cat-tile:hover .ci-spin-fast { animation: ci-rot 0.45s linear infinite; }
+
+.ci-gear {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.8s var(--ease-out-expo);
+}
+.cat-tile:hover .ci-gear { transform: rotate(90deg); }
+
+.ci-iris {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.7s var(--ease-out-expo);
+}
+.cat-tile:hover .ci-iris { transform: rotate(60deg); }
+
+@keyframes ci-flicker {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}
+.ci-ray,
+.ci-wave { opacity: 0.3; }
+.cat-tile:hover .ci-ray,
+.cat-tile:hover .ci-wave { animation: ci-flicker 1.3s ease-in-out infinite; }
+.ci-d1 { animation-delay: 0.22s; }
+.ci-d2 { animation-delay: 0.44s; }
+
+@keyframes ci-sway {
+  0%, 100% { transform: rotate(-8deg); }
+  50% { transform: rotate(8deg); }
+}
+.cat-tile:hover .ci-sway { animation: ci-sway 1.5s ease-in-out infinite; }
+
+.ci-lid {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: transform 0.45s var(--ease-spring);
+}
+.cat-tile:hover .ci-lid { transform: translateY(-3px) rotate(-4deg); }
+
+.ci-leg { transition: transform 0.5s var(--ease-spring); }
+.cat-tile:hover .ci-leg-l { transform: rotate(-10deg); }
+.cat-tile:hover .ci-leg-r { transform: rotate(10deg); }
+
+.ci-bar {
+  opacity: 0.18;
+  transition: opacity 0.35s ease;
+}
+.cat-tile:hover .ci-bar { opacity: 1; }
+.cat-tile:hover .ci-bar.ci-bd1 { transition-delay: 0.14s; }
+.cat-tile:hover .ci-bar.ci-bd2 { transition-delay: 0.28s; }
+
+@keyframes ci-draw {
+  0% { stroke-dashoffset: 42; }
+  55%, 100% { stroke-dashoffset: 0; }
+}
+.ci-scanline {
+  stroke-dasharray: 42;
+}
+.cat-tile:hover .ci-scanline { animation: ci-draw 1.6s var(--ease-out-expo) infinite; }
+
+.cat-tile:hover .ci-rec { animation: rec-blink 1.2s steps(1) infinite; }
+
 /* tilt wrapper (set by JS) */
 .tilt {
   transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
