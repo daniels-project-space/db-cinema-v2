@@ -49,9 +49,9 @@ export function CameraDeconstruct() {
     // Write every scroll-driven visual from a single normalised progress p∈[0,1].
     const paint = (p: number) => {
       if (stageRef.current) {
-        const scale = 1.055 - 0.09 * p; // dolly: gentle push-in → settle
-        const ty = (0.5 - p) * 12; // slight vertical drift
-        stageRef.current.style.transform = `translateY(${ty.toFixed(2)}px) scale(${scale.toFixed(4)})`;
+        // dolly push-in → settle; stays >=1 so object-cover never reveals a gap
+        const scale = 1.06 - 0.06 * p;
+        stageRef.current.style.transform = `scale(${scale.toFixed(4)})`;
       }
       if (focusRef.current) {
         const fs = 1.04 - 0.06 * p; // brackets tighten as it deconstructs
@@ -196,7 +196,7 @@ export function CameraDeconstruct() {
         <div className="hero-grid" aria-hidden />
 
         {/* ── band 1: label (above the camera) ── */}
-        <div className="relative z-20 shrink-0 px-6 pt-10 text-center sm:pt-12">
+        <div className="relative z-20 shrink-0 px-6 pt-6 text-center sm:pt-8">
           <div className="hud-label !text-accent-400/90">Engineered to perform</div>
         </div>
 
@@ -205,7 +205,7 @@ export function CameraDeconstruct() {
           <div ref={stageRef} className="relative h-full w-full will-change-transform">
             <video
               ref={videoRef}
-              className="h-full w-full object-contain opacity-90"
+              className="h-full w-full object-contain object-center sm:object-cover"
               style={{ mixBlendMode: "screen" }}
               src="/arri-deconstruct.mp4"
               poster="/arri-deconstruct-poster.jpg"
@@ -222,7 +222,7 @@ export function CameraDeconstruct() {
             className="pointer-events-none absolute inset-0"
             style={{
               background:
-                "radial-gradient(ellipse at center, transparent 52%, rgba(5,5,8,0.6) 100%)",
+                "radial-gradient(ellipse at center, transparent 60%, rgba(5,5,8,0.45) 100%)",
             }}
             aria-hidden
           />
@@ -242,7 +242,7 @@ export function CameraDeconstruct() {
         </div>
 
         {/* ── band 3: caption + film scrubber (below the camera) ── */}
-        <div className="relative z-20 shrink-0 px-6 pb-12 text-center">
+        <div className="relative z-20 shrink-0 px-6 pb-8 text-center">
           <div ref={captionRef} style={{ opacity: 0 }}>
             <h2 className="font-display text-3xl font-bold text-white/90 sm:text-4xl">
               Built like the cameras{" "}

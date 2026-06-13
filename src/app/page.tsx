@@ -1,10 +1,10 @@
 import Link from "next/link";
+import Image from "next/image";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ReviewCarousel } from "@/components/ReviewCarousel";
 import { HomeStats } from "@/components/HomeStats";
-import { Particles } from "@/components/Particles";
 import { CameraDeconstruct } from "@/components/CameraDeconstruct";
 import { Reveal } from "@/components/Reveal";
 import { Marquee } from "@/components/Marquee";
@@ -66,16 +66,29 @@ export default async function Home() {
 
       {/* ───────────────── hero — the viewfinder ───────────────── */}
       <section className="section-window relative flex min-h-[calc(100vh-93px)] flex-col overflow-hidden">
-        <div
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[800px] w-[800px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent-500/5 blur-[120px]"
+        {/* hero plate — cinematic gear room (Nano Banana Pro) */}
+        <Image
+          src="/hero-room.jpg"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover object-center"
           aria-hidden
         />
-        <div className="lens-flare left-1/4 top-1/2 w-1/2" aria-hidden />
-        <div className="hero-grid" aria-hidden />
-        <span className="meteor" style={{ top: "16%", left: "74%", animationDelay: "1.4s", animationDuration: "8s" }} aria-hidden />
-        <span className="meteor" style={{ top: "7%", left: "38%", animationDelay: "5.2s", animationDuration: "10s" }} aria-hidden />
-        <span className="meteor" style={{ top: "32%", left: "90%", animationDelay: "9s", animationDuration: "12s" }} aria-hidden />
-        <Particles />
+        {/* legibility scrim for the overlaid title */}
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse at 50% 60%, rgba(5,5,10,0.12) 0%, rgba(5,5,10,0.55) 68%, rgba(5,5,10,0.84) 100%)",
+          }}
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#05050a] to-transparent"
+          aria-hidden
+        />
         <ViewfinderHUD />
 
         <div className="hero-push relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
