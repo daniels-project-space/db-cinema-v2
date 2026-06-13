@@ -1,10 +1,10 @@
 import Link from "next/link";
-import Image from "next/image";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ReviewCarousel } from "@/components/ReviewCarousel";
 import { HomeStats } from "@/components/HomeStats";
+import { HeroVideo } from "@/components/HeroVideo";
 import { CameraDeconstruct } from "@/components/CameraDeconstruct";
 import { Reveal } from "@/components/Reveal";
 import { Marquee } from "@/components/Marquee";
@@ -66,16 +66,8 @@ export default async function Home() {
 
       {/* ───────────────── hero — the viewfinder ───────────────── */}
       <section className="section-window relative flex min-h-[calc(100vh-93px)] flex-col overflow-hidden">
-        {/* hero plate — cinematic gear room (Nano Banana Pro) */}
-        <Image
-          src="/hero-room.jpg"
-          alt=""
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover object-center"
-          aria-hidden
-        />
+        {/* hero plate — cinematic crew film (Kling v3.0): intro → neon-logo idle loop */}
+        <HeroVideo />
         {/* legibility scrim for the overlaid title */}
         <div
           className="pointer-events-none absolute inset-0"
