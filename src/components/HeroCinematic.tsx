@@ -184,7 +184,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         DB Cinema Rentals — professional camera, lens, lighting and audio rental in London
       </h1>
       <div
-        className="absolute inset-x-0 bottom-[15%] z-10 flex flex-col items-center px-6 text-center"
+        className="absolute inset-x-0 bottom-[8%] z-20 flex flex-col items-center px-6 text-center"
         style={{ pointerEvents: ctaVisible ? "auto" : "none" }}
       >
         <p

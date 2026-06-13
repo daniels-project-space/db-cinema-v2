@@ -69,8 +69,7 @@ export default async function Home() {
         <HeroCinematic rating={rating} categories={categories} />
         <ViewfinderHUD />
 
-        <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col items-center gap-5 pb-6">
-          <div className="scroll-cue" aria-hidden />
+        <div className="absolute inset-x-0 bottom-0 z-10 pb-3">
           <Marquee
             items={BRANDS}
             speed={34}
