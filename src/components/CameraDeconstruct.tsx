@@ -3,27 +3,23 @@
 import { useEffect, useRef } from "react";
 
 /**
- * Standalone showcase: a fully-rigged ARRI Alexa that deconstructs into its
- * parts as you scroll a pinned track. The clip is on a pure-black field,
- * screen-blended so only the lit camera shows.
- *
- * The panel is a 3-band flex column — label / camera / caption — so copy
- * always sits ABOVE and BELOW the camera, never on top of it.
+ * Full-bleed showcase: a rigged ARRI Alexa that deconstructs as you scroll a
+ * pinned track. The clip is on a pure-black field, screen-blended over a black
+ * backdrop so the black vanishes and only the lit camera shows — no window, no
+ * frame. The camera fills the screen.
  *
  * Motion: scroll sets a TARGET time; displayed time eases toward it with a
  * frame-rate-independent exponential glide (consistent on 60/120Hz), so the
- * camera carries weight and coasts to a stop. The same eased progress drives
- * a dolly push-in, breathing viewfinder brackets, a film scrubber + live
- * frame counter, and the payoff-line reveal — one rAF, transform/opacity only
- * (no per-frame filters; see the perf notes in globals).
+ * camera carries weight and coasts to a stop. The same eased progress drives a
+ * gentle zoom and a bottom film-scrubber + frame counter — one rAF,
+ * transform/opacity only.
  *
  * Fallbacks: touch gets an ambient loop (iOS can't seek on scroll);
- * reduced-motion holds the poster. Both show a tidy static composition.
+ * reduced-motion holds the poster.
  */
 export function CameraDeconstruct() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const focusRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLSpanElement>(null);
@@ -36,7 +32,6 @@ export function CameraDeconstruct() {
     if (!video) return;
 
     const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
-    // smoothstep — soft ease for envelopes
     const smooth = (e0: number, e1: number, x: number) => {
       const t = clamp((x - e0) / (e1 - e0), 0, 1);
       return t * t * (3 - 2 * t);
@@ -46,19 +41,11 @@ export function CameraDeconstruct() {
     let totalFrames = Math.max(1, Math.round(duration * 24));
     let lastFrame = -1;
 
-    // Write every scroll-driven visual from a single normalised progress p∈[0,1].
     const paint = (p: number) => {
       if (stageRef.current) {
-        // gentle pull-back as it deconstructs; stays <=1 so object-contain is never cropped
-        const scale = 1 - 0.05 * p;
+        // big base zoom (fills the screen) → gentle pull-back as it deconstructs
+        const scale = 1.18 - 0.1 * p;
         stageRef.current.style.transform = `scale(${scale.toFixed(4)})`;
-      }
-      if (focusRef.current) {
-        const fs = 1.04 - 0.06 * p; // brackets tighten as it deconstructs
-        focusRef.current.style.transform = `scale(${fs.toFixed(4)})`;
-        focusRef.current.style.opacity = (
-          0.45 + 0.4 * smooth(0, 0.22, p) - 0.45 * smooth(0.88, 1, p)
-        ).toFixed(3);
       }
       if (barRef.current) barRef.current.style.transform = `scaleX(${p.toFixed(4)})`;
       if (headRef.current) headRef.current.style.left = `${(p * 100).toFixed(2)}%`;
@@ -70,7 +57,7 @@ export function CameraDeconstruct() {
         }
       }
       if (captionRef.current) {
-        const r = smooth(0.34, 0.72, p); // payoff line rises in over the back half
+        const r = smooth(0.34, 0.72, p);
         captionRef.current.style.opacity = r.toFixed(3);
         captionRef.current.style.transform = `translateY(${((1 - r) * 14).toFixed(2)}px)`;
       }
@@ -88,7 +75,6 @@ export function CameraDeconstruct() {
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    // reduced motion: hold poster, static composition, no scrubber.
     if (reduceMotion) {
       paint(0.16);
       showCaption();
@@ -96,7 +82,6 @@ export function CameraDeconstruct() {
       return;
     }
 
-    // touch: ambient loop, static framing, no (meaningless) scrubber.
     if (window.matchMedia("(pointer: coarse)").matches) {
       video.loop = true;
       video.muted = true;
@@ -117,7 +102,7 @@ export function CameraDeconstruct() {
     let raf = 0;
     let prev = 0;
     const EPS = 0.003;
-    const RESPONSE = 0.08; // per-60fps glide; lower = more drag/coast
+    const RESPONSE = 0.08;
 
     const readTarget = () => {
       const scrollable = track.offsetHeight - window.innerHeight;
@@ -129,13 +114,12 @@ export function CameraDeconstruct() {
     const tick = (now: number) => {
       const dt = prev ? Math.min(now - prev, 50) : 1000 / 60;
       prev = now;
-      // frame-rate-independent exponential approach toward the target
       const k = 1 - Math.pow(1 - RESPONSE, dt / (1000 / 60));
       const delta = targetTime - displayTime;
       if (Math.abs(delta) < EPS) {
         displayTime = targetTime;
         raf = 0;
-        prev = 0; // settled — sleep until next scroll
+        prev = 0;
       } else {
         displayTime += delta * k;
         raf = requestAnimationFrame(tick);
@@ -188,61 +172,40 @@ export function CameraDeconstruct() {
 
   return (
     <section className="section-window relative" style={{ height: "220vh" }} data-deconstruct-track>
-      <div className="sticky top-[93px] flex h-[calc(100vh-93px)] flex-col overflow-hidden">
+      <div className="sticky top-[93px] h-[calc(100vh-93px)] overflow-hidden bg-[#050507]">
+        {/* the camera — full-bleed, black screen-blended away */}
+        <div ref={stageRef} className="absolute inset-0 z-0 will-change-transform">
+          <video
+            ref={videoRef}
+            className="h-full w-full object-cover object-center"
+            style={{ mixBlendMode: "screen" }}
+            src="/arri-deconstruct.mp4"
+            poster="/arri-deconstruct-poster.jpg"
+            muted
+            playsInline
+            preload="auto"
+            tabIndex={-1}
+            aria-hidden
+          />
+        </div>
+
+        {/* legibility scrims for the edge captions */}
         <div
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[680px] w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent-500/[0.06] blur-[120px]"
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-28 bg-gradient-to-b from-[#050507] to-transparent"
           aria-hidden
         />
-        <div className="hero-grid" aria-hidden />
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-2/5 bg-gradient-to-t from-[#050507] via-[#050507]/55 to-transparent"
+          aria-hidden
+        />
 
-        {/* ── band 1: label (above the camera) ── */}
-        <div className="relative z-20 shrink-0 px-6 pt-6 text-center sm:pt-8">
+        {/* top label */}
+        <div className="absolute inset-x-0 top-7 z-20 px-6 text-center">
           <div className="hud-label !text-accent-400/90">Engineered to perform</div>
         </div>
 
-        {/* ── band 2: the camera ── */}
-        <div className="relative z-10 flex min-h-0 flex-1 items-center justify-center">
-          <div ref={stageRef} className="relative h-full w-full will-change-transform">
-            <video
-              ref={videoRef}
-              className="h-full w-full object-contain object-center"
-              style={{ mixBlendMode: "screen" }}
-              src="/arri-deconstruct.mp4"
-              poster="/arri-deconstruct-poster.jpg"
-              muted
-              playsInline
-              preload="auto"
-              tabIndex={-1}
-              aria-hidden
-            />
-          </div>
-
-          {/* cinematic vignette */}
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(ellipse at center, transparent 60%, rgba(5,5,8,0.45) 100%)",
-            }}
-            aria-hidden
-          />
-
-          {/* breathing viewfinder focus brackets */}
-          <div
-            ref={focusRef}
-            className="pointer-events-none absolute inset-x-[12%] inset-y-[15%] will-change-transform"
-            style={{ opacity: 0 }}
-            aria-hidden
-          >
-            <span className="absolute left-0 top-0 h-6 w-6 border-l border-t border-accent-400/50" />
-            <span className="absolute right-0 top-0 h-6 w-6 border-r border-t border-accent-400/50" />
-            <span className="absolute bottom-0 left-0 h-6 w-6 border-b border-l border-accent-400/50" />
-            <span className="absolute bottom-0 right-0 h-6 w-6 border-b border-r border-accent-400/50" />
-          </div>
-        </div>
-
-        {/* ── band 3: caption + film scrubber (below the camera) ── */}
-        <div className="relative z-20 shrink-0 px-6 pb-6 text-center">
+        {/* bottom caption + film scrubber */}
+        <div className="absolute inset-x-0 bottom-8 z-20 px-6 text-center">
           <div ref={captionRef} style={{ opacity: 0 }}>
             <h2 className="font-display text-2xl font-bold text-white/90 sm:text-3xl">
               Built like the cameras{" "}
