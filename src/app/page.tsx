@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { ReviewCarousel } from "@/components/ReviewCarousel";
 import { HomeStats } from "@/components/HomeStats";
 import { Particles } from "@/components/Particles";
+import { HeroDeconstruct } from "@/components/HeroDeconstruct";
 import { Reveal } from "@/components/Reveal";
 import { Marquee } from "@/components/Marquee";
 import { ViewfinderHUD } from "@/components/ViewfinderHUD";
@@ -64,7 +65,8 @@ export default async function Home() {
       <SiteHeader />
 
       {/* ───────────────── hero — the viewfinder ───────────────── */}
-      <section className="section-window relative flex min-h-[calc(100vh-93px)] flex-col overflow-hidden">
+      <section className="section-window relative" style={{ height: "220vh" }} data-hero-track>
+        <div className="sticky top-[93px] flex h-[calc(100vh-93px)] flex-col overflow-hidden">
         <div
           className="pointer-events-none absolute left-1/2 top-1/2 h-[800px] w-[800px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent-500/5 blur-[120px]"
           aria-hidden
@@ -76,6 +78,7 @@ export default async function Home() {
         <span className="meteor" style={{ top: "32%", left: "90%", animationDelay: "9s", animationDuration: "12s" }} aria-hidden />
         <Particles />
         <ViewfinderHUD />
+        <HeroDeconstruct />
 
         <div className="hero-push relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
           <div className="hero-rise hud-label" style={{ animationDelay: "0.15s" }}>
@@ -144,6 +147,7 @@ export default async function Home() {
             className="w-full py-3"
             itemClassName="font-mono text-xs tracking-[0.35em] text-white/30"
           />
+        </div>
         </div>
       </section>
 
