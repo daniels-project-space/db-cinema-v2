@@ -111,6 +111,24 @@ export function CameraDeconstruct() {
       targetTime = prog * (duration - 0.05);
     };
 
+    // Reliable scrub: never issue a seek while one is in flight (prevents the
+    // "stuck" pile-up), and never seek past what's actually buffered (prevents
+    // the "renders halfway" stall) — re-attempt from `seeked`/`progress` as more
+    // of the file loads.
+    const seekTo = () => {
+      if (video.seeking) return;
+      const b = video.buffered;
+      const loadedEnd = b.length ? b.end(0) : 0; // contiguous buffer from 0
+      const safe = Math.min(displayTime, Math.max(0, loadedEnd - 0.05));
+      if (Math.abs(video.currentTime - safe) > 1 / 30) {
+        try {
+          video.currentTime = safe;
+        } catch {
+          /* not ready */
+        }
+      }
+    };
+
     const tick = (now: number) => {
       const dt = prev ? Math.min(now - prev, 50) : 1000 / 60;
       prev = now;
@@ -124,13 +142,7 @@ export function CameraDeconstruct() {
         displayTime += delta * k;
         raf = requestAnimationFrame(tick);
       }
-      if (Math.abs(video.currentTime - displayTime) > 1 / 120) {
-        try {
-          video.currentTime = displayTime;
-        } catch {
-          /* seek not ready yet */
-        }
-      }
+      seekTo();
       paint(clamp(displayTime / (duration - 0.05), 0, 1));
     };
 
@@ -163,9 +175,13 @@ export function CameraDeconstruct() {
 
     window.addEventListener("scroll", wake, { passive: true });
     window.addEventListener("resize", wake);
+    video.addEventListener("seeked", seekTo);
+    video.addEventListener("progress", seekTo);
     return () => {
       window.removeEventListener("scroll", wake);
       window.removeEventListener("resize", wake);
+      video.removeEventListener("seeked", seekTo);
+      video.removeEventListener("progress", seekTo);
       cancelAnimationFrame(raf);
     };
   }, []);
