@@ -52,7 +52,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     const onTime = () => {
       setT(intro.currentTime);
       const d = intro.duration || 14;
-      if (intro.currentTime >= d - 0.7) startLoop();
+      if (intro.currentTime >= d - 1.1) startLoop();
     };
     const onEnded = () => startLoop();
     intro.addEventListener("timeupdate", onTime);
@@ -73,7 +73,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       {/* two stacked videos crossfade (no src-swap flash) */}
       <video
         ref={introRef}
-        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[700ms]"
+        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[1100ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
         style={{ opacity: reduce || loopActive ? 0 : 1 }}
         src="/intro.mp4"
         poster="/hero-backwall.jpg"
@@ -85,7 +85,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       />
       <video
         ref={loopRef}
-        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[700ms]"
+        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[1100ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
         style={{ opacity: reduce || loopActive ? 1 : 0 }}
         src="/loop.mp4"
         poster="/logo-frame.jpg"
@@ -123,7 +123,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         </defs>
         {CALLOUTS.map((c, i) => {
           const count = countBy.get(c.cat) ?? 0;
-          const delay = `${i * 0.1}s`;
+          const delay = `${i * 0.13}s`;
           const [lx, ly] = c.label;
           return (
             <g key={c.cat}>
@@ -139,7 +139,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
                 strokeDasharray={1}
                 style={{
                   strokeDashoffset: gearVisible ? 0 : 1,
-                  transition: "stroke-dashoffset .6s ease",
+                  transition: "stroke-dashoffset .75s cubic-bezier(0.16,1,0.3,1)",
                   transitionDelay: delay,
                 }}
               />
@@ -157,9 +157,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
                 filter="url(#hudShadow)"
                 style={{
                   opacity: gearVisible ? 1 : 0,
-                  transform: gearVisible ? "translateY(0)" : "translateY(5px)",
-                  transition: "opacity .5s ease, transform .5s ease",
-                  transitionDelay: `calc(${delay} + .12s)`,
+                  transform: gearVisible ? "translateY(0)" : "translateY(9px)",
+                  transition:
+                    "opacity .65s cubic-bezier(0.16,1,0.3,1), transform .65s cubic-bezier(0.16,1,0.3,1)",
+                  transitionDelay: `calc(${delay} + .16s)`,
                 }}
               >
                 {/* slim accent tick */}
@@ -203,8 +204,9 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           className="serif-accent text-3xl text-white/90 sm:text-5xl"
           style={{
             opacity: ctaVisible ? 1 : 0,
-            transform: ctaVisible ? "translateY(0)" : "translateY(18px)",
-            transition: "opacity .9s ease, transform .9s ease",
+            transform: ctaVisible ? "translateY(0)" : "translateY(26px)",
+            transition:
+              "opacity 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1)",
           }}
         >
           the gear that <span className="gradient-text">makes the shot.</span>
@@ -213,9 +215,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           className="mt-8 flex flex-wrap items-center justify-center gap-3"
           style={{
             opacity: ctaVisible ? 1 : 0,
-            transform: ctaVisible ? "translateY(0)" : "translateY(18px)",
-            transition: "opacity .9s ease, transform .9s ease",
-            transitionDelay: "0.18s",
+            transform: ctaVisible ? "translateY(0)" : "translateY(26px)",
+            transition:
+              "opacity 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1)",
+            transitionDelay: "0.24s",
           }}
         >
           <Magnetic>
@@ -235,8 +238,8 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
             className="mt-7 flex items-center gap-2.5 text-sm text-white/55"
             style={{
               opacity: ctaVisible ? 1 : 0,
-              transition: "opacity .9s ease",
-              transitionDelay: "0.36s",
+              transition: "opacity 1s cubic-bezier(0.16,1,0.3,1)",
+              transitionDelay: "0.48s",
             }}
           >
             <span className="flex text-accent-400">
