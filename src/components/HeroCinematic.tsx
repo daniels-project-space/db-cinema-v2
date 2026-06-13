@@ -9,70 +9,72 @@ type Rating = { ratingValue: number; reviewCount: number } | null;
 type Cat = { name: string; count: number };
 
 /**
- * Gear callouts, mapped to where the kit sits in the opening room frame.
- * Coordinates are in the video's 1600x900 space; the SVG uses
- * preserveAspectRatio="xMidYMid slice" so the lines/dots track the same crop
- * the <video object-cover> applies. label = real category + live stock count.
+ * Minimal gear callouts, mapped to the kit in the opening room frame.
+ * Coords are in the video's 1600x900 space; the SVG uses
+ * preserveAspectRatio="xMidYMid slice" so lines/dots track the object-cover
+ * crop. Labels are drop-shadowed text (no box) for a light HUD feel.
  */
 const CALLOUTS: {
   cat: string;
   unit: string;
   dot: [number, number];
-  box: [number, number]; // top-left of label
-  from: [number, number]; // line start (on the label edge)
+  label: [number, number]; // text anchor (top-left of the accent bar)
+  from: [number, number]; // where the connector line meets the label
 }[] = [
-  { cat: "Cameras", unit: "bodies", dot: [520, 330], box: [120, 120], from: [300, 175] },
-  { cat: "Lenses", unit: "lenses", dot: [330, 530], box: [80, 612], from: [240, 612] },
-  { cat: "Lighting", unit: "fixtures", dot: [1150, 395], box: [1200, 140], from: [1300, 226] },
-  { cat: "Audio", unit: "kits", dot: [1185, 575], box: [1210, 640], from: [1300, 640] },
+  { cat: "Cameras", unit: "bodies", dot: [520, 330], label: [150, 150], from: [150, 162] },
+  { cat: "Lenses", unit: "lenses", dot: [330, 530], label: [110, 628], from: [110, 640] },
+  { cat: "Lighting", unit: "fixtures", dot: [1150, 395], label: [1235, 168], from: [1235, 180] },
+  { cat: "Audio", unit: "kits", dot: [1185, 575], label: [1245, 662], from: [1245, 650] },
 ];
 
-const BOX_W = 290;
-const BOX_H = 86;
-
 export function HeroCinematic({ rating, categories }: { rating: Rating; categories: Cat[] }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const introRef = useRef<HTMLVideoElement>(null);
+  const loopRef = useRef<HTMLVideoElement>(null);
   const [t, setT] = useState(0);
-  const [loop, setLoop] = useState(false);
+  const [loopActive, setLoopActive] = useState(false);
   const [reduce, setReduce] = useState(false);
 
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
+    const intro = introRef.current;
+    const loopV = loopRef.current;
+    if (!intro || !loopV) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setReduce(true);
       return;
     }
-    let swapped = false;
-    const onTime = () => setT(v.currentTime);
-    const onEnded = () => {
-      if (swapped) return;
-      swapped = true;
-      v.src = "/loop.mp4";
-      v.loop = true;
-      v.load();
-      void v.play().catch(() => {});
-      setLoop(true);
+    let started = false;
+    const startLoop = () => {
+      if (started) return;
+      started = true;
+      void loopV.play().catch(() => {});
+      setLoopActive(true); // crossfade intro -> loop
     };
-    v.addEventListener("timeupdate", onTime);
-    v.addEventListener("ended", onEnded);
-    void v.play().catch(() => setReduce(true)); // autoplay blocked → just show the CTA
+    const onTime = () => {
+      setT(intro.currentTime);
+      const d = intro.duration || 14;
+      if (intro.currentTime >= d - 0.7) startLoop();
+    };
+    const onEnded = () => startLoop();
+    intro.addEventListener("timeupdate", onTime);
+    intro.addEventListener("ended", onEnded);
+    void intro.play().catch(() => setReduce(true)); // autoplay blocked -> static + CTA
     return () => {
-      v.removeEventListener("timeupdate", onTime);
-      v.removeEventListener("ended", onEnded);
+      intro.removeEventListener("timeupdate", onTime);
+      intro.removeEventListener("ended", onEnded);
     };
   }, []);
 
-  const gearVisible = !reduce && !loop && t > 0.5 && t < 4.6;
-  const ctaVisible = reduce || loop || t > 12.3;
-
+  const gearVisible = !reduce && !loopActive && t > 0.5 && t < 4.6;
+  const ctaVisible = reduce || loopActive || t > 12.3;
   const countBy = new Map(categories.map((c) => [c.name, c.count]));
 
   return (
     <>
+      {/* two stacked videos crossfade (no src-swap flash) */}
       <video
-        ref={videoRef}
-        className="absolute inset-0 h-full w-full object-cover object-center"
+        ref={introRef}
+        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[700ms]"
+        style={{ opacity: reduce || loopActive ? 0 : 1 }}
         src="/intro.mp4"
         poster="/hero-backwall.jpg"
         muted
@@ -81,19 +83,32 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         tabIndex={-1}
         aria-hidden
       />
+      <video
+        ref={loopRef}
+        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[700ms]"
+        style={{ opacity: reduce || loopActive ? 1 : 0 }}
+        src="/loop.mp4"
+        poster="/logo-frame.jpg"
+        muted
+        loop
+        playsInline
+        preload="auto"
+        tabIndex={-1}
+        aria-hidden
+      />
 
-      {/* legibility scrim — only really needed once the CTA is up */}
+      {/* legibility scrim — strongest once the CTA is up */}
       <div
         className="pointer-events-none absolute inset-0 transition-opacity duration-700"
         style={{
-          opacity: ctaVisible ? 1 : 0.45,
+          opacity: ctaVisible ? 1 : 0.4,
           background:
-            "radial-gradient(ellipse at 50% 64%, rgba(5,5,10,0.10) 0%, rgba(5,5,10,0.5) 66%, rgba(5,5,10,0.85) 100%)",
+            "radial-gradient(ellipse at 50% 64%, rgba(5,5,10,0.08) 0%, rgba(5,5,10,0.5) 66%, rgba(5,5,10,0.86) 100%)",
         }}
         aria-hidden
       />
 
-      {/* ── gear callouts (desktop) ── */}
+      {/* ── minimal gear callouts (desktop) ── */}
       <svg
         className="pointer-events-none absolute inset-0 hidden h-full w-full transition-opacity duration-[900ms] md:block"
         viewBox="0 0 1600 900"
@@ -101,10 +116,15 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         style={{ opacity: gearVisible ? 1 : 0, zIndex: 6 }}
         aria-hidden
       >
+        <defs>
+          <filter id="hudShadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="1" stdDeviation="3" floodColor="#000" floodOpacity="0.95" />
+          </filter>
+        </defs>
         {CALLOUTS.map((c, i) => {
           const count = countBy.get(c.cat) ?? 0;
           const delay = `${i * 0.1}s`;
-          const [bx, by] = c.box;
+          const [lx, ly] = c.label;
           return (
             <g key={c.cat}>
               <line
@@ -113,8 +133,8 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
                 x2={c.dot[0]}
                 y2={c.dot[1]}
                 stroke="#38bdf8"
-                strokeWidth={1.5}
-                strokeOpacity={0.7}
+                strokeWidth={1.25}
+                strokeOpacity={0.65}
                 pathLength={1}
                 strokeDasharray={1}
                 style={{
@@ -123,51 +143,43 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
                   transitionDelay: delay,
                 }}
               />
-              <circle cx={c.dot[0]} cy={c.dot[1]} r={5} fill="#38bdf8" />
+              <circle cx={c.dot[0]} cy={c.dot[1]} r={3.5} fill="#38bdf8" />
               <circle
                 cx={c.dot[0]}
                 cy={c.dot[1]}
-                r={11}
+                r={8}
                 fill="none"
                 stroke="#38bdf8"
-                strokeWidth={1.5}
-                strokeOpacity={0.5}
+                strokeWidth={1.25}
+                strokeOpacity={0.45}
               />
               <g
+                filter="url(#hudShadow)"
                 style={{
                   opacity: gearVisible ? 1 : 0,
-                  transform: gearVisible ? "translateY(0)" : "translateY(6px)",
+                  transform: gearVisible ? "translateY(0)" : "translateY(5px)",
                   transition: "opacity .5s ease, transform .5s ease",
-                  transitionDelay: `calc(${delay} + .15s)`,
+                  transitionDelay: `calc(${delay} + .12s)`,
                 }}
               >
-                <rect
-                  x={bx}
-                  y={by}
-                  width={BOX_W}
-                  height={BOX_H}
-                  rx={8}
-                  fill="rgba(5,5,10,0.62)"
-                  stroke="#38bdf8"
-                  strokeOpacity={0.35}
-                  strokeWidth={1}
-                />
+                {/* slim accent tick */}
+                <rect x={lx - 12} y={ly - 4} width={2} height={42} fill="#38bdf8" opacity={0.8} />
                 <text
-                  x={bx + 20}
-                  y={by + 36}
+                  x={lx}
+                  y={ly + 12}
                   fill="#ffffff"
-                  fontSize={30}
-                  fontWeight={700}
-                  letterSpacing={2}
+                  fontSize={21}
+                  fontWeight={600}
+                  letterSpacing={2.5}
                   style={{ fontFamily: "var(--font-display, sans-serif)" }}
                 >
                   {c.cat.toUpperCase()}
                 </text>
                 <text
-                  x={bx + 20}
-                  y={by + 66}
+                  x={lx}
+                  y={ly + 33}
                   fill="#38bdf8"
-                  fontSize={21}
+                  fontSize={14}
                   letterSpacing={1}
                   style={{ fontFamily: "var(--font-mono, monospace)" }}
                 >
