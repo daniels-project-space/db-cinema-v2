@@ -49,8 +49,8 @@ export function CameraDeconstruct() {
     // Write every scroll-driven visual from a single normalised progress p∈[0,1].
     const paint = (p: number) => {
       if (stageRef.current) {
-        // dolly push-in → settle; stays >=1 so object-cover never reveals a gap
-        const scale = 1.06 - 0.06 * p;
+        // gentle pull-back as it deconstructs; stays <=1 so object-contain is never cropped
+        const scale = 1 - 0.05 * p;
         stageRef.current.style.transform = `scale(${scale.toFixed(4)})`;
       }
       if (focusRef.current) {
@@ -205,7 +205,7 @@ export function CameraDeconstruct() {
           <div ref={stageRef} className="relative h-full w-full will-change-transform">
             <video
               ref={videoRef}
-              className="h-full w-full object-contain object-center sm:object-cover"
+              className="h-full w-full object-contain object-center"
               style={{ mixBlendMode: "screen" }}
               src="/arri-deconstruct.mp4"
               poster="/arri-deconstruct-poster.jpg"
@@ -242,18 +242,18 @@ export function CameraDeconstruct() {
         </div>
 
         {/* ── band 3: caption + film scrubber (below the camera) ── */}
-        <div className="relative z-20 shrink-0 px-6 pb-8 text-center">
+        <div className="relative z-20 shrink-0 px-6 pb-6 text-center">
           <div ref={captionRef} style={{ opacity: 0 }}>
-            <h2 className="font-display text-3xl font-bold text-white/90 sm:text-4xl">
+            <h2 className="font-display text-2xl font-bold text-white/90 sm:text-3xl">
               Built like the cameras{" "}
               <span className="serif-accent gradient-text text-[1.06em]">we rent</span>
             </h2>
-            <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-white/45">
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-white/45">
               Every body, lens and rig — stripped, checked and rebuilt between shoots.
             </p>
           </div>
 
-          <div ref={scrubRef} className="mx-auto mt-6 flex max-w-md items-center gap-3" aria-hidden>
+          <div ref={scrubRef} className="mx-auto mt-4 flex max-w-md items-center gap-3" aria-hidden>
             <span
               ref={frameRef}
               className="w-9 text-left font-mono text-[11px] tracking-widest text-white/40"
