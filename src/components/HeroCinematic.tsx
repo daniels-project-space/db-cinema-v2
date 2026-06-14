@@ -94,10 +94,11 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         className="absolute inset-0 h-full w-full object-cover object-center"
         style={{
           opacity: reduce || phase === "c1" ? 1 : 0,
-          // clip 2 is a 2% center-zoom of clip 1 (measured via frame
-          // registration); match clip 1's framing so the hard cut to clip 2
-          // has no scale pop
-          transform: "scale(1.02)",
+          // clip 2 is an ANAMORPHIC zoom of clip 1 (2.5% horizontal, 1.0%
+          // vertical — measured via per-axis frame registration). Match clip 1
+          // with the same per-axis stretch so the seam has no scale pop AND no
+          // squish (a uniform scale left a residual vertical squish).
+          transform: "scaleX(1.025) scaleY(1.01)",
           transformOrigin: "center center",
           // 80ms micro cross-dissolve absorbs the 1-frame content pop (boom moved)
           transition: "opacity 80ms linear",
