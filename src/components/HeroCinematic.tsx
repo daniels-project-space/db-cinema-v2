@@ -28,53 +28,56 @@ const CALLOUTS: {
 ];
 
 export function HeroCinematic({ rating, categories }: { rating: Rating; categories: Cat[] }) {
-  const introRef = useRef<HTMLVideoElement>(null);
+  const c1Ref = useRef<HTMLVideoElement>(null);
+  const c2Ref = useRef<HTMLVideoElement>(null);
   const loopRef = useRef<HTMLVideoElement>(null);
   const [t, setT] = useState(0);
-  const [loopActive, setLoopActive] = useState(false);
+  const [phase, setPhase] = useState<"c1" | "c2" | "loop">("c1");
   const [reduce, setReduce] = useState(false);
 
   useEffect(() => {
-    const intro = introRef.current;
+    const c1 = c1Ref.current;
+    const c2 = c2Ref.current;
     const loopV = loopRef.current;
-    if (!intro || !loopV) return;
+    if (!c1 || !c2 || !loopV) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setReduce(true);
       return;
     }
-    let started = false;
-    const startLoop = () => {
-      if (started) return;
-      started = true;
+    // buffer clip 2 + the loop while clip 1 plays, so each hand-off is instant
+    c2.load();
+    loopV.load();
+    const onTime = () => setT(c1.currentTime);
+    const toC2 = () => {
+      setPhase("c2");
+      void c2.play().catch(() => {});
+    };
+    const toLoop = () => {
+      setPhase("loop");
       void loopV.play().catch(() => {});
-      setLoopActive(true); // crossfade intro -> loop
     };
-    const onTime = () => {
-      setT(intro.currentTime);
-      const d = intro.duration || 14;
-      if (intro.currentTime >= d - 1.4) startLoop();
-    };
-    const onEnded = () => startLoop();
-    intro.addEventListener("timeupdate", onTime);
-    intro.addEventListener("ended", onEnded);
-    void intro.play().catch(() => setReduce(true)); // autoplay blocked -> static + CTA
+    c1.addEventListener("timeupdate", onTime);
+    c1.addEventListener("ended", toC2);
+    c2.addEventListener("ended", toLoop);
+    void c1.play().catch(() => setReduce(true)); // autoplay blocked -> static + CTA
     return () => {
-      intro.removeEventListener("timeupdate", onTime);
-      intro.removeEventListener("ended", onEnded);
+      c1.removeEventListener("timeupdate", onTime);
+      c1.removeEventListener("ended", toC2);
+      c2.removeEventListener("ended", toLoop);
     };
   }, []);
 
-  const gearVisible = !reduce && !loopActive && t > 0.5 && t < 4.6;
-  const ctaVisible = reduce || loopActive || t > 12.3;
+  const gearVisible = !reduce && phase === "c1" && t > 0.5 && t < 4.6;
+  const ctaVisible = reduce || phase !== "c1" || t > 12.3;
   const countBy = new Map(categories.map((c) => [c.name, c.count]));
 
   return (
     <>
-      {/* two stacked videos crossfade (no src-swap flash) */}
+      {/* three stacked clips, instant hard-cut hand-off (clip 2 + loop preload while clip 1 plays) */}
       <video
-        ref={introRef}
-        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[1400ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
-        style={{ opacity: reduce || loopActive ? 0 : 1 }}
+        ref={c1Ref}
+        className="absolute inset-0 h-full w-full object-cover object-center"
+        style={{ opacity: reduce || phase === "c1" ? 1 : 0 }}
         src="/intro.mp4"
         poster="/hero-backwall.jpg"
         muted
@@ -84,9 +87,20 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         aria-hidden
       />
       <video
+        ref={c2Ref}
+        className="absolute inset-0 h-full w-full object-cover object-center"
+        style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
+        src="/intro2.mp4"
+        muted
+        playsInline
+        preload="auto"
+        tabIndex={-1}
+        aria-hidden
+      />
+      <video
         ref={loopRef}
-        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[1400ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
-        style={{ opacity: reduce || loopActive ? 1 : 0 }}
+        className="absolute inset-0 h-full w-full object-cover object-center"
+        style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
         src="/loop.mp4"
         poster="/logo-frame.jpg"
         muted
