@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
-import { PageHero } from "@/components/PageHero";
+import { GearLoopBanner } from "@/components/GearLoopBanner";
 import { KitCompatibility } from "@/components/cart/KitCompatibility";
 import { useCart } from "@/components/cart/CartProvider";
 import { usePromo } from "@/components/cart/usePromo";
@@ -35,8 +35,13 @@ export default function CartPage() {
   return (
     <>
       <SiteHeader />
-      <main className="section-window mx-auto max-w-5xl px-6 py-12">
-        <PageHero eyebrow={`Kit list · ${items.length} item${items.length === 1 ? "" : "s"}`} lead="Your" accent="kit" />
+      <GearLoopBanner
+        eyebrow="Your kit"
+        lead="Review &"
+        accent="checkout"
+        sub="Check your dates and gear, then book securely."
+      />
+      <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
 
         {items.length === 0 ? (
           <div className="mt-16 text-center">
