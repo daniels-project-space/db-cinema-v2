@@ -94,12 +94,12 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         className="absolute inset-0 h-full w-full object-cover object-center"
         style={{
           opacity: reduce || phase === "c1" ? 1 : 0,
-          // clip 2 is an ANAMORPHIC zoom of clip 1 (2.5% horizontal, 3.0%
-          // vertical — measured on the rigid neon; the boom's motion had biased
-          // a full-frame read low on the vertical, leaving a squish). Match clip
-          // 1 with the same per-axis stretch so the hard cut has no scale pop
-          // and no squish.
-          transform: "scaleX(1.025) scaleY(1.03)",
+          // clip 2 is an anamorphic zoom of clip 1. Optimal stretch measured
+          // about the FRAME CENTRE (how this transform actually renders) against
+          // the rigid neon: scaleX 1.0325, scaleY 1.0125 (MSE 997 vs 3327 for no
+          // correction). An earlier value was measured about the neon's local
+          // centre and rendered WORSE than no correction — wrong origin.
+          transform: "scaleX(1.0325) scaleY(1.0125)",
           transformOrigin: "center center",
         }}
         src="/intro.mp4"
