@@ -129,12 +129,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       <video
         ref={loopRef}
         className="absolute inset-0 h-full w-full object-cover object-center"
-        // clip 3 widened a touch horizontally per request
-        style={{
-          opacity: !reduce && phase === "loop" ? 1 : 0,
-          transform: "scaleX(1.02)",
-          transformOrigin: "center center",
-        }}
+        style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
         src="/loop.mp4"
         poster="/loop-poster.jpg"
         muted
