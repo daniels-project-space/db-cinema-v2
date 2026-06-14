@@ -33,6 +33,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   const loopRef = useRef<HTMLVideoElement>(null);
   const [t, setT] = useState(0);
   const [phase, setPhase] = useState<"c1" | "c2" | "loop">("c1");
+  const [c1Zoom, setC1Zoom] = useState(false);
   const [reduce, setReduce] = useState(false);
 
   useEffect(() => {
@@ -47,7 +48,12 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     // buffer clip 2 + the loop while clip 1 plays, so each hand-off is instant
     c2.load();
     loopV.load();
-    const onTime = () => setT(c1.currentTime);
+    const onTime = () => {
+      setT(c1.currentTime);
+      // gentle push-in over clip 1's tail so its motion is already moving
+      // toward clip 2's (slightly tighter) framing when the cut lands
+      if (c1.duration && c1.currentTime > c1.duration - 1.3) setC1Zoom(true);
+    };
     const toC2 = () => {
       setPhase("c2");
       void c2.play().catch(() => {});
@@ -77,9 +83,15 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       <video
         ref={c1Ref}
         className="absolute inset-0 h-full w-full object-cover object-center"
-        style={{ opacity: reduce || phase === "c1" ? 1 : 0 }}
+        style={{
+          opacity: reduce || phase === "c1" ? 1 : 0,
+          transform: !reduce && c1Zoom ? "scale(1.045)" : "scale(1)",
+          transformOrigin: "center center",
+          transition: "transform 1.4s cubic-bezier(0.4, 0, 0.9, 1)",
+          willChange: "transform",
+        }}
         src="/intro.mp4"
-        poster="/hero-backwall.jpg"
+        poster="/intro-poster.jpg"
         muted
         playsInline
         preload="auto"
