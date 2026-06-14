@@ -88,57 +88,70 @@ export function SiteHeader() {
               })}
             </div>
 
-            {me ? (
-              <div className="relative hidden md:block">
-                <button
-                  onClick={() => setMenu((m) => !m)}
-                  className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] py-1 pl-1 pr-3 transition hover:border-accent-400/40 hover:bg-white/[0.07]"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={avatar} alt="" className="h-7 w-7 rounded-full object-cover ring-1 ring-accent-400/50" />
-                  <span className="max-w-[90px] truncate text-sm text-white/80" title={me.name || me.email}>
-                    {me.name || me.email.split("@")[0]}
-                  </span>
-                </button>
-                {menu && (
-                  <div className="absolute right-0 mt-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900 shadow-2xl shadow-black/60">
-                    <div className="flex items-center gap-3 border-b border-white/5 p-4">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={avatar} alt="" className="h-10 w-10 rounded-full object-cover ring-1 ring-accent-400/50" />
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-white/90">{me.name || "Account"}</div>
-                        <div className="truncate text-xs text-white/40">{me.email}</div>
+            {/* fixed-size slot: never reflows the header when auth resolves
+                (logged-out link / skeleton / avatar pill all occupy the same box) */}
+            <div className="hidden h-9 min-w-[148px] items-center justify-end md:flex">
+              {me ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setMenu((m) => !m)}
+                    className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] py-1 pl-1 pr-3 transition hover:border-accent-400/40 hover:bg-white/[0.07]"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={avatar} alt="" className="h-7 w-7 rounded-full object-cover ring-1 ring-accent-400/50" />
+                    <span className="max-w-[90px] truncate text-sm text-white/80" title={me.name || me.email}>
+                      {me.name || me.email.split("@")[0]}
+                    </span>
+                  </button>
+                  {menu && (
+                    <div className="absolute right-0 mt-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900 shadow-2xl shadow-black/60">
+                      <div className="flex items-center gap-3 border-b border-white/5 p-4">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={avatar} alt="" className="h-10 w-10 rounded-full object-cover ring-1 ring-accent-400/50" />
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-white/90">{me.name || "Account"}</div>
+                          <div className="truncate text-xs text-white/40">{me.email}</div>
+                        </div>
                       </div>
+                      <Link
+                        href="/account"
+                        onClick={() => setMenu(false)}
+                        className="block px-4 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                      >
+                        My account &amp; bookings
+                      </Link>
+                      <button
+                        onClick={() => {
+                          setMenu(false);
+                          account.signOut();
+                        }}
+                        className="block w-full px-4 py-2.5 text-left text-sm text-rec-500 transition-colors hover:bg-white/5"
+                      >
+                        Sign out
+                      </button>
                     </div>
-                    <Link
-                      href="/account"
-                      onClick={() => setMenu(false)}
-                      className="block px-4 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
-                    >
-                      My account &amp; bookings
-                    </Link>
-                    <button
-                      onClick={() => {
-                        setMenu(false);
-                        account.signOut();
-                      }}
-                      className="block w-full px-4 py-2.5 text-left text-sm text-rec-500 transition-colors hover:bg-white/5"
-                    >
-                      Sign out
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <Link
-                href="/account"
-                className={`nav-link hidden transition-colors md:inline ${
-                  pathname.startsWith("/account") ? "active text-white" : "text-white/55 hover:text-white"
-                }`}
-              >
-                Account
-              </Link>
-            )}
+                  )}
+                </div>
+              ) : account.loading && account.token ? (
+                // returning user: hold the pill's footprint while me resolves
+                <div
+                  className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] py-1 pl-1 pr-3"
+                  aria-hidden
+                >
+                  <span className="h-7 w-7 animate-pulse rounded-full bg-white/10" />
+                  <span className="h-3 w-16 animate-pulse rounded bg-white/10" />
+                </div>
+              ) : (
+                <Link
+                  href="/account"
+                  className={`nav-link transition-colors ${
+                    pathname.startsWith("/account") ? "active text-white" : "text-white/55 hover:text-white"
+                  }`}
+                >
+                  Account
+                </Link>
+              )}
+            </div>
 
             <button
               onClick={open}
