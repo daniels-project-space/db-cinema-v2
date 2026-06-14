@@ -92,16 +92,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       <video
         ref={c1Ref}
         className="absolute inset-0 h-full w-full object-cover object-center"
-        style={{
-          opacity: reduce || phase === "c1" ? 1 : 0,
-          // clip 2 is an anamorphic zoom of clip 1. Optimal stretch measured
-          // about the FRAME CENTRE (how this transform actually renders) against
-          // the rigid neon: scaleX 1.0325, scaleY 1.0125 (MSE 997 vs 3327 for no
-          // correction). An earlier value was measured about the neon's local
-          // centre and rendered WORSE than no correction — wrong origin.
-          transform: "scaleX(1.0325) scaleY(1.0125)",
-          transformOrigin: "center center",
-        }}
+        // the clip1->clip2 anamorphic match is now baked into intro.mp4 itself
+        // (scaleX 1.0325 scaleY 1.0125), so no CSS transform — alignment is in
+        // the pixels and immune to window size / sub-pixel rendering.
+        style={{ opacity: reduce || phase === "c1" ? 1 : 0 }}
         src="/intro.mp4"
         poster="/intro-poster.jpg"
         muted
