@@ -67,7 +67,7 @@ function GearPageInner() {
         </Link>
 
         {/* sticky toolbar: search + category tabs */}
-        <div className="sticky top-[57px] z-30 -mx-6 mt-8 border-b border-white/[0.06] bg-[#060608]/95 px-6 py-3">
+        <div className="-mx-6 mt-8 border-b border-white/[0.06] bg-[#060608]/95 px-6 py-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative w-full max-w-md">
               <IconSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
