@@ -3,7 +3,17 @@
  * page title. Its first frame is the turn transition's last frame, so arriving
  * from the Home->Gear turn is seamless.
  */
-export function GearLoopBanner() {
+export function GearLoopBanner({
+  eyebrow = "The catalogue",
+  lead = "Rent",
+  accent = "cinema gear",
+  sub = "Professional cameras, lenses, lighting, audio and more. Delivered across London.",
+}: {
+  eyebrow?: string;
+  lead?: string;
+  accent?: string;
+  sub?: string;
+} = {}) {
   return (
     <section className="section-window relative h-[46vh] min-h-[320px] w-full overflow-hidden">
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
@@ -32,14 +42,12 @@ export function GearLoopBanner() {
           <div className="page-in">
             <div className="flex items-center gap-3">
               <span className="hidden h-px w-8 bg-accent-400/60 sm:block" aria-hidden />
-              <span className="hud-label !text-accent-400/90">The catalogue</span>
+              <span className="hud-label !text-accent-400/90">{eyebrow}</span>
             </div>
             <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-white sm:text-6xl">
-              Rent <span className="serif-accent gradient-text pr-1 text-[1.06em]">cinema gear</span>
+              {lead} <span className="serif-accent gradient-text pr-1 text-[1.06em]">{accent}</span>
             </h1>
-            <p className="mt-3 max-w-xl text-balance leading-relaxed text-white/60">
-              Professional cameras, lenses, lighting, audio and more. Delivered across London.
-            </p>
+            <p className="mt-3 max-w-xl text-balance leading-relaxed text-white/60">{sub}</p>
           </div>
         </div>
       </div>

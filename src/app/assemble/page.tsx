@@ -6,6 +6,7 @@ import { BotAvatarBadge, type BotMood } from "@/components/chat/BotAvatar";
 import { Stream, TypingIndicator } from "@/components/chat/ChatKit";
 import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
+import { GearLoopBanner } from "@/components/GearLoopBanner";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { tierByKey } from "@/lib/membership";
@@ -168,23 +169,13 @@ export default function AssemblePage() {
   return (
     <>
       <SiteHeader />
-      <main className="section-window mx-auto max-w-5xl px-6 py-12 pb-32">
-        <div className="page-in">
-          <div className="flex items-center gap-3">
-            <span className="hidden h-px w-8 bg-accent-400/60 sm:block" aria-hidden />
-            <span className="hud-label !text-accent-400/90">AI item assembly</span>
-          </div>
-          <div className="mt-3 flex items-center gap-4">
-            <BotAvatarBadge mood={loading ? "thinking" : "idle"} size={52} className="hidden sm:flex" />
-            <h1 className="font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              Build the perfect <span className="serif-accent gradient-text text-[1.06em]">kit</span>
-            </h1>
-          </div>
-          <p className="mt-2 text-sm text-white/40">
-            <span className="font-medium text-white/60">Gaffer</span> picks compatible gear for your shoot, priced
-            for your dates — you approve every item.
-          </p>
-        </div>
+      <GearLoopBanner
+        eyebrow="AI item assembly"
+        lead="Build the perfect"
+        accent="kit"
+        sub="Tell us the shoot — Gaffer builds a compatible kit, priced for your dates. You approve every item."
+      />
+      <main className="section-window mx-auto max-w-5xl px-6 pb-32 pt-8">
 
         {/* ── CONVERSATIONAL ONBOARDING ── */}
         {!data && (
