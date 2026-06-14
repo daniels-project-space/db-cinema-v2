@@ -21,10 +21,12 @@ const CALLOUTS: {
   label: [number, number]; // text anchor (top-left of the accent bar)
   from: [number, number]; // where the connector line meets the label
 }[] = [
-  { cat: "Cameras", unit: "bodies", dot: [520, 330], label: [150, 150], from: [150, 162] },
-  { cat: "Lenses", unit: "lenses", dot: [330, 530], label: [110, 628], from: [110, 640] },
-  { cat: "Lighting", unit: "fixtures", dot: [1150, 395], label: [1235, 168], from: [1235, 180] },
-  { cat: "Audio", unit: "kits", dot: [1185, 575], label: [1245, 662], from: [1245, 650] },
+  // dots point at the real kit in clip 1's opening (1600x900 video space):
+  // camera->ARRI body, lighting->DB CINEMA neon, lenses->flight case, audio->boom mic
+  { cat: "Cameras", unit: "bodies", dot: [540, 250], label: [150, 150], from: [170, 162] },
+  { cat: "Lenses", unit: "lenses", dot: [250, 560], label: [110, 628], from: [140, 616] },
+  { cat: "Lighting", unit: "fixtures", dot: [955, 135], label: [1235, 250], from: [1225, 262] },
+  { cat: "Audio", unit: "kits", dot: [1420, 235], label: [1245, 662], from: [1270, 650] },
 ];
 
 export function HeroCinematic({ rating, categories }: { rating: Rating; categories: Cat[] }) {
