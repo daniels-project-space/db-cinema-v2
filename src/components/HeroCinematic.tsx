@@ -94,14 +94,13 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         className="absolute inset-0 h-full w-full object-cover object-center"
         style={{
           opacity: reduce || phase === "c1" ? 1 : 0,
-          // clip 2 is an ANAMORPHIC zoom of clip 1 (2.5% horizontal, 1.0%
-          // vertical — measured via per-axis frame registration). Match clip 1
-          // with the same per-axis stretch so the seam has no scale pop AND no
-          // squish (a uniform scale left a residual vertical squish).
-          transform: "scaleX(1.025) scaleY(1.01)",
+          // clip 2 is an ANAMORPHIC zoom of clip 1 (2.5% horizontal, 3.0%
+          // vertical — measured on the rigid neon; the boom's motion had biased
+          // a full-frame read low on the vertical, leaving a squish). Match clip
+          // 1 with the same per-axis stretch so the hard cut has no scale pop
+          // and no squish.
+          transform: "scaleX(1.025) scaleY(1.03)",
           transformOrigin: "center center",
-          // 80ms micro cross-dissolve absorbs the 1-frame content pop (boom moved)
-          transition: "opacity 80ms linear",
         }}
         src="/intro.mp4"
         poster="/intro-poster.jpg"
@@ -114,7 +113,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       <video
         ref={c2Ref}
         className="absolute inset-0 h-full w-full object-cover object-center"
-        style={{ opacity: !reduce && phase === "c2" ? 1 : 0, transition: "opacity 80ms linear" }}
+        style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
         src="/intro2.mp4"
         poster="/intro2-poster.jpg"
         muted
