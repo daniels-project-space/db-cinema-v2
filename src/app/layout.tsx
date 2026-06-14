@@ -8,6 +8,7 @@ import { CartToast } from "@/components/cart/CartToast";
 import { AccountProvider } from "@/components/account/AccountProvider";
 import { Footer } from "@/components/Footer";
 import { AmbientBackground } from "@/components/AmbientBackground";
+import { GearTurnOverlay } from "@/components/GearTurnOverlay";
 import { CursorGlow } from "@/components/CursorGlow";
 import { SpotlightEffect } from "@/components/SpotlightEffect";
 import { ScrollProgress } from "@/components/ScrollProgress";
@@ -125,6 +126,7 @@ export default function RootLayout({
               <CartDrawer />
               <CartToast />
               <BotBubble />
+              <GearTurnOverlay />
             </CartProvider>
           </AccountProvider>
         </ConvexClientProvider>

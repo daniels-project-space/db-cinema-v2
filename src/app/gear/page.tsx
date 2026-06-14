@@ -4,7 +4,7 @@ import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { IconSliders, IconSearch } from "@/components/icons";
 import { CategoryIcon } from "@/components/CategoryIcon";
-import { PageHero } from "@/components/PageHero";
+import { GearLoopBanner } from "@/components/GearLoopBanner";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
@@ -46,14 +46,8 @@ function GearPageInner() {
   return (
     <>
       <SiteHeader />
-      <main className="section-window mx-auto min-h-screen max-w-7xl px-6 py-12">
-        <PageHero
-          eyebrow="The catalogue"
-          lead="Rent"
-          accent="cinema gear"
-          sub="Professional cameras, lenses, lighting, audio and more. Daily, 3-day and 7-day rates. Delivered across London."
-        />
-
+      <GearLoopBanner />
+      <main className="section-window mx-auto min-h-screen max-w-7xl px-6 pb-12 pt-8">
         <Link
           href="/assemble"
           className="spot border-beam press group mt-8 flex items-center gap-4 rounded-2xl p-4 sm:p-5"

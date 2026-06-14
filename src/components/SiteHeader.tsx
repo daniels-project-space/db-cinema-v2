@@ -68,6 +68,16 @@ export function SiteHeader() {
                   <Link
                     key={n.href}
                     href={n.href}
+                    onClick={(e) => {
+                      if (
+                        n.href === "/gear" &&
+                        pathname === "/" &&
+                        !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                      ) {
+                        e.preventDefault();
+                        window.dispatchEvent(new CustomEvent("dbc:gear-turn"));
+                      }
+                    }}
                     className={`nav-link transition-colors ${
                       active ? "active text-white" : "text-white/55 hover:text-white"
                     }`}
@@ -181,7 +191,17 @@ export function SiteHeader() {
               <Link
                 key={n.href}
                 href={n.href}
-                onClick={() => setMobile(false)}
+                onClick={(e) => {
+                  setMobile(false);
+                  if (
+                    n.href === "/gear" &&
+                    pathname === "/" &&
+                    !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                  ) {
+                    e.preventDefault();
+                    window.dispatchEvent(new CustomEvent("dbc:gear-turn"));
+                  }
+                }}
                 className="group flex items-center justify-between border-b border-white/[0.06] py-4"
                 style={mobile ? { animation: `stage-in 0.5s var(--ease-out-expo) ${80 + i * 55}ms both` } : undefined}
               >
