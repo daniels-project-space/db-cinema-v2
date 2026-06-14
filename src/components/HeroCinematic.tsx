@@ -125,7 +125,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       <video
         ref={loopRef}
         className="absolute inset-0 h-full w-full object-cover object-center"
-        style={{ opacity: !reduce && phase === "loop" ? 1 : 0, transition: "opacity 80ms linear" }}
+        style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
         src="/loop.mp4"
         poster="/loop-poster.jpg"
         muted
