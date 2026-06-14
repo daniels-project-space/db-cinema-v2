@@ -7,7 +7,7 @@ import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
-import { PageHero } from "@/components/PageHero";
+import { CheckoutLoopBanner } from "@/components/CheckoutLoopBanner";
 import { useCart } from "@/components/cart/CartProvider";
 import { usePromo } from "@/components/cart/usePromo";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -170,8 +170,8 @@ export default function CheckoutPage() {
   return (
     <>
       <SiteHeader />
-      <main className="section-window mx-auto max-w-5xl px-6 py-12">
-        <PageHero eyebrow="Final step" lead="Check" accent="out" />
+      <CheckoutLoopBanner />
+      <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
           <span className="inline-flex items-center gap-1.5">
             <IconLock className="h-3.5 w-3.5 text-accent-400" />

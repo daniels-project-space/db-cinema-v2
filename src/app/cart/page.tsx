@@ -185,7 +185,16 @@ export default function CartPage() {
                     Resolve availability to checkout
                   </button>
                 ) : (
-                  <Link href="/checkout" className="btn-primary mt-5 w-full py-3">
+                  <Link
+                    href="/checkout"
+                    onClick={(e) => {
+                      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                        e.preventDefault();
+                        window.dispatchEvent(new CustomEvent("dbc:checkout-turn"));
+                      }
+                    }}
+                    className="btn-primary mt-5 w-full py-3"
+                  >
                     Secure checkout
                     <IconArrowRight className="h-4 w-4" />
                   </Link>
