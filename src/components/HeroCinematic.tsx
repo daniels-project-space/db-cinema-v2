@@ -33,7 +33,6 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   const c1Ref = useRef<HTMLVideoElement>(null);
   const c2Ref = useRef<HTMLVideoElement>(null);
   const loopRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [t, setT] = useState(0);
   const [phase, setPhase] = useState<"c1" | "c2" | "loop">("c1");
   const [reduce, setReduce] = useState(false);
@@ -42,40 +41,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     const c1 = c1Ref.current;
     const c2 = c2Ref.current;
     const loopV = loopRef.current;
-    const audio = audioRef.current;
     if (!c1 || !c2 || !loopV) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setReduce(true);
       return;
-    }
-
-    // jukebox jazz: a quiet bed while the jukebox is on screen (clip 1), faded
-    // as the camera sweeps away from it (clip 2). Audible autoplay is blocked on
-    // a cold load, so fall back to the first user gesture — but only while clip 1
-    // is still showing, so it never starts after the camera has left.
-    const JAZZ_VOL = 0.03; // very quiet background (~20% of the previous level)
-    let onJukebox = true;
-    let fade: ReturnType<typeof setInterval> | null = null;
-    const beginJazz = () => {
-      if (!audio || !onJukebox || audio.dataset.on) return;
-      audio.dataset.on = "1";
-      audio.volume = JAZZ_VOL;
-      void audio.play().catch(() => {
-        delete audio.dataset.on;
-      });
-    };
-    if (audio) {
-      audio.volume = JAZZ_VOL;
-      audio
-        .play()
-        .then(() => {
-          audio.dataset.on = "1";
-        })
-        .catch(() => {
-          ["pointerdown", "keydown", "scroll", "touchstart"].forEach((e) =>
-            window.addEventListener(e, beginJazz, { once: true }),
-          );
-        });
     }
 
     // keep the initial load light: don't touch clip 2 / loop until needed.
@@ -100,17 +69,6 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         loopV.preload = "auto";
         loopV.load();
       }
-      // camera leaves the jukebox -> stop arming the jazz and fade it out
-      onJukebox = false;
-      if (audio && !audio.paused) {
-        fade = setInterval(() => {
-          audio.volume = Math.max(0, audio.volume - JAZZ_VOL / 70); // ~7s slow fade
-          if (audio.volume <= 0.001) {
-            audio.pause();
-            if (fade) clearInterval(fade);
-          }
-        }, 100);
-      }
     };
     const toLoop = () => {
       setPhase("loop");
@@ -124,10 +82,6 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       c1.removeEventListener("timeupdate", onTime);
       c1.removeEventListener("ended", toC2);
       c2.removeEventListener("ended", toLoop);
-      ["pointerdown", "keydown", "scroll", "touchstart"].forEach((e) =>
-        window.removeEventListener(e, beginJazz),
-      );
-      if (fade) clearInterval(fade);
     };
   }, []);
 
@@ -178,9 +132,6 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         tabIndex={-1}
         aria-hidden
       />
-
-      {/* jukebox jazz bed — quiet, fades when the camera leaves the jukebox */}
-      <audio ref={audioRef} src="/jazz.mp3" preload="auto" aria-hidden tabIndex={-1} />
 
       {/* legibility scrim — strongest once the CTA is up */}
       <div
