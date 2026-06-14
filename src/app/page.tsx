@@ -69,11 +69,11 @@ export default async function Home() {
         <HeroCinematic rating={rating} categories={categories} />
         <ViewfinderHUD />
 
-        <div className="absolute inset-x-0 bottom-0 z-10 pb-3">
+        <div className="absolute inset-x-0 bottom-0 z-10 pb-2">
           <Marquee
             items={BRANDS}
             speed={34}
-            className="w-full py-3"
+            className="w-full py-1.5"
             itemClassName="font-mono text-xs tracking-[0.35em] text-white/30"
           />
         </div>

@@ -52,7 +52,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     const onTime = () => {
       setT(intro.currentTime);
       const d = intro.duration || 14;
-      if (intro.currentTime >= d - 1.1) startLoop();
+      if (intro.currentTime >= d - 1.4) startLoop();
     };
     const onEnded = () => startLoop();
     intro.addEventListener("timeupdate", onTime);
@@ -73,7 +73,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       {/* two stacked videos crossfade (no src-swap flash) */}
       <video
         ref={introRef}
-        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[1100ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
+        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[1400ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
         style={{ opacity: reduce || loopActive ? 0 : 1 }}
         src="/intro.mp4"
         poster="/hero-backwall.jpg"
@@ -85,7 +85,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       />
       <video
         ref={loopRef}
-        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[1100ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
+        className="absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-[1400ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
         style={{ opacity: reduce || loopActive ? 1 : 0 }}
         src="/loop.mp4"
         poster="/logo-frame.jpg"
@@ -107,6 +107,12 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         }}
         aria-hidden
       />
+
+      {/* permanent soft smoke veil — continuous across every cut */}
+      <div className="hero-haze" style={{ zIndex: 5 }} aria-hidden>
+        <span className="wisp w1" />
+        <span className="wisp w2" />
+      </div>
 
       {/* ── minimal gear callouts (desktop) ── */}
       <svg
@@ -197,7 +203,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         DB Cinema Rentals — professional camera, lens, lighting and audio rental in London
       </h1>
       <div
-        className="absolute inset-x-0 bottom-[8%] z-20 flex flex-col items-center px-6 text-center"
+        className="absolute inset-x-0 bottom-[5%] z-20 flex flex-col items-center px-6 text-center"
         style={{ pointerEvents: ctaVisible ? "auto" : "none" }}
       >
         <p
@@ -212,7 +218,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           the gear that <span className="gradient-text">makes the shot.</span>
         </p>
         <div
-          className="mt-8 flex flex-wrap items-center justify-center gap-3"
+          className="mt-6 flex flex-wrap items-center justify-center gap-3"
           style={{
             opacity: ctaVisible ? 1 : 0,
             transform: ctaVisible ? "translateY(0)" : "translateY(26px)",
@@ -235,7 +241,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         </div>
         {rating && (
           <div
-            className="mt-7 flex items-center gap-2.5 text-sm text-white/55"
+            className="mt-5 flex items-center gap-2.5 text-sm text-white/55"
             style={{
               opacity: ctaVisible ? 1 : 0,
               transition: "opacity 1s cubic-bezier(0.16,1,0.3,1)",

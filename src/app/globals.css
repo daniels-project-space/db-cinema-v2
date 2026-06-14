@@ -1376,3 +1376,27 @@ body {
   .hero-push { animation: none !important; }
   .meteor { display: none; }
 }
+
+/* hero-haze — permanent soft drifting smoke veil over the hero film,
+   so cuts (intro->loop, loop seam) read as one continuous shot.
+   transform-only animation (static blur) = cheap. */
+@keyframes haze-a {
+  0%, 100% { transform: translate(-6%, 2%) scale(1.18); }
+  50% { transform: translate(7%, -3%) scale(1.32); }
+}
+@keyframes haze-b {
+  0%, 100% { transform: translate(5%, -2%) scale(1.22); }
+  50% { transform: translate(-6%, 4%) scale(1.36); }
+}
+.hero-haze { position: absolute; inset: 0; pointer-events: none; overflow: hidden; mix-blend-mode: screen; }
+.hero-haze .wisp { position: absolute; border-radius: 9999px; filter: blur(70px); will-change: transform; }
+.hero-haze .w1 {
+  width: 75vw; height: 55vw; left: -12vw; top: -8vw;
+  background: radial-gradient(ellipse at center, rgba(205, 218, 238, 0.11), transparent 64%);
+  animation: haze-a 46s ease-in-out infinite;
+}
+.hero-haze .w2 {
+  width: 65vw; height: 48vw; right: -12vw; bottom: -10vw;
+  background: radial-gradient(ellipse at center, rgba(195, 210, 235, 0.09), transparent 64%);
+  animation: haze-b 60s ease-in-out infinite;
+}
