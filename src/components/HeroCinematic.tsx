@@ -26,7 +26,7 @@ const CALLOUTS: {
   { cat: "Cameras", unit: "bodies", dot: [540, 250], label: [150, 150], from: [170, 162] },
   { cat: "Lenses", unit: "lenses", dot: [250, 560], label: [110, 628], from: [140, 616] },
   { cat: "Lighting", unit: "fixtures", dot: [955, 135], label: [1235, 250], from: [1225, 262] },
-  { cat: "Audio", unit: "kits", dot: [1420, 235], label: [1245, 662], from: [1270, 650] },
+  { cat: "Audio", unit: "kits", dot: [1455, 420], label: [1245, 662], from: [1270, 650] },
 ];
 
 export function HeroCinematic({ rating, categories }: { rating: Rating; categories: Cat[] }) {
