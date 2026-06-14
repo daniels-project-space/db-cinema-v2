@@ -53,7 +53,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     // as the camera sweeps away from it (clip 2). Audible autoplay is blocked on
     // a cold load, so fall back to the first user gesture — but only while clip 1
     // is still showing, so it never starts after the camera has left.
-    const JAZZ_VOL = 0.15;
+    const JAZZ_VOL = 0.03; // very quiet background (~20% of the previous level)
     let onJukebox = true;
     let fade: ReturnType<typeof setInterval> | null = null;
     const beginJazz = () => {
@@ -104,7 +104,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       onJukebox = false;
       if (audio && !audio.paused) {
         fade = setInterval(() => {
-          audio.volume = Math.max(0, audio.volume - JAZZ_VOL / 28);
+          audio.volume = Math.max(0, audio.volume - JAZZ_VOL / 70); // ~7s slow fade
           if (audio.volume <= 0.001) {
             audio.pause();
             if (fade) clearInterval(fade);
