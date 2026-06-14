@@ -44,13 +44,28 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       setReduce(true);
       return;
     }
-    // buffer clip 2 + the loop while clip 1 plays, so each hand-off is instant
-    c2.load();
-    loopV.load();
-    const onTime = () => setT(c1.currentTime);
+    // keep the initial load light: don't touch clip 2 / loop until needed.
+    // clip 2 starts buffering ~40% into clip 1; the loop lazy-loads only once
+    // clip 2 is playing.
+    let c2Queued = false;
+    let loopQueued = false;
+    const onTime = () => {
+      setT(c1.currentTime);
+      const d = c1.duration || 15;
+      if (!c2Queued && c1.currentTime > d * 0.4) {
+        c2Queued = true;
+        c2.preload = "auto";
+        c2.load();
+      }
+    };
     const toC2 = () => {
       setPhase("c2");
       void c2.play().catch(() => {});
+      if (!loopQueued) {
+        loopQueued = true;
+        loopV.preload = "auto";
+        loopV.load();
+      }
     };
     const toLoop = () => {
       setPhase("loop");
@@ -98,9 +113,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         className="absolute inset-0 h-full w-full object-cover object-center"
         style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
         src="/intro2.mp4"
+        poster="/intro2-poster.jpg"
         muted
         playsInline
-        preload="auto"
+        preload="none"
         tabIndex={-1}
         aria-hidden
       />
@@ -113,7 +129,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         muted
         loop
         playsInline
-        preload="auto"
+        preload="none"
         tabIndex={-1}
         aria-hidden
       />
