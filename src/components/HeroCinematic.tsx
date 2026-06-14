@@ -35,6 +35,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   const loopRef = useRef<HTMLVideoElement>(null);
   const [t, setT] = useState(0);
   const [phase, setPhase] = useState<"c1" | "c2" | "loop">("c1");
+  const [dur, setDur] = useState(0);
   const [reduce, setReduce] = useState(false);
 
   useEffect(() => {
@@ -52,9 +53,14 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     // clip 2 is playing.
     let c2Queued = false;
     let loopQueued = false;
+    let durSet = false;
     const onTime = () => {
       setT(c1.currentTime);
       const d = c1.duration || 15;
+      if (!durSet && c1.duration) {
+        durSet = true;
+        setDur(c1.duration);
+      }
       if (!c2Queued && c1.currentTime > d * 0.4) {
         c2Queued = true;
         c2.preload = "auto";
@@ -86,7 +92,8 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   }, []);
 
   const gearVisible = !reduce && phase === "c1" && t > 0.5 && t < 4.6;
-  const ctaVisible = reduce || phase !== "c1" || t > 12.3;
+  // UI comes in 1s before clip 2 starts (i.e. 1s before clip 1 ends)
+  const ctaVisible = reduce || phase !== "c1" || (dur > 1 ? t > dur - 1 : t > 12.3);
   const countBy = new Map(categories.map((c) => [c.name, c.count]));
 
   return (
