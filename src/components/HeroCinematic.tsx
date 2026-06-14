@@ -147,12 +147,6 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         aria-hidden
       />
 
-      {/* permanent soft smoke veil — continuous across every cut */}
-      <div className="hero-haze" style={{ zIndex: 5 }} aria-hidden>
-        <span className="wisp w1" />
-        <span className="wisp w2" />
-      </div>
-
       {/* ── minimal gear callouts (desktop) ── */}
       <svg
         className="pointer-events-none absolute inset-0 hidden h-full w-full transition-opacity duration-[900ms] md:block"
