@@ -99,6 +99,8 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           // has no scale pop
           transform: "scale(1.02)",
           transformOrigin: "center center",
+          // 80ms micro cross-dissolve absorbs the 1-frame content pop (boom moved)
+          transition: "opacity 80ms linear",
         }}
         src="/intro.mp4"
         poster="/intro-poster.jpg"
@@ -111,7 +113,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       <video
         ref={c2Ref}
         className="absolute inset-0 h-full w-full object-cover object-center"
-        style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
+        style={{ opacity: !reduce && phase === "c2" ? 1 : 0, transition: "opacity 80ms linear" }}
         src="/intro2.mp4"
         poster="/intro2-poster.jpg"
         muted
@@ -123,7 +125,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       <video
         ref={loopRef}
         className="absolute inset-0 h-full w-full object-cover object-center"
-        style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
+        style={{ opacity: !reduce && phase === "loop" ? 1 : 0, transition: "opacity 80ms linear" }}
         src="/loop.mp4"
         poster="/logo-frame.jpg"
         muted
