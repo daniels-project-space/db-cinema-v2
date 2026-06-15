@@ -37,12 +37,16 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   const [phase, setPhase] = useState<"c1" | "c2" | "loop">("c1");
   const [dur, setDur] = useState(0);
   const [reduce, setReduce] = useState(false);
+  const [stack, setStack] = useState(false); // mobile/tablet: uncropped video banner + text stacked
 
   useEffect(() => {
     const c1 = c1Ref.current;
     const c2 = c2Ref.current;
     const loopV = loopRef.current;
     if (!c1 || !c2 || !loopV) return;
+    // React's `muted` JSX prop is unreliable for autoplay — set it on the
+    // element so mobile inline autoplay isn't blocked.
+    c1.muted = c2.muted = loopV.muted = true;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setReduce(true);
       return;
@@ -91,17 +95,29 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     };
   }, []);
 
+  // mobile/tablet → stacked layout (video banner + text below it)
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const set = () => setStack(mq.matches);
+    set();
+    mq.addEventListener("change", set);
+    return () => mq.removeEventListener("change", set);
+  }, []);
+
   const gearVisible = !reduce && phase === "c1" && t > 0.5 && t < 4.6;
-  // UI comes in 1s before clip 2 starts (i.e. 1s before clip 1 ends)
-  const ctaVisible = reduce || phase !== "c1" || (dur > 1 ? t > dur - 1 : t > 12.3);
+  // UI comes in 1s before clip 2 starts (i.e. 1s before clip 1 ends);
+  // on mobile the CTA sits below the video so it's always shown.
+  const ctaVisible = stack || reduce || phase !== "c1" || (dur > 1 ? t > dur - 1 : t > 12.3);
   const countBy = new Map(categories.map((c) => [c.name, c.count]));
 
   return (
     <>
+      {/* VIDEO STAGE — full-bleed on desktop; an uncropped 16:9 banner on mobile so the frame isn't cropped by the portrait aspect ratio */}
+      <div className="relative aspect-video w-full overflow-hidden bg-black lg:absolute lg:inset-0 lg:aspect-auto lg:h-full lg:bg-transparent">
       {/* three stacked clips, instant hard-cut hand-off (clip 2 + loop preload while clip 1 plays) */}
       <video
         ref={c1Ref}
-        className="absolute inset-0 h-full w-full object-cover object-top lg:object-center"
+        className="absolute inset-0 h-full w-full object-cover object-center"
         // the clip1->clip2 anamorphic match is now baked into intro.mp4 itself
         // (scaleX 1.0325 scaleY 1.0125), so no CSS transform — alignment is in
         // the pixels and immune to window size / sub-pixel rendering.
@@ -116,7 +132,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       />
       <video
         ref={c2Ref}
-        className="absolute inset-0 h-full w-full object-cover object-top lg:object-center"
+        className="absolute inset-0 h-full w-full object-cover object-center"
         style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
         src="/intro2.mp4"
         poster="/intro2-poster.jpg"
@@ -128,7 +144,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       />
       <video
         ref={loopRef}
-        className="absolute inset-0 h-full w-full object-cover object-top lg:object-center"
+        className="absolute inset-0 h-full w-full object-cover object-center"
         style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
         src="/loop.mp4"
         poster="/loop-poster.jpg"
@@ -140,9 +156,9 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         aria-hidden
       />
 
-      {/* legibility scrim — strongest once the CTA is up */}
+      {/* legibility scrim — desktop only (mobile has the video as a clean banner with text below) */}
       <div
-        className="pointer-events-none absolute inset-0 transition-opacity duration-700"
+        className="pointer-events-none absolute inset-0 hidden transition-opacity duration-700 lg:block"
         style={{
           opacity: ctaVisible ? 1 : 0.4,
           background:
@@ -234,13 +250,15 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           );
         })}
       </svg>
+      </div>
+      {/* end VIDEO STAGE */}
 
       {/* ── catchphrase + CTA (fades in under the logo) ── */}
       <h1 className="sr-only">
         DB Cinema Rentals — professional camera, lens, lighting and audio rental in London
       </h1>
       <div
-        className="absolute inset-x-0 bottom-[5%] z-20 flex flex-col items-center px-6 text-center"
+        className="relative z-20 mx-auto flex max-w-xl flex-col items-center px-6 py-10 text-center lg:absolute lg:inset-x-0 lg:bottom-[5%] lg:max-w-none lg:py-0"
         style={{ pointerEvents: ctaVisible ? "auto" : "none" }}
       >
         <p

@@ -85,9 +85,13 @@ export function CameraDeconstruct() {
     if (window.matchMedia("(pointer: coarse)").matches) {
       video.loop = true;
       video.muted = true;
+      video.playsInline = true;
       const play = () => void video.play().catch(() => {});
-      if (video.readyState >= 2) play();
-      else video.addEventListener("loadeddata", play, { once: true });
+      // iOS won't fire loadeddata for an idle preload, so kick play() now (it
+      // forces the load) and retry once the data is actually ready.
+      play();
+      video.addEventListener("canplay", play, { once: true });
+      video.addEventListener("loadeddata", play, { once: true });
       paint(0.28);
       showCaption();
       if (scrubRef.current) scrubRef.current.style.display = "none";
