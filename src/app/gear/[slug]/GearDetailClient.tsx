@@ -150,7 +150,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
             )}
 
             <span className="hud-label mt-7 block !text-accent-400/90">{listing.category}</span>
-            <h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-white lg:text-4xl">
               {listing.title}
             </h1>
             <p className="mt-4 text-balance leading-relaxed text-white/60">

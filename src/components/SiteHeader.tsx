@@ -52,7 +52,7 @@ export function SiteHeader() {
         }`}
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-          <Link href="/" className="group flex items-baseline gap-1.5 font-display text-lg font-bold tracking-tight">
+          <Link href="/" className="group inline-flex min-h-[44px] items-center gap-1.5 font-display text-lg font-bold tracking-tight">
             <span className="text-white">DB</span>
             <span className="gradient-text">CINEMA</span>
             <span className="ml-1 hidden font-mono text-[9px] uppercase tracking-[0.3em] text-white/30 transition-colors group-hover:text-accent-400/70 lg:inline">
@@ -155,7 +155,7 @@ export function SiteHeader() {
 
             <button
               onClick={open}
-              className="relative flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-white/80 transition hover:border-accent-400/40 hover:text-white"
+              className="relative flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-white/80 transition hover:border-accent-400/40 hover:text-white"
               aria-label="Open kit"
             >
               <span>Kit</span>
@@ -168,7 +168,7 @@ export function SiteHeader() {
 
             <button
               onClick={() => setMobile(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition hover:text-white md:hidden"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition hover:text-white md:hidden"
               aria-label="Open menu"
             >
               <IconMenu className="h-5 w-5" />
@@ -191,7 +191,7 @@ export function SiteHeader() {
           </span>
           <button
             onClick={() => setMobile(false)}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white/70"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 text-white/70"
             aria-label="Close menu"
           >
             <IconX className="h-5 w-5" />

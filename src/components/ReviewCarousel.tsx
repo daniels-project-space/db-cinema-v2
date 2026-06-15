@@ -95,7 +95,7 @@ export function ReviewCarousel() {
         <div className="mt-6 flex items-center justify-center gap-4">
           <button
             onClick={() => change((p) => (p - 1 + pages) % pages)}
-            className="glass glass-hover flex h-9 w-9 items-center justify-center rounded-full text-white/60 transition-colors hover:text-white"
+            className="glass glass-hover flex h-11 w-11 items-center justify-center rounded-full text-white/60 transition-colors hover:text-white"
             aria-label="Previous reviews"
           >
             <IconChevronLeft className="h-4 w-4" />
@@ -114,7 +114,7 @@ export function ReviewCarousel() {
           </div>
           <button
             onClick={() => change((p) => (p + 1) % pages)}
-            className="glass glass-hover flex h-9 w-9 items-center justify-center rounded-full text-white/60 transition-colors hover:text-white"
+            className="glass glass-hover flex h-11 w-11 items-center justify-center rounded-full text-white/60 transition-colors hover:text-white"
             aria-label="Next reviews"
           >
             <IconChevronRight className="h-4 w-4" />

@@ -101,7 +101,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       {/* three stacked clips, instant hard-cut hand-off (clip 2 + loop preload while clip 1 plays) */}
       <video
         ref={c1Ref}
-        className="absolute inset-0 h-full w-full object-cover object-center"
+        className="absolute inset-0 h-full w-full object-cover object-top lg:object-center"
         // the clip1->clip2 anamorphic match is now baked into intro.mp4 itself
         // (scaleX 1.0325 scaleY 1.0125), so no CSS transform — alignment is in
         // the pixels and immune to window size / sub-pixel rendering.
@@ -116,7 +116,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       />
       <video
         ref={c2Ref}
-        className="absolute inset-0 h-full w-full object-cover object-center"
+        className="absolute inset-0 h-full w-full object-cover object-top lg:object-center"
         style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
         src="/intro2.mp4"
         poster="/intro2-poster.jpg"
@@ -128,7 +128,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       />
       <video
         ref={loopRef}
-        className="absolute inset-0 h-full w-full object-cover object-center"
+        className="absolute inset-0 h-full w-full object-cover object-top lg:object-center"
         style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
         src="/loop.mp4"
         poster="/loop-poster.jpg"

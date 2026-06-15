@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAccount } from "@/components/account/AccountProvider";
 import { SmartImage } from "@/components/SmartImage";
 import { IconHeart } from "@/components/icons";
+import { money } from "@/lib/pricing";
 
 export type GearListing = {
   _id: string;
@@ -41,7 +42,7 @@ export function GearCard({ listing }: { listing: GearListing }) {
       <button
         onClick={toggleFav}
         aria-label={faved ? "Remove favourite" : "Add favourite"}
-        className={`absolute right-2.5 top-2.5 z-10 flex h-8 w-8 items-center justify-center rounded-full transition-all ${
+        className={`absolute right-2.5 top-2.5 z-10 flex h-10 w-10 items-center justify-center rounded-full transition-all ${
           faved
             ? "bg-accent-500/90 text-white"
             : "bg-black/45 text-white/60 opacity-100 hover:text-white lg:opacity-0 lg:group-hover:opacity-100"
@@ -68,12 +69,12 @@ export function GearCard({ listing }: { listing: GearListing }) {
         </h3>
         <div className="flex items-baseline gap-1">
           <span className="font-display text-2xl font-bold text-accent-400">
-            £{pricing.daily}
+            £{money(pricing.daily)}
           </span>
           <span className="text-sm text-white/40">/day</span>
           {pricing.day7 ? (
             <span className="ml-auto font-mono text-[11px] text-white/35">
-              £{pricing.day7}/d · 7+
+              £{money(pricing.day7)}/d · 7+
             </span>
           ) : null}
         </div>

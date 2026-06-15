@@ -187,7 +187,7 @@ export function CameraDeconstruct() {
   }, []);
 
   return (
-    <section className="section-window relative" style={{ height: "220vh" }} data-deconstruct-track>
+    <section className="section-window relative max-w-full overflow-x-hidden" style={{ height: "220vh" }} data-deconstruct-track>
       <div className="sticky top-[93px] h-[calc(100vh-93px)] overflow-hidden bg-[#050507]">
         {/* the camera — full-bleed, black screen-blended away */}
         <div ref={stageRef} className="absolute inset-0 z-0 will-change-transform">

@@ -64,7 +64,7 @@ export default async function Home() {
       <SiteHeader />
 
       {/* ───────────────── hero — the viewfinder ───────────────── */}
-      <section className="section-window relative min-h-[calc(100vh-93px)] overflow-hidden">
+      <section className="section-window relative min-h-[80svh] overflow-hidden lg:min-h-[calc(100vh-93px)]">
         {/* cinematic film (Veo 3.1) + timed gear callouts + catchphrase/CTA */}
         <HeroCinematic rating={rating} categories={categories} />
         <ViewfinderHUD />
@@ -103,8 +103,10 @@ export default async function Home() {
       </section>
 
       {/* ──────────── the instrument — scroll-scrubbed deconstruction ──────────── */}
+      <div className="h-8 lg:h-0" aria-hidden />
       <CameraDeconstruct />
 
+      <div className="h-8 lg:h-0" aria-hidden />
       <div className="film-strip" aria-hidden />
 
       {/* ───────────────── featured gear ───────────────── */}
@@ -119,7 +121,7 @@ export default async function Home() {
                     The kit crews <span className="serif-accent gradient-text text-[1.06em]">fight over</span>
                   </h2>
                 </div>
-                <Link href="/gear" className="arrow-link text-sm text-accent-400 transition-colors hover:text-accent-300">
+                <Link href="/gear" className="arrow-link inline-flex min-h-[40px] items-center text-sm text-accent-400 transition-colors hover:text-accent-300">
                   All gear <span className="arrow">→</span>
                 </Link>
               </div>
@@ -222,7 +224,7 @@ export default async function Home() {
             ))}
           </div>
           <Reveal className="mt-8 text-center">
-            <Link href="/how-it-works" className="arrow-link text-sm text-accent-400 transition-colors hover:text-accent-300">
+            <Link href="/how-it-works" className="arrow-link inline-flex min-h-[40px] items-center text-sm text-accent-400 transition-colors hover:text-accent-300">
               The whole flow, explained <span className="arrow">→</span>
             </Link>
           </Reveal>
