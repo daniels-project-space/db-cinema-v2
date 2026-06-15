@@ -82,20 +82,19 @@ export function CameraDeconstruct() {
       return;
     }
 
+    // Mobile/iOS: don't loop — use the same scroll-scrub as desktop. iOS won't
+    // decode/seek an idle preload until a gesture activates it, so prime the
+    // element (play→pause) on the first touch/scroll, then fall through to the
+    // scrub path below (which seeks bidirectionally as you scroll up/down).
     if (window.matchMedia("(pointer: coarse)").matches) {
-      video.loop = true;
       video.muted = true;
       video.playsInline = true;
-      const play = () => void video.play().catch(() => {});
-      // iOS won't fire loadeddata for an idle preload, so kick play() now (it
-      // forces the load) and retry once the data is actually ready.
-      play();
-      video.addEventListener("canplay", play, { once: true });
-      video.addEventListener("loadeddata", play, { once: true });
-      paint(0.28);
-      showCaption();
-      if (scrubRef.current) scrubRef.current.style.display = "none";
-      return;
+      const prime = () => {
+        video.play().then(() => video.pause()).catch(() => {});
+      };
+      window.addEventListener("touchstart", prime, { once: true, passive: true });
+      window.addEventListener("touchmove", prime, { once: true, passive: true });
+      window.addEventListener("scroll", prime, { once: true, passive: true });
     }
 
     const track = video.closest<HTMLElement>("[data-deconstruct-track]");
@@ -191,7 +190,7 @@ export function CameraDeconstruct() {
   }, []);
 
   return (
-    <section className="section-window relative max-w-full overflow-x-hidden" style={{ height: "220vh" }} data-deconstruct-track>
+    <section className="section-window relative max-w-full overflow-x-clip" style={{ height: "220vh" }} data-deconstruct-track>
       <div className="sticky top-[93px] h-[calc(100vh-93px)] overflow-hidden bg-[#050507]">
         {/* the camera — full-bleed, black screen-blended away */}
         <div ref={stageRef} className="absolute inset-0 z-0 will-change-transform">
