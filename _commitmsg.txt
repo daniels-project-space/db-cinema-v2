@@ -1,17 +1,11 @@
-fix(mobile hero): stop non-hero videos from eating iOS video decoders
+fix(mobile hero): stop the clip going black on iOS Safari
 
-On iOS Safari the homepage hero blanked ~1s after load: the page eagerly
-preloaded four 1080p H.264 clips (hero intro + arri-deconstruct + the two
-gear/checkout turn overlays), and iOS caps how many videos can hold a hardware
-decoder at once, so the hero lost its decode surface and went black. It cannot
-repro in headless Chrome/WebKit on Linux because software decode has no cap.
-
-- GearTurnOverlay / CheckoutTurnOverlay: preload="none" and .load() during the
-  existing 850/700ms hold beat, so the turn film still buffers in time but no
-  longer holds a decoder on the homepage.
-- CameraDeconstruct: preload="none" on touch (it already primes on first
-  touch); desktop upgrades to "auto" in the effect for scroll-scrub seeking.
-
-Now only the hero holds a decoder at page load, so it plays reliably on mobile.
+On iPhone Safari the hero went solid black ~1s in (desktop fine). The only
+mobile-only branch was `c1.currentTime = 2` ("start the clip 2s in"), and on
+iOS seeking a muted autoplay video while it is still loading blacks it out a
+moment later. Removed the seek (mobile now plays from the top), added the
+autoplay attribute for reliable iOS muted autoplay, and laid a persistent
+cinematic still (intro-poster) under all three clips so a decoder/buffer
+hiccup falls back to the still instead of a black box.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
