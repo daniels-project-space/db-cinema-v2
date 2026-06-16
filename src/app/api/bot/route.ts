@@ -8,7 +8,7 @@ import { tierByKey } from "@/lib/membership";
 import { dayMs as msOf } from "@/lib/dates";
 import { lensFits } from "@/lib/gear";
 import { generateText } from "ai";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { botModel } from "@/lib/ai";
 
 // deterministic, grounded Q&A: retrieve item knowledge then answer with a plain LLM call
 async function knowledgeAnswer(c: ConvexHttpClient, userMsg: string, memberPct: number): Promise<string | null> {
@@ -32,9 +32,8 @@ async function knowledgeAnswer(c: ConvexHttpClient, userMsg: string, memberPct: 
       );
     }
     if (!facts.length) return null;
-    const or = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY! });
     const { text } = await generateText({
-      model: or(process.env.BOT_MODEL || "deepseek/deepseek-chat") as any,
+      model: botModel() as any,
       prompt: `You are the Db Cinema rental assistant. Answer the customer's question concisely (2-4 sentences, warm, plain language) using ONLY these facts. Be specific about limits and compatibility — lens mounts: Sony = E, Canon mirrorless = RF, Canon EF needs an EF→E/RF adapter, cine/PL is manual. IMPORTANT: only LENSES are mount-specific. Gimbals, tripods, monitors, lights, audio, ND filters and batteries are NOT mount-specific — judge a gimbal by payload weight (it holds any camera within its limit), a monitor/recorder by its inputs, an ND by filter-thread. Never say a gimbal/monitor/tripod is incompatible because of lens mount. Never invent specs.\n\nFACTS:\n${facts.join("\n")}\n\nCUSTOMER: ${userMsg}\n\nANSWER:`,
     });
     return text?.trim() || null;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { generateObject } from "ai";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { botModel } from "@/lib/ai";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
@@ -120,9 +120,8 @@ export async function POST(req: NextRequest) {
 
   let design: any = null;
   try {
-    const or = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
     const { object } = await generateObject({
-      model: or(process.env.BOT_MODEL || "deepseek/deepseek-chat") as any,
+      model: botModel() as any,
       schema: SCHEMA,
       prompt: `You are a senior kit designer at Db Cinema Rentals (London cinema hire). Plan a STAGE-BY-STAGE kit build. Output ordered "stages" using ONLY these keys: camera, lens, gimbal, monitor, key-light, light, tube-light, lav-mic, shotgun-mic, wireless-mic, nd-filter, battery, tripod, slider, drone, speaker. ALWAYS camera first, lens second. Each stage: friendly label, one-line note, and a "recommend" = the IDEAL item for this shoot as a short search phrase (e.g. for wedding lens "70-200mm telephoto", for interview light "Nanlite Forza key light", for music video "anamorphic"). Mark 1-3 stages upsell:true. Add 3-5 short "compatibility" notes. Tailor to budget, crew size, camera count.\n\nSHOOT: ${b.shootType || "general"}. Dates ${start} to ${end}. Budget ~£${b.budget ?? "flexible"}. Cameras: ${b.cameras ?? 1}. Crew: ${b.size || "small"}. Notes: ${b.note || "none"}.`,
     });

@@ -282,6 +282,20 @@ body {
   background: rgba(255, 255, 255, 0.05);
 }
 
+/* Mobile: never auto-zoom when a field gets focus.
+   iOS Safari zooms the viewport whenever you focus a control whose font-size
+   is < 16px (our .input is 14px, the chat date pickers 12px) — that's the
+   "it zooms in every time I tap the chat" annoyance. On touch devices force
+   every text field to 16px (the !important beats Tailwind's text-sm / !text-xs)
+   so tapping Gaffer or any chat/input no longer zooms. Pinch-to-zoom stays on. */
+@media (pointer: coarse) {
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* ── Cinematic signatures ────────────────────────────────────── */
 
 /* lens-flare: horizontal anamorphic blue streak */
