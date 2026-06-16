@@ -270,7 +270,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         style={{ pointerEvents: ctaVisible ? "auto" : "none" }}
       >
         <p
-          className="serif-accent text-3xl text-white/90 sm:text-5xl"
+          className="serif-accent text-2xl text-white/90 lg:text-5xl"
           style={{
             opacity: ctaVisible ? 1 : 0,
             transform: ctaVisible ? "translateY(0)" : "translateY(26px)",
@@ -281,7 +281,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           the gear that <span className="gradient-text">makes the shot.</span>
         </p>
         <div
-          className="mt-6 flex flex-wrap items-center justify-center gap-3"
+          className="mt-4 flex flex-nowrap items-center justify-center gap-2.5 lg:mt-6 lg:flex-wrap lg:gap-3"
           style={{
             opacity: ctaVisible ? 1 : 0,
             transform: ctaVisible ? "translateY(0)" : "translateY(26px)",
@@ -291,20 +291,20 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           }}
         >
           <Magnetic>
-            <Link href="/gear" className="btn-primary px-8 py-3">
+            <Link href="/gear" className="btn-primary px-5 py-2.5 text-sm lg:px-8 lg:py-3 lg:text-base">
               Browse the kit
               <IconArrowRight className="h-4 w-4" />
             </Link>
           </Magnetic>
           <Magnetic>
-            <Link href="/how-it-works" className="btn-ghost px-8 py-3">
+            <Link href="/how-it-works" className="btn-ghost px-5 py-2.5 text-sm lg:px-8 lg:py-3 lg:text-base">
               How it works
             </Link>
           </Magnetic>
         </div>
         {rating && (
           <div
-            className="mt-5 flex items-center gap-2.5 text-sm text-white/55"
+            className="mt-3 flex items-center gap-2.5 text-xs text-white/55 lg:mt-5 lg:text-sm"
             style={{
               opacity: ctaVisible ? 1 : 0,
               transition: "opacity 1s cubic-bezier(0.16,1,0.3,1)",
