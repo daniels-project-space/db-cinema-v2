@@ -46,6 +46,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     if (!c1 || !c2 || !loopV) return;
     // React's `muted` JSX prop is unreliable for autoplay — set it on the element.
     c1.muted = c2.muted = loopV.muted = true;
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setReduce(true);
       return;
@@ -86,7 +87,17 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     c1.addEventListener("timeupdate", onTime);
     c1.addEventListener("ended", toC2);
     c2.addEventListener("ended", toLoop);
-    void c1.play().catch(() => setReduce(true)); // autoplay blocked -> static + CTA
+    // mobile: start the first clip 2s in (skip the slow open)
+    const startC1 = () => {
+      if (coarse) {
+        try {
+          c1.currentTime = 2;
+        } catch {}
+      }
+      void c1.play().catch(() => setReduce(true)); // autoplay blocked -> static + CTA
+    };
+    if (coarse && c1.readyState < 1) c1.addEventListener("loadedmetadata", startC1, { once: true });
+    else startC1();
     return () => {
       c1.removeEventListener("timeupdate", onTime);
       c1.removeEventListener("ended", toC2);
@@ -116,7 +127,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       {/* three stacked clips, instant hard-cut hand-off (clip 2 + loop preload while clip 1 plays) */}
       <video
         ref={c1Ref}
-        className="absolute inset-0 h-full w-full object-contain object-top lg:object-cover lg:object-center"
+        className="absolute inset-0 h-full w-full scale-[1.2] object-contain object-center lg:scale-100 lg:object-cover"
         // the clip1->clip2 anamorphic match is now baked into intro.mp4 itself
         // (scaleX 1.0325 scaleY 1.0125), so no CSS transform — alignment is in
         // the pixels and immune to window size / sub-pixel rendering.
@@ -131,7 +142,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       />
       <video
         ref={c2Ref}
-        className="absolute inset-0 h-full w-full object-contain object-top lg:object-cover lg:object-center"
+        className="absolute inset-0 h-full w-full scale-[1.2] object-contain object-center lg:scale-100 lg:object-cover"
         style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
         src="/intro2.mp4"
         poster="/intro2-poster.jpg"
@@ -143,7 +154,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       />
       <video
         ref={loopRef}
-        className="absolute inset-0 h-full w-full object-contain object-top lg:object-cover lg:object-center"
+        className="absolute inset-0 h-full w-full scale-[1.2] object-contain object-center lg:scale-100 lg:object-cover"
         style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
         src="/loop.mp4"
         poster="/loop-poster.jpg"
