@@ -94,9 +94,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     };
   }, []);
 
-  // mobile → the CTA overlays a shorter hero, so show it immediately
+  // touch devices → the CTA overlays a shorter hero, so show it immediately.
+  // (gate on pointer, not width, so a narrow desktop window still fades in.)
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1023px)");
+    const mq = window.matchMedia("(pointer: coarse)");
     const set = () => setMobile(mq.matches);
     set();
     mq.addEventListener("change", set);

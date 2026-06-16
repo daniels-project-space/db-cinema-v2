@@ -31,6 +31,10 @@ export function CameraDeconstruct() {
     const video = videoRef.current;
     if (!video) return;
 
+    // mobile: the camera is shown object-contain (full width, uncropped), so
+    // skip the big zoom that would crop it again.
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+
     const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
     const smooth = (e0: number, e1: number, x: number) => {
       const t = clamp((x - e0) / (e1 - e0), 0, 1);
@@ -43,8 +47,9 @@ export function CameraDeconstruct() {
 
     const paint = (p: number) => {
       if (stageRef.current) {
-        // big base zoom (fills the screen) → gentle pull-back as it deconstructs
-        const scale = 1.18 - 0.1 * p;
+        // desktop: big base zoom (fills the screen) → gentle pull-back as it
+        // deconstructs. mobile: stay at 1 so the full frame fits (no extra crop).
+        const scale = coarse ? 1 : 1.18 - 0.1 * p;
         stageRef.current.style.transform = `scale(${scale.toFixed(4)})`;
       }
       if (barRef.current) barRef.current.style.transform = `scaleX(${p.toFixed(4)})`;
@@ -86,7 +91,7 @@ export function CameraDeconstruct() {
     // decode/seek an idle preload until a gesture activates it, so prime the
     // element (play→pause) on the first touch/scroll, then fall through to the
     // scrub path below (which seeks bidirectionally as you scroll up/down).
-    if (window.matchMedia("(pointer: coarse)").matches) {
+    if (coarse) {
       video.muted = true;
       video.playsInline = true;
       const prime = () => {
@@ -196,7 +201,7 @@ export function CameraDeconstruct() {
         <div ref={stageRef} className="absolute inset-0 z-0 will-change-transform">
           <video
             ref={videoRef}
-            className="h-full w-full object-cover object-center"
+            className="h-full w-full object-contain object-center lg:object-cover"
             style={{ mixBlendMode: "screen" }}
             src="/arri-deconstruct.mp4"
             poster="/arri-deconstruct-poster.jpg"
