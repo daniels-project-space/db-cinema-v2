@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { IconCheck } from "@/components/icons";
 
 export const ACCENTS = [
-  { key: "electric", label: "Electric", color: "#38bdf8" },
   { key: "orange", label: "Orange", color: "#fb923c" },
+  { key: "electric", label: "Electric", color: "#38bdf8" },
   { key: "gold", label: "Gold", color: "#fbbf24" },
   { key: "emerald", label: "Emerald", color: "#34d399" },
   { key: "violet", label: "Violet", color: "#a78bfa" },
@@ -17,18 +17,18 @@ const KEY = "dbc-accent";
 /** Accent colour picker — restyles the whole site via html[data-accent].
  * Saved per device (localStorage); applied pre-paint by the layout script. */
 export function AccentPicker() {
-  const [current, setCurrent] = useState("electric");
+  const [current, setCurrent] = useState("orange");
 
   useEffect(() => {
     try {
-      setCurrent(localStorage.getItem(KEY) ?? "electric");
+      setCurrent(localStorage.getItem(KEY) ?? "orange");
     } catch {}
   }, []);
 
   function pick(key: string) {
     setCurrent(key);
     try {
-      if (key === "electric") {
+      if (key === "orange") {
         localStorage.removeItem(KEY);
         delete document.documentElement.dataset.accent;
       } else {

@@ -13,10 +13,10 @@
   --color-charcoal-800: #16161d; /* image placeholders */
   --color-charcoal-700: #21212b;
 
-  --color-accent-300: #7dd3fc;
-  --color-accent-400: #38bdf8; /* primary accent / prices / glow */
-  --color-accent-500: #0ea5e9; /* CTA fill / hover */
-  --color-accent-600: #0284c7;
+  --color-accent-300: #fdba74;
+  --color-accent-400: #fb923c; /* primary accent / prices / glow — orange default */
+  --color-accent-500: #f97316; /* CTA fill / hover */
+  --color-accent-600: #ea580c;
 
   --color-rec-500: #f43f5e; /* REC dot / live markers */
 
@@ -64,6 +64,12 @@ html[data-accent="rose"] {
   --color-accent-400: #fb7185;
   --color-accent-500: #f43f5e;
   --color-accent-600: #e11d48;
+}
+html[data-accent="electric"] {
+  --color-accent-300: #7dd3fc;
+  --color-accent-400: #38bdf8;
+  --color-accent-500: #0ea5e9;
+  --color-accent-600: #0284c7;
 }
 
 html {

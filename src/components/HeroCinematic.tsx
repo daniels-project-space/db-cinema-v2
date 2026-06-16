@@ -105,9 +105,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   }, []);
 
   const gearVisible = !reduce && phase === "c1" && t > 0.5 && t < 4.6;
-  // UI comes in 1s before clip 2 starts (i.e. 1s before clip 1 ends); on mobile
-  // the CTA overlays a shorter hero so it's shown right away.
-  const ctaVisible = mobile || reduce || phase !== "c1" || (dur > 1 ? t > dur - 1 : t > 12.3);
+  // Desktop: UI fades in ~1s before clip 1 ends (the cinematic reveal).
+  // Mobile: fade it in a few seconds in — earlier than desktop, but not instant.
+  const ctaVisible =
+    reduce || phase !== "c1" || (mobile ? t > 3 : dur > 1 ? t > dur - 1 : t > 12.3);
   const countBy = new Map(categories.map((c) => [c.name, c.count]));
 
   return (
@@ -115,7 +116,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       {/* three stacked clips, instant hard-cut hand-off (clip 2 + loop preload while clip 1 plays) */}
       <video
         ref={c1Ref}
-        className="absolute inset-0 h-full w-full object-cover object-center"
+        className="absolute inset-0 h-full w-full object-contain object-top lg:object-cover lg:object-center"
         // the clip1->clip2 anamorphic match is now baked into intro.mp4 itself
         // (scaleX 1.0325 scaleY 1.0125), so no CSS transform — alignment is in
         // the pixels and immune to window size / sub-pixel rendering.
@@ -130,7 +131,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       />
       <video
         ref={c2Ref}
-        className="absolute inset-0 h-full w-full object-cover object-center"
+        className="absolute inset-0 h-full w-full object-contain object-top lg:object-cover lg:object-center"
         style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
         src="/intro2.mp4"
         poster="/intro2-poster.jpg"
@@ -142,7 +143,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
       />
       <video
         ref={loopRef}
-        className="absolute inset-0 h-full w-full object-cover object-center"
+        className="absolute inset-0 h-full w-full object-contain object-top lg:object-cover lg:object-center"
         style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
         src="/loop.mp4"
         poster="/loop-poster.jpg"
@@ -170,7 +171,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         className="pointer-events-none absolute inset-0 hidden h-full w-full transition-opacity duration-[900ms] md:block"
         viewBox="0 0 1600 900"
         preserveAspectRatio="xMidYMid slice"
-        style={{ opacity: gearVisible ? 1 : 0, zIndex: 6 }}
+        style={{ opacity: gearVisible ? 1 : 0, zIndex: 6, color: "var(--color-accent-400)" }}
         aria-hidden
       >
         <defs>
@@ -189,7 +190,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
                 y1={c.from[1]}
                 x2={c.dot[0]}
                 y2={c.dot[1]}
-                stroke="#38bdf8"
+                stroke="currentColor"
                 strokeWidth={1.25}
                 strokeOpacity={0.65}
                 pathLength={1}
@@ -200,13 +201,13 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
                   transitionDelay: delay,
                 }}
               />
-              <circle cx={c.dot[0]} cy={c.dot[1]} r={3.5} fill="#38bdf8" />
+              <circle cx={c.dot[0]} cy={c.dot[1]} r={3.5} fill="currentColor" />
               <circle
                 cx={c.dot[0]}
                 cy={c.dot[1]}
                 r={8}
                 fill="none"
-                stroke="#38bdf8"
+                stroke="currentColor"
                 strokeWidth={1.25}
                 strokeOpacity={0.45}
               />
@@ -221,7 +222,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
                 }}
               >
                 {/* slim accent tick */}
-                <rect x={lx - 12} y={ly - 4} width={2} height={42} fill="#38bdf8" opacity={0.8} />
+                <rect x={lx - 12} y={ly - 4} width={2} height={42} fill="currentColor" opacity={0.8} />
                 <text
                   x={lx}
                   y={ly + 12}
@@ -236,7 +237,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
                 <text
                   x={lx}
                   y={ly + 33}
-                  fill="#38bdf8"
+                  fill="currentColor"
                   fontSize={14}
                   letterSpacing={1}
                   style={{ fontFamily: "var(--font-mono, monospace)" }}
