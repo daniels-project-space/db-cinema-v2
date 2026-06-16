@@ -30,6 +30,7 @@ export function GearTurnOverlay() {
 
   useEffect(() => {
     if (phase === "hold") {
+      vref.current?.load(); // buffer during the hold (preload=none avoids hogging an iOS video decoder on the homepage)
       const id = setTimeout(() => setPhase("play"), 850); // a beat on the main page
       return () => clearTimeout(id);
     }
@@ -70,7 +71,7 @@ export function GearTurnOverlay() {
         src="/gear-turn.mp4"
         muted
         playsInline
-        preload="auto"
+        preload="none"
         tabIndex={-1}
         onEnded={onEnded}
       />

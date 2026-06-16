@@ -34,6 +34,9 @@ export function CameraDeconstruct() {
     // mobile: the camera is shown object-contain (full width, uncropped), so
     // skip the big zoom that would crop it again.
     const coarse = window.matchMedia("(pointer: coarse)").matches;
+    // touch: leave preload="none" so the hero keeps the only video decoder at
+    // page load (iOS caps simultaneous H.264 decoders). desktop can buffer eagerly.
+    video.preload = coarse ? "none" : "auto";
 
     const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
     const smooth = (e0: number, e1: number, x: number) => {
@@ -207,7 +210,7 @@ export function CameraDeconstruct() {
             poster="/arri-deconstruct-poster.jpg"
             muted
             playsInline
-            preload="auto"
+            preload="none"
             tabIndex={-1}
             aria-hidden
           />
