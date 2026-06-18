@@ -33,7 +33,7 @@ async function rmv2Query(path: string, args: Record<string, unknown>) {
 
 const CATEGORY_RULES: [string, RegExp][] = [
   ["Cameras", /\b(camera|bmpcc|fx3|fx6|fx30|a7|a7s|a7iv|alexa|red\b|ursa|c70|c300|c200|pocket cinema|gh5|gh6|gh7|komodo|raptor|z\s?cam|s5|s1h|zv-?e)\b/i],
-  ["Lenses", /\b(lens|lenses|sigma|samyang|24-70|70-200|16-35|50mm|35mm|85mm|24mm|18-?35|prime|zoom lens|ef\b|rf\b|e-?mount|cine lens|dzo|laowa)\b/i],
+  ["Lenses", /\b(lens|lenses|sigma|samyang|tamron|rokinon|24-70|70-200|16-35|14-24|12-24|50mm|35mm|85mm|24mm|18-?35|prime|zoom lens|ef\b|rf\b|e-?mount|cine lens|dzo|vespid|blazar|atlas|sirui|great ?joy|laowa|gm\b|g ?master|gmaster|anamorphic)\b/i],
   ["Lighting", /\b(aputure|godox|nanlite|amaran|led panel|softbox|hmi|fresnel|600d|300d|120d|forza|light panel|key light|fill light)\b/i],
   ["Audio", /\b(mic|microphone|rode|røde|sennheiser|zoom h\d|recorder|wireless go|lav|lavalier|boom|deity|tascam|ntg|shotgun|speaker|partybox)\b/i],
   ["Drones", /\b(drone|mavic|mini\s?\d|air\s?\d|fpv|avata|dji (air|mini|neo))\b/i],

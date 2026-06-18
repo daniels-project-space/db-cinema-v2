@@ -23,12 +23,45 @@ export type ItemType =
   | "battery"
   | "accessory";
 
+// A real camera BODY is named by a model token (fx3, a7, bmpcc, venice, red,
+// komodo, alexa, c70, …) — NOT merely the word "camera". This lets us catch
+// accessories/grip/service listings that only *mention* "camera" (tripods,
+// teleprompters, mount adapters, memory cards, support vests, "operator DP"
+// service listings, transmitters, flashes) BEFORE the greedy camera rule,
+// without stealing genuine camera PACKAGES (which always name a body model).
+const CAMERA_MODEL =
+  /\b(bmpcc|fx3|fx ?3|fx6|fx ?6|fx30|fx ?30|fx9|fx ?9|a7|a7s|a7r|a7c|a7iii|a73|a7iv|a7v|a6\d00|a1\b|a9\b|venice|burano|alexa|amira|\bred\b|gemini|ursa|c70|c-?70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|pocket cinema|z ?cam|zv-?e|x-?t\d|x100|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b|gopro|go ?pro|osmo|insta ?360|hero ?\d)\b/i;
+
+// Accessory / grip / service heroes that the GREEDY `\bcamera\b` rule wrongly
+// swallows into camera-body. These ONLY apply as a correction when the normal
+// RULES fallthrough would otherwise be "camera-body" (see deriveItemType) — so
+// audio/light/battery kits that merely *contain* an sd-card or transmitter are
+// untouched (they classify correctly via RULES and never reach this guard).
+const ACCESSORY_FIRST: [ItemType, RegExp][] = [
+  ["tripod", /\b(tripod|monopod|fluid head|\blegs\b|sticks|support vest|easy ?rig|flowline|stabili[sz]ation vest)\b/i],
+  ["slider", /\b(slider|dolly|\btrack\b|motorised slider|motorized slider)\b/i],
+  ["light", /\b(camera flash|speedlite|speedlight|\bflash\b)\b/i],
+  ["monitor", /\b(video transmitter|video transmission|image transmission|wireless transmitter|teradek|hollyland (?:mars|pyro))\b/i],
+  ["accessory", /\b(teleprompter|prompter|cfexpress|cf-?express|memory card|card reader|mount adapter|lens adapter|mount converter|speed ?booster|follow ?focus|nucleus|\bfiz\b|cage rig|gaffer|focus puller|operator ?dp|\bdop\b|for hire|matte ?box|mattebox)\b/i],
+];
+
+// A small set of accessory heroes so strong they override even a named camera
+// model — a "CFexpress card for Sony FX3" or "PL→EF adapter for Canon EF camera"
+// names a body only for compatibility and is not a camera. Deliberately tiny:
+// only nouns that are NEVER the hero of a real body/package listing. (sd-card /
+// transmitter / receiver / batteries are NOT here — they appear inside genuine
+// audio & GoPro kits as secondary components.)
+const STRONG_ACCESSORY: [ItemType, RegExp][] = [
+  ["accessory", /\b(teleprompter|prompter|cfexpress|cf-?express|card reader|mount adapter|lens adapter|mount converter|operator ?dp|\bdop\b|for hire)\b/i],
+  ["tripod", /\b(support vest|easy ?rig|flowline)\b/i],
+];
+
 // Ordered, first match wins. Drone is matched FIRST so a "Mavic + ND filters"
 // bundle classifies as a drone (not an ND filter). Camera bodies next so camera
 // kits that also mention an accessory classify as the camera (the hero).
 const RULES: [ItemType, RegExp][] = [
   ["drone", /\b(drone|mavic|\bfpv\b|avata|air ?[23]|mini ?[34]|inspire|neo)\b/i],
-  ["camera-body", /\b(camera|bmpcc|fx3|fx6|fx30|fx9|a7|a7s|a7r|a7c|a7iii|a73|a7iv|a6\d00|a1\b|a9\b|burano|alexa|\bred\b|ursa|c70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|s5|pocket cinema|z ?cam|zv-?e|lumix|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b)\b/i],
+  ["camera-body", /\b(camera|bmpcc|fx3|fx6|fx30|fx9|a7|a7s|a7r|a7c|a7iii|a73|a7iv|a6\d00|a1\b|a9\b|burano|venice|alexa|\bred\b|ursa|c70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|s5|pocket cinema|z ?cam|zv-?e|lumix|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b)\b/i],
   ["lens", /\b(lens|lenses|\d{2}-\d{2,3}mm|\d{2,3}-\d{2,3}|50mm|35mm|85mm|24mm|28mm|14mm|16mm|135mm|gm\b|g ?master|ultra ?wide|wide ?angle|telephoto|sigma|samyang|tamron|rokinon|\bfe\b|prime|zoom lens|cine lens|anamorphic|blazar|dzo|laowa|cooke|f1\.[248]|f2\.8|t1\.5|t2\.\d)\b/i],
   // matte boxes + atmosphere machines are accessories, not ND/monitor/light
   ["accessory", /\b(matte ?box|mattebox|french flag|follow ?focus|cage rig|haze|hazer|smoke machine|fog machine)\b/i],
@@ -49,8 +82,32 @@ const RULES: [ItemType, RegExp][] = [
 ];
 
 export function deriveItemType(name: string): ItemType {
-  for (const [t, re] of RULES) if (re.test(name)) return t;
-  return "accessory";
+  // Drones win outright (a "Mavic + ND" bundle is a drone).
+  if (RULES[0][1].test(name)) return "drone";
+
+  // Strong accessory heroes override even a named camera model (a card/adapter
+  // "for Sony FX3" is not a camera).
+  for (const [t, re] of STRONG_ACCESSORY) if (re.test(name)) return t;
+
+  // Normal classification. RULES are first-match-wins; the camera-body rule is
+  // greedy on the bare word "camera".
+  let fallthrough: ItemType = "accessory";
+  for (const [t, re] of RULES) {
+    if (re.test(name)) {
+      fallthrough = t;
+      break;
+    }
+  }
+
+  // Surgical correction: ONLY when the greedy rule decided "camera-body" do we
+  // re-test the accessory/grip/service guards — and only if no real body model
+  // is named. This protects genuine packages ("BMPCC 6k + tripod + follow
+  // focus" has a model → stays camera-body) AND leaves correctly-typed
+  // audio/light/battery kits alone (they never fall through to camera-body).
+  if (fallthrough === "camera-body" && !CAMERA_MODEL.test(name)) {
+    for (const [t, re] of ACCESSORY_FIRST) if (re.test(name)) return t;
+  }
+  return fallthrough;
 }
 
 // ── hard spec inference (mount, filter thread, battery, bundle) ────
@@ -65,9 +122,73 @@ export type Specs = {
   hasAutofocus: boolean | null; // cameras: AF-centric body (Sony/Canon mirrorless) vs cine
 };
 
+// Canonical mount tokens, ordered. Used to extract an EXPLICIT compound mount
+// string like "pl/ef/e/l/rf" → "E/EF/PL/L/RF". src/lib/mount.ts parseMounts
+// splits on `/ , |`, so we store the raw compound string (NOT a single primary)
+// to preserve every native+adapter path the lens-ranking engine relies on.
+// Returning only the "primary" would discard adapter compatibility and silently
+// down-rank glass the matrix should treat as native on a second mount.
+// Canonical order for emitting a compound mount string (E first → matches how
+// the snapshot's hand-corrected "E/EF/PL" values read, deterministic output).
+const MOUNT_ORDER = ["E", "EF", "RF", "PL", "L", "MFT", "X"] as const;
+
+// Pull an explicit, author-written multi-mount string, e.g.
+//   "DZOFILM PL mount (e,l,x,rf)"  → "E/PL/L/X/RF"
+//   "for pl, ef, e, x, l, rf mount" → "E/EF/RF/PL/L/X"
+//   "e-ef-pl"                       → "E/EF/PL"
+// Guard rails so brand/spec noise never becomes a mount:
+//  - the title MUST contain the word "mount" (so a bare brand list like
+//    "arri, Zeiss, cannon, Meike" is ignored — none of those are mount tokens
+//    AND there's no "mount" cue),
+//  - anamorphic squeeze factors ("1.5x", "2x") are stripped first so the "x" is
+//    never read as Fuji X-mount,
+//  - we union ALL standalone canonical mount tokens (not just the first run) so
+//    a leading "PL mount" plus a parenthetical "(e,l,x,rf)" yields the full set.
+function explicitCompoundMount(raw: string): string | null {
+  if (!/\bmount\b/.test(raw)) return null;
+  // strip squeeze factors / T-stops / digits, and Canon "L series" + "USM L"
+  // designations (the luxury-lens "L" is NOT L-mount) before tokenising.
+  const t = raw
+    .replace(/\d+(?:\.\d+)?\s*x\b/g, " ") // 1.5x / 2x squeeze
+    .replace(/\bt\d(?:\.\d+)?\b/g, " ") // T1.4 / T2.8
+    .replace(/\busm\s*l\b/g, " usm ") // Canon "USM L"
+    .replace(/\bl[-\s]?series\b/g, " ") // Canon "L series"
+    .replace(/\bl\s*(?:i{1,3}|ii)\b/g, " ") // "L II" mark designation
+    .replace(/\d/g, " ");
+  // explicit, unambiguous mount tokens
+  const set = new Set<string>();
+  const add = (tok: string) => set.add(tok);
+  if (/\b(?:e[-\s]?mount|emount|sony[-\s]?e|\bfe\b)\b/.test(t)) add("E");
+  if (/\b(?:ef[-\s]?mount|canon[-\s]?ef|\bef\b)\b/.test(t)) add("EF");
+  if (/\b(?:rf[-\s]?mount|canon[-\s]?rf|\brf\b)\b/.test(t)) add("RF");
+  if (/\b(?:pl[-\s]?mount|arri[-\s]?pl|\bpl\b)\b/.test(t)) add("PL");
+  if (/\b(?:l[-\s]?mount|leica[-\s]?l)\b/.test(t)) add("L");
+  if (/\b(?:mft|m4\/3|micro[-\s]?four)\b/.test(t)) add("MFT");
+  if (/\b(?:x[-\s]?mount|fuji[-\s]?x|\bxf\b)\b/.test(t)) add("X");
+  // bare single-letter tokens "e"/"l"/"x"/"pl"/"ef"/"rf" ONLY when they sit
+  // inside a clearly-delimited mount list (joined by / , | ), so prose words
+  // and Canon "L series" cannot leak in.
+  for (const frag of t.match(/(?:\b(?:pl|ef|rf|e|l|x)\b[ ]*[\/,|][ ]*){1,}\b(?:pl|ef|rf|e|l|x)\b/g) || []) {
+    for (const p of frag.split(/[\/,|]+/).map((s) => s.trim())) {
+      if (p === "e") add("E");
+      else if (p === "ef") add("EF");
+      else if (p === "rf") add("RF");
+      else if (p === "pl") add("PL");
+      else if (p === "l") add("L");
+      else if (p === "x") add("X");
+    }
+  }
+  if (set.size < 2) return null;
+  return MOUNT_ORDER.filter((x) => set.has(x)).join("/");
+}
+
 export function mountOf(title: string): string | null {
-  const t = title.toLowerCase();
+  // "Cannon" is a ubiquitous misspelling of Canon — alias it before matching.
+  const t = title.toLowerCase().replace(/\bcannon\b/g, "canon");
   const any = (...k: string[]) => k.some((x) => t.includes(x));
+  // Explicit compound mount string wins (cine glass listing several mounts).
+  const compound = explicitCompoundMount(t);
+  if (compound) return compound;
   if (any("gopro", "osmo action", "insta360", "action 4", "action 5", "action4", "action5", "osmo pocket", "pocket 3")) return "fixed";
   if (any("mft", "m4/3", "micro four", "gh5", "gh6", "gh7", "bmpcc 4k", "pocket 4k")) return "MFT";
   if (any("komodo", "raptor")) return "RF";
@@ -75,7 +196,9 @@ export function mountOf(title: string): string | null {
   if (any("pl mount", " pl ", "arri", "alexa", "amira")) return "PL";
   if (any("bmpcc", "pocket cinema", "6k pro", "6k g2")) return "EF";
   if (any(" ef", "ef ", "ef-", "canon ef")) return "EF";
-  if (any("sony", "fx3", "fx6", "fx9", "fx30", "a7", "a1", "a9", "burano", " fe ", "gm", "g master", "e-mount", "emount", "sigma e", "tamron e")) return "E";
+  // Sony E family — note "venice" (Sony Venice is E-mount via the LPL/E adapter
+  // ecosystem; treated as E for ranking) was previously missing → null mounts.
+  if (any("sony", "fx3", "fx6", "fx9", "fx30", "a7", "a1", "a9", "burano", "venice", " fe ", "gm", "g master", "e-mount", "emount", "sigma e", "tamron e")) return "E";
   return null;
 }
 
@@ -116,7 +239,18 @@ export function deriveSpecs(title: string, itemType: ItemType): Specs {
 
   const includesLens = itemType === "camera-body" && has(/\d{2}-\d{2,3}\s?mm|\bmm lens|with lens|\+\s?[a-z0-9 ]*lens/);
   const lensFocal = (t.match(/(\d{2}-\d{2,3})\s?mm/) || [])[1] || null;
-  const tier = itemType === "lens" ? (has(/gm\b|g master|master|cine|cooke|anamorphic/) ? "premium" : "standard") : null;
+  // tier is ALWAYS persisted for lenses (premium | standard) — never null — so
+  // the ranking engine's premium boost is consistent. Premium now also covers
+  // real cinema glass brands previously missed (DZO/Vespid/Arles/Catta, Blazar,
+  // Atlas, Sirui, Great Joy, Laowa, Sigma cine T-stop primes/zooms).
+  const tier =
+    itemType === "lens"
+      ? has(
+          /gm\b|g ?master|\bmaster\b|\bcine\b|cinema lens|cooke|anamorphic|dzo|vespid|arles|catta|blazar|atlas|sirui|great ?joy|laowa|\bt1\.\d|\bt2\.\d/,
+        )
+        ? "premium"
+        : "standard"
+      : null;
 
   // lens class: manual cinema glass vs autofocus stills/native glass
   let lensClass: string | null = null;
