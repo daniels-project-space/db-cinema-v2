@@ -6,7 +6,7 @@ import { mastra } from "@/mastra";
 import { quote } from "@/lib/pricing";
 import { tierByKey } from "@/lib/membership";
 import { dayMs as msOf } from "@/lib/dates";
-import { lensFits, lensScore, parseMounts } from "@/lib/mount";
+import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { generateText } from "ai";
 import { botModel } from "@/lib/ai";
 
@@ -142,6 +142,28 @@ function pickBestLens(cands: any[], camMounts: string[]): any {
   return best;
 }
 
+/** Three-state lens-card guard for LLM-proposed / prose-mentioned glass.
+ * Mirrors the ranking engine's `bestCompat` instead of the boolean `lensFits`:
+ *   - "incompatible" ⇒ drop the card outright (e.g. an RF lens for an E body).
+ *   - "adapter"      ⇒ keep, but flag so the UI never presents it as native.
+ *   - native/unknown ⇒ keep as-is (unknown = no camera known, don't regress).
+ * Only constrains when camMounts is non-empty (no-camera case ⇒ unknown ⇒ keep).
+ * Returns { drop, adapter } so callers decide presentation. */
+function classifyLensCard(lensMount: string | null | undefined, camMounts: string[]): { drop: boolean; adapter: boolean } {
+  if (!camMounts?.length) return { drop: false, adapter: false }; // no camera ⇒ don't constrain
+  const compat = bestCompat(parseMounts(lensMount), camMounts);
+  if (compat === "incompatible") return { drop: true, adapter: false };
+  return { drop: false, adapter: compat === "adapter" };
+}
+
+/** Append a one-time "(adapter needed)" note to a card reason so EF-on-E (etc.)
+ * is never silently presented as native. Idempotent. */
+function withAdapterNote(reason: string | null | undefined): string {
+  const base = (reason ?? "").trim();
+  if (/\(adapter needed\)/i.test(base)) return base;
+  return base ? `${base} (adapter needed)` : "Fits via adapter (adapter needed)";
+}
+
 async function buildOne(
   c: ConvexHttpClient,
   slugOrTerm: string,
@@ -242,20 +264,33 @@ async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [
   const seen = new Set<string>();
   for (const p of out.proposals ?? []) {
     const item = await buildOne(c, p.slug, out.start, out.end, true);
-    // never propose a lens that won't mount on the camera in the kit/known set
-    // (-Infinity from lensScore == incompatible). lensFits is the boolean form.
-    if (item && item.itemType === "lens" && !lensFits(item.mount, camMounts)) continue;
+    // never propose a lens that won't mount on the camera in the kit/known set.
+    // Three-state (mount.ts bestCompat): incompatible ⇒ drop; adapter ⇒ keep but
+    // flag "(adapter needed)" so EF-on-E is never presented as native.
+    let reason = p.reason;
+    if (item && item.itemType === "lens") {
+      const { drop, adapter } = classifyLensCard(item.mount, camMounts);
+      if (drop) continue;
+      if (adapter) reason = withAdapterNote(reason);
+    }
     if (item && item.available && !seen.has(item.listingId)) {
       seen.add(item.listingId);
-      cards.push({ kind: "add", reason: p.reason, item: mp(item) });
+      cards.push({ kind: "add", reason, item: mp(item) });
     }
   }
   for (const s of out.swaps ?? []) {
     const removed = await buildOne(c, s.removeSlug, out.start, out.end, false);
     const added = await buildOne(c, s.addSlug, out.start, out.end, true);
+    // same three-state guard on the lens being swapped IN.
+    let reason = s.reason;
+    if (added && added.itemType === "lens") {
+      const { drop, adapter } = classifyLensCard(added.mount, camMounts);
+      if (drop) continue;
+      if (adapter) reason = withAdapterNote(reason);
+    }
     if (added && added.available && !seen.has(added.listingId)) {
       seen.add(added.listingId);
-      cards.push({ kind: "swap", reason: s.reason, removed, added: mp(added) });
+      cards.push({ kind: "swap", reason, removed, added: mp(added) });
     }
   }
   // deterministic kit fill: guarantee available cards even if the model's slugs miss
@@ -300,7 +335,14 @@ async function cardsFromMentions(
       // hits (native/premium first) instead of an arbitrary r[0].
       const item: any = await buildOne(c, q, start, end, true, { camMounts });
       if (!item || !item.available || seenIds.has(item.listingId)) continue;
-      if (item.itemType === "lens" && !lensFits(item.mount, camMounts)) continue;
+      // three-state guard (mount.ts): hard-drop incompatible glass for the known
+      // camera set; flag adapter matches so the tile reason says "(adapter needed)".
+      let needsAdapter = false;
+      if (item.itemType === "lens") {
+        const { drop, adapter } = classifyLensCard(item.mount, camMounts);
+        if (drop) continue;
+        needsAdapter = adapter;
+      }
       seenIds.add(item.listingId);
       if (estimated) item.estimated = true;
       if (memberPct > 0) {
@@ -315,11 +357,12 @@ async function cardsFromMentions(
         item.addonTotal = q2.total;
         item.addonLabel = booking.label;
       }
+      const baseReason = estimated
+        ? "Mentioned above — tap the photo to pick exact dates."
+        : "Mentioned above — priced for your dates.";
       cards.push({
         kind: "add",
-        reason: estimated
-          ? "Mentioned above — tap the photo to pick exact dates."
-          : "Mentioned above — priced for your dates.",
+        reason: needsAdapter ? withAdapterNote(baseReason) : baseReason,
         item,
       });
     } catch {}

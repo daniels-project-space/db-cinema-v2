@@ -175,6 +175,25 @@ async function main() {
       `${compound.length} compound lenses, ${withE.length} include E; all kept=${withE.length ? notExcluded : "n/a"}`,
     );
   }
+  // (e) a pure Canon RF lens (RF-only — no EF/E adapter path) is HARD-EXCLUDED
+  //     for an E body: compat="incompatible", lensScore = -Infinity. This is the
+  //     guard the bot route now enforces (incompatible ⇒ no card). Note an
+  //     "EF/RF" compound is intentionally NOT here — its EF leg adapts onto E,
+  //     so it is correctly an 'adapter' match, not excluded.
+  {
+    const rfOnly = scored.filter((s) => {
+      const ms = M.parseMounts(s.l.specs?.mount);
+      return ms.length > 0 && ms.every((m) => m === "RF"); // strictly RF
+    });
+    const allExcluded = rfOnly.every(
+      (s) => s.compat === "incompatible" && s.score === -Infinity,
+    );
+    A(
+      "(e) pure-RF lenses are HARD-EXCLUDED (incompatible, -inf) for an E body",
+      rfOnly.length > 0 && allExcluded,
+      `${rfOnly.length} RF-only lenses; allExcluded=${allExcluded} [${rfOnly.map((s) => `${s.l.specs?.mount}:${fmt(s.score)}`).join(", ")}]`,
+    );
+  }
 
   console.log(`${C.b}ASSERTIONS:${C.x}`);
   let allPass = true;
