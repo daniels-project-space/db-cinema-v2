@@ -164,6 +164,111 @@ function withAdapterNote(reason: string | null | undefined): string {
   return base ? `${base} (adapter needed)` : "Fits via adapter (adapter needed)";
 }
 
+/** Lowercase alphanumeric tokens (len>=2) of a string. */
+function toks(s: string): string[] {
+  return (String(s || "").toLowerCase().match(/[a-z0-9]+/g) || []).filter((t) => t.length >= 2);
+}
+
+/** Strip SEO comparison clauses from a catalogue title — "(like Sony FX6 / A7SIII)",
+ * "(such as …)" — so a request for an FX6 doesn't resolve to an FX3 kit that merely
+ * NAMES the FX6 as a comparison. These clauses are advertising, not the product. */
+function stripCompare(s: string): string {
+  return String(s || "").replace(/\((?:like|such as|similar to|comparable to|vs\.?|alternative to)[^)]*\)/gi, " ");
+}
+
+/** Spacing/punctuation variants of a search term so a model designator typed one way
+ * ("FX6") still finds a listing titled the other way ("Sony fx 6"). listListings does
+ * a substring match, so "fx6" ≠ "fx 6" without this. Returns a small deduped set. */
+function searchVariants(term: string): string[] {
+  const t = term.toLowerCase().trim();
+  const spaced = t.replace(/([a-z])(\d)/g, "$1 $2").replace(/(\d)([a-z])/g, "$1 $2"); // fx6 -> fx 6
+  const despaced = t.replace(/([a-z])\s+(\d)/g, "$1$2").replace(/(\d)\s+([a-z])/g, "$1$2"); // fx 6 -> fx6
+  return [...new Set([t, spaced, despaced].filter(Boolean))];
+}
+
+/** True when a full-text fallback hit genuinely matches the name the model/prose
+ * asked for — so "Sony FX6 Kit" (which we don't own) can't silently resolve to a
+ * random "Sony …" listing and surface a wrong card. Model designators (letter+digit
+ * tokens like fx6/a7iv/r5/70mm) are the item's identity and MUST appear in the title
+ * (token-set OR ordered-concat substring, so "a7iv" still matches "Sony a7 IV").
+ * Otherwise require a majority of the distinctive word tokens to overlap. */
+function titleMatchesQuery(queryText: string, title: string): boolean {
+  const qt = toks(queryText);
+  if (!qt.length) return false;
+  const cleanTitle = stripCompare(title);
+  const tt = new Set(toks(cleanTitle));
+  // despaced run of ALL alphanumerics (keeps single digits) so a split model number
+  // ("fx 6") still contains the joined form ("fx6"). toks() drops len<2, so don't use it here.
+  const titleJoined = cleanTitle.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const has = (t: string) => tt.has(t) || (t.length >= 3 && titleJoined.includes(t));
+  const models = qt.filter((t) => /[a-z]\d|\d[a-z]/.test(t)); // fx6, a7iv, r5, 70mm, f2
+  if (models.length) return models.every(has);
+  const words = qt.filter((t) => t.length >= 4);
+  const pool = words.length ? words : qt;
+  const hits = pool.filter(has).length;
+  return hits >= 1 && hits / pool.length >= 0.5;
+}
+
+/** Cheap quality score for ranking non-lens kit-fill candidates by title/price, so a
+ * "camera" slot prefers a real cinema body over the alphabetically-first action cam.
+ * Mirrors catalog.bestSellers' demand heuristic (no extra queries). */
+function nonLensQuality(l: any, slot: string): number {
+  const t = String(l.title || "").toLowerCase();
+  let s = 0;
+  if (/\b(kit|set|bundle|package)\b/.test(t)) s += 2;
+  if (/fx3|fx6|fx9|a7s|a7 ?iii|a7iv|a7r|burano|venice|komodo|raptor|alexa|amira|ursa|c70|c300|c500|ronin|fs7|fs5/.test(t)) s += 3;
+  if (slot === "camera" || slot === "camera-body") {
+    if (/osmo|action cam|gopro|\bpocket\b|insta ?360|webcam|action [45]/.test(t)) s -= 6;
+  }
+  s += Math.min(3, Math.floor((l.pricing?.daily ?? 0) / 50));
+  return s;
+}
+
+/** Gear types explicitly implied by a user message, so "recommend a lens" fills a
+ * lens — not a full camera+lens+light+mic kit. Empty ⇒ nothing specific implied. */
+function impliedTypes(text: string): string[] {
+  const t = String(text || "").toLowerCase();
+  const out: string[] = [];
+  if (/\blens(es)?\b|\bprime\b|\bzoom\b|\bglass\b/.test(t)) out.push("lens");
+  if (/\bcamera\b|\bbody\b|\bbodies\b|\bcam\b/.test(t)) out.push("camera");
+  if (/\blight(s|ing)?\b/.test(t)) out.push("light");
+  if (/\bgimbal\b|stabili[sz]er|\bronin\b/.test(t)) out.push("gimbal");
+  if (/\bmic\b|\baudio\b|\bsound\b|\bboom\b|lavalier|\blav\b/.test(t)) out.push("mic");
+  if (/\bmonitor\b/.test(t)) out.push("monitor");
+  if (/\btripod\b|\bsticks\b/.test(t)) out.push("tripod");
+  if (/\bnd\b|\bfilter\b/.test(t)) out.push("nd-filter");
+  if (/\bbatter(y|ies)\b|\bpower\b/.test(t)) out.push("battery");
+  if (/\bdrone\b/.test(t)) out.push("drone");
+  return [...new Set(out)];
+}
+
+/** Drop sentences that merely defer ("let me check…") so a reply shipped WITH real
+ * cards doesn't also promise a follow-up message that never comes. */
+function stripDeferral(reply: string): string {
+  const parts = String(reply || "").split(/(?<=[.!?])\s+/);
+  const kept = parts.filter(
+    (s) =>
+      !/\b(let me|i['’]?ll|one moment|give me a moment|hang on|i will (check|get|pull|look)|will check|getting (that|the)|pulling up|looking (it|that) up)\b/i.test(s),
+  );
+  return kept.join(" ").trim();
+}
+
+/** Does a bolded prose name resolve to a REAL catalogue listing (ignoring
+ * availability)? Used to catch availability hallucinations ("Yes, we have X" when
+ * no X exists). Returns the listing or null. */
+async function resolveNameToListing(c: ConvexHttpClient, name: string): Promise<any | null> {
+  const q = name.replace(/^\d+\s*[x×]\s*/i, "").trim();
+  if (q.length < 3) return null;
+  const slugHit: any = await c.query(api.catalog.getListingBySlug, { slug: q.toLowerCase().replace(/[^a-z0-9]+/g, "-") });
+  if (slugHit) return slugHit;
+  for (const v of searchVariants(q)) {
+    const r: any[] = await c.query(api.catalog.listListings, { search: v });
+    const hit = (r || []).find((x: any) => titleMatchesQuery(q, x.title));
+    if (hit) return hit;
+  }
+  return null;
+}
+
 async function buildOne(
   c: ConvexHttpClient,
   slugOrTerm: string,
@@ -174,14 +279,22 @@ async function buildOne(
 ) {
   let l: any = await c.query(api.catalog.getListingBySlug, { slug: slugOrTerm });
   if (!l) {
-    // full-text resolution — DON'T blindly take r[0] (that surfaced wrong-
-    // category cards and arbitrary lenses). Apply the itemType guard, and for
-    // a lens slot rank the hits by lensScore so native/premium glass wins.
-    const r: any[] = await c.query(api.catalog.listListings, { search: slugOrTerm.replace(/-/g, " ") });
+    // full-text resolution — search spacing variants ("FX6"/"fx 6"), gather every hit,
+    // then keep ONLY those whose title genuinely matches the requested name (comparison
+    // clauses stripped), so an unknown/hallucinated name or a "(like FX6)" comparison
+    // yields NO card rather than a confidently-wrong one. For a lens slot, rank the
+    // survivors by lensScore so native/premium glass wins.
+    const term = slugOrTerm.replace(/-/g, " ");
+    const byId = new Map<string, any>();
+    for (const v of searchVariants(term)) {
+      const r: any[] = await c.query(api.catalog.listListings, { search: v });
+      for (const x of r || []) byId.set(String(x._id), x);
+    }
     const slot = opts.slot;
-    let pool = r || [];
+    let pool = [...byId.values()];
     if (slot) pool = pool.filter((x: any) => itemTypeMatches(slot, x.itemType));
-    const wantsLens = slot === "lens" || slot === "lenses" || (!slot && (pool[0]?.itemType === "lens"));
+    pool = pool.filter((x: any) => titleMatchesQuery(term, x.title)); // genuine-name gate
+    const wantsLens = slot === "lens" || slot === "lenses" || (!slot && pool[0]?.itemType === "lens");
     if (wantsLens && pool.some((x: any) => x.itemType === "lens")) {
       const cam = opts.camMounts ?? [];
       let best: any = null, bestScore = -Infinity;
@@ -194,7 +307,7 @@ async function buildOne(
       }
       l = best ?? null;
     } else {
-      l = pool[0] ?? (r || [])[0];
+      l = pool[0] ?? null;
     }
   }
   if (!l) return null;
@@ -231,10 +344,15 @@ async function firstAvailableByType(c: ConvexHttpClient, type: string, start: st
     }
     return pickBestLens(cands, camMounts);
   }
-  // non-lens: keep first-available, but enforce the itemType guard so a loose
-  // full-text hit can't surface a wrong-category card (teleprompter ≠ camera).
-  for (const l of r || []) {
-    if (seen.has(l._id)) continue;
+  // non-lens: RANK candidates by quality first (a real cinema body beats the
+  // alphabetically-first action cam), enforce the itemType guard, then availability-
+  // check only the top few in rank order and return the best available.
+  const ranked = (r || [])
+    .filter((l: any) => !seen.has(l._id) && itemTypeMatches(type, l.itemType))
+    .map((l: any) => ({ l, qs: nonLensQuality(l, type) }))
+    .sort((a, b) => b.qs - a.qs || (a.l.pricing?.daily ?? 0) - (b.l.pricing?.daily ?? 0))
+    .slice(0, 10);
+  for (const { l } of ranked) {
     const item = await buildOne(c, l.slug, start, end, true);
     if (!item || !item.available) continue;
     if (!itemTypeMatches(type, item.itemType)) continue; // itemType guard
@@ -431,11 +549,16 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
   }
-  // (3) cameras named in the latest user turn — e.g. "I have an FX3" ⇒ E, even
-  //     with an empty cart. Done before generate so ranking has it immediately.
+  // (3) cameras named ANYWHERE in the conversation — e.g. "I shoot on an FX3" in
+  //     turn 1 still constrains a lens asked in turn 9. Scanning only the latest
+  //     turn (the old behaviour) silently dropped the camera context mid-chat.
   const lastUserMsg = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
+  const allUserText = history
+    .filter((m: any) => m.role === "user")
+    .map((m: any) => String(m.content || ""))
+    .join("  \n  ");
   try {
-    for (const m of await camMountsFromText(c, String(lastUserMsg))) camMountSet.add(m);
+    for (const m of await camMountsFromText(c, allUserText)) camMountSet.add(m);
   } catch {}
   let camMounts: string[] = [...camMountSet];
 
@@ -486,15 +609,25 @@ export async function POST(req: NextRequest) {
     let cards = await buildCards(c, out, camMounts, memberPct, activeBooking, estimated);
     const lastUser = lastUserMsg;
 
-    // no-defer guard: DeepSeek often replies "let me check…" (or empty) without answering.
-    // Fall back to deterministic knowledge retrieval + a plain grounded answer.
-    const isDefer =
-      cards.length === 0 &&
-      (reply.trim().length < 12 ||
-        /\b(let me|i['’]?ll|one moment|give me a moment|hang on|fetch|pull(ing)? up|look(ing)?\s*(it|that)?\s*up|check (the|on|compat|details)|will check|getting (that|the)|moment)\b/i.test(reply));
-    if (isDefer && lastUser) {
+    // grounded-answer guard: DeepSeek often defers ("let me check…") or free-texts
+    // specs/limits it shouldn't. Try a deterministic, knowledge-grounded answer when
+    // the reply defers OR the user asks about an item's specs/limits/compatibility.
+    // knowledgeAnswer self-gates (returns null unless it found REAL item facts), so
+    // broadening WHEN we try it is safe — it only ever overrides with grounded text.
+    // Decoupled from card count: a deferring reply must be fixed even WITH cards.
+    const defersText =
+      reply.trim().length < 12 ||
+      /\b(let me|i['’]?ll|one moment|give me a moment|hang on|fetch|pull(ing)? up|look(ing)?\s*(it|that)?\s*up|check (the|on|compat|details)|will check|getting (that|the)|moment)\b/i.test(reply);
+    const asksItemInfo =
+      /\b(limitation|limits?|spec|specs|specification|weigh|weight|how (heavy|big|long)|stabili[sz]ation|battery life|max iso|dynamic range|frame ?rate|resolution|downside|drawback|pros? and cons?|tell me about|what.*(can|does|do).*(it|this|that))\b/i.test(lastUser);
+    if ((defersText || asksItemInfo) && lastUser) {
       const ka = await knowledgeAnswer(c, lastUser, memberPct);
       if (ka) reply = ka;
+      else if (defersText && cards.length > 0) {
+        // real cards but no groundable prose: strip the deferral so the text doesn't
+        // promise a follow-up that never arrives.
+        reply = stripDeferral(reply) || "Here's what I'd suggest for your shoot:";
+      }
     }
 
     // native tiles for gear named in prose — every **bolded** mention
@@ -506,12 +639,46 @@ export async function POST(req: NextRequest) {
     );
     cards = [...cards, ...mentionCards].slice(0, 6);
 
-    // safety net: if they clearly asked for a kit but the model returned none, build a default
-    if (cards.length === 0 && /\b(kit|build|assemble|recommend|set ?up|shoot|gear for|need)\b/i.test(lastUser)) {
+    // safety net: if they asked for gear but the model returned none, build a default.
+    // Narrow to the gear type they actually implied ("recommend a lens" ⇒ just a lens),
+    // only filling a full camera+lens+light+mic kit when they clearly want the whole rig.
+    // Skip for pure availability questions ("do you have the FX6 kit?") — those must
+    // not be answered with a generic substitute kit; the hallucination guard handles them.
+    const isAvailabilityQ = /\b(do you (have|stock|carry)|have you got|is there|are there|got (a|an|any)|do you sell)\b/i.test(lastUser);
+    if (cards.length === 0 && !isAvailabilityQ && /\b(kit|build|assemble|recommend|set ?up|shoot|gear for|need|suggest|what lens|which lens)\b/i.test(lastUser)) {
       out.wantsKit = true;
-      out.itemTypes = out.itemTypes?.length ? out.itemTypes : ["camera", "lens", "light", "mic"];
+      const implied = impliedTypes(lastUser);
+      const wantsFullKit = /\b(kit|build|assemble|everything|full (kit|set ?up|rig)|whole (kit|setup|shoot)|complete (kit|setup)|gear for)\b/i.test(lastUser);
+      out.itemTypes = out.itemTypes?.length
+        ? out.itemTypes
+        : implied.length && !wantsFullKit
+          ? implied
+          : ["camera", "lens", "light", "mic"];
       cards = await buildCards(c, out, camMounts, memberPct, activeBooking, estimated);
     }
+
+    // hallucination guard: if the model CLAIMS we have specific gear (bolded a name +
+    // "yes/we have/in stock") but produced no cards AND not one bolded name resolves to
+    // a real listing, it invented inventory — replace with a grounded answer or a
+    // clarifying ask rather than confirming gear we don't own. (cards>0 ⇒ we have real
+    // backing; a "resolves but unavailable" item also passes, avoiding false positives.)
+    const claimsPossession =
+      /\b(yes\b|we (have|stock|carry|do have|'ve got|have got|offer)|in stock|we've got)\b/i.test(reply) &&
+      /\*\*[^*]+\*\*/.test(reply);
+    if (claimsPossession && cards.length === 0) {
+      const boldNames = [...reply.matchAll(/\*\*([^*]{3,60})\*\*/g)].map((m) => m[1].trim());
+      let anyReal = false;
+      for (const n of boldNames.slice(0, 5)) {
+        try {
+          if (await resolveNameToListing(c, n)) { anyReal = true; break; }
+        } catch {}
+      }
+      if (!anyReal) {
+        const ka = lastUser ? await knowledgeAnswer(c, lastUser, memberPct) : null;
+        reply = ka || "Let me point you to the exact kit we carry — which camera or model are you after, and what dates?";
+      }
+    }
+
     const suggestions = Array.isArray(out?.suggestions)
       ? out.suggestions
           .filter((s: any) => typeof s === "string" && s.trim().length > 0 && s.trim().length <= 56)
