@@ -6,6 +6,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
 import { dayMs as msOf } from "@/lib/dates";
+import { parseMounts, mountCompat } from "@/lib/mount";
 
 export const maxDuration = 60;
 
@@ -41,6 +42,10 @@ const FALLBACK: Record<string, string[]> = {
   default: ["camera", "lens", "key-light", "shotgun-mic", "tripod"],
 };
 
+/** Last-resort mount GUESS from a title, used ONLY when specs.mount is missing.
+ * Compatibility decisions go through mount.ts (mountCompat/parseMounts) — this
+ * just supplies a best-effort mount token so cards still carry one. The local
+ * three-state copy that used to live here was deleted; this is data-only. */
 function mountOf(title: string): string {
   const t = title.toLowerCase();
   const any = (...k: string[]) => k.some((x) => t.includes(x));
@@ -61,7 +66,21 @@ const SCHEMA = z.object({
   compatibility: z.array(z.string()),
 });
 
-async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, lensPref?: string) {
+/** Best mount compatibility of an option's mount string vs the kit's camera
+ * mounts. "unknown" when either side is empty (don't block on missing data). */
+function optionCompat(optionMount: string | null | undefined, camMounts: string[]): "native" | "adapter" | "incompatible" | "unknown" {
+  const lensMounts = parseMounts(optionMount);
+  if (!lensMounts.length || !camMounts.length) return "unknown";
+  let best: "adapter" | "incompatible" = "incompatible";
+  for (const lm of lensMounts) for (const cm of camMounts) {
+    const r = mountCompat(lm, cm);
+    if (r === "native") return "native";
+    if (r === "adapter") best = "adapter";
+  }
+  return best;
+}
+
+async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, lensPref?: string, camMounts: string[] = []) {
   const def = STAGE[key];
   if (!def) return [];
   let items: any[] = await c.query(api.catalog.byItemType, { types: def.types });
@@ -73,17 +92,27 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
     if ((av?.available ?? 0) <= 0) continue;
     const q: any = quote(l.pricing, days);
     const role = l.itemType === "camera-body" ? "camera" : l.itemType === "lens" ? "lens" : "other";
+    const mount = l.specs?.mount ?? (role === "camera" || role === "lens" ? mountOf(l.title) : null);
+    // lens-stage mount gate: drop glass that can't mount on the kit's camera at all
+    if (key === "lens" && camMounts.length && optionCompat(mount, camMounts) === "incompatible") continue;
     out.push({
       listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, category: l.category,
       start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
-      role,
-      mount: l.specs?.mount ?? (role === "camera" || role === "lens" ? mountOf(l.title) : null),
+      role, mount,
+      compat: key === "lens" ? optionCompat(mount, camMounts) : undefined,
       specs: l.specs ?? {},
       tip: l.tip ?? null,
     });
     if (out.length >= 16) break;
   }
+  const rank = { native: 0, adapter: 1, unknown: 2, incompatible: 3 } as const;
   out.sort((a, b) => {
+    if (key === "lens" && camMounts.length) {
+      // native glass before adapter glass before unknown — real-world correctness first
+      const ra = rank[(a.compat ?? "unknown") as keyof typeof rank];
+      const rb = rank[(b.compat ?? "unknown") as keyof typeof rank];
+      if (ra !== rb) return ra - rb;
+    }
     if (key === "lens" && lensPref) {
       const ac = a.specs?.lensClass === lensPref ? 0 : 1;
       const bc = b.specs?.lensClass === lensPref ? 0 : 1;
@@ -140,10 +169,20 @@ export async function POST(req: NextRequest) {
   const lensPref = (b.size || "").toLowerCase().includes("large") ? "cine" : "af";
 
   const stages: any[] = [];
+  // camera mounts captured from the camera stage, so the lens stage can rank
+  // native glass first and exclude lenses that won't mount at all.
+  let camMounts: string[] = [];
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
-    const options = await optionsForStage(c, k, start, end, lensPref);
+    const options = await optionsForStage(c, k, start, end, lensPref, camMounts);
     if (!options.length) continue;
+    if (k === "camera") {
+      // anchor lens compatibility to the RECOMMENDED camera's mount (the body
+      // the user is most likely to take); fall back to the first option.
+      const recId = pickRecommended(options, meta?.recommend);
+      const recCam = options.find((o: any) => o.listingId === recId) ?? options[0];
+      camMounts = parseMounts(recCam?.mount);
+    }
     let note = meta?.note || "";
     if (k === "lens")
       note += (note ? " " : "") + (lensPref === "cine"
