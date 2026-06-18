@@ -679,6 +679,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // honour a NARROW request: "recommend a lens for my FX3" should show lenses, not a
+    // camera+light kit the model volunteered. When the user named exactly one gear type
+    // (and didn't ask to build a whole kit), keep only cards of that type — but never
+    // blank the reply (if nothing of that type was built, leave the cards as-is).
+    const askedTypes = impliedTypes(lastUser);
+    const wantsWholeKit = /\b(kit|build|assemble|everything|full (kit|set ?up|rig)|whole (kit|setup|shoot)|complete (kit|setup)|set ?up|gear for|shoot)\b/i.test(lastUser);
+    if (askedTypes.length === 1 && !wantsWholeKit && cards.length > 1) {
+      const want = askedTypes[0];
+      const filtered = cards.filter((cd: any) => {
+        const it = cd.kind === "swap" ? cd.added : cd.item;
+        return it && itemTypeMatches(want, it.itemType);
+      });
+      if (filtered.length) cards = filtered;
+    }
+
     const suggestions = Array.isArray(out?.suggestions)
       ? out.suggestions
           .filter((s: any) => typeof s === "string" && s.trim().length > 0 && s.trim().length <= 56)
