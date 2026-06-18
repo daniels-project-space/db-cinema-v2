@@ -6,7 +6,7 @@ import { mastra } from "@/mastra";
 import { quote } from "@/lib/pricing";
 import { tierByKey } from "@/lib/membership";
 import { dayMs as msOf } from "@/lib/dates";
-import { lensFits } from "@/lib/gear";
+import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { generateText } from "ai";
 import { botModel } from "@/lib/ai";
 
@@ -83,11 +83,119 @@ const TERM: Record<string, string> = {
   mic: "mic", audio: "mic", tripod: "tripod", drone: "drone", speaker: "speaker",
 };
 
-async function buildOne(c: ConvexHttpClient, slugOrTerm: string, start: string, end: string, checkAvail = true) {
+/** Slot type → the catalogue itemType(s) a resolved card MUST match, so a
+ * loose full-text hit can never surface (e.g.) a teleprompter as a "camera".
+ * Slots not listed here are unconstrained. */
+const EXPECTED_ITEMTYPES: Record<string, string[]> = {
+  camera: ["camera-body"], "camera-body": ["camera-body"],
+  lens: ["lens"], lenses: ["lens"],
+  gimbal: ["gimbal"], light: ["light"], lighting: ["light"],
+  "nd-filter": ["nd-filter"], filter: ["nd-filter"],
+  battery: ["battery"], monitor: ["monitor"],
+  "wireless-mic": ["wireless-mic", "boom-mic"], mic: ["wireless-mic", "boom-mic"], audio: ["wireless-mic", "boom-mic"],
+  tripod: ["tripod"], drone: ["drone"], speaker: ["speaker"],
+};
+
+/** True when `itemType` satisfies the expected itemType(s) for `slot`.
+ * Unknown slots (no constraint) always pass. */
+function itemTypeMatches(slot: string, itemType: string | null | undefined): boolean {
+  const expected = EXPECTED_ITEMTYPES[slot];
+  if (!expected) return true; // no constraint for this slot
+  return !!itemType && expected.includes(itemType);
+}
+
+/** Find camera bodies whose title is mentioned in free text and collect their
+ * mounts. Net effect: "I have an FX3" ⇒ ["E"] even with an empty cart. */
+async function camMountsFromText(c: ConvexHttpClient, text: string): Promise<string[]> {
+  if (!text || !text.trim()) return [];
+  // distinctive model-ish tokens (fx3, a7siii, komodo, gh6, r5…) — alnum, len>=2, must contain a digit OR be a known body word
+  const toks = (text.toLowerCase().match(/[a-z][a-z0-9]{1,}[a-z0-9]/g) || [])
+    .filter((t) => /\d/.test(t) || /(komodo|raptor|alexa|amira|burano|venice|ursa|komodo)/.test(t));
+  const queries = Array.from(new Set([...toks, text.trim()])).slice(0, 6);
+  const mounts = new Set<string>();
+  for (const q of queries) {
+    try {
+      const r: any[] = await c.query(api.catalog.listListings, { search: q });
+      for (const l of (r || []).slice(0, 4)) {
+        if (l.itemType !== "camera-body") continue;
+        // require the model token to actually appear in the title to avoid loose matches
+        const title = String(l.title || "").toLowerCase();
+        if (!toks.some((t) => title.includes(t))) continue;
+        for (const m of parseMounts(l.specs?.mount)) mounts.add(m);
+      }
+    } catch {}
+  }
+  return [...mounts];
+}
+
+/** Score & pick the best lens from a candidate pool for a camera-mount set.
+ * Excludes incompatible (-Infinity) glass; ties broken by cheaper day-rate.
+ * Returns null if nothing is compatible/available. */
+function pickBestLens(cands: any[], camMounts: string[]): any {
+  let best: any = null, bestScore = -Infinity;
+  for (const it of cands) {
+    const s = lensScore({ mount: it.mount, tier: it.tier ?? it.specs?.tier, lensClass: it.lensClass }, camMounts);
+    if (s === -Infinity) continue; // incompatible — never offer
+    const cheaper = best && s === bestScore && (it.perDay ?? Infinity) < (best.perDay ?? Infinity);
+    if (s > bestScore || cheaper) { bestScore = s; best = it; }
+  }
+  return best;
+}
+
+/** Three-state lens-card guard for LLM-proposed / prose-mentioned glass.
+ * Mirrors the ranking engine's `bestCompat` instead of the boolean `lensFits`:
+ *   - "incompatible" ⇒ drop the card outright (e.g. an RF lens for an E body).
+ *   - "adapter"      ⇒ keep, but flag so the UI never presents it as native.
+ *   - native/unknown ⇒ keep as-is (unknown = no camera known, don't regress).
+ * Only constrains when camMounts is non-empty (no-camera case ⇒ unknown ⇒ keep).
+ * Returns { drop, adapter } so callers decide presentation. */
+function classifyLensCard(lensMount: string | null | undefined, camMounts: string[]): { drop: boolean; adapter: boolean } {
+  if (!camMounts?.length) return { drop: false, adapter: false }; // no camera ⇒ don't constrain
+  const compat = bestCompat(parseMounts(lensMount), camMounts);
+  if (compat === "incompatible") return { drop: true, adapter: false };
+  return { drop: false, adapter: compat === "adapter" };
+}
+
+/** Append a one-time "(adapter needed)" note to a card reason so EF-on-E (etc.)
+ * is never silently presented as native. Idempotent. */
+function withAdapterNote(reason: string | null | undefined): string {
+  const base = (reason ?? "").trim();
+  if (/\(adapter needed\)/i.test(base)) return base;
+  return base ? `${base} (adapter needed)` : "Fits via adapter (adapter needed)";
+}
+
+async function buildOne(
+  c: ConvexHttpClient,
+  slugOrTerm: string,
+  start: string,
+  end: string,
+  checkAvail = true,
+  opts: { slot?: string; camMounts?: string[] } = {},
+) {
   let l: any = await c.query(api.catalog.getListingBySlug, { slug: slugOrTerm });
   if (!l) {
+    // full-text resolution — DON'T blindly take r[0] (that surfaced wrong-
+    // category cards and arbitrary lenses). Apply the itemType guard, and for
+    // a lens slot rank the hits by lensScore so native/premium glass wins.
     const r: any[] = await c.query(api.catalog.listListings, { search: slugOrTerm.replace(/-/g, " ") });
-    l = (r || [])[0];
+    const slot = opts.slot;
+    let pool = r || [];
+    if (slot) pool = pool.filter((x: any) => itemTypeMatches(slot, x.itemType));
+    const wantsLens = slot === "lens" || slot === "lenses" || (!slot && (pool[0]?.itemType === "lens"));
+    if (wantsLens && pool.some((x: any) => x.itemType === "lens")) {
+      const cam = opts.camMounts ?? [];
+      let best: any = null, bestScore = -Infinity;
+      for (const x of pool) {
+        if (x.itemType !== "lens") continue;
+        const s = lensScore({ mount: x.specs?.mount, tier: x.specs?.tier, lensClass: x.specs?.lensClass }, cam);
+        if (s === -Infinity) continue; // incompatible
+        const cheaper = best && s === bestScore && (x.pricing?.daily ?? Infinity) < (best.pricing?.daily ?? Infinity);
+        if (s > bestScore || cheaper) { bestScore = s; best = x; }
+      }
+      l = best ?? null;
+    } else {
+      l = pool[0] ?? (r || [])[0];
+    }
   }
   if (!l) return null;
   const days = Math.max(1, Math.round((msOf(end) - msOf(start)) / 86400000) + 1);
@@ -101,6 +209,7 @@ async function buildOne(c: ConvexHttpClient, slugOrTerm: string, start: string, 
     listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null,
     start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0, available,
     itemType: l.itemType ?? null, mount: l.specs?.mount ?? null, lensClass: l.specs?.lensClass ?? null,
+    tier: l.specs?.tier ?? null,
     pricing: l.pricing,
   };
 }
@@ -108,20 +217,30 @@ async function buildOne(c: ConvexHttpClient, slugOrTerm: string, start: string, 
 async function firstAvailableByType(c: ConvexHttpClient, type: string, start: string, end: string, seen: Set<string>, camMounts: string[] = []) {
   const term = TERM[type] || type;
   const r: any[] = await c.query(api.catalog.listListings, { search: term });
-  let fallback: any = null;
+  if (type === "lens" || type === "lenses") {
+    // gather ALL available candidate lenses, score every one (mount → native/
+    // adapter/incompatible + tier + class), exclude incompatible, return the
+    // highest score; ties broken by cheaper day-rate inside pickBestLens.
+    const cands: any[] = [];
+    for (const l of r || []) {
+      if (seen.has(l._id)) continue;
+      const item = await buildOne(c, l.slug, start, end, true);
+      if (!item || !item.available) continue;
+      if (!itemTypeMatches("lens", item.itemType)) continue; // itemType guard
+      cands.push(item);
+    }
+    return pickBestLens(cands, camMounts);
+  }
+  // non-lens: keep first-available, but enforce the itemType guard so a loose
+  // full-text hit can't surface a wrong-category card (teleprompter ≠ camera).
   for (const l of r || []) {
     if (seen.has(l._id)) continue;
     const item = await buildOne(c, l.slug, start, end, true);
     if (!item || !item.available) continue;
-    if (item.itemType === "lens") {
-      if (!lensFits(item.mount, camMounts)) continue;
-      if (item.lensClass === "af") return item; // prefer autofocus glass for default kits
-      if (!fallback) fallback = item;
-      continue;
-    }
+    if (!itemTypeMatches(type, item.itemType)) continue; // itemType guard
     return item;
   }
-  return fallback;
+  return null;
 }
 
 async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [], memberPct = 0, booking: any = null, estimated = false) {
@@ -145,19 +264,33 @@ async function buildCards(c: ConvexHttpClient, out: any, camMounts: string[] = [
   const seen = new Set<string>();
   for (const p of out.proposals ?? []) {
     const item = await buildOne(c, p.slug, out.start, out.end, true);
-    // never propose a lens that won't mount on the camera already in the kit
-    if (item && item.itemType === "lens" && !lensFits(item.mount, camMounts)) continue;
+    // never propose a lens that won't mount on the camera in the kit/known set.
+    // Three-state (mount.ts bestCompat): incompatible ⇒ drop; adapter ⇒ keep but
+    // flag "(adapter needed)" so EF-on-E is never presented as native.
+    let reason = p.reason;
+    if (item && item.itemType === "lens") {
+      const { drop, adapter } = classifyLensCard(item.mount, camMounts);
+      if (drop) continue;
+      if (adapter) reason = withAdapterNote(reason);
+    }
     if (item && item.available && !seen.has(item.listingId)) {
       seen.add(item.listingId);
-      cards.push({ kind: "add", reason: p.reason, item: mp(item) });
+      cards.push({ kind: "add", reason, item: mp(item) });
     }
   }
   for (const s of out.swaps ?? []) {
     const removed = await buildOne(c, s.removeSlug, out.start, out.end, false);
     const added = await buildOne(c, s.addSlug, out.start, out.end, true);
+    // same three-state guard on the lens being swapped IN.
+    let reason = s.reason;
+    if (added && added.itemType === "lens") {
+      const { drop, adapter } = classifyLensCard(added.mount, camMounts);
+      if (drop) continue;
+      if (adapter) reason = withAdapterNote(reason);
+    }
     if (added && added.available && !seen.has(added.listingId)) {
       seen.add(added.listingId);
-      cards.push({ kind: "swap", reason: s.reason, removed, added: mp(added) });
+      cards.push({ kind: "swap", reason, removed, added: mp(added) });
     }
   }
   // deterministic kit fill: guarantee available cards even if the model's slugs miss
@@ -198,9 +331,18 @@ async function cardsFromMentions(
     const q = raw.replace(/^\d+\s*[x×]\s*/i, "").trim();
     if (q.length < 3) continue;
     try {
-      const item: any = await buildOne(c, q, start, end, true);
+      // resolve the bolded name; if it lands on a lens, score-rank the search
+      // hits (native/premium first) instead of an arbitrary r[0].
+      const item: any = await buildOne(c, q, start, end, true, { camMounts });
       if (!item || !item.available || seenIds.has(item.listingId)) continue;
-      if (item.itemType === "lens" && !lensFits(item.mount, camMounts)) continue;
+      // three-state guard (mount.ts): hard-drop incompatible glass for the known
+      // camera set; flag adapter matches so the tile reason says "(adapter needed)".
+      let needsAdapter = false;
+      if (item.itemType === "lens") {
+        const { drop, adapter } = classifyLensCard(item.mount, camMounts);
+        if (drop) continue;
+        needsAdapter = adapter;
+      }
       seenIds.add(item.listingId);
       if (estimated) item.estimated = true;
       if (memberPct > 0) {
@@ -215,11 +357,12 @@ async function cardsFromMentions(
         item.addonTotal = q2.total;
         item.addonLabel = booking.label;
       }
+      const baseReason = estimated
+        ? "Mentioned above — tap the photo to pick exact dates."
+        : "Mentioned above — priced for your dates.";
       cards.push({
         kind: "add",
-        reason: estimated
-          ? "Mentioned above — tap the photo to pick exact dates."
-          : "Mentioned above — priced for your dates.",
+        reason: needsAdapter ? withAdapterNote(baseReason) : baseReason,
         item,
       });
     } catch {}
@@ -270,18 +413,31 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
   }
-  // camera mounts already in the kit — to refuse incompatible lens proposals
-  let camMounts: string[] = [];
+  // camera mounts known for this conversation — used to rank native glass first
+  // and refuse incompatible lens proposals. Sourced from THREE places (union):
+  //   1. cameras already in the cart,
+  //   2. cameras the LLM proposes this turn (resolved after generate, below),
+  //   3. camera models mentioned in the latest user message.
+  // A Set keeps it deduped & canonical (parseMounts normalises FE→E etc.).
+  const camMountSet = new Set<string>();
   if (Array.isArray(body?.cart) && body.cart.length) {
     ctx += ` Items currently in their kit: ${body.cart.map((x: any) => `${x.title} (${x.start}→${x.end})`).join("; ")}.`;
     try {
       const ids = body.cart.map((x: any) => x.listingId).filter(Boolean);
       if (ids.length) {
         const cds: any[] = await c.query(api.catalog.listingsByIds, { ids });
-        camMounts = cds.filter((cd) => cd.itemType === "camera-body" && cd.specs?.mount).map((cd) => cd.specs.mount);
+        for (const cd of cds)
+          if (cd.itemType === "camera-body") for (const m of parseMounts(cd.specs?.mount)) camMountSet.add(m);
       }
     } catch {}
   }
+  // (3) cameras named in the latest user turn — e.g. "I have an FX3" ⇒ E, even
+  //     with an empty cart. Done before generate so ranking has it immediately.
+  const lastUserMsg = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
+  try {
+    for (const m of await camMountsFromText(c, String(lastUserMsg))) camMountSet.add(m);
+  } catch {}
+  let camMounts: string[] = [...camMountSet];
 
   const messages = [{ role: "system", content: ctx ? `${styleBlock()} ${ctx}` : styleBlock() }, ...history];
   try {
@@ -314,8 +470,21 @@ export async function POST(req: NextRequest) {
     }
 
     let reply = out.reply ?? res?.text ?? "How can I help with your shoot?";
+
+    // (2) camera-bodies the model proposed this turn AND any camera named in the
+    //     reply prose → fold their mounts into camMounts BEFORE building cards,
+    //     so a freshly-recommended FX3 still constrains the lens it pairs with.
+    try {
+      for (const p of out.proposals ?? []) {
+        const l: any = await c.query(api.catalog.getListingBySlug, { slug: p.slug });
+        if (l?.itemType === "camera-body") for (const m of parseMounts(l.specs?.mount)) camMountSet.add(m);
+      }
+      for (const m of await camMountsFromText(c, String(out.reply ?? ""))) camMountSet.add(m);
+    } catch {}
+    camMounts = [...camMountSet];
+
     let cards = await buildCards(c, out, camMounts, memberPct, activeBooking, estimated);
-    const lastUser = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
+    const lastUser = lastUserMsg;
 
     // no-defer guard: DeepSeek often replies "let me check…" (or empty) without answering.
     // Fall back to deterministic knowledge retrieval + a plain grounded answer.

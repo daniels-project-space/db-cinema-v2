@@ -61,7 +61,17 @@ export function BotBubble() {
 
   useEffect(() => {
     const raw = localStorage.getItem("dbc_bot");
-    if (raw) try { setMsgs(JSON.parse(raw)); } catch {}
+    if (raw)
+      try {
+        const saved: Msg[] = JSON.parse(raw);
+        // Restore the transcript text only. Cards encode LIVE state (stock,
+        // member pricing, the dates the user asked about) that goes stale the
+        // moment the session ends — rehydrating them would present a previous
+        // session's "Recommended X" answer as if it were current. Strip cards
+        // on load so old recommendations can never masquerade as live; a fresh
+        // request rebuilds them from /api/bot.
+        setMsgs(saved.map((m) => (m.cards?.length ? { ...m, cards: [] } : m)));
+      } catch {}
   }, []);
   useEffect(() => {
     if (msgs.length) localStorage.setItem("dbc_bot", JSON.stringify(msgs.slice(-24)));
@@ -142,6 +152,19 @@ export function BotBubble() {
 
   const lastAssistant = [...msgs].map((m, i) => ({ m, i })).reverse().find((x) => x.m.role === "assistant");
   const liveSuggestions = !busy && lastAssistant?.m.suggestions?.length ? lastAssistant.m.suggestions : null;
+
+  // Only the most recent reply that carries cards owns the live recommendation
+  // slot. Cards from earlier turns are superseded the instant a newer reply
+  // arrives — keeping them actionable lets a stale "Recommended lens" card from
+  // a prior question masquerade as the answer to the current one. We collapse
+  // earlier turns to read-only confirmations of anything already added to the
+  // cart (so those actions aren't lost) and hide the rest.
+  const liveCardsIdx = (() => {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "assistant" && (msgs[i].cards?.length ?? 0) > 0) return i;
+    }
+    return -1;
+  })();
 
   return (
     <>
@@ -255,35 +278,59 @@ export function BotBubble() {
                   stream={m.role === "assistant" && mi === msgs.length - 1 && !busy}
                   mood={talkingIdx === mi ? "talking" : "idle"}
                 />
-                {m.cards && m.cards.length > 0 && (
-                  <div className="space-y-2 pl-10">
-                    {m.cards.map((card: Card, ci: number) => {
-                      const id = `${mi}:${ci}`;
-                      return (
-                        <CardView
-                          key={ci}
-                          card={card}
-                          state={done[id]}
-                          delay={ci * 90}
-                          onAdd={() => {
-                            if (card.kind === "swap") {
-                              if (card.removed) removeByListing(card.removed.listingId);
-                              addItem(card.added);
-                            } else addItem(card.item);
-                            setDone((d) => ({ ...d, [id]: "added" }));
-                          }}
-                          onDecline={() => setDone((d) => ({ ...d, [id]: "declined" }))}
-                          onAddBooking={() => addToBooking(card.kind === "swap" ? card.added : card.item)}
-                          addonBusy={addonBusy}
-                          onAlt={() => {
-                            const t = card.kind === "swap" ? card.added?.title : card.item?.title;
-                            send(`Can you suggest an alternative to ${t}?`);
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
+                {m.cards && m.cards.length > 0 && (() => {
+                  const isLiveTurn = mi === liveCardsIdx;
+                  // Superseded turn: surface only the items the user actually
+                  // added to their kit (read-only), and drop the rest so an old
+                  // recommendation can't keep posing as the current answer.
+                  const visible = isLiveTurn
+                    ? m.cards.map((card: Card, ci: number) => ({ card, ci }))
+                    : m.cards
+                        .map((card: Card, ci: number) => ({ card, ci }))
+                        .filter(({ ci }) => done[`${mi}:${ci}`] === "added");
+                  if (visible.length === 0) return null;
+                  return (
+                    <div className="space-y-2 pl-10">
+                      {visible.map(({ card, ci }) => {
+                        const id = `${mi}:${ci}`;
+                        if (!isLiveTurn) {
+                          const it = card.kind === "swap" ? card.added : card.item;
+                          return (
+                            <div
+                              key={ci}
+                              className="flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/[0.08] px-3 py-1.5 text-[11px] text-emerald-300"
+                            >
+                              <IconCheck className="h-3 w-3 shrink-0" />
+                              <span className="truncate">Added to kit · {it?.title}</span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <CardView
+                            key={ci}
+                            card={card}
+                            state={done[id]}
+                            delay={ci * 90}
+                            onAdd={() => {
+                              if (card.kind === "swap") {
+                                if (card.removed) removeByListing(card.removed.listingId);
+                                addItem(card.added);
+                              } else addItem(card.item);
+                              setDone((d) => ({ ...d, [id]: "added" }));
+                            }}
+                            onDecline={() => setDone((d) => ({ ...d, [id]: "declined" }))}
+                            onAddBooking={() => addToBooking(card.kind === "swap" ? card.added : card.item)}
+                            addonBusy={addonBusy}
+                            onAlt={() => {
+                              const t = card.kind === "swap" ? card.added?.title : card.item?.title;
+                              send(`Can you suggest an alternative to ${t}?`);
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             ))}
             {liveSuggestions && <Chips opts={liveSuggestions} onPick={(v) => send(v)} className="pl-10" />}
