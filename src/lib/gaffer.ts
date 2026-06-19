@@ -107,6 +107,14 @@ function nonLensQuality(l: any, slot: string): number {
 function specTokens(s: string): string[] {
   return (String(s || "").toLowerCase().match(/\d{1,3}(?:mm)?|f?\d\.\d|t\d\.\d/g) || []).map((x) => x.replace(/mm$/, ""));
 }
+/** Mounts implied by the SUBJECT (its resolved listing mount, else a mount word in the
+ * text) — so an alternative to a Sony-E lens is constrained to E even when the customer
+ * named no camera. Prevents offering an RF lens as a substitute for an E-mount lens. */
+function subjectMounts(subjectText: string, subj: any): string[] {
+  if (subj?.specs?.mount) { const m = parseMounts(subj.specs.mount); if (m.length) return m; }
+  const tok = (String(subjectText || "").toLowerCase().match(/\b(ef|rf|pl|mft|e|l|x)[\s-]?mount\b/) || [])[1];
+  return tok ? parseMounts(tok.toUpperCase()) : [];
+}
 /** Comparator for ranking candidates. "cheaper" sorts by day-rate ascending first (then
  * quality); otherwise by quality first (then cheaper as a tiebreak). */
 function rankCmp(pref: "cheaper" | "premium" | "any") {
@@ -461,13 +469,17 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
           : card?.item?.available ? `Available ${start} to ${end}.` : `Not free ${start} to ${end} — I can suggest a close alternative.`;
         facts.push(`IN STOCK: we DO carry ${titlePrice(lst)}. ${availTxt}`);
         if (!estimated && card && !card.item.available) {
+          const sc = ctx.camMounts; if (!ctx.camMounts.length) { const sm = subjectMounts(intent.subject, lst); if (sm.length) ctx.camMounts = sm; }
           const alts = await findAlternatives(c, intent.subject, lst.itemType || primaryType || "lens", ctx, 2, String(lst._id));
+          ctx.camMounts = sc;
           for (const a of alts) await pushCard(a, "Available alternative");
           if (alts.length) facts.push(`Free for those dates instead: ${alts.map(titlePrice).join("; ")}.`);
         }
       } else {
         facts.push(`NOT STOCKED: we do not carry "${intent.subject}".`);
+        const sc = ctx.camMounts; if (!ctx.camMounts.length) { const sm = subjectMounts(intent.subject, null); if (sm.length) ctx.camMounts = sm; }
         const alts = await findAlternatives(c, intent.subject, primaryType || "lens", ctx, 3);
+        ctx.camMounts = sc;
         for (const a of alts) await pushCard(a, "Closest we stock");
         if (alts.length) facts.push(`Closest we DO stock: ${alts.map(titlePrice).join("; ")}.`);
       }
@@ -476,7 +488,11 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
     case "alternative": {
       const subj = await resolveSubjectListing(c, intent.subject, { camMounts: ctx.camMounts, itemType: primaryType || undefined });
       const type = subj?.itemType || primaryType || "lens";
+      // an alternative must match the subject's mount when no camera is named (E-lens → E-lens)
+      const savedCam = ctx.camMounts;
+      if (!ctx.camMounts.length) { const sm = subjectMounts(intent.subject, subj); if (sm.length) ctx.camMounts = sm; }
       const alts = await findAlternatives(c, intent.subject, type, ctx, 4, subj ? String(subj._id) : undefined);
+      ctx.camMounts = savedCam;
       for (const a of alts) await pushCard(a, "Alternative we stock");
       if (subj) facts.push(`We also stock the original ${titlePrice(subj)} if you'd prefer it.`);
       if (alts.length) facts.push(`Alternatives we stock for "${intent.subject}": ${alts.map(titlePrice).join("; ")}.`);
