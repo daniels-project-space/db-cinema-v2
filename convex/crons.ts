@@ -6,6 +6,9 @@ const crons = cronJobs();
 // Release expired soft cart holds.
 crons.interval("release-holds", { minutes: 5 }, internal.bookings.releaseExpiredHolds, {});
 
+// Expire old login sessions (enforces session TTL — queries can't read the clock).
+crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSessions, {});
+
 // Pickup-tomorrow / return-today reminders (email + Telegram).
 crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {});
 

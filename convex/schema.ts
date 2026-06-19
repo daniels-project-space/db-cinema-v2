@@ -294,7 +294,9 @@ export default defineSchema({
   sessions: defineTable({
     token: v.string(),
     accountId: v.id("accounts"),
-  }).index("by_token", ["token"]),
+    createdAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()), // sessions past this are swept by cron (Convex queries can't read the clock)
+  }).index("by_token", ["token"]).index("by_expiry", ["expiresAt"]),
 
   messages: defineTable({
     accountId: v.id("accounts"),

@@ -26,6 +26,10 @@ const RULES: { want: string; pct: number; needs: string[]; reason: string }[] = 
 ];
 const MAX_OFFERS = 3;
 
+// Legit contextual-offer discount per itemType — the ONLY discounts checkout will honour
+// for an offer line, so a tampered cart can't forge an arbitrary % off (anti-tamper).
+export const OFFER_PCT_BY_TYPE: Record<string, number> = Object.fromEntries(RULES.map((r) => [r.want, r.pct]));
+
 async function pickByType(ctx: any, itemType: string, exclude: Set<string>) {
   const all = await ctx.db
     .query("listings")

@@ -1,7 +1,7 @@
 "use node";
 
 import Stripe from "stripe";
-import { action } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 import { depositFor } from "./lib/pricing";
@@ -56,6 +56,18 @@ export const start = action({
       throw new Error("We're not accepting new bookings right now — please check back soon.");
     if (!a.agreement || !a.agreement.name.trim())
       throw new Error("Please sign the rental agreement to continue.");
+
+    // SERVER-AUTHORITATIVE pricing (anti-tamper): never trust client total/deposit — recompute
+    // every line from the real listing (same quote() the storefront shows). A tampered cart
+    // (e.g. total:1, deposit:0) is corrected to the true price; legit carts are unchanged.
+    const repriced: any[] = await ctx.runQuery(internal.catalog.repriceLines, {
+      items: a.items.map((i) => ({ listingId: i.listingId, start: i.start, end: i.end, offerType: i.offerType })),
+    });
+    a.items = a.items.map((it, idx) => {
+      const r = repriced[idx];
+      if (!r) throw new Error(`"${it.title}" is no longer available.`);
+      return { ...it, total: r.total, deposit: r.deposit };
+    });
 
     // server-side availability re-check (quantity-aware, grouped by listing)
     const demand = new Map<string, { count: number; start: number; end: number; title: string }>();
@@ -315,6 +327,13 @@ export const startAddon = action({
     });
     if (!av || av.available < 1) throw new Error("That add-on isn't available for your dates.");
 
+    // anti-tamper: recompute the add-on price server-side, ignore the client total
+    const repriced: any[] = await ctx.runQuery(internal.catalog.repriceLines, {
+      items: [{ listingId: a.listingId, start: a.start, end: a.end }],
+    });
+    if (!repriced[0]) throw new Error("That add-on isn't available.");
+    a.total = repriced[0].total;
+
     const session = await stripe().checkout.sessions.create({
       mode: "payment",
       line_items: [
@@ -473,5 +492,51 @@ export const finalize = action({
       await ctx.runMutation(api.analytics.track, { type: "purchase" });
     }
     return { bookingId, paid };
+  },
+});
+
+/**
+ * STAGED Stripe webhook handler (called by convex/http.ts on POST /stripe-webhook).
+ * Confirms bookings server-side so a paid booking is never left unconfirmed if the
+ * customer closes the tab before the success page runs finalize().
+ * ACTIVATION (2 steps, both required):
+ *   1. In the Stripe dashboard, add a webhook endpoint → https://veracious-wombat-196.convex.site/stripe-webhook
+ *      for event `checkout.session.completed`; copy its signing secret.
+ *   2. `npx convex env set STRIPE_WEBHOOK_SECRET whsec_...`
+ * Until the secret is set this returns false (no-op) and the success-page finalize() still
+ * confirms bookings — so deploying this is safe and non-breaking.
+ */
+export const stripeWebhook = internalAction({
+  args: { body: v.string(), sig: v.string() },
+  handler: async (ctx, { body, sig }): Promise<boolean> => {
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!secret || !sig) return false; // not configured yet — finalize() covers confirmation
+    let event: Stripe.Event;
+    try {
+      event = stripe().webhooks.constructEvent(body, sig, secret);
+    } catch {
+      return false; // bad signature
+    }
+    if (event.type === "checkout.session.completed") {
+      const s = event.data.object as Stripe.Checkout.Session;
+      const m = s.metadata ?? {};
+      const pi = typeof s.payment_intent === "string" ? s.payment_intent : undefined;
+      if (s.payment_status === "paid") {
+        if (m.bookingId) {
+          await ctx.runMutation(internal.bookings.confirm, { bookingId: m.bookingId as any, paymentIntentId: pi });
+        } else if (m.addonBookingId) {
+          await ctx.runMutation(internal.bookings.attachAddon, {
+            bookingId: m.addonBookingId as any, listingId: m.addonListingId as any,
+            title: m.addonTitle ?? "Add-on", start: Number(m.addonStart), end: Number(m.addonEnd), total: Number(m.addonTotal),
+          });
+        } else if (m.membershipTier) {
+          await ctx.runMutation(internal.accounts._setMembership, {
+            email: m.accountEmail ?? "", tier: m.membershipTier,
+            subscriptionId: typeof s.subscription === "string" ? s.subscription : undefined,
+          });
+        }
+      }
+    }
+    return true;
   },
 });

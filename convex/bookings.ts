@@ -6,6 +6,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { peak, type Iv } from "./availability";
 
 function assertAdmin(token: string) {
   if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
@@ -92,23 +93,62 @@ export const placeHolds = internalMutation({
   handler: async (ctx, { bookingId, ttlMs }) => {
     const booking = await ctx.db.get(bookingId);
     if (!booking) return;
-    const expires = Date.now() + ttlMs;
+    const now = Date.now();
+    const expires = now + ttlMs;
+    const ACTIVE = new Set(["confirmed", "active", "hold"]);
+
+    // Gather this booking's demand per physical unit (BOM-aware) + the rows to insert.
+    const demandByUnit = new Map<string, { ivs: Iv[]; title: string }>();
+    const toInsert: { unitId: any; listingId: any; start: number; end: number; qty: number }[] = [];
     for (const li of booking.lineItems) {
       const listing = await ctx.db.get(li.listingId);
       if (!listing) continue;
       for (const comp of listing.components) {
-        await ctx.db.insert("reservations", {
-          inventoryUnitId: comp.inventoryUnitId,
-          listingId: li.listingId,
-          bookingId,
-          start: li.start,
-          end: li.end,
-          qty: comp.qty * li.qty,
-          source: "site",
-          status: "hold",
-          holdExpiresAt: expires,
-        });
+        const uid = String(comp.inventoryUnitId);
+        const qty = (comp.qty || 1) * (li.qty || 1);
+        const d = demandByUnit.get(uid) ?? { ivs: [], title: li.title };
+        d.ivs.push({ start: li.start, end: li.end, qty });
+        demandByUnit.set(uid, d);
+        toInsert.push({ unitId: comp.inventoryUnitId, listingId: li.listingId, start: li.start, end: li.end, qty });
       }
+    }
+
+    // ATOMIC, unit-aware re-check: existing ACTIVE (non-expired) reservations + this booking's
+    // demand must not exceed owned stock for ANY shared unit. This runs inside the serializable
+    // hold-insert mutation, so two concurrent checkouts for the last unit cannot both pass
+    // (closes the action-level TOCTOU), and it catches cross-listing shared-unit demand.
+    for (const [uid, d] of demandByUnit) {
+      const unit: any = await ctx.db.get(uid as any);
+      const owned = unit?.quantityOwned ?? 1;
+      const lo = Math.min(...d.ivs.map((i) => i.start));
+      const hi = Math.max(...d.ivs.map((i) => i.end));
+      const existing: Iv[] = (
+        await ctx.db.query("reservations").withIndex("by_unit", (q) => q.eq("inventoryUnitId", uid as any)).collect()
+      )
+        .filter(
+          (r: any) =>
+            ACTIVE.has(r.status) && r.start <= hi && r.end >= lo && r.bookingId !== bookingId &&
+            !(r.status === "hold" && (r.holdExpiresAt ?? 0) < now),
+        )
+        .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty || 1 }));
+      if (peak([...existing, ...d.ivs]) > owned) {
+        throw new Error(`"${d.title}" was just taken for those dates — please adjust your dates or remove it.`);
+      }
+    }
+
+    // All clear → place the soft holds.
+    for (const ins of toInsert) {
+      await ctx.db.insert("reservations", {
+        inventoryUnitId: ins.unitId,
+        listingId: ins.listingId,
+        bookingId,
+        start: ins.start,
+        end: ins.end,
+        qty: ins.qty,
+        source: "site",
+        status: "hold",
+        holdExpiresAt: expires,
+      });
     }
   },
 });

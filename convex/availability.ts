@@ -35,9 +35,9 @@ function blockedSet(raw: string[]): Set<string> {
   return set;
 }
 
-type Iv = { start: number; end: number; qty: number };
+export type Iv = { start: number; end: number; qty: number };
 /** Max concurrent qty across overlapping intervals (end inclusive). */
-function peak(intervals: Iv[]): number {
+export function peak(intervals: Iv[]): number {
   const ev: [number, number][] = [];
   for (const i of intervals) {
     ev.push([i.start, i.qty]);

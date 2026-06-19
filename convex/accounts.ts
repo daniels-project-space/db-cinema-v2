@@ -36,6 +36,8 @@ async function pbkdf2(password: string, saltHex: string) {
   return toHex(new Uint8Array(bits));
 }
 
+const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+
 // ── internal db helpers ──────────────────────────────────────────
 export const _byEmail = internalQuery({
   args: { email: v.string() },
@@ -62,7 +64,8 @@ export const _create = internalMutation({
       name: a.name,
       createdAt: Date.now(),
     });
-    await ctx.db.insert("sessions", { token: a.token, accountId });
+    const now = Date.now();
+    await ctx.db.insert("sessions", { token: a.token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
     return accountId;
   },
 });
@@ -70,7 +73,27 @@ export const _create = internalMutation({
 export const _session = internalMutation({
   args: { accountId: v.id("accounts"), token: v.string() },
   handler: async (ctx, { accountId, token }) => {
-    await ctx.db.insert("sessions", { token, accountId });
+    const now = Date.now();
+    await ctx.db.insert("sessions", { token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
+  },
+});
+
+/** Sweep expired sessions (Convex queries can't read the clock, so expiry is enforced by
+ * deleting expired rows here — once gone, resolve() naturally returns null). Hourly cron.
+ * Grandfathers legacy sessions that predate expiry tracking (expiresAt == null). */
+export const sweepExpiredSessions = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const rows = await ctx.db
+      .query("sessions")
+      .withIndex("by_expiry", (q) => q.lt("expiresAt", now))
+      .collect();
+    let n = 0;
+    for (const s of rows) {
+      if (s.expiresAt != null && s.expiresAt < now) { await ctx.db.delete(s._id); n++; }
+    }
+    return { swept: n };
   },
 });
 

@@ -1,5 +1,42 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { quote } from "./lib/pricing";
+import { OFFER_PCT_BY_TYPE } from "./offers";
+
+/**
+ * SERVER-AUTHORITATIVE line pricing for checkout (anti-tamper). Recomputes each line's
+ * total + deposit from the REAL listing using the same quote() the storefront shows, so
+ * a tampered cart (e.g. total:1) can't be billed. Offer lines only get a LEGIT contextual
+ * discount for their itemType. Returns null for a missing/inactive listing.
+ */
+export const repriceLines = internalQuery({
+  args: {
+    items: v.array(
+      v.object({
+        listingId: v.id("listings"),
+        start: v.number(),
+        end: v.number(),
+        offerType: v.optional(v.string()),
+      }),
+    ),
+  },
+  handler: async (ctx, { items }) => {
+    const out: ({ total: number; deposit: number } | null)[] = [];
+    for (const it of items) {
+      const l: any = await ctx.db.get(it.listingId);
+      if (!l || !l.active) { out.push(null); continue; }
+      const days = Math.max(1, Math.round((it.end - it.start) / 86400000) + 1);
+      const q: any = quote(l.pricing, days);
+      let total = q.total;
+      if (it.offerType) {
+        const pct = OFFER_PCT_BY_TYPE[l.itemType ?? ""] ?? 0; // only a real offer pct, never client-forged
+        if (pct > 0) total = Math.round(q.total * (1 - pct / 100));
+      }
+      out.push({ total, deposit: l.depositAmount ?? 0 });
+    }
+    return out;
+  },
+});
 
 /** Public catalog reads. heroImage/gallery prefer migrated R2 over source. */
 
