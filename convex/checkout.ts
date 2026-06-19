@@ -29,6 +29,7 @@ export const start = action({
         offerType: v.optional(v.string()),
       }),
     ),
+    token: v.optional(v.string()), // session token — required to apply MEMBER perks (anti-spoof)
     customer: v.object({
       email: v.string(),
       name: v.optional(v.string()),
@@ -97,10 +98,12 @@ export const start = action({
     const replacementSum = a.items.reduce((n, i) => n + i.deposit, 0);
     const depositAmount = depositFor(protection, replacementSum);
 
-    // look up the account (perks: saved ID verification + reminder-member 5%)
-    const acct: any = await ctx.runQuery(internal.accounts._byEmail, {
-      email: a.customer.email.trim().toLowerCase(),
-    });
+    // account perks (member discount, free accessories, saved ID/card, reminder 5%) require an
+    // AUTHENTICATED session token — never the typed email — so they can't be claimed by spoofing
+    // a member's address. Guest checkout (no token) gets no perks. (S6)
+    const acct: any = a.token
+      ? await ctx.runQuery(internal.accounts._byToken, { token: a.token })
+      : null;
     let idVerifyStatus = protection === "verify" ? "required" : "not_required";
     if (protection === "verify" && acct?.idVerified) idVerifyStatus = "verified";
 

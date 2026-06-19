@@ -132,6 +132,7 @@ export default function CheckoutPage() {
           deposit: i.deposit,
           offerType: i.offerType,
         })),
+        token: account.token ?? undefined, // authenticated member perks (discount, free accessories) require this
         customer: { email, name: name || undefined, phone: phone || undefined },
         fulfilment,
         address: fulfilment === "delivery" ? address : undefined,

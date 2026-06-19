@@ -48,6 +48,19 @@ export const _byEmail = internalQuery({
       .first(),
 });
 
+/** Resolve the AUTHENTICATED account from a session token (for checkout member perks —
+ * so a member discount can't be claimed by merely typing a member's email). */
+export const _byToken = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const s = await ctx.db
+      .query("sessions")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .first();
+    return s ? await ctx.db.get(s.accountId) : null;
+  },
+});
+
 export const _create = internalMutation({
   args: {
     email: v.string(),

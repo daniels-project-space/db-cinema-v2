@@ -39,6 +39,15 @@ export const send = mutation({
     if (!a) throw new Error("unauthorized");
     const t = text.trim();
     if (!t) return;
+    if (t.length > 2000) throw new Error("That message is too long — please shorten it.");
+    // rate limit: cap renter messages per account so a (leaked) token can't flood the owner's
+    // Telegram. ~6 messages / 30s is plenty for a human conversation.
+    const WINDOW_MS = 30_000, MAX_IN_WINDOW = 6;
+    const recent = (
+      await ctx.db.query("messages").withIndex("by_account", (q) => q.eq("accountId", a._id)).collect()
+    ).filter((m) => m.sender === "renter" && m.at > Date.now() - WINDOW_MS);
+    if (recent.length >= MAX_IN_WINDOW)
+      throw new Error("You're sending messages a little too fast — give us a moment to catch up.");
     await ctx.db.insert("messages", {
       accountId: a._id,
       sender: "renter",
