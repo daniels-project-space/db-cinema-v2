@@ -51,6 +51,20 @@ function deriveCategory(name: string): string {
 }
 
 const cleanTitle = (name: string) => name.replace(/\s+/g, " ").trim();
+// Title-derived specs as a clean object (drops nulls) — written on INSERT so new
+// inventory gets mount/tier/lensClass automatically (was migration-only; D1 fix).
+function cleanSpecs(title: string, itemType: string): any {
+  const sp: any = deriveSpecs(title, itemType as any);
+  const c: any = { includesLens: sp.includesLens };
+  if (sp.mount) c.mount = sp.mount;
+  if (sp.filterThreadMm) c.filterThreadMm = sp.filterThreadMm;
+  if (sp.batteryType) c.batteryType = sp.batteryType;
+  if (sp.lensFocal) c.lensFocal = sp.lensFocal;
+  if (sp.tier) c.tier = sp.tier;
+  if (sp.lensClass) c.lensClass = sp.lensClass;
+  if (sp.hasAutofocus !== null && sp.hasAutofocus !== undefined) c.hasAutofocus = sp.hasAutofocus;
+  return c;
+}
 // leading "2x" / "2×" / "3 x" => bundle consumes that many physical units
 function parseQty(title: string): number {
   const m = title.match(/^\s*(\d+)\s*[x×]/i);
@@ -118,6 +132,7 @@ export const syncFromRmv2 = action({
         title,
         category: deriveCategory(title),
         itemType,
+        specs: cleanSpecs(title, itemType),
         componentQty: parseQty(title),
         sizeScore: spec.sizeScore,
         weightKg: spec.weightKg,
@@ -152,6 +167,7 @@ export const applyCatalog = internalMutation({
         title: v.string(),
         category: v.string(),
         itemType: v.string(),
+        specs: v.optional(v.any()),
         componentQty: v.number(),
         sizeScore: v.number(),
         weightKg: v.number(),
@@ -256,10 +272,11 @@ export const applyCatalog = internalMutation({
       };
 
       if (existing) {
-        // never overwrite r2Images here — the migration owns that field
+        // never overwrite r2Images OR specs here — the migration/manual fixes own specs
+        // (the 12 MANUAL mounts must survive every sync); only NEW listings get derived specs.
         await ctx.db.patch(existing._id, synced);
       } else {
-        await ctx.db.insert("listings", synced);
+        await ctx.db.insert("listings", { ...synced, specs: it.specs ?? {} });
         listingCount++;
       }
     }

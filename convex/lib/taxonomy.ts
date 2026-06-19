@@ -30,7 +30,16 @@ export type ItemType =
 // service listings, transmitters, flashes) BEFORE the greedy camera rule,
 // without stealing genuine camera PACKAGES (which always name a body model).
 const CAMERA_MODEL =
-  /\b(bmpcc|fx3|fx ?3|fx6|fx ?6|fx30|fx ?30|fx9|fx ?9|a7|a7s|a7r|a7c|a7iii|a73|a7iv|a7v|a6\d00|a1\b|a9\b|venice|burano|alexa|amira|\bred\b|gemini|ursa|c70|c-?70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|pocket cinema|z ?cam|zv-?e|x-?t\d|x100|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b|gopro|go ?pro|osmo|insta ?360|hero ?\d)\b/i;
+  /\b(bmpcc|fx3|fx ?3|fx6|fx ?6|fx30|fx ?30|fx9|fx ?9|a7|a7s|a7s ?iii|a7r|a7c|a7iii|a73|a7iv|a7v|a6\d00|a1\b|a9\b|venice|burano|alexa|amira|\bred\b|gemini|ursa|c70|c-?70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|pocket cinema|z ?cam|zv-?e|x-?t\d|x100|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b|gopro|go ?pro|osmo|insta ?360|hero ?\d)\b/i;
+
+// For the camera-model GUARD only: strip SEO "(like …)" comparisons and "for <compat list>"
+// clauses, so a TRIPOD/accessory that merely lists "for … Sony FX3, Canon C70" isn't read
+// as a camera. Not used for the main rules — only to decide if a body model is genuinely the hero.
+function modelGuardName(name: string): string {
+  return String(name || "")
+    .replace(/\((?:like|such as|similar to|comparable to)[^)]*\)/gi, " ")
+    .replace(/\bfor\b[^|()]*/gi, " ");
+}
 
 // Accessory / grip / service heroes that the GREEDY `\bcamera\b` rule wrongly
 // swallows into camera-body. These ONLY apply as a correction when the normal
@@ -56,12 +65,18 @@ const STRONG_ACCESSORY: [ItemType, RegExp][] = [
   ["tripod", /\b(support vest|easy ?rig|flowline)\b/i],
 ];
 
+// A battery/charger whose HERO noun is the battery (e.g. "Gimbal Battery DJI Ronin",
+// "V-mount charger") — the "gimbal"/"camera" here is the COMPATIBILITY target, not the
+// product, so it must beat the greedy gimbal/light rules. Anchored at the title start so
+// genuine gimbal/light PACKAGES that merely include a battery ("DJI RS4 + battery") are untouched.
+const BATTERY_HERO = /^(?:\d+\s*[x×]\s*)?(?:spare |extra |gimbal |camera |v-?mount |v-?lock |dji |sony |canon |godox |np-?f\d* )*(?:batter(?:y|ies)|charger)\b/i;
+
 // Ordered, first match wins. Drone is matched FIRST so a "Mavic + ND filters"
 // bundle classifies as a drone (not an ND filter). Camera bodies next so camera
 // kits that also mention an accessory classify as the camera (the hero).
 const RULES: [ItemType, RegExp][] = [
   ["drone", /\b(drone|mavic|\bfpv\b|avata|air ?[23]|mini ?[34]|inspire|neo)\b/i],
-  ["camera-body", /\b(camera|bmpcc|fx3|fx6|fx30|fx9|a7|a7s|a7r|a7c|a7iii|a73|a7iv|a6\d00|a1\b|a9\b|burano|venice|alexa|\bred\b|ursa|c70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|s5|pocket cinema|z ?cam|zv-?e|lumix|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b)\b/i],
+  ["camera-body", /\b(camera|bmpcc|fx3|fx6|fx30|fx9|a7|a7s|a7s ?iii|a7r|a7c|a7iii|a73|a7iv|a6\d00|a1\b|a9\b|burano|venice|alexa|\bred\b|ursa|c70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|s5|pocket cinema|z ?cam|zv-?e|lumix|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b)\b/i],
   ["lens", /\b(lens|lenses|\d{2}-\d{2,3}mm|\d{2,3}-\d{2,3}|50mm|35mm|85mm|24mm|28mm|14mm|16mm|135mm|gm\b|g ?master|ultra ?wide|wide ?angle|telephoto|sigma|samyang|tamron|rokinon|\bfe\b|prime|zoom lens|cine lens|anamorphic|blazar|dzo|laowa|cooke|f1\.[248]|f2\.8|t1\.5|t2\.\d)\b/i],
   // matte boxes + atmosphere machines are accessories, not ND/monitor/light
   ["accessory", /\b(matte ?box|mattebox|french flag|follow ?focus|cage rig|haze|hazer|smoke machine|fog machine)\b/i],
@@ -89,6 +104,9 @@ export function deriveItemType(name: string): ItemType {
   // "for Sony FX3" is not a camera).
   for (const [t, re] of STRONG_ACCESSORY) if (re.test(name)) return t;
 
+  // Battery/charger hero beats the greedy gimbal/light rules ("Gimbal Battery …").
+  if (BATTERY_HERO.test(name.trim()) && !CAMERA_MODEL.test(name)) return "battery";
+
   // Normal classification. RULES are first-match-wins; the camera-body rule is
   // greedy on the bare word "camera".
   let fallthrough: ItemType = "accessory";
@@ -104,7 +122,9 @@ export function deriveItemType(name: string): ItemType {
   // is named. This protects genuine packages ("BMPCC 6k + tripod + follow
   // focus" has a model → stays camera-body) AND leaves correctly-typed
   // audio/light/battery kits alone (they never fall through to camera-body).
-  if (fallthrough === "camera-body" && !CAMERA_MODEL.test(name)) {
+  // Also rescue a LENS fallthrough (e.g. a follow-focus whose blurb says "Lens Control"),
+  // and use the model-guard name so a tripod "for … Sony FX3" isn't read as a camera.
+  if ((fallthrough === "camera-body" || fallthrough === "lens") && !CAMERA_MODEL.test(modelGuardName(name))) {
     for (const [t, re] of ACCESSORY_FIRST) if (re.test(name)) return t;
   }
   return fallthrough;

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
+import { bestCompat, parseMounts } from "@/lib/mount";
 
 export const maxDuration = 60;
 const msOf = (d: string) => { const t = Date.parse(/T/.test(d) ? d : d + "T00:00:00Z"); return Number.isNaN(t) ? 0 : t; };
@@ -37,19 +38,23 @@ export async function POST(req: NextRequest) {
     if (cam.specs.includesLens && lenses.length)
       warnings.push({ level: "info", text: `Your ${cam.title.slice(0, 34)} already includes a ${cam.specs.lensFocal || "kit"}mm lens — the ${lenses[0].title.slice(0, 28)} would be a second lens.` });
 
-  // 2) lens mount vs camera
+  // 2) lens mount vs camera — single source of truth: src/lib/mount.ts bestCompat.
+  // (Previously a divergent hand-rolled table flagged native compound-mount cine glass
+  // as "doesn't fit"; now it agrees with the bot/assemble engine.)
   const camMounts = cameras.map((c) => c.specs.mount).filter(Boolean);
+  const camM = [...new Set(camMounts.flatMap((m: string) => parseMounts(m)))];
   const actionOnly = cameras.length > 0 && cameras.every((c) => c.specs.mount === "fixed");
   if (actionOnly && lenses.length)
     warnings.push({ level: "error", text: `Your action camera has a fixed lens — separate lenses won't attach.` });
   for (const l of lenses) {
     const lm = l.specs.mount;
-    if (!lm || camMounts.length === 0 || actionOnly) continue;
-    if (camMounts.includes(lm)) continue;
-    if (lm === "EF" && camMounts.some((m) => m === "E" || m === "RF"))
-      warnings.push({ level: "warn", text: `${l.title.slice(0, 30)} is EF mount — needs an EF→${camMounts[0]} adapter for your camera.` });
+    if (!lm || camM.length === 0 || actionOnly) continue;
+    const verdict = bestCompat(parseMounts(lm), camM);
+    if (verdict === "native") continue;
+    if (verdict === "adapter")
+      warnings.push({ level: "warn", text: `${l.title.slice(0, 30)} is ${lm} mount — needs a ${lm}→${camM[0]} adapter for your ${camM[0]}-mount camera.` });
     else
-      warnings.push({ level: "error", text: `${l.title.slice(0, 30)} (${lm} mount) doesn't fit your ${camMounts[0]}-mount camera.` });
+      warnings.push({ level: "error", text: `${l.title.slice(0, 30)} (${lm} mount) doesn't fit your ${camM[0]}-mount camera.` });
   }
 
   // 3) ND thread vs lens / kit-lens thread
@@ -77,7 +82,7 @@ export async function POST(req: NextRequest) {
     const allLenses: any[] = await c.query(api.catalog.byItemType, { types: ["lens"] });
     const candidates = allLenses
       .filter((l) => l.specs?.tier === "premium" && !ids.includes(l._id))
-      .filter((l) => camMounts.length === 0 || !l.specs?.mount || camMounts.includes(l.specs.mount) || (l.specs.mount === "EF"));
+      .filter((l) => camM.length === 0 || !l.specs?.mount || bestCompat(parseMounts(l.specs.mount), camM) !== "incompatible");
     // prefer a GM zoom matching the kit focal
     const kitFocal = replaced?.specs?.lensFocal || cameras.find((c) => c.specs.includesLens)?.specs?.lensFocal;
     candidates.sort((a, z) => {

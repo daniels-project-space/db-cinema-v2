@@ -257,6 +257,7 @@ async function findAlternatives(
   ctx: Ctx,
   n: number,
   excludeId?: string,
+  mountHint: string[] = [],
 ): Promise<any[]> {
   const term = TERM[itemType] || itemType || "lens";
   const r: any[] = await c.query(api.catalog.listListings, { search: term });
@@ -285,6 +286,13 @@ async function findAlternatives(
   let pool = scored.filter((s) => s.score >= 0);
   if (!pool.length) pool = scored;
   pool.sort(rankCmp(ctx.pricePref));
+  // DETERMINISTIC mount homogenisation: with no camera known, a lens request must not
+  // mix mounts (an E-lens alternative can't be an RF lens). Use the explicit hint (the
+  // subject's mount); else infer from the top spec-match. Independent of LLM variance.
+  if ((itemType === "lens" || itemType === "lenses") && !cam.length && pool.length) {
+    const target = (mountHint[0] || parseMounts(pool[0].x.specs?.mount)[0] || "").toUpperCase();
+    if (target) pool = pool.filter((s) => { const ms = parseMounts(s.x.specs?.mount) as string[]; return !ms.length || ms.includes(target); });
+  }
   return pool.slice(0, n).map((s) => s.x);
 }
 
@@ -469,17 +477,13 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
           : card?.item?.available ? `Available ${start} to ${end}.` : `Not free ${start} to ${end} — I can suggest a close alternative.`;
         facts.push(`IN STOCK: we DO carry ${titlePrice(lst)}. ${availTxt}`);
         if (!estimated && card && !card.item.available) {
-          const sc = ctx.camMounts; if (!ctx.camMounts.length) { const sm = subjectMounts(intent.subject, lst); if (sm.length) ctx.camMounts = sm; }
-          const alts = await findAlternatives(c, intent.subject, lst.itemType || primaryType || "lens", ctx, 2, String(lst._id));
-          ctx.camMounts = sc;
+          const alts = await findAlternatives(c, intent.subject, lst.itemType || primaryType || "lens", ctx, 2, String(lst._id), subjectMounts(intent.subject, lst));
           for (const a of alts) await pushCard(a, "Available alternative");
           if (alts.length) facts.push(`Free for those dates instead: ${alts.map(titlePrice).join("; ")}.`);
         }
       } else {
         facts.push(`NOT STOCKED: we do not carry "${intent.subject}".`);
-        const sc = ctx.camMounts; if (!ctx.camMounts.length) { const sm = subjectMounts(intent.subject, null); if (sm.length) ctx.camMounts = sm; }
-        const alts = await findAlternatives(c, intent.subject, primaryType || "lens", ctx, 3);
-        ctx.camMounts = sc;
+        const alts = await findAlternatives(c, intent.subject, primaryType || "lens", ctx, 3, undefined, subjectMounts(intent.subject, null));
         for (const a of alts) await pushCard(a, "Closest we stock");
         if (alts.length) facts.push(`Closest we DO stock: ${alts.map(titlePrice).join("; ")}.`);
       }
@@ -488,11 +492,9 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
     case "alternative": {
       const subj = await resolveSubjectListing(c, intent.subject, { camMounts: ctx.camMounts, itemType: primaryType || undefined });
       const type = subj?.itemType || primaryType || "lens";
-      // an alternative must match the subject's mount when no camera is named (E-lens → E-lens)
-      const savedCam = ctx.camMounts;
-      if (!ctx.camMounts.length) { const sm = subjectMounts(intent.subject, subj); if (sm.length) ctx.camMounts = sm; }
-      const alts = await findAlternatives(c, intent.subject, type, ctx, 4, subj ? String(subj._id) : undefined);
-      ctx.camMounts = savedCam;
+      // an alternative must share the subject's mount when no camera is named (E-lens → E-lens).
+      // findAlternatives homogenises by mountHint (or infers from the top match) deterministically.
+      const alts = await findAlternatives(c, intent.subject, type, ctx, 4, subj ? String(subj._id) : undefined, subjectMounts(intent.subject, subj));
       for (const a of alts) await pushCard(a, "Alternative we stock");
       if (subj) facts.push(`We also stock the original ${titlePrice(subj)} if you'd prefer it.`);
       if (alts.length) facts.push(`Alternatives we stock for "${intent.subject}": ${alts.map(titlePrice).join("; ")}.`);

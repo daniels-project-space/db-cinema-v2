@@ -9,7 +9,13 @@ export const track = mutation({
     sessionId: v.optional(v.string()),
   },
   handler: async (ctx, { type, path, sessionId }) => {
-    await ctx.db.insert("events", { type, path, sessionId, at: Date.now() });
+    // lightweight hardening on this open endpoint: bound the payload so it can't be used
+    // to inject huge/arbitrary rows that pollute analytics. Legit event names are short
+    // slugs. (Full per-session/IP rate-limiting is a separate task.)
+    if (typeof type !== "string" || type.length === 0 || type.length > 40 || !/^[a-z0-9_.:-]+$/i.test(type)) return;
+    const p = typeof path === "string" ? path.slice(0, 200) : undefined;
+    const s = typeof sessionId === "string" ? sessionId.slice(0, 80) : undefined;
+    await ctx.db.insert("events", { type, path: p, sessionId: s, at: Date.now() });
   },
 });
 
