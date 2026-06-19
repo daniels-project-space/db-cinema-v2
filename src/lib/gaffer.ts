@@ -97,7 +97,8 @@ function nonLensQuality(l: any, slot: string): number {
   if (/\b(kit|set|bundle|package)\b/.test(t)) s += 2;
   if (/fx3|fx6|fx9|a7s|a7 ?iii|a7iv|a7r|burano|venice|komodo|raptor|alexa|amira|ursa|c70|c300|c500|ronin|fs7|fs5/.test(t)) s += 3;
   if (slot === "camera" || slot === "camera-body") {
-    if (/osmo|action cam|gopro|\bpocket\b|insta ?360|webcam|action [45]/.test(t)) s -= 6;
+    if (/osmo|action ?cam|go ?pro|hero ?\d|\bpocket\b|insta ?360|webcam|360 ?degree|\baction\b/.test(t)) s -= 6;
+    if (/\btripod\b|\bmonitor\b|teleprompter|cfexpress|card reader|\badapter\b|\bflash\b|\bcharger\b/.test(t)) s -= 9; // mis-typed non-camera that slipped into camera-body
   }
   s += Math.min(3, Math.floor((l.pricing?.daily ?? 0) / 50));
   return s;
@@ -105,6 +106,15 @@ function nonLensQuality(l: any, slot: string): number {
 /** Focal/aperture tokens for lens-similarity ranking ("24-70mm f2.8" → 24,70,28). */
 function specTokens(s: string): string[] {
   return (String(s || "").toLowerCase().match(/\d{1,3}(?:mm)?|f?\d\.\d|t\d\.\d/g) || []).map((x) => x.replace(/mm$/, ""));
+}
+/** Comparator for ranking candidates. "cheaper" sorts by day-rate ascending first (then
+ * quality); otherwise by quality first (then cheaper as a tiebreak). */
+function rankCmp(pref: "cheaper" | "premium" | "any") {
+  const price = (o: any) => o.x.pricing?.daily ?? 0;
+  return (a: any, b: any) =>
+    pref === "cheaper"
+      ? (price(a) || 1e9) - (price(b) || 1e9) || b.score - a.score
+      : b.score - a.score || price(a) - price(b);
 }
 
 const TERM: Record<string, string> = {
@@ -140,6 +150,19 @@ function safeDates(start: string | undefined, end: string | undefined, today: st
   if (s && e) return { start: s, end: e, estimated: false };
   // no usable dates → a clearly-future placeholder, flagged estimated (never the past)
   return { start: iso(todayMs + 3 * DAY), end: iso(todayMs + 5 * DAY), estimated: true };
+}
+/** Deterministic backstop for relative dates the LLM sometimes leaves unresolved. */
+function resolveRelativeDates(text: string, today: string): { start?: string; end?: string } {
+  const t = String(text || "").toLowerCase();
+  const base = dayMs(today);
+  const dow = new Date(base).getUTCDay(); // 0 Sun .. 6 Sat
+  const d = (n: number) => iso(base + n * DAY);
+  if (/\bnext weekend\b/.test(t)) { const s = ((6 - dow + 7) % 7) + 7; return { start: d(s), end: d(s + 1) }; }
+  if (/\bthis weekend\b|\bweekend\b/.test(t)) { const s = (6 - dow + 7) % 7; return { start: d(s), end: d(s + 1) }; }
+  if (/\bnext week\b/.test(t)) { const s = ((1 - dow + 7) % 7) || 7; return { start: d(s), end: d(s + 4) }; }
+  if (/\btomorrow\b/.test(t)) return { start: d(1), end: d(1) };
+  if (/\b(today|tonight)\b/.test(t)) return { start: d(0), end: d(0) };
+  return {};
 }
 
 // ── card builder ────────────────────────────────────────────────────────────────
@@ -232,7 +255,7 @@ async function findAlternatives(
   const wantSpecs = specTokens(subjectText);
   const cam = ctx.camMounts;
   const scored = (r || [])
-    .filter((x) => itemTypeMatches(itemType, x.itemType) && String(x._id) !== excludeId)
+    .filter((x) => itemTypeMatches(itemType, x.itemType) && String(x._id) !== excludeId && !ctx.cartIds.includes(String(x._id)))
     .map((x) => {
       let score = 0;
       if (itemType === "lens" || itemType === "lenses") {
@@ -241,6 +264,7 @@ async function findAlternatives(
         score += ls;
       } else {
         score += nonLensQuality(x, itemType);
+        if ((itemType === "camera" || itemType === "camera-body") && cam.length && parseMounts(x.specs?.mount).some((m) => cam.includes(m))) score += 6; // match desired body mount
       }
       const xs = specTokens(x.title);
       score += wantSpecs.filter((t) => xs.includes(t)).length * 4; // focal/aperture overlap
@@ -248,8 +272,12 @@ async function findAlternatives(
       return { x, score };
     })
     .filter(Boolean) as { x: any; score: number }[];
-  scored.sort((a, b) => b.score - a.score || (a.x.pricing?.daily ?? 0) - (b.x.pricing?.daily ?? 0));
-  return scored.slice(0, n).map((s) => s.x);
+  // drop actively-poor fits (action cams / mis-typed items) so "cheaper" can't surface them;
+  // fall back to the full set only if the floor leaves nothing.
+  let pool = scored.filter((s) => s.score >= 0);
+  if (!pool.length) pool = scored;
+  pool.sort(rankCmp(ctx.pricePref));
+  return pool.slice(0, n).map((s) => s.x);
 }
 
 /** Best in-stock pick for a single slot (recommend / kit-fill), favourites-boosted. */
@@ -258,19 +286,24 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
   const r: any[] = await c.query(api.catalog.listListings, { search: term });
   const cam = ctx.camMounts;
   const cands = (r || [])
-    .filter((x) => !seen.has(String(x._id)) && itemTypeMatches(itemType, x.itemType))
+    .filter((x) => !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && itemTypeMatches(itemType, x.itemType))
     .map((x) => {
       let score: number;
       if (itemType === "lens" || itemType === "lenses") {
         score = lensScore({ mount: x.specs?.mount, tier: x.specs?.tier, lensClass: x.specs?.lensClass }, cam);
         if (score === -Infinity) return null;
-      } else score = nonLensQuality(x, itemType);
+      } else {
+        score = nonLensQuality(x, itemType);
+        if ((itemType === "camera" || itemType === "camera-body") && cam.length && parseMounts(x.specs?.mount).some((m) => cam.includes(m))) score += 6; // match desired body mount
+      }
       if (ctx.favorites.includes(String(x._id))) score += 8;
       return { x, score };
     })
     .filter(Boolean) as { x: any; score: number }[];
-  cands.sort((a, b) => b.score - a.score || (a.x.pricing?.daily ?? 0) - (b.x.pricing?.daily ?? 0));
-  return cands.length ? cands[0].x : null;
+  let pool = cands.filter((s) => s.score >= 0);
+  if (!pool.length) pool = cands;
+  pool.sort(rankCmp(ctx.pricePref));
+  return pool.length ? pool[0].x : null;
 }
 
 // ── context ──────────────────────────────────────────────────────────────────────
@@ -283,9 +316,13 @@ type Ctx = {
   activeBooking: any;
   camMounts: string[];
   customerName: string;
+  email: string | null;
   pastTitles: string[];
+  cartTitles: string[];
+  cartIds: string[];
   today: string;
   estimated: boolean;
+  pricePref: "cheaper" | "premium" | "any";
 };
 
 /** Camera mounts named anywhere in the conversation (e.g. "FX3" ⇒ E). */
@@ -313,7 +350,8 @@ async function loadContext(body: any): Promise<Ctx> {
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
   const ctx: Ctx = {
     c, memberPct: 0, memberName: null, favorites: [], favTitles: [], activeBooking: null,
-    camMounts: [], customerName: "there", pastTitles: [], today, estimated: false,
+    camMounts: [], customerName: "there", email: null, pastTitles: [], cartTitles: [], cartIds: [],
+    today, estimated: false, pricePref: "any",
   };
   const camSet = new Set<string>();
   // account: name, membership, favourites, bookings
@@ -321,6 +359,7 @@ async function loadContext(body: any): Promise<Ctx> {
     try {
       const me: any = await c.query(api.accounts.me, { token: body.token });
       if (me) {
+        ctx.email = me.email ?? null;
         ctx.customerName = me.name || (me.email ? me.email.split("@")[0] : "there");
         const tier = me.membershipActive ? tierByKey(me.membershipTier) : null;
         ctx.memberPct = tier?.pct ?? 0;
@@ -342,12 +381,14 @@ async function loadContext(body: any): Promise<Ctx> {
       }
     } catch {}
   }
-  // cart camera mounts
+  // cart: contents (so Gaffer knows what's already in their kit) + camera mounts
   if (Array.isArray(body?.cart) && body.cart.length) {
     try {
       const ids = body.cart.map((x: any) => x.listingId).filter(Boolean);
       if (ids.length) {
         const cds: any[] = await c.query(api.catalog.listingsByIds, { ids });
+        ctx.cartIds = cds.map((cd) => String(cd._id));
+        ctx.cartTitles = cds.map((cd) => cd.title);
         for (const cd of cds) if (cd.itemType === "camera-body") for (const m of parseMounts(cd.specs?.mount)) camSet.add(m);
       }
     } catch {}
@@ -358,11 +399,12 @@ async function loadContext(body: any): Promise<Ctx> {
 
 // ── stage 1: understand ───────────────────────────────────────────────────────────
 const IntentSchema = z.object({
-  intent: z.enum(["availability", "alternative", "recommend", "build_kit", "spec", "price", "other"])
-    .describe("availability=do you have X; alternative=suggest a substitute for X; recommend=suggest gear of a type; build_kit=assemble a full kit; spec=specs/limits of X; price=cost of X; other=greeting/policy/chitchat"),
-  subject: z.string().describe("the SPECIFIC item the customer named, as close to verbatim as possible, or empty string"),
+  intent: z.enum(["availability", "alternative", "recommend", "build_kit", "spec", "price", "compatibility", "support", "other"])
+    .describe("availability=do you have X; alternative=suggest a substitute for X; recommend=suggest gear of a type; build_kit=assemble a full kit; spec=specs/limits of X; price=cost of X; compatibility=will/can X work with/fit/mount on Y; support=complaint/damage/refund/cancellation/dispute; other=greeting/policy/chitchat"),
+  subject: z.string().describe("the SPECIFIC item the customer named (the LENS/gear for a compatibility question), verbatim-ish, or empty string"),
   itemTypes: z.array(z.string()).describe("gear types from [camera,lens,light,gimbal,mic,monitor,tripod,nd-filter,battery,drone,speaker]"),
-  cameraModel: z.string().describe("camera model OR mount the customer is shooting on (e.g. 'FX3', 'Sony E mount'), or empty"),
+  cameraModel: z.string().describe("the camera model OR mount in play (e.g. 'FX3', 'Sony E mount') — for a compatibility question this is the BODY they want to fit the subject onto; else empty"),
+  pricePref: z.enum(["cheaper", "premium", "any"]).describe("cheaper=they want budget/cheaper/affordable; premium=best/top-end; any=no preference"),
   start: z.string().optional().describe("rental start YYYY-MM-DD if stated/derivable, else omit"),
   end: z.string().optional().describe("rental end YYYY-MM-DD if stated/derivable, else omit"),
 });
@@ -374,9 +416,10 @@ async function understand(model: any, history: any[], today: string): Promise<z.
     schema: IntentSchema,
     prompt:
       `You parse a camera-rental chat into a structured intent for a downstream engine. ` +
-      `Today is ${today} (Europe/London); resolve relative dates against it and NEVER output a past date. ` +
+      `Today is ${today} (Europe/London). RESOLVE relative dates to concrete YYYY-MM-DD and NEVER output a past date: ` +
+      `"today"=today; "tomorrow"=+1; "this weekend"=the coming Saturday→Sunday; "next week"=the coming Mon→Fri; "for N days from <date>" → start..start+N-1. If only a single day is given, set start=end. ` +
       `Focus on the customer's LATEST message, using earlier turns only for context (e.g. a camera named earlier). ` +
-      `"subject" = the exact gear they referenced (copy their words). For "alternative to X" or "do you have X", subject is X.\n\nCONVERSATION:\n${convo}\n\nReturn the intent.`,
+      `"subject" = the exact gear they referenced (copy their words). For "alternative to X"/"do you have X"/"can I use X on Y", subject is X.\n\nCONVERSATION:\n${convo}\n\nReturn the intent.`,
   });
   return object;
 }
@@ -393,11 +436,13 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
   }
   ctx.camMounts = [...camSet];
 
+  ctx.pricePref = (intent.pricePref as any) || "any";
   const { start, end, estimated } = safeDates(intent.start, intent.end, ctx.today);
   ctx.estimated = estimated;
   const facts: string[] = [];
   const cards: any[] = [];
   const primaryType = intent.itemTypes?.[0] || "";
+  if (ctx.cartTitles.length) facts.push(`Already in the customer's cart (don't re-recommend these): ${ctx.cartTitles.join("; ")}.`);
 
   const pushCard = async (l: any, reason: string, checkAvail = true) => {
     if (cards.some((cd) => cd.item?.listingId === l._id)) return;
@@ -468,7 +513,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
     }
     case "recommend": {
       const types = intent.itemTypes?.length ? intent.itemTypes : ["lens"];
-      const seen = new Set<string>();
+      const seen = new Set<string>(ctx.cartIds);
       for (const t of types) {
         const best = await bestForType(c, t, ctx, seen);
         if (best) { seen.add(String(best._id)); await pushCard(best, `Recommended ${t}`); }
@@ -489,7 +534,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
     }
     case "build_kit": {
       const types = intent.itemTypes?.length ? intent.itemTypes : ["camera", "lens", "light", "mic"];
-      const seen = new Set<string>();
+      const seen = new Set<string>(ctx.cartIds);
       for (const t of types) {
         if (cards.length >= 6) break;
         const best = await bestForType(c, t, ctx, seen);
@@ -497,6 +542,39 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
       }
       const names = cards.map((cd) => titlePrice(cd.item)).join("; ");
       facts.push(names ? `KIT (in stock): ${names}.` : `Could not assemble a kit from stock.`);
+      break;
+    }
+    case "compatibility": {
+      // subject = the lens/gear; ctx.camMounts = the body to fit it on
+      const subj = await resolveSubjectListing(c, intent.subject, { camMounts: ctx.camMounts, itemType: "lens" });
+      const cam = ctx.camMounts;
+      if (subj && subj.itemType === "lens") {
+        const verdict = cam.length ? bestCompat(parseMounts(subj.specs?.mount), cam) : "unknown";
+        if (verdict === "incompatible") {
+          facts.push(`COMPATIBILITY: ${titlePrice(subj)} is ${subj.specs?.mount} mount and will NOT fit a ${cam.join("/")}-mount body, even with an adapter.`);
+          const alts = await findAlternatives(c, intent.subject, "lens", ctx, 3, String(subj._id));
+          for (const a of alts) await pushCard(a, "Compatible alternative");
+          if (alts.length) facts.push(`Compatible instead: ${alts.map(titlePrice).join("; ")}.`);
+        } else if (verdict === "adapter") {
+          await pushCard(subj, "Fits via adapter");
+          const adapter = await resolveSubjectListing(c, `${subj.specs?.mount} to ${cam[0]} adapter`, {});
+          if (adapter) await pushCard(adapter, "The adapter you'd need");
+          facts.push(`COMPATIBILITY: ${titlePrice(subj)} (${subj.specs?.mount}) fits a ${cam.join("/")}-mount body VIA AN ADAPTER${adapter ? ` — we stock the ${adapter.title} (£${adapter.pricing?.daily}/day)` : ` (a ${subj.specs?.mount}→${cam[0]} adapter is required)`}; autofocus/electronics may be limited.`);
+        } else {
+          await pushCard(subj, "Compatible with your camera");
+          facts.push(`COMPATIBILITY: ${titlePrice(subj)} ${cam.length ? `is NATIVE ${cam.join("/")} mount — fits directly, no adapter needed` : "is in stock"}.`);
+        }
+      } else {
+        facts.push(`NOT STOCKED: we don't carry "${intent.subject}".`);
+        if (cam.length) facts.push(`Mount rule for a ${cam.join("/")}-mount body: native ${cam[0]} glass fits directly; EF/PL glass needs an adapter; RF/MFT won't fit. Answer the can-it-be-used question with this rule.`);
+        const alts = await findAlternatives(c, intent.subject, "lens", ctx, 3);
+        for (const a of alts) await pushCard(a, "Compatible option we stock");
+        if (alts.length) facts.push(`Compatible options we stock: ${alts.map(titlePrice).join("; ")}.`);
+      }
+      break;
+    }
+    case "support": {
+      facts.push(`SUPPORT / OUT-OF-SCOPE (damage, refund, cancellation, complaint or dispute): do NOT try to resolve it, admit fault, or promise a refund. Be warm and apologetic, and tell them our team handles these directly — they can reach the team via the Contact page (dbcinemarentals.com/contact).`);
       break;
     }
     default: {
@@ -524,7 +602,7 @@ const NarrateSchema = z.object({
 
 async function narrate(model: any, history: any[], result: ExecResult, ctx: Ctx): Promise<{ reply: string; suggestions: string[] }> {
   const cardLines = result.cards.map((cd) => `- ${cd.item.title} — £${cd.item.perDay}/day${cd.item.favorite ? " (their saved favourite)" : ""}${cd.item.available === false ? " (NOT free for the requested dates)" : ""}`).join("\n") || "(no cards)";
-  const who = `Customer: ${ctx.customerName}.${ctx.memberName ? ` ${ctx.memberName} member — apply their ${ctx.memberPct}% discount and mention the saving.` : ""}${ctx.favTitles.length ? ` Saved favourites: ${ctx.favTitles.join(", ")}.` : ""}${ctx.pastTitles.length ? ` Previously rented: ${ctx.pastTitles.join(", ")}.` : ""}`;
+  const who = `Customer: ${ctx.customerName}.${ctx.memberName ? ` ${ctx.memberName} member — apply their ${ctx.memberPct}% discount and mention the saving.` : ""}${ctx.favTitles.length ? ` Saved favourites: ${ctx.favTitles.join(", ")}.` : ""}${ctx.cartTitles.length ? ` Currently in their cart: ${ctx.cartTitles.join(", ")}.` : ""}${ctx.pastTitles.length ? ` Previously rented: ${ctx.pastTitles.join(", ")}.` : ""}`;
   const convo = history.slice(-6).map((m: any) => `${m.role === "user" ? "CUSTOMER" : "GAFFER"}: ${String(m.content || "")}`).join("\n");
   const { object } = await generateObject({
     model,
@@ -567,6 +645,13 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
   try { for (const m of await camMountsFromText(ctx.c, allUserText)) if (!ctx.camMounts.includes(m)) ctx.camMounts.push(m); } catch {}
 
   const intent = await understand(model, history, ctx.today);
+  // deterministic relative-date backstop: if the LLM left dates unresolved, derive them
+  // from the latest user message ("this weekend", "tomorrow", "next week").
+  if (!intent.start || !intent.end) {
+    const lastUser = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
+    const rel = resolveRelativeDates(String(lastUser), ctx.today);
+    if (rel.start) { intent.start = intent.start || rel.start; intent.end = intent.end || rel.end; }
+  }
   const result = await execute(intent, ctx);
   const { reply, suggestions } = await narrate(model, history, result, ctx);
   return { reply, cards: result.cards, suggestions, booking: ctx.activeBooking };
