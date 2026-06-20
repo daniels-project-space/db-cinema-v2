@@ -583,6 +583,15 @@ export const reconcileCameras = action({
   },
 });
 
+// apply vision-validated itemType corrections (one-off, from scripts/vision-cat.mjs)
+export const setItemTypes = mutation({
+  args: { updates: v.array(v.object({ id: v.id("listings"), itemType: v.string() })) },
+  handler: async (ctx, { updates }) => {
+    for (const u of updates) await ctx.db.patch(u.id, { itemType: u.itemType });
+    return { updated: updates.length };
+  },
+});
+
 export const reclassify = mutation({
   args: {},
   handler: async (ctx) => {

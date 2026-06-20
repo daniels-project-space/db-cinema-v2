@@ -89,13 +89,15 @@ const RULES: [ItemType, RegExp][] = [
   ["gimbal", /\b(gimbal|ronin|rs ?\d|rsc|crane|zhiyun|moza|stabili[sz]er)\b/i],
   ["slider", /\b(slider|dolly|track)\b/i],
   ["tripod", /\b(tripod|fluid head|monopod|\blegs\b|sticks|\bc-?stand\b|century stand)\b/i],
+  // AUDIO is matched BEFORE dj-deck/mixer/speaker so a "JBL wireless microphone" or "Zoom field
+  // recorder" isn't grabbed by the speaker(jbl)/mixer rules. boom/shotgun before generic wireless.
+  ["recorder", /\b(recorder|zoom h\d|zoom f\d|tascam|mixpre|field recorder)\b/i],
+  ["boom-mic", /\b(boom ?mic|boom ?pole|shotgun|\bntg\b|\bmkh\b|hypercardioid|deity|sennheiser mke|sm7b|podcast mic)\b/i],
+  // NOTE: no trailing \b — it would break plurals ("microphones", "dji mics").
+  ["wireless-mic", /(wireless ?mic|wireless ?go|dji ?mic|rode ?wireless|rode ?mic|lavalier|\blav\b|sennheiser ?(ew|g[34])|\bg[34]\b|handheld ?mic|radio ?mic|wireless ?microphone|microphone.{0,15}wireless)/i],
   ["dj-deck", /\b(\bdj\b|cdj|ddj|xdj|pioneer|turntable|rekordbox|serato)\b/i],
   ["mixer", /\b(mixer|mixing desk|djm)\b/i],
   ["speaker", /\b(speaker|partybox|\bjbl\b|\bpa\b|sub ?woofer|sound ?system)\b/i],
-  // boom/shotgun mics FIRST (so a shotgun isn't grabbed by the generic wireless catch below)
-  ["boom-mic", /\b(boom ?mic|boom ?pole|shotgun|\bntg\b|\bmkh\b|hypercardioid|deity|sennheiser mke|sm7b|podcast mic)\b/i],
-  ["wireless-mic", /\b(wireless mic|wireless go|dji mic|rode wireless|rode mic|lav|lavalier|sennheiser (ew|g[34])|\bg[34]\b|handheld mic|radio mic|wireless microphone|microphone.{0,12}wireless)\b/i],
-  ["recorder", /\b(recorder|zoom h\d|tascam|mixpre|field recorder)\b/i],
   ["headphones", /\b(headphone|headphones)\b/i],
   ["monitor", /\b(monitor|atomos|ninja v|shinobi|smallhd|feelworld|field monitor|on-?camera monitor)\b/i],
   ["light", /\b(light|aputure|godox|nanlite|amaran|forza|led|softbox|hmi|fresnel|lantern|pavotube|tube light|rgb|astera|titan tube|key ?light|panel|sky ?panel|cob|300d|600d|1200d|montura)\b/i],
@@ -111,7 +113,8 @@ export function deriveItemType(name: string): ItemType {
   if (/\b(operator ?dp|\bdop\b|for hire)\b/i.test(name) && !CAMERA_MODEL.test(name)) return "accessory";
 
   // Gimbal HERO bundle ("DJI RS4 + 24-70 lens", no camera) → gimbal, before the lens rule grabs it.
-  if (GIMBAL_HERO.test(name.trim()) && !CAMERA_MODEL.test(name)) return "gimbal";
+  // BUT "Gimbal Battery …" is a battery, not a gimbal — exclude battery/charger heroes.
+  if (GIMBAL_HERO.test(name.trim()) && !CAMERA_MODEL.test(name) && !/\b(batter(?:y|ies)|charger)\b/i.test(name)) return "gimbal";
 
   // Strong accessory heroes override a named camera model (a card/adapter "for Sony FX3" is
   // not a camera) — BUT a real camera BUNDLE that merely includes a card/adapter ("BMPCC 6K
