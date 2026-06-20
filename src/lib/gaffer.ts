@@ -103,6 +103,21 @@ function nonLensQuality(l: any, slot: string): number {
   s += Math.min(3, Math.floor((l.pricing?.daily ?? 0) / 50));
   return s;
 }
+/** Native-flagship lens boost: on a Sony E body, prefer Sony's G Master glass (the
+ * canonical workhorse a DP expects) over third-party premium — and a 24-70 workhorse
+ * zoom over a niche focal. So "a lens for my FX3" leads with the Sony 24-70 GM, not the
+ * cheapest premium (which the bare day-rate tiebreak picks). Standalone lenses only. */
+function lensHeroBoost(l: any, camMounts: string[]): number {
+  if (l.itemType !== "lens") return 0;
+  const t = String(l.title || "").toLowerCase();
+  if (/camera|\bfx ?3\b|\bfx ?6\b|a7|a73|komodo|\bred\b|bmpcc|\bset \+|\+ .*camera/.test(t)) return 0; // skip bundles
+  let b = 0;
+  const sonyBody = camMounts.includes("E");
+  if (sonyBody && /\bg ?master\b|gmaster|\bgm\b/.test(t) && /\bsony\b/.test(t)) b += 14; // native flagship
+  if (sonyBody && /\b(sigma|tamron|samyang|rokinon|viltrox|7artisans)\b/.test(t)) b -= 4; // third-party
+  if (/24-?70/.test(t)) b += 4; // the everyday workhorse range
+  return b;
+}
 /** Focal/aperture tokens for lens-similarity ranking ("24-70mm f2.8" → 24,70,28). */
 function specTokens(s: string): string[] {
   return (String(s || "").toLowerCase().match(/\d{1,3}(?:mm)?|f?\d\.\d|t\d\.\d/g) || []).map((x) => x.replace(/mm$/, ""));
@@ -270,7 +285,7 @@ async function findAlternatives(
       if (itemType === "lens" || itemType === "lenses") {
         const ls = lensScore({ mount: x.specs?.mount, tier: x.specs?.tier, lensClass: x.specs?.lensClass }, cam);
         if (ls === -Infinity) return null; // incompatible — never offer
-        score += ls;
+        score += ls + lensHeroBoost(x, cam);
       } else {
         score += nonLensQuality(x, itemType);
         if ((itemType === "camera" || itemType === "camera-body") && cam.length && parseMounts(x.specs?.mount).some((m) => cam.includes(m))) score += 6; // match desired body mount
@@ -308,6 +323,7 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
       if (itemType === "lens" || itemType === "lenses") {
         score = lensScore({ mount: x.specs?.mount, tier: x.specs?.tier, lensClass: x.specs?.lensClass }, cam);
         if (score === -Infinity) return null;
+        score += lensHeroBoost(x, cam);
       } else {
         score = nonLensQuality(x, itemType);
         if ((itemType === "camera" || itemType === "camera-body") && cam.length && parseMounts(x.specs?.mount).some((m) => cam.includes(m))) score += 6; // match desired body mount
