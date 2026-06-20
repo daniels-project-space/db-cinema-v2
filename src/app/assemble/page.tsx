@@ -10,8 +10,8 @@ import { GearLoopBanner } from "@/components/GearLoopBanner";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { tierByKey } from "@/lib/membership";
-import { lensFits } from "@/lib/mount";
-import { kitWarnings, FOCAL_THREAD } from "@/lib/compat";
+import { lensFits, bestCompat, parseMounts } from "@/lib/mount";
+import { kitWarnings, FOCAL_THREAD, battOk } from "@/lib/compat";
 
 const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding", "Other"];
 const SIZES = ["Solo", "Small crew", "Large production"];
@@ -55,6 +55,44 @@ export default function AssemblePage() {
     ...selList.filter((x) => x.role === "lens").map((x) => x.specs?.filterThreadMm).filter(Boolean),
     ...cams.filter((c) => c.specs?.includesLens && c.specs?.lensFocal && FOCAL_THREAD[c.specs.lensFocal]).map((c) => FOCAL_THREAD[c.specs.lensFocal]),
   ];
+
+  // ── DYNAMIC TREE: downstream stages re-rank around what's ACTUALLY selected ──────────────
+  // (pick a Blackmagic EF body → Canon glass tops; pick Sony → Sony battery; add a gimbal →
+  //  its gimbal battery surfaces). All recomputed client-side from the live selection.
+  const hasGimbal = selList.some((x) => x.itemType === "gimbal" || x.role === "gimbal" || /\bgimbal\b|ronin|\brs ?[234]\b/i.test(x.title || ""));
+  const demandB = (d?: number) => ((d ?? 0) > 0 ? Math.min(40, Math.round(Math.sqrt(d as number) * 1.3)) : 0);
+  // native-flagship glass per the SELECTED camera's mount
+  const nativeFlag = (title: string, mounts: string[]) => {
+    const t = (title || "").toLowerCase();
+    if (mounts.includes("E") && /\bg ?master\b|gmaster|\bgm\b/.test(t) && /sony/.test(t)) return 16;
+    if ((mounts.includes("EF") || mounts.includes("RF")) && /canon/.test(t) && /\bl\b|usm|f2\.8 l|f4 l|l series/.test(t)) return 16;
+    if ((mounts.includes("EF") || mounts.includes("RF")) && /\bcanon\b|\bef\b/.test(t)) return 8;
+    return 0;
+  };
+  const dynScore = (o: any, key: string) => {
+    let n = demandB(o.demandScore);
+    if (key === "lens" && camMounts.length) {
+      const c = bestCompat(parseMounts(o.mount), camMounts);
+      n += c === "native" ? 200 : c === "adapter" ? 80 : -1000; // native glass for the CHOSEN body wins
+      n += nativeFlag(o.title, camMounts);
+    } else if (key === "battery") {
+      const bt = o.specs?.batteryType;
+      const isGimbalBatt = /gimbal/i.test(o.title || "");
+      if (hasGimbal && isGimbalBatt) n += 150;                                  // gimbal in kit → its battery
+      else if (isGimbalBatt) n -= 60;                                           // no gimbal → don't push it
+      if (bt && camBatts.length && camBatts.some((cb: string) => battOk(cb, bt))) n += 120; // matches chosen camera
+    }
+    return n;
+  };
+  // the recommended ("Pick") id for a stage, re-derived from the current selection
+  const dynRec = (s: any): string => {
+    if (!s) return "";
+    if (s.key === "lens" || s.key === "battery") {
+      const v = visibleFor(s).filter((o: any) => !incompatOf(o, s));
+      if (v.length) return [...v].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key))[0].listingId;
+    }
+    return s.recommendedId;
+  };
 
   const subtotal = selList.reduce((n, c) => n + (c.total || 0), 0);
   const memberDiscount = Math.round((subtotal * memberPct) / 100);
@@ -273,7 +311,9 @@ export default function AssemblePage() {
             <Ai mood="talking"><Stream text={data.reply || "Let's build your kit."} /></Ai>
 
             {stages.slice(0, onReview ? stages.length : stageIdx + 1).map((s: any, si: number) => {
-              const opts = visibleFor(s);
+              const recId = dynRec(s); // dynamic Pick, re-ranked from the current selection
+              const dyn = s.key === "lens" || s.key === "battery";
+              const opts = dyn ? [...visibleFor(s)].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key)) : visibleFor(s);
               const isSkip = skipped(s);
               return (
                 <div key={si} className="stage-in space-y-2">
@@ -293,11 +333,11 @@ export default function AssemblePage() {
                     <div className="pl-12 text-sm text-white/50">Action camera has a fixed lens — skipping ahead.</div>
                   ) : (
                     <div className="flex gap-3 overflow-x-auto pb-2 pl-12">
-                      {[...opts].sort((a: any, b: any) => (a.listingId === s.recommendedId ? -1 : 0) - (b.listingId === s.recommendedId ? -1 : 0)).map((o: any, i: number) => {
+                      {[...opts].sort((a: any, b: any) => (a.listingId === recId ? -1 : 0) - (b.listingId === recId ? -1 : 0)).map((o: any, i: number) => {
                         const on = !!sel[o.listingId];
-                        const rec = o.listingId === s.recommendedId;
-                        const bad = incompatOf(o, s);
-                        const adapter = o.compat === "adapter";
+                        const rec = o.listingId === recId;
+                        const bad = s.key === "lens" && camMounts.length ? (bestCompat(parseMounts(o.mount), camMounts) === "incompatible" ? `won't mount on your ${camMounts[0]} camera` : incompatOf(o, s)) : incompatOf(o, s);
+                        const adapter = s.key === "lens" && camMounts.length ? bestCompat(parseMounts(o.mount), camMounts) === "adapter" : o.compat === "adapter";
                         return (
                           <button key={o.listingId} onClick={() => toggle(o, s)} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
                             {rec && !on && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">Pick</span>}
@@ -309,9 +349,17 @@ export default function AssemblePage() {
                             </div>
                             <div className="p-2">
                               <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
-                              <div className="mt-1 text-[11px] text-white/45">£{o.total} · {o.days}d {o.mount && o.mount !== "any" && o.mount !== "fixed" && <span className="rounded bg-white/10 px-1 text-[9px] uppercase text-white/50">{o.mount}</span>}</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-white/45">
+                                <span>£{o.total} · {o.days}d</span>
+                                {o.mount && o.mount !== "any" && o.mount !== "fixed" && (
+                                  // non-E camera systems (Blackmagic EF/MFT, Canon RF…) get a blue "other-mount" tag
+                                  s.key === "camera" && o.mount !== "E"
+                                    ? <span className="rounded bg-sky-500/20 px-1 text-[9px] uppercase text-sky-300">{o.mount} · other</span>
+                                    : <span className="rounded bg-white/10 px-1 text-[9px] uppercase text-white/50">{o.mount}</span>
+                                )}
+                              </div>
                               {bad ? <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-red-300/80">{bad}</div>
-                                : adapter && o.compatReason ? <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-sky-300/70">{o.compatReason}</div>
+                                : adapter ? <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-sky-300/70">{camMounts.length ? `needs a ${o.mount}→${camMounts[0]} adapter` : o.compatReason || "adapter needed"}</div>
                                 : o.tip ? <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-white/35">{o.tip}</div> : null}
                             </div>
                           </button>
