@@ -47,8 +47,9 @@ export async function POST(req: NextRequest) {
   }
 
   const body: any = await req.json().catch(() => ({}));
-  const name: string = body.name || body.function_name || body.function?.name || "";
-  const args: any = body.args || body.arguments || body.function?.arguments || {};
+  // Works for Retell ({ name, args }) AND ElevenLabs (flat params body + ?fn=<function> in the URL).
+  const name: string = body.name || body.function_name || body.function?.name || new URL(req.url).searchParams.get("fn") || "";
+  const args: any = body.args || body.arguments || body.function?.arguments || body || {};
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
   try {
