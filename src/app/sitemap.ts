@@ -6,17 +6,20 @@ import { GUIDES } from "@/lib/guides";
 import { SITE_URL as BASE } from "@/lib/site";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  // lastModified signals freshness so Google re-crawls (e.g. now the site became crawlable).
+  const now = new Date();
   const statics: MetadataRoute.Sitemap = [
-    { url: BASE, changeFrequency: "daily", priority: 1 },
-    { url: `${BASE}/gear`, changeFrequency: "daily", priority: 0.9 },
-    { url: `${BASE}/membership`, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${BASE}/guides`, changeFrequency: "weekly", priority: 0.7 },
-    { url: `${BASE}/faq`, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${BASE}/how-it-works`, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${BASE}/about`, changeFrequency: "monthly", priority: 0.5 },
+    { url: BASE, lastModified: now, changeFrequency: "daily", priority: 1 },
+    { url: `${BASE}/gear`, lastModified: now, changeFrequency: "daily", priority: 0.9 },
+    { url: `${BASE}/membership`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
+    { url: `${BASE}/guides`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
+    { url: `${BASE}/faq`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
+    { url: `${BASE}/how-it-works`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
+    { url: `${BASE}/about`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
   ];
   const guides: MetadataRoute.Sitemap = GUIDES.map((g) => ({
     url: `${BASE}/guides/${g.slug}`,
+    lastModified: now,
     changeFrequency: "monthly" as const,
     priority: 0.6,
   }));
@@ -26,6 +29,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const slugs: { slug: string }[] = await c.query(api.catalog.allSlugs, {});
     gear = slugs.map((s) => ({
       url: `${BASE}/gear/${s.slug}`,
+      lastModified: now,
       changeFrequency: "weekly" as const,
       priority: 0.8,
     }));
