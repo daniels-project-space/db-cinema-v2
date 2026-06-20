@@ -10,19 +10,16 @@ import { GearLoopBanner } from "@/components/GearLoopBanner";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { tierByKey } from "@/lib/membership";
+import { lensFits } from "@/lib/mount";
+import { kitWarnings, FOCAL_THREAD } from "@/lib/compat";
 
 const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding", "Other"];
 const SIZES = ["Solo", "Small crew", "Large production"];
-const FOCAL_THREAD: Record<string, number> = { "28-70": 67, "24-70": 82, "16-35": 72, "24-105": 77, "70-200": 77 };
 
-// camera-mount ↔ lens-mount compatibility
-function lensFits(lensMount: string, camMounts: string[]) {
-  if (camMounts.length === 0) return true;
-  if (camMounts.every((m) => m === "fixed")) return false;
-  return camMounts.some(
-    (m) => m === "any" || lensMount === "any" || m === lensMount || (lensMount === "EF" && (m === "E" || m === "RF")),
-  );
-}
+// roleToType: assemble options carry a coarse `role`; map to the engine's itemType
+// (the API also sends `itemType` directly — prefer it, fall back to role).
+const typeOf = (x: any): string =>
+  x.itemType ?? (x.role === "camera" ? "camera-body" : x.role === "lens" ? "lens" : x.category ?? "accessory");
 
 export default function AssemblePage() {
   const router = useRouter();
@@ -153,16 +150,14 @@ export default function AssemblePage() {
   };
   const skipped = (s: any) => s?.key === "lens" && actionOnly;
 
-  // compatibility warnings for the review
+  // compatibility warnings for the review — the SAME shared engine the cart + bot use
+  // (mount / sensor-coverage / filter-thread / battery / redundant / fixed-lens), so the
+  // page can never disagree with /api/compat about what fits.
   const warnings = useMemo(() => {
-    const w: string[] = [];
-    if (cams.length === 0) w.push("No camera selected yet — add one to anchor your kit.");
-    for (const l of selList.filter((x) => x.role === "lens")) {
-      for (const cam of cams) {
-        if (l.mount === "EF" && (cam.mount === "E" || cam.mount === "RF"))
-          w.push(`${l.title.slice(0, 28)} is EF mount — we'll include an EF→${cam.mount} adapter for your ${cam.title.slice(0, 24)}.`);
-      }
-    }
+    const w: { level: string; text: string }[] = [];
+    if (cams.length === 0) w.push({ level: "info", text: "No camera selected yet — add one to anchor your kit." });
+    const kit = selList.map((x) => ({ itemType: typeOf(x), title: x.title, specs: x.specs ?? {} }));
+    for (const k of kitWarnings(kit)) w.push({ level: k.level, text: k.text });
     return w;
   }, [selList, cams]);
 
@@ -345,7 +340,7 @@ export default function AssemblePage() {
                   <div className="ml-12 rounded-2xl glass p-5">
                     <h3 className="font-display font-semibold text-white/80">Compatibility check</h3>
                     <ul className="mt-3 space-y-1.5 text-sm text-white/55">
-                      {warnings.map((w, i) => <li key={`w${i}`} className="flex gap-2"><span className="text-amber-400">!</span> {w}</li>)}
+                      {warnings.map((w, i) => <li key={`w${i}`} className="flex gap-2"><span className={w.level === "error" ? "text-red-400" : w.level === "warn" ? "text-amber-400" : "text-white/40"}>!</span> {w.text}</li>)}
                       {(data.compatibility || []).map((n: string, i: number) => <li key={`c${i}`} className="flex gap-2"><IconCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-400" /> {n}</li>)}
                     </ul>
                   </div>

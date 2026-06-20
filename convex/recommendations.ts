@@ -1,6 +1,7 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { COMPLEMENTS, type ItemType } from "./lib/taxonomy";
+import { bestCompat, parseMounts } from "./lib/mount";
 
 function images(l: any): string[] {
   const r2 = l.r2Images ?? [];
@@ -32,6 +33,7 @@ export const forContext = query({
   handler: async (ctx, { slug, cartListingIds, limit }) => {
     const exclude = new Set<string>();
     const seedTypes: ItemType[] = [];
+    const camMounts = new Set<string>(); // mounts of any camera in the seed/cart — for lens compat
 
     if (slug) {
       const l = await ctx.db
@@ -41,6 +43,7 @@ export const forContext = query({
       if (l) {
         exclude.add(l._id);
         seedTypes.push((l.itemType ?? "accessory") as ItemType);
+        if (l.itemType === "camera-body") for (const m of parseMounts(l.specs?.mount)) camMounts.add(m);
       }
     }
     for (const id of cartListingIds ?? []) {
@@ -48,8 +51,10 @@ export const forContext = query({
       if (l) {
         exclude.add(id);
         seedTypes.push((l.itemType ?? "accessory") as ItemType);
+        if (l.itemType === "camera-body") for (const m of parseMounts(l.specs?.mount)) camMounts.add(m);
       }
     }
+    const cams = [...camMounts];
 
     // wanted types in priority order (dedup, keep order)
     const wanted: ItemType[] = [];
@@ -77,10 +82,22 @@ export const forContext = query({
       if (images(l).length === 0) continue;
       const t = l.itemType ?? "accessory";
       if (!wanted.includes(t as ItemType)) continue;
+      // never recommend a lens that can't mount on the seed/cart camera at all
+      if (t === "lens" && cams.length && l.specs?.mount && bestCompat(parseMounts(l.specs.mount), cams) === "incompatible") continue;
       (byType.get(t) ?? byType.set(t, []).get(t)!).push(l);
     }
+    // rank each bucket by REAL rental demand first (what people actually take together),
+    // then native-over-adapter glass, then day-rate — so we suggest popular, compatible gear.
+    const rankScore = (l: any) => {
+      let s = (l.demandScore ?? 0) * 10;
+      if (l.itemType === "lens" && cams.length && l.specs?.mount) {
+        const c = bestCompat(parseMounts(l.specs.mount), cams);
+        s += c === "native" ? 50 : c === "adapter" ? 10 : 0;
+      }
+      return s;
+    };
     for (const arr of byType.values())
-      arr.sort((a, b) => (b.pricing?.daily ?? 0) - (a.pricing?.daily ?? 0));
+      arr.sort((a, b) => rankScore(b) - rankScore(a) || (b.pricing?.daily ?? 0) - (a.pricing?.daily ?? 0));
 
     // round-robin across wanted types for diversity
     const out: any[] = [];
