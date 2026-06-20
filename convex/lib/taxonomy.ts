@@ -250,13 +250,12 @@ export function mountOf(title: string): string | null {
   if (compound) return compound;
   if (any("gopro", "osmo action", "insta360", "action 4", "action 5", "action4", "action5", "osmo pocket", "pocket 3")) return "fixed";
   if (any("mft", "m4/3", "micro four", "gh5", "gh6", "gh7", "bmpcc 4k", "pocket 4k")) return "MFT";
-  // Interchangeable-mount cine / anamorphic primes (DZOFilm Vespid/Catta/Arles, Blazar
-  // Remus, Great Joy, Sirui, Meike) — rented in WHICHEVER mount the customer's body needs.
-  // Checked BEFORE the single-token PL/RF grabs below so an incidental "(arri…)" or a bare
-  // "…RF," in the blurb can't pin the whole interchangeable set to one mount and falsely
-  // flag it incompatible with the catalogue's Sony-E bodies. A precise author-written
-  // compound ("pl/ef/e/l mount") still wins — explicitCompoundMount runs first, above.
-  if (any("dzo", "dzofilm", "vespid", "catta", "arles", "blazar", "great joy", "greatjoy", "sirui", "meike")) return "E/EF/PL/L/RF";
+  // NOTE: do NOT blanket-assume a mount for cine/anamorphic brands (DZO Vespid, Blazar,
+  // Great Joy, Meike…). They are PL-native unless their title explicitly lists other mounts
+  // — an earlier "interchangeable E/EF/PL/L/RF" guess wrongly made native-PL display glass
+  // read as native-E on a Sony body. Truth comes from the title: an explicit compound
+  // ("pl/ef/e/l mount") is parsed above by explicitCompoundMount; an "(arri…)" / "PL" cue
+  // falls to the PL rule below; anything with NO mount cue stays null (unknown), never guessed.
   if (any("komodo", "raptor")) return "RF";
   // Canon RF-mount cinema bodies (C70 / C400 / R5C) — must precede the EF C-series check.
   if (any("c70", "c-70", "c 70", "c400", "c-400", "r5c", "r5 c")) return "RF";
@@ -269,6 +268,12 @@ export function mountOf(title: string): string | null {
   // Sony E family — note "venice" (Sony Venice is E-mount via the LPL/E adapter
   // ecosystem; treated as E for ranking) was previously missing → null mounts.
   if (any("sony", "fx3", "fx6", "fx9", "fx30", "a7", "a1", "a9", "burano", "venice", " fe ", "gm", "g master", "e-mount", "emount", "sigma e", "tamron e")) return "E";
+  // Third-party cine / anamorphic glass with NO explicit mount cue defaults to PL — its
+  // native cinema mount (confirmed by the shop: these are native-PL lenses). This is a
+  // last-resort default AFTER every explicit cue (compound, arri, E/EF/RF) above, so a
+  // lens that names its real mount is never overridden. PL → adapter on E bodies (correct),
+  // never a false "native E". Genuinely interchangeable sets list their mounts → caught above.
+  if (any("anamorphic", "cine lens", "cinema lens", "dzo", "dzofilm", "vespid", "blazar", "great joy", "greatjoy", "catta", "arles", "sirui", "cooke", "laowa")) return "PL";
   return null;
 }
 

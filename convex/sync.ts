@@ -484,19 +484,23 @@ export const applyHygglo = internalMutation({
 /** Mark listings as marketing-only (locally suppressed) by title regex or exact slug — they
  * are deactivated now and STAY inactive through every sync. Pass suppressed:false to restore. */
 export const setSuppressed = internalMutation({
-  args: { match: v.string(), suppressed: v.boolean() },
-  handler: async (ctx, { match, suppressed }) => {
+  // onlyNeverRented: SAFETY — when suppressing, skip any item that has real rental
+  // demand (demandScore > 0) so a broad brand pattern can never hide proven inventory.
+  args: { match: v.string(), suppressed: v.boolean(), onlyNeverRented: v.optional(v.boolean()) },
+  handler: async (ctx, { match, suppressed, onlyNeverRented }) => {
     const all = await ctx.db.query("listings").collect();
     let re: RegExp | null = null;
     try { re = new RegExp(match, "i"); } catch {}
     let updated = 0;
+    const skipped: string[] = [];
     for (const l of all) {
       if (l.slug === match || (re && re.test(l.title))) {
+        if (suppressed && onlyNeverRented && ((l as any).demandScore ?? 0) > 0) { skipped.push(l.title); continue; }
         await ctx.db.patch(l._id, suppressed ? { suppressed: true, active: false } : { suppressed: false });
         updated++;
       }
     }
-    return { updated };
+    return { updated, skipped };
   },
 });
 

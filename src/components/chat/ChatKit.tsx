@@ -3,8 +3,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BotAvatarBadge, type BotMood } from "./BotAvatar";
 
-/** Lite formatting: **bold** segments → styled spans. */
-function richText(text: string): ReactNode[] {
+/** Inline **bold** segments → styled spans. */
+function inline(text: string): ReactNode[] {
   return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
     part.startsWith("**") && part.endsWith("**") ? (
       <strong key={i} className="font-semibold text-white">
@@ -14,6 +14,27 @@ function richText(text: string): ReactNode[] {
       part
     ),
   );
+}
+
+/** Structured formatting: line breaks become real lines and `- `/`• ` lines become
+ * bullet rows, so Gaffer's replies read as scannable lists instead of one block. */
+function richText(text: string): ReactNode[] {
+  return text.split(/\n/).map((line, i) => {
+    const bullet = line.match(/^\s*[-•]\s+(.*)/);
+    if (bullet)
+      return (
+        <span key={i} className="flex gap-1.5">
+          <span className="select-none text-accent-400/80">•</span>
+          <span className="min-w-0">{inline(bullet[1])}</span>
+        </span>
+      );
+    if (line.trim() === "") return <span key={i} className="block h-1.5" aria-hidden />;
+    return (
+      <span key={i} className="block">
+        {inline(line)}
+      </span>
+    );
+  });
 }
 
 /** Typewriter stream with blinking caret. */

@@ -98,7 +98,10 @@ export const bestSellers = query({
       if (l.itemType === "camera-body") base += 2;
       if (/fx3|fx6|a7s|a7 ?iii|a7iv|sony|burano|komodo|ronin/.test(t)) base += 2;
       if (/\bset\b|\bkit\b|bundle|package/.test(t)) base += 1;
-      const score = (bk.get(l._id) ?? 0) * 5 + (cartBySlug.get(l.slug) ?? 0) * 2 + base;
+      // REAL rental demand (RMv2 history, ~1,983 reservations) is the dominant signal so this
+      // section truly shows "the kits crews fight over" — the actual top-rented gear — not a
+      // heuristic. Site bookings + add-to-cart refine; the base only breaks ties.
+      const score = (l.demandScore ?? 0) * 10 + (bk.get(l._id) ?? 0) * 5 + (cartBySlug.get(l.slug) ?? 0) * 2 + base;
       return { l, score };
     });
     scored.sort((a, b) => b.score - a.score);

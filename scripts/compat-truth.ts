@@ -102,7 +102,10 @@ eq("Canon R5C mount = RF",     mountOf("Canon R5C"), "RF");
 eq("itemType canon c70 = cam", deriveItemType("canon c70"), "camera-body");
 // E-mount glass is INCOMPATIBLE on an RF body (no adapter) — the bug the bot hit
 eq("E lens on RF C70 = incompat", mountCompat("E", mountOf("Canon C70")!), "incompatible");
-eq("Meike multi on RF = native",  bestCompat(parseMounts(mountOf("Meike Cine Fullframe Set")!), [mountOf("Canon C70")!]), "native");
+// cine/anamorphic display glass is NOT guessed as interchangeable-E — DZO Vespid is native PL
+eq("DZO Vespid (arri) = PL",   mountOf("DZO film Vespid Prime Cinema lens 16mm T2.8 Full Frame ( arri alexa )"), "PL");
+eq("PL Vespid on E body = adapter", mountCompat("PL", "E"), "adapter"); // needs PL->E adapter, NOT native
+eq("cue-less cine lens = PL", mountOf("Great Joy 50mm Anamorphic Cine Lens Amber flare"), "PL"); // native cine mount, not false-E
 
 // 6. END-TO-END kitWarnings against the engine (specs derived from titles)
 const mk = (title: string) => { const it = deriveItemType(title); return { itemType: it, title, specs: deriveSpecs(title, it) }; };
@@ -153,7 +156,10 @@ async function liveAudit() {
       if (v === "native") { native++; usable++; }
       else if (v === "adapter") usable++;
     }
-    if (native === 0) issues.push(`camera ${cam.title.slice(0, 40)} (${cm.join("/")}) has ZERO native lenses — mount-derivation suspect`);
+    // flag only when NOTHING works (no native AND no adapter glass) — a real "this body can't
+    // use any lens we stock" problem. Zero-native-but-has-adapter is fine: e.g. RF bodies in a
+    // Sony-E + PL-cine catalogue legitimately have no RF-native separate lens, only EF-via-adapter.
+    if (usable === 0) issues.push(`camera ${cam.title.slice(0, 40)} (${cm.join("/")}) has ZERO usable lenses (no native or adapter) — suspect`);
   }
 
   console.log(`\n── B) LIVE CATALOGUE AUDIT ──  ${cams.length} cameras, ${lenses.length} lenses`);

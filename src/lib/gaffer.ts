@@ -705,7 +705,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
 
 // ── stage 3: narrate (grounded — only states facts, only names the chosen cards) ──
 const NarrateSchema = z.object({
-  reply: z.string().describe("the conversational reply to the customer, 1-3 sentences"),
+  reply: z.string().describe("a STRUCTURED reply: one short lead line, then a markdown bullet ('- ') per item/point, then one short closing question — newlines between. Never a paragraph."),
   suggestions: z.array(z.string()).describe("exactly 2-3 short next actions in the customer's voice, max 5 words each"),
 });
 
@@ -717,7 +717,13 @@ async function narrate(model: any, history: any[], result: ExecResult, ctx: Ctx)
     model,
     schema: NarrateSchema,
     prompt:
-`You are Gaffer, Db Cinema Rentals' kit assistant — warm, confident, plain English, lightly playful, concise (1-3 sentences). London cinema-gear rental shop.
+`You are Gaffer, Db Cinema Rentals' kit assistant — warm, confident, plain English, lightly playful. London cinema-gear rental shop.
+
+FORMAT (always — replies must be SCANNABLE, never a wall of text):
+- Line 1: ONE short lead sentence (the headline). You may **bold** key words.
+- Then, when presenting gear or options/points, put EACH on its own line as a markdown bullet starting "- ", ≤ 14 words, e.g. "- **Sony 24-70 GM** — £20/day, native E-mount, no adapter". One bullet per CARD you're recommending.
+- Last line: ONE short question / call-to-action.
+- Separate the lead, bullets and closing with newlines. NEVER write a paragraph longer than one sentence.
 
 ABSOLUTE GROUNDING RULES (never break):
 - State ONLY what the FACTS below say. Do NOT claim we have, lack, or recommend any gear not in FACTS/CARDS.
@@ -738,7 +744,7 @@ ${cardLines}
 CONVERSATION:
 ${convo}
 
-Write Gaffer's reply now, plus 2-3 suggestion chips in the customer's voice.`,
+Write Gaffer's reply now in the scannable FORMAT above (lead line, bullets, closing question), plus 2-3 suggestion chips in the customer's voice.`,
   });
   return { reply: object.reply?.trim() || "How can I help with your shoot?", suggestions: (object.suggestions || []).filter((s) => s && s.length <= 56).slice(0, 3) };
 }
