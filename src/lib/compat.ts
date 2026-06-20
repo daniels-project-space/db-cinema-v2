@@ -55,8 +55,16 @@ export function coverageCompat(lensCov?: string | null, camCov?: string | null):
   return l >= c ? "full" : "vignette";
 }
 
-const battOk = (camBatt: string, batt: string) =>
-  camBatt === batt || camBatt.includes(batt) || batt.includes(camBatt);
+/**
+ * Battery power compatibility. Compares CANONICAL families exactly — NOT substrings —
+ * because "NP-FZ100" *contains* "NP-F" yet an NP-F970 cannot power an NP-FZ100 body.
+ * Compound types ("NP-F/LP-E6") are split so either family can match.
+ */
+export function battOk(camBatt: string, batt: string): boolean {
+  const fams = (s: string) => String(s).toLowerCase().split(/[\/,]/).map((x) => x.replace(/[^a-z0-9]/g, "")).filter(Boolean);
+  const cam = fams(camBatt), b = fams(batt);
+  return cam.some((cb) => b.some((bb) => cb === bb));
+}
 
 const cut = (s: unknown, n: number) => String(s ?? "").slice(0, n);
 

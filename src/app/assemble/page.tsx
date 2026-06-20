@@ -140,15 +140,18 @@ export default function AssemblePage() {
   const onReview = data && stageIdx >= stages.length;
   const stage = !onReview ? stages[stageIdx] : null;
 
-  // per-stage compatibility-filtered options (works for any stage, not just current)
-  const visibleFor = (s: any): any[] => {
-    if (!s) return [];
-    if (s.key === "lens" && camMounts.length) return s.options.filter((o: any) => lensFits(o.mount, camMounts));
-    if (s.key === "nd-filter" && lensThreads.length) return s.options.filter((o: any) => !o.specs?.filterThreadMm || lensThreads.includes(o.specs.filterThreadMm));
-    if (s.key === "battery" && camBatts.length) return s.options.filter((o: any) => !o.specs?.batteryType || camBatts.some((cb: string) => battOk(cb, o.specs.batteryType)));
-    return s.options;
-  };
+  // We no longer HIDE incompatible gear — we SHOW it greyed with a reason (the engine already
+  // sorted compatible-first), so the customer can see e.g. "this V-mount won't power your FX3".
+  const visibleFor = (s: any): any[] => s?.options ?? [];
   const skipped = (s: any) => s?.key === "lens" && actionOnly;
+  // Why an option is incompatible with the chosen kit (null = fine). Uses the route's per-option
+  // verdict for lens/battery, and a client thread check for ND filters.
+  const incompatOf = (o: any, s: any): string | null => {
+    if (o.compat === "incompatible") return o.compatReason || "incompatible with your camera";
+    if (s.key === "nd-filter" && lensThreads.length && o.specs?.filterThreadMm && lensThreads.every((t: number) => o.specs.filterThreadMm < t))
+      return `Ø${o.specs.filterThreadMm}mm — smaller than your lens (needs a step-up ring)`;
+    return null;
+  };
 
   // compatibility warnings for the review — the SAME shared engine the cart + bot use
   // (mount / sensor-coverage / filter-thread / battery / redundant / fixed-lens), so the
@@ -293,9 +296,13 @@ export default function AssemblePage() {
                       {[...opts].sort((a: any, b: any) => (a.listingId === s.recommendedId ? -1 : 0) - (b.listingId === s.recommendedId ? -1 : 0)).map((o: any, i: number) => {
                         const on = !!sel[o.listingId];
                         const rec = o.listingId === s.recommendedId;
+                        const bad = incompatOf(o, s);
+                        const adapter = o.compat === "adapter";
                         return (
-                          <button key={o.listingId} onClick={() => toggle(o, s)} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
-                            {rec && !on && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">Pick</span>}
+                          <button key={o.listingId} onClick={() => toggle(o, s)} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
+                            {rec && !on && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">Pick</span>}
+                            {bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Won't fit</span>}
+                            {adapter && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Adapter</span>}
                             {on && <span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white"><IconCheck className="h-3 w-3" /></span>}
                             <div className="aspect-[4/3] bg-charcoal-800">
                               {o.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={o.image} alt="" className="h-full w-full object-cover" />}
@@ -303,7 +310,9 @@ export default function AssemblePage() {
                             <div className="p-2">
                               <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
                               <div className="mt-1 text-[11px] text-white/45">£{o.total} · {o.days}d {o.mount && o.mount !== "any" && o.mount !== "fixed" && <span className="rounded bg-white/10 px-1 text-[9px] uppercase text-white/50">{o.mount}</span>}</div>
-                              {o.tip && <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-white/35">{o.tip}</div>}
+                              {bad ? <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-red-300/80">{bad}</div>
+                                : adapter && o.compatReason ? <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-sky-300/70">{o.compatReason}</div>
+                                : o.tip ? <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-white/35">{o.tip}</div> : null}
                             </div>
                           </button>
                         );
@@ -336,12 +345,16 @@ export default function AssemblePage() {
                     </div>
                   ))}
                 </div>
-                {(warnings.length > 0 || data.compatibility?.length > 0) && (
+                {selList.length > 0 && (
                   <div className="ml-12 rounded-2xl glass p-5">
                     <h3 className="font-display font-semibold text-white/80">Compatibility check</h3>
+                    {/* engine-derived from the SELECTED kit (kitWarnings) — never the LLM */}
                     <ul className="mt-3 space-y-1.5 text-sm text-white/55">
-                      {warnings.map((w, i) => <li key={`w${i}`} className="flex gap-2"><span className={w.level === "error" ? "text-red-400" : w.level === "warn" ? "text-amber-400" : "text-white/40"}>!</span> {w.text}</li>)}
-                      {(data.compatibility || []).map((n: string, i: number) => <li key={`c${i}`} className="flex gap-2"><IconCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-400" /> {n}</li>)}
+                      {warnings.length === 0 ? (
+                        <li className="flex gap-2"><IconCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" /> Everything in your kit is compatible — mounts, power and filters all check out.</li>
+                      ) : (
+                        warnings.map((w, i) => <li key={`w${i}`} className="flex gap-2"><span className={w.level === "error" ? "text-red-400" : w.level === "warn" ? "text-amber-400" : "text-white/40"}>!</span> {w.text}</li>)
+                      )}
                     </ul>
                   </div>
                 )}

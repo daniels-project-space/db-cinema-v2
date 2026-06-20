@@ -385,6 +385,57 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
   return pool[0].x;
 }
 
+/** Focal CATEGORY of a lens, so a "recommend a lens" can return a complementary SPREAD
+ * (a wide, a standard, a tele, a prime) instead of three near-identical 24-70s. */
+function focalBucket(title: string): string {
+  const t = String(title || "").toLowerCase();
+  if (/\b11\s?mm|\b14\s?mm|16-35|16 35|fish ?eye|ultra ?wide|wide ?angle/.test(t)) return "wide";
+  if (/24-70|24 70|28-70|24-105|standard zoom/.test(t)) return "standard";
+  if (/70-200|70 200|100-400|\b135\s?mm|tele/.test(t)) return "tele";
+  if (/\b35\s?mm|\b50\s?mm|\b85\s?mm|\b90\s?mm|macro|prime|f1\.[248]|f2\b/.test(t)) return "prime";
+  return "other";
+}
+const BUCKET_LABEL: Record<string, string> = { standard: "Standard zoom", wide: "Wide angle", tele: "Telephoto", prime: "Prime", other: "Lens" };
+
+/** A diverse, compatible lens recommendation: the top in-demand native lens from EACH focal
+ * category (24-70 + 16-35 + 70-200 + a prime), availability-aware — not just the one flagship. */
+async function recommendLensSpread(c: ConvexHttpClient, ctx: Ctx, seen: Set<string>, max = 5): Promise<any[]> {
+  const r: any[] = await c.query(api.catalog.listListings, { search: "lens" });
+  const cam = ctx.camMounts;
+  const isMultiSet = (t: string) => /\bultimate\b/i.test(t) || (String(t).match(/\d{2,3}\s*-\s*\d{2,3}/g) || []).length >= 2;
+  let cands = (r || [])
+    .filter((x) => itemTypeMatches("lens", x.itemType) && !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)))
+    .filter((x) => !isMultiSet(x.title)) // the spread is INDIVIDUAL lenses, not a 3-lens "ultimate set"
+    .map((x) => {
+      const ls = lensScore({ mount: x.specs?.mount, tier: x.specs?.tier, lensClass: x.specs?.lensClass }, cam);
+      if (ls === -Infinity) return null; // incompatible — never offer
+      return { x, score: ls + lensHeroBoost(x, cam, ctx.camCoverage) + demandBoost(x) - setPenalty(x) };
+    })
+    .filter(Boolean) as { x: any; score: number }[];
+  if (!cands.length) return [];
+  cands.sort(rankCmp(ctx.pricePref));
+  // no camera known → homogenise to one mount family (don't mix an E spread with RF glass)
+  if (!cam.length) {
+    const target = (parseMounts(cands[0].x.specs?.mount)[0] || "").toUpperCase();
+    if (target) cands = cands.filter((s) => { const ms = parseMounts(s.x.specs?.mount) as string[]; return !ms.length || ms.includes(target); });
+  }
+  // top candidate per focal bucket, in a sensible order
+  const byBucket = new Map<string, any>();
+  for (const { x } of cands) { const b = focalBucket(x.title); if (b !== "other" && !byBucket.has(b)) byBucket.set(b, x); }
+  let ordered = ["standard", "wide", "tele", "prime"].map((b) => byBucket.get(b)).filter(Boolean);
+  // if too few distinct categories matched, top up with the next best individual lenses
+  if (ordered.length < 3) for (const { x } of cands) { if (!ordered.includes(x)) ordered.push(x); if (ordered.length >= max) break; }
+  // availability-aware for real dates
+  if (!ctx.estimated && ctx.start && ctx.end) {
+    const free: any[] = [];
+    for (const x of ordered) {
+      try { const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end) }); if ((av?.available ?? 0) > 0) free.push(x); } catch {}
+    }
+    if (free.length) return free.slice(0, max);
+  }
+  return ordered.slice(0, max);
+}
+
 // ── context ──────────────────────────────────────────────────────────────────────
 type Ctx = {
   c: ConvexHttpClient;
@@ -623,18 +674,23 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
     case "recommend": {
       const types = intent.itemTypes?.length ? intent.itemTypes : ["lens"];
       const seen = new Set<string>(ctx.cartIds);
-      for (const t of types) {
-        const best = await bestForType(c, t, ctx, seen);
-        if (best) { seen.add(String(best._id)); await pushCard(best, `Recommended ${t}`); }
-      }
-      // a couple more of the primary type for choice
-      if (types.length === 1) {
-        const term = TERM[types[0]] || types[0];
-        const r: any[] = await c.query(api.catalog.listListings, { search: term });
-        const more = (r || []).filter((x) => !seen.has(String(x._id)) && itemTypeMatches(types[0], x.itemType));
-        for (const x of more.slice(0, 0)) void x; // placeholder; primary pick above is enough
-        const extra = await findAlternatives(c, intent.subject || types[0], types[0], ctx, 2);
-        for (const a of extra) { if (!seen.has(String(a._id))) { seen.add(String(a._id)); await pushCard(a, `Another ${types[0]} option`); } }
+      // a generic "recommend a lens" (no specific focal/type named) → a COMPLEMENTARY SPREAD
+      // of native glass (wide + standard + tele + prime), not three near-identical 24-70s.
+      const wantsSpecificLens = /\d{2,3}\s*-?\s*\d{0,3}\s*mm|prime|macro|fish ?eye|wide|tele|anamorphic|\bgm\b|g master/i.test(intent.subject || "");
+      const lensOnly = types.length === 1 && (types[0] === "lens" || types[0] === "lenses");
+      if (lensOnly && !wantsSpecificLens) {
+        const spread = await recommendLensSpread(c, ctx, seen, 5);
+        for (const x of spread) { seen.add(String(x._id)); await pushCard(x, BUCKET_LABEL[focalBucket(x.title)] || "Lens"); }
+      } else {
+        for (const t of types) {
+          const best = await bestForType(c, t, ctx, seen);
+          if (best) { seen.add(String(best._id)); await pushCard(best, `Recommended ${t}`); }
+        }
+        // a couple more of the primary type for choice (non-spread path)
+        if (types.length === 1) {
+          const extra = await findAlternatives(c, intent.subject || types[0], types[0], ctx, 2);
+          for (const a of extra) { if (!seen.has(String(a._id))) { seen.add(String(a._id)); await pushCard(a, `Another ${types[0]} option`); } }
+        }
       }
       const names = cards.map((cd) => titlePrice(cd.item)).join("; ");
       if (names) facts.push(`RECOMMENDED (in stock${ctx.camMounts.length ? `, compatible with ${ctx.camMounts.join("/")} mount` : ""}): ${names}.`);

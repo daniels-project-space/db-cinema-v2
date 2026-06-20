@@ -7,7 +7,7 @@ import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
 import { dayMs as msOf } from "@/lib/dates";
 import { parseMounts, mountCompat } from "@/lib/mount";
-import { coverageCompat } from "@/lib/compat";
+import { coverageCompat, battOk } from "@/lib/compat";
 
 export const maxDuration = 60;
 
@@ -70,7 +70,9 @@ const SCHEMA = z.object({
 /** Real rental-history demand boost (listing.demandScore) — recommend what's actually rented. */
 function demandBoost(d: any): number {
   const n = Number(d) || 0;
-  return n <= 0 ? 0 : Math.min(22, Math.round(Math.sqrt(n) * 1.3));
+  // cap raised to 40 so the true hero discriminates at the top — a 456-rental FX3 must out-rank
+  // a 311-rental body instead of both flattening to the cap and the cheaper one winning the tiebreak.
+  return n <= 0 ? 0 : Math.min(40, Math.round(Math.sqrt(n) * 1.3));
 }
 /** Native-flagship lens preference: a Sony E body wants Sony G Master glass first. */
 function lensHero(title: string, camMounts: string[]): number {
@@ -98,48 +100,76 @@ function optionCompat(optionMount: string | null | undefined, camMounts: string[
   return best;
 }
 
-async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, lensPref?: string, camMounts: string[] = [], camCoverage: string | null = null) {
+/** leading "3x" / "2 x" quantity in a title (a 5-mic bundle is overkill for a solo shoot). */
+function titleQty(title: string): number {
+  const m = String(title || "").match(/^\s*(\d+)\s*[x×]/i);
+  return m ? Math.min(parseInt(m[1], 10) || 1, 9) : 1;
+}
+/** does a mic/accessory title actually lead with a CAMERA (i.e. it's a camera bundle, not a mic)? */
+const CAM_BUNDLE = /gopro|go ?pro|hero ?\d|fx ?3|fx ?6|a7|a7s|a7r|\ba1\b|komodo|bmpcc|\br5\b|\bc70\b|cinema camera|mirrorless camera/i;
+/** power compatibility of a battery option vs the kit camera's battery type. */
+function batteryCompat(optBatt: string | null | undefined, camBatt: string | null | undefined): "native" | "incompatible" | "unknown" {
+  if (!optBatt || !camBatt) return "unknown"; // power stations / unknown → neutral, never blocked
+  return battOk(camBatt, optBatt) ? "native" : "incompatible";
+}
+
+type StageOpts = { lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean };
+
+async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, o: StageOpts = {}) {
+  const { lensPref, camMounts = [], camCoverage = null, camBattery = null, includedFocal = null, small = false } = o;
   const def = STAGE[key];
   if (!def) return [];
   let items: any[] = await c.query(api.catalog.byItemType, { types: def.types });
   if (def.must) items = items.filter((l) => def.must!.test(l.title));
+  // mic stages: drop camera BUNDLES that merely contain mics (a "GoPro interview set" is not a lav-mic)
+  if (key === "lav-mic" || key === "wireless-mic" || key === "shotgun-mic") items = items.filter((l) => !CAM_BUNDLE.test(l.title));
   // consider the most in-demand items FIRST (byItemType is unsorted) so the availability-checked
-  // window of 30 always includes the gear people actually rent (e.g. the Sony 24-70 GM).
+  // window always includes the gear people actually rent (e.g. the Sony 24-70 GM).
   items.sort((a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0));
   const days = Math.max(1, Math.round((msOf(end) - msOf(start)) / 86400000) + 1);
   const out: any[] = [];
-  for (const l of items.slice(0, 30)) {
+  for (const l of items.slice(0, 36)) {
     const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: msOf(start), end: msOf(end) });
     if ((av?.available ?? 0) <= 0) continue;
     const q: any = quote(l.pricing, days);
     const role = l.itemType === "camera-body" ? "camera" : l.itemType === "lens" ? "lens" : "other";
     const mount = l.specs?.mount ?? (role === "camera" || role === "lens" ? mountOf(l.title) : null);
-    // lens-stage mount gate: drop glass that can't mount on the kit's camera at all
-    if (key === "lens" && camMounts.length && optionCompat(mount, camMounts) === "incompatible") continue;
+    // per-stage compatibility verdict (shown to the user; incompatible items are GREYED, not hidden):
+    let compat: string | undefined;
+    let compatReason: string | undefined;
+    if (key === "lens" && camMounts.length) {
+      compat = optionCompat(mount, camMounts);
+      if (compat === "adapter") compatReason = `needs a ${mount}→${camMounts[0]} adapter`;
+      else if (compat === "incompatible") compatReason = `${mount} mount won't fit your ${camMounts[0]} camera`;
+      else if (coverageCompat(l.specs?.coverage, camCoverage) === "vignette") compatReason = `${String(l.specs?.coverage).toUpperCase()} lens — vignettes on full-frame`;
+    } else if (key === "battery" && camBattery) {
+      compat = batteryCompat(l.specs?.batteryType, camBattery);
+      if (compat === "incompatible") compatReason = `${l.specs?.batteryType} won't power your ${camBattery} camera`;
+    }
     out.push({
       listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, category: l.category,
       start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
       role, mount, itemType: l.itemType ?? null,
-      compat: key === "lens" ? optionCompat(mount, camMounts) : undefined,
+      compat, compatReason,
+      qty: titleQty(l.title),
       demandScore: l.demandScore ?? 0,
       specs: l.specs ?? {},
       tip: l.tip ?? null,
     });
-    if (out.length >= 16) break;
+    if (out.length >= 18) break;
   }
   const rank = { native: 0, adapter: 1, unknown: 2, incompatible: 3 } as const;
-  // real demand + native-flagship preference (so a stage leads with the gear people actually
-  // rent — Sony 24-70 GM, FX3, Nanlite — not the cheapest item).
-  // a crop (S35/MFT) lens vignettes on a full-frame body — push it below full-frame glass.
-  const coveragePen = (o: any) => (key === "lens" && coverageCompat(o.specs?.coverage, camCoverage) === "vignette" ? -12 : 0);
-  const qual = (o: any) => demandBoost(o.demandScore) + (key === "lens" ? lensHero(o.title, camMounts) + coveragePen(o) : 0);
+  const coveragePen = (x: any) => (key === "lens" && coverageCompat(x.specs?.coverage, camCoverage) === "vignette" ? -12 : 0);
+  // a lens at the SAME focal the camera bundle already includes is redundant — rank complementary glass first
+  const dupePen = (x: any) => (key === "lens" && includedFocal && new RegExp(includedFocal.replace(/[^0-9-]/g, "")).test(String(x.title).replace(/[^0-9-]/g, " ")) ? -16 : 0);
+  // a solo/small shoot doesn't want a 3x/5x bundle — penalise over-quantity
+  const qtyPen = (x: any) => (small && x.qty >= 3 ? -10 : small && x.qty >= 2 && key !== "lens" ? -3 : 0);
+  const qual = (x: any) => demandBoost(x.demandScore) + qtyPen(x) + (key === "lens" ? lensHero(x.title, camMounts) + coveragePen(x) + dupePen(x) : 0);
   out.sort((a, b) => {
-    if (key === "lens" && camMounts.length) {
-      // native glass before adapter glass before unknown — real-world correctness first
-      const ra = rank[(a.compat ?? "unknown") as keyof typeof rank];
-      const rb = rank[(b.compat ?? "unknown") as keyof typeof rank];
-      if (ra !== rb) return ra - rb;
-    }
+    // COMPATIBLE first, incompatible last (but still present, to be greyed) — for any stage that has a verdict
+    const ra = rank[(a.compat ?? "unknown") as keyof typeof rank];
+    const rb = rank[(b.compat ?? "unknown") as keyof typeof rank];
+    if (ra !== rb) return ra - rb;
     if (key === "lens" && lensPref) {
       const ac = a.specs?.lensClass === lensPref ? 0 : 1;
       const bc = b.specs?.lensClass === lensPref ? 0 : 1;
@@ -195,44 +225,57 @@ export async function POST(req: NextRequest) {
   keys.sort((a, z) => oi(a) - oi(z));
 
   // small/solo shoots favour autofocus glass (run-and-gun); large productions favour cinema glass
-  const lensPref = (b.size || "").toLowerCase().includes("large") ? "cine" : "af";
+  const sizeL = (b.size || "").toLowerCase();
+  const lensPref = sizeL.includes("large") ? "cine" : "af";
+  const small = sizeL.includes("solo") || sizeL.includes("small") || !sizeL;
 
   const stages: any[] = [];
-  // camera mounts captured from the camera stage, so the lens stage can rank
-  // native glass first and exclude lenses that won't mount at all.
+  // anchored to the RECOMMENDED camera so the lens/battery stages reason about the real body.
   let camMounts: string[] = [];
   let camCoverage: string | null = null;
+  let camBattery: string | null = null;
+  let includedFocal: string | null = null;
+  let recCamTitle = "";
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
-    const options = await optionsForStage(c, k, start, end, lensPref, camMounts, camCoverage);
+    const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small });
     if (!options.length) continue;
+    // ONE recommended id per stage — camera uses the LLM hint / top body; everything else leads
+    // with the top COMPATIBLE option. (Camera's recCam below must match this so the note agrees.)
+    const recId: string = k === "camera"
+      ? (pickRecommended(options, meta?.recommend) ?? options[0].listingId)
+      : (options.find((o: any) => o.compat !== "incompatible") ?? options[0]).listingId;
     if (k === "camera") {
-      // anchor lens compatibility to the RECOMMENDED camera's mount + sensor (the body
-      // the user is most likely to take); fall back to the first option.
-      const recId = pickRecommended(options, meta?.recommend);
       const recCam = options.find((o: any) => o.listingId === recId) ?? options[0];
       camMounts = parseMounts(recCam?.mount);
       camCoverage = recCam?.specs?.coverage ?? null;
+      camBattery = recCam?.specs?.batteryType ?? null;
+      includedFocal = recCam?.specs?.includesLens ? (recCam?.specs?.lensFocal ?? null) : null;
+      recCamTitle = recCam?.title ?? "";
     }
     let note = meta?.note || "";
-    if (k === "lens")
+    if (k === "lens") {
+      if (includedFocal) note = `Your ${recCamTitle.slice(0, 30)} already includes a ${includedFocal}mm — these ADD to it (different focal lengths).` + (note ? " " + note : "");
       note += (note ? " " : "") + (lensPref === "cine"
         ? "Cinema glass first for a larger crew (manual focus, focus puller recommended)."
         : "Autofocus glass first for fast, small-crew shooting.");
+    }
     stages.push({
       key: k,
       label: meta?.label || k,
       note,
       multi: MULTI.has(k),
       upsell: !!meta?.upsell,
-      recommendedId: k === "lens" ? options[0].listingId : pickRecommended(options, meta?.recommend),
+      recommendedId: recId,
       options,
     });
   }
 
   return NextResponse.json({
     reply: design?.reply || `Let's build your ${b.shootType || "shoot"} kit step by step.`,
-    compatibility: design?.compatibility || [],
+    // compatibility checklist is computed by the shared engine on the client (kitWarnings over the
+    // SELECTED kit) — never the LLM, which hallucinated items/brands that don't exist.
+    compatibility: [],
     stages,
   });
 }

@@ -260,7 +260,7 @@ export function mountOf(title: string): string | null {
   // Explicit compound mount string wins (cine glass listing several mounts).
   const compound = explicitCompoundMount(t);
   if (compound) return compound;
-  if (any("gopro", "osmo action", "insta360", "action 4", "action 5", "action4", "action5", "osmo pocket", "pocket 3")) return "fixed";
+  if (any("gopro", "go pro", "hero 1", "hero 9", "hero 8", "osmo action", "osmo pocket", "dji pocket", "insta360", "insta 360", "action 4", "action 5", "action4", "action5", "pocket 3")) return "fixed";
   if (any("mft", "m4/3", "micro four", "gh5", "gh6", "gh7", "bmpcc 4k", "pocket 4k")) return "MFT";
   // NOTE: do NOT blanket-assume a mount for cine/anamorphic brands (DZO Vespid, Blazar,
   // Great Joy, Meike…). They are PL-native unless their title explicitly lists other mounts
@@ -311,10 +311,12 @@ export function deriveSpecs(title: string, itemType: ItemType): Specs {
 
   let batteryType: string | null = null;
   if (itemType === "camera-body") {
-    if (has(/fx6|fx9|c300|c500|alexa|amira|ursa|komodo|raptor|burano/)) batteryType = "V-mount";
-    else if (has(/gopro|osmo action|insta360/)) batteryType = "action";
-    else if (has(/sony|fx3|fx30|a7|a1\b|a9\b|zv-?e/)) batteryType = "NP-FZ100";
-    else if (has(/canon r|r5|r6|r3|r8|c70/)) batteryType = "LP-E6";
+    // NOTE: tolerate a SPACE ("fx 6") — without it an FX6 fell through to NP-FZ100 and V-mount
+    // batteries (which DO power it) looked incompatible. Cine/large-sensor bodies are V-mount.
+    if (has(/fx ?6|fx ?9|c ?300|c ?500|alexa|amira|ursa|komodo|raptor|burano|venice/)) batteryType = "V-mount";
+    else if (has(/gopro|go ?pro|osmo ?action|insta ?360/)) batteryType = "action";
+    else if (has(/sony|fx ?3|fx ?30|\ba7|\ba1\b|\ba9\b|zv-?e/)) batteryType = "NP-FZ100";
+    else if (has(/canon r|\br5\b|\br6\b|\br3\b|\br8\b|c ?70/)) batteryType = "LP-E6";
     else if (has(/bmpcc|pocket cinema/)) batteryType = "NP-F/LP-E6";
     else if (has(/gh5|gh6|gh7|s1h|s5|lumix/)) batteryType = "DMW-BLK22";
   } else if (itemType === "battery") {
