@@ -100,9 +100,12 @@ export const syncFromRmv2 = action({
     );
     const qtyByItem = new Map(items.map((i) => [i._id, i.qty ?? 1]));
 
+    // What the storefront shows = the shop's REAL rentable inventory: not retired/display-only
+    // (isMarketingOnly), named, and priced. (isPublished is unreliable here — only ~3 of 405 carry
+    // it — so it would empty the catalogue; isMarketingOnly is the maintained "retired" signal.)
     const live = products.filter(
       (p) =>
-        p.isPublished &&
+        !p.isMarketingOnly &&
         p.name &&
         (p.prices ?? []).some((x) => (x.pricePerDay ?? x.price ?? 0) > 0),
     );
@@ -281,7 +284,23 @@ export const applyCatalog = internalMutation({
       }
     }
 
-    return { listings: listingCount, units: unitCount };
+    // PRUNE: deactivate sync-managed listings no longer in the live set (now marketing-only or
+    // removed at source) so the storefront mirrors the shop's real inventory. Reversible — if an
+    // item is un-retired upstream it re-enters `live` and is re-activated next sync.
+    const liveSlugs = new Set(items.map((i) => i.slug));
+    const activeRows = await ctx.db
+      .query("listings")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+    let deactivated = 0;
+    for (const l of activeRows) {
+      if ((l as any).hyggloProductId != null && !liveSlugs.has(l.slug)) {
+        await ctx.db.patch(l._id, { active: false });
+        deactivated++;
+      }
+    }
+
+    return { listings: listingCount, units: unitCount, deactivated };
   },
 });
 

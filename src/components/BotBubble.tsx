@@ -33,6 +33,7 @@ export function BotBubble() {
   const [onb, setOnb] = useState(0); // conversational onboarding step (4 = done/dismissed)
   const [brief, setBrief] = useState({ shoot: "", size: "", start: "", end: "", budget: 600 });
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const account = useAccount();
   const cart = useCart();
   const startAddon = useAction(api.checkout.startAddon);
@@ -74,8 +75,11 @@ export function BotBubble() {
       } catch {}
   }, []);
   useEffect(() => {
-    if (msgs.length) localStorage.setItem("dbc_bot", JSON.stringify(msgs.slice(-24)));
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (msgs.length) { try { localStorage.setItem("dbc_bot", JSON.stringify(msgs.slice(-24))); } catch {} }
+    // Scroll only the inner message list — NOT scrollIntoView, which scrolls the whole
+    // document and yanks the fixed chat panel out of view (then back) when you send a message.
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [msgs, busy]);
 
   // mouth animates while the latest reply types itself out
@@ -217,7 +221,7 @@ export function BotBubble() {
           </header>
 
           {/* thread */}
-          <div className="relative z-10 flex-1 space-y-3 overflow-y-auto p-4">
+          <div ref={scrollRef} className="relative z-10 flex-1 space-y-3 overflow-y-auto p-4">
             {msgs.length === 0 && onb >= 4 && (
               <>
                 <ChatBubble role="assistant" text={GREETING} />
