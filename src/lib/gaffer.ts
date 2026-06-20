@@ -118,6 +118,23 @@ function lensHeroBoost(l: any, camMounts: string[]): number {
   if (/24-?70/.test(t)) b += 4; // the everyday workhorse range
   return b;
 }
+/** Real-demand boost from the rental history (listing.demandScore, set by sync.applyDemand).
+ * Sub-linear + capped so a hugely-rented item lifts but doesn't swamp compatibility. This is
+ * the data-driven "what's actually in demand" signal — e.g. the Sony 24-70 GM (rented 234x)
+ * leads, the Sigma (never rented) doesn't. */
+function demandBoost(l: any): number {
+  const d = Number(l?.demandScore) || 0;
+  if (d <= 0) return 0;
+  return Math.min(22, Math.round(Math.sqrt(d) * 1.3));
+}
+/** For a SINGLE-item slot, prefer one item over a multi-item "ultimate"/3-lens kit (those
+ * win on summed demand but aren't what "a lens" asks for). */
+function setPenalty(l: any): number {
+  const t = String(l?.title || "").toLowerCase();
+  if (/\bultimate\b/.test(t)) return 14;
+  if (l?.itemType === "lens" && (t.match(/\d{2,3}\s*-\s*\d{2,3}/g) || []).length >= 3) return 14; // 3-lens kit
+  return 0;
+}
 /** Focal/aperture tokens for lens-similarity ranking ("24-70mm f2.8" → 24,70,28). */
 function specTokens(s: string): string[] {
   return (String(s || "").toLowerCase().match(/\d{1,3}(?:mm)?|f?\d\.\d|t\d\.\d/g) || []).map((x) => x.replace(/mm$/, ""));
@@ -292,6 +309,7 @@ async function findAlternatives(
       }
       const xs = specTokens(x.title);
       score += wantSpecs.filter((t) => xs.includes(t)).length * 4; // focal/aperture overlap
+      score += demandBoost(x) - setPenalty(x); // real demand, minus a single-item preference
       if (ctx.favorites.includes(String(x._id))) score += 8;
       return { x, score };
     })
@@ -328,6 +346,7 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
         score = nonLensQuality(x, itemType);
         if ((itemType === "camera" || itemType === "camera-body") && cam.length && parseMounts(x.specs?.mount).some((m) => cam.includes(m))) score += 6; // match desired body mount
       }
+      score += demandBoost(x) - setPenalty(x); // real demand, minus a single-item preference
       if (ctx.favorites.includes(String(x._id))) score += 8;
       return { x, score };
     })
@@ -335,7 +354,18 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
   let pool = cands.filter((s) => s.score >= 0);
   if (!pool.length) pool = cands;
   pool.sort(rankCmp(ctx.pricePref));
-  return pool.length ? pool[0].x : null;
+  if (!pool.length) return null;
+  // CALENDAR-AWARE: when the dates are real, return the highest-ranked item that's actually
+  // FREE for them (not booked out); fall back to the top pick if none of the top set is free.
+  if (!ctx.estimated && ctx.start && ctx.end) {
+    for (const { x } of pool.slice(0, 10)) {
+      try {
+        const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end) });
+        if ((av?.available ?? 0) > 0) return x;
+      } catch {}
+    }
+  }
+  return pool[0].x;
 }
 
 // ── context ──────────────────────────────────────────────────────────────────────
@@ -354,6 +384,8 @@ type Ctx = {
   cartIds: string[];
   today: string;
   estimated: boolean;
+  start: string;
+  end: string;
   pricePref: "cheaper" | "premium" | "any";
 };
 
@@ -383,7 +415,7 @@ async function loadContext(body: any): Promise<Ctx> {
   const ctx: Ctx = {
     c, memberPct: 0, memberName: null, favorites: [], favTitles: [], activeBooking: null,
     camMounts: [], customerName: "there", email: null, pastTitles: [], cartTitles: [], cartIds: [],
-    today, estimated: false, pricePref: "any",
+    today, estimated: false, start: "", end: "", pricePref: "any",
   };
   const camSet = new Set<string>();
   // account: name, membership, favourites, bookings
@@ -471,6 +503,8 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
   ctx.pricePref = (intent.pricePref as any) || "any";
   const { start, end, estimated } = safeDates(intent.start, intent.end, ctx.today);
   ctx.estimated = estimated;
+  ctx.start = start;
+  ctx.end = end;
   const facts: string[] = [];
   const cards: any[] = [];
   const primaryType = intent.itemTypes?.[0] || "";

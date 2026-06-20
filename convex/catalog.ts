@@ -58,6 +58,7 @@ const card = (l: any) => ({
   pricing: l.pricing,
   depositAmount: l.depositAmount,
   minimumRentalDays: l.minimumRentalDays ?? 1,
+  demandScore: l.demandScore ?? 0,
 });
 
 export const allBasic = query({

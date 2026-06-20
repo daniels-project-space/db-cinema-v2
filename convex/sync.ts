@@ -305,6 +305,63 @@ export const applyCatalog = internalMutation({
 });
 
 // ──────────────────────────────────────────────────────────────────────────
+//  Demand intelligence — map the rental HISTORY (canonical items rented N times,
+//  e.g. "sony gm 24-70mm f2.8" 234x) onto each listing's title, so the bot can
+//  recommend what's genuinely in demand. Title-matched because demand is per
+//  canonical item while listings are product bundles (no shared id).
+// ──────────────────────────────────────────────────────────────────────────
+const DEMAND_STOP = new Set(["sony", "canon", "nikon", "set", "lens", "lenses", "mic", "mics", "camera", "body", "kit", "pro", "full", "frame", "padded", "case", "pouch", "panels", "panel", "light", "lights", "mount", "zoom", "with", "and", "the", "f2", "f1", "f4", "ii", "iii"]);
+const THIRD_PARTY = ["sigma", "tamron", "samyang", "rokinon", "viltrox", "7artisans"];
+/** A demand item's matchable signature: focal ranges (despaced, contiguous), whether it's
+ * GM/native glass, a third-party brand if any, and distinctive brand/model words. */
+function demandSig(name: string) {
+  const lower = name.toLowerCase().replace(/—[^|]*$/, "").replace(/\[[^\]]*\]/g, "").trim();
+  const ranges = (lower.match(/\d{2,3}\s*-\s*\d{2,3}/g) || []).map((r) => r.replace(/[^0-9]/g, ""));
+  const requireGm = /\bgm\b|g.?master/.test(lower);
+  const third = THIRD_PARTY.find((b) => lower.includes(b)) ?? null;
+  const words = (lower.match(/[a-z0-9]+/g) || []).filter((t) => t.length >= 4 && !DEMAND_STOP.has(t) && !/^\d/.test(t));
+  return { ranges, requireGm, third, words };
+}
+/** Total rental demand attributable to a listing title (sum of matched item counts). */
+function titleDemand(title: string, demand: { name: string; count: number }[]): number {
+  const lower = String(title || "").toLowerCase();
+  const tj = lower.replace(/[^a-z0-9]/g, "");
+  const toks = new Set(lower.match(/[a-z0-9]+/g) || []);
+  const titleHasGm = /\bgm\b|g.?master|gmaster/.test(lower);
+  const titleThird = THIRD_PARTY.find((b) => lower.includes(b)) ?? null;
+  let score = 0;
+  for (const { name, count } of demand) {
+    const s = demandSig(name);
+    if (s.ranges.length && !s.ranges.every((r) => tj.includes(r))) continue;          // focal must match (24-70 ≠ 16-35)
+    if (s.requireGm && !titleHasGm) continue;                                          // native GM glass
+    if (titleThird && titleThird !== s.third) continue;                                // a Sigma title ≠ a Sony-GM demand item
+    const wordHits = s.words.filter((w) => toks.has(w) || tj.includes(w)).length;
+    if (s.words.length && wordHits / s.words.length < 0.5) continue;                   // distinctive words mostly present
+    if (!s.ranges.length && !wordHits) continue;                                       // skip items with no specific signal matched
+    score += count;
+  }
+  return score;
+}
+
+/** Recompute per-listing demandScore from the rental-history name→count map. */
+export const applyDemand = internalMutation({
+  args: { demand: v.array(v.object({ name: v.string(), count: v.number() })) },
+  handler: async (ctx, { demand }) => {
+    const listings = await ctx.db.query("listings").collect();
+    let updated = 0, withDemand = 0;
+    for (const l of listings) {
+      const score = titleDemand(l.title, demand);
+      if (score > 0) withDemand++;
+      if (((l as any).demandScore ?? 0) !== score) {
+        await ctx.db.patch(l._id, { demandScore: score } as any);
+        updated++;
+      }
+    }
+    return { updated, withDemand, listings: listings.length };
+  },
+});
+
+// ──────────────────────────────────────────────────────────────────────────
 //  Hygglo reservation mirror — cross-check active + upcoming Hygglo rentals so
 //  storefront availability reflects what's already booked on Hygglo (by unit +
 //  dates + qty). Source of truth: RMv2 reservations:listForReconcile(dbcinema).
@@ -338,6 +395,21 @@ export const syncHyggloReservations = action({
           }));
       return { ref: String(r.hygglo_order_id ?? r._id), start, end, items };
     }).filter((r) => !isNaN(r.start) && !isNaN(r.end));
+
+    // DEMAND: tally how often each canonical item was rented across the WHOLE history
+    // (not just upcoming) → per-listing demandScore for the bot's recommendations.
+    const byName = new Map<string, number>();
+    for (const r of all) {
+      if (r.is_obsolete || ["cancelled", "canceled", "declined"].includes(String(r.status)) || r.order_step === "CANCELED") continue;
+      const its = Array.isArray(r.resolved_items) && r.resolved_items.length ? r.resolved_items : (Array.isArray(r.items) ? r.items : []);
+      for (const i of its) {
+        const n = String(i.item_name_canonical || i.item_name || "").replace(/\s*\[[^\]]*\]\s*/g, "").trim().toLowerCase();
+        if (n) byName.set(n, (byName.get(n) ?? 0) + Math.round(i.qty || 1));
+      }
+    }
+    await ctx.runMutation(internal.sync.applyDemand, {
+      demand: [...byName.entries()].map(([name, count]) => ({ name, count })),
+    });
 
     return await ctx.runMutation(internal.sync.applyHygglo, { rows });
   },

@@ -64,6 +64,7 @@ export default defineSchema({
     ),
     hyggloListingSlug: v.optional(v.string()),
     hyggloProductId: v.optional(v.number()),
+    demandScore: v.optional(v.number()), // rental-history demand (set by sync.applyDemand)
     unavailableDates: v.optional(v.array(v.string())),
     publicUrl: v.optional(v.string()),
     minimumRentalDays: v.optional(v.number()),
