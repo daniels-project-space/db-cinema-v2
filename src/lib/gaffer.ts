@@ -326,6 +326,19 @@ async function findAlternatives(
     const target = (mountHint[0] || parseMounts(pool[0].x.specs?.mount)[0] || "").toUpperCase();
     if (target) pool = pool.filter((s) => { const ms = parseMounts(s.x.specs?.mount) as string[]; return !ms.length || ms.includes(target); });
   }
+  // CALENDAR-AWARE: with real dates, only recommend gear that's actually FREE — scan ranked
+  // candidates, keep the first n that are available (fall back to top if nothing in range is free).
+  if (!ctx.estimated && ctx.start && ctx.end && pool.length) {
+    const free: any[] = [];
+    for (const { x } of pool.slice(0, 24)) {
+      if (free.length >= n) break;
+      try {
+        const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end) });
+        if ((av?.available ?? 0) > 0) free.push(x);
+      } catch {}
+    }
+    if (free.length) return free;
+  }
   return pool.slice(0, n).map((s) => s.x);
 }
 

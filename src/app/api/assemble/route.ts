@@ -66,6 +66,23 @@ const SCHEMA = z.object({
   compatibility: z.array(z.string()),
 });
 
+/** Real rental-history demand boost (listing.demandScore) — recommend what's actually rented. */
+function demandBoost(d: any): number {
+  const n = Number(d) || 0;
+  return n <= 0 ? 0 : Math.min(22, Math.round(Math.sqrt(n) * 1.3));
+}
+/** Native-flagship lens preference: a Sony E body wants Sony G Master glass first. */
+function lensHero(title: string, camMounts: string[]): number {
+  const t = String(title || "").toLowerCase();
+  if (/camera|fx ?3|fx ?6|\ba7\b|a73|komodo|bmpcc|\+ .*camera/.test(t)) return 0;
+  let b = 0;
+  const sony = camMounts.includes("E");
+  if (sony && /\bg ?master\b|gmaster|\bgm\b/.test(t) && /\bsony\b/.test(t)) b += 14;
+  if (sony && /\b(sigma|tamron|samyang|rokinon|viltrox)\b/.test(t)) b -= 4;
+  if (/24-?70/.test(t)) b += 4;
+  if (/\bultimate\b/.test(t) || (t.match(/\d{2,3}\s*-\s*\d{2,3}/g) || []).length >= 3) b -= 14; // single lens over a 3-lens kit
+  return b;
+}
 /** Best mount compatibility of an option's mount string vs the kit's camera
  * mounts. "unknown" when either side is empty (don't block on missing data). */
 function optionCompat(optionMount: string | null | undefined, camMounts: string[]): "native" | "adapter" | "incompatible" | "unknown" {
@@ -85,6 +102,9 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
   if (!def) return [];
   let items: any[] = await c.query(api.catalog.byItemType, { types: def.types });
   if (def.must) items = items.filter((l) => def.must!.test(l.title));
+  // consider the most in-demand items FIRST (byItemType is unsorted) so the availability-checked
+  // window of 30 always includes the gear people actually rent (e.g. the Sony 24-70 GM).
+  items.sort((a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0));
   const days = Math.max(1, Math.round((msOf(end) - msOf(start)) / 86400000) + 1);
   const out: any[] = [];
   for (const l of items.slice(0, 30)) {
@@ -100,12 +120,16 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
       start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
       role, mount,
       compat: key === "lens" ? optionCompat(mount, camMounts) : undefined,
+      demandScore: l.demandScore ?? 0,
       specs: l.specs ?? {},
       tip: l.tip ?? null,
     });
     if (out.length >= 16) break;
   }
   const rank = { native: 0, adapter: 1, unknown: 2, incompatible: 3 } as const;
+  // real demand + native-flagship preference (so a stage leads with the gear people actually
+  // rent — Sony 24-70 GM, FX3, Nanlite — not the cheapest item).
+  const qual = (o: any) => demandBoost(o.demandScore) + (key === "lens" ? lensHero(o.title, camMounts) : 0);
   out.sort((a, b) => {
     if (key === "lens" && camMounts.length) {
       // native glass before adapter glass before unknown — real-world correctness first
@@ -118,6 +142,8 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
       const bc = b.specs?.lensClass === lensPref ? 0 : 1;
       if (ac !== bc) return ac - bc; // preferred lens class first (af for small, cine for large)
     }
+    const qd = qual(b) - qual(a);
+    if (qd !== 0) return qd; // most in-demand / native flagship next
     const pa = def.prefer && def.prefer.test(a.title) ? 0 : 1;
     const pb = def.prefer && def.prefer.test(b.title) ? 0 : 1;
     return pa - pb || a.total - b.total;

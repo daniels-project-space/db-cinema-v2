@@ -277,7 +277,9 @@ export const applyCatalog = internalMutation({
       if (existing) {
         // never overwrite r2Images OR specs here — the migration/manual fixes own specs
         // (the 12 MANUAL mounts must survive every sync); only NEW listings get derived specs.
-        await ctx.db.patch(existing._id, synced);
+        // A locally-suppressed listing (marketing-only override) stays INACTIVE even though it's
+        // in the live set — so the bot/assemble/storefront never show it.
+        await ctx.db.patch(existing._id, (existing as any).suppressed ? { ...synced, active: false } : synced);
       } else {
         await ctx.db.insert("listings", { ...synced, specs: it.specs ?? {} });
         listingCount++;
@@ -475,6 +477,25 @@ export const applyHygglo = internalMutation({
       }
     }
     return { mirrored, rows: rows.length };
+  },
+});
+
+/** Mark listings as marketing-only (locally suppressed) by title regex or exact slug — they
+ * are deactivated now and STAY inactive through every sync. Pass suppressed:false to restore. */
+export const setSuppressed = internalMutation({
+  args: { match: v.string(), suppressed: v.boolean() },
+  handler: async (ctx, { match, suppressed }) => {
+    const all = await ctx.db.query("listings").collect();
+    let re: RegExp | null = null;
+    try { re = new RegExp(match, "i"); } catch {}
+    let updated = 0;
+    for (const l of all) {
+      if (l.slug === match || (re && re.test(l.title))) {
+        await ctx.db.patch(l._id, suppressed ? { suppressed: true, active: false } : { suppressed: false });
+        updated++;
+      }
+    }
+    return { updated };
   },
 });
 
