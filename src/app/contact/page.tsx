@@ -5,7 +5,7 @@ import { useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { PageHero } from "@/components/PageHero";
-import { IconCheck, IconClock, IconPin } from "@/components/icons";
+import { IconCheck, IconClock, IconPin, IconSend } from "@/components/icons";
 import { HOURS_WINDOWS } from "@/lib/site";
 
 export default function ContactPage() {
@@ -58,7 +58,7 @@ export default function ContactPage() {
                 </div>
                 <div>
                   <label className="hud-label mb-1.5 block" htmlFor="c-email">Email</label>
-                  <input id="c-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@production.co" type="email" className="input w-full" />
+                  <input id="c-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" type="email" className="input w-full" />
                 </div>
                 <div>
                   <label className="hud-label mb-1.5 block" htmlFor="c-msg">Message</label>
@@ -72,6 +72,19 @@ export default function ContactPage() {
           </div>
 
           <aside className="flex h-fit flex-col gap-3">
+            <div className="spot rounded-2xl p-5">
+              <div className="flex items-center gap-2.5">
+                <IconSend className="h-4 w-4 text-accent-400" />
+                <span className="hud-label !text-white/60">Email</span>
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-white/60">
+                <a href="mailto:dbcinemaproductions@gmail.com" className="break-all transition-colors hover:text-white">
+                  dbcinemaproductions@gmail.com
+                </a>
+                <br />
+                <span className="text-white/35">we reply within a day</span>
+              </p>
+            </div>
             <div className="spot rounded-2xl p-5">
               <div className="flex items-center gap-2.5">
                 <IconClock className="h-4 w-4 text-accent-400" />

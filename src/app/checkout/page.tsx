@@ -191,7 +191,7 @@ export default function CheckoutPage() {
               <div className="flex flex-col gap-3">
                 <div>
                   <label className={label} htmlFor="co-email">Email *</label>
-                  <input id="co-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@production.co" type="email" className="input w-full" />
+                  <input id="co-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" type="email" className="input w-full" />
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <div className="flex-1">
