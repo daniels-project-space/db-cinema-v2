@@ -30,7 +30,7 @@ export type ItemType =
 // service listings, transmitters, flashes) BEFORE the greedy camera rule,
 // without stealing genuine camera PACKAGES (which always name a body model).
 const CAMERA_MODEL =
-  /\b(bmpcc|fx3|fx ?3|fx6|fx ?6|fx30|fx ?30|fx9|fx ?9|a7|a7s|a7s ?iii|a7r|a7c|a7iii|a73|a7iv|a7v|a6\d00|a1\b|a9\b|venice|burano|alexa|amira|\bred\b|gemini|ursa|c70|c-?70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|pocket cinema|z ?cam|zv-?e|x-?t\d|x100|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b|gopro|go ?pro|osmo|insta ?360|hero ?\d)\b/i;
+  /\b(bmpcc|pyxis|fx3|fx ?3|fx6|fx ?6|fx30|fx ?30|fx9|fx ?9|a7|a7s|a7s ?iii|a7r|a7c|a7iii|a73|a7iv|a7v|a6\d00|a1\b|a9\b|venice|burano|alexa|amira|\bred\b|gemini|ursa|c70|c-?70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|pocket cinema|z ?cam|zv-?e|x-?t\d|x100|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b|gopro|go ?pro|osmo|insta ?360|hero ?\d)\b/i;
 
 // For the camera-model GUARD only: strip SEO "(like …)" comparisons and "for <compat list>"
 // clauses, so a TRIPOD/accessory that merely lists "for … Sony FX3, Canon C70" isn't read
@@ -61,9 +61,14 @@ const ACCESSORY_FIRST: [ItemType, RegExp][] = [
 // transmitter / receiver / batteries are NOT here — they appear inside genuine
 // audio & GoPro kits as secondary components.)
 const STRONG_ACCESSORY: [ItemType, RegExp][] = [
-  ["accessory", /\b(teleprompter|prompter|cfexpress|cf-?express|card reader|mount adapter|lens adapter|mount converter|operator ?dp|\bdop\b|for hire)\b/i],
+  // hardware-only accessories that override even a camera model (a card/adapter "for FX3" is not a camera).
+  // NOTE: "operator dp / dop / for hire" is handled separately+gated in deriveItemType so a real
+  // camera kit that merely INCLUDES an operator ("BMPCC 6K Pro Kit + Operator DP") stays a camera.
+  ["accessory", /\b(teleprompter|prompter|cfexpress|cf-?express|card reader|mount adapter|lens adapter|mount converter)\b/i],
   ["tripod", /\b(support vest|easy ?rig|flowline)\b/i],
 ];
+// gimbal HERO (title leads with the gimbal) so a "DJI RS4 + 24-70 lens" bundle is a gimbal, not a lens.
+const GIMBAL_HERO = /^(?:\d+\s*[x×]\s*)?(?:dji |tilta |zhiyun |moza )*(?:ronin|rs ?[234]\b|rsc|crane|gimbal)\b/i;
 
 // A battery/charger whose HERO noun is the battery (e.g. "Gimbal Battery DJI Ronin",
 // "V-mount charger") — the "gimbal"/"camera" here is the COMPATIBILITY target, not the
@@ -76,19 +81,20 @@ const BATTERY_HERO = /^(?:\d+\s*[x×]\s*)?(?:spare |extra |gimbal |camera |v-?mo
 // kits that also mention an accessory classify as the camera (the hero).
 const RULES: [ItemType, RegExp][] = [
   ["drone", /\b(drone|mavic|\bfpv\b|avata|air ?[23]|mini ?[34]|inspire|neo)\b/i],
-  ["camera-body", /\b(camera|bmpcc|fx3|fx6|fx30|fx9|a7|a7s|a7s ?iii|a7r|a7c|a7iii|a73|a7iv|a6\d00|a1\b|a9\b|burano|venice|alexa|\bred\b|ursa|c70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|s5|pocket cinema|z ?cam|zv-?e|lumix|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b)\b/i],
+  ["camera-body", /\b(camera|bmpcc|pyxis|fx3|fx6|fx30|fx9|a7|a7s|a7s ?iii|a7r|a7c|a7iii|a73|a7iv|a6\d00|a1\b|a9\b|burano|venice|alexa|\bred\b|ursa|c70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|s1h|s5|pocket cinema|z ?cam|zv-?e|lumix|eos ?r|\br5\b|\br6\b|\br3\b|\br8\b)\b/i],
   ["lens", /\b(lens|lenses|\d{2}-\d{2,3}mm|\d{2,3}-\d{2,3}|50mm|35mm|85mm|24mm|28mm|14mm|16mm|135mm|gm\b|g ?master|ultra ?wide|wide ?angle|telephoto|sigma|samyang|tamron|rokinon|\bfe\b|prime|zoom lens|cine lens|anamorphic|blazar|dzo|laowa|cooke|f1\.[248]|f2\.8|t1\.5|t2\.\d)\b/i],
   // matte boxes + atmosphere machines are accessories, not ND/monitor/light
   ["accessory", /\b(matte ?box|mattebox|french flag|follow ?focus|cage rig|haze|hazer|smoke machine|fog machine)\b/i],
   ["nd-filter", /\b(nd[\s-]?filter|variable nd|vnd|cpl|polari[sz]|filter kit|nd ?kit|nd ?set)\b/i],
   ["gimbal", /\b(gimbal|ronin|rs ?\d|rsc|crane|zhiyun|moza|stabili[sz]er)\b/i],
   ["slider", /\b(slider|dolly|track)\b/i],
-  ["tripod", /\b(tripod|fluid head|monopod|\blegs\b|sticks)\b/i],
+  ["tripod", /\b(tripod|fluid head|monopod|\blegs\b|sticks|\bc-?stand\b|century stand)\b/i],
   ["dj-deck", /\b(\bdj\b|cdj|ddj|xdj|pioneer|turntable|rekordbox|serato)\b/i],
   ["mixer", /\b(mixer|mixing desk|djm)\b/i],
   ["speaker", /\b(speaker|partybox|\bjbl\b|\bpa\b|sub ?woofer|sound ?system)\b/i],
-  ["wireless-mic", /\b(wireless mic|wireless go|dji mic|rode wireless|lav|lavalier|sennheiser ew|handheld mic|radio mic)\b/i],
-  ["boom-mic", /\b(boom|shotgun|ntg|mkh|boom pole|hypercardioid|deity)\b/i],
+  // boom/shotgun mics FIRST (so a shotgun isn't grabbed by the generic wireless catch below)
+  ["boom-mic", /\b(boom ?mic|boom ?pole|shotgun|\bntg\b|\bmkh\b|hypercardioid|deity|sennheiser mke|sm7b|podcast mic)\b/i],
+  ["wireless-mic", /\b(wireless mic|wireless go|dji mic|rode wireless|rode mic|lav|lavalier|sennheiser (ew|g[34])|\bg[34]\b|handheld mic|radio mic|wireless microphone|microphone.{0,12}wireless)\b/i],
   ["recorder", /\b(recorder|zoom h\d|tascam|mixpre|field recorder)\b/i],
   ["headphones", /\b(headphone|headphones)\b/i],
   ["monitor", /\b(monitor|atomos|ninja v|shinobi|smallhd|feelworld|field monitor|on-?camera monitor)\b/i],
@@ -100,9 +106,20 @@ export function deriveItemType(name: string): ItemType {
   // Drones win outright (a "Mavic + ND" bundle is a drone).
   if (RULES[0][1].test(name)) return "drone";
 
-  // Strong accessory heroes override even a named camera model (a card/adapter
-  // "for Sony FX3" is not a camera).
-  for (const [t, re] of STRONG_ACCESSORY) if (re.test(name)) return t;
+  // "Operator DP / DOP / for hire" is a SERVICE (accessory) only when no real camera model is
+  // named. "BMPCC 6K Pro Kit + Operator DP" names a camera → it's a camera rental, not a service.
+  if (/\b(operator ?dp|\bdop\b|for hire)\b/i.test(name) && !CAMERA_MODEL.test(name)) return "accessory";
+
+  // Gimbal HERO bundle ("DJI RS4 + 24-70 lens", no camera) → gimbal, before the lens rule grabs it.
+  if (GIMBAL_HERO.test(name.trim()) && !CAMERA_MODEL.test(name)) return "gimbal";
+
+  // Strong accessory heroes override a named camera model (a card/adapter "for Sony FX3" is
+  // not a camera) — BUT a real camera BUNDLE that merely includes a card/adapter ("BMPCC 6K
+  // + CFexpress + cage") stays a camera. So skip the accessory override when a camera model is present.
+  for (const [t, re] of STRONG_ACCESSORY) if (re.test(name)) {
+    if (t === "accessory" && CAMERA_MODEL.test(name)) continue;
+    return t;
+  }
 
   // Battery/charger hero beats the greedy gimbal/light rules ("Gimbal Battery …").
   if (BATTERY_HERO.test(name.trim()) && !CAMERA_MODEL.test(name)) return "battery";
@@ -114,7 +131,8 @@ export function deriveItemType(name: string): ItemType {
   if (
     /\b(fz100|np-?fz100|np-?970|np ?970|lp-?e6|d-?tap|v[-\s]?mount|v[-\s]?lock)\b/i.test(name) &&
     /\b(batter(?:y|ies)|charger|power ?station|pack|add-?on)\b/i.test(name) &&
-    !CAMERA_MODEL.test(name)
+    !CAMERA_MODEL.test(name) &&
+    !/\b(gimbal|ronin|rs ?[234]\b|rsc|crane|zhiyun|moza)\b/i.test(name) // a gimbal kit w/ a battery is a gimbal
   )
     return "battery";
 
