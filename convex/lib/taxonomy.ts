@@ -107,13 +107,25 @@ export function deriveItemType(name: string): ItemType {
   // Battery/charger hero beats the greedy gimbal/light rules ("Gimbal Battery …").
   if (BATTERY_HERO.test(name.trim()) && !CAMERA_MODEL.test(name)) return "battery";
 
+  // A battery ADDON named by its battery MODEL ("Sony NP-FZ100 … batteries 2x set addon",
+  // "Sony NP-970 batteries", "fz100 alpha camera batteries") is a battery even though it
+  // says "camera" — the camera is the compatibility target, not the product. Gate on no
+  // real camera MODEL so "FX3 + spare battery" stays a camera bundle.
+  if (
+    /\b(fz100|np-?fz100|np-?970|np ?970|lp-?e6|d-?tap|v[-\s]?mount|v[-\s]?lock)\b/i.test(name) &&
+    /\b(batter(?:y|ies)|charger|power ?station|pack|add-?on)\b/i.test(name) &&
+    !CAMERA_MODEL.test(name)
+  )
+    return "battery";
+
   // Action-cam BODIES are real rentable cameras (GoPro / DJI Osmo Action+Pocket /
-  // Insta360), but the camera-body RULE can't list bare "osmo" without swallowing
-  // Osmo *Mobile* gimbals — so match them here, EXCEPT when an accessory noun
-  // (battery, mount, card, case…) makes the listing an action-cam accessory.
+  // Insta360). The camera-body RULE can't list bare "osmo" (would swallow Osmo *Mobile*
+  // gimbals), so match them here. EXCLUDE only when the accessory is the HERO — i.e. the
+  // title STARTS with the accessory noun ("GoPro battery", "2x batteries for GoPro") — so a
+  // genuine kit like "2x GoPro Hero 12 set + 4x batteries" stays a camera, not a battery.
   if (
     /\b(gopro|go ?pro|osmo ?(?:action|pocket)|dji ?pocket|insta ?360|action ?cam(?:era)?)\b/i.test(name) &&
-    !/\b(batter(?:y|ies)|charger|sd ?card|micro ?sd|memory ?card|\bmount\b|clamp|strap|case|housing|filter|\bnd\b|dome|float|grip|selfie|chest|handlebar|suction|adapter|cable|protector|lens ?cap|tripod|head ?strap|accessor)\b/i.test(name)
+    !/^(?:\d+\s*[x×]\s*)?(?:spare |extra )?(?:gopro |go ?pro |osmo |dji )?(?:batter(?:y|ies)|charger|sd ?card|memory ?card|mount|case|housing|strap|filter|\bnd\b|dome|float|grip|selfie|chest|handlebar|suction|adapter|cable|protector|lens ?cap|accessor)/i.test(name.trim())
   )
     return "camera-body";
 
@@ -306,10 +318,14 @@ export function deriveSpecs(title: string, itemType: ItemType): Specs {
     else if (has(/bmpcc|pocket cinema/)) batteryType = "NP-F/LP-E6";
     else if (has(/gh5|gh6|gh7|s1h|s5|lumix/)) batteryType = "DMW-BLK22";
   } else if (itemType === "battery") {
-    if (has(/np-?fz100|fz100/)) batteryType = "NP-FZ100";
-    else if (has(/lp-?e6|lpe6/)) batteryType = "LP-E6";
-    else if (has(/v-?mount|v-?lock/)) batteryType = "V-mount";
-    else if (has(/np-?f\b|npf|np-?970|np-?750/)) batteryType = "NP-F";
+    // NOTE: tokens must tolerate a SPACE ("v mount", "np 970") — the old `v-?mount` /
+    // `np-?970` only matched the hyphen/no-gap forms, so most batteries derived as null.
+    if (has(/np[-\s]?fz100|fz100/)) batteryType = "NP-FZ100";
+    else if (has(/lp[-\s]?e6|lpe6/)) batteryType = "LP-E6";
+    else if (has(/v[-\s]?mount|v[-\s]?lock/)) batteryType = "V-mount";
+    else if (has(/np[-\s]?f\b|npf|np[-\s]?970|np[-\s]?750/)) batteryType = "NP-F";
+    // pure power stations (no V-mount/D-tap cue) stay null = universal/unknown — they feed any
+    // rig via AC/dummy battery, so never flag them incompatible with a specific camera.
   }
 
   const includesLens = itemType === "camera-body" && has(/\d{2}-\d{2,3}\s?mm|\bmm lens|with lens|\+\s?[a-z0-9 ]*lens/);

@@ -1,7 +1,46 @@
 import { action, internalMutation, mutation } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE } from "./lib/taxonomy";
+
+/**
+ * Canonical camera-MODEL identity for inventory reconciliation against the rental
+ * manager. Disambiguates look-alikes (fx3 ≠ fx30, a7iii ≠ a7iv, a7 ≠ a7r) so a
+ * catalogue listing for a body the shop doesn't physically own (per RMv2 items)
+ * can be flagged as a phantom. Returns null when no camera model is recognised.
+ */
+function camModel(s: string): string | null {
+  let t = " " + String(s || "").toLowerCase().replace(/cannon/g, "canon") + " ";
+  t = t.replace(/[^a-z0-9]+/g, " ");
+  if (/\bfx ?30\b/.test(t)) return "fx30";
+  if (/\bfx ?3\b/.test(t)) return "fx3";
+  if (/\bfx ?6\b/.test(t)) return "fx6";
+  if (/\bfx ?9\b/.test(t)) return "fx9";
+  if (/\ba7s ?(iii|3)\b/.test(t)) return "a7siii";
+  if (/\ba7s ?(ii|2)\b/.test(t)) return "a7sii";
+  if (/\ba7r ?(iv|4)\b/.test(t)) return "a7riv";
+  if (/\ba7r ?(iii|3)\b/.test(t)) return "a7riii";
+  if (/\ba7r ?(ii|2)\b/.test(t)) return "a7rii";
+  if (/\ba7 ?(iv|4)\b/.test(t) || /\ba7iv\b/.test(t)) return "a7iv";
+  if (/\ba7 ?(iii|3)\b/.test(t)) return "a7iii";
+  if (/\ba7 ?(v|5)\b/.test(t)) return "a7v";
+  if (/\ba7 ?(ii|2)\b/.test(t)) return "a7ii";
+  if (/\ba6\d00\b/.test(t)) return "a6x00";
+  if (/\ba1\b/.test(t)) return "a1";
+  if (/\ba9\b/.test(t)) return "a9";
+  if (/\bc ?70\b/.test(t)) return "c70";
+  if (/\bc ?(100|200|300|500)\b/.test(t)) return "c-cine";
+  if (/\br ?5\b/.test(t)) return "r5";
+  if (/\br ?6\b/.test(t)) return "r6";
+  if (/komodo|raptor/.test(t)) return "komodo";
+  if (/bmpcc|pocket cinema/.test(t)) return "bmpcc";
+  if (/\bs5\b|s5 ?ii|s1h/.test(t)) return "s5";
+  if (/x100/.test(t)) return "x100";
+  if (/osmo|gopro|hero|insta ?360|action/.test(t)) return "actioncam";
+  if (/ronin 4d/.test(t)) return "ronin4d";
+  if (/inspire|mavic|air 3|mini 4|avata|\bdrone\b|fpv/.test(t)) return "drone";
+  return null;
+}
 
 /**
  * RMv2 availability/catalog bridge.
@@ -501,6 +540,40 @@ export const setSuppressed = internalMutation({
       }
     }
     return { updated, skipped };
+  },
+});
+
+export const suppressByIds = internalMutation({
+  args: { ids: v.array(v.id("listings")), suppressed: v.boolean() },
+  handler: async (ctx, { ids, suppressed }) => {
+    for (const id of ids) await ctx.db.patch(id, suppressed ? { suppressed: true, active: false } : { suppressed: false });
+    return { updated: ids.length };
+  },
+});
+
+/**
+ * Reconcile the storefront camera catalogue against the rental manager's REAL items
+ * (RMv2 items:listForReconcile = the gear the shop physically owns). Any camera-body
+ * listing whose model isn't owned (e.g. FX30, A7 IV, A7R — the shop has A7 II/III/V/SIII
+ * but not those) is a phantom → suppressed. `apply:false` (default) is a dry run.
+ * This is the durable, data-driven "what exists vs what doesn't" check.
+ */
+export const reconcileCameras = action({
+  args: { apply: v.optional(v.boolean()) },
+  handler: async (ctx, { apply }): Promise<any> => {
+    const items: any[] = await rmv2Query("items:listForReconcile", {});
+    const owned = new Set<string>();
+    for (const i of items) { const m = camModel(i.name); if (m) owned.add(m); }
+    const cams: any[] = await ctx.runQuery(api.catalog.byItemType, { types: ["camera-body"] });
+    const phantom = cams.filter((x) => { const m = camModel(x.title); return m != null && !owned.has(m); });
+    const ids = phantom.map((p) => p._id);
+    if (apply && ids.length) await ctx.runMutation(internal.sync.suppressByIds, { ids, suppressed: true });
+    return {
+      owned: [...owned].sort(),
+      phantomCount: phantom.length,
+      phantom: phantom.map((p) => `${camModel(p.title)} | ${String(p.title).slice(0, 48)}`),
+      applied: !!apply,
+    };
   },
 });
 
