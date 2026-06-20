@@ -12,15 +12,15 @@ import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE } from "./lib/taxonomy";
 function camModel(s: string): string | null {
   let t = " " + String(s || "").toLowerCase().replace(/cannon/g, "canon") + " ";
   t = t.replace(/[^a-z0-9]+/g, " ");
+  if (/\bvenice\b/.test(t)) return "venice";
+  if (/\balexa\b|\bamira\b/.test(t)) return "alexa";
   if (/\bfx ?30\b/.test(t)) return "fx30";
   if (/\bfx ?3\b/.test(t)) return "fx3";
   if (/\bfx ?6\b/.test(t)) return "fx6";
   if (/\bfx ?9\b/.test(t)) return "fx9";
   if (/\ba7s ?(iii|3)\b/.test(t)) return "a7siii";
   if (/\ba7s ?(ii|2)\b/.test(t)) return "a7sii";
-  if (/\ba7r ?(iv|4)\b/.test(t)) return "a7riv";
-  if (/\ba7r ?(iii|3)\b/.test(t)) return "a7riii";
-  if (/\ba7r ?(ii|2)\b/.test(t)) return "a7rii";
+  if (/\ba7 ?r\b|\ba7r\b/.test(t)) return "a7r"; // any A7R (not owned)
   if (/\ba7 ?(iv|4)\b/.test(t) || /\ba7iv\b/.test(t)) return "a7iv";
   if (/\ba7 ?(iii|3)\b/.test(t)) return "a7iii";
   if (/\ba7 ?(v|5)\b/.test(t)) return "a7v";
@@ -30,15 +30,19 @@ function camModel(s: string): string | null {
   if (/\ba9\b/.test(t)) return "a9";
   if (/\bc ?70\b/.test(t)) return "c70";
   if (/\bc ?(100|200|300|500)\b/.test(t)) return "c-cine";
+  if (/\br5c\b/.test(t)) return "r5c";
   if (/\br ?5\b/.test(t)) return "r5";
   if (/\br ?6\b/.test(t)) return "r6";
-  if (/komodo|raptor/.test(t)) return "komodo";
-  if (/bmpcc|pocket cinema/.test(t)) return "bmpcc";
-  if (/\bs5\b|s5 ?ii|s1h/.test(t)) return "s5";
-  if (/x100/.test(t)) return "x100";
+  if (/komodo/.test(t)) return "komodo";
+  if (/raptor|\bred ?(helium|gemini|monstro|raven|v ?raptor)/.test(t)) return "red-other";
+  if (/bmpcc ?4k|pocket ?4k|bmpcc4k/.test(t)) return "bmpcc4k"; // 4K (shop owns the 6K, not 4K)
+  if (/bmpcc|pocket cinema|6k ?pro|6k ?g2/.test(t)) return "bmpcc";
+  if (/\bs5\b|s5 ?ii|s1h|\bgh ?[567]\b/.test(t)) return "s5";
+  if (/x100|\bx-?t\d\b/.test(t)) return "x100";
   if (/osmo|gopro|hero|insta ?360|action/.test(t)) return "actioncam";
   if (/ronin 4d/.test(t)) return "ronin4d";
-  if (/inspire|mavic|air 3|mini 4|avata|\bdrone\b|fpv/.test(t)) return "drone";
+  if (/mavic ?4|air ?4/.test(t)) return "drone-new"; // newer drones not in the owned list
+  if (/inspire|mavic|air ?3|mini ?4|avata|\bdrone\b|fpv|\bneo\b/.test(t)) return "drone";
   return null;
 }
 
@@ -143,11 +147,13 @@ export const syncFromRmv2 = action({
     // What the storefront shows = the shop's REAL rentable inventory: not retired/display-only
     // (isMarketingOnly), named, and priced. (isPublished is unreliable here — only ~3 of 405 carry
     // it — so it would empty the catalogue; isMarketingOnly is the maintained "retired" signal.)
+    // Show everything the shop actually HAS. We no longer trust the RMv2 `isMarketingOnly`
+    // flag as a blanket hide — it's over-applied and was hiding ~168 real items (drones,
+    // lights, batteries, real camera kits). Instead we include all named+priced products and
+    // let reconcileCameras hide only true PHANTOMS (camera models not in the items ledger,
+    // e.g. Venice / Alexa / FX30 / A7 IV / A7R) + the local suppressed/display-glass overrides.
     const live = products.filter(
-      (p) =>
-        !p.isMarketingOnly &&
-        p.name &&
-        (p.prices ?? []).some((x) => (x.pricePerDay ?? x.price ?? 0) > 0),
+      (p) => p.name && (p.prices ?? []).some((x) => (x.pricePerDay ?? x.price ?? 0) > 0),
     );
 
     const payload = live.map((p) => {
