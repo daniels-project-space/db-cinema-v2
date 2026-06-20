@@ -15,32 +15,7 @@ import { SpotlightEffect } from "@/components/SpotlightEffect";
 import { ScrollProgress } from "@/components/ScrollProgress";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { BotBubble } from "@/components/BotBubble";
-import { SITE_URL, SITE_NAME, HOURS_WINDOWS } from "@/lib/site";
-
-// JSON-LD LocalBusiness — a strong legitimacy + local-SEO signal that helps Google AND
-// content filters (FortiGuard et al.) correctly classify the site as a real London business.
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const STRUCTURED_DATA = {
-  "@context": "https://schema.org",
-  "@type": "LocalBusiness",
-  "@id": `${SITE_URL}/#business`,
-  name: SITE_NAME,
-  url: SITE_URL,
-  email: "dbcinemaproductions@gmail.com",
-  image: `${SITE_URL}/opengraph-image`,
-  description:
-    "Professional cinema camera, lens, lighting, audio and drone hire in London — daily rates, delivered.",
-  areaServed: { "@type": "City", name: "London" },
-  address: { "@type": "PostalAddress", addressLocality: "London", addressCountry: "GB" },
-  priceRange: "££",
-  openingHoursSpecification: HOURS_WINDOWS.map((w) => ({
-    "@type": "OpeningHoursSpecification",
-    dayOfWeek: DAYS,
-    opens: w.opens,
-    closes: w.closes,
-  })),
-  knowsAbout: ["Camera rental", "Cinema lens hire", "Lighting hire", "Drone hire", "Audio equipment rental"],
-};
+import { SITE_URL } from "@/lib/site";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -128,11 +103,6 @@ export default function RootLayout({
       className={`${inter.variable} ${grotesk.variable} ${anton.variable} ${instrument.variable} ${jbmono.variable}`}
     >
       <body className="font-sans antialiased bg-charcoal-950 text-white/90">
-        {/* LocalBusiness structured data (schema.org) */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }}
-        />
         {/* apply the saved accent before first paint (no flash) */}
         <script
           dangerouslySetInnerHTML={{

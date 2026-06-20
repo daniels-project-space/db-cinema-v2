@@ -37,13 +37,17 @@ export default async function Home() {
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
+    "@id": `${SITE_URL}/#business`,
     name: SITE_NAME,
     url: SITE_URL,
+    email: "dbcinemaproductions@gmail.com",
+    image: `${SITE_URL}/opengraph-image`,
     description:
       "Professional cinema camera, lens, lighting, audio and drone rental in London. Daily, 3-day and weekly rates, delivered.",
     priceRange: "££",
-    areaServed: "London, United Kingdom",
+    areaServed: { "@type": "City", name: "London" },
     address: { "@type": "PostalAddress", addressLocality: "London", addressCountry: "GB" },
+    knowsAbout: ["Camera rental", "Cinema lens hire", "Lighting hire", "Drone hire", "Audio equipment rental"],
     openingHoursSpecification: HOURS_WINDOWS.map((w) => ({
       "@type": "OpeningHoursSpecification",
       dayOfWeek: DAYS,
