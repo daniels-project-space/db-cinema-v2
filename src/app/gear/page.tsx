@@ -9,6 +9,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { GearCard } from "@/components/GearCard";
+import { HireProfessionals } from "@/components/HireProfessionals";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
 import { getSessionId } from "@/lib/session";
@@ -118,6 +119,14 @@ function GearPageInner() {
             </div>
             <div className="mt-8 border-t border-white/5" />
           </section>
+        )}
+
+        {/* hire professionals — crew for hire, booked through us (only on All, no search) */}
+        {cat === "All" && !search && (
+          <>
+            <HireProfessionals />
+            <div className="mt-12 border-t border-white/5" />
+          </>
         )}
 
         {/* grid */}

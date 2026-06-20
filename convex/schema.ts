@@ -201,6 +201,22 @@ export default defineSchema({
     .index("by_listing", ["listingId"])
     .index("by_published", ["published"]),
 
+  // ── Crew for hire (booked THROUGH us — first name only, keep the middleman) ──
+  operators: defineTable({
+    role: v.string(), // "cinematographer"
+    roleLabel: v.string(), // "Cinematographer"
+    firstName: v.string(),
+    years: v.number(),
+    tagline: v.string(),
+    skills: v.array(v.string()),
+    rateHourly: v.optional(v.number()),
+    rateHalfDay: v.optional(v.number()),
+    rateDay: v.optional(v.number()),
+    neon: v.string(), // hue key for the neon tile
+    order: v.number(),
+    active: v.boolean(),
+  }).index("by_order", ["order"]),
+
   // ── Pricing / promos ──────────────────────────────────────────
   promo_codes: defineTable({
     code: v.string(),

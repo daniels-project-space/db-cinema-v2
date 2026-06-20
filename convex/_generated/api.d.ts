@@ -26,6 +26,7 @@ import type * as lib_pricing from "../lib/pricing.js";
 import type * as lib_taxonomy from "../lib/taxonomy.js";
 import type * as notify from "../notify.js";
 import type * as offers from "../offers.js";
+import type * as operators from "../operators.js";
 import type * as promo from "../promo.js";
 import type * as recommendations from "../recommendations.js";
 import type * as reviews from "../reviews.js";
@@ -57,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   "lib/taxonomy": typeof lib_taxonomy;
   notify: typeof notify;
   offers: typeof offers;
+  operators: typeof operators;
   promo: typeof promo;
   recommendations: typeof recommendations;
   reviews: typeof reviews;
