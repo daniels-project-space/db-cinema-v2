@@ -8,6 +8,7 @@ import { tierByKey } from "@/lib/membership";
 import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { coverageCompat } from "@/lib/compat";
+import { mountOf, coverageOf, deriveItemType } from "../../convex/lib/taxonomy";
 
 /**
  * Gaffer v2 — "engine decides, LLM narrates".
@@ -422,6 +423,14 @@ async function camMountsFromText(c: ConvexHttpClient, text: string): Promise<{ m
   const queries = Array.from(new Set([...toksList, text.trim()])).slice(0, 6);
   const mounts = new Set<string>(explicit);
   let coverage: string | null = null;
+  // DETERMINISTIC model resolution FIRST — catches bodies whose catalogue title
+  // spacing differs from the query (e.g. "canon c70" vs the listing "Cannon c 70")
+  // so the engine ALWAYS constrains recs to the real body mount instead of leaving
+  // it unknown and letting the narrator invent an (impossible) adapter.
+  if (deriveItemType(text) === "camera-body") {
+    for (const m of parseMounts(mountOf(text))) mounts.add(m);
+    coverage = biggerCoverage(coverage, coverageOf(text, "camera-body"));
+  }
   for (const q of queries) {
     try {
       const r: any[] = await c.query(api.catalog.listListings, { search: q });

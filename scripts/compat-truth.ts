@@ -94,6 +94,15 @@ eq("24-70 GM coverage = ff",   coverageOf("Sony 24-70mm f2.8 GM G Master", "lens
 eq("E PZ 18-105 S35 = s35",    coverageOf("Sony E PZ 18-105mm Super 35", "lens"), "s35");
 eq("GoPro mount = fixed",      mountOf("GoPro Hero 12 Black"), "fixed");
 eq("itemType GoPro = camera",  deriveItemType("GoPro Hero 12 Black"), "camera-body");
+// Canon cine bodies — the C70 spacing bug ("canon c70" query vs "Cannon c 70" listing)
+eq("Canon C70 mount = RF",     mountOf("Canon C70 cinema camera"), "RF");
+eq("canon c70 phrase = RF",    mountOf("i have a canon c70"), "RF");
+eq("Canon C300 mount = EF",    mountOf("Canon C300 mark ii"), "EF");
+eq("Canon R5C mount = RF",     mountOf("Canon R5C"), "RF");
+eq("itemType canon c70 = cam", deriveItemType("canon c70"), "camera-body");
+// E-mount glass is INCOMPATIBLE on an RF body (no adapter) — the bug the bot hit
+eq("E lens on RF C70 = incompat", mountCompat("E", mountOf("Canon C70")!), "incompatible");
+eq("Meike multi on RF = native",  bestCompat(parseMounts(mountOf("Meike Cine Fullframe Set")!), [mountOf("Canon C70")!]), "native");
 
 // 6. END-TO-END kitWarnings against the engine (specs derived from titles)
 const mk = (title: string) => { const it = deriveItemType(title); return { itemType: it, title, specs: deriveSpecs(title, it) }; };
