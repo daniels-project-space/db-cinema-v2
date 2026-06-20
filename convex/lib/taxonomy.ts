@@ -107,6 +107,16 @@ export function deriveItemType(name: string): ItemType {
   // Battery/charger hero beats the greedy gimbal/light rules ("Gimbal Battery …").
   if (BATTERY_HERO.test(name.trim()) && !CAMERA_MODEL.test(name)) return "battery";
 
+  // Action-cam BODIES are real rentable cameras (GoPro / DJI Osmo Action+Pocket /
+  // Insta360), but the camera-body RULE can't list bare "osmo" without swallowing
+  // Osmo *Mobile* gimbals — so match them here, EXCEPT when an accessory noun
+  // (battery, mount, card, case…) makes the listing an action-cam accessory.
+  if (
+    /\b(gopro|go ?pro|osmo ?(?:action|pocket)|dji ?pocket|insta ?360|action ?cam(?:era)?)\b/i.test(name) &&
+    !/\b(batter(?:y|ies)|charger|sd ?card|micro ?sd|memory ?card|\bmount\b|clamp|strap|case|housing|filter|\bnd\b|dome|float|grip|selfie|chest|handlebar|suction|adapter|cable|protector|lens ?cap|tripod|head ?strap|accessor)\b/i.test(name)
+  )
+    return "camera-body";
+
   // Normal classification. RULES are first-match-wins; the camera-body rule is
   // greedy on the bare word "camera".
   let fallthrough: ItemType = "accessory";
@@ -140,7 +150,36 @@ export type Specs = {
   tier: string | null; // premium | standard (lenses)
   lensClass: string | null; // "af" (autofocus) | "cine" (manual cinema glass)
   hasAutofocus: boolean | null; // cameras: AF-centric body (Sony/Canon mirrorless) vs cine
+  coverage: string | null; // "ff" | "s35" | "mft" — sensor/image-circle size, both bodies & lenses
 };
+
+// Sensor / image-circle size. For a camera it's the sensor; for a lens it's the
+// image circle it projects. A bigger-or-equal lens circle covers the sensor; a
+// SMALLER lens circle vignettes (e.g. a Super-35 lens on a full-frame body).
+// Only emitted when we can tell with confidence — otherwise null (no constraint).
+export function coverageOf(title: string, itemType: ItemType): string | null {
+  const t = title.toLowerCase().replace(/\bcannon\b/g, "canon");
+  const has = (re: RegExp) => re.test(t);
+  if (itemType === "camera-body") {
+    // micro four thirds bodies
+    if (has(/\bmft\b|m4\/3|micro four|gh5|gh6|gh7|bmpcc ?4k|pocket ?4k/)) return "mft";
+    // unambiguous full-frame bodies
+    if (has(/fx3\b|fx6\b|fx9\b|a7|a1\b|a9\b|burano|venice|\br5\b|\br6\b|\br3\b|\br8\b|raptor|alexa ?(?:lf|mini ?lf|265)/))
+      return "ff";
+    // unambiguous super-35 / aps-c bodies
+    if (has(/fx30|a6\d00|zv-?e10|fs5|fs7|\bc70\b|c100|c200|c300|komodo|ursa|amira|alexa(?! ?(?:lf|mini ?lf))|6k ?pro|6k ?g2|bmpcc ?6k|\br7\b|\br10\b|red ?(?:helium|gemini)/))
+      return "s35";
+    return null;
+  }
+  if (itemType === "lens") {
+    // explicit super-35 / aps-c image circle (vignettes on a full-frame body)
+    if (has(/super[-\s]?35|\bs35\b|aps-?c|\be-?pz\b|dx\b/)) return "s35";
+    // explicit OR strongly-implied full-frame: Sony GM/FE, Canon RF L, "full frame"
+    if (has(/full[-\s]?frame|\bff\b|\bgm\b|g[-\s]?master|\bfe\b|\brf\b ?\d|\bvv\b|large ?format/)) return "ff";
+    return null;
+  }
+  return null;
+}
 
 // Canonical mount tokens, ordered. Used to extract an EXPLICIT compound mount
 // string like "pl/ef/e/l/rf" → "E/EF/PL/L/RF". src/lib/mount.ts parseMounts
@@ -211,10 +250,21 @@ export function mountOf(title: string): string | null {
   if (compound) return compound;
   if (any("gopro", "osmo action", "insta360", "action 4", "action 5", "action4", "action5", "osmo pocket", "pocket 3")) return "fixed";
   if (any("mft", "m4/3", "micro four", "gh5", "gh6", "gh7", "bmpcc 4k", "pocket 4k")) return "MFT";
+  // Interchangeable-mount cine / anamorphic primes (DZOFilm Vespid/Catta/Arles, Blazar
+  // Remus, Great Joy, Sirui, Meike) — rented in WHICHEVER mount the customer's body needs.
+  // Checked BEFORE the single-token PL/RF grabs below so an incidental "(arri…)" or a bare
+  // "…RF," in the blurb can't pin the whole interchangeable set to one mount and falsely
+  // flag it incompatible with the catalogue's Sony-E bodies. A precise author-written
+  // compound ("pl/ef/e/l mount") still wins — explicitCompoundMount runs first, above.
+  if (any("dzo", "dzofilm", "vespid", "catta", "arles", "blazar", "great joy", "greatjoy", "sirui", "meike")) return "E/EF/PL/L/RF";
   if (any("komodo", "raptor")) return "RF";
+  // Canon RF-mount cinema bodies (C70 / C400 / R5C) — must precede the EF C-series check.
+  if (any("c70", "c-70", "c 70", "c400", "c-400", "r5c", "r5 c")) return "RF";
   if (any(" rf", "rf ", "r5", "r6", "r3", "r8", "canon r")) return "RF";
   if (any("pl mount", " pl ", "arri", "alexa", "amira")) return "PL";
   if (any("bmpcc", "pocket cinema", "6k pro", "6k g2")) return "EF";
+  // Canon EF-mount cinema bodies (C100/C200/C300/C500 ship EF).
+  if (any("c100", "c200", "c300", "c500")) return "EF";
   if (any(" ef", "ef ", "ef-", "canon ef")) return "EF";
   // Sony E family — note "venice" (Sony Venice is E-mount via the LPL/E adapter
   // ecosystem; treated as E for ranking) was previously missing → null mounts.
@@ -285,7 +335,9 @@ export function deriveSpecs(title: string, itemType: ItemType): Specs {
     else if (has(/sony|fx3|fx30|fx6|a7|a1\b|a9\b|canon r|r5|r6|r3|r8|gh5|gh6|gh7|s5|lumix|zv-?e|gopro|osmo/)) hasAutofocus = true;
   }
 
-  return { mount, filterThreadMm, batteryType, includesLens, lensFocal, tier, lensClass, hasAutofocus };
+  const coverage = coverageOf(title, itemType);
+
+  return { mount, filterThreadMm, batteryType, includesLens, lensFocal, tier, lensClass, hasAutofocus, coverage };
 }
 
 // Delivery size/weight per itemType — grounded in v1 delivery-specs size_score

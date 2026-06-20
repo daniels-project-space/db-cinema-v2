@@ -40,7 +40,7 @@ export default defineSchema({
     itemType: v.optional(v.string()),
     isPackage: v.optional(v.boolean()),
     knowledge: v.optional(v.any()),
-    specs: v.optional(v.object({ mount: v.optional(v.string()), filterThreadMm: v.optional(v.number()), batteryType: v.optional(v.string()), includesLens: v.optional(v.boolean()), lensFocal: v.optional(v.string()), tier: v.optional(v.string()), lensClass: v.optional(v.string()), hasAutofocus: v.optional(v.boolean()) })),
+    specs: v.optional(v.object({ mount: v.optional(v.string()), filterThreadMm: v.optional(v.number()), batteryType: v.optional(v.string()), includesLens: v.optional(v.boolean()), lensFocal: v.optional(v.string()), tier: v.optional(v.string()), lensClass: v.optional(v.string()), hasAutofocus: v.optional(v.boolean()), coverage: v.optional(v.string()) })),
     sizeScore: v.optional(v.number()),
     weightKg: v.optional(v.number()),
     heroImageR2Key: v.optional(v.string()),

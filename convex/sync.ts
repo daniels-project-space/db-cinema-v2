@@ -63,6 +63,7 @@ function cleanSpecs(title: string, itemType: string): any {
   if (sp.tier) c.tier = sp.tier;
   if (sp.lensClass) c.lensClass = sp.lensClass;
   if (sp.hasAutofocus !== null && sp.hasAutofocus !== undefined) c.hasAutofocus = sp.hasAutofocus;
+  if (sp.coverage) c.coverage = sp.coverage;
   return c;
 }
 // leading "2x" / "2×" / "3 x" => bundle consumes that many physical units
@@ -532,6 +533,7 @@ export const respec = mutation({
       if (sp.tier) clean.tier = sp.tier;
       if (sp.lensClass) clean.lensClass = sp.lensClass;
       if (sp.hasAutofocus !== null && sp.hasAutofocus !== undefined) clean.hasAutofocus = sp.hasAutofocus;
+      if (sp.coverage) clean.coverage = sp.coverage;
       await ctx.db.patch(l._id, { specs: clean });
       n++;
     }

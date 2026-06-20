@@ -3,12 +3,10 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
 import { bestCompat, parseMounts } from "@/lib/mount";
+import { kitWarnings } from "@/lib/compat";
 
 export const maxDuration = 60;
 const msOf = (d: string) => { const t = Date.parse(/T/.test(d) ? d : d + "T00:00:00Z"); return Number.isNaN(t) ? 0 : t; };
-const FOCAL_THREAD: Record<string, number> = { "28-70": 67, "24-70": 82, "16-35": 72, "24-105": 77, "70-200": 77, "24-240": 67 };
-const battOk = (camBatt: string, batt: string) =>
-  camBatt === batt || camBatt.includes(batt) || batt.includes(camBatt);
 
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
@@ -29,50 +27,13 @@ export async function POST(req: NextRequest) {
   });
   const cameras = kit.filter((x) => x.itemType === "camera-body");
   const lenses = kit.filter((x) => x.itemType === "lens");
-  const nds = kit.filter((x) => x.itemType === "nd-filter");
-  const batteries = kit.filter((x) => x.itemType === "battery");
-  const warnings: any[] = [];
 
-  // 1) redundant lens — camera bundle already includes a lens
-  for (const cam of cameras)
-    if (cam.specs.includesLens && lenses.length)
-      warnings.push({ level: "info", text: `Your ${cam.title.slice(0, 34)} already includes a ${cam.specs.lensFocal || "kit"}mm lens — the ${lenses[0].title.slice(0, 28)} would be a second lens.` });
-
-  // 2) lens mount vs camera — single source of truth: src/lib/mount.ts bestCompat.
-  // (Previously a divergent hand-rolled table flagged native compound-mount cine glass
-  // as "doesn't fit"; now it agrees with the bot/assemble engine.)
+  // ALL pairwise compatibility (mount / coverage / filter / battery / redundant / fixed-lens)
+  // is decided by the one shared engine — src/lib/compat.ts — so the cart can never diverge
+  // from what the bot and assembler reason about.
+  const warnings = kitWarnings(kit);
   const camMounts = cameras.map((c) => c.specs.mount).filter(Boolean);
   const camM = [...new Set(camMounts.flatMap((m: string) => parseMounts(m)))];
-  const actionOnly = cameras.length > 0 && cameras.every((c) => c.specs.mount === "fixed");
-  if (actionOnly && lenses.length)
-    warnings.push({ level: "error", text: `Your action camera has a fixed lens — separate lenses won't attach.` });
-  for (const l of lenses) {
-    const lm = l.specs.mount;
-    if (!lm || camM.length === 0 || actionOnly) continue;
-    const verdict = bestCompat(parseMounts(lm), camM);
-    if (verdict === "native") continue;
-    if (verdict === "adapter")
-      warnings.push({ level: "warn", text: `${l.title.slice(0, 30)} is ${lm} mount — needs a ${lm}→${camM[0]} adapter for your ${camM[0]}-mount camera.` });
-    else
-      warnings.push({ level: "error", text: `${l.title.slice(0, 30)} (${lm} mount) doesn't fit your ${camM[0]}-mount camera.` });
-  }
-
-  // 3) ND thread vs lens / kit-lens thread
-  const lensThreads = lenses.map((l) => l.specs.filterThreadMm).filter(Boolean);
-  for (const cam of cameras) if (cam.specs.includesLens && cam.specs.lensFocal && FOCAL_THREAD[cam.specs.lensFocal]) lensThreads.push(FOCAL_THREAD[cam.specs.lensFocal]);
-  for (const nd of nds) {
-    const ndT = nd.specs.filterThreadMm;
-    if (ndT && lensThreads.length && !lensThreads.includes(ndT))
-      warnings.push({ level: "warn", text: `The ${ndT}mm ${nd.title.slice(0, 20)} won't fit your lens (Ø${[...new Set(lensThreads)].join("/")}mm) — no step-ring available.` });
-  }
-
-  // 4) battery vs camera
-  const camBatts = cameras.map((c) => c.specs.batteryType).filter(Boolean);
-  for (const bat of batteries) {
-    const bt = bat.specs.batteryType;
-    if (bt && camBatts.length && !camBatts.some((cb) => battOk(cb, bt)))
-      warnings.push({ level: "error", text: `The ${bat.title.slice(0, 26)} (${bt}) won't power your camera (needs ${camBatts[0]}).` });
-  }
 
   // ── upgrades: swap a standard lens (or kit lens) for a premium (GM), priced as the difference ──
   const upgrades: any[] = [];
@@ -103,7 +64,7 @@ export async function POST(req: NextRequest) {
         replaceListingId: replaced?.listingId ?? null,
         replaceTitle: replaced?.title ?? null,
         diffPerDay,
-        reason: replaced ? `Upgrade from ${replaced.title.slice(0, 24)} to pro GM glass` : "Premium GM upgrade over your kit lens",
+        reason: replaced ? `Upgrade from ${String(replaced.title ?? "your lens").slice(0, 24)} to pro GM glass` : "Premium GM upgrade over your kit lens",
       });
       break;
     }

@@ -7,6 +7,7 @@ import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
 import { dayMs as msOf } from "@/lib/dates";
 import { parseMounts, mountCompat } from "@/lib/mount";
+import { coverageCompat } from "@/lib/compat";
 
 export const maxDuration = 60;
 
@@ -97,7 +98,7 @@ function optionCompat(optionMount: string | null | undefined, camMounts: string[
   return best;
 }
 
-async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, lensPref?: string, camMounts: string[] = []) {
+async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, lensPref?: string, camMounts: string[] = [], camCoverage: string | null = null) {
   const def = STAGE[key];
   if (!def) return [];
   let items: any[] = await c.query(api.catalog.byItemType, { types: def.types });
@@ -129,7 +130,9 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
   const rank = { native: 0, adapter: 1, unknown: 2, incompatible: 3 } as const;
   // real demand + native-flagship preference (so a stage leads with the gear people actually
   // rent — Sony 24-70 GM, FX3, Nanlite — not the cheapest item).
-  const qual = (o: any) => demandBoost(o.demandScore) + (key === "lens" ? lensHero(o.title, camMounts) : 0);
+  // a crop (S35/MFT) lens vignettes on a full-frame body — push it below full-frame glass.
+  const coveragePen = (o: any) => (key === "lens" && coverageCompat(o.specs?.coverage, camCoverage) === "vignette" ? -12 : 0);
+  const qual = (o: any) => demandBoost(o.demandScore) + (key === "lens" ? lensHero(o.title, camMounts) + coveragePen(o) : 0);
   out.sort((a, b) => {
     if (key === "lens" && camMounts.length) {
       // native glass before adapter glass before unknown — real-world correctness first
@@ -198,16 +201,18 @@ export async function POST(req: NextRequest) {
   // camera mounts captured from the camera stage, so the lens stage can rank
   // native glass first and exclude lenses that won't mount at all.
   let camMounts: string[] = [];
+  let camCoverage: string | null = null;
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
-    const options = await optionsForStage(c, k, start, end, lensPref, camMounts);
+    const options = await optionsForStage(c, k, start, end, lensPref, camMounts, camCoverage);
     if (!options.length) continue;
     if (k === "camera") {
-      // anchor lens compatibility to the RECOMMENDED camera's mount (the body
+      // anchor lens compatibility to the RECOMMENDED camera's mount + sensor (the body
       // the user is most likely to take); fall back to the first option.
       const recId = pickRecommended(options, meta?.recommend);
       const recCam = options.find((o: any) => o.listingId === recId) ?? options[0];
       camMounts = parseMounts(recCam?.mount);
+      camCoverage = recCam?.specs?.coverage ?? null;
     }
     let note = meta?.note || "";
     if (k === "lens")

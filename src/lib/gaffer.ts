@@ -7,6 +7,7 @@ import { quote } from "@/lib/pricing";
 import { tierByKey } from "@/lib/membership";
 import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
+import { coverageCompat } from "@/lib/compat";
 
 /**
  * Gaffer v2 — "engine decides, LLM narrates".
@@ -107,7 +108,7 @@ function nonLensQuality(l: any, slot: string): number {
  * canonical workhorse a DP expects) over third-party premium — and a 24-70 workhorse
  * zoom over a niche focal. So "a lens for my FX3" leads with the Sony 24-70 GM, not the
  * cheapest premium (which the bare day-rate tiebreak picks). Standalone lenses only. */
-function lensHeroBoost(l: any, camMounts: string[]): number {
+function lensHeroBoost(l: any, camMounts: string[], camCoverage: string | null = null): number {
   if (l.itemType !== "lens") return 0;
   const t = String(l.title || "").toLowerCase();
   if (/camera|\bfx ?3\b|\bfx ?6\b|a7|a73|komodo|\bred\b|bmpcc|\bset \+|\+ .*camera/.test(t)) return 0; // skip bundles
@@ -116,6 +117,8 @@ function lensHeroBoost(l: any, camMounts: string[]): number {
   if (sonyBody && /\bg ?master\b|gmaster|\bgm\b/.test(t) && /\bsony\b/.test(t)) b += 14; // native flagship
   if (sonyBody && /\b(sigma|tamron|samyang|rokinon|viltrox|7artisans)\b/.test(t)) b -= 4; // third-party
   if (/24-?70/.test(t)) b += 4; // the everyday workhorse range
+  // a crop (S35/MFT) lens vignettes on a full-frame body — rank full-frame glass first
+  if (coverageCompat(l.specs?.coverage, camCoverage) === "vignette") b -= 12;
   return b;
 }
 /** Real-demand boost from the rental history (listing.demandScore, set by sync.applyDemand).
@@ -302,7 +305,7 @@ async function findAlternatives(
       if (itemType === "lens" || itemType === "lenses") {
         const ls = lensScore({ mount: x.specs?.mount, tier: x.specs?.tier, lensClass: x.specs?.lensClass }, cam);
         if (ls === -Infinity) return null; // incompatible — never offer
-        score += ls + lensHeroBoost(x, cam);
+        score += ls + lensHeroBoost(x, cam, ctx.camCoverage);
       } else {
         score += nonLensQuality(x, itemType);
         if ((itemType === "camera" || itemType === "camera-body") && cam.length && parseMounts(x.specs?.mount).some((m) => cam.includes(m))) score += 6; // match desired body mount
@@ -354,7 +357,7 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
       if (itemType === "lens" || itemType === "lenses") {
         score = lensScore({ mount: x.specs?.mount, tier: x.specs?.tier, lensClass: x.specs?.lensClass }, cam);
         if (score === -Infinity) return null;
-        score += lensHeroBoost(x, cam);
+        score += lensHeroBoost(x, cam, ctx.camCoverage);
       } else {
         score = nonLensQuality(x, itemType);
         if ((itemType === "camera" || itemType === "camera-body") && cam.length && parseMounts(x.specs?.mount).some((m) => cam.includes(m))) score += 6; // match desired body mount
@@ -390,6 +393,7 @@ type Ctx = {
   favTitles: string[];
   activeBooking: any;
   camMounts: string[];
+  camCoverage: string | null;
   customerName: string;
   email: string | null;
   pastTitles: string[];
@@ -403,12 +407,21 @@ type Ctx = {
 };
 
 /** Camera mounts named anywhere in the conversation (e.g. "FX3" ⇒ E). */
-async function camMountsFromText(c: ConvexHttpClient, text: string): Promise<string[]> {
-  if (!text || !text.trim()) return [];
+// Larger sensor wins (ff > s35 > mft) so a full-frame body in the conversation
+// triggers the crop-lens vignette penalty.
+const COVERAGE_RANK: Record<string, number> = { mft: 1, s35: 2, ff: 3 };
+function biggerCoverage(a: string | null, b: string | null): string | null {
+  if (!a) return b; if (!b) return a;
+  return (COVERAGE_RANK[b] ?? 0) > (COVERAGE_RANK[a] ?? 0) ? b : a;
+}
+
+async function camMountsFromText(c: ConvexHttpClient, text: string): Promise<{ mounts: string[]; coverage: string | null }> {
+  if (!text || !text.trim()) return { mounts: [], coverage: null };
   const explicit = (text.toLowerCase().match(/\b(e|ef|rf|pl|mft|l|x)[\s-]?mount\b/g) || []).map((m) => m.replace(/[\s-]?mount/, "").toUpperCase());
   const toksList = (text.toLowerCase().match(/[a-z][a-z0-9]{1,}[a-z0-9]/g) || []).filter((t) => /\d/.test(t) || /(komodo|raptor|alexa|amira|burano|venice|ursa)/.test(t));
   const queries = Array.from(new Set([...toksList, text.trim()])).slice(0, 6);
   const mounts = new Set<string>(explicit);
+  let coverage: string | null = null;
   for (const q of queries) {
     try {
       const r: any[] = await c.query(api.catalog.listListings, { search: q });
@@ -416,10 +429,11 @@ async function camMountsFromText(c: ConvexHttpClient, text: string): Promise<str
         if (l.itemType !== "camera-body") continue;
         if (!toksList.some((t) => String(l.title || "").toLowerCase().includes(t))) continue;
         for (const m of parseMounts(l.specs?.mount)) mounts.add(m);
+        coverage = biggerCoverage(coverage, l.specs?.coverage ?? null);
       }
     } catch {}
   }
-  return [...mounts];
+  return { mounts: [...mounts], coverage };
 }
 
 async function loadContext(body: any): Promise<Ctx> {
@@ -427,7 +441,7 @@ async function loadContext(body: any): Promise<Ctx> {
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
   const ctx: Ctx = {
     c, memberPct: 0, memberName: null, favorites: [], favTitles: [], activeBooking: null,
-    camMounts: [], customerName: "there", email: null, pastTitles: [], cartTitles: [], cartIds: [],
+    camMounts: [], camCoverage: null, customerName: "there", email: null, pastTitles: [], cartTitles: [], cartIds: [],
     today, estimated: false, start: "", end: "", pricePref: "any",
   };
   const camSet = new Set<string>();
@@ -466,7 +480,10 @@ async function loadContext(body: any): Promise<Ctx> {
         const cds: any[] = await c.query(api.catalog.listingsByIds, { ids });
         ctx.cartIds = cds.map((cd) => String(cd._id));
         ctx.cartTitles = cds.map((cd) => cd.title);
-        for (const cd of cds) if (cd.itemType === "camera-body") for (const m of parseMounts(cd.specs?.mount)) camSet.add(m);
+        for (const cd of cds) if (cd.itemType === "camera-body") {
+          for (const m of parseMounts(cd.specs?.mount)) camSet.add(m);
+          ctx.camCoverage = biggerCoverage(ctx.camCoverage, cd.specs?.coverage ?? null);
+        }
       }
     } catch {}
   }
@@ -509,7 +526,9 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
   // camera mounts: cart + the model's cameraModel + the subject text
   const camSet = new Set<string>(ctx.camMounts);
   for (const t of [intent.cameraModel, intent.subject].filter(Boolean)) {
-    for (const m of await camMountsFromText(c, String(t))) camSet.add(m);
+    const res = await camMountsFromText(c, String(t));
+    for (const m of res.mounts) camSet.add(m);
+    ctx.camCoverage = biggerCoverage(ctx.camCoverage, res.coverage);
   }
   ctx.camMounts = [...camSet];
 
@@ -723,7 +742,11 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
   const ctx = await loadContext(body);
   // camera mounts from the whole conversation
   const allUserText = history.filter((m: any) => m.role === "user").map((m: any) => String(m.content || "")).join("  \n  ");
-  try { for (const m of await camMountsFromText(ctx.c, allUserText)) if (!ctx.camMounts.includes(m)) ctx.camMounts.push(m); } catch {}
+  try {
+    const res = await camMountsFromText(ctx.c, allUserText);
+    for (const m of res.mounts) if (!ctx.camMounts.includes(m)) ctx.camMounts.push(m);
+    ctx.camCoverage = biggerCoverage(ctx.camCoverage, res.coverage);
+  } catch {}
 
   const intent = await understand(model, history, ctx.today);
   // deterministic relative-date backstop: if the LLM left dates unresolved, derive them
