@@ -317,10 +317,19 @@ export default defineSchema({
     gearList: v.optional(v.string()),
     gearValue: v.optional(v.string()),
     agreementAccepted: v.optional(v.boolean()),
+    // agreement + KYC (filled in onboarding / member profile)
+    termsAgreed: v.optional(v.boolean()),
+    bankAccountName: v.optional(v.string()),
+    bankSortCode: v.optional(v.string()),
+    bankAccountNumber: v.optional(v.string()),
+    idStorageId: v.optional(v.id("_storage")),
+    idStatus: v.optional(v.union(v.literal("none"), v.literal("submitted"), v.literal("verified"))),
     // shared
     notes: v.optional(v.string()),
     reviewedAt: v.optional(v.number()),
-  }).index("by_status", ["status"]),
+  })
+    .index("by_status", ["status"])
+    .index("by_email", ["email"]),
 
   // ── RMv2 availability bridge state ────────────────────────────
   accounts: defineTable({

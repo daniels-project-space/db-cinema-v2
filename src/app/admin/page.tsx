@@ -382,6 +382,7 @@ function AdminAnalytics({ token }: { token: string }) {
 function AdminCollective({ token }: { token: string }) {
   const res = useQuery(api.collective.adminList, { token });
   const review = useMutation(api.collective.review);
+  const setIdVerified = useMutation(api.collective.setIdVerified);
   const [busy, setBusy] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [edit, setEdit] = useState<any>(null);
@@ -492,6 +493,25 @@ function AdminCollective({ token }: { token: string }) {
                 </>
               )}
               {a.notes && <div className="mt-1 text-white/40">Notes: {a.notes}</div>}
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className={a.termsAgreed ? "text-emerald-300" : "text-red-300"}>{a.termsAgreed ? "✓ terms agreed" : "✗ terms"}</span>
+                <span className="text-white/20">·</span>
+                <span className={a.bankProvided ? "text-emerald-300" : "text-amber-300"}>
+                  {a.bankProvided ? `bank ${a.bankSortCode ?? ""} ••${(a.bankAccountNumber ?? "").slice(-4)}` : "no bank yet"}
+                </span>
+                <span className="text-white/20">·</span>
+                <span className={a.idStatus === "verified" ? "text-emerald-300" : a.idStatus === "submitted" ? "text-amber-300" : "text-white/40"}>
+                  ID: {a.idStatus ?? "none"}
+                </span>
+                {a.idUrl && (
+                  <a href={a.idUrl} target="_blank" rel="noopener noreferrer" className="text-accent-300 hover:underline">view ID</a>
+                )}
+                {a.idStatus === "submitted" && (
+                  <button onClick={() => setIdVerified({ token, id: a._id, verified: true })} className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-300 hover:bg-emerald-500/30">
+                    mark ID verified
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* inline edit (professionals) */}

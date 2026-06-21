@@ -4,8 +4,9 @@ import { useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { Tilt } from "@/components/Tilt";
-import { Calendar, iso } from "@/components/booking/Calendar";
+import { Calendar } from "@/components/booking/Calendar";
 import { IconCheck, IconX, IconArrowRight } from "@/components/icons";
+import { clientRate } from "@/lib/collective";
 
 const NEON: Record<string, string> = {
   cyan: "#22d3ee", violet: "#a78bfa", amber: "#fbbf24", green: "#34d399",
@@ -37,8 +38,6 @@ export function RoleIcon({ role, className }: { role: string; className?: string
       return svg(<circle cx="16" cy="16" r="8" {...p} />);
   }
 }
-
-const money = (n: number | null) => (n == null ? null : `£${n}`);
 
 export function HireProfessionals() {
   const ops = useQuery(api.operators.list);
@@ -141,7 +140,7 @@ function CrewCard({ o, index, onSelect }: { o: any; index: number; onSelect: (o:
 
           <div className="mt-auto flex items-center justify-between pt-4">
             <span className="font-display text-sm font-semibold text-white/80">
-              {o.rateDay != null ? <>from <span style={{ color: neon }}>£{o.rateDay}</span>/day</> : "Rates on request"}
+              {o.rateDay != null ? <>from <span style={{ color: neon }}>£{clientRate(o.rateDay)}</span>/day</> : "Rates on request"}
             </span>
             <span className="crew-cta">
               Request <IconArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -301,7 +300,7 @@ function RequestModal({ op, onClose }: { op: any; onClose: () => void }) {
                 {[["Hourly", op.rateHourly], ["Half day", op.rateHalfDay], ["Day", op.rateDay]].map(([label, val]: any) => (
                   <div key={label} className="rounded-xl border border-white/10 bg-white/[0.04] p-2.5 text-center">
                     <div className="font-mono text-[10px] uppercase tracking-wide text-white/40">{label}</div>
-                    <div className="mt-0.5 font-display text-base font-bold" style={{ color: val != null ? neon : undefined }}>{money(val) ?? "POA"}</div>
+                    <div className="mt-0.5 font-display text-base font-bold" style={{ color: val != null ? neon : undefined }}>{val != null ? `£${clientRate(val)}` : "POA"}</div>
                   </div>
                 ))}
               </div>

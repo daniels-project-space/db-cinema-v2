@@ -8,7 +8,11 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
 import { RoleIcon } from "@/components/HireProfessionals";
 import { IconCheck, IconArrowRight, IconChevronLeft } from "@/components/icons";
-import { COLLECTIVE_ROLES, GEAR_PROVIDER_TERMS, GEAR_SPLIT } from "@/lib/collective";
+import {
+  COLLECTIVE_ROLES, GEAR_PROVIDER_TERMS, GEAR_SPLIT,
+  PROFESSIONAL_TERMS, PROFESSIONAL_PERKS, RENTAL_TERMS_HREF,
+  CLIENT_MARKUP, CREATIVE_COMMISSION,
+} from "@/lib/collective";
 
 type Path = "gear-provider" | "professional";
 
@@ -137,9 +141,10 @@ function GearProviderForm({ onSent }: { onSent: () => void }) {
   const apply = useMutation(api.collective.apply);
   const [f, setF] = useState({ fullName: "", email: "", phone: "", gearList: "", gearValue: "", notes: "" });
   const [agree, setAgree] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email) && f.gearList.trim() && agree;
+  const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email) && f.gearList.trim() && agree && agreeTerms;
   const set = (k: string, v: string) => setF((s) => ({ ...s, [k]: v }));
 
   async function submit() {
@@ -156,6 +161,7 @@ function GearProviderForm({ onSent }: { onSent: () => void }) {
         gearValue: f.gearValue.trim() || undefined,
         notes: f.notes.trim() || undefined,
         agreementAccepted: true,
+        termsAgreed: true,
       });
       onSent();
     } catch (e: any) {
@@ -239,6 +245,16 @@ function GearProviderForm({ onSent }: { onSent: () => void }) {
             understand a formal agreement is signed before listing.
           </span>
         </label>
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <input type="checkbox" checked={agreeTerms} onChange={(e) => setAgreeTerms(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-accent-500" />
+          <span className="text-sm leading-relaxed text-white/60">
+            I&apos;ve read and agree to the{" "}
+            <a href={RENTAL_TERMS_HREF} target="_blank" rel="noopener noreferrer" className="text-accent-300 underline-offset-2 hover:underline">terms of renting</a>.
+          </span>
+        </label>
+        <p className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 text-xs leading-relaxed text-white/40">
+          After approval, finish setup in your account — add your payout bank details and pass a quick ID check to activate your listings. You&apos;re paid out monthly.
+        </p>
 
         {err && <p className="text-sm text-red-300">{err}</p>}
         <button onClick={submit} disabled={!valid || busy} className="btn-primary w-full py-3.5">
@@ -261,12 +277,6 @@ const EXPERIENCE = [
   { label: "6–9 yrs", v: 7 },
   { label: "10+ yrs", v: 12 },
 ];
-const PERKS = [
-  { icon: "🎬", h: "50% off all our gear", p: "Rent any camera, lens, light or rig at half price for shoots you book through us." },
-  { icon: "🤝", h: "Clients, brought to you", p: "We match you with paying clients directly — you focus on the work." },
-  { icon: "✓", h: "Verified-crew badge", p: "Get the Db Cinema verified badge that clients trust on every booking." },
-  { icon: "💷", h: "Booked & paid through us", p: "We handle the contract and payment, so you always get paid on time." },
-];
 const STEPS = ["Your craft", "About you", "Rates & reel", "The deal"];
 
 function ProfessionalForm({ onSent }: { onSent: () => void }) {
@@ -279,11 +289,12 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
   });
   const [skills, setSkills] = useState<Set<string>>(new Set());
   const [customSkill, setCustomSkill] = useState("");
+  const [agreeTerms, setAgreeTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const set = (k: string, v: any) => setF((s) => ({ ...s, [k]: v }));
   const num = (v: string) => (String(v).trim() ? Number(v) : undefined);
-  const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email);
+  const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email) && agreeTerms;
 
   function toggleSkill(s: string) {
     setSkills((prev) => {
@@ -321,6 +332,7 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
         rateDay: num(f.rateDay),
         portfolio: f.portfolio.trim() || undefined,
         notes: f.notes.trim() || undefined,
+        termsAgreed: true,
       });
       onSent();
     } catch (e: any) {
@@ -449,6 +461,10 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
               <input className={field} type="number" value={f.rateHalfDay} onChange={(e) => set("rateHalfDay", e.target.value)} placeholder="Half day" />
               <input className={field} type="number" value={f.rateDay} onChange={(e) => set("rateDay", e.target.value)} placeholder="Day" />
             </div>
+            <p className="mt-2 text-xs leading-relaxed text-white/40">
+              You set your rate. Clients pay +{Math.round(CLIENT_MARKUP * 100)}% (our booking fee); we take {Math.round(CREATIVE_COMMISSION * 100)}% from your side, so you keep {Math.round((1 - CREATIVE_COMMISSION) * 100)}%
+              {f.rateDay ? ` — about £${Math.round(Number(f.rateDay) * (1 - CREATIVE_COMMISSION))}/day on a £${f.rateDay} quote` : ""}. Paid out monthly.
+            </p>
           </div>
           <div>
             <label className={labelCls}>Portfolio / showreel links</label>
@@ -467,7 +483,7 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
           <div className="rounded-2xl border border-accent-400/20 bg-accent-500/[0.04] p-5">
             <h2 className="font-display text-lg font-semibold text-white/90">What you get as crew</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {PERKS.map((p) => (
+              {PROFESSIONAL_PERKS.map((p) => (
                 <div key={p.h} className="flex gap-3">
                   <span className="text-lg leading-none">{p.icon}</span>
                   <div>
@@ -478,6 +494,23 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
               ))}
             </div>
           </div>
+
+          {/* terms to read & agree */}
+          <details className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+            <summary className="cursor-pointer font-display text-sm font-semibold text-white/85">Membership terms (read before you agree)</summary>
+            <dl className="mt-4 space-y-3">
+              {PROFESSIONAL_TERMS.map((t) => (
+                <div key={t.h} className="border-l border-white/[0.08] pl-4">
+                  <dt className="text-sm font-semibold text-white/85">{t.h}</dt>
+                  <dd className="mt-1 text-xs leading-relaxed text-white/55">{t.p}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+          <p className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 text-xs leading-relaxed text-white/40">
+            After approval, finish setup in your account — add your payout bank details and pass a quick ID check to activate your profile.
+          </p>
+
           <Row>
             <div>
               <label className={labelCls}>Your name (private)</label>
@@ -492,6 +525,14 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
             <label className={labelCls}>Phone (optional)</label>
             <input className={field} value={f.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+44 …" />
           </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <input type="checkbox" checked={agreeTerms} onChange={(e) => setAgreeTerms(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-accent-500" />
+            <span className="text-sm leading-relaxed text-white/60">
+              I&apos;ve read and agree to the membership terms above and the{" "}
+              <a href={RENTAL_TERMS_HREF} target="_blank" rel="noopener noreferrer" className="text-accent-300 underline-offset-2 hover:underline">terms of renting</a>.
+            </span>
+          </label>
+          {!agreeTerms && <p className="text-xs text-white/35">Tick the box above to submit.</p>}
           {err && <p className="text-sm text-red-300">{err}</p>}
         </div>
       )}

@@ -1632,3 +1632,19 @@ body {
   .crew-card, .crew-card::after, .crew-ico { animation: none; }
   .crew-video { transition: none; }
 }
+
+/* ── Profile "finish setup" glow (Creative Collective member) ───────── */
+.glow-ring { animation: glow-ring-pulse 2.4s ease-in-out infinite; }
+@keyframes glow-ring-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-400) 30%, transparent),
+      0 0 18px -4px color-mix(in srgb, var(--color-accent-400) 60%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-400) 60%, transparent),
+      0 0 34px 0 color-mix(in srgb, var(--color-accent-400) 78%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glow-ring { animation: none; box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-400) 45%, transparent); }
+}

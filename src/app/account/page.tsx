@@ -13,6 +13,7 @@ import { RenterChat } from "@/components/RenterChat";
 import { tierByKey } from "@/lib/membership";
 import { MemberOffers } from "@/components/MemberOffers";
 import { AccentPicker } from "@/components/AccentPicker";
+import { CollectiveProfile } from "@/components/account/CollectiveProfile";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -133,6 +134,9 @@ function Dashboard() {
           Sign out
         </button>
       </div>
+
+      {/* creative collective member setup (glows until fully operational) */}
+      <CollectiveProfile />
 
       {/* renter chat */}
       <RenterChat />

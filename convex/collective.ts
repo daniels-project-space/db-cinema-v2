@@ -29,16 +29,20 @@ export const apply = mutation({
     gearList: v.optional(v.string()),
     gearValue: v.optional(v.string()),
     agreementAccepted: v.optional(v.boolean()),
+    termsAgreed: v.optional(v.boolean()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
     if (!a.fullName.trim() || !/\S+@\S+\.\S+/.test(a.email)) {
       throw new Error("Please give your name and a valid email.");
     }
+    if (!a.termsAgreed) {
+      throw new Error("Please read and agree to the rental terms.");
+    }
     if (a.kind === "gear-provider" && !a.agreementAccepted) {
       throw new Error("Please accept the revenue-share & custody terms to apply as a gear provider.");
     }
-    await ctx.db.insert("collective_applications", { ...a, status: "pending" });
+    await ctx.db.insert("collective_applications", { ...a, status: "pending", idStatus: "none" });
 
     const summary =
       a.kind === "gear-provider"
@@ -65,6 +69,102 @@ function assertAdmin(token: string) {
   if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) throw new Error("unauthorized");
 }
 
+// ── Member profile (token-scoped) ────────────────────────────────────
+/** Resolve the signed-in account's email from a session token. */
+async function emailFromToken(ctx: any, token: string): Promise<string | null> {
+  const s = await ctx.db
+    .query("sessions")
+    .withIndex("by_token", (q: any) => q.eq("token", token))
+    .first();
+  if (!s) return null;
+  if (s.expiresAt != null && s.expiresAt < Date.now()) return null;
+  const acct = await ctx.db.get(s.accountId);
+  return acct?.email ?? null;
+}
+
+/** The most relevant (non-rejected, newest) application for an email. */
+async function memberApp(ctx: any, email: string) {
+  const rows = await ctx.db
+    .query("collective_applications")
+    .withIndex("by_email", (q: any) => q.eq("email", email))
+    .collect();
+  const live = rows.filter((r: any) => r.status !== "rejected");
+  live.sort((a: any, b: any) => b._creationTime - a._creationTime);
+  return live[0] ?? null;
+}
+
+/** Member-facing membership status + completeness (drives the profile glow). */
+export const myMembership = query({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const email = await emailFromToken(ctx, token);
+    if (!email) return null;
+    const app = await memberApp(ctx, email);
+    if (!app) return null;
+    const bankProvided = !!app.bankAccountNumber;
+    const idStatus = app.idStatus ?? "none";
+    const operational = app.status === "approved" && bankProvided && idStatus === "verified";
+    return {
+      kind: app.kind as "gear-provider" | "professional",
+      status: app.status as "pending" | "approved",
+      firstName: app.firstName ?? app.fullName.split(" ")[0],
+      roleLabel: app.roleLabel ?? null,
+      bankProvided,
+      bankLast4: app.bankAccountNumber ? app.bankAccountNumber.slice(-4) : null,
+      idStatus,
+      operational,
+    };
+  },
+});
+
+/** Member: save payout bank details (only after approval). */
+export const saveBankDetails = mutation({
+  args: {
+    token: v.string(),
+    accountName: v.string(),
+    sortCode: v.string(),
+    accountNumber: v.string(),
+  },
+  handler: async (ctx, a) => {
+    const email = await emailFromToken(ctx, a.token);
+    if (!email) throw new Error("Please sign in.");
+    const app = await memberApp(ctx, email);
+    if (!app || app.status !== "approved") throw new Error("No approved membership found for this account.");
+    if (!a.accountName.trim() || a.sortCode.replace(/\D/g, "").length < 6 || a.accountNumber.replace(/\D/g, "").length < 6) {
+      throw new Error("Please enter valid bank details.");
+    }
+    await ctx.db.patch(app._id, {
+      bankAccountName: a.accountName.trim(),
+      bankSortCode: a.sortCode.trim(),
+      bankAccountNumber: a.accountNumber.trim(),
+    });
+    return { ok: true };
+  },
+});
+
+/** Member: get a one-time upload URL for an ID document. */
+export const idUploadUrl = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const email = await emailFromToken(ctx, token);
+    if (!email) throw new Error("Please sign in.");
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/** Member: attach the uploaded ID document and mark it submitted for review. */
+export const attachId = mutation({
+  args: { token: v.string(), storageId: v.id("_storage") },
+  handler: async (ctx, { token, storageId }) => {
+    const email = await emailFromToken(ctx, token);
+    if (!email) throw new Error("Please sign in.");
+    const app = await memberApp(ctx, email);
+    if (!app || app.status !== "approved") throw new Error("No approved membership found for this account.");
+    await ctx.db.patch(app._id, { idStorageId: storageId, idStatus: "submitted" });
+    return { ok: true };
+  },
+});
+
 export const adminList = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
@@ -72,7 +172,25 @@ export const adminList = query({
       return { authorized: false as const, items: [] };
     }
     const rows = await ctx.db.query("collective_applications").order("desc").take(100);
-    return { authorized: true as const, items: rows.map((r) => ({ ...r, at: r._creationTime })) };
+    const items = await Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        at: r._creationTime,
+        idUrl: r.idStorageId ? await ctx.storage.getUrl(r.idStorageId) : null,
+        bankProvided: !!r.bankAccountNumber,
+      })),
+    );
+    return { authorized: true as const, items };
+  },
+});
+
+/** Admin: mark a member's ID check passed (or revert). */
+export const setIdVerified = mutation({
+  args: { token: v.string(), id: v.id("collective_applications"), verified: v.boolean() },
+  handler: async (ctx, { token, id, verified }) => {
+    assertAdmin(token);
+    await ctx.db.patch(id, { idStatus: verified ? "verified" : "submitted" });
+    return { ok: true };
   },
 });
 
