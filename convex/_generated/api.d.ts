@@ -33,6 +33,7 @@ import type * as recommendations from "../recommendations.js";
 import type * as reviews from "../reviews.js";
 import type * as settings from "../settings.js";
 import type * as sync from "../sync.js";
+import type * as voice from "../voice.js";
 
 import type {
   ApiFromModules,
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   reviews: typeof reviews;
   settings: typeof settings;
   sync: typeof sync;
+  voice: typeof voice;
 }>;
 
 /**

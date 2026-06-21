@@ -10,6 +10,7 @@ import { useCart } from "@/components/cart/CartProvider";
 import { BotAvatar, BotAvatarBadge } from "@/components/chat/BotAvatar";
 import { ChatBubble, TypingIndicator, Chips } from "@/components/chat/ChatKit";
 import { GlowSlider } from "@/components/GlowSlider";
+import { GafferCall } from "@/components/GafferCall";
 
 type Card = any;
 type Msg = { role: "user" | "assistant"; content: string; cards?: Card[]; suggestions?: string[] };
@@ -210,6 +211,7 @@ export function BotBubble() {
                 {busy ? "on it…" : "online · builds kits live"}
               </div>
             </div>
+            <GafferCall className="!px-3 !py-1.5 !text-xs" label="Voice" />
             {msgs.length > 0 && (
               <button
                 onClick={clearChat}

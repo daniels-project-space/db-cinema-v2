@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { Marquee } from "@/components/Marquee";
+import { GafferCall } from "@/components/GafferCall";
 import { HOURS_LABEL } from "@/lib/site";
 
 export async function Footer() {
@@ -51,6 +52,10 @@ export async function Footer() {
             </div>
             <div>Open {cfg.openingHours ?? HOURS_LABEL}</div>
           </address>
+          <div className="mt-5">
+            <GafferCall label="Talk to Gaffer" />
+            <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-white/30">Live voice assistant · bookings &amp; gear help</p>
+          </div>
         </div>
 
         <FooterCol

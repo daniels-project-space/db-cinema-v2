@@ -71,6 +71,30 @@ export const contactAlert = internalAction({
   },
 });
 
+/** A lead from the Gaffer voice agent — emailed to the owner + Telegram. */
+export const ownerLead = internalAction({
+  args: {
+    kind: v.string(),
+    name: v.string(),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    message: v.string(),
+  },
+  handler: async (_ctx, a) => {
+    const owner = process.env.OWNER_EMAIL ?? "dbcinemaproductions@gmail.com";
+    const who = `${a.name}${a.phone ? ` · ${a.phone}` : ""}${a.email ? ` · ${a.email}` : ""}`;
+    await email(
+      owner,
+      `📞 Gaffer voice — ${a.kind}: ${a.name}`,
+      `<h2>New ${a.kind} from the Gaffer phone line 🎬</h2>
+       <p><b>${who}</b></p>
+       <pre style="white-space:pre-wrap;font-family:inherit;font-size:14px">${a.message}</pre>
+       <p style="color:#888">Captured automatically by Gaffer (voice). Reply to follow up.</p>`,
+    );
+    await telegram(`📞 <b>Gaffer voice · ${a.kind}</b>\n${who}\n\n${a.message}`);
+  },
+});
+
 /** Daily-ish reminders: pickup tomorrow / return today (email + Telegram). */
 export const sendReminders = internalAction({
   args: {},

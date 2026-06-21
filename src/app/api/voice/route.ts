@@ -78,12 +78,28 @@ export async function POST(req: NextRequest) {
           ? `Yes, we stock the ${it.title}. Would you like the price or to check availability?`
           : `We don't carry ${args.item || "that"} specifically, but we have a wide range of Sony cinema cameras, G Master lenses, lighting, audio and drones. What's the shoot?`);
       }
-      case "request_callback": {
+      // capture ANY lead — booking, inquiry, gear issue, or callback — and email the team
+      case "request_callback":
+      case "take_booking":
+      case "log_inquiry":
+      case "report_issue": {
         const nm = String(args.name || "Phone caller").slice(0, 60);
-        const phone = String(args.phone || "not provided").slice(0, 40);
-        const message = `[Voice callback request] Phone: ${phone}. ${String(args.message || "").slice(0, 400)}`.trim();
-        await c.mutation(api.contact.submit, { name: nm, email: String(args.email || "voice@dbcinemarentals.com").slice(0, 80), message }).catch(() => {});
-        return say(`Thanks ${nm}, I've passed your number to the team and they'll call you back shortly. Anything else I can help with?`);
+        const phone = String(args.phone || "").slice(0, 40);
+        const kind = String(args.kind || args.intent || (name === "take_booking" ? "booking" : name === "report_issue" ? "issue" : name === "log_inquiry" ? "inquiry" : "callback")).slice(0, 20);
+        const parts = [args.message, args.details, args.items && `Gear: ${args.items}`, (args.start || args.end) && `Dates: ${args.start ?? "?"}${args.end ? `→${args.end}` : ""}`]
+          .filter(Boolean).map((x: any) => String(x)).join(" — ");
+        await c.mutation(api.voice.lead, {
+          kind,
+          name: nm,
+          phone: phone || undefined,
+          email: String(args.email || "").slice(0, 80) || undefined,
+          message: (parts || "(no details)").slice(0, 800),
+        }).catch(() => {});
+        return say(
+          kind === "booking"
+            ? `Brilliant ${nm}, I've taken those booking details down and sent them to the team — they'll confirm availability and the total with you shortly. Anything else?`
+            : `Thanks ${nm}, I've noted that and passed it to the team — they'll follow up by email or phone. Anything else I can help with?`,
+        );
       }
       default:
         return say("Sorry, I didn't quite catch that — could you rephrase?");
