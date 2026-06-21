@@ -324,6 +324,10 @@ const EXPERIENCE = [
   { label: "10+ yrs", v: 12 },
 ];
 const TAGS_POOL = ["Commercials", "Music videos", "Weddings", "Events", "Documentary", "Fashion", "Studio", "Corporate", "London-based", "Own kit", "Available weekends", "Travel OK"];
+const ROLE_NEON: Record<string, string> = {
+  cinematographer: "#22d3ee", dop: "#fbbf24", videographer: "#a78bfa", editor: "#34d399",
+  "music-composer": "#f472b6", "drone-operator": "#60a5fa", "sound-operator": "#fb923c",
+};
 const STEPS = ["Your craft", "About you", "Rates & reel", "The deal"];
 
 function ProfessionalForm({ onSent }: { onSent: () => void }) {
@@ -434,16 +438,16 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {COLLECTIVE_ROLES.map((r) => {
               const on = f.role === r.value;
+              const neon = ROLE_NEON[r.value] || "var(--color-accent-400)";
               return (
                 <button
                   key={r.value}
                   onClick={() => set("role", r.value)}
-                  className={`group flex flex-col items-center gap-2 rounded-2xl border p-4 text-center transition ${
-                    on ? "border-accent-400/70 bg-accent-500/10 shadow-[0_0_22px_-6px_rgba(251,146,60,0.7)]" : "border-white/10 bg-white/[0.03] hover:border-white/25"
-                  }`}
+                  style={on ? { borderColor: neon, background: `color-mix(in srgb, ${neon} 12%, transparent)`, boxShadow: `0 0 26px -8px ${neon}` } : undefined}
+                  className={`group flex flex-col items-center gap-2.5 rounded-2xl border p-4 text-center transition ${on ? "" : "border-white/10 bg-white/[0.03] hover:border-white/25"}`}
                 >
-                  <span className={on ? "text-accent-300" : "text-white/45"}>
-                    <RoleIcon role={r.value} className="h-8 w-8" />
+                  <span style={{ color: on ? neon : undefined }} className={on ? "" : "text-white/45 transition-colors group-hover:text-white/70"}>
+                    <RoleIcon role={r.value} className="h-9 w-9" />
                   </span>
                   <span className={`text-sm font-medium ${on ? "text-white" : "text-white/70"}`}>{r.label}</span>
                 </button>
