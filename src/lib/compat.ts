@@ -66,6 +66,21 @@ export function battOk(camBatt: string, batt: string): boolean {
   return cam.some((cb) => b.some((bb) => cb === bb));
 }
 
+/**
+ * "Rig power" — V-mount / V-lock / gold-mount / B-mount / Anton Bauer / D-tap.
+ * These don't match a body's small native battery family, but they POWER cinema
+ * cameras (and monitors, wireless video, LED lights) through a battery plate +
+ * D-tap / dummy battery. So they must never read as "won't power" — they're a
+ * supplementary rig power source, not an incompatible battery.
+ */
+const RIG_POWER_RE = /v-?mount|v-?lock|gold-?mount|\bb-?mount\b|ab-?mount|anton|d-?tap/i;
+export const isRigPower = (b?: string | null) => !!b && RIG_POWER_RE.test(String(b));
+
+/** Bodies that genuinely take a V-mount plate / D-tap on a rig (cinema + large-sensor). */
+const CINEMA_BODY_RE = /cine|cinema|fx ?6|fx ?9|c ?70|c ?100|c ?200|c ?300|c ?500|c ?400|alexa|amira|ursa|komodo|raptor|venice|burano|bmpcc|pocket cinema|\bred\b|varicam|fs7|fs5/i;
+export const isCinemaBody = (specs: KitSpecs, title?: string | null) =>
+  isRigPower(specs.batteryType) || CINEMA_BODY_RE.test(String(title ?? ""));
+
 const cut = (s: unknown, n: number) => String(s ?? "").slice(0, n);
 
 /**
@@ -142,11 +157,22 @@ export function kitWarnings(kit: KitItem[]): Warning[] {
       });
   }
 
-  // 6) battery vs camera
+  // 6) battery vs camera. V-mount / broadcast power is "rig power" — it runs cinema
+  // bodies (and monitors, wireless video, lights) through a plate + D-tap, so it is
+  // never "incompatible"; it's surfaced as the supplementary rig power source.
   const camBatts = cameras.map((c) => sp(c).batteryType).filter(Boolean) as string[];
+  const powerHungry = kit.filter((x) => x.itemType === "light" || x.itemType === "monitor");
   for (const bat of batteries) {
     const bt = sp(bat).batteryType;
-    if (bt && camBatts.length && !camBatts.some((cb) => battOk(cb, bt)))
+    if (!bt) continue;
+    if (isRigPower(bt)) {
+      if (cameras.length || powerHungry.length) {
+        const extra = powerHungry.length ? " — and your monitor/lights via D-tap" : "";
+        out.push({ level: "info", dimension: "battery", text: `${cut(bat.title, 26)} (${bt}) powers your camera off a V-mount plate + D-tap${extra}.` });
+      }
+      continue;
+    }
+    if (camBatts.length && !camBatts.some((cb) => battOk(cb, bt)))
       out.push({ level: "error", dimension: "battery", text: `The ${cut(bat.title, 26)} (${bt}) won't power your camera (needs ${camBatts[0]}).` });
   }
 

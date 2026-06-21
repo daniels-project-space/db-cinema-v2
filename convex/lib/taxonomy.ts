@@ -301,6 +301,10 @@ export function mountOf(title: string): string | null {
   // Sony E family — note "venice" (Sony Venice is E-mount via the LPL/E adapter
   // ecosystem; treated as E for ranking) was previously missing → null mounts.
   if (any("sony", "fx3", "fx6", "fx9", "fx30", "a7", "a1", "a9", "burano", "venice", " fe ", "gm", "g master", "e-mount", "emount", "sigma e", "tamron e")) return "E";
+  // Canon-branded glass with no explicit mount cue → EF (the rental workhorse). Placed
+  // AFTER the E/Sony cue so a "Sony E-Mount" lens that merely *mentions* Canon isn't stolen;
+  // a genuine "Canon 24-70" (no Sony/EF token) lands here → NATIVE on EF bodies (BMPCC 6K, C-series).
+  if (any("canon")) return "EF";
   // Third-party cine / anamorphic glass with NO explicit mount cue defaults to PL — its
   // native cinema mount (confirmed by the shop: these are native-PL lenses). This is a
   // last-resort default AFTER every explicit cue (compound, arri, E/EF/RF) above, so a
@@ -345,7 +349,7 @@ export function deriveSpecs(title: string, itemType: ItemType): Specs {
     // `np-?970` only matched the hyphen/no-gap forms, so most batteries derived as null.
     if (has(/np[-\s]?fz100|fz100/)) batteryType = "NP-FZ100";
     else if (has(/lp[-\s]?e6|lpe6/)) batteryType = "LP-E6";
-    else if (has(/v[-\s]?mount|v[-\s]?lock/)) batteryType = "V-mount";
+    else if (has(/v[-\s]?mount|v[-\s]?lock|gold[-\s]?mount|ab[-\s]?mount|b[-\s]?mount|anton ?bauer/)) batteryType = "V-mount";
     else if (has(/np[-\s]?f\b|npf|np[-\s]?970|np[-\s]?750/)) batteryType = "NP-F";
     // pure power stations (no V-mount/D-tap cue) stay null = universal/unknown — they feed any
     // rig via AC/dummy battery, so never flag them incompatible with a specific camera.

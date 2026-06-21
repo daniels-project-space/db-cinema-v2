@@ -7,7 +7,7 @@ import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
 import { dayMs as msOf } from "@/lib/dates";
 import { parseMounts, mountCompat } from "@/lib/mount";
-import { coverageCompat, battOk } from "@/lib/compat";
+import { coverageCompat, battOk, isRigPower } from "@/lib/compat";
 
 export const maxDuration = 60;
 
@@ -58,6 +58,7 @@ function mountOf(title: string): string {
   if (any("bmpcc", "pocket cinema", "6k pro", "6k g2")) return "EF";
   if (any(" ef", "ef ", "ef-", "canon ef")) return "EF";
   if (any("sony", "fx3", "fx6", "fx9", "fx30", "a7", "a1", "a9", "burano", " fe ", "gm", "g master", "e-mount", "emount", "sigma e", "tamron e")) return "E";
+  if (any("canon")) return "EF"; // Canon-branded glass → EF, AFTER the Sony/E cue so an E lens that only mentions Canon isn't stolen
   return "any";
 }
 
@@ -109,6 +110,7 @@ function titleQty(title: string): number {
 const CAM_BUNDLE = /gopro|go ?pro|hero ?\d|fx ?3|fx ?6|a7|a7s|a7r|\ba1\b|komodo|bmpcc|\br5\b|\bc70\b|cinema camera|mirrorless camera/i;
 /** power compatibility of a battery option vs the kit camera's battery type. */
 function batteryCompat(optBatt: string | null | undefined, camBatt: string | null | undefined): "native" | "incompatible" | "unknown" {
+  if (isRigPower(optBatt)) return "native"; // V-mount/broadcast powers cinema rigs via a plate + D-tap — never blocked
   if (!optBatt || !camBatt) return "unknown"; // power stations / unknown → neutral, never blocked
   return battOk(camBatt, optBatt) ? "native" : "incompatible";
 }

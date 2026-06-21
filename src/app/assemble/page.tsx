@@ -11,7 +11,7 @@ import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { tierByKey } from "@/lib/membership";
 import { lensFits, bestCompat, parseMounts } from "@/lib/mount";
-import { kitWarnings, FOCAL_THREAD, battOk } from "@/lib/compat";
+import { kitWarnings, FOCAL_THREAD, battOk, isRigPower } from "@/lib/compat";
 import { GlowSlider } from "@/components/GlowSlider";
 
 const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding", "Other"];
@@ -51,7 +51,7 @@ export default function AssemblePage() {
   const actionOnly = camMounts.length > 0 && camMounts.every((m) => m === "fixed");
   const camBatts = cams.map((c) => c.specs?.batteryType).filter(Boolean);
   const camIncludesLens = cams.some((c) => c.specs?.includesLens);
-  const battOk = (cb: string, x: string) => cb === x || cb.includes(x) || x.includes(cb);
+  const cinemaRig = cams.some((c) => /cine|cinema|fx ?6|fx ?9|c ?70|c ?100|c ?200|c ?300|c ?500|c ?400|alexa|amira|ursa|komodo|raptor|venice|burano|bmpcc|pocket cinema|\bred\b/i.test(c.title || ""));
   const lensThreads = [
     ...selList.filter((x) => x.role === "lens").map((x) => x.specs?.filterThreadMm).filter(Boolean),
     ...cams.filter((c) => c.specs?.includesLens && c.specs?.lensFocal && FOCAL_THREAD[c.specs.lensFocal]).map((c) => FOCAL_THREAD[c.specs.lensFocal]),
@@ -79,9 +79,11 @@ export default function AssemblePage() {
     } else if (key === "battery") {
       const bt = o.specs?.batteryType;
       const isGimbalBatt = /gimbal/i.test(o.title || "");
+      const rig = isRigPower(bt) || /v-?mount|v-?lock|d-?tap|gold-?mount|b-?mount|anton/i.test(o.title || "");
       if (hasGimbal && isGimbalBatt) n += 150;                                  // gimbal in kit → its battery
       else if (isGimbalBatt) n -= 60;                                           // no gimbal → don't push it
-      if (bt && camBatts.length && camBatts.some((cb: string) => battOk(cb, bt))) n += 120; // matches chosen camera
+      if (rig) n += cinemaRig ? 150 : 25;                                       // V-mount: top power for a cinema rig, still valid elsewhere
+      else if (bt && camBatts.length && camBatts.some((cb: string) => battOk(cb, bt))) n += 120; // native spare for the chosen body
     }
     return n;
   };
