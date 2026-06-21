@@ -1652,3 +1652,8 @@ body {
 /* Smaller crew role tiles */
 .crew-card--sm { min-height: 224px; padding: 1rem; }
 .crew-card--sm .crew-body { gap: 0; }
+
+/* Continuous faint crew video (plays while in view, not tied to the mouse) + smaller tiles */
+.crew-video { opacity: 0.3; }
+.crew-card:hover .crew-video { opacity: 0.52; }
+.crew-card--sm { min-height: 188px; padding: 0.85rem; }

@@ -61,6 +61,10 @@ export const GEAR_PROVIDER_TERMS: { h: string; p: string }[] = [
     p: "You remain the legal owner of your equipment at all times. Listing with us is a custody-and-rental arrangement, not a sale or transfer of title.",
   },
   {
+    h: "You authorise us to act on your behalf",
+    p: "By listing, you appoint Db Cinema to manage and rent out your items on your behalf, and to take temporary custody (a temporary transfer of possession) of them for the duration of each booking and handover. You confirm you own the items and can provide a purchase or booking receipt as proof of ownership on request.",
+  },
+  {
     h: "Get your gear back any time*",
     p: "You can withdraw an item whenever you like.* *You must wait until there are no active or upcoming rentals booked on that item — then we agree a handover window and you collect, and later return, the item yourself.",
   },

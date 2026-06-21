@@ -36,11 +36,17 @@ export const apply = mutation({
     if (!a.fullName.trim() || !/\S+@\S+\.\S+/.test(a.email)) {
       throw new Error("Please give your name and a valid email.");
     }
+    if (!a.phone || !a.phone.trim()) {
+      throw new Error("A phone number is required.");
+    }
     if (!a.termsAgreed) {
       throw new Error("Please read and agree to the rental terms.");
     }
     if (a.kind === "gear-provider" && !a.agreementAccepted) {
-      throw new Error("Please accept the revenue-share & custody terms to apply as a gear provider.");
+      throw new Error("Please accept the revenue-share, custody & agency terms to apply as a gear provider.");
+    }
+    if (a.kind === "gear-provider" && !a.gearValue?.trim()) {
+      throw new Error("Please add an approximate total value of your gear.");
     }
     await ctx.db.insert("collective_applications", { ...a, status: "pending", idStatus: "none" });
 

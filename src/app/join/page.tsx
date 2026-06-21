@@ -189,7 +189,7 @@ function GearProviderForm({ onSent }: { onSent: () => void }) {
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email) && f.gearList.trim() && agree && agreeTerms;
+  const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email) && f.phone.trim() && f.gearList.trim() && f.gearValue.trim() && agree && agreeTerms;
   const set = (k: string, v: string) => setF((s) => ({ ...s, [k]: v }));
 
   async function submit() {
@@ -201,9 +201,9 @@ function GearProviderForm({ onSent }: { onSent: () => void }) {
         kind: "gear-provider",
         fullName: f.fullName.trim(),
         email: f.email.trim(),
-        phone: f.phone.trim() || undefined,
+        phone: f.phone.trim(),
         gearList: f.gearList.trim(),
-        gearValue: f.gearValue.trim() || undefined,
+        gearValue: f.gearValue.trim(),
         notes: f.notes.trim() || undefined,
         agreementAccepted: true,
         termsAgreed: true,
@@ -260,11 +260,11 @@ function GearProviderForm({ onSent }: { onSent: () => void }) {
         </Row>
         <Row>
           <div>
-            <label className={labelCls}>Phone (optional)</label>
+            <label className={labelCls}>Phone</label>
             <input className={field} value={f.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+44 …" />
           </div>
           <div>
-            <label className={labelCls}>Approx. total value (optional)</label>
+            <label className={labelCls}>Approx. total value (required)</label>
             <input className={field} value={f.gearValue} onChange={(e) => set("gearValue", e.target.value)} placeholder="e.g. £8,000" />
           </div>
         </Row>
@@ -286,8 +286,9 @@ function GearProviderForm({ onSent }: { onSent: () => void }) {
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
           <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-accent-500" />
           <span className="text-sm leading-relaxed text-white/60">
-            I&apos;ve read and accept the {GEAR_SPLIT.provider}/{GEAR_SPLIT.dbc} revenue share and custody terms above, and
-            understand a formal agreement is signed before listing.
+            I accept the {GEAR_SPLIT.provider}/{GEAR_SPLIT.dbc} revenue share and custody terms above, authorise Db Cinema to
+            act on my behalf and take temporary custody of my items, and confirm I can provide a purchase or booking receipt
+            as proof of ownership. (A formal agreement is signed before listing.)
           </span>
         </label>
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
@@ -339,7 +340,7 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
   const [err, setErr] = useState<string | null>(null);
   const set = (k: string, v: any) => setF((s) => ({ ...s, [k]: v }));
   const num = (v: string) => (String(v).trim() ? Number(v) : undefined);
-  const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email) && agreeTerms;
+  const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email) && f.phone.trim() && agreeTerms;
 
   function toggleSkill(s: string) {
     setSkills((prev) => {
@@ -364,7 +365,7 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
         kind: "professional",
         fullName: f.fullName.trim(),
         email: f.email.trim(),
-        phone: f.phone.trim() || undefined,
+        phone: f.phone.trim(),
         firstName: (f.firstName.trim() || f.fullName.trim().split(" ")[0]) || undefined,
         role: f.role,
         roleLabel,
@@ -568,7 +569,7 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
             </div>
           </Row>
           <div>
-            <label className={labelCls}>Phone (optional)</label>
+            <label className={labelCls}>Phone</label>
             <input className={field} value={f.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+44 …" />
           </div>
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">

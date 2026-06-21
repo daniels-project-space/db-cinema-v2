@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { Tilt } from "@/components/Tilt";
@@ -74,7 +74,7 @@ export function HireProfessionals() {
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {groups.map((g, i) => (
           <RoleTile key={g.role} g={g} index={i} onOpen={() => setOpenRole(g.role)} />
         ))}
@@ -98,14 +98,21 @@ function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () =>
   const hrs = g.pros.map((p) => p.rateHourly).filter((n): n is number => n != null);
   const fromHr = hrs.length ? Math.min(...hrs) : null;
 
-  function enter() { ref.current?.play().catch(() => {}); }
-  function leave() { ref.current?.pause(); } // no reset — keeps the buffer warm for smooth re-hover
+  // play continuously while the tile is in view (not tied to the mouse), pause off-screen
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    const io = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) v.play().catch(() => {}); else v.pause(); },
+      { threshold: 0.2 },
+    );
+    io.observe(v);
+    return () => io.disconnect();
+  }, []);
 
   return (
     <Tilt max={7} className="crew-3d">
       <article
-        onMouseEnter={enter}
-        onMouseLeave={leave}
         onClick={onOpen}
         style={{ ["--neon" as string]: neon, animationDelay: `${(index % 6) * 0.4}s` }}
         className="crew-card crew-card--sm group"
@@ -115,6 +122,7 @@ function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () =>
           className="crew-video"
           src={`/crew/${g.role}.mp4`}
           poster={`/crew/${g.role}.jpg`}
+          autoPlay
           muted
           loop
           playsInline
