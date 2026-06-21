@@ -289,6 +289,36 @@ export default defineSchema({
     publishedAt: v.optional(v.number()),
   }).index("by_kind", ["kind"]),
 
+  // ── Creative Collective applications (gear providers + professionals) ──
+  // Nothing here is public until an admin approves it. Approving a
+  // professional creates an `operators` row (first-name-only, booked through us).
+  collective_applications: defineTable({
+    kind: v.union(v.literal("gear-provider"), v.literal("professional")),
+    status: v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected")),
+    // contact — internal only, never published
+    fullName: v.string(),
+    email: v.string(),
+    phone: v.optional(v.string()),
+    // professional profile
+    role: v.optional(v.string()),
+    roleLabel: v.optional(v.string()),
+    firstName: v.optional(v.string()),
+    years: v.optional(v.number()),
+    tagline: v.optional(v.string()),
+    skills: v.optional(v.array(v.string())),
+    rateHourly: v.optional(v.number()),
+    rateHalfDay: v.optional(v.number()),
+    rateDay: v.optional(v.number()),
+    portfolio: v.optional(v.string()),
+    // gear provider
+    gearList: v.optional(v.string()),
+    gearValue: v.optional(v.string()),
+    agreementAccepted: v.optional(v.boolean()),
+    // shared
+    notes: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+  }).index("by_status", ["status"]),
+
   // ── RMv2 availability bridge state ────────────────────────────
   accounts: defineTable({
     email: v.string(),

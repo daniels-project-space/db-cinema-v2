@@ -9,6 +9,7 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { useCart } from "@/components/cart/CartProvider";
 import { BotAvatar, BotAvatarBadge } from "@/components/chat/BotAvatar";
 import { ChatBubble, TypingIndicator, Chips } from "@/components/chat/ChatKit";
+import { GlowSlider } from "@/components/GlowSlider";
 
 type Card = any;
 type Msg = { role: "user" | "assistant"; content: string; cards?: Card[]; suggestions?: string[] };
@@ -258,8 +259,8 @@ export function BotBubble() {
                 {onb === 3 && (
                   <div className="chip-in space-y-2.5 pl-10">
                     <div className="flex items-center gap-2 text-xs text-white/60">
-                      <span className="w-14 font-mono text-accent-300">£{brief.budget}</span>
-                      <input type="range" min={100} max={3000} step={50} value={brief.budget} onChange={(e) => setBrief((b) => ({ ...b, budget: Number(e.target.value) }))} className="flex-1 accent-accent-500" aria-label="Budget" />
+                      <span className="w-14 font-mono text-sm font-semibold text-accent-300">£{brief.budget}</span>
+                      <GlowSlider value={brief.budget} onChange={(v) => setBrief((b) => ({ ...b, budget: v }))} className="flex-1" aria-label="Budget" />
                     </div>
                     <div className="flex items-center gap-2">
                       <button onClick={startBuild} className="btn-primary px-4 py-2 text-xs">

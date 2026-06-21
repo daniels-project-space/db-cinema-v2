@@ -3,8 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
-import { guideBySlug, GUIDES } from "@/lib/guides";
-import { IconChevronLeft, IconArrowRight } from "@/components/icons";
+import { guideBySlug, GUIDES, type GuideVideo } from "@/lib/guides";
+import { IconChevronLeft, IconArrowRight, IconCheck } from "@/components/icons";
 
 import { SITE_URL as BASE } from "@/lib/site";
 
@@ -28,6 +28,38 @@ export async function generateMetadata({
   };
 }
 
+/** Privacy-friendly, lazy-loaded YouTube embed with an attributed caption. */
+function VideoEmbed({ v }: { v: GuideVideo }) {
+  return (
+    <figure className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-2xl shadow-black/40">
+      <div className="relative aspect-video">
+        <iframe
+          className="absolute inset-0 h-full w-full"
+          src={`https://www.youtube-nocookie.com/embed/${v.id}?rel=0`}
+          title={v.title}
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerPolicy="strict-origin-when-cross-origin"
+          allowFullScreen
+        />
+      </div>
+      <figcaption className="flex items-center justify-between gap-3 px-4 py-2.5 text-xs text-white/45">
+        <span className="truncate">
+          <span className="text-white/65">{v.title}</span> · {v.author}
+        </span>
+        <a
+          href={`https://www.youtube.com/watch?v=${v.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 text-accent-400 hover:underline"
+        >
+          Watch on YouTube ↗
+        </a>
+      </figcaption>
+    </figure>
+  );
+}
+
 export default async function GuidePage({
   params,
 }: {
@@ -37,15 +69,27 @@ export default async function GuidePage({
   const g = guideBySlug(slug);
   if (!g) notFound();
 
-  const jsonLd = {
+  const firstVideo = g.sections.find((s) => s.video)?.video;
+  const jsonLd: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: g.title,
     description: g.description,
+    articleSection: g.category,
     author: { "@type": "Organization", name: "Db Cinema Rentals" },
     publisher: { "@type": "Organization", name: "Db Cinema Rentals" },
     mainEntityOfPage: `${BASE}/guides/${slug}`,
   };
+  if (firstVideo) {
+    jsonLd.video = {
+      "@type": "VideoObject",
+      name: firstVideo.title,
+      description: g.description,
+      thumbnailUrl: `https://i.ytimg.com/vi/${firstVideo.id}/hqdefault.jpg`,
+      contentUrl: `https://www.youtube.com/watch?v=${firstVideo.id}`,
+      embedUrl: `https://www.youtube.com/embed/${firstVideo.id}`,
+    };
+  }
 
   return (
     <>
@@ -60,7 +104,7 @@ export default async function GuidePage({
           All guides
         </Link>
         <div className="page-in">
-          <div className="hud-label mt-7 !text-accent-400/90">Field guide</div>
+          <div className="hud-label mt-7 !text-accent-400/90">{g.category}</div>
           <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">{g.title}</h1>
           <p className="serif-accent mt-5 text-xl leading-relaxed text-white/60 sm:text-2xl">{g.intro}</p>
         </div>
@@ -71,6 +115,17 @@ export default async function GuidePage({
                 <span className="absolute -left-px top-1 h-5 w-px bg-accent-400" aria-hidden />
                 <h2 className="font-display text-xl font-semibold text-white/85">{s.h}</h2>
                 <p className="mt-2.5 leading-relaxed text-white/55">{s.p}</p>
+                {s.video && <VideoEmbed v={s.video} />}
+                {s.tips && s.tips.length > 0 && (
+                  <ul className="mt-4 space-y-2">
+                    {s.tips.map((t) => (
+                      <li key={t} className="flex items-start gap-2.5 text-sm leading-relaxed text-white/60">
+                        <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent-400" />
+                        <span>{t}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
             </Reveal>
           ))}

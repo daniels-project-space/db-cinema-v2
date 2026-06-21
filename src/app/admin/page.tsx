@@ -191,6 +191,7 @@ export default function AdminPage() {
           )}
         </div>
 
+        <AdminCollective token={token} />
         <AdminSettings token={token} />
         <AdminPromos token={token} />
         <AdminMemberOffers token={token} />
@@ -374,6 +375,186 @@ function AdminAnalytics({ token }: { token: string }) {
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+function AdminCollective({ token }: { token: string }) {
+  const res = useQuery(api.collective.adminList, { token });
+  const review = useMutation(api.collective.review);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [edit, setEdit] = useState<any>(null);
+  if (!res || !(res as any).authorized) return null;
+  const items = (res as any).items as any[];
+  const pending = items.filter((i) => i.status === "pending").length;
+
+  function startEdit(a: any) {
+    setEditId(a._id);
+    setEdit({
+      roleLabel: a.roleLabel ?? "",
+      firstName: a.firstName ?? "",
+      years: a.years ?? "",
+      tagline: a.tagline ?? "",
+      skills: (a.skills ?? []).join(", "),
+      rateHourly: a.rateHourly ?? "",
+      rateHalfDay: a.rateHalfDay ?? "",
+      rateDay: a.rateDay ?? "",
+    });
+  }
+  const numOpt = (v: any) => (String(v).trim() ? Number(v) : undefined);
+
+  async function act(a: any, action: "approve" | "reject", withEdits: boolean) {
+    setBusy(a._id + action);
+    try {
+      const edits =
+        withEdits && edit
+          ? {
+              roleLabel: edit.roleLabel || undefined,
+              firstName: edit.firstName || undefined,
+              years: numOpt(edit.years),
+              tagline: edit.tagline || undefined,
+              skills: edit.skills ? edit.skills.split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
+              rateHourly: numOpt(edit.rateHourly),
+              rateHalfDay: numOpt(edit.rateHalfDay),
+              rateDay: numOpt(edit.rateDay),
+            }
+          : undefined;
+      await review({ token, id: a._id, action, edits });
+      setEditId(null);
+      setEdit(null);
+    } catch (e: any) {
+      alert(e?.message ?? "Failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const ei = "rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-xs text-white/80 outline-none";
+
+  return (
+    <section className="mt-10">
+      <h2 className="font-display text-lg font-semibold text-white/80">
+        Creative Collective <span className="text-white/40">({pending} pending)</span>
+      </h2>
+      <div className="mt-3 flex flex-col gap-3">
+        {items.length === 0 && <div className="text-sm text-white/30">No applications yet.</div>}
+        {items.map((a) => (
+          <div key={a._id} className={`rounded-2xl glass p-4 ${a.status !== "pending" ? "opacity-60" : ""}`}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <span
+                  className={`rounded px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+                    a.kind === "gear-provider" ? "bg-amber-500/20 text-amber-300" : "bg-accent-500/20 text-accent-300"
+                  }`}
+                >
+                  {a.kind === "gear-provider" ? "Gear provider" : "Professional"}
+                </span>
+                <span className="ml-2 text-sm text-white/80">{a.fullName}</span>
+                <span className="ml-2 text-xs text-white/40">
+                  {a.email}
+                  {a.phone ? ` · ${a.phone}` : ""}
+                </span>
+              </div>
+              <span
+                className={`rounded px-2 py-0.5 text-[10px] uppercase ${
+                  a.status === "pending"
+                    ? "bg-white/10 text-white/60"
+                    : a.status === "approved"
+                      ? "bg-emerald-500/20 text-emerald-300"
+                      : "bg-red-500/20 text-red-300"
+                }`}
+              >
+                {a.status}
+              </span>
+            </div>
+
+            <div className="mt-2 text-xs leading-relaxed text-white/50">
+              {a.kind === "professional" ? (
+                <>
+                  <div>
+                    <b className="text-white/70">{a.roleLabel || a.role}</b> · {a.firstName} · {a.years ?? "?"}y
+                  </div>
+                  {a.tagline && <div className="mt-1">{a.tagline}</div>}
+                  {a.skills?.length > 0 && <div className="mt-1">Skills: {a.skills.join(", ")}</div>}
+                  <div className="mt-1">
+                    Rates: hr {a.rateHourly ?? "—"} / half {a.rateHalfDay ?? "—"} / day {a.rateDay ?? "—"}
+                  </div>
+                  {a.portfolio && <div className="mt-1">Portfolio: {a.portfolio}</div>}
+                </>
+              ) : (
+                <>
+                  <div>Gear: {a.gearList}</div>
+                  {a.gearValue && <div className="mt-1">Approx value: {a.gearValue}</div>}
+                  <div className="mt-1">Terms: {a.agreementAccepted ? "✓ 60/40 + custody accepted" : "✗ not accepted"}</div>
+                </>
+              )}
+              {a.notes && <div className="mt-1 text-white/40">Notes: {a.notes}</div>}
+            </div>
+
+            {/* inline edit (professionals) */}
+            {editId === a._id && a.kind === "professional" && (
+              <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-3 sm:grid-cols-2">
+                <input className={ei} value={edit.roleLabel} onChange={(e) => setEdit({ ...edit, roleLabel: e.target.value })} placeholder="Role label" />
+                <input className={ei} value={edit.firstName} onChange={(e) => setEdit({ ...edit, firstName: e.target.value })} placeholder="Display name" />
+                <input className={`${ei} sm:col-span-2`} value={edit.tagline} onChange={(e) => setEdit({ ...edit, tagline: e.target.value })} placeholder="Tagline" />
+                <input className={`${ei} sm:col-span-2`} value={edit.skills} onChange={(e) => setEdit({ ...edit, skills: e.target.value })} placeholder="Skills (comma separated)" />
+                <input className={ei} type="number" value={edit.years} onChange={(e) => setEdit({ ...edit, years: e.target.value })} placeholder="Years" />
+                <div className="grid grid-cols-3 gap-2 sm:col-span-2">
+                  <input className={ei} type="number" value={edit.rateHourly} onChange={(e) => setEdit({ ...edit, rateHourly: e.target.value })} placeholder="Hourly" />
+                  <input className={ei} type="number" value={edit.rateHalfDay} onChange={(e) => setEdit({ ...edit, rateHalfDay: e.target.value })} placeholder="Half" />
+                  <input className={ei} type="number" value={edit.rateDay} onChange={(e) => setEdit({ ...edit, rateDay: e.target.value })} placeholder="Day" />
+                </div>
+              </div>
+            )}
+
+            {a.status === "pending" && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {editId === a._id ? (
+                  <>
+                    <button
+                      onClick={() => act(a, "approve", true)}
+                      disabled={busy === a._id + "approve"}
+                      className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-40"
+                    >
+                      Save edits &amp; publish
+                    </button>
+                    <button onClick={() => { setEditId(null); setEdit(null); }} className="rounded-full glass px-4 py-1.5 text-xs text-white/60 hover:text-white">
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => act(a, "approve", false)}
+                      disabled={busy === a._id + "approve"}
+                      className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-40"
+                    >
+                      {a.kind === "professional" ? "Approve & publish" : "Approve"}
+                    </button>
+                    {a.kind === "professional" && (
+                      <button onClick={() => startEdit(a)} className="rounded-full glass px-4 py-1.5 text-xs text-white/70 hover:text-white">
+                        Edit & publish
+                      </button>
+                    )}
+                    <button
+                      onClick={() => act(a, "reject", false)}
+                      disabled={busy === a._id + "reject"}
+                      className="rounded-full bg-red-500/15 px-4 py-1.5 text-xs text-red-300 hover:bg-red-500/25 disabled:opacity-40"
+                    >
+                      Reject
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-white/30">
+        Approving a professional publishes a first-name-only crew card on /gear. Gear-provider approvals are marked
+        approved — onboard the items into the catalogue separately.
+      </p>
     </section>
   );
 }

@@ -12,6 +12,7 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { tierByKey } from "@/lib/membership";
 import { lensFits, bestCompat, parseMounts } from "@/lib/mount";
 import { kitWarnings, FOCAL_THREAD, battOk } from "@/lib/compat";
+import { GlowSlider } from "@/components/GlowSlider";
 
 const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding", "Other"];
 const SIZES = ["Solo", "Small crew", "Large production"];
@@ -262,8 +263,8 @@ export default function AssemblePage() {
               <Controls>
                 <div className="space-y-4">
                   <div>
-                    <label className="flex justify-between text-[11px] text-white/40"><span>Budget</span><span className="text-accent-300">£{budget}</span></label>
-                    <input type="range" min={100} max={3000} step={50} value={budget} onChange={(e) => setBudget(Number(e.target.value))} className="mt-1 w-full accent-accent-500" />
+                    <label className="flex justify-between text-[11px] text-white/40"><span>Budget</span><span className="font-mono text-sm font-semibold text-accent-300">£{budget}</span></label>
+                    <GlowSlider value={budget} onChange={setBudget} className="mt-1.5 w-full" aria-label="Budget" />
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-[11px] text-white/40">Cameras</span>

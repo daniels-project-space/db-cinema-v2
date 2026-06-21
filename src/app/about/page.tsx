@@ -75,6 +75,25 @@ export default function AboutPage() {
             <IconArrowRight className="h-4 w-4" />
           </Link>
         </Reveal>
+
+        {/* Creative Collective */}
+        <Reveal className="mt-14">
+          <div className="spot gradient-border overflow-hidden rounded-2xl p-7 sm:p-9">
+            <span className="hud-label !text-accent-400/90">Work with us</span>
+            <h2 className="mt-3 font-display text-2xl font-bold text-white sm:text-3xl">
+              Join the <span className="serif-accent gradient-text text-[1.06em]">Creative Collective</span>
+            </h2>
+            <p className="mt-3 max-w-xl leading-relaxed text-white/55">
+              Got pro gear sitting idle, or you&apos;re a cinematographer, editor or operator for hire? List your kit and
+              earn 40% of every rental, or add your profile to our crew roster and get booked on London shoots. Every
+              application is reviewed by hand.
+            </p>
+            <Link href="/join" className="btn-primary mt-6 px-7 py-3">
+              Join the Collective
+              <IconArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </Reveal>
       </main>
     </>
   );

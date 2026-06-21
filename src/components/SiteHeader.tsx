@@ -120,6 +120,13 @@ export function SiteHeader() {
                       >
                         My account &amp; bookings
                       </Link>
+                      <Link
+                        href="/join"
+                        onClick={() => setMenu(false)}
+                        className="block border-t border-white/5 px-4 py-2.5 text-sm text-accent-300 transition-colors hover:bg-white/5 hover:text-accent-200"
+                      >
+                        ✦ Join the Creative Collective
+                      </Link>
                       <button
                         onClick={() => {
                           setMenu(false);
@@ -199,7 +206,7 @@ export function SiteHeader() {
         </div>
 
         <nav className="mt-10 flex flex-col">
-          {[...NAV, { href: "/account", label: me ? "My account" : "Account" }, { href: "/contact", label: "Contact" }].map(
+          {[...NAV, { href: "/account", label: me ? "My account" : "Account" }, { href: "/join", label: "Join the Collective" }, { href: "/contact", label: "Contact" }].map(
             (n, i) => (
               <Link
                 key={n.href}
