@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
-import { Tilt } from "@/components/Tilt";
 import { Calendar } from "@/components/booking/Calendar";
 import { IconCheck, IconX, IconArrowRight } from "@/components/icons";
 import { clientRate } from "@/lib/collective";
@@ -74,7 +73,7 @@ export function HireProfessionals() {
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="rail mt-6 flex snap-x gap-3 overflow-x-auto pb-2">
         {groups.map((g, i) => (
           <RoleTile key={g.role} g={g} index={i} onOpen={() => setOpenRole(g.role)} />
         ))}
@@ -98,64 +97,59 @@ function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () =>
   const hrs = g.pros.map((p) => p.rateHourly).filter((n): n is number => n != null);
   const fromHr = hrs.length ? Math.min(...hrs) : null;
 
-  // play continuously while the tile is in view (not tied to the mouse), pause off-screen
-  useEffect(() => {
+  // video appears + plays only while the mouse is on the tile (enter/leave only —
+  // no pointer-move handlers, so it never stops while the cursor is held still)
+  function enter() { const v = ref.current; if (v) v.play().catch(() => {}); }
+  function leave() {
     const v = ref.current;
-    if (!v) return;
-    const io = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) v.play().catch(() => {}); else v.pause(); },
-      { threshold: 0.2 },
-    );
-    io.observe(v);
-    return () => io.disconnect();
-  }, []);
+    if (v) { v.pause(); try { v.currentTime = 0; } catch {} }
+  }
 
   return (
-    <Tilt max={7} className="crew-3d">
-      <article
-        onClick={onOpen}
-        style={{ ["--neon" as string]: neon, animationDelay: `${(index % 6) * 0.4}s` }}
-        className="crew-card crew-card--sm group"
-      >
-        <video
-          ref={ref}
-          className="crew-video"
-          src={`/crew/${g.role}.mp4`}
-          poster={`/crew/${g.role}.jpg`}
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="auto"
-          aria-hidden
-        />
-        <div className="crew-scrim" />
+    <article
+      onMouseEnter={enter}
+      onMouseLeave={leave}
+      onClick={onOpen}
+      style={{ ["--neon" as string]: neon, animationDelay: `${(index % 6) * 0.4}s` }}
+      className="crew-card crew-card--sm group w-40 shrink-0 snap-start"
+    >
+      <video
+        ref={ref}
+        className="crew-video"
+        src={`/crew/${g.role}.mp4`}
+        poster={`/crew/${g.role}.jpg`}
+        muted
+        loop
+        playsInline
+        preload="auto"
+        aria-hidden
+      />
+      <div className="crew-scrim" />
 
-        <div className="crew-body">
-          <div className="flex items-center justify-between gap-2">
-            <span className="hud-label" style={{ color: neon }}>{g.roleLabel}</span>
-            <span className="crew-verified"><IconCheck className="h-3 w-3" /> Verified</span>
-          </div>
-
-          <span className="crew-ico mt-2" style={{ color: neon }}>
-            <RoleIcon role={g.role} className="h-8 w-8" />
-          </span>
-
-          <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-white/45">
-            {g.pros.length} pro{g.pros.length > 1 ? "s" : ""} available
-          </div>
-
-          <div className="mt-auto flex items-center justify-between pt-3">
-            <span className="font-display text-sm font-semibold text-white/80">
-              {fromHr != null ? <>from <span style={{ color: neon }}>£{clientRate(fromHr)}</span>/hr</> : "Rates on request"}
-            </span>
-            <span className="crew-cta">
-              View <IconArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-            </span>
-          </div>
+      <div className="crew-body">
+        <div className="flex items-center justify-between gap-2">
+          <span className="hud-label" style={{ color: neon }}>{g.roleLabel}</span>
+          <span className="crew-verified"><IconCheck className="h-3 w-3" /> Verified</span>
         </div>
-      </article>
-    </Tilt>
+
+        <span className="crew-ico mt-2" style={{ color: neon }}>
+          <RoleIcon role={g.role} className="h-8 w-8" />
+        </span>
+
+        <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-white/45">
+          {g.pros.length} pro{g.pros.length > 1 ? "s" : ""} available
+        </div>
+
+        <div className="mt-auto flex items-center justify-between pt-3">
+          <span className="font-display text-sm font-semibold text-white/80">
+            {fromHr != null ? <>from <span style={{ color: neon }}>£{clientRate(fromHr)}</span>/hr</> : "POA"}
+          </span>
+          <span className="crew-cta">
+            View <IconArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </div>
+      </div>
+    </article>
   );
 }
 

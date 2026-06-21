@@ -1657,3 +1657,7 @@ body {
 .crew-video { opacity: 0.3; }
 .crew-card:hover .crew-video { opacity: 0.52; }
 .crew-card--sm { min-height: 188px; padding: 0.85rem; }
+
+/* Final: hover-only crew video — appears + plays on hover, hidden otherwise */
+.crew-video { opacity: 0; }
+.crew-card:hover .crew-video { opacity: 0.6; }
