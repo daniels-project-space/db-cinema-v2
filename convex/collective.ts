@@ -72,12 +72,12 @@ function assertAdmin(token: string) {
 // ── Member profile (token-scoped) ────────────────────────────────────
 /** Resolve the signed-in account's email from a session token. */
 async function emailFromToken(ctx: any, token: string): Promise<string | null> {
+  // expiry is enforced by the session sweep cron (matches accounts.resolve)
   const s = await ctx.db
     .query("sessions")
     .withIndex("by_token", (q: any) => q.eq("token", token))
     .first();
   if (!s) return null;
-  if (s.expiresAt != null && s.expiresAt < Date.now()) return null;
   const acct = await ctx.db.get(s.accountId);
   return acct?.email ?? null;
 }
