@@ -112,13 +112,16 @@ async function memberApp(ctx: any, email: string) {
 export const myMembership = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    const email = await emailFromToken(ctx, token);
-    if (!email) return null;
-    const app = await memberApp(ctx, email);
+    const s = await ctx.db.query("sessions").withIndex("by_token", (q: any) => q.eq("token", token)).first();
+    if (!s) return null;
+    const acct: any = await ctx.db.get(s.accountId);
+    if (!acct?.email) return null;
+    const app = await memberApp(ctx, acct.email);
     if (!app) return null;
     const bankProvided = !!app.bankAccountNumber;
-    const idStatus = app.idStatus ?? "none";
-    const operational = app.status === "approved" && bankProvided && idStatus === "verified";
+    // ID is cleared by Stripe Identity at the account level (or a manual admin mark on the app)
+    const idVerified = acct.idVerified === true || app.idStatus === "verified";
+    const operational = app.status === "approved" && bankProvided && idVerified;
     return {
       kind: app.kind as "gear-provider" | "professional",
       status: app.status as "pending" | "approved",
@@ -126,7 +129,7 @@ export const myMembership = query({
       roleLabel: app.roleLabel ?? null,
       bankProvided,
       bankLast4: app.bankAccountNumber ? app.bankAccountNumber.slice(-4) : null,
-      idStatus,
+      idVerified,
       operational,
     };
   },

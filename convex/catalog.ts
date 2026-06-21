@@ -32,6 +32,8 @@ export const repriceLines = internalQuery({
         const pct = OFFER_PCT_BY_TYPE[l.itemType ?? ""] ?? 0; // only a real offer pct, never client-forged
         if (pct > 0) total = Math.round(q.total * (1 - pct / 100));
       }
+      // automatic quiet-item discount (idle gear) — applied server-side so the charged price matches the badge
+      if (l.quietDeal) total = Math.round(total * (1 - l.quietDeal / 100));
       out.push({ total, deposit: l.depositAmount ?? 0 });
     }
     return out;
@@ -59,6 +61,7 @@ const card = (l: any) => ({
   depositAmount: l.depositAmount,
   minimumRentalDays: l.minimumRentalDays ?? 1,
   demandScore: l.demandScore ?? 0,
+  quietDeal: l.quietDeal ?? null,
 });
 
 export const allBasic = query({
@@ -145,8 +148,64 @@ export const listListings = query({
       const s = search.toLowerCase();
       rows = rows.filter((r) => r.title.toLowerCase().includes(s));
     }
-    rows.sort((a, b) => a.title.localeCompare(b.title));
+    // quiet-deal (idle) items get a light promotion: surfaced first within the view
+    rows.sort((a, b) => (b.quietDeal ? 1 : 0) - (a.quietDeal ? 1 : 0) || a.title.localeCompare(b.title));
     return rows.slice(0, limit ?? 120).map(card);
+  },
+});
+
+// ── Set-aware idle detection → light "quiet deal" discount ────────────
+// An item that's rented mostly inside SETS looks idle on its own demandScore but
+// is actually busy. So we judge by the demand of its gear ANYWHERE (its model
+// tokens appearing in any popular listing/bundle), not just its own bookings.
+// Only the genuinely-idle few (capped) get a light discount + promotion.
+// We compare items by their DISTINCTIVE gear tokens (model/focal — fx3, komodo,
+// 24-70, x-t5), dropping brands, generic and spec words. That way a brand like
+// "sony" (which appears in lots of busy listings) can't make a niche item look
+// busy — only its actual model deciding whether the gear is rented elsewhere.
+const QUIET_STOP = new Set([
+  // generic
+  "camera", "cameras", "lens", "lenses", "set", "sets", "kit", "kits", "bundle", "package", "with", "for", "the", "and", "pro", "full", "frame", "cinema", "mirrorless", "digital", "video", "professional", "new", "mark", "ii", "iii", "plus", "zoom", "prime", "wide", "mount", "rigged", "rig", "photography", "film", "content", "creator", "advanced", "basic", "portable", "powered", "capacity", "spare", "extra", "mini", "max", "ultra",
+  // item-type words
+  "monitor", "light", "lights", "tripod", "gimbal", "drone", "speaker", "speakers", "mic", "microphone", "recorder", "filter", "filters", "stand", "cage", "battery", "batteries", "charger", "card", "cards", "case", "bag", "pole",
+  // brands
+  "sony", "canon", "dji", "blackmagic", "bmpcc", "fujifilm", "fuji", "panasonic", "lumix", "nikon", "aputure", "godox", "nanlite", "amaran", "forza", "rode", "sennheiser", "deity", "atomos", "smallhd", "feelworld", "hollyland", "sigma", "tamron", "samyang", "rokinon", "zeiss", "tilta", "zhiyun", "moza", "pioneer", "jbl", "insta", "gopro", "osmo", "manfrotto", "sachtler", "dzo", "dzofilm", "blazar", "sirui", "laowa",
+  // spec noise
+  "4k", "6k", "8k", "2k", "1080p", "1080", "720", "fps", "60fps", "120fps", "2x", "3x", "4x", "5x", "6x", "8x", "gb", "tb", "ssd", "wah", "watt", "f2", "f4", "f28", "f18", "f14", "t1", "t2",
+]);
+function quietTokens(title: string): string[] {
+  return [...new Set(
+    String(title || "").toLowerCase().replace(/\bcannon\b/g, "canon").replace(/[^a-z0-9- ]/g, " ").split(/\s+/)
+      .filter((w) => w.length >= 2 && !QUIET_STOP.has(w) && !/^\d{1,4}(gb|tb)?$/.test(w)),
+  )];
+}
+export const refreshQuietDeals = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const QUIET_PCT = 10, MAX_QUIET = 10, POPULAR = 4, LOW_OWN = 1;
+    const ls = await ctx.db.query("listings").withIndex("by_active", (q) => q.eq("active", true)).collect();
+    // peak demand of each gear token across ALL listings (so set rentals count)
+    const pop = new Map<string, number>();
+    for (const l of ls) {
+      const d = (l as any).demandScore ?? 0;
+      for (const t of quietTokens(l.title)) pop.set(t, Math.max(pop.get(t) ?? 0, d));
+    }
+    const idle = ls
+      .filter((l) => ((l as any).demandScore ?? 0) <= LOW_OWN && l.category !== "Packages")
+      .map((l) => ({ l, peak: quietTokens(l.title).reduce((m, t) => Math.max(m, pop.get(t) ?? 0), 0) }))
+      .filter((x) => x.peak < POPULAR) // gear not popular in ANY set → genuinely idle
+      .sort((a, b) => a.peak - b.peak || ((a.l as any).demandScore ?? 0) - ((b.l as any).demandScore ?? 0))
+      .slice(0, MAX_QUIET);
+    const chosen = new Set(idle.map((x) => x.l._id));
+    let set = 0, cleared = 0;
+    for (const l of ls) {
+      const want = chosen.has(l._id) ? QUIET_PCT : undefined;
+      if (((l as any).quietDeal ?? undefined) !== want) {
+        await ctx.db.patch(l._id, { quietDeal: want } as any);
+        want ? set++ : cleared++;
+      }
+    }
+    return { discounted: set, cleared, scanned: ls.length, picks: idle.map((x) => x.l.title.slice(0, 50)) };
   },
 });
 

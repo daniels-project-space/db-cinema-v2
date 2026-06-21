@@ -16,10 +16,13 @@ export type GearListing = {
   pricing: { daily: number; day3?: number; day7?: number };
   depositAmount: number;
   minimumRentalDays: number;
+  quietDeal?: number | null;
 };
 
+const off = (n: number, pct: number) => Math.round(n * (1 - pct / 100));
+
 export function GearCard({ listing }: { listing: GearListing }) {
-  const { slug, title, category, heroImage, pricing } = listing;
+  const { slug, title, category, heroImage, pricing, quietDeal } = listing;
   const account = useAccount();
   const router = useRouter();
   const faved = !!account.me?.favorites?.includes(listing._id);
@@ -52,6 +55,11 @@ export function GearCard({ listing }: { listing: GearListing }) {
       </button>
 
       <div className="relative overflow-hidden">
+        {quietDeal ? (
+          <span className="absolute left-2.5 top-2.5 z-10 rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
+            −{quietDeal}% quiet deal
+          </span>
+        ) : null}
         <SmartImage
           src={heroImage}
           alt={title}
@@ -69,12 +77,15 @@ export function GearCard({ listing }: { listing: GearListing }) {
         </h3>
         <div className="flex items-baseline gap-1">
           <span className="font-display text-2xl font-bold text-accent-400">
-            £{money(pricing.daily)}
+            £{money(quietDeal ? off(pricing.daily, quietDeal) : pricing.daily)}
           </span>
           <span className="text-sm text-white/40">/day</span>
+          {quietDeal ? (
+            <span className="text-xs text-white/30 line-through">£{money(pricing.daily)}</span>
+          ) : null}
           {pricing.day7 ? (
             <span className="ml-auto font-mono text-[11px] text-white/35">
-              £{money(pricing.day7)}/d · 7+
+              £{money(quietDeal ? off(pricing.day7, quietDeal) : pricing.day7)}/d · 7+
             </span>
           ) : null}
         </div>

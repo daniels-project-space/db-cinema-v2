@@ -214,6 +214,22 @@ export const _markVerifiedByEmail = internalMutation({
   },
 });
 
+/** Stash an account-level Stripe Identity session id (crew/member verification). */
+export const _setIdSession = internalMutation({
+  args: { accountId: v.id("accounts"), sessionId: v.string() },
+  handler: async (ctx, { accountId, sessionId }) => {
+    await ctx.db.patch(accountId, { idSessionId: sessionId });
+  },
+});
+
+/** Mark an account ID-verified (called by identity.refreshAccount once Stripe clears it). */
+export const _markIdVerified = internalMutation({
+  args: { accountId: v.id("accounts") },
+  handler: async (ctx, { accountId }) => {
+    await ctx.db.patch(accountId, { idVerified: true });
+  },
+});
+
 export const toggleFavorite = mutation({
   args: { token: v.string(), listingId: v.string() },
   handler: async (ctx, { token, listingId }) => {

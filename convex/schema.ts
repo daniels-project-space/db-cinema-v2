@@ -65,6 +65,7 @@ export default defineSchema({
     hyggloListingSlug: v.optional(v.string()),
     hyggloProductId: v.optional(v.number()),
     demandScore: v.optional(v.number()), // rental-history demand (set by sync.applyDemand)
+    quietDeal: v.optional(v.number()), // % off — auto-set on genuinely-idle items (catalog.refreshQuietDeals)
     suppressed: v.optional(v.boolean()), // local marketing-only override — kept inactive every sync
     unavailableDates: v.optional(v.array(v.string())),
     publicUrl: v.optional(v.string()),
@@ -348,6 +349,7 @@ export default defineSchema({
     marketingEmails: v.optional(v.boolean()),
     favorites: v.optional(v.array(v.string())),
     idVerified: v.optional(v.boolean()),
+    idSessionId: v.optional(v.string()), // Stripe Identity session (account-level verification)
     stripeCustomerId: v.optional(v.string()),
     membershipTier: v.optional(v.string()),
     membershipActive: v.optional(v.boolean()),

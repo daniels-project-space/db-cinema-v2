@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useState } from "react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { IconCheck } from "@/components/icons";
@@ -63,7 +63,7 @@ export function CollectiveProfile() {
 
       <div className="mt-5 space-y-4">
         <BankStep done={m.bankProvided} last4={m.bankLast4} token={token!} />
-        <IdStep status={m.idStatus} token={token!} />
+        <IdStep verified={m.idVerified} token={token!} />
       </div>
     </section>
   );
@@ -139,50 +139,33 @@ function BankStep({ done, last4, token }: { done: boolean; last4: string | null;
   );
 }
 
-function IdStep({ status, token }: { status: string; token: string }) {
-  const getUrl = useMutation(api.collective.idUploadUrl);
-  const attach = useMutation(api.collective.attachId);
-  const fileRef = useRef<HTMLInputElement>(null);
+function IdStep({ verified, token }: { verified: boolean; token: string }) {
+  const createSession = useAction(api.identity.createAccountSession);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  async function onFile(file: File) {
+  async function verify() {
     setBusy(true);
     setErr(null);
     try {
-      const url = await getUrl({ token });
-      const res = await fetch(url, { method: "POST", headers: { "content-type": file.type }, body: file });
-      const { storageId } = await res.json();
-      await attach({ token, storageId });
+      const { url } = await createSession({ token, origin: window.location.origin });
+      window.location.href = url; // Stripe Identity hosted flow → returns to /verify/return?account=1
     } catch (e: any) {
-      setErr(e?.message ?? "Upload failed");
-    } finally {
+      setErr(e?.message ?? "Could not start verification");
       setBusy(false);
     }
   }
 
-  if (status === "verified") {
-    return <StepShell n={2} title="ID verification" done badge="Verified" />;
-  }
-  if (status === "submitted") {
-    return (
-      <StepShell n={2} title="ID verification" done={false} badge="Under review">
-        <p className="text-xs text-white/45">Thanks — we&apos;re checking your ID. This is usually quick.</p>
-        <button onClick={() => fileRef.current?.click()} className="mt-2 text-xs text-accent-300 hover:underline">Replace document</button>
-        <input ref={fileRef} type="file" accept="image/*,.pdf" hidden onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
-      </StepShell>
-    );
-  }
+  if (verified) return <StepShell n={2} title="ID verification" done badge="Verified" />;
   return (
     <StepShell n={2} title="ID verification" done={false}>
       <p className="text-xs leading-relaxed text-white/45">
-        Upload a clear photo of a government ID (passport or driving licence). Stored securely and used only to verify you.
+        Verify your identity with Stripe — a quick photo of a government ID plus a selfie. Instant and secure; nothing to email and no manual review.
       </p>
       {err && <p className="mt-2 text-xs text-red-300">{err}</p>}
-      <button onClick={() => fileRef.current?.click()} disabled={busy} className="btn-primary mt-3 px-5 py-2 text-sm">
-        {busy ? "Uploading…" : "Upload ID"}
+      <button onClick={verify} disabled={busy} className="btn-primary mt-3 px-5 py-2 text-sm">
+        {busy ? "Opening Stripe…" : "Verify my ID"}
       </button>
-      <input ref={fileRef} type="file" accept="image/*,.pdf" hidden onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
     </StepShell>
   );
 }

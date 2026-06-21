@@ -6,22 +6,35 @@ import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
+import { useAccount } from "@/components/account/AccountProvider";
 import { IconCheck, IconShield } from "@/components/icons";
 
 function Inner() {
   const params = useSearchParams();
   const bookingId = params.get("booking");
+  const isAccount = !!params.get("account");
+  const account = useAccount();
+  const token = account.token;
   const refresh = useAction(api.identity.refresh);
+  const refreshAccount = useAction(api.identity.refreshAccount);
   const [status, setStatus] = useState<string | null>(null);
   const ran = useRef(false);
 
   useEffect(() => {
-    if (ran.current || !bookingId) return;
-    ran.current = true;
-    refresh({ bookingId: bookingId as any })
-      .then((r) => setStatus(r.status))
-      .catch(() => setStatus("error"));
-  }, [bookingId, refresh]);
+    if (ran.current) return;
+    if (isAccount) {
+      if (!token) return; // wait for the session to resolve
+      ran.current = true;
+      refreshAccount({ token })
+        .then((r) => setStatus(r.status))
+        .catch(() => setStatus("error"));
+    } else if (bookingId) {
+      ran.current = true;
+      refresh({ bookingId: bookingId as any })
+        .then((r) => setStatus(r.status))
+        .catch(() => setStatus("error"));
+    }
+  }, [bookingId, isAccount, token, refresh, refreshAccount]);
 
   const verified = status === "verified";
   const pending = status === "processing" || status === null;
