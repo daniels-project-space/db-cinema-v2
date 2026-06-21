@@ -227,6 +227,35 @@ export function categoryFor(title: string): string {
   return CATEGORY_OF[deriveItemType(title)] ?? "Accessories";
 }
 
+/**
+ * What SECONDARY gear a bundle/set already contains, inferred from its title
+ * (the hero item is excluded — that's the product itself). The kit builder uses
+ * this so it never re-recommends an item the chosen set already includes (whose
+ * scarce unit is already booked inside the bundle).
+ *   "Sony FX3 + 24-70mm + V-mount + Atomos Ninja"  →  [lens, battery, monitor]
+ *   "Sony 24-70mm GM" (a lone lens)                →  []   (hero is the lens)
+ */
+const INCLUDE_CUES: [ItemType, RegExp][] = [
+  ["lens", /\b(lens|lenses|\d{2,3}\s?-\s?\d{2,3}\s?mm|\d{2,3}\s?mm\b|prime|\bgm\b|g ?master|anamorphic|cine lens|zoom lens)\b/i],
+  ["battery", /\b(v-?mount|v-?lock|np-?fz?100|np-?f\b|lp-?e6|d-?tap|spare batter|extra batter|\d+x?\s*batter|\bbatteries\b)\b/i],
+  ["monitor", /\b(atomos|ninja|shinobi|smallhd|feelworld|field monitor|on-?camera monitor|\bmonitor\b)\b/i],
+  ["gimbal", /\b(gimbal|ronin|\brs ?[234]\b|rsc|crane|zhiyun|moza)\b/i],
+  ["tripod", /\b(tripod|fluid head|monopod|\blegs\b|sticks)\b/i],
+  ["nd-filter", /\b(nd ?filter|variable nd|\bvnd\b|nd ?kit|nd ?set)\b/i],
+  ["slider", /\b(slider|dolly)\b/i],
+  ["light", /\b(aputure|godox|nanlite|amaran|forza|softbox|\bhmi\b|led (?:panel|light)|rgb ?tube|pavotube|key ?light|\blighting\b)\b/i],
+  ["wireless-mic", /\b(wireless ?mic|wireless ?go|dji ?mic|lavalier|\blav\b|rode ?wireless|rode ?mic)\b/i],
+  ["recorder", /\b(field recorder|zoom h\d|tascam|mixpre)\b/i],
+  ["accessory", /\b(cage|matte ?box|follow ?focus|sd ?card|cf-?express|\bssd\b|memory ?card)\b/i],
+];
+export function bundleIncludes(title: string): ItemType[] {
+  const t = String(title || "");
+  const hero = deriveItemType(title);
+  const found: ItemType[] = [];
+  for (const [it, re] of INCLUDE_CUES) if (it !== hero && re.test(t) && !found.includes(it)) found.push(it);
+  return found;
+}
+
 // ── hard spec inference (mount, filter thread, battery, bundle) ────
 export type Specs = {
   mount: string | null; // E | RF | EF | PL | MFT | fixed | null

@@ -8,6 +8,7 @@ import { quote } from "@/lib/pricing";
 import { dayMs as msOf } from "@/lib/dates";
 import { parseMounts, mountCompat } from "@/lib/mount";
 import { coverageCompat, battOk, isRigPower } from "@/lib/compat";
+import { bundleIncludes } from "@cvx/lib/taxonomy";
 
 export const maxDuration = 60;
 
@@ -31,6 +32,13 @@ const STAGE: Record<string, { types: string[]; must?: RegExp; prefer?: RegExp }>
   speaker: { types: ["speaker"] },
 };
 const ORDER = ["camera", "lens", "gimbal", "monitor", "key-light", "light", "tube-light", "lav-mic", "shotgun-mic", "wireless-mic", "nd-filter", "battery", "tripod", "slider", "drone", "speaker"];
+// stage key → the itemType it represents (for "already in the chosen bundle" suppression)
+const STAGE_ITEMTYPE: Record<string, string> = {
+  camera: "camera-body", lens: "lens", gimbal: "gimbal", monitor: "monitor",
+  light: "light", "key-light": "light", "tube-light": "light", "nd-filter": "nd-filter",
+  battery: "battery", tripod: "tripod", "lav-mic": "wireless-mic", "wireless-mic": "wireless-mic",
+  "shotgun-mic": "boom-mic", slider: "slider", drone: "drone", speaker: "speaker",
+};
 const MULTI = new Set(["lens", "light", "key-light", "tube-light", "nd-filter", "battery", "lav-mic"]);
 
 const FALLBACK: Record<string, string[]> = {
@@ -238,6 +246,7 @@ export async function POST(req: NextRequest) {
   let camBattery: string | null = null;
   let includedFocal: string | null = null;
   let recCamTitle = "";
+  const includedTypes = new Set<string>(); // secondary gear the chosen camera bundle already contains
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
     const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small });
@@ -254,8 +263,15 @@ export async function POST(req: NextRequest) {
       camBattery = recCam?.specs?.batteryType ?? null;
       includedFocal = recCam?.specs?.includesLens ? (recCam?.specs?.lensFocal ?? null) : null;
       recCamTitle = recCam?.title ?? "";
+      for (const it of bundleIncludes(recCamTitle)) includedTypes.add(it);
     }
+    // a non-lens item the chosen set ALREADY includes → don't pre-recommend it (its unit is
+    // already booked inside the bundle); the customer can still add a spare if they want.
+    const stype = STAGE_ITEMTYPE[k];
+    const includedInKit = k !== "camera" && !!stype && stype !== "lens" && includedTypes.has(stype);
     let note = meta?.note || "";
+    if (includedInKit)
+      note = `Your set already includes a ${(meta?.label || k).toLowerCase()} — only add one if you need a spare (the set's unit is already booked).` + (note ? " " + note : "");
     if (k === "lens") {
       if (includedFocal) note = `Your ${recCamTitle.slice(0, 30)} already includes a ${includedFocal}mm — these ADD to it (different focal lengths).` + (note ? " " + note : "");
       note += (note ? " " : "") + (lensPref === "cine"
@@ -268,7 +284,8 @@ export async function POST(req: NextRequest) {
       note,
       multi: MULTI.has(k),
       upsell: !!meta?.upsell,
-      recommendedId: recId,
+      recommendedId: includedInKit ? "" : recId,
+      includedInKit,
       options,
     });
   }

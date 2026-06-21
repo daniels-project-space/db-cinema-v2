@@ -12,7 +12,16 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { tierByKey } from "@/lib/membership";
 import { lensFits, bestCompat, parseMounts } from "@/lib/mount";
 import { kitWarnings, FOCAL_THREAD, battOk, isRigPower } from "@/lib/compat";
+import { bundleIncludes } from "@cvx/lib/taxonomy";
 import { GlowSlider } from "@/components/GlowSlider";
+
+// stage key → the itemType it represents (for "already in the chosen set" suppression)
+const STAGE_TYPE: Record<string, string> = {
+  camera: "camera-body", lens: "lens", gimbal: "gimbal", monitor: "monitor",
+  light: "light", "key-light": "light", "tube-light": "light", "nd-filter": "nd-filter",
+  battery: "battery", tripod: "tripod", "lav-mic": "wireless-mic", "wireless-mic": "wireless-mic",
+  "shotgun-mic": "boom-mic", slider: "slider", drone: "drone", speaker: "speaker",
+};
 
 const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding", "Other"];
 const SIZES = ["Solo", "Small crew", "Large production"];
@@ -52,6 +61,8 @@ export default function AssemblePage() {
   const camBatts = cams.map((c) => c.specs?.batteryType).filter(Boolean);
   const camIncludesLens = cams.some((c) => c.specs?.includesLens);
   const cinemaRig = cams.some((c) => /cine|cinema|fx ?6|fx ?9|c ?70|c ?100|c ?200|c ?300|c ?500|c ?400|alexa|amira|ursa|komodo|raptor|venice|burano|bmpcc|pocket cinema|\bred\b/i.test(c.title || ""));
+  // secondary gear the chosen camera SET already contains — never re-recommend it (its unit is booked in the bundle)
+  const includedTypes = new Set<string>(cams.flatMap((c: any) => bundleIncludes(c.title || "")));
   const lensThreads = [
     ...selList.filter((x) => x.role === "lens").map((x) => x.specs?.filterThreadMm).filter(Boolean),
     ...cams.filter((c) => c.specs?.includesLens && c.specs?.lensFocal && FOCAL_THREAD[c.specs.lensFocal]).map((c) => FOCAL_THREAD[c.specs.lensFocal]),
@@ -90,6 +101,8 @@ export default function AssemblePage() {
   // the recommended ("Pick") id for a stage, re-derived from the current selection
   const dynRec = (s: any): string => {
     if (!s) return "";
+    const stype = STAGE_TYPE[s.key];
+    if (stype && stype !== "lens" && includedTypes.has(stype)) return ""; // already in the chosen set — don't pre-pick
     if (s.key === "lens" || s.key === "battery") {
       const v = visibleFor(s).filter((o: any) => !incompatOf(o, s));
       if (v.length) return [...v].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key))[0].listingId;
@@ -329,6 +342,9 @@ export default function AssemblePage() {
                       </div>
                       {s.note && <p className="mt-1 text-sm leading-relaxed text-white/60"><Stream text={s.note} /></p>}
                       {s.key === "lens" && camIncludesLens && !isSkip && <p className="mt-1 text-xs text-amber-300">Your camera already includes a lens — these are optional extras/upgrades.</p>}
+                      {STAGE_TYPE[s.key] && STAGE_TYPE[s.key] !== "lens" && includedTypes.has(STAGE_TYPE[s.key]) && !isSkip && (
+                        <p className="mt-1 text-xs text-amber-300">Your set already includes a {s.label.toLowerCase()} — only add one if you need a spare; the set&apos;s unit is already booked.</p>
+                      )}
                     </div>
                   </div>
 

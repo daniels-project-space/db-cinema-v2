@@ -18,6 +18,7 @@
  * again (which is exactly how the old mount bug crept in).
  */
 import { bestCompat, parseMounts, type BestCompat } from "./mount";
+import { bundleIncludes } from "../../convex/lib/taxonomy";
 
 export type WarnLevel = "info" | "warn" | "error";
 export type Warning = { level: WarnLevel; dimension: string; text: string };
@@ -103,6 +104,24 @@ export function kitWarnings(kit: KitItem[]): Warning[] {
         level: "info", dimension: "redundant",
         text: `Your ${cut(cam.title, 34)} already includes a ${sp(cam).lensFocal || "kit"}mm lens — the ${cut(lenses[0].title, 28)} would be a second lens.`,
       });
+
+  // 1b) redundant secondary gear — the chosen set already bundles this item type, so a
+  // separately-added one is a spare/second (and its scarce unit is already booked in the set).
+  const TYPE_LABEL: Record<string, string> = {
+    battery: "battery", monitor: "monitor", gimbal: "gimbal", tripod: "tripod",
+    "nd-filter": "ND filter", slider: "slider", light: "light", "wireless-mic": "wireless mic", recorder: "recorder",
+  };
+  for (const cam of cameras) {
+    const inc = new Set(bundleIncludes(cam.title || ""));
+    for (const x of kit) {
+      if (x === cam || x.itemType === "camera-body" || !x.itemType || x.itemType === "lens") continue; // lens handled above
+      if (inc.has(x.itemType as never) && TYPE_LABEL[x.itemType])
+        out.push({
+          level: "info", dimension: "redundant",
+          text: `Your ${cut(cam.title, 30)} set already includes a ${TYPE_LABEL[x.itemType]} — the ${cut(x.title, 24)} would be a spare/second.`,
+        });
+    }
+  }
 
   // 2) fixed-lens body — nothing attaches
   const fixedCams = cameras.filter((c) => sp(c).mount === "fixed");
