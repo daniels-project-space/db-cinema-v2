@@ -10,6 +10,20 @@ async function cm(path, args) {
   const r = await fetch(CONVEX + "/api/mutation", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, args, format: "json" }) });
   return await r.json();
 }
+
+// Safety net: strip any price/taste/hype language that slips past the prompt, so a
+// catalogue card can never say "expensive" (or similar). Facts only.
+const BANNED = /\b(expensive|inexpensive|cheap(?:er|ly)?|pricey|priced|premium|high[-\s]?end|low[-\s]?end|top[-\s]?of[-\s]?the[-\s]?line|budget|affordable|luxur(?:y|ious)|stunning|gorgeous|beautiful|buttery|flawless|best[-\s]?in[-\s]?class|game[-\s]?changer|bargain|cost[-\s]?effective)\b/gi;
+const PHRASES = [/\breads as\b/gi, /\bpunches above[^.,;]*/gi, /\bvalue for money\b/gi, /\bfor the price\b/gi, /\bbang for[^.,;]*/gi, /\bworth (?:every|the)[^.,;]*/gi];
+function clean(s) {
+  if (typeof s !== "string") return s;
+  let x = s;
+  for (const p of PHRASES) x = x.replace(p, " ");
+  x = x.replace(BANNED, " ");
+  return x.replace(/\s{2,}/g, " ").replace(/\s+([.,;:])/g, "$1").replace(/^[\s,;.:-]+/, "").trim();
+}
+const cleanArr = (a) => (Array.isArray(a) ? a.map(clean).filter(Boolean) : []);
+
 const KEY = (await cq(VAULT, "secrets:getOne", { service: "openrouter", keyName: "OPENROUTER_API_KEY" })).value;
 const items = await cq(CONVEX, "catalog:allBasic", {});
 console.log("listings:", items.length);
@@ -19,9 +33,10 @@ let total = 0, fails = 0;
 for (let b = 0; b < items.length; b += BATCH) {
   const chunk = items.slice(b, b + BATCH);
   const list = chunk.map((it, i) => `${i}: ${it.title}`).join("\n");
-  const prompt = `You are a senior cinema-rental gear expert. For EACH listing, give a concise, ACCURATE professional knowledge profile (real product knowledge — for bundles describe the kit). Reply ONLY JSON {"items":[{...}]}, one object per index.
-Fields per item: i (index), summary (one tight sentence: what it is + its standout strength), features (3-5 concrete capabilities/specs, e.g. "4K 120fps","dual base ISO 800/12800","S-Cinetone"), limits (2-4 REAL limitations/gotchas a renter must know, e.g. "no internal ND","records to CFexpress Type A only","rolling shutter","3.2kg gimbal payload","manual focus only"), bestFor (2-3 use cases), tips (1-2 practical shooting/rental tips), pairsWith (2-4 complementary gear it genuinely needs, specific where possible e.g. "NP-FZ100 spares","82mm ND filter","E-mount lenses","C-stand").
-Be truthful to the actual product; if unsure of an exact spec, give the well-known one or omit it rather than invent. Keep each string short.
+  const prompt = `You are a senior cinema-rental gear expert writing FACTUAL catalogue copy. For EACH listing give a concise, ACCURATE, NEUTRAL professional knowledge profile (real product knowledge — for bundles describe the kit). Reply ONLY JSON {"items":[{...}]}, one object per index.
+TONE RULES (strict): write like a working DP describing specs and real use — facts, not opinions. NO marketing, hype or taste words. NEVER use: expensive, cheap, pricey, premium, high-end, low-end, budget, affordable, luxury, stunning, gorgeous, beautiful, buttery, flawless, "cinematic look", "reads as", "punches above", "value for money", "for the price", "best-in-class", "game-changer". Do NOT mention or imply price, cost or value. State what it IS and what it DOES.
+Fields per item: i (index), summary (one tight FACTUAL sentence: what it is + its key technical capability, e.g. "Full-frame 6K cinema camera with dual-gain output and an EF lens mount"), features (3-5 concrete specs, e.g. "6K open gate","dual native ISO 800/3200","13 stops DR","internal ND"), limits (2-4 REAL limitations a renter must know, e.g. "no internal ND","CFexpress Type B only","rolling shutter","2.5kg gimbal payload","manual focus only"), bestFor (2-3 use cases, e.g. "documentary","music video","studio interview"), tips (1-2 practical shooting/rental tips), pairsWith (2-4 complementary gear it genuinely needs, specific where possible e.g. "V-mount battery + plate","82mm variable ND","EF cine primes","C-stand").
+Be truthful to the actual product; if unsure of an exact spec, give the well-known one or omit it rather than invent. Keep each string short. No adjectives of taste or price.
 Listings:
 ${list}`;
   let parsed = null;
@@ -39,7 +54,7 @@ ${list}`;
   if (!parsed) { fails += chunk.length; console.log(`batch ${b}: FAILED`); continue; }
   const out = (parsed.items || []).map((o) => {
     const it = chunk[o.i]; if (!it) return null;
-    return { id: it._id, knowledge: { summary: o.summary || "", features: o.features || [], limits: o.limits || [], bestFor: o.bestFor || [], tips: o.tips || [], pairsWith: o.pairsWith || [] } };
+    return { id: it._id, knowledge: { summary: clean(o.summary || ""), features: cleanArr(o.features), limits: cleanArr(o.limits), bestFor: cleanArr(o.bestFor), tips: cleanArr(o.tips), pairsWith: Array.isArray(o.pairsWith) ? o.pairsWith : [] } };
   }).filter(Boolean);
   const res = await cm("sync:applyKnowledge", { token: ADMIN, items: out });
   total += out.length;

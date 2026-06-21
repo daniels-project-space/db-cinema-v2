@@ -173,6 +173,60 @@ export function deriveItemType(name: string): ItemType {
   return fallthrough;
 }
 
+// ── storefront category (the MAIN item of a set drives its category) ──────────
+/** itemType → clean storefront category. The hero item decides the tab. */
+export const CATEGORY_OF: Record<ItemType, string> = {
+  "camera-body": "Cameras",
+  lens: "Lenses",
+  "nd-filter": "Lenses",
+  light: "Lighting",
+  gimbal: "Stabilizers",
+  slider: "Grip",
+  tripod: "Grip",
+  monitor: "Monitors",
+  drone: "Drones",
+  battery: "Power",
+  "wireless-mic": "Audio",
+  "boom-mic": "Audio",
+  recorder: "Audio",
+  headphones: "Audio",
+  speaker: "Sound & DJ",
+  "dj-deck": "Sound & DJ",
+  mixer: "Sound & DJ",
+  accessory: "Accessories",
+};
+
+/**
+ * A GENUINE bundle (→ "Packages") is a curated, CROSS-DEPARTMENT package — not
+ * just a camera kit with its natural accessories (lens / ND / battery / cage /
+ * gimbal / monitor). It either announces itself ("package" / "production kit") or
+ * a camera kit that also crosses into a separate department (lighting AND audio).
+ * A plain "set" / "kit" / "+ lens" is NOT a genuine bundle — it's categorised by
+ * its main item (a camera kit lives in Cameras, a lens set in Lenses).
+ */
+export function isGenuineBundle(title: string): boolean {
+  // strip SEO "(like … Bundle)" / "(such as …)" comparisons first so a gimbal rig
+  // described as '(like "RS2 Pro Ring Grip Bundle")' isn't read as a genuine bundle.
+  const t = String(title || "")
+    .toLowerCase()
+    .replace(/\bcannon\b/g, "canon")
+    .replace(/\((?:like|such as|similar to|comparable to)[^)]*\)/g, " ");
+  if (/\b(package|bundle|production kit|full (?:film|video|production|studio) kit|complete (?:kit|set ?up|package)|all[-\s]?in[-\s]?one|everything you need|filmmaker kit|content(?: creator)? kit)\b/.test(t)) return true;
+  // a camera kit that ALSO spans lighting AND audio = a multi-department production bundle
+  if (deriveItemType(title) === "camera-body") {
+    const hasLight = /\b(aputure|godox|nanlite|amaran|forza|softbox|hmi|key ?light|rgb ?tube|pavotube|led (?:panel|light)|\blighting\b)\b/.test(t);
+    const hasAudio = /\b(mic|microphone|wireless ?go|dji ?mic|\blav\b|lavalier|sennheiser|rode|røde|field recorder|zoom h\d)\b/.test(t);
+    if (hasLight && hasAudio) return true;
+  }
+  return false;
+}
+
+/** Storefront category for a listing — hero-driven, genuine bundles → Packages. */
+export function categoryFor(title: string): string {
+  if (isGenuineBundle(title)) return "Packages";
+  return CATEGORY_OF[deriveItemType(title)] ?? "Accessories";
+}
+
 // ── hard spec inference (mount, filter thread, battery, bundle) ────
 export type Specs = {
   mount: string | null; // E | RF | EF | PL | MFT | fixed | null

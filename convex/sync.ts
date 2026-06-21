@@ -1,7 +1,7 @@
 import { action, internalMutation, mutation } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
-import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE } from "./lib/taxonomy";
+import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE, categoryFor, isGenuineBundle } from "./lib/taxonomy";
 
 /**
  * Canonical camera-MODEL identity for inventory reconciliation against the rental
@@ -74,24 +74,11 @@ async function rmv2Query(path: string, args: Record<string, unknown>) {
   return json.value;
 }
 
-const CATEGORY_RULES: [string, RegExp][] = [
-  ["Cameras", /\b(camera|bmpcc|fx3|fx6|fx30|a7|a7s|a7iv|alexa|red\b|ursa|c70|c300|c200|pocket cinema|gh5|gh6|gh7|komodo|raptor|z\s?cam|s5|s1h|zv-?e)\b/i],
-  ["Lenses", /\b(lens|lenses|sigma|samyang|tamron|rokinon|24-70|70-200|16-35|14-24|12-24|50mm|35mm|85mm|24mm|18-?35|prime|zoom lens|ef\b|rf\b|e-?mount|cine lens|dzo|vespid|blazar|atlas|sirui|great ?joy|laowa|gm\b|g ?master|gmaster|anamorphic)\b/i],
-  ["Lighting", /\b(aputure|godox|nanlite|amaran|led panel|softbox|hmi|fresnel|600d|300d|120d|forza|light panel|key light|fill light)\b/i],
-  ["Audio", /\b(mic|microphone|rode|røde|sennheiser|zoom h\d|recorder|wireless go|lav|lavalier|boom|deity|tascam|ntg|shotgun|speaker|partybox)\b/i],
-  ["Drones", /\b(drone|mavic|mini\s?\d|air\s?\d|fpv|avata|dji (air|mini|neo))\b/i],
-  ["Stabilizers", /\b(gimbal|ronin|crane|stabilizer|dji rs|rs\s?\d|rsc|moza|zhiyun)\b/i],
-  ["Monitors", /\b(monitor|atomos|ninja|shinobi|smallhd|director|feelworld)\b/i],
-  ["Power", /\b(battery|batteries|v-?mount|v-?lock|charger|np-?f|d-?tap)\b/i],
-  ["Grip", /\b(tripod|slider|dolly|clamp|magic arm|c-?stand|sandbag|cage|rig|matte box|follow focus)\b/i],
-];
-
-function deriveCategory(name: string): string {
-  // camera bundles / sets go in Packages
-  if (CATEGORY_RULES[0][1].test(name) && /(\bset\b|\bkit\b|bundle|package|\+|operator|\d{2}-\d{2,3}\s?mm)/i.test(name)) return "Packages";
-  for (const [cat, re] of CATEGORY_RULES) if (re.test(name)) return cat;
-  return "Accessories";
-}
+// Category is derived from the HERO item (deriveItemType → CATEGORY_OF) via
+// taxonomy.categoryFor — the single source of truth. The old hand-rolled regex
+// (which dumped every camera *kit* into "Packages") is gone: a camera kit now
+// lives in Cameras, a lens set in Lenses, and only GENUINE cross-department
+// bundles land in Packages (see taxonomy.isGenuineBundle).
 
 const cleanTitle = (name: string) => name.replace(/\s+/g, " ").trim();
 // Title-derived specs as a clean object (drops nulls) — written on INSERT so new
@@ -179,7 +166,7 @@ export const syncFromRmv2 = action({
         masterQty: p.masterItemId ? qtyByItem.get(p.masterItemId) ?? 1 : 1,
         slug: `${slugify(title)}-${p.productId}`,
         title,
-        category: deriveCategory(title),
+        category: categoryFor(title),
         itemType,
         specs: cleanSpecs(title, itemType),
         componentQty: parseQty(title),
@@ -608,6 +595,26 @@ export const reclassify = mutation({
   },
 });
 
+
+// Re-derive storefront category + isPackage for every listing from the hero item
+// (taxonomy.categoryFor / isGenuineBundle). One-time purge of the old mis-categories;
+// the 30-min sync keeps them correct afterwards via applyCatalog.
+export const recategorize = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const ls = await ctx.db.query("listings").collect();
+    let n = 0;
+    for (const l of ls) {
+      const cat = categoryFor(l.title);
+      const pkg = isGenuineBundle(l.title);
+      if (l.category !== cat || (l as any).isPackage !== pkg) {
+        await ctx.db.patch(l._id, { category: cat, isPackage: pkg });
+        n++;
+      }
+    }
+    return { updated: n, total: ls.length };
+  },
+});
 
 export const respec = mutation({
   args: {},
