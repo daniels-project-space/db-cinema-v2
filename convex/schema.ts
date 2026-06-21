@@ -396,6 +396,9 @@ export default defineSchema({
     type: v.string(),
     path: v.optional(v.string()),
     sessionId: v.optional(v.string()),
+    listingId: v.optional(v.string()), // for add_to_cart: which item
+    title: v.optional(v.string()), // item name at add time (incl. marketing-only items)
+    qty: v.optional(v.number()), // units added
     at: v.number(),
   }).index("by_type", ["type"]),
 

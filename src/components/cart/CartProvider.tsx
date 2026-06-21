@@ -81,7 +81,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const key = `${item.listingId}|${item.start}|${item.days}|${item.offerType ?? ""}`;
     setItems((prev) => (prev.some((p) => p.key === key) ? prev : [...prev, { ...item, key }]));
     setToast(`${item.title.slice(0, 40)} added to your kit`);
-    track({ type: "add_to_cart", path: item.slug, sessionId: getSessionId() }).catch(() => {});
+    track({ type: "add_to_cart", path: item.slug, listingId: item.listingId, title: item.title, qty: 1, sessionId: getSessionId() }).catch(() => {});
   }, [track]);
 
   const remove = useCallback(

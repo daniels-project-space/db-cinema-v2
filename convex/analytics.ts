@@ -7,15 +7,61 @@ export const track = mutation({
     type: v.string(),
     path: v.optional(v.string()),
     sessionId: v.optional(v.string()),
+    listingId: v.optional(v.string()),
+    title: v.optional(v.string()),
+    qty: v.optional(v.number()),
   },
-  handler: async (ctx, { type, path, sessionId }) => {
+  handler: async (ctx, { type, path, sessionId, listingId, title, qty }) => {
     // lightweight hardening on this open endpoint: bound the payload so it can't be used
     // to inject huge/arbitrary rows that pollute analytics. Legit event names are short
     // slugs. (Full per-session/IP rate-limiting is a separate task.)
     if (typeof type !== "string" || type.length === 0 || type.length > 40 || !/^[a-z0-9_.:-]+$/i.test(type)) return;
     const p = typeof path === "string" ? path.slice(0, 200) : undefined;
     const s = typeof sessionId === "string" ? sessionId.slice(0, 80) : undefined;
-    await ctx.db.insert("events", { type, path: p, sessionId: s, at: Date.now() });
+    const li = typeof listingId === "string" ? listingId.slice(0, 60) : undefined;
+    const t = typeof title === "string" ? title.slice(0, 120) : undefined;
+    const q = typeof qty === "number" && qty > 0 ? Math.min(Math.round(qty), 99) : undefined;
+    await ctx.db.insert("events", { type, path: p, sessionId: s, listingId: li, title: t, qty: q, at: Date.now() });
+  },
+});
+
+const DAYMS = 86400000;
+
+/** Add-to-cart demand: a daily time-series + the most-added items (incl. marketing-only,
+ * since the cart logs every add). Powers the admin demand graph. */
+export const cartDemand = query({
+  args: { token: v.string(), days: v.optional(v.number()), now: v.number() },
+  handler: async (ctx, { token, days, now }) => {
+    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+      return { authorized: false as const, days: 0, total: 0, series: [], top: [] };
+    }
+    const D = Math.min(Math.max(days ?? 30, 7), 120);
+    const since = now - D * DAYMS;
+    const adds = (await ctx.db.query("events").withIndex("by_type", (q) => q.eq("type", "add_to_cart")).collect())
+      .filter((e) => e.at >= since);
+
+    // daily buckets, oldest → newest
+    const series = Array.from({ length: D }, (_, i) => {
+      const date = new Date(now - (D - 1 - i) * DAYMS).toISOString().slice(0, 10);
+      return { date, count: 0, units: 0 };
+    });
+    const idx = new Map(series.map((s, i) => [s.date, i]));
+
+    // per-item rollup (group by listingId, fall back to slug/title for legacy rows)
+    const byItem = new Map<string, { listingId: string | null; title: string; adds: number; units: number }>();
+    for (const e of adds) {
+      const day = new Date(e.at).toISOString().slice(0, 10);
+      const si = idx.get(day);
+      const u = (e as any).qty ?? 1;
+      if (si != null) { series[si].count += 1; series[si].units += u; }
+      const id = (e as any).listingId || e.path || (e as any).title || "unknown";
+      const cur = byItem.get(id) ?? { listingId: (e as any).listingId ?? null, title: (e as any).title || e.path || "(unknown item)", adds: 0, units: 0 };
+      cur.adds += 1; cur.units += u;
+      if ((e as any).title && (cur.title === "(unknown item)" || cur.title === e.path)) cur.title = (e as any).title;
+      byItem.set(id, cur);
+    }
+    const top = [...byItem.values()].sort((a, b) => b.adds - a.adds).slice(0, 25);
+    return { authorized: true as const, days: D, total: adds.length, series, top };
   },
 });
 

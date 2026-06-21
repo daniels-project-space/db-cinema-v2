@@ -67,6 +67,7 @@ export default function AdminPage() {
         </h1>
 
         <AdminAnalytics token={token} />
+        <AdminCartDemand token={token} />
 
         {/* bookings */}
         <h2 className="mt-8 font-display text-lg font-semibold text-white/80">
@@ -375,6 +376,77 @@ function AdminAnalytics({ token }: { token: string }) {
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+function AdminCartDemand({ token }: { token: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  const [days, setDays] = useState(30);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 300000);
+    return () => clearInterval(t);
+  }, []);
+  const d = useQuery(api.analytics.cartDemand, { token, days, now });
+  if (!d || !(d as any).authorized) return null;
+  const data: any = d;
+  const maxC = Math.max(1, ...data.series.map((s: any) => s.count));
+  const maxA = Math.max(1, ...data.top.map((t: any) => t.adds));
+  const mmdd = (iso: string) => (iso ? iso.slice(5) : "");
+
+  return (
+    <section className="mt-10">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-display text-lg font-semibold text-white/80">
+          Add-to-cart demand <span className="text-white/40">({data.total} adds · {days}d)</span>
+        </h2>
+        <div className="flex gap-1">
+          {[7, 30, 90].map((n) => (
+            <button key={n} onClick={() => setDays(n)} className={`rounded-full px-3 py-1 text-xs ${days === n ? "bg-accent-500 text-white" : "glass text-white/50 hover:text-white"}`}>
+              {n}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* daily volume — real demand over time */}
+      <div className="mt-3 rounded-2xl glass p-4">
+        <div className="flex h-40 items-end gap-px">
+          {data.series.map((s: any, i: number) => (
+            <div key={i} className="group relative flex-1" title={`${s.date}: ${s.count} adds · ${s.units} units`}>
+              <div
+                className="w-full rounded-t bg-accent-500/70 transition-colors group-hover:bg-accent-400"
+                style={{ height: `${Math.max(s.count > 0 ? 4 : 0, (s.count / maxC) * 100)}%` }}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 flex justify-between font-mono text-[10px] text-white/30">
+          <span>{mmdd(data.series[0]?.date)}</span>
+          <span>{mmdd(data.series[Math.floor(data.series.length / 2)]?.date)}</span>
+          <span>{mmdd(data.series[data.series.length - 1]?.date)}</span>
+        </div>
+      </div>
+
+      {/* most-added items (incl. marketing-only) */}
+      <h3 className="mt-6 font-display text-sm font-semibold text-white/70">Most-added items</h3>
+      <div className="mt-3 space-y-2">
+        {data.top.length === 0 && <div className="text-sm text-white/30">No add-to-cart events yet in this window.</div>}
+        {data.top.map((t: any, i: number) => (
+          <div key={i} className="flex items-center gap-3 text-sm">
+            <span className="w-5 shrink-0 text-right font-mono text-xs text-white/30">{i + 1}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-white/75">{t.title}</span>
+                <span className="shrink-0 font-mono text-xs text-white/45">{t.adds}{t.units !== t.adds ? ` · ${t.units}u` : ""}</span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                <div className="h-full rounded-full bg-accent-500" style={{ width: `${(t.adds / maxA) * 100}%` }} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
