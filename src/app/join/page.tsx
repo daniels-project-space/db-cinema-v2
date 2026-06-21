@@ -6,6 +6,7 @@ import { useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
+import { RoleIcon } from "@/components/HireProfessionals";
 import { IconCheck, IconArrowRight, IconChevronLeft } from "@/components/icons";
 import { COLLECTIVE_ROLES, GEAR_PROVIDER_TERMS, GEAR_SPLIT } from "@/lib/collective";
 
@@ -41,8 +42,8 @@ export default function JoinPage() {
                 onClick={() => setPath("professional")}
                 eyebrow="Get hired"
                 title="Join as a professional"
-                body="Add your profile to our crew roster. Clients book you through Db Cinema for shoots across London — we handle the contract and payment."
-                bullets={["Your card on the crew roster", "Set your own rates", "Booked & paid through us"]}
+                body="Add your profile to our crew roster. Clients book you through Db Cinema for shoots across London — and you unlock crew-only perks."
+                bullets={["50% off our gear for your shoots", "We bring you clients directly", "Verified-crew badge clients trust"]}
               />
             </div>
 
@@ -105,14 +106,9 @@ function ChoiceCard({
   bullets: string[];
 }) {
   return (
-    <button
-      onClick={onClick}
-      className="lift spot gradient-border group block h-full rounded-2xl p-6 text-left"
-    >
+    <button onClick={onClick} className="lift spot gradient-border group block h-full rounded-2xl p-6 text-left">
       <span className="hud-label !text-accent-400/80">{eyebrow}</span>
-      <h2 className="mt-3 font-display text-2xl font-semibold text-white/90 transition-colors group-hover:text-white">
-        {title}
-      </h2>
+      <h2 className="mt-3 font-display text-2xl font-semibold text-white/90 transition-colors group-hover:text-white">{title}</h2>
       <p className="mt-2 text-sm leading-relaxed text-white/50">{body}</p>
       <ul className="mt-4 space-y-1.5">
         {bullets.map((b) => (
@@ -136,6 +132,7 @@ function Row({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-3 sm:grid-cols-2">{children}</div>;
 }
 
+// ─────────────────────────── Gear provider ───────────────────────────
 function GearProviderForm({ onSent }: { onSent: () => void }) {
   const apply = useMutation(api.collective.apply);
   const [f, setF] = useState({ fullName: "", email: "", phone: "", gearList: "", gearValue: "", notes: "" });
@@ -177,7 +174,6 @@ function GearProviderForm({ onSent }: { onSent: () => void }) {
         onboarded.
       </p>
 
-      {/* agreement */}
       <Reveal className="mt-7">
         <div className="rounded-2xl border border-accent-400/20 bg-accent-500/[0.04] p-6">
           <div className="flex items-baseline justify-between">
@@ -200,7 +196,6 @@ function GearProviderForm({ onSent }: { onSent: () => void }) {
         </div>
       </Reveal>
 
-      {/* form */}
       <div className="mt-6 space-y-4">
         <Row>
           <div>
@@ -255,28 +250,53 @@ function GearProviderForm({ onSent }: { onSent: () => void }) {
   );
 }
 
+// ─────────────────────────── Professional (multi-step) ───────────────────────────
+const SKILL_POOL = [
+  "Lighting", "Camera op", "Colour / Grading", "Editing", "Sound", "Interviews",
+  "Run & gun", "Drone / Aerials", "Gimbal", "Directing", "Motion graphics", "Live / Multicam",
+];
+const EXPERIENCE = [
+  { label: "1–2 yrs", v: 2 },
+  { label: "3–5 yrs", v: 4 },
+  { label: "6–9 yrs", v: 7 },
+  { label: "10+ yrs", v: 12 },
+];
+const PERKS = [
+  { icon: "🎬", h: "50% off all our gear", p: "Rent any camera, lens, light or rig at half price for shoots you book through us." },
+  { icon: "🤝", h: "Clients, brought to you", p: "We match you with paying clients directly — you focus on the work." },
+  { icon: "✓", h: "Verified-crew badge", p: "Get the Db Cinema verified badge that clients trust on every booking." },
+  { icon: "💷", h: "Booked & paid through us", p: "We handle the contract and payment, so you always get paid on time." },
+];
+const STEPS = ["Your craft", "About you", "Rates & reel", "The deal"];
+
 function ProfessionalForm({ onSent }: { onSent: () => void }) {
   const apply = useMutation(api.collective.apply);
+  const [step, setStep] = useState(0);
   const [f, setF] = useState({
-    fullName: "",
-    email: "",
-    phone: "",
-    firstName: "",
-    role: COLLECTIVE_ROLES[0].value,
-    years: "",
-    tagline: "",
-    skills: "",
-    rateHourly: "",
-    rateHalfDay: "",
-    rateDay: "",
-    portfolio: "",
-    notes: "",
+    fullName: "", email: "", phone: "", firstName: "",
+    role: COLLECTIVE_ROLES[0].value, years: 0, age: "",
+    tagline: "", rateHourly: "", rateHalfDay: "", rateDay: "", portfolio: "", notes: "",
   });
+  const [skills, setSkills] = useState<Set<string>>(new Set());
+  const [customSkill, setCustomSkill] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email) && f.tagline.trim();
-  const set = (k: string, v: string) => setF((s) => ({ ...s, [k]: v }));
-  const num = (v: string) => (v.trim() ? Number(v) : undefined);
+  const set = (k: string, v: any) => setF((s) => ({ ...s, [k]: v }));
+  const num = (v: string) => (String(v).trim() ? Number(v) : undefined);
+  const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email);
+
+  function toggleSkill(s: string) {
+    setSkills((prev) => {
+      const n = new Set(prev);
+      n.has(s) ? n.delete(s) : n.add(s);
+      return n;
+    });
+  }
+  function addCustomSkill() {
+    const s = customSkill.trim();
+    if (s) setSkills((prev) => new Set(prev).add(s));
+    setCustomSkill("");
+  }
 
   async function submit() {
     if (!valid || busy) return;
@@ -292,9 +312,10 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
         firstName: (f.firstName.trim() || f.fullName.trim().split(" ")[0]) || undefined,
         role: f.role,
         roleLabel,
-        years: num(f.years),
-        tagline: f.tagline.trim(),
-        skills: f.skills.split(",").map((s) => s.trim()).filter(Boolean),
+        years: f.years || undefined,
+        age: num(f.age),
+        tagline: f.tagline.trim() || undefined,
+        skills: Array.from(skills),
         rateHourly: num(f.rateHourly),
         rateHalfDay: num(f.rateHalfDay),
         rateDay: num(f.rateDay),
@@ -313,85 +334,192 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
     <div className="mt-6">
       <div className="hud-label !text-accent-400/90">Professional</div>
       <h1 className="mt-2 font-display text-3xl font-bold text-white">Join the crew roster</h1>
-      <p className="mt-2 text-white/55">
-        Fill in your card and we&apos;ll review it. Approved profiles show your{" "}
-        <span className="text-white/80">first name only</span> — clients book you through us.
-      </p>
 
-      <div className="mt-7 space-y-4">
-        <Row>
+      {/* stepper */}
+      <div className="mt-5 flex items-center gap-2">
+        {STEPS.map((s, i) => (
+          <div key={s} className="flex flex-1 items-center gap-2">
+            <div
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition ${
+                i < step ? "bg-accent-500 text-white" : i === step ? "bg-accent-500/20 text-accent-300 ring-1 ring-accent-400/50" : "bg-white/[0.05] text-white/35"
+              }`}
+            >
+              {i < step ? "✓" : i + 1}
+            </div>
+            <span className={`hidden text-xs sm:block ${i === step ? "text-white/80" : "text-white/35"}`}>{s}</span>
+            {i < STEPS.length - 1 && <span className="h-px flex-1 bg-white/10" aria-hidden />}
+          </div>
+        ))}
+      </div>
+
+      {/* step 0: role */}
+      {step === 0 && (
+        <div className="mt-7">
+          <label className={labelCls}>What do you do?</label>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {COLLECTIVE_ROLES.map((r) => {
+              const on = f.role === r.value;
+              return (
+                <button
+                  key={r.value}
+                  onClick={() => set("role", r.value)}
+                  className={`group flex flex-col items-center gap-2 rounded-2xl border p-4 text-center transition ${
+                    on ? "border-accent-400/70 bg-accent-500/10 shadow-[0_0_22px_-6px_rgba(251,146,60,0.7)]" : "border-white/10 bg-white/[0.03] hover:border-white/25"
+                  }`}
+                >
+                  <span className={on ? "text-accent-300" : "text-white/45"}>
+                    <RoleIcon role={r.value} className="h-8 w-8" />
+                  </span>
+                  <span className={`text-sm font-medium ${on ? "text-white" : "text-white/70"}`}>{r.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* step 1: about */}
+      {step === 1 && (
+        <div className="mt-7 space-y-5">
+          <Row>
+            <div>
+              <label className={labelCls}>Display name (shown publicly)</label>
+              <input className={field} value={f.firstName} onChange={(e) => set("firstName", e.target.value)} placeholder="First name only" />
+            </div>
+            <div>
+              <label className={labelCls}>Age (optional)</label>
+              <input className={field} type="number" value={f.age} onChange={(e) => set("age", e.target.value)} placeholder="e.g. 29" />
+            </div>
+          </Row>
           <div>
-            <label className={labelCls}>Your name (private)</label>
-            <input className={field} value={f.fullName} onChange={(e) => set("fullName", e.target.value)} placeholder="Full name" />
+            <label className={labelCls}>Experience</label>
+            <div className="flex flex-wrap gap-2">
+              {EXPERIENCE.map((e) => (
+                <button
+                  key={e.v}
+                  onClick={() => set("years", e.v)}
+                  className={`rounded-full px-4 py-1.5 text-sm transition ${f.years === e.v ? "bg-accent-500 text-white" : "glass text-white/55 hover:text-white"}`}
+                >
+                  {e.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div>
-            <label className={labelCls}>Email (private)</label>
-            <input className={field} type="email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="you@email.com" />
+            <label className={labelCls}>Skills — tap all that apply</label>
+            <div className="flex flex-wrap gap-2">
+              {SKILL_POOL.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => toggleSkill(s)}
+                  className={`rounded-full px-3.5 py-1.5 text-sm transition ${skills.has(s) ? "bg-accent-500 text-white" : "glass text-white/55 hover:text-white"}`}
+                >
+                  {s}
+                </button>
+              ))}
+              {Array.from(skills).filter((s) => !SKILL_POOL.includes(s)).map((s) => (
+                <button key={s} onClick={() => toggleSkill(s)} className="rounded-full bg-accent-500 px-3.5 py-1.5 text-sm text-white">{s} ✕</button>
+              ))}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input
+                className={`${field} flex-1`}
+                value={customSkill}
+                onChange={(e) => setCustomSkill(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomSkill(); } }}
+                placeholder="Add another skill…"
+              />
+              <button onClick={addCustomSkill} className="btn-ghost px-4 text-sm">Add</button>
+            </div>
           </div>
-        </Row>
-        <Row>
+        </div>
+      )}
+
+      {/* step 2: rates & reel */}
+      {step === 2 && (
+        <div className="mt-7 space-y-5">
           <div>
-            <label className={labelCls}>Display name (shown publicly)</label>
-            <input className={field} value={f.firstName} onChange={(e) => set("firstName", e.target.value)} placeholder="First name only" />
+            <label className={labelCls}>One-line bio / tagline</label>
+            <input className={field} value={f.tagline} onChange={(e) => set("tagline", e.target.value)} placeholder="e.g. Fast run-and-gun for events, brand films & socials." />
           </div>
+          <div>
+            <label className={labelCls}>Rates in £ (optional — blank = POA)</label>
+            <div className="grid grid-cols-3 gap-3">
+              <input className={field} type="number" value={f.rateHourly} onChange={(e) => set("rateHourly", e.target.value)} placeholder="Hourly" />
+              <input className={field} type="number" value={f.rateHalfDay} onChange={(e) => set("rateHalfDay", e.target.value)} placeholder="Half day" />
+              <input className={field} type="number" value={f.rateDay} onChange={(e) => set("rateDay", e.target.value)} placeholder="Day" />
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Portfolio / showreel links</label>
+            <input className={field} value={f.portfolio} onChange={(e) => set("portfolio", e.target.value)} placeholder="Website, Vimeo, Instagram, IMDb…" />
+          </div>
+          <div>
+            <label className={labelCls}>Anything else? (optional)</label>
+            <textarea className={field} rows={2} value={f.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Availability, kit you bring, references." />
+          </div>
+        </div>
+      )}
+
+      {/* step 3: the deal + contact */}
+      {step === 3 && (
+        <div className="mt-7 space-y-5">
+          <div className="rounded-2xl border border-accent-400/20 bg-accent-500/[0.04] p-5">
+            <h2 className="font-display text-lg font-semibold text-white/90">What you get as crew</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {PERKS.map((p) => (
+                <div key={p.h} className="flex gap-3">
+                  <span className="text-lg leading-none">{p.icon}</span>
+                  <div>
+                    <div className="text-sm font-semibold text-white/85">{p.h}</div>
+                    <div className="mt-0.5 text-xs leading-relaxed text-white/50">{p.p}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <Row>
+            <div>
+              <label className={labelCls}>Your name (private)</label>
+              <input className={field} value={f.fullName} onChange={(e) => set("fullName", e.target.value)} placeholder="Full name" />
+            </div>
+            <div>
+              <label className={labelCls}>Email (private)</label>
+              <input className={field} type="email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="you@email.com" />
+            </div>
+          </Row>
           <div>
             <label className={labelCls}>Phone (optional)</label>
             <input className={field} value={f.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+44 …" />
           </div>
-        </Row>
-        <Row>
-          <div>
-            <label className={labelCls}>Role</label>
-            <select
-              className={`${field} [color-scheme:dark]`}
-              value={f.role}
-              onChange={(e) => set("role", e.target.value)}
-            >
-              {COLLECTIVE_ROLES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Years of experience</label>
-            <input className={field} type="number" value={f.years} onChange={(e) => set("years", e.target.value)} placeholder="e.g. 6" />
-          </div>
-        </Row>
-        <div>
-          <label className={labelCls}>One-line bio / tagline</label>
-          <input className={field} value={f.tagline} onChange={(e) => set("tagline", e.target.value)} placeholder="e.g. Fast run-and-gun for events, brand films & socials." />
+          {err && <p className="text-sm text-red-300">{err}</p>}
         </div>
-        <div>
-          <label className={labelCls}>Skills (comma separated)</label>
-          <input className={field} value={f.skills} onChange={(e) => set("skills", e.target.value)} placeholder="Lighting, Camera op, Colour" />
-        </div>
-        <div>
-          <label className={labelCls}>Rates in £ (optional — leave blank for POA)</label>
-          <div className="grid grid-cols-3 gap-3">
-            <input className={field} type="number" value={f.rateHourly} onChange={(e) => set("rateHourly", e.target.value)} placeholder="Hourly" />
-            <input className={field} type="number" value={f.rateHalfDay} onChange={(e) => set("rateHalfDay", e.target.value)} placeholder="Half day" />
-            <input className={field} type="number" value={f.rateDay} onChange={(e) => set("rateDay", e.target.value)} placeholder="Day" />
-          </div>
-        </div>
-        <div>
-          <label className={labelCls}>Portfolio links</label>
-          <input className={field} value={f.portfolio} onChange={(e) => set("portfolio", e.target.value)} placeholder="Website, Vimeo, Instagram, IMDb…" />
-        </div>
-        <div>
-          <label className={labelCls}>Anything else? (optional)</label>
-          <textarea className={field} rows={2} value={f.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Availability, kit you bring, references." />
-        </div>
+      )}
 
-        {err && <p className="text-sm text-red-300">{err}</p>}
-        <button onClick={submit} disabled={!valid || busy} className="btn-primary w-full py-3.5">
-          {busy ? "Submitting…" : "Submit for review"}
+      {/* nav */}
+      <div className="mt-7 flex items-center justify-between gap-3">
+        <button
+          onClick={() => setStep((s) => Math.max(0, s - 1))}
+          disabled={step === 0}
+          className="btn-ghost px-5 py-2.5 text-sm disabled:opacity-30"
+        >
+          Back
         </button>
-        <p className="text-center text-xs text-white/35">
+        {step < STEPS.length - 1 ? (
+          <button onClick={() => setStep((s) => s + 1)} className="btn-primary px-6 py-2.5">
+            Next <IconArrowRight className="h-4 w-4" />
+          </button>
+        ) : (
+          <button onClick={submit} disabled={!valid || busy} className="btn-primary px-6 py-2.5">
+            {busy ? "Submitting…" : "Submit for review"}
+          </button>
+        )}
+      </div>
+      {step === STEPS.length - 1 && (
+        <p className="mt-3 text-center text-xs text-white/35">
           Reviewed by hand. Approved profiles are first-name-only and booked through Db Cinema.
         </p>
-      </div>
+      )}
     </div>
   );
 }

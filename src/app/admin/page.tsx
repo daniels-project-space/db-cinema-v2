@@ -395,6 +395,7 @@ function AdminCollective({ token }: { token: string }) {
       roleLabel: a.roleLabel ?? "",
       firstName: a.firstName ?? "",
       years: a.years ?? "",
+      age: a.age ?? "",
       tagline: a.tagline ?? "",
       skills: (a.skills ?? []).join(", "),
       rateHourly: a.rateHourly ?? "",
@@ -413,6 +414,7 @@ function AdminCollective({ token }: { token: string }) {
               roleLabel: edit.roleLabel || undefined,
               firstName: edit.firstName || undefined,
               years: numOpt(edit.years),
+              age: numOpt(edit.age),
               tagline: edit.tagline || undefined,
               skills: edit.skills ? edit.skills.split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
               rateHourly: numOpt(edit.rateHourly),
@@ -473,7 +475,7 @@ function AdminCollective({ token }: { token: string }) {
               {a.kind === "professional" ? (
                 <>
                   <div>
-                    <b className="text-white/70">{a.roleLabel || a.role}</b> · {a.firstName} · {a.years ?? "?"}y
+                    <b className="text-white/70">{a.roleLabel || a.role}</b> · {a.firstName} · {a.age ? `${a.age} · ` : ""}{a.years ?? "?"}y
                   </div>
                   {a.tagline && <div className="mt-1">{a.tagline}</div>}
                   {a.skills?.length > 0 && <div className="mt-1">Skills: {a.skills.join(", ")}</div>}
@@ -500,6 +502,7 @@ function AdminCollective({ token }: { token: string }) {
                 <input className={`${ei} sm:col-span-2`} value={edit.tagline} onChange={(e) => setEdit({ ...edit, tagline: e.target.value })} placeholder="Tagline" />
                 <input className={`${ei} sm:col-span-2`} value={edit.skills} onChange={(e) => setEdit({ ...edit, skills: e.target.value })} placeholder="Skills (comma separated)" />
                 <input className={ei} type="number" value={edit.years} onChange={(e) => setEdit({ ...edit, years: e.target.value })} placeholder="Years" />
+                <input className={ei} type="number" value={edit.age} onChange={(e) => setEdit({ ...edit, age: e.target.value })} placeholder="Age" />
                 <div className="grid grid-cols-3 gap-2 sm:col-span-2">
                   <input className={ei} type="number" value={edit.rateHourly} onChange={(e) => setEdit({ ...edit, rateHourly: e.target.value })} placeholder="Hourly" />
                   <input className={ei} type="number" value={edit.rateHalfDay} onChange={(e) => setEdit({ ...edit, rateHalfDay: e.target.value })} placeholder="Half" />

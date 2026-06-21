@@ -207,11 +207,13 @@ export default defineSchema({
     roleLabel: v.string(), // "Cinematographer"
     firstName: v.string(),
     years: v.number(),
+    age: v.optional(v.number()),
     tagline: v.string(),
     skills: v.array(v.string()),
     rateHourly: v.optional(v.number()),
     rateHalfDay: v.optional(v.number()),
     rateDay: v.optional(v.number()),
+    portfolioUrl: v.optional(v.string()), // looping showreel preview (falls back to role clip)
     neon: v.string(), // hue key for the neon tile
     order: v.number(),
     active: v.boolean(),
@@ -304,6 +306,7 @@ export default defineSchema({
     roleLabel: v.optional(v.string()),
     firstName: v.optional(v.string()),
     years: v.optional(v.number()),
+    age: v.optional(v.number()),
     tagline: v.optional(v.string()),
     skills: v.optional(v.array(v.string())),
     rateHourly: v.optional(v.number()),

@@ -103,9 +103,17 @@ function GearPageInner() {
           </div>
         </div>
 
+        {/* hire professionals — crew for hire, booked through us (only on All, no search) */}
+        {cat === "All" && !search && (
+          <>
+            <HireProfessionals />
+            <div className="mt-12 border-t border-white/5" />
+          </>
+        )}
+
         {/* best sellers (data-driven) — only on All, no search */}
         {cat === "All" && !search && best.length > 0 && (
-          <section className="mt-8">
+          <section className="mt-10">
             <h2 className="flex items-center gap-3 font-display text-lg font-semibold text-white/85">
               <span className="hud-label !text-accent-400/90">Best sellers</span>
               <span className="h-px flex-1 bg-white/[0.07]" aria-hidden />
@@ -119,14 +127,6 @@ function GearPageInner() {
             </div>
             <div className="mt-8 border-t border-white/5" />
           </section>
-        )}
-
-        {/* hire professionals — crew for hire, booked through us (only on All, no search) */}
-        {cat === "All" && !search && (
-          <>
-            <HireProfessionals />
-            <div className="mt-12 border-t border-white/5" />
-          </>
         )}
 
         {/* grid */}
