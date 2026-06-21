@@ -11,7 +11,7 @@ import { IconCheck, IconArrowRight, IconChevronLeft } from "@/components/icons";
 import {
   COLLECTIVE_ROLES, GEAR_PROVIDER_TERMS, GEAR_SPLIT,
   PROFESSIONAL_TERMS, PROFESSIONAL_PERKS, RENTAL_TERMS_HREF,
-  CLIENT_MARKUP, CREATIVE_COMMISSION,
+  CLIENT_MARKUP, CREATIVE_COMMISSION, benchmarkFor,
 } from "@/lib/collective";
 
 type Path = "gear-provider" | "professional";
@@ -134,6 +134,51 @@ const labelCls = "mb-1 block text-xs font-medium uppercase tracking-wide text-wh
 
 function Row({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-3 sm:grid-cols-2">{children}</div>;
+}
+
+function PricingCoach({
+  role,
+  rateDay,
+  onUseRecommended,
+}: {
+  role: string;
+  rateDay: string;
+  onUseRecommended: (bm: ReturnType<typeof benchmarkFor>) => void;
+}) {
+  const bm = benchmarkFor(role);
+  const v = rateDay.trim() ? Number(rateDay) : null;
+  let fb: { cls: string; text: string } | null = null;
+  if (v != null && !Number.isNaN(v)) {
+    if (v <= bm.recDay) fb = { cls: "text-emerald-300", text: "✓ Competitive — you'll be shown ahead of pricier crew." };
+    else if (v <= bm.avgDay) fb = { cls: "text-white/55", text: "Around the going rate — undercut a little to win more." };
+    else fb = { cls: "text-amber-300", text: "Above average — consider lowering to get picked first." };
+  }
+  return (
+    <div className="rounded-2xl border border-accent-400/20 bg-accent-500/[0.05] p-4">
+      <div className="flex items-center justify-between">
+        <span className="hud-label !text-accent-400/90">Pricing coach</span>
+        <button type="button" onClick={() => onUseRecommended(bm)} className="rounded-full bg-accent-500/20 px-3 py-1 text-xs text-accent-300 hover:bg-accent-500/30">
+          Use £{bm.recDay}/day
+        </button>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs text-white/40">Others typically list</div>
+          <div className="font-display text-lg font-bold text-white">£{bm.avgDay}<span className="text-xs font-normal text-white/40">/day</span></div>
+          <div className="text-[11px] text-white/40">≈ £{bm.avgHr}/hr</div>
+        </div>
+        <div>
+          <div className="text-xs text-white/40">Recommended — wins bookings</div>
+          <div className="font-display text-lg font-bold text-accent-300">£{bm.recDay}<span className="text-xs font-normal text-white/40">/day</span></div>
+          <div className="text-[11px] text-white/40">≈ £{bm.recHr}/hr</div>
+        </div>
+      </div>
+      <p className="mt-3 text-xs leading-relaxed text-white/55">
+        💡 Undercut the average to rank higher and get picked first. Quotes at or below <b className="text-accent-300">£{bm.recDay}/day</b> win the most work — raise it once you&apos;ve built up reviews.
+      </p>
+      {fb && <p className={`mt-1.5 text-xs font-medium ${fb.cls}`}>{fb.text}</p>}
+    </div>
+  );
 }
 
 // ─────────────────────────── Gear provider ───────────────────────────
@@ -454,8 +499,9 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
             <label className={labelCls}>One-line bio / tagline</label>
             <input className={field} value={f.tagline} onChange={(e) => set("tagline", e.target.value)} placeholder="e.g. Fast run-and-gun for events, brand films & socials." />
           </div>
+          <PricingCoach role={f.role} rateDay={f.rateDay} onUseRecommended={(bm) => setF((s) => ({ ...s, rateHourly: String(bm.recHr), rateHalfDay: String(Math.round(bm.recDay * 0.55)), rateDay: String(bm.recDay) }))} />
           <div>
-            <label className={labelCls}>Rates in £ (optional — blank = POA)</label>
+            <label className={labelCls}>Your rates in £ (what you keep is 85% of this)</label>
             <div className="grid grid-cols-3 gap-3">
               <input className={field} type="number" value={f.rateHourly} onChange={(e) => set("rateHourly", e.target.value)} placeholder="Hourly" />
               <input className={field} type="number" value={f.rateHalfDay} onChange={(e) => set("rateHalfDay", e.target.value)} placeholder="Half day" />

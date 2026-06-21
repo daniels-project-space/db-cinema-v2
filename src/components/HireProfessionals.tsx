@@ -39,10 +39,25 @@ export function RoleIcon({ role, className }: { role: string; className?: string
   }
 }
 
+const hr = (n: number | null | undefined) => (n == null ? null : `£${clientRate(n)}`);
+
+type Group = { role: string; roleLabel: string; neon: string; pros: any[] };
+
 export function HireProfessionals() {
   const ops = useQuery(api.operators.list);
-  const [sel, setSel] = useState<any | null>(null);
+  const [openRole, setOpenRole] = useState<string | null>(null);
+  const [reqPro, setReqPro] = useState<any | null>(null);
   if (!ops || ops.length === 0) return null;
+
+  // group operators by role, preserving roster order
+  const map = new Map<string, Group>();
+  const groups: Group[] = [];
+  for (const o of ops as any[]) {
+    let g = map.get(o.role);
+    if (!g) { g = { role: o.role, roleLabel: o.roleLabel, neon: o.neon, pros: [] }; map.set(o.role, g); groups.push(g); }
+    g.pros.push(o);
+  }
+  const openGroup = openRole ? map.get(openRole) ?? null : null;
 
   return (
     <section className="mt-10">
@@ -59,96 +74,135 @@ export function HireProfessionals() {
         </div>
       </div>
 
-      <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {ops.map((o: any, i: number) => (
-          <CrewCard key={o._id} o={o} index={i} onSelect={setSel} />
+      <div className="mt-6 grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4">
+        {groups.map((g, i) => (
+          <RoleTile key={g.role} g={g} index={i} onOpen={() => setOpenRole(g.role)} />
         ))}
       </div>
 
-      {sel && <RequestModal op={sel} onClose={() => setSel(null)} />}
+      {openGroup && (
+        <RoleExpand
+          g={openGroup}
+          onClose={() => setOpenRole(null)}
+          onRequest={(pro) => { setOpenRole(null); setReqPro(pro); }}
+        />
+      )}
+      {reqPro && <RequestModal op={reqPro} onClose={() => setReqPro(null)} />}
     </section>
   );
 }
 
-function CrewCard({ o, index, onSelect }: { o: any; index: number; onSelect: (o: any) => void }) {
+function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
-  const neon = NEON[o.neon] || "var(--color-accent-400)";
-  const src = o.portfolioUrl || `/crew/${o.role}.mp4`;
-  const poster = `/crew/${o.role}.jpg`;
+  const neon = NEON[g.neon] || "var(--color-accent-400)";
+  const hrs = g.pros.map((p) => p.rateHourly).filter((n): n is number => n != null);
+  const fromHr = hrs.length ? Math.min(...hrs) : null;
 
-  function enter() {
-    const v = ref.current;
-    if (v) v.play().catch(() => {});
-  }
-  function leave() {
-    const v = ref.current;
-    if (v) {
-      v.pause();
-      try { v.currentTime = 0; } catch {}
-    }
-  }
+  function enter() { ref.current?.play().catch(() => {}); }
+  function leave() { ref.current?.pause(); } // no reset — keeps the buffer warm for smooth re-hover
 
   return (
-    <Tilt max={8} className="crew-3d">
+    <Tilt max={7} className="crew-3d">
       <article
         onMouseEnter={enter}
         onMouseLeave={leave}
-        onClick={() => onSelect(o)}
+        onClick={onOpen}
         style={{ ["--neon" as string]: neon, animationDelay: `${(index % 6) * 0.4}s` }}
-        className="crew-card group"
+        className="crew-card crew-card--sm group"
       >
-        {/* hover-reveal background video (the field at work) */}
         <video
           ref={ref}
           className="crew-video"
-          src={src}
-          poster={poster}
+          src={`/crew/${g.role}.mp4`}
+          poster={`/crew/${g.role}.jpg`}
           muted
           loop
           playsInline
-          preload="none"
+          preload="auto"
           aria-hidden
         />
         <div className="crew-scrim" />
 
         <div className="crew-body">
           <div className="flex items-center justify-between gap-2">
-            <span className="hud-label" style={{ color: neon }}>{o.roleLabel}</span>
-            <span className="crew-verified">
-              <IconCheck className="h-3 w-3" /> Verified
-            </span>
+            <span className="hud-label" style={{ color: neon }}>{g.roleLabel}</span>
+            <span className="crew-verified"><IconCheck className="h-3 w-3" /> Verified</span>
           </div>
 
           <span className="crew-ico mt-2" style={{ color: neon }}>
-            <RoleIcon role={o.role} className="h-9 w-9" />
+            <RoleIcon role={g.role} className="h-8 w-8" />
           </span>
 
-          <h3 className="mt-2 font-display text-2xl font-bold leading-tight text-white">{o.firstName}</h3>
-          <div className="mt-0.5 font-mono text-[11px] uppercase tracking-[0.14em] text-white/45">
-            {o.age ? `${o.age} · ` : ""}{o.years}y experience
+          <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-white/45">
+            {g.pros.length} pro{g.pros.length > 1 ? "s" : ""} available
           </div>
 
-          <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-white/55">{o.tagline}</p>
-
-          {o.skills?.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {o.skills.slice(0, 3).map((s: string) => (
-                <span key={s} className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-0.5 text-[10px] text-white/55">{s}</span>
-              ))}
-            </div>
-          )}
-
-          <div className="mt-auto flex items-center justify-between pt-4">
+          <div className="mt-auto flex items-center justify-between pt-3">
             <span className="font-display text-sm font-semibold text-white/80">
-              {o.rateDay != null ? <>from <span style={{ color: neon }}>£{clientRate(o.rateDay)}</span>/day</> : "Rates on request"}
+              {fromHr != null ? <>from <span style={{ color: neon }}>£{clientRate(fromHr)}</span>/hr</> : "Rates on request"}
             </span>
             <span className="crew-cta">
-              Request <IconArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+              View <IconArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </span>
           </div>
         </div>
       </article>
     </Tilt>
+  );
+}
+
+function RoleExpand({ g, onClose, onRequest }: { g: Group; onClose: () => void; onRequest: (pro: any) => void }) {
+  const neon = NEON[g.neon] || "var(--color-accent-400)";
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ ["--neon" as string]: neon }}
+        className="hp-modal toast-in relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-charcoal-900/95 p-6 shadow-2xl"
+      >
+        <button onClick={onClose} aria-label="Close" className="absolute right-4 top-4 text-white/40 hover:text-white"><IconX className="h-5 w-5" /></button>
+
+        <div className="flex items-center gap-4">
+          <span className="hp-ico-lg" style={{ color: neon }}><RoleIcon role={g.role} className="h-11 w-11" /></span>
+          <div>
+            <div className="hud-label" style={{ color: neon }}>{g.roleLabel}</div>
+            <div className="font-display text-2xl font-bold text-white">{g.pros.length} available</div>
+            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-emerald-300"><IconCheck className="h-3.5 w-3.5" /> All vetted &amp; verified by Db Cinema</div>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {g.pros.map((p) => (
+            <div key={p._id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3.5">
+              <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl sm:flex" style={{ color: neon, background: `color-mix(in srgb, ${neon} 12%, transparent)` }}>
+                <RoleIcon role={p.role} className="h-6 w-6" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="font-display text-base font-bold text-white">
+                  {p.firstName} <span className="text-xs font-normal text-white/40">· {p.age ? `${p.age} · ` : ""}{p.years}y</span>
+                </div>
+                <p className="line-clamp-1 text-xs text-white/50">{p.tagline}</p>
+                {p.skills?.length > 0 && (
+                  <div className="mt-1.5 hidden flex-wrap gap-1 sm:flex">
+                    {p.skills.slice(0, 3).map((s: string) => (
+                      <span key={s} className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/55">{s}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="font-display text-lg font-bold" style={{ color: p.rateHourly != null ? neon : undefined }}>
+                  {hr(p.rateHourly) ?? "POA"}{p.rateHourly != null && <span className="text-[11px] font-normal text-white/40">/hr</span>}
+                </div>
+                <button onClick={() => onRequest(p)} className="btn-primary mt-1.5 px-4 py-1.5 text-xs">Request</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-4 text-center text-[11px] text-white/35">Hourly shown. Half-day &amp; day rates appear when you request. Booked &amp; paid through Db Cinema.</p>
+      </div>
+    </div>
   );
 }
 
@@ -235,7 +289,6 @@ function RequestModal({ op, onClose }: { op: any; onClose: () => void }) {
           </div>
         ) : (
           <div className="mt-5 grid gap-6 md:grid-cols-2">
-            {/* left: dates + times */}
             <div>
               <div className="hud-label mb-2 !text-white/45">Shoot dates</div>
               <Calendar month={month} onMonthChange={setMonth} start={start} end={end} unavailable={new Set()} onPick={pick} />
@@ -251,7 +304,6 @@ function RequestModal({ op, onClose }: { op: any; onClose: () => void }) {
               </div>
             </div>
 
-            {/* right: details */}
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="input w-full" />
@@ -262,7 +314,6 @@ function RequestModal({ op, onClose }: { op: any; onClose: () => void }) {
                 <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Where's the shoot? (area / address)" className="input w-full" />
               </div>
 
-              {/* bring gear */}
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                 <label className="flex cursor-pointer items-center gap-2.5 text-sm text-white/70">
                   <input type="checkbox" checked={bringGear} onChange={(e) => setBringGear(e.target.checked)} className="h-4 w-4 accent-accent-500" />
@@ -294,7 +345,6 @@ function RequestModal({ op, onClose }: { op: any; onClose: () => void }) {
               </div>
             </div>
 
-            {/* rates + submit (full width) */}
             <div className="md:col-span-2">
               <div className="grid grid-cols-3 gap-2">
                 {[["Hourly", op.rateHourly], ["Half day", op.rateHalfDay], ["Day", op.rateDay]].map(([label, val]: any) => (

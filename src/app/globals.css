@@ -1648,3 +1648,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .glow-ring { animation: none; box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-400) 45%, transparent); }
 }
+
+/* Smaller crew role tiles */
+.crew-card--sm { min-height: 224px; padding: 1rem; }
+.crew-card--sm .crew-body { gap: 0; }

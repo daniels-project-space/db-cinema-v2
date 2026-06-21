@@ -29,6 +29,24 @@ export const creativeNet = (n: number) => Math.round(n * (1 - CREATIVE_COMMISSIO
 export const RENTAL_TERMS_HREF = "/legal/terms";
 
 /**
+ * Market benchmarks per role (the rate a PRO lists — their own quote, before our
+ * markup). `avg` = what others typically list; `rec` = the sweet spot that wins
+ * the most bookings (a touch under average). Drives the onboarding pricing coach.
+ */
+export type RoleBenchmark = { avgDay: number; recDay: number; avgHr: number; recHr: number };
+export const ROLE_BENCHMARKS: Record<string, RoleBenchmark> = {
+  cinematographer: { avgDay: 470, recDay: 420, avgHr: 62, recHr: 55 },
+  dop: { avgDay: 630, recDay: 560, avgHr: 88, recHr: 78 },
+  videographer: { avgDay: 320, recDay: 280, avgHr: 45, recHr: 40 },
+  editor: { avgDay: 270, recDay: 240, avgHr: 38, recHr: 33 },
+  "music-composer": { avgDay: 400, recDay: 350, avgHr: 50, recHr: 45 },
+  "drone-operator": { avgDay: 530, recDay: 470, avgHr: 78, recHr: 68 },
+  "sound-operator": { avgDay: 360, recDay: 320, avgHr: 50, recHr: 45 },
+};
+export const benchmarkFor = (role: string): RoleBenchmark =>
+  ROLE_BENCHMARKS[role] ?? { avgDay: 350, recDay: 310, avgHr: 50, recHr: 44 };
+
+/**
  * Plain-English summary of the gear-provider agreement, shown during onboarding.
  * A formal agreement is issued and signed before any item is listed.
  * (Not legal advice; the binding contract is the signed document.)

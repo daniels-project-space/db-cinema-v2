@@ -35,6 +35,12 @@ const SEED = [
   { role: "music-composer", roleLabel: "Music Composer", firstName: "Theo", years: 11, age: 34, tagline: "Original score & sound design for film and ads — bespoke to your cut.", skills: ["Original score", "Sound design", "Mix"], rateHourly: undefined as number | undefined, rateHalfDay: 220, rateDay: 400, neon: "pink", order: 5, active: true },
   { role: "drone-operator", roleLabel: "Drone Operator", firstName: "Ryan", years: 7, age: 29, tagline: "CAA-licensed cinematic aerials & FPV — fully insured, Mavic/Inspire.", skills: ["CAA A2 CofC", "FPV", "Insured"], rateHourly: 80, rateHalfDay: 320, rateDay: 550, neon: "blue", order: 6, active: true },
   { role: "sound-operator", roleLabel: "Sound Operator", firstName: "Nadia", years: 10, age: 33, tagline: "Location sound recordist — boom, lav rigs & timecode, clean takes.", skills: ["Boom op", "Lav rigging", "Timecode"], rateHourly: 50, rateHalfDay: 200, rateDay: 360, neon: "orange", order: 7, active: true },
+  { role: "videographer", roleLabel: "Videographer", firstName: "Sam", years: 4, age: 26, tagline: "Social-first content & brand reels — punchy edits, quick turnaround.", skills: ["Reels", "Run & gun", "Edit"], rateHourly: 38, rateHalfDay: 150, rateDay: 280, neon: "violet", order: 8, active: true },
+  { role: "videographer", roleLabel: "Videographer", firstName: "Priya", years: 8, age: 33, tagline: "Weddings & events specialist — calm on the day, beautiful story edits.", skills: ["Weddings", "Multicam", "Colour"], rateHourly: 50, rateHalfDay: 190, rateDay: 360, neon: "violet", order: 9, active: true },
+  { role: "cinematographer", roleLabel: "Cinematographer", firstName: "Noah", years: 6, age: 29, tagline: "Commercial & fashion camera — clean, contrasty, brand-ready frames.", skills: ["Lighting", "Camera op", "Fashion"], rateHourly: 58, rateHalfDay: 230, rateDay: 420, neon: "cyan", order: 10, active: true },
+  { role: "editor", roleLabel: "Editor", firstName: "Maya", years: 5, age: 27, tagline: "Social & short-form editor — hooks, captions, motion in Premiere/AE.", skills: ["Premiere", "After Effects", "Captions"], rateHourly: 35, rateHalfDay: 130, rateDay: 240, neon: "green", order: 11, active: true },
+  { role: "drone-operator", roleLabel: "Drone Operator", firstName: "Tom", years: 5, age: 31, tagline: "CAA-licensed aerials for property & landscape — smooth reveals.", skills: ["CAA A2 CofC", "Mapping", "Insured"], rateHourly: 70, rateHalfDay: 260, rateDay: 480, neon: "blue", order: 12, active: true },
+  { role: "dop", roleLabel: "Director of Photography", firstName: "Elena", years: 11, age: 36, tagline: "Drama & branded-content DP — lighting design with a crew lead's calm.", skills: ["Lighting design", "Lensing", "Crew lead"], rateHourly: 85, rateHalfDay: 330, rateDay: 600, neon: "amber", order: 13, active: true },
 ];
 
 /** Idempotent seed — inserts missing roles and backfills `age` on existing rows. */
@@ -42,11 +48,11 @@ export const seed = mutation({
   args: {},
   handler: async (ctx) => {
     const existing = await ctx.db.query("operators").collect();
-    const byRole = new Map(existing.map((o) => [o.role, o]));
+    const byKey = new Map(existing.map((o) => [`${o.role}|${o.firstName}`, o]));
     let added = 0;
     let patched = 0;
     for (const o of SEED) {
-      const cur = byRole.get(o.role);
+      const cur = byKey.get(`${o.role}|${o.firstName}`);
       if (!cur) {
         await ctx.db.insert("operators", o);
         added++;
