@@ -153,7 +153,7 @@ export const listListings = query({
         (b.quietDeal ? 1 : 0) - (a.quietDeal ? 1 : 0) || // idle "quiet deals" surface first
         a.title.localeCompare(b.title),
     );
-    return rows.slice(0, limit ?? 160).map(card);
+    return rows.slice(0, limit ?? 500).map(card);
   },
 });
 
