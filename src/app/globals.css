@@ -1661,3 +1661,8 @@ body {
 /* Final: hover-only crew video — appears + plays on hover, hidden otherwise */
 .crew-video { opacity: 0; }
 .crew-card:hover .crew-video { opacity: 0.6; }
+
+/* perf: stop continuous repaints (animated box-shadow + sheen) that starve video playback */
+.crew-card { animation: none; box-shadow: 0 0 0 1px color-mix(in srgb, var(--neon, #fb923c) 14%, transparent), 0 16px 40px -26px color-mix(in srgb, var(--neon, #fb923c) 55%, transparent); }
+.crew-card::after { display: none; }
+.crew-video { transform: translateZ(0); will-change: opacity; backface-visibility: hidden; }
