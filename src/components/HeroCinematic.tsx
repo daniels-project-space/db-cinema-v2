@@ -35,9 +35,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
   const loopRef = useRef<HTMLVideoElement>(null);
   const [t, setT] = useState(0);
   const [phase, setPhase] = useState<"c1" | "c2" | "loop">("c1");
-  const [dur, setDur] = useState(0);
   const [reduce, setReduce] = useState(false);
-  const [mobile, setMobile] = useState(false); // mobile: show the overlaid CTA immediately
 
   useEffect(() => {
     const c1 = c1Ref.current;
@@ -57,14 +55,9 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     // clip 2 is playing.
     let c2Queued = false;
     let loopQueued = false;
-    let durSet = false;
     const onTime = () => {
       setT(c1.currentTime);
       const d = c1.duration || 15;
-      if (!durSet && c1.duration) {
-        durSet = true;
-        setDur(c1.duration);
-      }
       if (!c2Queued && c1.currentTime > d * 0.4) {
         c2Queued = true;
         c2.preload = "auto";
@@ -97,21 +90,9 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
     };
   }, []);
 
-  // touch devices → the CTA overlays a shorter hero, so show it immediately.
-  // (gate on pointer, not width, so a narrow desktop window still fades in.)
-  useEffect(() => {
-    const mq = window.matchMedia("(pointer: coarse)");
-    const set = () => setMobile(mq.matches);
-    set();
-    mq.addEventListener("change", set);
-    return () => mq.removeEventListener("change", set);
-  }, []);
-
   const gearVisible = !reduce && phase === "c1" && t > 0.5 && t < 4.6;
-  // Desktop: UI fades in ~1s before clip 1 ends (the cinematic reveal).
-  // Mobile: fade it in a few seconds in — earlier than desktop, but not instant.
-  const ctaVisible =
-    reduce || phase !== "c1" || (mobile ? t > 3 : dur > 1 ? t > dur - 1 : t > 12.3);
+  // Overlay (headline + CTA) fades in 3 seconds into the hero, on every device.
+  const ctaVisible = reduce || phase !== "c1" || t > 3;
   const countBy = new Map(categories.map((c) => [c.name, c.count]));
 
   return (

@@ -103,8 +103,9 @@ function GearPageInner() {
           </div>
         </div>
 
-        {/* hire professionals — crew for hire, booked through us (only on All, no search) */}
-        {cat === "All" && !search && (
+        {/* hire professionals — crew for hire, booked through us (shows on every
+            category so it's there when a category is clicked from the home page; hidden only on search) */}
+        {!search && (
           <>
             <HireProfessionals />
             <div className="mt-12 border-t border-white/5" />

@@ -6,7 +6,7 @@ export const COLLECTIVE_ROLES: { value: string; label: string }[] = [
   { value: "dop", label: "Director of Photography" },
   { value: "videographer", label: "Videographer" },
   { value: "editor", label: "Editor" },
-  { value: "music-composer", label: "Music Composer" },
+  { value: "music-composer", label: "Film Composer" },
   { value: "drone-operator", label: "Drone Operator" },
   { value: "sound-operator", label: "Sound Operator" },
 ];
