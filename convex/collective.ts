@@ -21,6 +21,9 @@ export const apply = mutation({
     years: v.optional(v.number()),
     age: v.optional(v.number()),
     tagline: v.optional(v.string()),
+    bio: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+    headshotStorageId: v.optional(v.id("_storage")),
     skills: v.optional(v.array(v.string())),
     rateHourly: v.optional(v.number()),
     rateHalfDay: v.optional(v.number()),
@@ -69,6 +72,12 @@ export const apply = mutation({
     });
     return { ok: true };
   },
+});
+
+/** Anonymous upload URL for an applicant's headshot during onboarding (pre-account). */
+export const applicantUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => await ctx.storage.generateUploadUrl(),
 });
 
 function assertAdmin(token: string) {
@@ -219,6 +228,8 @@ export const review = mutation({
         years: v.optional(v.number()),
         age: v.optional(v.number()),
         tagline: v.optional(v.string()),
+        bio: v.optional(v.string()),
+        tags: v.optional(v.array(v.string())),
         skills: v.optional(v.array(v.string())),
         rateHourly: v.optional(v.number()),
         rateHalfDay: v.optional(v.number()),
@@ -244,6 +255,7 @@ export const review = mutation({
     let published = false;
     if (app.kind === "professional") {
       const ops = await ctx.db.query("operators").collect();
+      const headshot = app.headshotStorageId ? await ctx.storage.getUrl(app.headshotStorageId) : null;
       await ctx.db.insert("operators", {
         role: e.role || "videographer",
         roleLabel: e.roleLabel || e.role || "Crew",
@@ -251,6 +263,9 @@ export const review = mutation({
         years: e.years ?? 1,
         age: e.age,
         tagline: e.tagline || "",
+        bio: e.bio || undefined,
+        tags: e.tags && e.tags.length ? e.tags : undefined,
+        headshot: headshot ?? undefined,
         skills: e.skills ?? [],
         rateHourly: e.rateHourly,
         rateHalfDay: e.rateHalfDay,

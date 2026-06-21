@@ -1688,3 +1688,36 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .ico-spin, .ico-spin-rev, .ico-spin-slow, .ico-pulse, .ico-blink, .ico-slidex, .ico-bobA, .ico-bobB, .ico-waveA, .ico-waveB { animation: none; }
 }
+
+/* Permanent-video crew tiles + polished crew profile cards */
+.crew-card--vid { min-height: 200px; padding: 0.85rem; }
+.crew-video { opacity: 1; }                    /* permanent — always playing/visible */
+.crew-card:hover .crew-video { opacity: 1; }
+.crew-card--vid .crew-scrim {
+  background: linear-gradient(180deg, rgba(8, 8, 10, 0.5) 0%, rgba(8, 8, 10, 0.12) 38%, rgba(8, 8, 10, 0.88) 100%);
+}
+.crew-headshot {
+  position: relative;
+  flex-shrink: 0;
+  border-radius: 1rem;
+  overflow: hidden;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--neon, #fb923c) 45%, transparent),
+    0 8px 20px -8px color-mix(in srgb, var(--neon, #fb923c) 55%, transparent);
+}
+.crew-headshot--fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--neon, #fb923c) 20%, transparent), rgba(255, 255, 255, 0.03));
+}
+.crew-ico-lg {
+  display: inline-flex;
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--neon, #fb923c) 55%, transparent));
+}
+.crew-modal-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(130% 170% at 0% 0%, color-mix(in srgb, var(--neon, #fb923c) 18%, transparent), transparent 55%);
+}
+.crew-pro:hover { box-shadow: 0 10px 30px -18px color-mix(in srgb, var(--neon, #fb923c) 60%, transparent); }

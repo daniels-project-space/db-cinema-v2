@@ -209,6 +209,9 @@ export default defineSchema({
     years: v.number(),
     age: v.optional(v.number()),
     tagline: v.string(),
+    bio: v.optional(v.string()), // a few sentences for the expanded profile card
+    tags: v.optional(v.array(v.string())), // quick descriptor chips
+    headshot: v.optional(v.string()), // profile photo URL
     skills: v.array(v.string()),
     rateHourly: v.optional(v.number()),
     rateHalfDay: v.optional(v.number()),
@@ -308,6 +311,9 @@ export default defineSchema({
     years: v.optional(v.number()),
     age: v.optional(v.number()),
     tagline: v.optional(v.string()),
+    bio: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+    headshotStorageId: v.optional(v.id("_storage")),
     skills: v.optional(v.array(v.string())),
     rateHourly: v.optional(v.number()),
     rateHalfDay: v.optional(v.number()),

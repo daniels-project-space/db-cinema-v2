@@ -323,18 +323,25 @@ const EXPERIENCE = [
   { label: "6–9 yrs", v: 7 },
   { label: "10+ yrs", v: 12 },
 ];
+const TAGS_POOL = ["Commercials", "Music videos", "Weddings", "Events", "Documentary", "Fashion", "Studio", "Corporate", "London-based", "Own kit", "Available weekends", "Travel OK"];
 const STEPS = ["Your craft", "About you", "Rates & reel", "The deal"];
 
 function ProfessionalForm({ onSent }: { onSent: () => void }) {
   const apply = useMutation(api.collective.apply);
+  const uploadUrl = useMutation(api.collective.applicantUploadUrl);
   const [step, setStep] = useState(0);
   const [f, setF] = useState({
     fullName: "", email: "", phone: "", firstName: "",
     role: COLLECTIVE_ROLES[0].value, years: 0, age: "",
-    tagline: "", rateHourly: "", rateHalfDay: "", rateDay: "", portfolio: "", notes: "",
+    tagline: "", bio: "", rateHourly: "", rateHalfDay: "", rateDay: "", portfolio: "", notes: "",
   });
   const [skills, setSkills] = useState<Set<string>>(new Set());
   const [customSkill, setCustomSkill] = useState("");
+  const [tags, setTags] = useState<Set<string>>(new Set());
+  const [customTag, setCustomTag] = useState("");
+  const [headshotId, setHeadshotId] = useState<string | undefined>();
+  const [headshotPreview, setHeadshotPreview] = useState<string | undefined>();
+  const [uploadingHs, setUploadingHs] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -342,17 +349,21 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
   const num = (v: string) => (String(v).trim() ? Number(v) : undefined);
   const valid = f.fullName.trim() && /\S+@\S+\.\S+/.test(f.email) && f.phone.trim() && agreeTerms;
 
-  function toggleSkill(s: string) {
-    setSkills((prev) => {
-      const n = new Set(prev);
-      n.has(s) ? n.delete(s) : n.add(s);
-      return n;
-    });
-  }
-  function addCustomSkill() {
-    const s = customSkill.trim();
-    if (s) setSkills((prev) => new Set(prev).add(s));
-    setCustomSkill("");
+  const toggleIn = (setter: any) => (s: string) => setter((prev: Set<string>) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
+  const toggleSkill = toggleIn(setSkills);
+  const toggleTag = toggleIn(setTags);
+  function addCustomSkill() { const s = customSkill.trim(); if (s) setSkills((p) => new Set(p).add(s)); setCustomSkill(""); }
+  function addCustomTag() { const s = customTag.trim(); if (s) setTags((p) => new Set(p).add(s)); setCustomTag(""); }
+  async function onHeadshot(file: File) {
+    setUploadingHs(true);
+    try {
+      const url = await uploadUrl({});
+      const res = await fetch(url, { method: "POST", headers: { "content-type": file.type }, body: file });
+      const { storageId } = await res.json();
+      setHeadshotId(storageId);
+      setHeadshotPreview(URL.createObjectURL(file));
+    } catch { /* keep going — headshot is optional */ }
+    finally { setUploadingHs(false); }
   }
 
   async function submit() {
@@ -372,6 +383,9 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
         years: f.years || undefined,
         age: num(f.age),
         tagline: f.tagline.trim() || undefined,
+        bio: f.bio.trim() || undefined,
+        tags: Array.from(tags),
+        headshotStorageId: headshotId as any,
         skills: Array.from(skills),
         rateHourly: num(f.rateHourly),
         rateHalfDay: num(f.rateHalfDay),
@@ -409,6 +423,9 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
           </div>
         ))}
       </div>
+      <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/[0.06]">
+        <div className="h-full rounded-full bg-accent-500 transition-all duration-500" style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} />
+      </div>
 
       {/* step 0: role */}
       {step === 0 && (
@@ -439,6 +456,26 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
       {/* step 1: about */}
       {step === 1 && (
         <div className="mt-7 space-y-5">
+          <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <label className="relative h-20 w-20 shrink-0 cursor-pointer overflow-hidden rounded-2xl border border-white/15 bg-white/[0.04] transition hover:border-accent-400/50">
+              {headshotPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={headshotPreview} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="flex h-full w-full flex-col items-center justify-center gap-1 text-white/40">
+                  <span className="text-2xl leading-none">＋</span>
+                  <span className="text-[9px] uppercase tracking-wide">{uploadingHs ? "…" : "Photo"}</span>
+                </span>
+              )}
+              <input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && onHeadshot(e.target.files[0])} />
+            </label>
+            <div>
+              <div className="font-display text-sm font-semibold text-white/85">Profile headshot</div>
+              <p className="mt-0.5 text-xs leading-relaxed text-white/45">
+                A clear, professional headshot for your crew card. {uploadingHs ? "Uploading…" : headshotId ? "Uploaded ✓" : "Optional — you can add it later."}
+              </p>
+            </div>
+          </div>
           <Row>
             <div>
               <label className={labelCls}>Display name (shown publicly)</label>
@@ -488,6 +525,25 @@ function ProfessionalForm({ onSent }: { onSent: () => void }) {
                 placeholder="Add another skill…"
               />
               <button onClick={addCustomSkill} className="btn-ghost px-4 text-sm">Add</button>
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Short bio</label>
+            <textarea className={field} rows={3} value={f.bio} onChange={(e) => set("bio", e.target.value)} placeholder="A couple of sentences about your work and style — shown on your crew card." />
+          </div>
+          <div>
+            <label className={labelCls}>Tags — what you&apos;re known for</label>
+            <div className="flex flex-wrap gap-2">
+              {TAGS_POOL.map((t) => (
+                <button key={t} onClick={() => toggleTag(t)} className={`rounded-full px-3.5 py-1.5 text-sm transition ${tags.has(t) ? "bg-accent-500 text-white" : "glass text-white/55 hover:text-white"}`}>{t}</button>
+              ))}
+              {Array.from(tags).filter((t) => !TAGS_POOL.includes(t)).map((t) => (
+                <button key={t} onClick={() => toggleTag(t)} className="rounded-full bg-accent-500 px-3.5 py-1.5 text-sm text-white">{t} ✕</button>
+              ))}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input className={`${field} flex-1`} value={customTag} onChange={(e) => setCustomTag(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomTag(); } }} placeholder="Add another tag…" />
+              <button onClick={addCustomTag} className="btn-ghost px-4 text-sm">Add</button>
             </div>
           </div>
         </div>
