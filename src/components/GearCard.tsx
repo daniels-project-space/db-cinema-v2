@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation } from "convex/react";
+import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { SmartImage } from "@/components/SmartImage";
-import { IconHeart } from "@/components/icons";
+import { IconHeart, IconCheck } from "@/components/icons";
 import { money } from "@/lib/pricing";
+import { getSessionId } from "@/lib/session";
 
 export type GearListing = {
   _id: string;
@@ -17,15 +21,25 @@ export type GearListing = {
   depositAmount: number;
   minimumRentalDays: number;
   quietDeal?: number | null;
+  displayOnly?: boolean | null;
 };
 
 const off = (n: number, pct: number) => Math.round(n * (1 - pct / 100));
 
 export function GearCard({ listing }: { listing: GearListing }) {
-  const { slug, title, category, heroImage, pricing, quietDeal } = listing;
+  const { slug, title, category, heroImage, pricing, quietDeal, displayOnly } = listing;
   const account = useAccount();
   const router = useRouter();
+  const track = useMutation(api.analytics.track);
+  const [registered, setRegistered] = useState(false);
   const faved = !!account.me?.favorites?.includes(listing._id);
+
+  function registerInterest(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setRegistered(true);
+    track({ type: "register_interest", path: slug, listingId: listing._id, title, qty: 1, sessionId: getSessionId() }).catch(() => {});
+  }
 
   function toggleFav(e: React.MouseEvent) {
     e.preventDefault();
@@ -55,7 +69,11 @@ export function GearCard({ listing }: { listing: GearListing }) {
       </button>
 
       <div className="relative overflow-hidden">
-        {quietDeal ? (
+        {displayOnly ? (
+          <span className="absolute left-2.5 top-2.5 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
+            Display only
+          </span>
+        ) : quietDeal ? (
           <span className="absolute left-2.5 top-2.5 z-10 rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
             −{quietDeal}% quiet deal
           </span>
@@ -75,20 +93,30 @@ export function GearCard({ listing }: { listing: GearListing }) {
         <h3 className="line-clamp-2 flex-1 text-sm leading-snug text-white/85 transition-colors group-hover:text-white">
           {title}
         </h3>
-        <div className="flex items-baseline gap-1">
-          <span className="font-display text-2xl font-bold text-accent-400">
-            £{money(quietDeal ? off(pricing.daily, quietDeal) : pricing.daily)}
-          </span>
-          <span className="text-sm text-white/40">/day</span>
-          {quietDeal ? (
-            <span className="text-xs text-white/30 line-through">£{money(pricing.daily)}</span>
-          ) : null}
-          {pricing.day7 ? (
-            <span className="ml-auto font-mono text-[11px] text-white/35">
-              £{money(quietDeal ? off(pricing.day7, quietDeal) : pricing.day7)}/d · 7+
+        {displayOnly ? (
+          <button
+            onClick={registerInterest}
+            disabled={registered}
+            className={`mt-0.5 flex w-full items-center justify-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold transition ${registered ? "bg-emerald-500/85 text-white" : "bg-sky-500/90 text-white hover:bg-sky-400"}`}
+          >
+            {registered ? <><IconCheck className="h-3.5 w-3.5" /> Interest noted</> : "Register interest"}
+          </button>
+        ) : (
+          <div className="flex items-baseline gap-1">
+            <span className="font-display text-2xl font-bold text-accent-400">
+              £{money(quietDeal ? off(pricing.daily, quietDeal) : pricing.daily)}
             </span>
-          ) : null}
-        </div>
+            <span className="text-sm text-white/40">/day</span>
+            {quietDeal ? (
+              <span className="text-xs text-white/30 line-through">£{money(pricing.daily)}</span>
+            ) : null}
+            {pricing.day7 ? (
+              <span className="ml-auto font-mono text-[11px] text-white/35">
+                £{money(quietDeal ? off(pricing.day7, quietDeal) : pricing.day7)}/d · 7+
+              </span>
+            ) : null}
+          </div>
+        )}
       </div>
     </Link>
   );

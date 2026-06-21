@@ -37,8 +37,12 @@ export const cartDemand = query({
     }
     const D = Math.min(Math.max(days ?? 30, 7), 120);
     const since = now - D * DAYMS;
-    const adds = (await ctx.db.query("events").withIndex("by_type", (q) => q.eq("type", "add_to_cart")).collect())
-      .filter((e) => e.at >= since);
+    // demand = add-to-cart (bookable items) + register-interest (display-only items)
+    const ev = [
+      ...await ctx.db.query("events").withIndex("by_type", (q) => q.eq("type", "add_to_cart")).collect(),
+      ...await ctx.db.query("events").withIndex("by_type", (q) => q.eq("type", "register_interest")).collect(),
+    ];
+    const adds = ev.filter((e) => e.at >= since);
 
     // daily buckets, oldest → newest
     const series = Array.from({ length: D }, (_, i) => {
@@ -48,15 +52,16 @@ export const cartDemand = query({
     const idx = new Map(series.map((s, i) => [s.date, i]));
 
     // per-item rollup (group by listingId, fall back to slug/title for legacy rows)
-    const byItem = new Map<string, { listingId: string | null; title: string; adds: number; units: number }>();
+    const byItem = new Map<string, { listingId: string | null; title: string; adds: number; units: number; displayOnly: boolean }>();
     for (const e of adds) {
       const day = new Date(e.at).toISOString().slice(0, 10);
       const si = idx.get(day);
       const u = (e as any).qty ?? 1;
       if (si != null) { series[si].count += 1; series[si].units += u; }
       const id = (e as any).listingId || e.path || (e as any).title || "unknown";
-      const cur = byItem.get(id) ?? { listingId: (e as any).listingId ?? null, title: (e as any).title || e.path || "(unknown item)", adds: 0, units: 0 };
+      const cur = byItem.get(id) ?? { listingId: (e as any).listingId ?? null, title: (e as any).title || e.path || "(unknown item)", adds: 0, units: 0, displayOnly: false };
       cur.adds += 1; cur.units += u;
+      if (e.type === "register_interest") cur.displayOnly = true;
       if ((e as any).title && (cur.title === "(unknown item)" || cur.title === e.path)) cur.title = (e as any).title;
       byItem.set(id, cur);
     }

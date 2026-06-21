@@ -62,6 +62,7 @@ const card = (l: any) => ({
   minimumRentalDays: l.minimumRentalDays ?? 1,
   demandScore: l.demandScore ?? 0,
   quietDeal: l.quietDeal ?? null,
+  displayOnly: !!l.suppressed, // marketing-only / display item — not bookable, "register interest" only
 });
 
 export const allBasic = query({
@@ -137,20 +138,22 @@ export const listListings = query({
         .query("listings")
         .withIndex("by_category", (q) => q.eq("category", category))
         .collect();
-      rows = rows.filter((r) => r.active);
     } else {
-      rows = await ctx.db
-        .query("listings")
-        .withIndex("by_active", (q) => q.eq("active", true))
-        .collect();
+      rows = await ctx.db.query("listings").collect();
     }
+    // bookable items + display-only (marketing) items that have an image; hide truly-dead rows
+    rows = rows.filter((r) => r.active || (r.suppressed && images(r).length > 0));
     if (search) {
       const s = search.toLowerCase();
       rows = rows.filter((r) => r.title.toLowerCase().includes(s));
     }
-    // quiet-deal (idle) items get a light promotion: surfaced first within the view
-    rows.sort((a, b) => (b.quietDeal ? 1 : 0) - (a.quietDeal ? 1 : 0) || a.title.localeCompare(b.title));
-    return rows.slice(0, limit ?? 120).map(card);
+    rows.sort(
+      (a, b) =>
+        (a.suppressed ? 1 : 0) - (b.suppressed ? 1 : 0) || // display-only items sink to the bottom
+        (b.quietDeal ? 1 : 0) - (a.quietDeal ? 1 : 0) || // idle "quiet deals" surface first
+        a.title.localeCompare(b.title),
+    );
+    return rows.slice(0, limit ?? 160).map(card);
   },
 });
 
@@ -251,7 +254,8 @@ export const getListingBySlug = query({
       .query("listings")
       .withIndex("by_slug", (q) => q.eq("slug", slug))
       .first();
-    if (!l || !l.active) return null;
+    // bookable items + display-only (marketing) items; truly-dead rows 404
+    if (!l || (!l.active && !l.suppressed)) return null;
     return {
       _id: l._id,
       slug: l.slug,
@@ -266,6 +270,7 @@ export const getListingBySlug = query({
       depositAmount: l.depositAmount,
       minimumRentalDays: l.minimumRentalDays ?? 1,
       unavailableDates: l.unavailableDates ?? [],
+      displayOnly: !!l.suppressed,
     };
   },
 });

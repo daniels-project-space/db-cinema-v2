@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { getSessionId } from "@/lib/session";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { BookingPanel } from "@/components/booking/BookingPanel";
@@ -45,6 +46,8 @@ export default function GearDetailClient({ slug }: { slug: string }) {
     const t = new Date();
     return new Date(t.getFullYear(), t.getMonth(), 1);
   });
+  const track = useMutation(api.analytics.track);
+  const [registered, setRegistered] = useState(false);
 
   function pick(iso: string) {
     if (!start || (start && end)) {
@@ -209,17 +212,37 @@ export default function GearDetailClient({ slug }: { slug: string }) {
             )}
           </div>
 
-          {/* booking */}
+          {/* booking — or, for display-only items, register interest */}
           <div className="page-in lg:sticky lg:top-24 lg:self-start" style={{ animationDelay: "0.15s" }}>
-            <BookingPanel
-              listing={listing as any}
-              start={start}
-              end={end}
-              month={month}
-              onPick={pick}
-              onMonthChange={setMonth}
-              unavailable={unavailable}
-            />
+            {(listing as any).displayOnly ? (
+              <div className="spot gradient-border rounded-2xl p-6">
+                <span className="rounded-full bg-sky-500/20 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-sky-300">Display only</span>
+                <h2 className="mt-3 font-display text-lg font-semibold text-white/90">Not available to book directly</h2>
+                <p className="mt-2 text-sm leading-relaxed text-white/55">
+                  This item is shown for reference. Register your interest and we&apos;ll let you know if it comes into the hire range — it also tells us what crews want us to stock.
+                </p>
+                <button
+                  onClick={() => {
+                    setRegistered(true);
+                    track({ type: "register_interest", path: listing.slug, listingId: listing._id, title: listing.title, qty: 1, sessionId: getSessionId() }).catch(() => {});
+                  }}
+                  disabled={registered}
+                  className={`mt-5 flex w-full items-center justify-center gap-2 rounded-full py-3 text-sm font-semibold transition ${registered ? "bg-emerald-500/85 text-white" : "btn-primary"}`}
+                >
+                  {registered ? <><IconCheck className="h-4 w-4" /> Interest registered</> : "Register interest"}
+                </button>
+              </div>
+            ) : (
+              <BookingPanel
+                listing={listing as any}
+                start={start}
+                end={end}
+                month={month}
+                onPick={pick}
+                onMonthChange={setMonth}
+                unavailable={unavailable}
+              />
+            )}
           </div>
         </div>
 
