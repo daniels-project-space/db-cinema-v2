@@ -28,6 +28,8 @@ export async function generateMetadata({
   };
 }
 
+const anchor = (h: string) => h.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
 /** Privacy-friendly, lazy-loaded YouTube embed with an attributed caption. */
 function VideoEmbed({ v }: { v: GuideVideo }) {
   return (
@@ -108,10 +110,42 @@ export default async function GuidePage({
           <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">{g.title}</h1>
           <p className="serif-accent mt-5 text-xl leading-relaxed text-white/60 sm:text-2xl">{g.intro}</p>
         </div>
+
+        {/* quick takeaways */}
+        {g.takeaways && g.takeaways.length > 0 && (
+          <div className="mt-8 rounded-2xl border border-accent-400/20 bg-accent-500/[0.05] p-5">
+            <div className="hud-label !text-accent-400/90">Quick tips</div>
+            <ul className="mt-3 space-y-2">
+              {g.takeaways.map((t) => (
+                <li key={t} className="flex items-start gap-2.5 text-sm leading-relaxed text-white/70">
+                  <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent-400" />
+                  <span>{t}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* in this guide */}
+        {g.sections.length > 2 && (
+          <nav className="mt-6 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+            <div className="hud-label !text-white/45">In this guide</div>
+            <ol className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
+              {g.sections.map((s, i) => (
+                <li key={s.h}>
+                  <a href={`#${anchor(s.h)}`} className="text-sm text-white/55 transition-colors hover:text-accent-300">
+                    <span className="font-mono text-xs text-white/30">{String(i + 1).padStart(2, "0")}</span> {s.h}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </nav>
+        )}
+
         <div className="mt-10 space-y-9">
           {g.sections.map((s, i) => (
             <Reveal key={s.h} delay={Math.min(i, 3) * 60}>
-              <section className="relative border-l border-white/[0.07] pl-5">
+              <section id={anchor(s.h)} className="relative scroll-mt-24 border-l border-white/[0.07] pl-5">
                 <span className="absolute -left-px top-1 h-5 w-px bg-accent-400" aria-hidden />
                 <h2 className="font-display text-xl font-semibold text-white/85">{s.h}</h2>
                 <p className="mt-2.5 leading-relaxed text-white/55">{s.p}</p>
