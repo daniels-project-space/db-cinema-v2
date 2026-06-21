@@ -19,22 +19,57 @@ export function RoleIcon({ role, className }: { role: string; className?: string
     <svg viewBox="0 0 32 32" className={className} aria-hidden>{children}</svg>
   );
   switch (role) {
-    case "cinematographer":
-      return svg(<><rect x="4" y="12" width="16" height="11" rx="2" {...p} /><circle cx="9" cy="8" r="3.2" {...p} /><circle cx="15" cy="8" r="3.2" {...p} /><path d="M20 16l7-3v9l-7-3z" {...p} /></>);
-    case "videographer":
-      return svg(<><rect x="4" y="11" width="15" height="12" rx="2.5" {...p} /><path d="M19 15l6-3v10l-6-3z" {...p} /><circle cx="11" cy="17" r="3" {...p} /></>);
-    case "dop":
-      return svg(<><circle cx="16" cy="16" r="8" {...p} /><path d="M16 8l3.5 6M24 16l-7 0M19.5 22l-3.5-6M12.5 22l3.5-6M8 16l7 0M12.5 10l3.5 6" {...p} /><circle cx="16" cy="16" r="2" {...p} /></>);
-    case "editor":
-      return svg(<><rect x="4" y="7" width="24" height="18" rx="2" {...p} /><path d="M4 13h24M11 7v18M11 16h7" {...p} /><path d="M20 13l4 3-4 3z" {...p} /></>);
-    case "music-composer":
-      return svg(<><path d="M12 22V8l12-2.5V18" {...p} /><circle cx="9.5" cy="22" r="2.7" {...p} /><circle cx="21.5" cy="18" r="2.7" {...p} /></>);
-    case "drone-operator":
-      return svg(<><circle cx="8" cy="9" r="3.4" {...p} /><circle cx="24" cy="9" r="3.4" {...p} /><circle cx="8" cy="9" r="0.6" {...p} /><circle cx="24" cy="9" r="0.6" {...p} /><path d="M8 12.4l5 5M24 12.4l-5 5M11 17h10l1.5 4h-13z" {...p} /></>);
-    case "sound-operator":
-      return svg(<><rect x="12.5" y="5" width="7" height="13" rx="3.5" {...p} /><path d="M9 15a7 7 0 0014 0M16 22v4M12 26h8" {...p} /><path d="M24 9v6M27 11v2" {...p} /></>);
+    case "cinematographer": // body + two reels that spin
+      return svg(<>
+        <rect x="4" y="12" width="16" height="11" rx="2" {...p} />
+        <path d="M20 16l7-3v9l-7-3z" {...p} />
+        <g className="ico-spin"><circle cx="9" cy="8" r="3.2" {...p} /><path d="M9 5v6M6 8h6" {...p} /></g>
+        <g className="ico-spin"><circle cx="15" cy="8" r="3.2" {...p} /><path d="M15 5v6M12 8h6" {...p} /></g>
+      </>);
+    case "videographer": // camcorder, lens pulses + record dot blinks
+      return svg(<>
+        <rect x="4" y="11" width="15" height="12" rx="2.5" {...p} />
+        <path d="M19 15l6-3v10l-6-3z" {...p} />
+        <circle cx="11" cy="17" r="3" {...p} className="ico-pulse" />
+        <circle cx="11" cy="17" r="1.1" fill="currentColor" stroke="none" className="ico-blink" />
+      </>);
+    case "dop": // aperture / iris slowly rotating
+      return svg(
+        <g className="ico-spin-slow">
+          <circle cx="16" cy="16" r="8" {...p} />
+          <path d="M16 8l3.5 6M24 16l-7 0M19.5 22l-3.5-6M12.5 22l3.5-6M8 16l7 0M12.5 10l3.5 6" {...p} />
+          <circle cx="16" cy="16" r="2" {...p} />
+        </g>,
+      );
+    case "editor": // timeline with a playhead that slides
+      return svg(<>
+        <rect x="4" y="7" width="24" height="18" rx="2" {...p} />
+        <path d="M4 13h24M11 7v18" {...p} />
+        <path d="M16 9v14" {...p} className="ico-slidex" />
+      </>);
+    case "music-composer": // note heads bob
+      return svg(<>
+        <path d="M12 22V8l12-2.5V18" {...p} />
+        <circle cx="9.5" cy="22" r="2.7" {...p} className="ico-bobA" />
+        <circle cx="21.5" cy="18" r="2.7" {...p} className="ico-bobB" />
+      </>);
+    case "drone-operator": // two propellers spinning opposite ways
+      return svg(<>
+        <circle cx="8" cy="9" r="3.4" {...p} />
+        <circle cx="24" cy="9" r="3.4" {...p} />
+        <ellipse cx="8" cy="9" rx="3" ry="0.8" {...p} className="ico-spin" />
+        <ellipse cx="24" cy="9" rx="3" ry="0.8" {...p} className="ico-spin-rev" />
+        <path d="M8 12.4l5 5M24 12.4l-5 5M11 17h10l1.5 4h-13z" {...p} />
+      </>);
+    case "sound-operator": // mic with pulsing sound waves
+      return svg(<>
+        <rect x="12.5" y="5" width="7" height="13" rx="3.5" {...p} />
+        <path d="M9 15a7 7 0 0014 0M16 22v4M12 26h8" {...p} />
+        <path d="M24 9v6" {...p} className="ico-waveA" />
+        <path d="M27 11v2" {...p} className="ico-waveB" />
+      </>);
     default:
-      return svg(<circle cx="16" cy="16" r="8" {...p} />);
+      return svg(<circle cx="16" cy="16" r="8" {...p} className="ico-pulse" />);
   }
 }
 
@@ -127,20 +162,18 @@ function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () =>
       <div className="crew-scrim" />
 
       <div className="crew-body">
-        <div className="flex items-center justify-between gap-2">
-          <span className="hud-label" style={{ color: neon }}>{g.roleLabel}</span>
-          <span className="crew-verified"><IconCheck className="h-3 w-3" /> Verified</span>
+        <span className="hud-label" style={{ color: neon }}>{g.roleLabel}</span>
+
+        <div className="my-auto flex flex-col items-center py-1">
+          <span className="crew-ico" style={{ color: neon }}>
+            <RoleIcon role={g.role} className="h-12 w-12" />
+          </span>
+          <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-white/45">
+            {g.pros.length} pro{g.pros.length > 1 ? "s" : ""}
+          </div>
         </div>
 
-        <span className="crew-ico mt-2" style={{ color: neon }}>
-          <RoleIcon role={g.role} className="h-8 w-8" />
-        </span>
-
-        <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-white/45">
-          {g.pros.length} pro{g.pros.length > 1 ? "s" : ""} available
-        </div>
-
-        <div className="mt-auto flex items-center justify-between pt-3">
+        <div className="flex items-center justify-between">
           <span className="font-display text-sm font-semibold text-white/80">
             {fromHr != null ? <>from <span style={{ color: neon }}>£{clientRate(fromHr)}</span>/hr</> : "POA"}
           </span>

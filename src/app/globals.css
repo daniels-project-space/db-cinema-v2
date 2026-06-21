@@ -1666,3 +1666,25 @@ body {
 .crew-card { animation: none; box-shadow: 0 0 0 1px color-mix(in srgb, var(--neon, #fb923c) 14%, transparent), 0 16px 40px -26px color-mix(in srgb, var(--neon, #fb923c) 55%, transparent); }
 .crew-card::after { display: none; }
 .crew-video { transform: translateZ(0); will-change: opacity; backface-visibility: hidden; }
+
+/* Animated role symbols (drone props spin, reels turn, aperture rotates, playhead slides, notes bob, waves pulse) */
+.ico-spin, .ico-spin-rev, .ico-spin-slow, .ico-pulse, .ico-bobA, .ico-bobB { transform-box: fill-box; transform-origin: center; }
+.ico-spin { animation: ico-spin 2.2s linear infinite; }
+.ico-spin-rev { animation: ico-spin 2.2s linear infinite reverse; }
+.ico-spin-slow { animation: ico-spin 5s linear infinite; }
+.ico-pulse { animation: ico-pulse 1.8s ease-in-out infinite; }
+.ico-blink { animation: ico-blink 1.5s steps(1, end) infinite; }
+.ico-slidex { animation: ico-slidex 2.6s ease-in-out infinite; }
+.ico-bobA { animation: ico-bob 1.6s ease-in-out infinite; }
+.ico-bobB { animation: ico-bob 1.6s ease-in-out infinite 0.4s; }
+.ico-waveA { animation: ico-wave 1.5s ease-in-out infinite; }
+.ico-waveB { animation: ico-wave 1.5s ease-in-out infinite 0.3s; }
+@keyframes ico-spin { to { transform: rotate(360deg); } }
+@keyframes ico-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.16); } }
+@keyframes ico-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.12; } }
+@keyframes ico-slidex { 0%, 100% { transform: translateX(-3px); } 50% { transform: translateX(3px); } }
+@keyframes ico-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2.5px); } }
+@keyframes ico-wave { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .ico-spin, .ico-spin-rev, .ico-spin-slow, .ico-pulse, .ico-blink, .ico-slidex, .ico-bobA, .ico-bobB, .ico-waveA, .ico-waveB { animation: none; }
+}
