@@ -33,8 +33,8 @@ export const myThread = query({
 
 /** Renter sends a message → stored + forwarded to the bot (Telegram). */
 export const send = mutation({
-  args: { token: v.string(), text: v.string() },
-  handler: async (ctx, { token, text }) => {
+  args: { token: v.string(), text: v.string(), bookingId: v.optional(v.id("bookings")) },
+  handler: async (ctx, { token, text, bookingId }) => {
     const a: any = await acctByToken(ctx, token);
     if (!a) throw new Error("unauthorized");
     const t = text.trim();
@@ -50,6 +50,7 @@ export const send = mutation({
       throw new Error("You're sending messages a little too fast — give us a moment to catch up.");
     await ctx.db.insert("messages", {
       accountId: a._id,
+      bookingId,
       sender: "renter",
       text: t,
       at: Date.now(),
@@ -60,8 +61,8 @@ export const send = mutation({
       // a human is handling this thread → forward to Telegram so they see the new message
       await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: a.email, text: t });
     } else {
-      // Gaffer (AI) handles it
-      await ctx.scheduler.runAfter(0, internal.gaffer.gafferReply, { accountId: a._id });
+      // Gaffer (AI) handles it — scoped to the rental the customer is asking about, if any
+      await ctx.scheduler.runAfter(0, internal.gaffer.gafferReply, { accountId: a._id, bookingId });
     }
   },
 });
@@ -89,8 +90,8 @@ export const postSystem = internalMutation({
 
 /** Context for Gaffer's reply: recent thread + the renter's most relevant booking + location/hours. */
 export const _gafferContext = internalQuery({
-  args: { accountId: v.id("accounts") },
-  handler: async (ctx, { accountId }) => {
+  args: { accountId: v.id("accounts"), focusBookingId: v.optional(v.id("bookings")) },
+  handler: async (ctx, { accountId, focusBookingId }) => {
     const acct: any = await ctx.db.get(accountId);
     if (!acct) return null;
     const thread = await ctx.db.query("chat_threads").withIndex("by_account", (q) => q.eq("accountId", accountId)).first();
@@ -99,7 +100,8 @@ export const _gafferContext = internalQuery({
       .slice(-12)
       .map((m) => ({ sender: m.sender, text: m.text }));
     const bookings: any[] = await ctx.db.query("bookings").withIndex("by_guestEmail", (q: any) => q.eq("guestEmail", acct.email)).order("desc").take(10);
-    const pick: any = bookings.find((b: any) => b.status === "active") ?? bookings.find((b: any) => b.status === "confirmed") ?? bookings[0] ?? null;
+    const focused = focusBookingId ? bookings.find((b: any) => String(b._id) === String(focusBookingId)) : null;
+    const pick: any = focused ?? bookings.find((b: any) => b.status === "active") ?? bookings.find((b: any) => b.status === "confirmed") ?? bookings[0] ?? null;
     let booking: any = null;
     if (pick) {
       const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);

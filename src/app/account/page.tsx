@@ -99,6 +99,7 @@ function Dashboard() {
   const [marketing, setMarketing] = useState(me.marketingEmails);
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<"rentals" | "chat" | "profile" | "membership" | "security">("rentals");
+  const [chatBooking, setChatBooking] = useState<string | null>(null);
 
   useEffect(() => {
     setName(me.name ?? "");
@@ -173,9 +174,16 @@ function Dashboard() {
 
       {/* RENTALS */}
       {tab === "rentals" && (
-        <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_300px]">
+        <div className="tab-in mt-6 grid gap-6 lg:grid-cols-[1fr_300px]">
           <div className="min-w-0 space-y-8">
-            <BookingSections bookings={bookings as any} token={account.token!} onOpenChat={() => setTab("chat")} />
+            <BookingSections
+              bookings={bookings as any}
+              token={account.token!}
+              onOpenChat={(id?: string) => {
+                setChatBooking(id ?? null);
+                setTab("chat");
+              }}
+            />
             <Favourites />
           </div>
           {/* sidebar cell stretches to the row height so the calendar can stick smoothly */}
@@ -189,14 +197,14 @@ function Dashboard() {
 
       {/* CHAT */}
       {tab === "chat" && (
-        <div className="mt-6" id="renter-chat">
-          <RenterChat />
+        <div className="tab-in mt-6" id="renter-chat">
+          <RenterChat bookings={bookings as any} focusBookingId={chatBooking} />
         </div>
       )}
 
       {/* PROFILE & SETTINGS */}
       {tab === "profile" && (
-        <div className="mt-6 space-y-6">
+        <div className="tab-in mt-6 space-y-6">
           <section className="spot gradient-border rounded-2xl p-5">
             <h2 className="font-display font-semibold text-white/80">Profile</h2>
             <div className="mt-4">
@@ -237,14 +245,14 @@ function Dashboard() {
 
       {/* MEMBERSHIP */}
       {tab === "membership" && (
-        <div className="mt-6 space-y-6">
+        <div className="tab-in mt-6 space-y-6">
           <Membership />
           <MemberOffers />
         </div>
       )}
 
       {/* SECURITY */}
-      {tab === "security" && <div className="mt-6"><AccountSecurity /></div>}
+      {tab === "security" && <div className="tab-in mt-6"><AccountSecurity /></div>}
     </div>
   );
 }

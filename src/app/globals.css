@@ -554,6 +554,42 @@ body {
   to { opacity: 1; transform: none; }
 }
 .card-in { animation: card-in 0.5s var(--ease-out-expo) both; }
+
+/* ── Phase 5: account / chat motion ──────────────────────── */
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.msg-in { animation: msg-in 0.32s var(--ease-out-expo) both; }
+
+@keyframes tab-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.tab-in { animation: tab-in 0.4s var(--ease-out-expo) both; }
+
+/* staggered booking-tile entrance — set --i on each tile */
+.tile-in { animation: card-in 0.5s var(--ease-out-expo) both; animation-delay: calc(var(--i, 0) * 55ms); }
+
+/* Gaffer "typing…" dots */
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+.typing-dot { display: inline-block; width: 5px; height: 5px; border-radius: 9999px; background: currentColor; animation: typing-bounce 1.1s infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+/* gentle "live" pulse for an out-now status dot */
+@keyframes soft-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.5); }
+  50% { box-shadow: 0 0 0 4px rgba(56, 189, 248, 0); }
+}
+.pulse-live { animation: soft-pulse 1.8s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-in, .tab-in, .tile-in, .typing-dot, .pulse-live { animation: none !important; }
+}
 /* drawer slide */
 @keyframes drawer-item-in {
   from { opacity: 0; transform: translateX(18px); }

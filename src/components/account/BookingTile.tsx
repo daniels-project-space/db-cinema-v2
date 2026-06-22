@@ -21,7 +21,7 @@ export function BookingTile({
 }: {
   booking: EnrichedBooking;
   token: string;
-  onOpenChat?: () => void;
+  onOpenChat?: (bookingId?: string) => void;
 }) {
   const now = Date.now();
   const group = groupOf(booking);
@@ -39,7 +39,7 @@ export function BookingTile({
   const [err, setErr] = useState<string | null>(null);
 
   function chat() {
-    if (onOpenChat) onOpenChat();
+    if (onOpenChat) onOpenChat(booking._id);
     else document.getElementById("renter-chat")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   async function abort() {

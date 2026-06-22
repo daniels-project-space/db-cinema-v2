@@ -9,10 +9,10 @@ import { z } from "zod";
 
 /** Gaffer auto-replies to a renter message in the booking chat — unless a human has taken over. */
 export const gafferReply = internalAction({
-  args: { accountId: v.id("accounts") },
-  handler: async (ctx, { accountId }) => {
+  args: { accountId: v.id("accounts"), bookingId: v.optional(v.id("bookings")) },
+  handler: async (ctx, { accountId, bookingId }) => {
     if (!process.env.OPENROUTER_API_KEY) return;
-    const cx: any = await ctx.runQuery(internal.chat._gafferContext, { accountId });
+    const cx: any = await ctx.runQuery(internal.chat._gafferContext, { accountId, focusBookingId: bookingId });
     if (!cx || cx.escalated) return; // human is handling it — stay quiet
 
     const or = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });

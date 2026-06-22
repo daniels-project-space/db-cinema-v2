@@ -18,7 +18,7 @@ export function BookingSections({
 }: {
   bookings: EnrichedBooking[] | null | undefined;
   token: string;
-  onOpenChat?: () => void;
+  onOpenChat?: (bookingId?: string) => void;
 }) {
   const grouped = useMemo(() => {
     const g: Record<BookingGroup, EnrichedBooking[]> = { pending: [], active: [], upcoming: [], past: [] };
@@ -56,8 +56,10 @@ export function BookingSections({
               <span className="text-xs text-white/30">{meta.blurb}</span>
             </div>
             <div className="mt-3 flex flex-col gap-3">
-              {list.map((b) => (
-                <BookingTile key={b._id} booking={b} token={token} onOpenChat={onOpenChat} />
+              {list.map((b, i) => (
+                <div key={b._id} className="tile-in" style={{ ["--i" as any]: i }}>
+                  <BookingTile booking={b} token={token} onOpenChat={onOpenChat} />
+                </div>
               ))}
             </div>
           </div>
