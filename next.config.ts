@@ -34,6 +34,8 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false, // hide "X-Powered-By: Next.js"
   productionBrowserSourceMaps: false, // don't ship source maps to the browser
+  // react-pdf (invoice route) ships its own fonts/wasm — keep it external so Next doesn't bundle it
+  serverExternalPackages: ["@react-pdf/renderer"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

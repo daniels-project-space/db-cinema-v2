@@ -131,6 +131,16 @@ export function BookingTile({ booking, token }: { booking: EnrichedBooking; toke
             <button onClick={openChat} className="text-xs font-medium text-white/55 hover:text-white">
               Chat about this
             </button>
+            {["confirmed", "active", "returned"].includes(booking.status) && token && token !== "preview" && (
+              <a
+                href={`/api/invoice/${booking._id}?token=${encodeURIComponent(token)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-white/55 hover:text-white"
+              >
+                Invoice (PDF)
+              </a>
+            )}
             {group === "past" && booking.status === "returned" && (
               <BookingReview bookingId={booking._id} reviewed={booking.reviewed} token={token} />
             )}

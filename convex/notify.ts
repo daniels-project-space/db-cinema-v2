@@ -62,6 +62,35 @@ export const bookingAlert = internalAction({
   },
 });
 
+/** Emails the renter when their ID-verification status changes (verified / needs-retry). */
+export const verificationEmail = internalAction({
+  args: { bookingId: v.id("bookings"), status: v.string() },
+  handler: async (ctx, { bookingId, status }) => {
+    const b: any = await ctx.runQuery(api.bookings.get, { bookingId });
+    if (!b || !b.guestEmail) return;
+    const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
+    const items = (b.lineItems ?? []).map((li: any) => li.title).join(", ");
+    if (status === "verified") {
+      await email(
+        b.guestEmail,
+        "Your ID is verified ✓ — you're all set",
+        `<h2>ID verified ✓</h2><p>Thanks — your identity check passed${items ? ` for <b>${items}</b>` : ""}. You're all set; we'll be in touch about handover.</p><p>View your booking any time in <a href="${app}/account">your account</a>.</p>`,
+      );
+    } else {
+      const label: Record<string, string> = {
+        requires_input: "needs another try",
+        processing: "is still processing",
+        canceled: "was cancelled",
+      };
+      await email(
+        b.guestEmail,
+        "Action needed: verify your ID for your Db Cinema rental",
+        `<h2>ID verification ${label[status] ?? "update"}</h2><p>Your identity check ${label[status] ?? "needs attention"}. Please complete it so we can hand over your gear:</p><p><a href="${app}/account">Verify your ID →</a></p>${items ? `<p style="color:#888">Booking: ${items}</p>` : ""}`,
+      );
+    }
+  },
+});
+
 export const contactAlert = internalAction({
   args: { name: v.string(), email: v.string(), message: v.string() },
   handler: async (ctx, a) => {

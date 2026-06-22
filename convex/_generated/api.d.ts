@@ -21,6 +21,7 @@ import type * as crons from "../crons.js";
 import type * as delivery from "../delivery.js";
 import type * as http from "../http.js";
 import type * as identity from "../identity.js";
+import type * as invoice from "../invoice.js";
 import type * as lib_membership from "../lib/membership.js";
 import type * as lib_mount from "../lib/mount.js";
 import type * as lib_pricing from "../lib/pricing.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   delivery: typeof delivery;
   http: typeof http;
   identity: typeof identity;
+  invoice: typeof invoice;
   "lib/membership": typeof lib_membership;
   "lib/mount": typeof lib_mount;
   "lib/pricing": typeof lib_pricing;

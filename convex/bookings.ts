@@ -215,6 +215,7 @@ export const confirm = internalMutation({
       });
     }
     await ctx.scheduler.runAfter(0, internal.notify.bookingAlert, { bookingId });
+    await ctx.scheduler.runAfter(0, internal.invoice.invoiceEmail, { bookingId });
     await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
     return { already: false };
   },
@@ -443,6 +444,43 @@ export const get = query({
   },
 });
 
+/** Invoice/receipt payload. Authorised by the server INVOICE_SECRET (for the email
+ *  attachment fetch) OR a session token whose account owns the booking (customer download). */
+export const invoiceData = query({
+  args: { bookingId: v.id("bookings"), token: v.optional(v.string()), key: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, token, key }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    let ok = false;
+    if (key && process.env.INVOICE_SECRET && key === process.env.INVOICE_SECRET) {
+      ok = true;
+    } else if (token) {
+      const s = await ctx.db.query("sessions").withIndex("by_token", (q) => q.eq("token", token)).first();
+      const acct: any = s ? await ctx.db.get(s.accountId) : null;
+      if (acct && acct.email === (b.guestEmail ?? "").trim().toLowerCase()) ok = true;
+    }
+    if (!ok) return null;
+    const customer: any = b.customerId ? await ctx.db.get(b.customerId) : null;
+    return {
+      number: `DBC-${String(b._id).slice(-8).toUpperCase()}`,
+      issuedAt: b._creationTime,
+      status: b.status,
+      customerName: customer?.name ?? null,
+      email: b.guestEmail ?? null,
+      fulfilment: b.fulfilment,
+      address: b.address ?? null,
+      currency: b.currency ?? "GBP",
+      lineItems: b.lineItems.map((li) => ({ title: li.title, start: li.start, end: li.end, qty: li.qty, lineTotal: li.lineTotal })),
+      subtotal: b.subtotal,
+      discount: b.discount ?? 0,
+      deliveryFee: b.deliveryFee ?? 0,
+      depositAmount: b.depositAmount,
+      total: b.total,
+      promoCode: b.promoCode ?? null,
+    };
+  },
+});
+
 export const getIdentity = internalQuery({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
@@ -462,10 +500,13 @@ export const setIdentity = internalMutation({
     status: v.string(),
   },
   handler: async (ctx, { bookingId, sessionId, status }) => {
+    const prev = (await ctx.db.get(bookingId))?.idVerifyStatus ?? "required";
     const patch: any = { idVerifyStatus: status };
     if (sessionId) patch.stripeIdentitySessionId = sessionId;
     await ctx.db.patch(bookingId, patch);
     if (status === "verified") await markAccountVerified(ctx, bookingId);
+    if (status !== prev && ["verified", "requires_input", "canceled"].includes(status))
+      await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
   },
 });
 
@@ -483,7 +524,10 @@ export const adminSetIdStatus = mutation({
   args: { token: v.string(), bookingId: v.id("bookings"), status: v.string() },
   handler: async (ctx, { token, bookingId, status }) => {
     assertAdmin(token);
+    const prev = (await ctx.db.get(bookingId))?.idVerifyStatus ?? "required";
     await ctx.db.patch(bookingId, { idVerifyStatus: status });
     if (status === "verified") await markAccountVerified(ctx, bookingId);
+    if (status !== prev && ["verified", "requires_input", "canceled"].includes(status))
+      await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
   },
 });
