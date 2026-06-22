@@ -45,6 +45,19 @@ export const requestBookingChange = mutation({
     if (!acct || !b || (b.guestEmail ?? "").trim().toLowerCase() !== acct.email) throw new Error("unauthorized");
     if (!["confirmed", "active"].includes(b.status)) throw new Error("This booking can't be changed online.");
     if (a.type === "reschedule" && (a.requestedStart == null || a.requestedEnd == null)) throw new Error("Pick new dates.");
+    if (a.type === "reschedule") {
+      // an out-now rental can only be EXTENDED — moving its window would free the inventory while
+      // the gear is still physically with the customer, opening a double-booking hole.
+      if (b.status !== "confirmed") throw new Error("An active rental can only be extended — contact us to change a pickup that's already out.");
+      const ns = a.requestedStart!, ne = a.requestedEnd!;
+      if (ne <= ns) throw new Error("End date must be after the start date.");
+      // a reschedule is a SHIFT, not a resize — extra days must go through Extend (which charges).
+      const origStart = Math.min(...b.lineItems.map((li) => li.start));
+      const origEnd = Math.max(...b.lineItems.map((li) => li.end));
+      const newDays = Math.round((ne - ns) / DAY), origDays = Math.round((origEnd - origStart) / DAY);
+      if (newDays !== origDays) throw new Error(`A reschedule keeps the same ${origDays}-day length — use "Add day" to extend.`);
+      if (ns < Date.now() - DAY) throw new Error("Pick a start date in the future.");
+    }
     if (a.type === "extend" && (!a.extraDays || a.extraDays < 1)) throw new Error("Pick how many extra days.");
     // one open request at a time per booking
     const open = (await ctx.db.query("booking_change_requests").withIndex("by_booking", (q) => q.eq("bookingId", a.bookingId)).collect())
@@ -225,10 +238,14 @@ export const _applyExtendPaid = internalMutation({
     const idxSet = new Set(idxs);
     const newLines = b.lineItems.map((li, i) => (idxSet.has(i) ? { ...li, end: li.end + extra * DAY } : li));
     await ctx.db.patch(r.bookingId, { lineItems: newLines, total: b.total + (r.priceDelta ?? 0) });
-    const targetListingIds = new Set(idxs.map((i) => String(b.lineItems[i]?.listingId)));
+    // match reservations to the SPECIFIC targeted line items by (listing, window) — matching by
+    // listingId alone would wrongly extend a duplicate of the same listing in another line item.
+    const targetKeys = new Set(
+      idxs.map((i) => { const li = b.lineItems[i]; return li ? `${li.listingId}|${li.start}|${li.end}` : ""; }).filter(Boolean),
+    );
     const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q) => q.eq("bookingId", r.bookingId)).collect();
     for (const res of reservations) {
-      if ((res.status === "confirmed" || res.status === "active") && targetListingIds.has(String(res.listingId))) {
+      if ((res.status === "confirmed" || res.status === "active") && targetKeys.has(`${res.listingId}|${res.start}|${res.end}`)) {
         await ctx.db.patch(res._id, { end: res.end + extra * DAY });
       }
     }

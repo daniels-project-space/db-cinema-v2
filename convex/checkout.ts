@@ -616,7 +616,11 @@ export const cancelByCustomer = action({
         creditAmount = Math.max(0, b.total - b.depositAmount);
       }
       if (refundAmount > 0) {
-        await stripe().refunds.create({ payment_intent: b.stripePaymentIntentId, amount: pence(refundAmount) });
+        // idempotency key → Stripe dedupes a double-click so a cancellation can never double-refund
+        await stripe().refunds.create(
+          { payment_intent: b.stripePaymentIntentId, amount: pence(refundAmount) },
+          { idempotencyKey: `dbc-cancel-refund-${bookingId}` },
+        );
       }
     }
     await ctx.runMutation(internal.bookings._finalizeCancellation, {
