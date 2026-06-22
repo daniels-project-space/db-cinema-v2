@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Space_Grotesk, Anton, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
@@ -55,6 +55,39 @@ const jbmono = JetBrains_Mono({
 // Flip NEXT_PUBLIC_SITE_LIVE=true on Vercel at launch → site becomes indexable.
 const LIVE = process.env.NEXT_PUBLIC_SITE_LIVE === "true";
 
+export const viewport: Viewport = {
+  themeColor: "#0a0a0b",
+};
+
+// Site-wide structured data: Organization (brand/logo) + WebSite with a SearchAction so Google
+// can surface a sitelinks search box that points straight at the gear catalogue.
+const orgJsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${SITE_URL}/#organization`,
+      name: "Db Cinema Rentals",
+      url: SITE_URL,
+      logo: `${SITE_URL}/db-cinema-logo-512.png`,
+      description: "Pro film & cinema gear rental, delivered across London.",
+      areaServed: "London, United Kingdom",
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${SITE_URL}/#website`,
+      url: SITE_URL,
+      name: "Db Cinema Rentals",
+      publisher: { "@id": `${SITE_URL}/#organization` },
+      potentialAction: {
+        "@type": "SearchAction",
+        target: { "@type": "EntryPoint", urlTemplate: `${SITE_URL}/gear?search={search_term_string}` },
+        "query-input": "required name=search_term_string",
+      },
+    },
+  ],
+};
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
@@ -103,6 +136,8 @@ export default function RootLayout({
       className={`${inter.variable} ${grotesk.variable} ${anton.variable} ${instrument.variable} ${jbmono.variable}`}
     >
       <body className="font-sans antialiased bg-charcoal-950 text-white/90">
+        <a href="#main-content" className="skip-link">Skip to content</a>
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }} />
         {/* apply the saved accent before first paint (no flash) */}
         <script
           dangerouslySetInnerHTML={{
@@ -120,7 +155,7 @@ export default function RootLayout({
           <AnalyticsTracker />
           <AccountProvider>
             <CartProvider>
-              <div className="relative z-10">
+              <div id="main-content" tabIndex={-1} className="relative z-10">
                 {children}
                 <Footer />
               </div>

@@ -1757,3 +1757,22 @@ body {
   background: radial-gradient(130% 170% at 0% 0%, color-mix(in srgb, var(--neon, #fb923c) 18%, transparent), transparent 55%);
 }
 .crew-pro:hover { box-shadow: 0 10px 30px -18px color-mix(in srgb, var(--neon, #fb923c) 60%, transparent); }
+
+
+/* accessibility: skip-to-content link — hidden until it receives keyboard focus */
+.skip-link {
+  position: fixed;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 100;
+  transform: translateY(-150%);
+  border-radius: 9999px;
+  background: var(--neon, #fb923c);
+  color: #0a0a0b;
+  padding: 0.5rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  transition: transform 0.15s ease;
+}
+.skip-link:focus { transform: translateY(0); outline: none; }
+#main-content:focus { outline: none; }
