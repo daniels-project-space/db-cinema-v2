@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleChat } from "@/lib/gaffer";
+import { rateLimit } from "@/lib/ratelimit";
 
 // Gaffer v2: thin transport. All intelligence lives in src/lib/gaffer.ts
 // ("engine decides, LLM narrates"). This route only parses the request, calls the
@@ -7,6 +8,13 @@ import { handleChat } from "@/lib/gaffer";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
+  const rl = await rateLimit(req, "bot", 30, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { reply: "You're sending messages very quickly — give me a few seconds and try again.", cards: [], suggestions: [] },
+      { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } },
+    );
+  }
   let body: any;
   try {
     body = await req.json();

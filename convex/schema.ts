@@ -478,4 +478,11 @@ export default defineSchema({
   })
     .index("by_account", ["accountId"])
     .index("by_tgMessageId", ["tgMessageId"]),
+
+  // Fixed-window API rate limiting (per IP + bucket) for the public endpoints.
+  rate_limits: defineTable({
+    key: v.string(),
+    windowStart: v.number(),
+    count: v.number(),
+  }).index("by_key", ["key"]),
 });

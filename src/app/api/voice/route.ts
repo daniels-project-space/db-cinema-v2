@@ -3,6 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
 import { dayMs } from "@/lib/dates";
+import { rateLimit } from "@/lib/ratelimit";
 
 /**
  * /api/voice — custom-function webhook for a Retell AI (or any) phone agent.
@@ -45,6 +46,9 @@ export async function POST(req: NextRequest) {
     const got = req.headers.get("x-voice-secret") || new URL(req.url).searchParams.get("key");
     if (got !== secret) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+
+  const rl = await rateLimit(req, "voice", 40, 60_000);
+  if (!rl.allowed) return say("Sorry, the line is busy for a moment — please try again shortly.");
 
   const body: any = await req.json().catch(() => ({}));
   // Works for Retell ({ name, args }) AND ElevenLabs (flat params body + ?fn=<function> in the URL).

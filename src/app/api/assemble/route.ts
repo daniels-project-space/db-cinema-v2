@@ -9,6 +9,7 @@ import { dayMs as msOf } from "@/lib/dates";
 import { parseMounts, mountCompat } from "@/lib/mount";
 import { coverageCompat, battOk, isRigPower } from "@/lib/compat";
 import { bundleIncludes } from "@cvx/lib/taxonomy";
+import { rateLimit } from "@/lib/ratelimit";
 
 export const maxDuration = 60;
 
@@ -210,6 +211,8 @@ function pickRecommended(options: any[], hint?: string) {
 }
 
 export async function POST(req: NextRequest) {
+  const rl = await rateLimit(req, "assemble", 15, 60_000);
+  if (!rl.allowed) return NextResponse.json({ error: "rate_limited", stages: [] }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   if (!process.env.OPENROUTER_API_KEY) return NextResponse.json({ error: "not configured" }, { status: 500 });
   const b: any = await req.json().catch(() => ({}));
   const start: string = b.start, end: string = b.end;

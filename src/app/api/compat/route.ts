@@ -4,11 +4,14 @@ import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
 import { bestCompat, parseMounts } from "@/lib/mount";
 import { kitWarnings } from "@/lib/compat";
+import { rateLimit } from "@/lib/ratelimit";
 
 export const maxDuration = 60;
 const msOf = (d: string) => { const t = Date.parse(/T/.test(d) ? d : d + "T00:00:00Z"); return Number.isNaN(t) ? 0 : t; };
 
 export async function POST(req: NextRequest) {
+  const rl = await rateLimit(req, "compat", 60, 60_000);
+  if (!rl.allowed) return NextResponse.json({ warnings: [], upgrades: [] }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   const b: any = await req.json().catch(() => ({}));
   const items: any[] = b.items || [];
   if (items.length === 0) return NextResponse.json({ warnings: [], upgrades: [] });
