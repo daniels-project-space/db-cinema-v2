@@ -11,6 +11,7 @@ export type EnrichedLine = {
   slug: string | null;
   heroImage: string | null;
   category: string | null;
+  tip?: string | null;
 };
 
 export type EnrichedBooking = {
@@ -20,6 +21,7 @@ export type EnrichedBooking = {
   total: number;
   subtotal?: number;
   discount?: number;
+  deliveryFee?: number;
   depositAmount: number;
   depositRefunded?: boolean;
   currency: string;
@@ -117,4 +119,30 @@ export function countdown(start: number, now: number): string {
 // otherwise a 90-day store credit. Cancel is never disabled — it converts.
 export function cancelKind(start: number, now: number): "full_refund" | "store_credit" {
   return dayDelta(start, now) >= 3 ? "full_refund" : "store_credit";
+}
+
+// ── Rental progress stepper ───────────────────────────────────────
+export type Step = { label: string; state: "done" | "current" | "todo" };
+
+/** Four-stage lifecycle for the minimal progress bar above a tile. */
+export function bookingSteps(b: { status: string; idVerifyStatus: string }): { cancelled: boolean; steps: Step[] } {
+  const labels = ["Confirmed", "ID verified", "Pickup", "Return"];
+  if (b.status === "cancelled") {
+    return { cancelled: true, steps: labels.map((label) => ({ label, state: "todo" as const })) };
+  }
+  const booked = ["confirmed", "active", "returned"].includes(b.status);
+  const verified = b.idVerifyStatus === "verified" || b.idVerifyStatus === "not_required";
+  const out = ["active", "returned"].includes(b.status);
+  const back = b.status === "returned";
+  let reached = 0; // index of the CURRENT step (earlier steps are done)
+  if (back) reached = 4;
+  else if (out) reached = 3;
+  else if (booked && verified) reached = 2;
+  else if (booked) reached = 1;
+  else reached = 0; // pending_payment → "Confirmed" is in progress
+  const steps: Step[] = labels.map((label, i) => ({
+    label,
+    state: i < reached ? "done" : i === reached ? "current" : "todo",
+  }));
+  return { cancelled: false, steps };
 }

@@ -308,6 +308,26 @@ export const signOut = mutation({
   },
 });
 
+/** Remove an UNPAID (pending_payment) booking the renter owns — aborts an abandoned checkout.
+ *  Releases any soft holds. No payment was taken, so nothing to refund. */
+export const deletePending = mutation({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }) => {
+    const a: any = await resolve(ctx, token);
+    if (!a) throw new Error("unauthorized");
+    const b = await ctx.db.get(bookingId);
+    if (!b || (b.guestEmail ?? "").trim().toLowerCase() !== a.email) throw new Error("unauthorized");
+    if (b.status !== "pending_payment") throw new Error("Only an unpaid booking can be removed.");
+    const res = await ctx.db
+      .query("reservations")
+      .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
+      .collect();
+    for (const r of res) await ctx.db.delete(r._id);
+    await ctx.db.delete(bookingId);
+    return { ok: true };
+  },
+});
+
 export const myBookings = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
@@ -349,6 +369,7 @@ export const myBookings = query({
           slug: (l as any)?.slug ?? null,
           heroImage: heroOf(l),
           category: (l as any)?.category ?? null,
+          tip: (l as any)?.knowledge?.summary ?? null,
         });
       }
       const starts = b.lineItems.map((li: any) => li.start);
@@ -360,6 +381,7 @@ export const myBookings = query({
         total: b.total,
         subtotal: b.subtotal,
         discount: b.discount,
+        deliveryFee: b.deliveryFee ?? 0,
         depositAmount: b.depositAmount,
         depositRefunded: b.depositRefunded ?? false,
         currency: b.currency ?? "GBP",
