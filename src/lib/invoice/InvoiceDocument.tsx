@@ -115,7 +115,7 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
 
         <Text style={s.footer}>
           Db Cinema Rentals · dbcinemarentals.com · dbcinemaproductions@gmail.com{"\n"}
-          Thank you for renting with us 🎬
+          Thank you for renting with us.
         </Text>
       </Page>
     </Document>
