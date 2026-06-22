@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { GearLoopBanner } from "@/components/GearLoopBanner";
 import { KitCompatibility } from "@/components/cart/KitCompatibility";
 import { useCart } from "@/components/cart/CartProvider";
+import { useAccount } from "@/components/account/AccountProvider";
 import { usePromo } from "@/components/cart/usePromo";
 import { Offers } from "@/components/Offers";
 import { Recommendations } from "@/components/Recommendations";
@@ -17,6 +18,7 @@ import { dayMs as ms } from "@/lib/dates";
 
 export default function CartPage() {
   const { items, remove, clear, subtotal, eligibleSubtotal, depositTotal } = useCart();
+  const account = useAccount();
   const promo = usePromo(eligibleSubtotal);
   const hold = smallDamageHold(depositTotal); // default ID+insurance damage hold
 
@@ -30,6 +32,11 @@ export default function CartPage() {
   const blocked = Object.values(avail).some((a: any) => !a.ok);
 
   const total = subtotal + hold - promo.discount;
+  // store credit (members) applies to the rental spend, never the refundable hold — previewed here,
+  // applied for real server-side at checkout.
+  const storeCredit = (account.me as any)?.storeCredit ?? 0;
+  const creditApplied = Math.min(storeCredit, Math.max(0, subtotal - promo.discount));
+  const dueNow = total - creditApplied;
   const first = items[0];
 
   return (
@@ -163,6 +170,12 @@ export default function CartPage() {
                       <span className="font-mono">−£{promo.discount}</span>
                     </div>
                   )}
+                  {creditApplied > 0 && (
+                    <div className="flex justify-between text-amber-300">
+                      <span>Store credit</span>
+                      <span className="font-mono">−£{creditApplied}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-xs text-white/35">
                     <span>Refundable damage hold</span>
                     <span className="font-mono">£{hold}</span>
@@ -173,7 +186,7 @@ export default function CartPage() {
                   <hr className="receipt-sep" />
                   <div className="flex justify-between font-display text-lg font-bold text-white">
                     <span>Due now</span>
-                    <span className="font-mono">£{total}</span>
+                    <span className="font-mono">£{dueNow}</span>
                   </div>
                 </div>
 
