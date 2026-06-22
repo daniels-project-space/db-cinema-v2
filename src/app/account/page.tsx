@@ -28,7 +28,7 @@ export default function AccountPage() {
   return (
     <>
       <SiteHeader />
-      <main className="section-window mx-auto max-w-3xl px-6 py-12">
+      <main className="section-window mx-auto max-w-5xl px-6 py-12">
         {account.me ? <Dashboard /> : <AuthForm />}
       </main>
     </>
@@ -98,6 +98,7 @@ function Dashboard() {
   const [address, setAddress] = useState(me.address ?? "");
   const [marketing, setMarketing] = useState(me.marketingEmails);
   const [saved, setSaved] = useState(false);
+  const [tab, setTab] = useState<"rentals" | "profile" | "membership" | "security">("rentals");
 
   useEffect(() => {
     setName(me.name ?? "");
@@ -113,94 +114,125 @@ function Dashboard() {
   }
 
   return (
-    <div>
-      <div className="page-in flex items-center justify-between">
-        <div>
+    <div className="page-in">
+      {/* account bar — identity + key info, always on top */}
+      <header className="spot gradient-border flex flex-wrap items-center gap-4 rounded-2xl p-4 sm:p-5">
+        {(me as any).avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={(me as any).avatarUrl} alt="" className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-white/10" />
+        ) : (
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent-500/20 font-display text-base font-bold text-accent-200 ring-2 ring-white/10">
+            {(me.name || me.email || "?").trim().charAt(0).toUpperCase()}
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
           <div className="hud-label !text-accent-400/90">Members area</div>
-          <h1 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
-            My <span className="serif-accent gradient-text text-[1.06em]">account</span>
-          </h1>
-          <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-white/40">
-            {me.email}
+          <h1 className="truncate font-display text-xl font-bold text-white sm:text-2xl">{me.name || "My account"}</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/45">
+            <span className="truncate">{me.email}</span>
             {me.idVerified && (
-              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
-                ID verified
-              </span>
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 font-medium text-emerald-300">ID verified</span>
             )}
             {(me as any).storeCredit > 0 && (
-              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-300">
-                £{(me as any).storeCredit} credit
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-medium text-amber-300">£{(me as any).storeCredit} credit</span>
+            )}
+            {me.membershipActive && me.membershipTier && (
+              <span className="rounded-full bg-accent-500/15 px-2 py-0.5 font-medium text-accent-300">
+                {tierByKey(me.membershipTier)?.name ?? me.membershipTier} member
               </span>
             )}
           </p>
         </div>
-        <button onClick={() => account.signOut()} className="btn-ghost px-4 py-2 text-sm">
+        <button onClick={() => account.signOut()} className="btn-ghost shrink-0 px-4 py-2 text-sm">
           Sign out
         </button>
-      </div>
+      </header>
 
-      {/* rentals — calendar + grouped tiles (primary) */}
-      <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
-        <section>
-          <h2 className="font-display font-semibold text-white/80">My rentals</h2>
-          <div className="mt-4">
-            <BookingSections bookings={bookings as any} token={account.token!} />
-          </div>
-        </section>
-        <div className="lg:sticky lg:top-6">
-          <RentalCalendar bookings={bookings as any} />
-        </div>
-      </div>
-
-      {/* renter chat */}
-      <div id="renter-chat" className="mt-8">
-        <RenterChat />
-      </div>
-
-      {/* favourites */}
-      <Favourites />
-
-      {/* creative collective member setup (glows until fully operational) */}
-      <CollectiveProfile />
-
-      {/* profile + settings */}
-      <section className="mt-8 spot gradient-border rounded-2xl p-5">
-        <h2 className="font-display font-semibold text-white/80">Profile &amp; settings</h2>
-        <div className="mt-4">
-          <AvatarUpload />
-        </div>
-        <div className="mt-4 flex flex-col gap-3">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="input" />
-          <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Default delivery address" rows={2} className="input" />
-          <label className="flex flex-wrap items-center gap-2 text-sm text-white/60">
-            <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} className="accent-accent-500" />
-            Email me booking reminders &amp; offers
-            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">−5% on every rental</span>
-          </label>
-          <button onClick={save} className="btn-primary w-fit px-6 py-2.5 text-sm">
-            {saved ? "Saved" : "Save changes"}
+      {/* tabs */}
+      <nav className="mt-6 flex gap-1 overflow-x-auto border-b border-white/10">
+        {(
+          [
+            ["rentals", "Rentals"],
+            ["profile", "Profile & settings"],
+            ["membership", "Membership"],
+            ["security", "Security"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition ${
+              tab === key ? "border-accent-400 text-white" : "border-transparent text-white/45 hover:text-white/80"
+            }`}
+          >
+            {label}
           </button>
+        ))}
+      </nav>
+
+      {/* RENTALS */}
+      {tab === "rentals" && (
+        <div className="mt-6 space-y-8">
+          <div className="grid gap-6 lg:grid-cols-[1fr_300px] lg:items-start">
+            <div className="min-w-0">
+              <BookingSections bookings={bookings as any} token={account.token!} />
+            </div>
+            <div className="lg:sticky lg:top-6">
+              <RentalCalendar bookings={bookings as any} />
+            </div>
+          </div>
+          <Favourites />
+          <div id="renter-chat">
+            <RenterChat />
+          </div>
         </div>
-      </section>
+      )}
 
-      {/* appearance */}
-      <section className="spot gradient-border mt-8 rounded-2xl p-5">
-        <h2 className="font-display font-semibold text-white/80">Appearance</h2>
-        <p className="mt-1 text-xs text-white/40">
-          Pick your accent colour — the whole site follows, on this device.
-        </p>
-        <div className="mt-4">
-          <AccentPicker />
+      {/* PROFILE & SETTINGS */}
+      {tab === "profile" && (
+        <div className="mt-6 space-y-6">
+          <section className="spot gradient-border rounded-2xl p-5">
+            <h2 className="font-display font-semibold text-white/80">Profile</h2>
+            <div className="mt-4">
+              <AvatarUpload />
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" />
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="input" />
+              <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Default delivery address" rows={2} className="input sm:col-span-2" />
+            </div>
+            <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-white/60">
+              <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} className="accent-accent-500" />
+              Email me booking reminders &amp; offers
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">−5% on every rental</span>
+            </label>
+            <button onClick={save} className="btn-primary mt-4 w-fit px-6 py-2.5 text-sm">
+              {saved ? "Saved" : "Save changes"}
+            </button>
+          </section>
+
+          <section className="spot gradient-border rounded-2xl p-5">
+            <h2 className="font-display font-semibold text-white/80">Appearance</h2>
+            <p className="mt-1 text-xs text-white/40">Pick your accent colour — the whole site follows, on this device.</p>
+            <div className="mt-4">
+              <AccentPicker />
+            </div>
+          </section>
+
+          <CollectiveProfile />
         </div>
-      </section>
+      )}
 
-      {/* membership */}
-      <Membership />
-      <MemberOffers />
+      {/* MEMBERSHIP */}
+      {tab === "membership" && (
+        <div className="mt-6 space-y-6">
+          <Membership />
+          <MemberOffers />
+        </div>
+      )}
 
-      {/* security */}
-      <AccountSecurity />
+      {/* SECURITY */}
+      {tab === "security" && <div className="mt-6"><AccountSecurity /></div>}
     </div>
   );
 }
@@ -258,7 +290,7 @@ function AccountSecurity() {
   }
 
   return (
-    <section className="mt-8 spot gradient-border rounded-2xl p-5">
+    <section className="spot gradient-border rounded-2xl p-5">
       <h2 className="font-display font-semibold text-white/80">Security</h2>
       <div className="mt-4 flex flex-col gap-3">
         <input type="password" value={oldp} onChange={(e) => setOldp(e.target.value)} placeholder="Current password" className="input" />
@@ -303,7 +335,7 @@ function Membership() {
   }
 
   return (
-    <section className="mt-8 spot gradient-border rounded-2xl p-5">
+    <section className="spot gradient-border rounded-2xl p-5">
       <h2 className="font-display font-semibold text-white/80">Membership</h2>
       {tier ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
