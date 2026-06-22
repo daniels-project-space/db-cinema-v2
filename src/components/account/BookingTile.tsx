@@ -10,6 +10,7 @@ import { money } from "@/lib/pricing";
 import { BookingReview } from "@/components/account/BookingReview";
 import { StatusPill } from "@/components/account/StatusPill";
 import { CancelButton } from "@/components/account/CancelButton";
+import { ChangeRequest } from "@/components/account/ChangeRequest";
 import { BookingProgress } from "@/components/account/BookingProgress";
 import { type EnrichedBooking, groupOf, fmtRange, rentalDays, countdown } from "@/lib/bookingDisplay";
 
@@ -156,6 +157,7 @@ export function BookingTile({
       {/* actions */}
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-white/[0.06] pt-2.5 text-xs">
         <CancelButton booking={booking} />
+        <ChangeRequest booking={booking} />
         {booking.firstSlug && (
           <Link href={`/gear/${booking.firstSlug}`} className="font-medium text-white/55 hover:text-white">
             Rent again

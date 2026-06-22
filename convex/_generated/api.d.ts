@@ -13,6 +13,7 @@ import type * as analytics from "../analytics.js";
 import type * as availability from "../availability.js";
 import type * as bookings from "../bookings.js";
 import type * as catalog from "../catalog.js";
+import type * as changes from "../changes.js";
 import type * as chat from "../chat.js";
 import type * as checkout from "../checkout.js";
 import type * as collective from "../collective.js";
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   availability: typeof availability;
   bookings: typeof bookings;
   catalog: typeof catalog;
+  changes: typeof changes;
   chat: typeof chat;
   checkout: typeof checkout;
   collective: typeof collective;

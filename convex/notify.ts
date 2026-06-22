@@ -113,6 +113,22 @@ export const cancellationEmail = internalAction({
   },
 });
 
+/** Emails the renter when a reschedule/extend is applied. */
+export const changeEmail = internalAction({
+  args: { bookingId: v.id("bookings"), kind: v.string(), detail: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, kind, detail }) => {
+    const b: any = await ctx.runQuery(api.bookings.get, { bookingId });
+    if (!b || !b.guestEmail) return;
+    const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
+    const subj = kind === "rescheduled" ? "Your Db Cinema rental has been rescheduled" : "Your Db Cinema rental was updated";
+    await email(
+      b.guestEmail,
+      subj,
+      `<h2>Rental updated</h2><p>Your rental has been <b>${kind}</b>${detail ? ` — ${detail}` : ""}.</p><p>See it any time in <a href="${app}/account">your account</a>.</p>`,
+    );
+  },
+});
+
 export const contactAlert = internalAction({
   args: { name: v.string(), email: v.string(), message: v.string() },
   handler: async (ctx, a) => {

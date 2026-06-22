@@ -35,7 +35,9 @@ const res = await fetch(base, {
   headers: { ...hdr, "content-type": "application/json" },
   body: JSON.stringify({
     conversation_config: {
-      tts: { voice_id: VOICE },
+      // eleven_v3_conversational = ElevenLabs' realtime expressive model for voice calls
+      // (Expressive Mode). Lily is a premade voice, so the PVC limitation doesn't apply.
+      tts: { voice_id: VOICE, model_id: "eleven_v3_conversational", expressive_mode: true },
       agent: { first_message: FIRST, prompt: { prompt: PROMPT } },
     },
   }),

@@ -440,4 +440,32 @@ export default defineSchema({
   })
     .index("by_account", ["accountId"])
     .index("by_status", ["status"]),
+
+  // ── Reschedule / item-level extend requests (Phase 3b) ──────────
+  booking_change_requests: defineTable({
+    bookingId: v.id("bookings"),
+    accountId: v.id("accounts"),
+    type: v.union(v.literal("reschedule"), v.literal("extend")),
+    // which line items the change targets (empty/undefined = whole booking). Other items unchanged.
+    lineItemIndexes: v.optional(v.array(v.number())),
+    requestedStart: v.optional(v.number()), // reschedule
+    requestedEnd: v.optional(v.number()), // reschedule
+    extraDays: v.optional(v.number()), // extend
+    note: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"), // awaiting admin
+      v.literal("approved"), // reschedule applied directly
+      v.literal("awaiting_payment"), // extend — pay-link issued
+      v.literal("declined"),
+      v.literal("applied"), // extend paid + applied
+    ),
+    priceDelta: v.optional(v.number()),
+    stripePaymentLinkId: v.optional(v.string()),
+    paymentLinkUrl: v.optional(v.string()),
+    paidAt: v.optional(v.number()),
+    createdAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index("by_booking", ["bookingId"])
+    .index("by_status", ["status"]),
 });
