@@ -468,4 +468,14 @@ export default defineSchema({
   })
     .index("by_booking", ["bookingId"])
     .index("by_status", ["status"]),
+
+  // ── Rental-chat escalation state (Phase 4: Gaffer AI + human handoff) ──
+  chat_threads: defineTable({
+    accountId: v.id("accounts"),
+    escalated: v.boolean(), // true → a human is handling it; Gaffer stops auto-replying
+    tgMessageId: v.optional(v.number()), // the Telegram alert msg id (admin replies to it → thread)
+    updatedAt: v.number(),
+  })
+    .index("by_account", ["accountId"])
+    .index("by_tgMessageId", ["tgMessageId"]),
 });

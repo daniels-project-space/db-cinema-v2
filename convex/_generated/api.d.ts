@@ -22,6 +22,7 @@ import type * as contact from "../contact.js";
 import type * as credits from "../credits.js";
 import type * as crons from "../crons.js";
 import type * as delivery from "../delivery.js";
+import type * as gaffer from "../gaffer.js";
 import type * as http from "../http.js";
 import type * as identity from "../identity.js";
 import type * as invoice from "../invoice.js";
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   credits: typeof credits;
   crons: typeof crons;
   delivery: typeof delivery;
+  gaffer: typeof gaffer;
   http: typeof http;
   identity: typeof identity;
   invoice: typeof invoice;

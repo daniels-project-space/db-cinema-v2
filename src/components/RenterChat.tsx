@@ -13,7 +13,9 @@ export function RenterChat() {
   const thread = useQuery(api.chat.myThread, token ? { token } : "skip");
   const send = useMutation(api.chat.send);
   const startAddon = useAction(api.checkout.startAddon);
+  const requestHuman = useMutation(api.chat.requestHuman);
   const [text, setText] = useState("");
+  const [humanBusy, setHumanBusy] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -29,6 +31,16 @@ export function RenterChat() {
     if (!t) return;
     setText("");
     await send({ token, text: t });
+  }
+  async function human() {
+    setHumanBusy(true);
+    try {
+      await requestHuman({ token });
+    } catch {
+      /* ignore */
+    } finally {
+      setHumanBusy(false);
+    }
   }
 
   async function addAddon(o: any, meta: any) {
@@ -54,10 +66,19 @@ export function RenterChat() {
 
   return (
     <section className="mt-8 rounded-2xl glass gradient-border p-5">
-      <h2 className="font-display font-semibold text-white/80">Messages</h2>
-      <p className="mt-1 text-xs text-white/40">
-        Questions about your rental, pickup, or delivery? Message us here.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-display font-semibold text-white/80">Chat with Gaffer</h2>
+          <p className="mt-1 text-xs text-white/40">Your rental assistant — pickup, returns, gear &amp; questions. Ask for a human any time.</p>
+        </div>
+        <button
+          onClick={human}
+          disabled={humanBusy}
+          className="shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-white/60 hover:text-white disabled:opacity-50"
+        >
+          {humanBusy ? "…" : "Talk to a human"}
+        </button>
+      </div>
 
       <div className="mt-4 flex max-h-96 flex-col gap-3 overflow-y-auto pr-1">
         {thread === undefined && <div className="text-sm text-white/30">Loading…</div>}

@@ -1,4 +1,4 @@
-import { query, mutation, internalMutation, internalAction } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 
@@ -55,7 +55,14 @@ export const send = mutation({
       at: Date.now(),
       readByOwner: false,
     });
-    await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: a.email, text: t });
+    const thread = await ctx.db.query("chat_threads").withIndex("by_account", (q) => q.eq("accountId", a._id)).first();
+    if (thread?.escalated) {
+      // a human is handling this thread → forward to Telegram so they see the new message
+      await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: a.email, text: t });
+    } else {
+      // Gaffer (AI) handles it
+      await ctx.scheduler.runAfter(0, internal.gaffer.gafferReply, { accountId: a._id });
+    }
   },
 });
 
@@ -77,6 +84,110 @@ export const postSystem = internalMutation({
       at: Date.now(),
       readByOwner: true,
     });
+  },
+});
+
+/** Context for Gaffer's reply: recent thread + the renter's most relevant booking + location/hours. */
+export const _gafferContext = internalQuery({
+  args: { accountId: v.id("accounts") },
+  handler: async (ctx, { accountId }) => {
+    const acct: any = await ctx.db.get(accountId);
+    if (!acct) return null;
+    const thread = await ctx.db.query("chat_threads").withIndex("by_account", (q) => q.eq("accountId", accountId)).first();
+    const msgs = (await ctx.db.query("messages").withIndex("by_account", (q) => q.eq("accountId", accountId)).collect())
+      .sort((x, y) => x.at - y.at)
+      .slice(-12)
+      .map((m) => ({ sender: m.sender, text: m.text }));
+    const bookings: any[] = await ctx.db.query("bookings").withIndex("by_guestEmail", (q: any) => q.eq("guestEmail", acct.email)).order("desc").take(10);
+    const pick: any = bookings.find((b: any) => b.status === "active") ?? bookings.find((b: any) => b.status === "confirmed") ?? bookings[0] ?? null;
+    let booking: any = null;
+    if (pick) {
+      const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+      const start = Math.min(...pick.lineItems.map((li: any) => li.start));
+      const end = Math.max(...pick.lineItems.map((li: any) => li.end));
+      booking = { summary: pick.lineItems.map((li: any) => li.title).join(", "), dates: `${iso(start)} → ${iso(end)}`, fulfilment: pick.fulfilment, address: pick.address ?? null, pickupTime: pick.pickupTime ?? null, returnTime: pick.returnTime ?? null };
+    }
+    const settings: any = await ctx.db.query("settings").first();
+    return {
+      email: acct.email,
+      escalated: !!thread?.escalated,
+      messages: msgs,
+      booking,
+      location: settings?.businessAddress || null,
+      hours: settings?.openingHours || "10:00–12:00 & 19:00–21:00, daily",
+    };
+  },
+});
+
+export const _postBot = internalMutation({
+  args: { accountId: v.id("accounts"), text: v.string() },
+  handler: async (ctx, { accountId, text }) => {
+    await ctx.db.insert("messages", { accountId, sender: "bot", text, at: Date.now(), readByOwner: true });
+  },
+});
+
+export const _setEscalated = internalMutation({
+  args: { accountId: v.id("accounts"), escalated: v.boolean(), tgMessageId: v.optional(v.number()) },
+  handler: async (ctx, { accountId, escalated, tgMessageId }) => {
+    const t = await ctx.db.query("chat_threads").withIndex("by_account", (q) => q.eq("accountId", accountId)).first();
+    if (t) await ctx.db.patch(t._id, { escalated, ...(tgMessageId != null ? { tgMessageId } : {}), updatedAt: Date.now() });
+    else await ctx.db.insert("chat_threads", { accountId, escalated, tgMessageId, updatedAt: Date.now() });
+  },
+});
+
+/** Customer presses "Talk to a human" → escalate + alert the team on Telegram. */
+export const requestHuman = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const a: any = await acctByToken(ctx, token);
+    if (!a) throw new Error("unauthorized");
+    const t = await ctx.db.query("chat_threads").withIndex("by_account", (q) => q.eq("accountId", a._id)).first();
+    if (t) await ctx.db.patch(t._id, { escalated: true, updatedAt: Date.now() });
+    else await ctx.db.insert("chat_threads", { accountId: a._id, escalated: true, updatedAt: Date.now() });
+    await ctx.db.insert("messages", { accountId: a._id, sender: "system", text: "You're connected to the team — a human will reply here shortly. 👋", at: Date.now(), readByOwner: true });
+    await ctx.scheduler.runAfter(0, internal.chat._escalationAlert, { accountId: a._id });
+    return { ok: true };
+  },
+});
+
+/** Telegram alert to the team; stores the message id so an admin REPLY routes back to the thread. */
+export const _escalationAlert = internalAction({
+  args: { accountId: v.id("accounts") },
+  handler: async (ctx, { accountId }) => {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chat = process.env.TELEGRAM_ADMIN_CHAT_ID;
+    if (!token || !chat) return;
+    const cx: any = await ctx.runQuery(internal.chat._gafferContext, { accountId });
+    if (!cx) return;
+    const last = cx.messages.slice(-5).map((m: any) => `${m.sender === "renter" ? "👤" : m.sender === "bot" ? "🤖" : "•"} ${m.text}`).join("\n");
+    const text = `🙋 <b>Human requested — rental chat</b>\n${cx.email}\n${cx.booking ? cx.booking.summary : "(no active rental)"}\n\n${last}\n\n<i>Reply to this message to answer the customer. Send "/gaffer" to hand back to the AI.</i>`;
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chat, text, parse_mode: "HTML" }),
+      });
+      const j = await res.json();
+      const mid = j?.result?.message_id;
+      if (mid) await ctx.runMutation(internal.chat._setEscalated, { accountId, escalated: true, tgMessageId: mid });
+    } catch {
+      /* best-effort */
+    }
+  },
+});
+
+/** Admin REPLIED to an escalation Telegram message → route their text into the renter's thread. */
+export const _adminReply = internalMutation({
+  args: { tgMessageId: v.number(), text: v.string() },
+  handler: async (ctx, { tgMessageId, text }) => {
+    const t = await ctx.db.query("chat_threads").withIndex("by_tgMessageId", (q) => q.eq("tgMessageId", tgMessageId)).first();
+    if (!t) return { ok: false };
+    if (text.trim().toLowerCase() === "/gaffer") {
+      await ctx.db.patch(t._id, { escalated: false, updatedAt: Date.now() });
+      await ctx.db.insert("messages", { accountId: t.accountId, sender: "system", text: "Gaffer (our assistant) is back on this chat — ask away!", at: Date.now(), readByOwner: true });
+      return { ok: true };
+    }
+    await ctx.db.insert("messages", { accountId: t.accountId, sender: "bot", text, at: Date.now(), readByOwner: true });
+    return { ok: true };
   },
 });
 

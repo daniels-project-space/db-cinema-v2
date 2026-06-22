@@ -47,6 +47,11 @@ http.route({
         });
       }
     }
+    // admin REPLY to an escalation message → route into the renter's chat thread
+    const msg = update?.message;
+    if (msg?.reply_to_message?.message_id && typeof msg.text === "string" && msg.text.trim()) {
+      await ctx.runMutation(internal.chat._adminReply, { tgMessageId: msg.reply_to_message.message_id, text: msg.text });
+    }
     return new Response("ok");
   }),
 });
