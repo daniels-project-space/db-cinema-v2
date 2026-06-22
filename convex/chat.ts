@@ -102,12 +102,28 @@ export const _gafferContext = internalQuery({
     const bookings: any[] = await ctx.db.query("bookings").withIndex("by_guestEmail", (q: any) => q.eq("guestEmail", acct.email)).order("desc").take(10);
     const focused = focusBookingId ? bookings.find((b: any) => String(b._id) === String(focusBookingId)) : null;
     const pick: any = focused ?? bookings.find((b: any) => b.status === "active") ?? bookings.find((b: any) => b.status === "confirmed") ?? bookings[0] ?? null;
+    const STATUS_PHRASE: Record<string, string> = {
+      pending_payment: "NOT YET CONFIRMED — an unpaid draft; the customer must complete checkout to confirm it",
+      confirmed: "confirmed",
+      active: "out now (rental in progress)",
+      returned: "completed and returned",
+      cancelled: "cancelled",
+    };
     let booking: any = null;
     if (pick) {
       const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
       const start = Math.min(...pick.lineItems.map((li: any) => li.start));
       const end = Math.max(...pick.lineItems.map((li: any) => li.end));
-      booking = { summary: pick.lineItems.map((li: any) => li.title).join(", "), dates: `${iso(start)} → ${iso(end)}`, fulfilment: pick.fulfilment, address: pick.address ?? null, pickupTime: pick.pickupTime ?? null, returnTime: pick.returnTime ?? null };
+      // NOTE: the customer's stored delivery/home address is deliberately NOT included here —
+      // Gaffer must never be able to read it out. Only the depot pickup address (settings) is shareable.
+      booking = {
+        summary: pick.lineItems.map((li: any) => li.title).join(", "),
+        dates: `${iso(start)} → ${iso(end)}`,
+        fulfilment: pick.fulfilment,
+        status: STATUS_PHRASE[pick.status] ?? pick.status,
+        pickupTime: pick.pickupTime ?? null,
+        returnTime: pick.returnTime ?? null,
+      };
     }
     const settings: any = await ctx.db.query("settings").first();
     return {

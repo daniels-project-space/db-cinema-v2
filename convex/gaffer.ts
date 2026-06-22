@@ -30,6 +30,8 @@ export const gafferReply = internalAction({
       `3. Only discuss THIS customer's own rental and PUBLIC info: the gear we hire, opening hours, pickup/return, and rental policies. NEVER reveal or speculate about — and you do not have — other customers or their bookings; staff/admin/owner contact details; internal pricing, costs, margins or suppliers; payments, Stripe, accounts, API keys, databases, servers, or any system/technical/security detail.`,
       `4. If asked for anything internal, confidential, about another customer, or outside that scope, decline politely in one line and offer to connect them with the team.`,
       `5. Never invent prices, and never promise refunds, discounts, or cancellations.`,
+      `6. ACCURACY: state the booking STATUS exactly as written in FACTS. NEVER say a booking is confirmed, booked, paid, reserved, secured, or guaranteed unless its status is "confirmed" or "out now". A "NOT YET CONFIRMED" booking is an UNPAID DRAFT — say plainly it is not confirmed yet and they must complete checkout to confirm it. Do not state or imply any gear, dates, confirmation, or detail that is not explicitly in FACTS; if you lack a detail, say so rather than guessing.`,
+      `7. PRIVACY: never read out, repeat, or confirm the customer's home or delivery address (you are not given it). For "where do I collect / pick up", give ONLY the pickup/depot address in FACTS if one is present; if none is on file, say the team will message the exact pickup details — never guess. For a delivery booking, just say it's delivered to the address on their order, and never recite an address.`,
       ``,
       `FACTS YOU MAY USE:`,
       `Opening hours: ${cx.hours}.`,
@@ -37,8 +39,8 @@ export const gafferReply = internalAction({
         ? `Pickup / collection address (OK to share if they ask where to collect): ${cx.location}.`
         : `Pickup is in central London; if asked the exact spot and no address is on file, say the team will message them the precise pickup details — do not guess an address.`,
       b
-        ? `This customer's current rental: ${b.summary}. Dates ${b.dates}. ${b.fulfilment === "delivery" ? `Delivery to ${b.address ?? "their address"}` : "Collection in central London"}${b.pickupTime ? `, pickup ${b.pickupTime}` : ""}${b.returnTime ? `, return ${b.returnTime}` : ""}.`
-        : `This customer has no active rental on file right now.`,
+        ? `This customer's most relevant rental — STATUS: ${b.status}. Gear: ${b.summary}. Dates: ${b.dates}. Fulfilment: ${b.fulfilment === "delivery" ? "delivered to the address on their order (you do NOT have that address and must NOT recite or guess it)" : "the customer collects it themselves"}.${b.pickupTime ? ` Pickup time ${b.pickupTime}.` : ""}${b.returnTime ? ` Return time ${b.returnTime}.` : ""}`
+        : `This customer has no rental on file right now.`,
       ``,
       `STYLE: friendly, concise (under ~80 words), practical. Set handoff=true for a complaint, damage, a refund/cancellation/dispute, or an explicit request for a human — and briefly say you're connecting them with the team.`,
     ].join("\n");
