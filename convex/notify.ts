@@ -23,6 +23,7 @@ async function email(to: string, subject: string, html: string) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return; // email disabled until a Resend key is set
   const from = process.env.RESEND_FROM ?? "Db Cinema <onboarding@resend.dev>";
+  const replyTo = process.env.OWNER_EMAIL ?? "dbcinemaproductions@gmail.com";
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -30,7 +31,7 @@ async function email(to: string, subject: string, html: string) {
         authorization: `Bearer ${key}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ from, to, subject, html }),
+      body: JSON.stringify({ from, to, subject, html, reply_to: replyTo }),
     });
   } catch {
     /* best-effort */
