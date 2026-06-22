@@ -6,6 +6,7 @@ import { IdVerify } from "@/components/IdVerify";
 import { money } from "@/lib/pricing";
 import { BookingReview } from "@/components/account/BookingReview";
 import { StatusPill } from "@/components/account/StatusPill";
+import { CancelButton } from "@/components/account/CancelButton";
 import {
   type EnrichedBooking,
   groupOf,
@@ -123,6 +124,7 @@ export function BookingTile({ booking, token }: { booking: EnrichedBooking; toke
 
           {/* actions */}
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-white/[0.06] pt-3">
+            <CancelButton booking={booking} />
             {booking.firstSlug && (
               <Link href={`/gear/${booking.firstSlug}`} className="text-xs font-medium text-white/55 hover:text-white">
                 Rent again

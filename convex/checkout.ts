@@ -543,3 +543,58 @@ export const stripeWebhook = internalAction({
     return true;
   },
 });
+
+const londonStartOfDay = (ms: number) => {
+  const p = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(ms));
+  const y = +p.find((x) => x.type === "year")!.value;
+  const mo = +p.find((x) => x.type === "month")!.value;
+  const d = +p.find((x) => x.type === "day")!.value;
+  return Date.UTC(y, mo - 1, d);
+};
+
+/**
+ * Customer self-service cancellation (Phase 3). Gated behind CUSTOMER_BOOKING_ACTIONS=true.
+ *  - ≥3 London-days before start → full cash refund (rental + deposit) to the card.
+ *  - <3 days → deposit refunded to the card + 90-day store credit for the rental portion.
+ *  - pending_payment (nothing charged) → just cancel + release holds.
+ * Only site-sourced bookings; never touches Hygglo-mirrored reservations.
+ */
+export const cancelByCustomer = action({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }): Promise<{ ok: boolean; mode: string; refundAmount: number; creditAmount: number }> => {
+    if (process.env.CUSTOMER_BOOKING_ACTIONS !== "true")
+      throw new Error("Online cancellation isn't available yet — please contact us to cancel.");
+    const me: any = await ctx.runQuery(api.accounts.me, { token });
+    if (!me) throw new Error("Please sign in.");
+    const b: any = await ctx.runQuery(internal.bookings.getForCancel, { bookingId });
+    if (!b || b.guestEmail !== me.email) throw new Error("unauthorized");
+    if (b.cancelledAt || b.status === "cancelled") throw new Error("This booking is already cancelled.");
+    if (!["confirmed", "pending_payment"].includes(b.status))
+      throw new Error("This booking can no longer be cancelled online — please contact us.");
+    if (!b.siteOnly) throw new Error("Please contact us to change this booking.");
+
+    let mode: "none" | "refund" | "credit" = "none";
+    let refundAmount = 0;
+    let creditAmount = 0;
+    if (b.status === "confirmed") {
+      const days = b.earliestStart != null
+        ? Math.round((londonStartOfDay(b.earliestStart) - londonStartOfDay(Date.now())) / 86400000)
+        : 0;
+      if (days >= 3) {
+        mode = "refund";
+        refundAmount = b.total;
+      } else {
+        mode = "credit";
+        refundAmount = b.depositAmount;
+        creditAmount = Math.max(0, b.total - b.depositAmount);
+      }
+      if (refundAmount > 0 && b.stripePaymentIntentId) {
+        await stripe().refunds.create({ payment_intent: b.stripePaymentIntentId, amount: pence(refundAmount) });
+      }
+    }
+    await ctx.runMutation(internal.bookings._finalizeCancellation, {
+      bookingId, accountId: me._id, mode, refundAmount, creditAmount, currency: b.currency,
+    });
+    return { ok: true, mode, refundAmount, creditAmount };
+  },
+});

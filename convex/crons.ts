@@ -12,6 +12,9 @@ crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSes
 // Pickup-tomorrow / return-today reminders (email + Telegram).
 crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {});
 
+// Expire store credit past its 90-day window (Phase 3).
+crons.interval("expire-credits", { hours: 24 }, internal.credits.expire, {});
+
 // Keep the storefront catalog fresh from RMv2 (listings, pricing, images-source).
 crons.interval("sync-rmv2-catalog", { minutes: 30 }, api.sync.syncFromRmv2, {});
 

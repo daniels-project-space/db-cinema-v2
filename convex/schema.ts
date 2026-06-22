@@ -169,6 +169,10 @@ export default defineSchema({
     protection: v.optional(v.string()),
     pickupTime: v.optional(v.string()),
     returnTime: v.optional(v.string()),
+    // customer self-service cancellation bookkeeping (Phase 3)
+    cancelledAt: v.optional(v.number()),
+    refundAmount: v.optional(v.number()),
+    creditIssuedId: v.optional(v.id("credits")),
   })
     .index("by_customer", ["customerId"])
     .index("by_status", ["status"])
@@ -420,4 +424,19 @@ export default defineSchema({
     cursor: v.optional(v.string()),
     note: v.optional(v.string()),
   }).index("by_key", ["key"]),
+
+  // ── Store credit (Phase 3) — issued on late cancellation, 90-day expiry ──
+  credits: defineTable({
+    accountId: v.id("accounts"),
+    amount: v.number(), // original issued (GBP)
+    remaining: v.number(), // after partial redemption
+    currency: v.string(),
+    reason: v.string(), // e.g. "late_cancellation:<bookingId>"
+    bookingId: v.optional(v.id("bookings")),
+    createdAt: v.number(),
+    expiresAt: v.number(), // createdAt + 90d
+    status: v.union(v.literal("active"), v.literal("spent"), v.literal("expired")),
+  })
+    .index("by_account", ["accountId"])
+    .index("by_status", ["status"]),
 });

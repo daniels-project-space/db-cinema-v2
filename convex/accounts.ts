@@ -156,6 +156,14 @@ export const me = query({
   handler: async (ctx, { token }) => {
     const a: any = await resolve(ctx, token);
     if (!a) return null;
+    const now = Date.now();
+    const credits = await ctx.db
+      .query("credits")
+      .withIndex("by_account", (q) => q.eq("accountId", a._id))
+      .collect();
+    const storeCredit = credits
+      .filter((c) => c.status === "active" && c.expiresAt > now)
+      .reduce((n, c) => n + c.remaining, 0);
     return {
       _id: a._id,
       email: a.email,
@@ -170,6 +178,8 @@ export const me = query({
       membershipActive: a.membershipActive ?? false,
       freeAccessoryMonth: a.freeAccessoryMonth ?? null,
       freeAccessoryUsed: a.freeAccessoryUsed ?? 0,
+      storeCredit,
+      customerActionsEnabled: process.env.CUSTOMER_BOOKING_ACTIONS === "true",
     };
   },
 });

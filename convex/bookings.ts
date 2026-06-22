@@ -531,3 +531,93 @@ export const adminSetIdStatus = mutation({
       await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
   },
 });
+
+// ── Customer self-service cancellation (Phase 3) ──────────────────
+/** Read-only context the cancel action needs (ownership, amounts, window, site-only check). */
+export const getForCancel = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    const acct = await ctx.db
+      .query("accounts")
+      .withIndex("by_email", (q) => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()))
+      .first();
+    const res = await ctx.db
+      .query("reservations")
+      .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
+      .collect();
+    return {
+      accountId: acct?._id ?? null,
+      guestEmail: (b.guestEmail ?? "").trim().toLowerCase(),
+      status: b.status,
+      total: b.total,
+      depositAmount: b.depositAmount,
+      currency: b.currency ?? "GBP",
+      stripePaymentIntentId: b.stripePaymentIntentId ?? null,
+      cancelledAt: b.cancelledAt ?? null,
+      earliestStart: b.lineItems.length ? Math.min(...b.lineItems.map((li) => li.start)) : null,
+      siteOnly: res.every((r) => r.source === "site"), // never customer-cancel Hygglo-sourced rows
+    };
+  },
+});
+
+/** Atomically finalise a cancellation: flip status, free the ledger, issue store credit if late,
+ *  post a chat note, schedule the email. Idempotent (no-op if already cancelled). The Stripe
+ *  refund itself is done by the action before calling this. */
+export const _finalizeCancellation = internalMutation({
+  args: {
+    bookingId: v.id("bookings"),
+    accountId: v.optional(v.id("accounts")),
+    mode: v.union(v.literal("none"), v.literal("refund"), v.literal("credit")),
+    refundAmount: v.number(),
+    creditAmount: v.number(),
+    currency: v.string(),
+  },
+  handler: async (ctx, { bookingId, accountId, mode, refundAmount, creditAmount, currency }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return { ok: false as const };
+    if (b.status === "cancelled") return { ok: true as const, already: true };
+
+    let creditId: any = undefined;
+    if (creditAmount > 0 && accountId) {
+      creditId = await ctx.db.insert("credits", {
+        accountId,
+        amount: creditAmount,
+        remaining: creditAmount,
+        currency,
+        reason: `late_cancellation:${bookingId}`,
+        bookingId,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 90 * 86400000,
+        status: "active",
+      });
+    }
+    await ctx.db.patch(bookingId, {
+      status: "cancelled",
+      cancelledAt: Date.now(),
+      refundAmount,
+      creditIssuedId: creditId,
+      depositRefunded: mode !== "none" ? true : (b.depositRefunded ?? false),
+    });
+    const res = await ctx.db
+      .query("reservations")
+      .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
+      .collect();
+    for (const r of res) {
+      if (r.status === "hold") await ctx.db.delete(r._id);
+      else await ctx.db.patch(r._id, { status: "cancelled" });
+    }
+    if (accountId) {
+      const note =
+        mode === "credit"
+          ? `Your booking was cancelled. Your deposit is refunded to your card, and £${creditAmount} store credit (valid 90 days) has been added to your account.`
+          : mode === "refund"
+            ? `Your booking was cancelled and £${refundAmount} has been refunded to your card.`
+            : `Your booking was cancelled.`;
+      await ctx.db.insert("messages", { accountId, bookingId, sender: "system", text: note, at: Date.now(), readByOwner: true });
+    }
+    await ctx.scheduler.runAfter(0, internal.notify.cancellationEmail, { bookingId, mode, refundAmount, creditAmount });
+    return { ok: true as const, creditId };
+  },
+});

@@ -120,11 +120,16 @@ function Dashboard() {
           <h1 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
             My <span className="serif-accent gradient-text text-[1.06em]">account</span>
           </h1>
-          <p className="mt-2 flex items-center gap-2 text-sm text-white/40">
+          <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-white/40">
             {me.email}
             {me.idVerified && (
               <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
                 ID verified
+              </span>
+            )}
+            {(me as any).storeCredit > 0 && (
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+                £{(me as any).storeCredit} credit
               </span>
             )}
           </p>

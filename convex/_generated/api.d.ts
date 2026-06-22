@@ -17,6 +17,7 @@ import type * as chat from "../chat.js";
 import type * as checkout from "../checkout.js";
 import type * as collective from "../collective.js";
 import type * as contact from "../contact.js";
+import type * as credits from "../credits.js";
 import type * as crons from "../crons.js";
 import type * as delivery from "../delivery.js";
 import type * as http from "../http.js";
@@ -52,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   checkout: typeof checkout;
   collective: typeof collective;
   contact: typeof contact;
+  credits: typeof credits;
   crons: typeof crons;
   delivery: typeof delivery;
   http: typeof http;

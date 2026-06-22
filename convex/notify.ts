@@ -92,6 +92,27 @@ export const verificationEmail = internalAction({
   },
 });
 
+/** Emails the renter when their booking is cancelled (refund or store-credit summary). */
+export const cancellationEmail = internalAction({
+  args: { bookingId: v.id("bookings"), mode: v.string(), refundAmount: v.number(), creditAmount: v.number() },
+  handler: async (ctx, { bookingId, mode, refundAmount, creditAmount }) => {
+    const b: any = await ctx.runQuery(api.bookings.get, { bookingId });
+    if (!b || !b.guestEmail) return;
+    const items = (b.lineItems ?? []).map((li: any) => li.title).join(", ");
+    const detail =
+      mode === "credit"
+        ? `<p>Your deposit has been refunded to your card, and <b>£${creditAmount} store credit</b> (valid 90 days) has been added to your account.</p>`
+        : mode === "refund"
+          ? `<p><b>£${refundAmount}</b> has been refunded to your card.</p>`
+          : `<p>No payment had been taken, so there's nothing to refund.</p>`;
+    await email(
+      b.guestEmail,
+      "Your Db Cinema booking is cancelled",
+      `<h2>Booking cancelled</h2><p>Your booking${items ? ` for <b>${items}</b>` : ""} has been cancelled.</p>${detail}<p style="color:#888">Questions? Just reply to this email.</p>`,
+    );
+  },
+});
+
 export const contactAlert = internalAction({
   args: { name: v.string(), email: v.string(), message: v.string() },
   handler: async (ctx, a) => {
