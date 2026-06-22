@@ -37,7 +37,7 @@ export const createPending = internalMutation({
     promoCode: v.optional(v.string()),
     discount: v.optional(v.number()),
     total: v.number(),
-    creditApplied: v.optional(v.number()),
+    creditAccountId: v.optional(v.id("accounts")),
     currency: v.string(),
     agreementName: v.optional(v.string()),
     agreementDocs: v.optional(
@@ -61,6 +61,37 @@ export const createPending = internalMutation({
       });
       customer = await ctx.db.get(id);
     }
+
+    // ── store-credit reservation (transactional, double-spend-safe) ──
+    // Cap to the account's available balance MINUS credit already reserved by its other pending
+    // checkouts, so two concurrent checkouts can't both spend the same credit (each serializable
+    // mutation sees the other's reservation). An aborted/deleted pending booking releases its
+    // reservation automatically; the actual decrement still happens on confirm.
+    let creditApplied = 0;
+    if (a.creditAccountId) {
+      const acct: any = await ctx.db.get(a.creditAccountId);
+      if (acct) {
+        const now = Date.now();
+        const credits = await ctx.db
+          .query("credits")
+          .withIndex("by_account", (q) => q.eq("accountId", a.creditAccountId!))
+          .collect();
+        const balance = credits
+          .filter((c) => c.status === "active" && c.expiresAt > now)
+          .reduce((n, c) => n + c.remaining, 0);
+        const pending = await ctx.db
+          .query("bookings")
+          .withIndex("by_guestEmail", (q) => q.eq("guestEmail", acct.email))
+          .collect();
+        const reserved = pending
+          .filter((b) => b.status === "pending_payment")
+          .reduce((n, b) => n + (b.creditApplied ?? 0), 0);
+        const available = Math.max(0, balance - reserved);
+        creditApplied = Math.min(available, Math.max(0, a.total - a.depositAmount));
+      }
+    }
+    const chargedTotal = a.total - creditApplied;
+
     const bookingId = await ctx.db.insert("bookings", {
       customerId: customer!._id,
       guestEmail: a.customerEmail,
@@ -73,8 +104,8 @@ export const createPending = internalMutation({
       discount: a.discount ?? 0,
       promoCode: a.promoCode,
       depositAmount: a.depositAmount,
-      total: a.total,
-      creditApplied: a.creditApplied,
+      total: chargedTotal,
+      creditApplied,
       currency: a.currency,
       agreementName: a.agreementName,
       agreementSignedAt: a.agreementName ? Date.now() : undefined,
@@ -84,7 +115,7 @@ export const createPending = internalMutation({
       pickupTime: a.pickupTime,
       returnTime: a.returnTime,
     });
-    return bookingId;
+    return { bookingId, creditApplied };
   },
 });
 

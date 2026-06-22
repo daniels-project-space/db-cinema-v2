@@ -182,16 +182,11 @@ export const start = action({
     const deliveryFee = member?.freeDelivery && a.fulfilment === "delivery" ? 0 : a.deliveryFee;
     const total = subtotal + deliveryFee + depositAmount - totalReduction;
 
-    // store credit redemption — applies to the rental spend only (never the refundable deposit);
-    // the balance is decremented on confirm so an abandoned checkout doesn't consume it.
-    let creditApplied = 0;
-    if (acct) {
-      const bal: number = await ctx.runQuery(internal.credits._balance, { accountId: acct._id });
-      creditApplied = Math.min(bal, Math.max(0, total - depositAmount));
-    }
-    const chargedTotal = total - creditApplied;
-
-    const bookingId = await ctx.runMutation(internal.bookings.createPending, {
+    // store credit redemption — applies to the rental spend only (never the refundable deposit).
+    // Reserved transactionally inside createPending (double-spend-safe): it caps to the account's
+    // available balance minus credit already reserved by its other pending checkouts, and returns
+    // the amount actually applied, which drives the Stripe discount below.
+    const { bookingId, creditApplied } = await ctx.runMutation(internal.bookings.createPending, {
       customerEmail: a.customer.email,
       customerName: a.customer.name,
       phone: a.customer.phone,
@@ -210,8 +205,8 @@ export const start = action({
       depositAmount,
       promoCode: appliedCode,
       discount: totalReduction,
-      total: chargedTotal,
-      creditApplied,
+      total,
+      creditAccountId: acct?._id,
       currency: "GBP",
       agreementName: a.agreement?.name,
       agreementDocs: a.agreement?.documents,
