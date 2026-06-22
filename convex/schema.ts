@@ -348,6 +348,7 @@ export default defineSchema({
     address: v.optional(v.string()),
     marketingEmails: v.optional(v.boolean()),
     favorites: v.optional(v.array(v.string())),
+    avatarStorageId: v.optional(v.id("_storage")), // profile photo (Convex storage)
     idVerified: v.optional(v.boolean()),
     idSessionId: v.optional(v.string()), // Stripe Identity session (account-level verification)
     stripeCustomerId: v.optional(v.string()),

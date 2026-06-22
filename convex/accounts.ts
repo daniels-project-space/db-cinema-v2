@@ -164,6 +164,7 @@ export const me = query({
       address: a.address ?? null,
       marketingEmails: a.marketingEmails ?? false,
       favorites: (a.favorites ?? []) as string[],
+      avatarUrl: a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : null,
       idVerified: a.idVerified ?? false,
       membershipTier: a.membershipTier ?? null,
       membershipActive: a.membershipActive ?? false,
@@ -260,6 +261,32 @@ export const updateProfile = mutation({
   },
 });
 
+/** Profile photo upload — returns a short-lived Convex storage upload URL (token-gated). */
+export const generateAvatarUploadUrl = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const a: any = await resolve(ctx, token);
+    if (!a) throw new Error("unauthorized");
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/** Set (or clear, when avatarStorageId is omitted) the account profile photo. Kept separate
+ * from updateProfile so a normal profile save can never accidentally wipe the avatar. */
+export const setAvatar = mutation({
+  args: { token: v.string(), avatarStorageId: v.optional(v.id("_storage")) },
+  handler: async (ctx, { token, avatarStorageId }) => {
+    const a: any = await resolve(ctx, token);
+    if (!a) throw new Error("unauthorized");
+    // delete the previous blob to avoid orphaned storage
+    if (a.avatarStorageId && a.avatarStorageId !== avatarStorageId) {
+      try { await ctx.storage.delete(a.avatarStorageId); } catch {}
+    }
+    await ctx.db.patch(a._id, { avatarStorageId: avatarStorageId ?? undefined });
+    return { ok: true };
+  },
+});
+
 export const signOut = mutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
@@ -283,20 +310,58 @@ export const myBookings = query({
       .take(50);
     const allReviews = await ctx.db.query("reviews").collect();
     const reviewed = new Set(allReviews.map((r) => r.verifiedBookingId).filter(Boolean));
+
+    // resolve a display image url for a listing (R2 → source → gallery), cached across bookings
+    const listingCache = new Map<string, any>();
+    const getListing = async (id: any) => {
+      const k = String(id);
+      if (!listingCache.has(k)) listingCache.set(k, await ctx.db.get(id));
+      return listingCache.get(k);
+    };
+    const heroOf = (l: any): string | null => {
+      if (!l) return null;
+      const imgs = (l.r2Images?.length ? l.r2Images : (l.sourceImages ?? l.gallery ?? [])) as string[];
+      return imgs?.[0] ?? null;
+    };
+
     const out = [];
     for (const b of rows) {
-      const firstListing = b.lineItems[0]
-        ? await ctx.db.get(b.lineItems[0].listingId)
-        : null;
+      const lines = [];
+      for (const li of b.lineItems) {
+        const l = await getListing(li.listingId);
+        lines.push({
+          listingId: li.listingId,
+          title: li.title,
+          start: li.start,
+          end: li.end,
+          qty: li.qty,
+          lineTotal: li.lineTotal,
+          slug: (l as any)?.slug ?? null,
+          heroImage: heroOf(l),
+          category: (l as any)?.category ?? null,
+        });
+      }
+      const starts = b.lineItems.map((li: any) => li.start);
+      const ends = b.lineItems.map((li: any) => li.end);
       out.push({
         _id: b._id,
         status: b.status,
-        lineItems: b.lineItems,
+        lineItems: lines,
         total: b.total,
+        subtotal: b.subtotal,
+        discount: b.discount,
         depositAmount: b.depositAmount,
+        depositRefunded: b.depositRefunded ?? false,
+        currency: b.currency ?? "GBP",
+        fulfilment: b.fulfilment,
+        address: b.address ?? null,
+        pickupTime: b.pickupTime ?? null,
+        returnTime: b.returnTime ?? null,
         idVerifyStatus: b.idVerifyStatus ?? "required",
         reviewed: reviewed.has(b._id),
-        firstSlug: (firstListing as any)?.slug ?? null,
+        firstSlug: lines[0]?.slug ?? null,
+        start: starts.length ? Math.min(...starts) : null,
+        end: ends.length ? Math.max(...ends) : null,
         at: b._creationTime,
       });
     }
