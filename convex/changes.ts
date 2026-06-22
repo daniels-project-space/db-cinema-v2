@@ -159,6 +159,86 @@ export const _approveExtendPending = internalMutation({
   },
 });
 
+/** Availability + price quote for an extend request (per targeted item, excluding self). */
+export const _extendQuote = internalQuery({
+  args: { requestId: v.id("booking_change_requests") },
+  handler: async (ctx, { requestId }) => {
+    const r = await ctx.db.get(requestId);
+    if (!r || r.type !== "extend") return { ok: false as const, reason: "gone" };
+    const b = await ctx.db.get(r.bookingId);
+    if (!b) return { ok: false as const, reason: "gone" };
+    const extra = r.extraDays ?? 0;
+    const idxs = r.lineItemIndexes?.length ? r.lineItemIndexes : b.lineItems.map((_, i) => i);
+    let priceDelta = 0;
+    const names: string[] = [];
+    for (const i of idxs) {
+      const li = b.lineItems[i];
+      if (!li) continue;
+      const l: any = await ctx.db.get(li.listingId);
+      if (!l) continue;
+      // the NEW days are [oldEnd+1 … oldEnd+extra]; must be free on that unit, excluding this booking
+      const free = await listingFree(ctx, li.listingId, li.end + DAY, li.end + extra * DAY, r.bookingId);
+      if (!free) return { ok: false as const, reason: "unavailable", item: li.title };
+      priceDelta += Math.round((l.pricing?.daily ?? 0) * extra * (li.qty || 1));
+      names.push(li.title);
+    }
+    return { ok: true as const, priceDelta, summary: names.join(", "), extra };
+  },
+});
+
+/** Extend was approved + priced → store the pay link and post a pay-tile in the rental chat. */
+export const _setAwaitingPayment = internalMutation({
+  args: { requestId: v.id("booking_change_requests"), url: v.string(), sessionId: v.string(), priceDelta: v.number() },
+  handler: async (ctx, { requestId, url, sessionId, priceDelta }) => {
+    const r = await ctx.db.get(requestId);
+    if (!r || r.status !== "pending") return;
+    await ctx.db.patch(requestId, { status: "awaiting_payment", paymentLinkUrl: url, stripePaymentLinkId: sessionId, priceDelta });
+    await ctx.db.insert("messages", {
+      accountId: r.accountId, bookingId: r.bookingId, sender: "system",
+      text: `Your extension is approved! Pay £${priceDelta} for the extra ${r.extraDays} day${(r.extraDays ?? 1) > 1 ? "s" : ""} to lock it in:`,
+      meta: { kind: "paylink", url, amount: priceDelta },
+      at: Date.now(), readByOwner: true,
+    });
+  },
+});
+
+export const _declineUnavailable = internalMutation({
+  args: { requestId: v.id("booking_change_requests"), item: v.optional(v.string()) },
+  handler: async (ctx, { requestId, item }) => {
+    const r = await ctx.db.get(requestId);
+    if (!r) return;
+    await ctx.db.patch(requestId, { status: "declined", resolvedAt: Date.now(), note: "unavailable" });
+    await ctx.db.insert("messages", { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Sorry — ${item ?? "that item"} isn't available for the extra day(s). Your rental is unchanged; reply here and we'll find an option.`, at: Date.now(), readByOwner: true });
+  },
+});
+
+/** Apply a paid (or free) extend: push the targeted items' end + their reservations + total. Idempotent. */
+export const _applyExtendPaid = internalMutation({
+  args: { requestId: v.id("booking_change_requests") },
+  handler: async (ctx, { requestId }) => {
+    const r = await ctx.db.get(requestId);
+    if (!r || r.status === "applied") return { ok: true, already: true };
+    const b = await ctx.db.get(r.bookingId);
+    if (!b) return { ok: false };
+    const extra = r.extraDays ?? 0;
+    const idxs = r.lineItemIndexes?.length ? r.lineItemIndexes : b.lineItems.map((_, i) => i);
+    const idxSet = new Set(idxs);
+    const newLines = b.lineItems.map((li, i) => (idxSet.has(i) ? { ...li, end: li.end + extra * DAY } : li));
+    await ctx.db.patch(r.bookingId, { lineItems: newLines, total: b.total + (r.priceDelta ?? 0) });
+    const targetListingIds = new Set(idxs.map((i) => String(b.lineItems[i]?.listingId)));
+    const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q) => q.eq("bookingId", r.bookingId)).collect();
+    for (const res of reservations) {
+      if ((res.status === "confirmed" || res.status === "active") && targetListingIds.has(String(res.listingId))) {
+        await ctx.db.patch(res._id, { end: res.end + extra * DAY });
+      }
+    }
+    await ctx.db.patch(requestId, { status: "applied", paidAt: Date.now(), resolvedAt: Date.now() });
+    await ctx.db.insert("messages", { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Done — your rental is extended by ${extra} day${extra > 1 ? "s" : ""}. ✓`, at: Date.now(), readByOwner: true });
+    await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: r.bookingId, kind: "extended", detail: `+${extra} day(s)` });
+    return { ok: true };
+  },
+});
+
 /** Called by the Telegram webhook on an Approve/Decline button press. */
 export const resolveChange = internalAction({
   args: {
@@ -179,8 +259,8 @@ export const resolveChange = internalAction({
         const res: any = await ctx.runMutation(internal.changes._applyReschedule, { requestId });
         result = res?.ok ? "Rescheduled ✓" : "Unavailable — declined";
       } else {
-        await ctx.runMutation(internal.changes._approveExtendPending, { requestId });
-        result = "Approved — pay link to follow";
+        await ctx.runAction(internal.changes_node.createExtendPayLink, { requestId });
+        result = "Approved — pay link sent to chat";
       }
     }
     const token = process.env.TELEGRAM_BOT_TOKEN;

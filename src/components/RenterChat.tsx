@@ -69,6 +69,7 @@ export function RenterChat() {
         {thread?.map((m: any) => {
           const mine = m.sender === "renter";
           const upsell = m.meta?.kind === "upsell";
+          const paylink = m.meta?.kind === "paylink";
           return (
             <div key={m._id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
               <div
@@ -87,6 +88,16 @@ export function RenterChat() {
                     busy={busy}
                     onAdd={addAddon}
                   />
+                )}
+                {paylink && (
+                  <a
+                    href={m.meta.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="press mt-2 inline-block rounded-full bg-accent-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-600"
+                  >
+                    Pay £{m.meta.amount} →
+                  </a>
                 )}
               </div>
             </div>

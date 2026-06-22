@@ -500,6 +500,12 @@ export const finalize = action({
       return { bookingId: m.addonBookingId as string, paid };
     }
 
+    // extend payment → apply the extra days to the targeted item(s)
+    if (paid && m.changeRequestId) {
+      await ctx.runMutation(internal.changes._applyExtendPaid, { requestId: m.changeRequestId as any });
+      return { bookingId: null, paid };
+    }
+
     const bookingId = (m.bookingId as string) ?? null;
     if (paid && bookingId) {
       await ctx.runMutation(internal.bookings.confirm, {
@@ -554,6 +560,8 @@ export const stripeWebhook = internalAction({
             email: m.accountEmail ?? "", tier: m.membershipTier,
             subscriptionId: typeof s.subscription === "string" ? s.subscription : undefined,
           });
+        } else if (m.changeRequestId) {
+          await ctx.runMutation(internal.changes._applyExtendPaid, { requestId: m.changeRequestId as any });
         }
       }
     }
