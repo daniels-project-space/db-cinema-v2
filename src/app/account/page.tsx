@@ -202,6 +202,12 @@ function Dashboard() {
             <div className="mt-4">
               <AvatarUpload />
             </div>
+            {(me as any).storeCredit > 0 && (
+              <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-sm">
+                <span className="font-semibold text-amber-200">£{(me as any).storeCredit} store credit</span>
+                <span className="text-amber-200/60">· applied automatically at your next checkout</span>
+              </div>
+            )}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" />
               <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="input" />

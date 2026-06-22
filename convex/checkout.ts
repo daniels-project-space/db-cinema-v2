@@ -593,7 +593,9 @@ export const cancelByCustomer = action({
     let mode: "none" | "refund" | "credit" = "none";
     let refundAmount = 0;
     let creditAmount = 0;
-    if (b.status === "confirmed") {
+    // only refund / issue store credit for a booking that was GENUINELY paid through Stripe —
+    // a confirmed booking with no payment intent (e.g. admin-confirmed, £0) yields no credit.
+    if (b.status === "confirmed" && b.stripePaymentIntentId) {
       const days = b.earliestStart != null
         ? Math.round((londonStartOfDay(b.earliestStart) - londonStartOfDay(Date.now())) / 86400000)
         : 0;
@@ -605,7 +607,7 @@ export const cancelByCustomer = action({
         refundAmount = b.depositAmount;
         creditAmount = Math.max(0, b.total - b.depositAmount);
       }
-      if (refundAmount > 0 && b.stripePaymentIntentId) {
+      if (refundAmount > 0) {
         await stripe().refunds.create({ payment_intent: b.stripePaymentIntentId, amount: pence(refundAmount) });
       }
     }
