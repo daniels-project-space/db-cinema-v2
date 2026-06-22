@@ -37,6 +37,7 @@ export const createPending = internalMutation({
     promoCode: v.optional(v.string()),
     discount: v.optional(v.number()),
     total: v.number(),
+    creditApplied: v.optional(v.number()),
     currency: v.string(),
     agreementName: v.optional(v.string()),
     agreementDocs: v.optional(
@@ -73,6 +74,7 @@ export const createPending = internalMutation({
       promoCode: a.promoCode,
       depositAmount: a.depositAmount,
       total: a.total,
+      creditApplied: a.creditApplied,
       currency: a.currency,
       agreementName: a.agreementName,
       agreementSignedAt: a.agreementName ? Date.now() : undefined,
@@ -213,6 +215,29 @@ export const confirm = internalMutation({
         code: booking.promoCode,
         at: Date.now(),
       });
+    }
+    // decrement any store credit applied at checkout — only now that payment has succeeded (FIFO by expiry)
+    if (booking.creditApplied && booking.creditApplied > 0 && booking.guestEmail) {
+      const acct = await ctx.db
+        .query("accounts")
+        .withIndex("by_email", (q) => q.eq("email", booking.guestEmail!.trim().toLowerCase()))
+        .first();
+      if (acct) {
+        const now = Date.now();
+        const rows = (
+          await ctx.db.query("credits").withIndex("by_account", (q) => q.eq("accountId", acct._id)).collect()
+        )
+          .filter((c) => c.status === "active" && c.expiresAt > now && c.remaining > 0)
+          .sort((a, b) => a.expiresAt - b.expiresAt);
+        let need = booking.creditApplied;
+        for (const c of rows) {
+          if (need <= 0) break;
+          const take = Math.min(c.remaining, need);
+          const rem = c.remaining - take;
+          await ctx.db.patch(c._id, { remaining: rem, status: rem <= 0 ? "spent" : "active" });
+          need -= take;
+        }
+      }
     }
     await ctx.scheduler.runAfter(0, internal.notify.bookingAlert, { bookingId });
     await ctx.scheduler.runAfter(0, internal.invoice.invoiceEmail, { bookingId });
@@ -474,6 +499,7 @@ export const invoiceData = query({
       subtotal: b.subtotal,
       discount: b.discount ?? 0,
       deliveryFee: b.deliveryFee ?? 0,
+      creditApplied: b.creditApplied ?? 0,
       depositAmount: b.depositAmount,
       total: b.total,
       promoCode: b.promoCode ?? null,

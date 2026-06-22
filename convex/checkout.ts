@@ -182,6 +182,15 @@ export const start = action({
     const deliveryFee = member?.freeDelivery && a.fulfilment === "delivery" ? 0 : a.deliveryFee;
     const total = subtotal + deliveryFee + depositAmount - totalReduction;
 
+    // store credit redemption — applies to the rental spend only (never the refundable deposit);
+    // the balance is decremented on confirm so an abandoned checkout doesn't consume it.
+    let creditApplied = 0;
+    if (acct) {
+      const bal: number = await ctx.runQuery(internal.credits._balance, { accountId: acct._id });
+      creditApplied = Math.min(bal, Math.max(0, total - depositAmount));
+    }
+    const chargedTotal = total - creditApplied;
+
     const bookingId = await ctx.runMutation(internal.bookings.createPending, {
       customerEmail: a.customer.email,
       customerName: a.customer.name,
@@ -201,7 +210,8 @@ export const start = action({
       depositAmount,
       promoCode: appliedCode,
       discount: totalReduction,
-      total,
+      total: chargedTotal,
+      creditApplied,
       currency: "GBP",
       agreementName: a.agreement?.name,
       agreementDocs: a.agreement?.documents,
@@ -255,11 +265,18 @@ export const start = action({
 
     const sb = stripe();
     let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
-    if (totalReduction > 0) {
+    const couponAmount = totalReduction + creditApplied;
+    if (couponAmount > 0) {
+      const couponName =
+        creditApplied > 0
+          ? reductionLabel
+            ? `${reductionLabel} + £${creditApplied} credit`
+            : `£${creditApplied} store credit`
+          : reductionLabel ?? "Discount";
       const coupon = await sb.coupons.create({
-        amount_off: pence(totalReduction),
+        amount_off: pence(couponAmount),
         currency: "gbp",
-        name: reductionLabel ?? "Discount",
+        name: couponName,
         duration: "once",
       });
       discounts = [{ coupon: coupon.id }];

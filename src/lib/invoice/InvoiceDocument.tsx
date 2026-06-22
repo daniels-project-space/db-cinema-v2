@@ -13,6 +13,7 @@ export type InvoiceData = {
   subtotal: number;
   discount: number;
   deliveryFee: number;
+  creditApplied: number;
   depositAmount: number;
   total: number;
   promoCode: string | null;
@@ -103,6 +104,9 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
           <View style={s.totRow}><Text style={{ color: C.muted }}>Subtotal</Text><Text>{gbp(data.subtotal)}</Text></View>
           {data.discount > 0 ? (
             <View style={s.totRow}><Text style={{ color: C.muted }}>Discount{data.promoCode ? ` (${data.promoCode})` : ""}</Text><Text>−{gbp(data.discount)}</Text></View>
+          ) : null}
+          {data.creditApplied > 0 ? (
+            <View style={s.totRow}><Text style={{ color: C.muted }}>Store credit</Text><Text>−{gbp(data.creditApplied)}</Text></View>
           ) : null}
           {data.deliveryFee > 0 ? (
             <View style={s.totRow}><Text style={{ color: C.muted }}>Delivery</Text><Text>{gbp(data.deliveryFee)}</Text></View>

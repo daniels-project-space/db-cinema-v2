@@ -382,6 +382,7 @@ export const myBookings = query({
         subtotal: b.subtotal,
         discount: b.discount,
         deliveryFee: b.deliveryFee ?? 0,
+        creditApplied: b.creditApplied ?? 0,
         depositAmount: b.depositAmount,
         depositRefunded: b.depositRefunded ?? false,
         currency: b.currency ?? "GBP",

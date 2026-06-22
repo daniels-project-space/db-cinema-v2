@@ -22,6 +22,7 @@ export type EnrichedBooking = {
   subtotal?: number;
   discount?: number;
   deliveryFee?: number;
+  creditApplied?: number;
   depositAmount: number;
   depositRefunded?: boolean;
   currency: string;

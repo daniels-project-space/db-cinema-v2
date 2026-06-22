@@ -173,6 +173,7 @@ export default defineSchema({
     cancelledAt: v.optional(v.number()),
     refundAmount: v.optional(v.number()),
     creditIssuedId: v.optional(v.id("credits")),
+    creditApplied: v.optional(v.number()), // store credit redeemed at checkout (decremented on confirm)
   })
     .index("by_customer", ["customerId"])
     .index("by_status", ["status"])

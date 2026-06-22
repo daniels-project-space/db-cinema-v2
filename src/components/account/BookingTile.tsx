@@ -125,6 +125,7 @@ export function BookingTile({
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-white/40">
         {booking.subtotal != null && <span>Subtotal £{money(booking.subtotal)}</span>}
         {(booking.discount ?? 0) > 0 && <span className="text-emerald-300/70">−£{money(booking.discount!)}</span>}
+        {(booking.creditApplied ?? 0) > 0 && <span className="text-amber-300/70">Credit −£{money(booking.creditApplied!)}</span>}
         {(booking.deliveryFee ?? 0) > 0 && <span>Delivery £{money(booking.deliveryFee!)}</span>}
         {booking.depositAmount > 0 && (
           <span>

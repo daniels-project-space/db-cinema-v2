@@ -63,3 +63,29 @@ export const _balance = internalQuery({
       .reduce((n, c) => n + c.remaining, 0);
   },
 });
+
+/** Decrement `amount` of store credit from an account (soonest-expiry first). Returns how much
+ *  was actually redeemed. Called on booking confirm for credit applied at checkout. */
+export const redeem = internalMutation({
+  args: { accountId: v.id("accounts"), amount: v.number() },
+  handler: async (ctx, { accountId, amount }) => {
+    if (amount <= 0) return { redeemed: 0 };
+    const now = Date.now();
+    const rows = (
+      await ctx.db.query("credits").withIndex("by_account", (q) => q.eq("accountId", accountId)).collect()
+    )
+      .filter((c) => c.status === "active" && c.expiresAt > now && c.remaining > 0)
+      .sort((a, b) => a.expiresAt - b.expiresAt);
+    let need = amount;
+    let used = 0;
+    for (const c of rows) {
+      if (need <= 0) break;
+      const take = Math.min(c.remaining, need);
+      const rem = c.remaining - take;
+      await ctx.db.patch(c._id, { remaining: rem, status: rem <= 0 ? "spent" : "active" });
+      need -= take;
+      used += take;
+    }
+    return { redeemed: used };
+  },
+});
