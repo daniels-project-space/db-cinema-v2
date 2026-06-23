@@ -80,6 +80,7 @@ export function BookingPanel({
   onPick,
   onMonthChange,
   unavailable,
+  demand = 0,
 }: {
   listing: Listing;
   start: string | null;
@@ -88,6 +89,7 @@ export function BookingPanel({
   onPick: (iso: string) => void;
   onMonthChange: (d: Date) => void;
   unavailable: Set<string>;
+  demand?: number;
 }) {
   const cart = useCart();
   const days = start && end ? daysInclusive(start, end) : 0;
@@ -153,6 +155,12 @@ export function BookingPanel({
           </div>
         </div>
 
+        {demand >= 120 && (
+          <div className="mt-2.5 inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-300">
+            In demand — book early to lock your dates
+          </div>
+        )}
+
         {q ? (
           <div className="mt-4 border-t border-white/5 pt-4">
             <div className="flex items-baseline justify-between">
@@ -214,6 +222,12 @@ export function BookingPanel({
         >
           {start && end && cand && !cand.ok && cand.available > 0 ? "Max in kit" : "Add to kit"}
         </button>
+
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-white/40">
+          <span>✓ Delivered across London</span>
+          <span>✓ Deposit refunded on return</span>
+          <span>✓ Pro-checked gear</span>
+        </div>
       </div>
     </div>
   );

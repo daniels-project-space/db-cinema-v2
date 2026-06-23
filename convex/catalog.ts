@@ -271,6 +271,7 @@ export const getListingBySlug = query({
       minimumRentalDays: l.minimumRentalDays ?? 1,
       unavailableDates: l.unavailableDates ?? [],
       displayOnly: !!l.suppressed,
+      demandScore: l.demandScore ?? 0,
     };
   },
 });

@@ -62,6 +62,7 @@ function ShareButton({ title }: { title: string }) {
 
 export default function GearDetailClient({ slug }: { slug: string }) {
   const listing = useQuery(api.catalog.getListingBySlug, { slug });
+  const reviewStats = useQuery(api.reviews.stats, {});
 
   const [start, setStart] = useState<string | null>(null);
   const [end, setEnd] = useState<string | null>(null);
@@ -180,7 +181,24 @@ export default function GearDetailClient({ slug }: { slug: string }) {
             <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-white lg:text-4xl">
               {listing.title}
             </h1>
-            <ShareButton title={listing.title} />
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              {reviewStats && reviewStats.count > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2.5 py-1 text-white/70">
+                  <span className="text-amber-300">★</span> {reviewStats.average}
+                  <span className="text-white/40"> · {reviewStats.count} verified hires</span>
+                </span>
+              )}
+              {((listing as any).demandScore ?? 0) >= 120 ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-accent-500/15 px-2.5 py-1 font-medium text-accent-200">
+                  Crew favourite
+                </span>
+              ) : ((listing as any).demandScore ?? 0) >= 30 ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2.5 py-1 text-white/60">
+                  Popular with London crews
+                </span>
+              ) : null}
+              <ShareButton title={listing.title} />
+            </div>
             <p className="mt-4 text-balance leading-relaxed text-white/60">
               {k.summary ||
                 `Professional ${listing.category.toLowerCase()} for hire in London. Pick your dates and the longer you rent, the better the per-day rate. Delivered across London or collect central.`}
@@ -266,6 +284,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
                 onPick={pick}
                 onMonthChange={setMonth}
                 unavailable={unavailable}
+                demand={(listing as any).demandScore ?? 0}
               />
             )}
           </div>
