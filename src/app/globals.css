@@ -1776,3 +1776,32 @@ body {
 }
 .skip-link:focus { transform: translateY(0); outline: none; }
 #main-content:focus { outline: none; }
+
+/* ── Gaffer voice-call button ── */
+@keyframes gc-glow { 0%, 100% { opacity: 0.3; transform: scale(0.97); } 50% { opacity: 0.6; transform: scale(1.05); } }
+.gc-glow { animation: gc-glow 2.8s ease-in-out infinite; }
+
+@keyframes gc-ring { 0% { transform: scale(0.85); opacity: 0.7; } 100% { transform: scale(1.75); opacity: 0; } }
+.gc-ring { animation: gc-ring 1.5s ease-out infinite; }
+
+@keyframes gc-eq { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+.gc-bar { height: 100%; transform-origin: bottom; animation: gc-eq 0.85s ease-in-out infinite; }
+.gc-bar:nth-child(2) { animation-delay: 0.12s; }
+.gc-bar:nth-child(3) { animation-delay: 0.26s; }
+.gc-bar:nth-child(4) { animation-delay: 0.4s; }
+.gc-bar-idle { animation-play-state: paused; transform: scaleY(0.3); }
+
+.gc-sheen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.38) 50%, transparent 70%);
+  transform: translateX(-130%);
+}
+@keyframes gc-sheen { to { transform: translateX(130%); } }
+.gaffer-call:hover .gc-sheen::before { animation: gc-sheen 0.9s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gc-glow, .gc-ring, .gc-bar, .gc-sheen::before { animation: none !important; }
+}
