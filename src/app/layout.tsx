@@ -116,13 +116,11 @@ export const metadata: Metadata = {
       "Rent cinema cameras, lenses, lighting, audio and drones. Daily rates, delivery, 875+ five-star reviews.",
     locale: "en_GB",
     url: SITE_URL,
-    images: [{ url: "/db-cinema-cover.png", alt: "Db Cinema Rentals — pro film & cinema gear in London" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Db Cinema Rentals — Pro film & cinema gear in London",
     description: "Rent cinema cameras, lenses, lighting and more. Daily rates, delivered.",
-    images: ["/db-cinema-cover.png"],
   },
   robots: LIVE
     ? { index: true, follow: true }
