@@ -11,6 +11,7 @@ const STATUSES = ["confirmed", "active", "returned", "cancelled"] as const;
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
+  const [tab, setTab] = useState<"overview" | "bookings" | "inbox" | "settings">("overview");
 
   useEffect(() => {
     setToken(localStorage.getItem("dbc_admin"));
@@ -28,6 +29,11 @@ export default function AdminPage() {
   function save() {
     localStorage.setItem("dbc_admin", input);
     setToken(input);
+  }
+  function lock() {
+    localStorage.removeItem("dbc_admin");
+    setToken(null);
+    setInput("");
   }
 
   if (!token || authed === false) {
@@ -62,20 +68,50 @@ export default function AdminPage() {
     <>
       <SiteHeader />
       <main className="section-window mx-auto max-w-6xl px-6 py-10">
-        <h1 className="font-display text-3xl font-bold text-white/90">
-          Admin <span className="gradient-text">dashboard</span>
-        </h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="font-display text-2xl font-bold text-white/90 lg:text-3xl">
+            Admin <span className="gradient-text">dashboard</span>
+          </h1>
+          <button
+            onClick={lock}
+            className="rounded-full border border-white/10 px-3.5 py-1.5 text-xs font-medium text-white/55 transition hover:border-rose-400/40 hover:text-rose-300"
+          >
+            Lock panel
+          </button>
+        </div>
 
-        <AdminAnalytics token={token} />
-        <AdminCartDemand token={token} />
+        <div className="mt-5 flex flex-wrap gap-1 border-b border-white/5">
+          {(
+            [
+              ["overview", "Overview"],
+              ["bookings", `Bookings${bookings?.items.length ? ` (${bookings.items.length})` : ""}`],
+              ["inbox", `Inbox${contacts?.items.filter((m: any) => !m.handled).length ? ` (${contacts.items.filter((m: any) => !m.handled).length})` : ""}`],
+              ["settings", "Settings"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`-mb-px border-b-2 px-3.5 py-2 text-sm font-medium transition ${
+                tab === key ? "border-accent-400 text-white" : "border-transparent text-white/45 hover:text-white/75"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
-        {/* bookings */}
-        <h2 className="mt-8 font-display text-lg font-semibold text-white/80">
-          Bookings {bookings ? `(${bookings.items.length})` : ""}
-        </h2>
-        <div className="mt-3 flex flex-col gap-3">
-          {bookings?.items.map((b: any) => (
-            <div key={b._id} className="rounded-2xl glass p-4">
+        {tab === "overview" && (
+          <div className="mt-6">
+            <AdminAnalytics token={token} />
+            <AdminCartDemand token={token} />
+          </div>
+        )}
+
+        {tab === "bookings" && (
+          <div className="mt-6 grid gap-3 lg:grid-cols-2">
+            {bookings?.items.map((b: any) => (
+              <div key={b._id} className="rounded-xl glass p-3.5">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <span className="text-sm text-white/80">{b.guestEmail}</span>
@@ -117,11 +153,7 @@ export default function AdminPage() {
                   {b.agreementName ? `✍ signed by ${b.agreementName}` : "✗ not signed"}
                 </span>
                 <span className="text-white/20">·</span>
-                <span
-                  className={
-                    b.idVerifyStatus === "verified" ? "text-emerald-300" : "text-amber-300"
-                  }
-                >
+                <span className={b.idVerifyStatus === "verified" ? "text-emerald-300" : "text-amber-300"}>
                   ID: {b.idVerifyStatus}
                 </span>
                 {b.idVerifyStatus !== "verified" && (
@@ -133,69 +165,64 @@ export default function AdminPage() {
                   </button>
                 )}
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {STATUSES.map((s) => (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {STATUSES.map((st) => (
                   <button
-                    key={s}
-                    onClick={() => setStatus({ token, bookingId: b._id, status: s })}
-                    disabled={b.status === s}
-                    className="rounded-full glass px-3 py-1 text-xs text-white/60 hover:text-white disabled:opacity-25"
+                    key={st}
+                    onClick={() => setStatus({ token, bookingId: b._id, status: st })}
+                    disabled={b.status === st}
+                    className="rounded-full glass px-2.5 py-1 text-xs text-white/60 hover:text-white disabled:opacity-25"
                   >
-                    {s}
+                    {st}
                   </button>
                 ))}
                 <button
-                  onClick={() =>
-                    refund({ token, bookingId: b._id }).catch((e) => alert(e.message))
-                  }
+                  onClick={() => refund({ token, bookingId: b._id }).catch((e) => alert(e.message))}
                   disabled={b.depositRefunded || b.depositAmount <= 0}
-                  className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-25"
+                  className="rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-25"
                 >
                   Refund deposit
                 </button>
               </div>
-            </div>
-          ))}
-          {bookings && bookings.items.length === 0 && (
-            <div className="text-sm text-white/30">No bookings yet.</div>
-          )}
-        </div>
-
-        {/* contact inbox */}
-        <h2 className="mt-10 font-display text-lg font-semibold text-white/80">
-          Contact inbox {contacts ? `(${contacts.items.length})` : ""}
-        </h2>
-        <div className="mt-3 flex flex-col gap-3">
-          {contacts?.items.map((m: any) => (
-            <div
-              key={m._id}
-              className={`rounded-2xl glass p-4 ${m.handled ? "opacity-50" : ""}`}
-            >
-              <div className="flex justify-between">
-                <span className="text-sm text-white/80">
-                  {m.name} <span className="text-white/40">({m.email})</span>
-                </span>
-                {!m.handled && (
-                  <button
-                    onClick={() => markHandled({ token, id: m._id })}
-                    className="text-xs text-accent-400 hover:underline"
-                  >
-                    mark handled
-                  </button>
-                )}
               </div>
-              <p className="mt-1 text-sm text-white/50">{m.message}</p>
-            </div>
-          ))}
-          {contacts && contacts.items.length === 0 && (
-            <div className="text-sm text-white/30">No messages.</div>
-          )}
-        </div>
+            ))}
+            {bookings && bookings.items.length === 0 && (
+              <div className="text-sm text-white/30">No bookings yet.</div>
+            )}
+          </div>
+        )}
 
-        <AdminCollective token={token} />
-        <AdminSettings token={token} />
-        <AdminPromos token={token} />
-        <AdminMemberOffers token={token} />
+        {tab === "inbox" && (
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
+            {contacts?.items.map((m: any) => (
+              <div key={m._id} className={`rounded-xl glass p-3.5 ${m.handled ? "opacity-50" : ""}`}>
+                <div className="flex justify-between gap-2">
+                  <span className="text-sm text-white/80">
+                    {m.name} <span className="text-white/40">({m.email})</span>
+                  </span>
+                  {!m.handled && (
+                    <button onClick={() => markHandled({ token, id: m._id })} className="shrink-0 text-xs text-accent-400 hover:underline">
+                      mark handled
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-white/50">{m.message}</p>
+              </div>
+            ))}
+            {contacts && contacts.items.length === 0 && (
+              <div className="text-sm text-white/30">No messages.</div>
+            )}
+          </div>
+        )}
+
+        {tab === "settings" && (
+          <div className="mt-2">
+            <AdminCollective token={token} />
+            <AdminSettings token={token} />
+            <AdminPromos token={token} />
+            <AdminMemberOffers token={token} />
+          </div>
+        )}
       </main>
     </>
   );
