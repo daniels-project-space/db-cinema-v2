@@ -5,7 +5,7 @@ import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 
-const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+const day = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 const STATUSES = ["confirmed", "active", "returned", "cancelled"] as const;
 
 export default function AdminPage() {
@@ -109,83 +109,75 @@ export default function AdminPage() {
         )}
 
         {tab === "bookings" && (
-          <div className="mt-6 grid gap-3 lg:grid-cols-2">
-            {bookings?.items.map((b: any) => (
-              <div key={b._id} className="rounded-xl glass p-3.5">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <span className="text-sm text-white/80">{b.guestEmail}</span>
-                  <span
-                    className={`ml-2 rounded px-2 py-0.5 text-[10px] uppercase tracking-wide ${
-                      b.status === "confirmed"
-                        ? "bg-accent-500/20 text-accent-300"
-                        : b.status === "active"
-                          ? "bg-emerald-500/20 text-emerald-300"
-                          : b.status === "returned"
-                            ? "bg-white/10 text-white/50"
-                            : "bg-red-500/20 text-red-300"
-                    }`}
-                  >
-                    {b.status}
-                  </span>
-                  <span className="ml-2 text-xs text-white/30">{b.fulfilment}</span>
-                </div>
-                <div className="text-right">
-                  <div className="font-display font-bold text-white/90">£{b.total}</div>
-                  <div className="text-[11px] text-white/30">
-                    deposit £{b.depositAmount}
-                    {b.depositRefunded ? " · refunded" : ""}
+          <div className="mt-6 grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+            {bookings?.items.map((b: any) => {
+              const dot =
+                b.status === "confirmed" ? "bg-accent-400"
+                : b.status === "active" ? "bg-emerald-400"
+                : b.status === "returned" ? "bg-white/40"
+                : b.status === "cancelled" ? "bg-rose-400"
+                : "bg-amber-400";
+              const start = Math.min(...b.lineItems.map((li: any) => li.start));
+              const end = Math.max(...b.lineItems.map((li: any) => li.end));
+              const first = b.lineItems[0];
+              const extra = b.lineItems.length - 1;
+              return (
+                <div key={b._id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-xs transition hover:border-white/15">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                      <span className="truncate text-[13px] text-white/80">{b.guestEmail}</span>
+                    </div>
+                    <span className="shrink-0 font-display text-sm font-bold text-white/90">£{b.total}</span>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-white/40">
+                    <span className="text-white/55">{(first?.title ?? "—").slice(0, 28)}{extra > 0 ? ` +${extra}` : ""}</span>
+                    <span className="text-white/15">·</span>
+                    <span>{day(start)}–{day(end)}</span>
+                    <span className="text-white/15">·</span>
+                    <span>{b.fulfilment}</span>
+                    <span className="text-white/15">·</span>
+                    <span>dep £{b.depositAmount}{b.depositRefunded ? " ↩" : ""}</span>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
+                    <span className={`rounded px-1.5 py-0.5 ${b.agreementName ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}`}>
+                      {b.agreementName ? "signed" : "unsigned"}
+                    </span>
+                    <span className={`rounded px-1.5 py-0.5 ${b.idVerifyStatus === "verified" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
+                      ID {b.idVerifyStatus === "verified" ? "✓" : b.idVerifyStatus}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <select
+                      value={b.status}
+                      onChange={(e) => setStatus({ token, bookingId: b._id, status: e.target.value as any })}
+                      className="flex-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none"
+                    >
+                      {[...new Set([b.status, ...STATUSES])].map((st) => (
+                        <option key={st} value={st} className="bg-charcoal-800">{st}</option>
+                      ))}
+                    </select>
+                    {b.idVerifyStatus !== "verified" && (
+                      <button
+                        onClick={() => setId({ token, bookingId: b._id, status: "verified" })}
+                        title="Mark ID verified"
+                        className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/25"
+                      >
+                        ID ✓
+                      </button>
+                    )}
+                    <button
+                      onClick={() => refund({ token, bookingId: b._id }).catch((e) => alert(e.message))}
+                      disabled={b.depositRefunded || b.depositAmount <= 0}
+                      title="Refund deposit"
+                      className="shrink-0 rounded-md bg-white/[0.05] px-2 py-1 text-[11px] text-white/55 hover:text-white disabled:opacity-25"
+                    >
+                      Refund
+                    </button>
                   </div>
                 </div>
-              </div>
-              <div className="mt-2 text-xs text-white/45">
-                {b.lineItems.map((li: any, i: number) => (
-                  <div key={i}>
-                    {li.title} · {day(li.start)}→{day(li.end)} · £{li.lineTotal}
-                  </div>
-                ))}
-              </div>
-              {b.address && (
-                <div className="mt-1 text-xs text-white/30">📍 {b.address}</div>
-              )}
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                <span className={b.agreementName ? "text-emerald-300" : "text-red-300"}>
-                  {b.agreementName ? `✍ signed by ${b.agreementName}` : "✗ not signed"}
-                </span>
-                <span className="text-white/20">·</span>
-                <span className={b.idVerifyStatus === "verified" ? "text-emerald-300" : "text-amber-300"}>
-                  ID: {b.idVerifyStatus}
-                </span>
-                {b.idVerifyStatus !== "verified" && (
-                  <button
-                    onClick={() => setId({ token, bookingId: b._id, status: "verified" })}
-                    className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-300 hover:bg-emerald-500/30"
-                  >
-                    mark ID verified
-                  </button>
-                )}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {STATUSES.map((st) => (
-                  <button
-                    key={st}
-                    onClick={() => setStatus({ token, bookingId: b._id, status: st })}
-                    disabled={b.status === st}
-                    className="rounded-full glass px-2.5 py-1 text-xs text-white/60 hover:text-white disabled:opacity-25"
-                  >
-                    {st}
-                  </button>
-                ))}
-                <button
-                  onClick={() => refund({ token, bookingId: b._id }).catch((e) => alert(e.message))}
-                  disabled={b.depositRefunded || b.depositAmount <= 0}
-                  className="rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-25"
-                >
-                  Refund deposit
-                </button>
-              </div>
-              </div>
-            ))}
+              );
+            })}
             {bookings && bookings.items.length === 0 && (
               <div className="text-sm text-white/30">No bookings yet.</div>
             )}
@@ -193,20 +185,20 @@ export default function AdminPage() {
         )}
 
         {tab === "inbox" && (
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
+          <div className="mt-6 grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
             {contacts?.items.map((m: any) => (
-              <div key={m._id} className={`rounded-xl glass p-3.5 ${m.handled ? "opacity-50" : ""}`}>
-                <div className="flex justify-between gap-2">
-                  <span className="text-sm text-white/80">
-                    {m.name} <span className="text-white/40">({m.email})</span>
+              <div key={m._id} className={`rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-xs ${m.handled ? "opacity-45" : ""}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[13px] text-white/80">
+                    {m.name} <span className="text-white/35">· {m.email}</span>
                   </span>
                   {!m.handled && (
-                    <button onClick={() => markHandled({ token, id: m._id })} className="shrink-0 text-xs text-accent-400 hover:underline">
-                      mark handled
+                    <button onClick={() => markHandled({ token, id: m._id })} className="shrink-0 text-[11px] text-accent-400 hover:underline">
+                      handled
                     </button>
                   )}
                 </div>
-                <p className="mt-1 text-sm text-white/50">{m.message}</p>
+                <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-white/45">{m.message}</p>
               </div>
             ))}
             {contacts && contacts.items.length === 0 && (
