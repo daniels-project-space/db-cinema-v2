@@ -16,6 +16,7 @@ const esc = (s: string) =>
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const token = req.nextUrl.searchParams.get("token") ?? undefined;
+  const key = req.nextUrl.searchParams.get("key") ?? undefined;
   const convex = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convex) return new Response("not configured", { status: 500 });
 
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const r = await fetch(`${convex}/api/query`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path: "bookings:invoiceData", args: { bookingId: id, token }, format: "json" }),
+      body: JSON.stringify({ path: "bookings:invoiceData", args: { bookingId: id, token, key }, format: "json" }),
       cache: "no-store",
     });
     const j = await r.json();

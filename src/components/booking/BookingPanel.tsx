@@ -1,13 +1,66 @@
 "use client";
 
-import { useMemo } from "react";
-import { useQuery } from "convex/react";
+import { useMemo, useState } from "react";
+import { useQuery, useMutation } from "convex/react";
+import { useAccount } from "@/components/account/AccountProvider";
 import { api } from "@cvx/_generated/api";
 import { quote as computeQuote, type Pricing } from "@/lib/pricing";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
 import { dayMs } from "@/lib/dates";
 import { useCart } from "@/components/cart/CartProvider";
 import { IconCheck, IconX } from "@/components/icons";
+
+function WaitlistForm({ listingId, start, end }: { listingId: string; start: number; end: number }) {
+  const account = useAccount();
+  const addWait = useMutation(api.waitlist.add);
+  const [email, setEmail] = useState(account.me?.email ?? "");
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const valid = /\S+@\S+\.\S+/.test(email);
+  async function go() {
+    if (!valid) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await addWait({ email: email.trim(), listingId: listingId as any, start, end });
+      setDone(true);
+    } catch (e: any) {
+      const m = String(e?.message || "").match(/Uncaught Error:\s*(.+?)(?:\n|$)/);
+      setErr(m ? m[1] : "Couldn't set the alert — please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (done)
+    return (
+      <div className="mt-3 rounded-lg bg-emerald-500/10 px-3 py-2.5 text-center text-xs text-emerald-300">
+        Done — we'll email you if it frees up for these dates ✓
+      </div>
+    );
+  return (
+    <div className="mt-3 rounded-lg bg-white/[0.03] p-3">
+      <div className="text-center text-xs text-white/55">Booked out — get an email if it frees up:</div>
+      <div className="mt-2 flex gap-2">
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@email.com"
+          type="email"
+          className="input flex-1 text-sm"
+        />
+        <button
+          onClick={go}
+          disabled={!valid || busy}
+          className="shrink-0 rounded-full bg-accent-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-600 disabled:opacity-50"
+        >
+          {busy ? "…" : "Notify me"}
+        </button>
+      </div>
+      {err && <div className="mt-1 text-center text-[11px] text-rose-300">{err}</div>}
+    </div>
+  );
+}
 
 type Listing = {
   _id: string;
@@ -148,6 +201,10 @@ export function BookingPanel({
               </span>
             )}
           </div>
+        )}
+
+        {start && end && cand && cand.available === 0 && (
+          <WaitlistForm listingId={listing._id} start={startMs} end={endMs} />
         )}
 
         <button

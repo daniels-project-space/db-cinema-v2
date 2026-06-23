@@ -36,6 +36,30 @@ function expandUnavailable(raw: string[]): Set<string> {
   return set;
 }
 
+function ShareButton({ title }: { title: string }) {
+  const [copied, setCopied] = useState(false);
+  async function share() {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    const nav = navigator as any;
+    if (nav.share) {
+      try { await nav.share({ title, url }); return; } catch {}
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {}
+  }
+  return (
+    <button
+      onClick={share}
+      className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/55 transition hover:text-white"
+    >
+      {copied ? "Link copied ✓" : "↗ Share"}
+    </button>
+  );
+}
+
 export default function GearDetailClient({ slug }: { slug: string }) {
   const listing = useQuery(api.catalog.getListingBySlug, { slug });
 
@@ -156,6 +180,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
             <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-white lg:text-4xl">
               {listing.title}
             </h1>
+            <ShareButton title={listing.title} />
             <p className="mt-4 text-balance leading-relaxed text-white/60">
               {k.summary ||
                 `Professional ${listing.category.toLowerCase()} for hire in London. Pick your dates and the longer you rent, the better the per-day rate. Delivered across London or collect central.`}

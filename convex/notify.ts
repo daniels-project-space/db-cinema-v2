@@ -19,7 +19,7 @@ async function telegram(text: string) {
   }
 }
 
-async function email(to: string, subject: string, html: string) {
+async function email(to: string, subject: string, html: string, attachments?: Array<{ filename: string; path: string }>) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return; // email disabled until a Resend key is set
   const from = process.env.RESEND_FROM ?? "Db Cinema <onboarding@resend.dev>";
@@ -31,7 +31,7 @@ async function email(to: string, subject: string, html: string) {
         authorization: `Bearer ${key}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ from, to, subject, html, reply_to: replyTo }),
+      body: JSON.stringify({ from, to, subject, html, reply_to: replyTo, ...(attachments && attachments.length ? { attachments } : {}) }),
     });
   } catch {
     /* best-effort */
@@ -52,13 +52,34 @@ export const bookingAlert = internalAction({
     await telegram(
       `🎬 <b>New booking</b>\n${b.guestEmail}\n${b.fulfilment}\n${lines}\n<b>£${b.total}</b> (incl £${b.depositAmount} deposit)`,
     );
+    const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
+    const secret = process.env.INVOICE_SECRET;
+    const cal = secret
+      ? [{ filename: "db-cinema-booking.ics", path: `${app}/api/booking-ics/${bookingId}?key=${encodeURIComponent(secret)}` }]
+      : undefined;
     await email(
       b.guestEmail,
       "Your Db Cinema booking is confirmed",
       `<h2>Booking confirmed 🎬</h2><p>Thanks for renting with Db Cinema.</p>
        <pre>${lines}</pre>
        <p>Total paid: <b>£${b.total}</b> (incl. £${b.depositAmount} refundable deposit)</p>
-       <p>Fulfilment: ${b.fulfilment}</p>`,
+       <p>Fulfilment: ${b.fulfilment}</p>
+       <p>📅 Your pickup &amp; return dates are attached — add them to your calendar.</p>`,
+      cal,
+    );
+  },
+});
+
+/** Emails a waitlisted renter when their item frees up for their requested dates. */
+export const waitlistEmail = internalAction({
+  args: { email: v.string(), title: v.string(), slug: v.string(), start: v.number(), end: v.number() },
+  handler: async (ctx, a) => {
+    const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
+    const d = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    await email(
+      a.email,
+      `Good news — the ${a.title} is free for your dates`,
+      `<h2>It's available 🎬</h2><p>The <b>${a.title}</b> you asked about is now free for <b>${d(a.start)} – ${d(a.end)}</b>.</p><p>Gear like this books up fast — secure it now:</p><p><a href="${app}/gear/${a.slug}">Book the ${a.title} →</a></p>`,
     );
   },
 });

@@ -40,6 +40,7 @@ import type * as reviews from "../reviews.js";
 import type * as settings from "../settings.js";
 import type * as sync from "../sync.js";
 import type * as voice from "../voice.js";
+import type * as waitlist from "../waitlist.js";
 
 import type {
   ApiFromModules,
@@ -80,6 +81,7 @@ declare const fullApi: ApiFromModules<{
   settings: typeof settings;
   sync: typeof sync;
   voice: typeof voice;
+  waitlist: typeof waitlist;
 }>;
 
 /**

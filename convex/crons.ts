@@ -30,4 +30,7 @@ crons.interval(
 // Sweep stale API rate-limit rows.
 crons.interval("sweep-rate-limits", { hours: 24 }, internal.rateLimit.sweep, {});
 
+// Notify "tell me when it's free" waiters whose item has opened up for their dates.
+crons.interval("waitlist-check", { hours: 2 }, internal.waitlist.checkAndNotify, {});
+
 export default crons;

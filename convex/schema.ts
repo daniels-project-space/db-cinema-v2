@@ -485,4 +485,16 @@ export default defineSchema({
     windowStart: v.number(),
     count: v.number(),
   }).index("by_key", ["key"]),
+
+  // "Notify me when available" requests for booked-out gear.
+  availability_waitlist: defineTable({
+    email: v.string(),
+    listingId: v.id("listings"),
+    listingTitle: v.string(),
+    slug: v.string(),
+    start: v.number(),
+    end: v.number(),
+    createdAt: v.number(),
+    notified: v.boolean(),
+  }).index("by_notified", ["notified"]),
 });
