@@ -176,6 +176,14 @@ export function BookingTile({
             Invoice
           </a>
         )}
+        {["confirmed", "active"].includes(booking.status) && token && token !== "preview" && (
+          <a
+            href={`/api/booking-ics/${booking._id}?token=${encodeURIComponent(token)}`}
+            className="font-medium text-white/55 hover:text-white"
+          >
+            Add to calendar
+          </a>
+        )}
         {group === "past" && booking.status === "returned" && (
           <BookingReview bookingId={booking._id} reviewed={booking.reviewed} token={token} />
         )}
