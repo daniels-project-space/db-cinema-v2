@@ -10,7 +10,7 @@ import { parseMounts, mountCompat } from "@/lib/mount";
 import { coverageCompat, battOk, isRigPower } from "@/lib/compat";
 import { bundleIncludes } from "@cvx/lib/taxonomy";
 import { rateLimit } from "@/lib/ratelimit";
-import { compareOptions } from "@/lib/kitRank";
+import { compareOptions, isCameraSet } from "@/lib/kitRank";
 
 export const maxDuration = 60;
 
@@ -118,7 +118,8 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
   if (key === "lav-mic" || key === "wireless-mic" || key === "shotgun-mic") items = items.filter((l) => !CAM_BUNDLE.test(l.title));
   // consider the most in-demand items FIRST (byItemType is unsorted) so the availability-checked
   // window always includes the gear people actually rent (e.g. the Sony 24-70 GM).
-  items.sort((a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0));
+  if (key === "camera") items.sort((a, b) => (isCameraSet(a.title) ? 1 : 0) - (isCameraSet(b.title) ? 1 : 0) || (b.demandScore ?? 0) - (a.demandScore ?? 0));
+  else items.sort((a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0));
   const days = Math.max(1, Math.round((msOf(end) - msOf(start)) / 86400000) + 1);
   const out: any[] = [];
   for (const l of items.slice(0, 36)) {
