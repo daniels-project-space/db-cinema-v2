@@ -193,15 +193,35 @@ export const refreshQuietDeals = mutation({
       const d = (l as any).demandScore ?? 0;
       for (const t of quietTokens(l.title)) pop.set(t, Math.max(pop.get(t) ?? 0, d));
     }
-    const idle = ls
-      .filter((l) => ((l as any).demandScore ?? 0) <= LOW_OWN && l.category !== "Packages")
+    // candidates: genuinely idle, not packages, not suppressed
+    const cands = ls
+      .filter((l) => !(l as any).suppressed && ((l as any).demandScore ?? 0) <= LOW_OWN && l.category !== "Packages")
       .map((l) => ({ l, peak: quietTokens(l.title).reduce((m, t) => Math.max(m, pop.get(t) ?? 0), 0) }))
-      .filter((x) => x.peak < POPULAR) // gear not popular in ANY set → genuinely idle
+      .filter((x) => x.peak < POPULAR); // gear not popular in ANY set → genuinely idle
+
+    // keep ONLY items we genuinely have in inventory: every component must map to an active
+    // unit the shop owns enough of — so phantom / marketing / display-only items, or kits we
+    // can't fully assemble, never get a quiet discount.
+    const ownedCands: typeof cands = [];
+    for (const x of cands) {
+      const comps = (((x.l as any).components ?? []) as Array<{ inventoryUnitId: any; qty: number }>);
+      if (comps.length === 0) continue; // no inventory mapping → not really stocked
+      let owned = true;
+      for (const c of comps) {
+        const u: any = await ctx.db.get(c.inventoryUnitId);
+        if (!u || u.active === false || (u.quantityOwned ?? 0) < (c.qty || 1)) { owned = false; break; }
+      }
+      if (owned) ownedCands.push(x);
+    }
+    const idle = ownedCands
       .sort((a, b) => a.peak - b.peak || ((a.l as any).demandScore ?? 0) - ((b.l as any).demandScore ?? 0))
       .slice(0, MAX_QUIET);
     const chosen = new Set(idle.map((x) => x.l._id));
+
+    // clear stale discounts EVERYWHERE (incl. inactive / suppressed / no-longer-owned) + set on chosen
     let set = 0, cleared = 0;
-    for (const l of ls) {
+    const all = await ctx.db.query("listings").collect();
+    for (const l of all) {
       const want = chosen.has(l._id) ? QUIET_PCT : undefined;
       if (((l as any).quietDeal ?? undefined) !== want) {
         await ctx.db.patch(l._id, { quietDeal: want } as any);
