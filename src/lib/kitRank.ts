@@ -106,6 +106,8 @@ export function scoreOption(o: any, ctx: RankCtx): number {
     s += batteryScore(o, ctx);
   } else if (key === "camera") {
     s += isCameraSet(o.title) ? 0 : 90; // standalone body leads; full sets still listed below as an upsell
+    const action = o.mount === "fixed" || /gopro|go ?pro|osmo|insta ?360|action ?\d|pocket ?\d|max/i.test(o.title || "");
+    if (action) s -= 80; // action cams are niche — keep them below proper cinema/mirrorless bodies
   }
   const qty = o.qty ?? 1;
   if (ctx.small && qty >= 3) s -= 50;
