@@ -29,6 +29,7 @@ const STAGE_TYPE: Record<string, string> = {
 
 const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding", "Other"];
 const SIZES = ["Solo", "Small crew", "Large production"];
+const CATEGORIES = ["Lenses", "Lighting", "Audio", "Stabilisation", "Support", "Monitoring"];
 
 // roleToType: assemble options carry a coarse `role`; map to the engine's itemType
 // (the API also sends `itemType` directly — prefer it, fall back to role).
@@ -55,6 +56,7 @@ export default function AssemblePage() {
   const [cameras, setCameras] = useState(1);
   const [size, setSize] = useState("Small crew");
   const [note, setNote] = useState("");
+  const [gearCats, setGearCats] = useState<string[]>([]);
   const [intake, setIntake] = useState(0); // conversational onboarding step
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -139,7 +141,7 @@ export default function AssemblePage() {
       const r = await fetch("/api/assemble", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ shootType, start, end, budget, cameras, size, note }),
+        body: JSON.stringify({ shootType, start, end, budget, cameras, size, note, categories: gearCats }),
       });
       const d = await r.json();
       setData(d);
@@ -287,6 +289,19 @@ export default function AssemblePage() {
                     <button onClick={() => setCameras((n) => Math.min(6, n + 1))} className="h-8 w-8 rounded-full glass text-white/70">+</button>
                   </div>
                   <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. low light, handheld, two presenters…" className="w-full rounded-lg bg-white/[0.06] px-4 py-2.5 text-sm text-white/80 outline-none placeholder:text-white/30" />
+                  <div>
+                    <div className="mb-1.5 text-[11px] text-white/40">Mainly need? (we build these out + tailor upsells)</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {CATEGORIES.map((cat) => {
+                        const on = gearCats.includes(cat);
+                        return (
+                          <button key={cat} onClick={() => setGearCats((p) => (on ? p.filter((x) => x !== cat) : [...p, cat]))} className={chip(on)}>
+                            {cat}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                   {err && <div className="text-sm text-red-300">{err}</div>}
                   <button onClick={build} disabled={loading} className="btn-primary px-7 py-3">
                     <IconSliders className="h-[18px] w-[18px]" />

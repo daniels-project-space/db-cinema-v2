@@ -56,6 +56,10 @@ export const isLensSet = (t: string) =>
   /\bultimate\b|\blens (?:set|kit|bundle)\b|\d-?lens/i.test(t || "") ||
   ((t || "").match(/\d{2,3}\s*-\s*\d{2,3}/g) || []).length >= 3;
 
+/** A camera SET/bundle (vs a standalone body) — bodies lead, sets follow as an upsell. */
+export const isCameraSet = (t: string) =>
+  /\+|\bset\b|\bkit\b|\bbundle\b|\bultimate\b|production set|full (?:set|kit|production)|operator|\bdp\b|\d\s*[x\u00d7]\s/i.test(t || "");
+
 /** Native-flagship lens preference for the chosen body's mount.
  *  Sony-E → Sony G Master; EF/PL/RF (BMPCC / cinema) → anamorphic + Canon glass. */
 export function lensPriority(title: string, camMounts: string[] = []): number {
@@ -100,6 +104,8 @@ export function scoreOption(o: any, ctx: RankCtx): number {
     if (ctx.lensPref && o.specs?.lensClass === ctx.lensPref) s += 6;
   } else if (key === "battery") {
     s += batteryScore(o, ctx);
+  } else if (key === "camera") {
+    s += isCameraSet(o.title) ? 0 : 90; // standalone body leads; full sets still listed below as an upsell
   }
   const qty = o.qty ?? 1;
   if (ctx.small && qty >= 3) s -= 50;
