@@ -21,8 +21,6 @@ const STAGE: Record<string, { types: string[]; must?: RegExp; prefer?: RegExp }>
   gimbal: { types: ["gimbal"] },
   monitor: { types: ["monitor"] },
   light: { types: ["light"] },
-  "key-light": { types: ["light"], prefer: /nanlite|forza|aputure|600|300|key/i },
-  "tube-light": { types: ["light"], must: /tube|pavotube|titan|astera|t8|t12|rgb/i },
   "nd-filter": { types: ["nd-filter"] },
   battery: { types: ["battery"] },
   tripod: { types: ["tripod"] },
@@ -33,24 +31,30 @@ const STAGE: Record<string, { types: string[]; must?: RegExp; prefer?: RegExp }>
   drone: { types: ["drone"] },
   speaker: { types: ["speaker"] },
 };
-const ORDER = ["camera", "lens", "gimbal", "monitor", "key-light", "light", "tube-light", "lav-mic", "shotgun-mic", "wireless-mic", "nd-filter", "battery", "tripod", "slider", "drone", "speaker"];
+const ORDER = ["camera", "lens", "gimbal", "monitor", "light", "lav-mic", "shotgun-mic", "wireless-mic", "nd-filter", "battery", "tripod", "slider", "drone", "speaker"];
 // stage key → the itemType it represents (for "already in the chosen bundle" suppression)
 const STAGE_ITEMTYPE: Record<string, string> = {
   camera: "camera-body", lens: "lens", gimbal: "gimbal", monitor: "monitor",
-  light: "light", "key-light": "light", "tube-light": "light", "nd-filter": "nd-filter",
+  light: "light", "nd-filter": "nd-filter",
   battery: "battery", tripod: "tripod", "lav-mic": "wireless-mic", "wireless-mic": "wireless-mic",
   "shotgun-mic": "boom-mic", slider: "slider", drone: "drone", speaker: "speaker",
 };
-const MULTI = new Set(["lens", "light", "key-light", "tube-light", "nd-filter", "battery", "lav-mic"]);
+const MULTI = new Set(["lens", "light", "nd-filter", "battery", "lav-mic"]);
+
+const DEFAULT_LABEL: Record<string, string> = {
+  camera: "Camera", lens: "Lens", gimbal: "Gimbal", monitor: "Monitor", light: "Lighting",
+  "lav-mic": "Lav mic", "shotgun-mic": "Shotgun mic", "wireless-mic": "Wireless mic",
+  "nd-filter": "ND filter", battery: "Battery", tripod: "Tripod", slider: "Slider", drone: "Drone", speaker: "Speaker",
+};
 
 const FALLBACK: Record<string, string[]> = {
-  interview: ["camera", "lens", "lav-mic", "shotgun-mic", "key-light", "light", "monitor", "tripod"],
-  "music video": ["camera", "lens", "gimbal", "tube-light", "key-light", "nd-filter", "monitor"],
+  interview: ["camera", "lens", "lav-mic", "shotgun-mic", "light", "monitor", "tripod"],
+  "music video": ["camera", "lens", "gimbal", "light", "nd-filter", "monitor"],
   documentary: ["camera", "lens", "shotgun-mic", "wireless-mic", "light", "tripod"],
   event: ["camera", "lens", "light", "shotgun-mic", "tripod"],
-  product: ["camera", "lens", "key-light", "light", "tripod", "nd-filter"],
+  product: ["camera", "lens", "light", "tripod", "nd-filter"],
   wedding: ["camera", "lens", "gimbal", "shotgun-mic", "light"],
-  default: ["camera", "lens", "key-light", "shotgun-mic", "tripod"],
+  default: ["camera", "lens", "light", "shotgun-mic", "tripod"],
 };
 
 /** Last-resort mount GUESS from a title, used ONLY when specs.mount is missing.
@@ -187,7 +191,7 @@ export async function POST(req: NextRequest) {
     const { object } = await generateObject({
       model: botModel() as any,
       schema: SCHEMA,
-      prompt: `You are a senior kit designer at Db Cinema Rentals (London cinema hire). Plan a STAGE-BY-STAGE kit build. Output ordered "stages" using ONLY these keys: camera, lens, gimbal, monitor, key-light, light, tube-light, lav-mic, shotgun-mic, wireless-mic, nd-filter, battery, tripod, slider, drone, speaker. ALWAYS camera first, lens second. Each stage: friendly label, one-line note, and a "recommend" = the IDEAL item for this shoot as a short search phrase (e.g. for wedding lens "70-200mm telephoto", for interview light "Nanlite Forza key light", for music video "anamorphic"). Mark 1-3 stages upsell:true. Add 3-5 short "compatibility" notes. Tailor to budget, crew size, camera count.\n\nSHOOT: ${b.shootType || "general"}. Dates ${start} to ${end}. Budget ~£${b.budget ?? "flexible"}. Cameras: ${b.cameras ?? 1}. Crew: ${b.size || "small"}. Mainly needs: ${(b.categories || []).join(", ") || "a full kit"}. Notes: ${b.note || "none"}. Build out the "mainly needs" categories fully and draw your upsell stages from them.`,
+      prompt: `You are a senior kit designer at Db Cinema Rentals (London cinema hire). Plan a STAGE-BY-STAGE kit build. Output ordered "stages" using ONLY these keys: camera, lens, gimbal, monitor, light, lav-mic, shotgun-mic, wireless-mic, nd-filter, battery, tripod, slider, drone, speaker. ALWAYS camera first, lens second. Each stage: friendly label, one-line note, and a "recommend" = the IDEAL item for this shoot as a short search phrase (e.g. for wedding lens "70-200mm telephoto", for interview light "Nanlite Forza key light", for music video "anamorphic"). Mark 1-3 stages upsell:true. Add 3-5 short "compatibility" notes. Tailor to budget, crew size, camera count.\n\nSHOOT: ${b.shootType || "general"}. Dates ${start} to ${end}. Budget ~£${b.budget ?? "flexible"}. Cameras: ${b.cameras ?? 1}. Crew: ${b.size || "small"}. Mainly needs: ${(b.categories || []).join(", ") || "a full kit"}. Notes: ${b.note || "none"}. Build out the "mainly needs" categories fully and draw your upsell stages from them.`,
     });
     design = object;
   } catch {
@@ -202,7 +206,7 @@ export async function POST(req: NextRequest) {
 
   // onboarding: emphasize the categories the customer said they mainly need (right after camera + lens)
   const CAT_MAP: Record<string, string[]> = {
-    Lenses: ["lens"], Lighting: ["key-light", "light", "tube-light"], Audio: ["lav-mic", "shotgun-mic", "wireless-mic"],
+    Lenses: ["lens"], Lighting: ["light"], Audio: ["lav-mic", "shotgun-mic", "wireless-mic"],
     Stabilisation: ["gimbal", "slider"], Support: ["tripod"], Monitoring: ["monitor"],
   };
   const wanted = new Set<string>();
@@ -259,7 +263,7 @@ export async function POST(req: NextRequest) {
     }
     stages.push({
       key: k,
-      label: meta?.label || k,
+      label: meta?.label || DEFAULT_LABEL[k] || k,
       note,
       multi: MULTI.has(k),
       upsell: !!meta?.upsell,

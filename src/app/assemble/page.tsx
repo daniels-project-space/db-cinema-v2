@@ -184,8 +184,15 @@ export default function AssemblePage() {
     `rounded-full px-4 py-1.5 text-sm transition-colors ${a ? "bg-accent-500 text-white" : "glass text-white/55 hover:text-white"}`;
 
   const stages = data?.stages ?? [];
-  const onReview = data && stageIdx >= stages.length;
-  const stage = !onReview ? stages[stageIdx] : null;
+  // a single-pick item the chosen set ALREADY includes → skip that whole stage (it re-appears if the
+  // camera changes to one that doesn't include it). MULTI stages (lights/lenses) stay — you may want extras.
+  const stageSkipped = (s: any) => {
+    const t = STAGE_TYPE[s.key];
+    return s.key !== "camera" && s.key !== "lens" && !s.multi && !!t && includedTypes.has(t);
+  };
+  const flowStages = stages.filter((s: any) => !stageSkipped(s));
+  const onReview = data && stageIdx >= flowStages.length;
+  const stage = !onReview ? flowStages[stageIdx] : null;
 
   // We no longer HIDE incompatible gear — we SHOW it greyed with a reason (the engine already
   // sorted compatible-first), so the customer can see e.g. "this V-mount won't power your FX3".
@@ -318,7 +325,7 @@ export default function AssemblePage() {
         {data && (
           <section className="mt-6 space-y-4">
             <div className="flex flex-wrap items-center gap-1.5 pl-12">
-              {stages.map((s: any, i: number) => (
+              {flowStages.map((s: any, i: number) => (
                 <button
                   key={i}
                   onClick={() => i <= stageIdx && setStageIdx(i)}
@@ -334,13 +341,13 @@ export default function AssemblePage() {
                 />
               ))}
               <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.14em] text-white/40">
-                {onReview ? "Review" : `Step ${stageIdx + 1} / ${stages.length}`}
+                {onReview ? "Review" : `Step ${stageIdx + 1} / ${flowStages.length}`}
               </span>
             </div>
 
             <Ai mood="talking"><Stream text={data.reply || "Let's build your kit."} /></Ai>
 
-            {stages.slice(0, onReview ? stages.length : stageIdx + 1).map((s: any, si: number) => {
+            {flowStages.slice(0, onReview ? flowStages.length : stageIdx + 1).map((s: any, si: number) => {
               const recId = dynRec(s); // dynamic Pick, re-ranked from the current selection
               const dyn = s.key === "lens" || s.key === "battery";
               const opts = dyn ? [...visibleFor(s)].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key)) : visibleFor(s);
@@ -410,7 +417,7 @@ export default function AssemblePage() {
                   <IconChevronLeft className="h-4 w-4" /> Back
                 </button>
                 <button onClick={() => setStageIdx((i) => i + 1)} className="btn-primary px-6 py-2 text-sm">
-                  {stageIdx >= stages.length - 1 ? "Review kit" : "Next"} <IconArrowRight className="h-4 w-4" />
+                  {stageIdx >= flowStages.length - 1 ? "Review kit" : "Next"} <IconArrowRight className="h-4 w-4" />
                 </button>
               </div>
             ) : (
@@ -439,7 +446,7 @@ export default function AssemblePage() {
                     </ul>
                   </div>
                 )}
-                <div className="pl-12"><button onClick={() => setStageIdx(stages.length - 1)} className="btn-ghost px-5 py-2 text-sm"><IconChevronLeft className="h-4 w-4" /> Back to gear</button></div>
+                <div className="pl-12"><button onClick={() => setStageIdx(flowStages.length - 1)} className="btn-ghost px-5 py-2 text-sm"><IconChevronLeft className="h-4 w-4" /> Back to gear</button></div>
               </div>
             )}
             <div ref={endRef} />
