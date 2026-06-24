@@ -11,10 +11,11 @@ import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { tierByKey } from "@/lib/membership";
 import { lensFits, bestCompat, parseMounts } from "@/lib/mount";
-import { kitWarnings, FOCAL_THREAD, battOk, isRigPower } from "@/lib/compat";
+import { kitWarnings, FOCAL_THREAD } from "@/lib/compat";
 import { bundleIncludes } from "@cvx/lib/taxonomy";
 import { GlowSlider } from "@/components/GlowSlider";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
+import { scoreOption } from "@/lib/kitRank";
 
 const EMPTY_DATES = new Set<string>();
 
@@ -81,32 +82,13 @@ export default function AssemblePage() {
   // (pick a Blackmagic EF body → Canon glass tops; pick Sony → Sony battery; add a gimbal →
   //  its gimbal battery surfaces). All recomputed client-side from the live selection.
   const hasGimbal = selList.some((x) => x.itemType === "gimbal" || x.role === "gimbal" || /\bgimbal\b|ronin|\brs ?[234]\b/i.test(x.title || ""));
-  const demandB = (d?: number) => ((d ?? 0) > 0 ? Math.min(40, Math.round(Math.sqrt(d as number) * 1.3)) : 0);
-  // native-flagship glass per the SELECTED camera's mount
-  const nativeFlag = (title: string, mounts: string[]) => {
-    const t = (title || "").toLowerCase();
-    if (mounts.includes("E") && /\bg ?master\b|gmaster|\bgm\b/.test(t) && /sony/.test(t)) return 16;
-    if ((mounts.includes("EF") || mounts.includes("RF")) && /canon/.test(t) && /\bl\b|usm|f2\.8 l|f4 l|l series/.test(t)) return 16;
-    if ((mounts.includes("EF") || mounts.includes("RF")) && /\bcanon\b|\bef\b/.test(t)) return 8;
-    return 0;
-  };
-  const dynScore = (o: any, key: string) => {
-    let n = demandB(o.demandScore);
-    if (key === "lens" && camMounts.length) {
-      const c = bestCompat(parseMounts(o.mount), camMounts);
-      n += c === "native" ? 200 : c === "adapter" ? 80 : -1000; // native glass for the CHOSEN body wins
-      n += nativeFlag(o.title, camMounts);
-    } else if (key === "battery") {
-      const bt = o.specs?.batteryType;
-      const isGimbalBatt = /gimbal/i.test(o.title || "");
-      const rig = isRigPower(bt) || /v-?mount|v-?lock|d-?tap|gold-?mount|b-?mount|anton/i.test(o.title || "");
-      if (hasGimbal && isGimbalBatt) n += 150;                                  // gimbal in kit → its battery
-      else if (isGimbalBatt) n -= 60;                                           // no gimbal → don't push it
-      if (rig) n += cinemaRig ? 150 : 25;                                       // V-mount: top power for a cinema rig, still valid elsewhere
-      else if (bt && camBatts.length && camBatts.some((cb: string) => battOk(cb, bt))) n += 120; // native spare for the chosen body
-    }
-    return n;
-  };
+  const camCov = (cams[0] as any)?.specs?.coverage ?? null;
+  const inclFocal = cams.find((c: any) => c.specs?.includesLens && c.specs?.lensFocal)?.specs?.lensFocal ?? null;
+  const lensPref = /large/i.test(size) ? "cine" : "af";
+  const smallShoot = /solo|small/i.test(size) || !size;
+  // ONE scoring formula, shared with /api/assemble — re-ranks the live selection's downstream stages.
+  const dynScore = (o: any, key: string) =>
+    scoreOption(o, { key, camMounts, camCoverage: camCov, camBatts, cinemaRig, hasGimbal, includedFocal: inclFocal, small: smallShoot, lensPref });
   // the recommended ("Pick") id for a stage, re-derived from the current selection
   const dynRec = (s: any): string => {
     if (!s) return "";

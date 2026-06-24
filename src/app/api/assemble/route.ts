@@ -10,6 +10,7 @@ import { parseMounts, mountCompat } from "@/lib/mount";
 import { coverageCompat, battOk, isRigPower } from "@/lib/compat";
 import { bundleIncludes } from "@cvx/lib/taxonomy";
 import { rateLimit } from "@/lib/ratelimit";
+import { compareOptions } from "@/lib/kitRank";
 
 export const maxDuration = 60;
 
@@ -77,25 +78,6 @@ const SCHEMA = z.object({
   compatibility: z.array(z.string()),
 });
 
-/** Real rental-history demand boost (listing.demandScore) — recommend what's actually rented. */
-function demandBoost(d: any): number {
-  const n = Number(d) || 0;
-  // cap raised to 40 so the true hero discriminates at the top — a 456-rental FX3 must out-rank
-  // a 311-rental body instead of both flattening to the cap and the cheaper one winning the tiebreak.
-  return n <= 0 ? 0 : Math.min(40, Math.round(Math.sqrt(n) * 1.3));
-}
-/** Native-flagship lens preference: a Sony E body wants Sony G Master glass first. */
-function lensHero(title: string, camMounts: string[]): number {
-  const t = String(title || "").toLowerCase();
-  if (/camera|fx ?3|fx ?6|\ba7\b|a73|komodo|bmpcc|\+ .*camera/.test(t)) return 0;
-  let b = 0;
-  const sony = camMounts.includes("E");
-  if (sony && /\bg ?master\b|gmaster|\bgm\b/.test(t) && /\bsony\b/.test(t)) b += 14;
-  if (sony && /\b(sigma|tamron|samyang|rokinon|viltrox)\b/.test(t)) b -= 4;
-  if (/24-?70/.test(t)) b += 4;
-  if (/\bultimate\b/.test(t) || (t.match(/\d{2,3}\s*-\s*\d{2,3}/g) || []).length >= 3) b -= 14; // single lens over a 3-lens kit
-  return b;
-}
 /** Best mount compatibility of an option's mount string vs the kit's camera
  * mounts. "unknown" when either side is empty (don't block on missing data). */
 function optionCompat(optionMount: string | null | undefined, camMounts: string[]): "native" | "adapter" | "incompatible" | "unknown" {
@@ -169,29 +151,9 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
     });
     if (out.length >= 18) break;
   }
-  const rank = { native: 0, adapter: 1, unknown: 2, incompatible: 3 } as const;
-  const coveragePen = (x: any) => (key === "lens" && coverageCompat(x.specs?.coverage, camCoverage) === "vignette" ? -12 : 0);
-  // a lens at the SAME focal the camera bundle already includes is redundant — rank complementary glass first
-  const dupePen = (x: any) => (key === "lens" && includedFocal && new RegExp(includedFocal.replace(/[^0-9-]/g, "")).test(String(x.title).replace(/[^0-9-]/g, " ")) ? -16 : 0);
-  // a solo/small shoot doesn't want a 3x/5x bundle — penalise over-quantity
-  const qtyPen = (x: any) => (small && x.qty >= 3 ? -10 : small && x.qty >= 2 && key !== "lens" ? -3 : 0);
-  const qual = (x: any) => demandBoost(x.demandScore) + qtyPen(x) + (key === "lens" ? lensHero(x.title, camMounts) + coveragePen(x) + dupePen(x) : 0);
-  out.sort((a, b) => {
-    // COMPATIBLE first, incompatible last (but still present, to be greyed) — for any stage that has a verdict
-    const ra = rank[(a.compat ?? "unknown") as keyof typeof rank];
-    const rb = rank[(b.compat ?? "unknown") as keyof typeof rank];
-    if (ra !== rb) return ra - rb;
-    if (key === "lens" && lensPref) {
-      const ac = a.specs?.lensClass === lensPref ? 0 : 1;
-      const bc = b.specs?.lensClass === lensPref ? 0 : 1;
-      if (ac !== bc) return ac - bc; // preferred lens class first (af for small, cine for large)
-    }
-    const qd = qual(b) - qual(a);
-    if (qd !== 0) return qd; // most in-demand / native flagship next
-    const pa = def.prefer && def.prefer.test(a.title) ? 0 : 1;
-    const pb = def.prefer && def.prefer.test(b.title) ? 0 : 1;
-    return pa - pb || a.total - b.total;
-  });
+  out.sort((a, b) =>
+    compareOptions(a, b, { key, camMounts, camCoverage, camBatts: camBattery ? [camBattery] : [], includedFocal, small, lensPref, prefer: def.prefer }),
+  );
   return out;
 }
 
