@@ -14,6 +14,9 @@ import { lensFits, bestCompat, parseMounts } from "@/lib/mount";
 import { kitWarnings, FOCAL_THREAD, battOk, isRigPower } from "@/lib/compat";
 import { bundleIncludes } from "@cvx/lib/taxonomy";
 import { GlowSlider } from "@/components/GlowSlider";
+import { Calendar, daysInclusive } from "@/components/booking/Calendar";
+
+const EMPTY_DATES = new Set<string>();
 
 // stage key → the itemType it represents (for "already in the chosen set" suppression)
 const STAGE_TYPE: Record<string, string> = {
@@ -41,6 +44,12 @@ export default function AssemblePage() {
   const [shootType, setShootType] = useState("Interview");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [month, setMonth] = useState(() => new Date());
+  function pickDate(d: string) {
+    if (!start || end) { setStart(d); setEnd(""); }
+    else if (d < start) { setStart(d); }
+    else { setEnd(d); }
+  }
   const [budget, setBudget] = useState(600);
   const [cameras, setCameras] = useState(1);
   const [size, setSize] = useState("Small crew");
@@ -257,16 +266,24 @@ export default function AssemblePage() {
             {intake >= 2 && <Ai>When do you need the gear?</Ai>}
             {intake === 2 ? (
               <Controls>
-                <div className="flex flex-wrap items-end gap-3">
-                  <div>
-                    <label className="text-[11px] text-white/40">From</label>
-                    <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="mt-1 block rounded-lg bg-white/[0.06] px-3 py-2 text-sm text-white/80 outline-none [color-scheme:dark]" />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-white/40">To</label>
-                    <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="mt-1 block rounded-lg bg-white/[0.06] px-3 py-2 text-sm text-white/80 outline-none [color-scheme:dark]" />
-                  </div>
-                  <button onClick={() => start && end && setIntake(3)} disabled={!start || !end} className="btn-primary px-5 py-2 text-sm">Next →</button>
+                <div className="w-full max-w-[19rem]">
+                  <Calendar
+                    month={month}
+                    onMonthChange={setMonth}
+                    start={start || null}
+                    end={end || null}
+                    unavailable={EMPTY_DATES}
+                    onPick={pickDate}
+                  />
+                  <button
+                    onClick={() => start && end && setIntake(3)}
+                    disabled={!start || !end}
+                    className="btn-primary mt-3 w-full py-2.5 text-sm disabled:opacity-40"
+                  >
+                    {start && end
+                      ? `Continue · ${daysInclusive(start, end)} day${daysInclusive(start, end) > 1 ? "s" : ""} →`
+                      : "Pick your rental dates"}
+                  </button>
                 </div>
               </Controls>
             ) : intake > 2 ? (
