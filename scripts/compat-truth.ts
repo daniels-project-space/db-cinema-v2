@@ -117,7 +117,7 @@ eq("FX3 + RF lens → mount error",   dims(["Sony FX3", "Canon RF 50mm f1.2"]).i
 eq("FX3 + native GM → no warn",     dims(["Sony FX3", "Sony 24-70mm f2.8 GM"]), []);
 eq("GoPro + lens → fixed error",    dims(["GoPro Hero 12", "Sony 24-70mm GM"]).includes("error:fixed-lens"), true);
 eq("FX6 + V-mount batt → ok",       dims(["Sony FX6", "V-mount battery 150wh"]), []); // FX6 IS V-mount
-eq("FX3 + V-mount batt → batt err", dims(["Sony FX3", "V-mount battery 150wh"]).includes("error:battery"), true);
+eq("FX3 + V-mount batt → ok",        dims(["Sony FX3", "V-mount battery 150wh"]), []); // V-mount powers an FX3 via D-tap
 eq("FF body + S35 lens → vignette", dims(["Sony FX3", "Sony E PZ 18-105mm Super 35 lens"]).includes("warn:coverage"), true);
 eq("S35 body + FF lens → no cov",   dims(["Sony FX30", "Sony 24-70mm f2.8 GM"]).filter((d) => d.includes("coverage")), []);
 

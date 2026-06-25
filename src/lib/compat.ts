@@ -185,10 +185,10 @@ export function kitWarnings(kit: KitItem[]): Warning[] {
     const bt = sp(bat).batteryType;
     if (!bt) continue;
     if (isRigPower(bt)) {
-      if (cameras.length || powerHungry.length) {
-        const extra = powerHungry.length ? " — and your monitor/lights via D-tap" : "";
-        out.push({ level: "info", dimension: "battery", text: `${cut(bat.title, 26)} (${bt}) powers your camera off a V-mount plate + D-tap${extra}.` });
-      }
+      // V-mount / broadcast power runs ANY camera (incl. an FX3) via a plate + D-tap — always
+      // compatible. Only note it when there are lights/monitors it can also power off D-tap.
+      if (powerHungry.length)
+        out.push({ level: "info", dimension: "battery", text: `${cut(bat.title, 26)} (${bt}) also powers your monitor/lights via a V-mount plate + D-tap.` });
       continue;
     }
     if (camBatts.length && !camBatts.some((cb) => battOk(cb, bt)))
