@@ -346,8 +346,10 @@ export default defineSchema({
   // ── RMv2 availability bridge state ────────────────────────────
   accounts: defineTable({
     email: v.string(),
-    salt: v.string(),
-    hash: v.string(),
+    salt: v.optional(v.string()), // optional: Google-only accounts have no password
+    hash: v.optional(v.string()),
+    googleId: v.optional(v.string()), // linked Google account (the OIDC `sub`)
+    googleAvatarUrl: v.optional(v.string()), // Google profile photo, fallback when no uploaded avatar
     name: v.optional(v.string()),
     phone: v.optional(v.string()),
     address: v.optional(v.string()),

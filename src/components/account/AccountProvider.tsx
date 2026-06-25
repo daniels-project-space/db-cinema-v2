@@ -32,6 +32,7 @@ type AccountCtx = {
   loading: boolean;
   signUp: (email: string, password: string, name?: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: (credential: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (patch: {
     name?: string;
@@ -57,6 +58,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const meRes = useQuery(api.accounts.me, token ? { token } : "skip");
   const signUpA = useAction(api.accounts.signUp);
   const signInA = useAction(api.accounts.signIn);
+  const signInGoogleA = useAction(api.googleAuth.signInWithGoogle);
   const signOutM = useMutation(api.accounts.signOut);
   const updateM = useMutation(api.accounts.updateProfile);
   const favM = useMutation(api.accounts.toggleFavorite);
@@ -80,6 +82,13 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       persist(token);
     },
     [signInA],
+  );
+  const signInWithGoogle = useCallback(
+    async (credential: string) => {
+      const { token } = await signInGoogleA({ credential });
+      persist(token);
+    },
+    [signInGoogleA],
   );
   const signOut = useCallback(async () => {
     if (token) await signOutM({ token });
@@ -111,6 +120,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         loading: !hydrated || (!!token && meRes === undefined),
         signUp,
         signIn,
+        signInWithGoogle,
         signOut,
         updateProfile,
         toggleFavorite,

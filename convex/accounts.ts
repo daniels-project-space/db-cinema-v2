@@ -133,6 +133,8 @@ export const signIn = action({
     const e = email.trim().toLowerCase();
     const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: e });
     if (!acct) throw new Error("No account found for that email.");
+    if (!acct.hash || !acct.salt)
+      throw new Error("This account uses Google sign-in \u2014 tap \u201CContinue with Google\u201D.");
     const hash = await pbkdf2(password, acct.salt);
     if (hash !== acct.hash) throw new Error("Incorrect password.");
     const token = randomHex(24);
@@ -172,7 +174,7 @@ export const me = query({
       address: a.address ?? null,
       marketingEmails: a.marketingEmails ?? false,
       favorites: (a.favorites ?? []) as string[],
-      avatarUrl: a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : null,
+      avatarUrl: a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : (a.googleAvatarUrl ?? null),
       idVerified: a.idVerified ?? false,
       membershipTier: a.membershipTier ?? null,
       membershipActive: a.membershipActive ?? false,

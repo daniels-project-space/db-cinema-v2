@@ -6,6 +6,7 @@ import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useAccount } from "@/components/account/AccountProvider";
+import { GoogleSignIn } from "@/components/account/GoogleSignIn";
 import { GearCard } from "@/components/GearCard";
 import { RenterChat } from "@/components/RenterChat";
 import { tierByKey } from "@/lib/membership";
@@ -83,6 +84,7 @@ function AuthForm() {
         <button onClick={go} disabled={busy} className="btn-primary py-3">
           {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
         </button>
+        <GoogleSignIn onError={setErr} />
       </div>
     </div>
   );
