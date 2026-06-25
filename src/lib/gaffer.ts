@@ -8,6 +8,7 @@ import { tierByKey } from "@/lib/membership";
 import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { coverageCompat } from "@/lib/compat";
+import { lensPriority, isCameraSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType } from "../../convex/lib/taxonomy";
 
 /**
@@ -96,12 +97,15 @@ function searchTermsFor(text: string): string[] {
 function nonLensQuality(l: any, slot: string): number {
   const t = String(l.title || "").toLowerCase();
   let s = 0;
-  if (/\b(kit|set|bundle|package)\b/.test(t)) s += 2;
-  if (/fx3|fx6|fx9|a7s|a7 ?iii|a7iv|a7r|burano|venice|komodo|raptor|alexa|amira|ursa|c70|c300|c500|ronin|fs7|fs5/.test(t)) s += 3;
   if (slot === "camera" || slot === "camera-body") {
-    if (/osmo|action ?cam|go ?pro|hero ?\d|\bpocket\b|insta ?360|webcam|360 ?degree|\baction\b/.test(t)) s -= 6;
-    if (/\btripod\b|\bmonitor\b|teleprompter|cfexpress|card reader|\badapter\b|\bflash\b|\bcharger\b/.test(t)) s -= 9; // mis-typed non-camera that slipped into camera-body
+    // body-first (mirror the kit builder): a standalone body beats a full set; action cams sit below proper bodies
+    s += isCameraSet(l.title) ? 0 : 90;
+    if (/osmo|action ?cam|go ?pro|hero ?\d|\bpocket\b|insta ?360|webcam|360 ?degree|\baction\b/.test(t)) s -= 80;
+    if (/\btripod\b|\bmonitor\b|teleprompter|cfexpress|card reader|\badapter\b|\bflash\b|\bcharger\b/.test(t)) s -= 9; // mis-typed non-camera
+  } else if (/\b(kit|set|bundle|package)\b/.test(t)) {
+    s += 2; // for non-camera slots (lights/audio) a small bundle can be a fine pick
   }
+  if (/fx3|fx6|fx9|a7s|a7 ?iii|a7iv|a7r|burano|venice|komodo|raptor|alexa|amira|ursa|c70|c300|c500|ronin|fs7|fs5/.test(t)) s += 3;
   s += Math.min(3, Math.floor((l.pricing?.daily ?? 0) / 50));
   return s;
 }
@@ -113,11 +117,9 @@ function lensHeroBoost(l: any, camMounts: string[], camCoverage: string | null =
   if (l.itemType !== "lens") return 0;
   const t = String(l.title || "").toLowerCase();
   if (/camera|\bfx ?3\b|\bfx ?6\b|a7|a73|komodo|\bred\b|bmpcc|\bset \+|\+ .*camera/.test(t)) return 0; // skip bundles
-  let b = 0;
-  const sonyBody = camMounts.includes("E");
-  if (sonyBody && /\bg ?master\b|gmaster|\bgm\b/.test(t) && /\bsony\b/.test(t)) b += 14; // native flagship
-  if (sonyBody && /\b(sigma|tamron|samyang|rokinon|viltrox|7artisans)\b/.test(t)) b -= 4; // third-party
-  if (/24-?70/.test(t)) b += 4; // the everyday workhorse range
+  // shared kit-builder lens priority: Sony-E → G Master; EF/PL/RF (BMPCC / cinema) → anamorphic + Canon;
+  // individual lenses over multi-lens sets. Same engine the kit builder uses, so the two never disagree.
+  let b = lensPriority(l.title, camMounts);
   // a crop (S35/MFT) lens vignettes on a full-frame body — rank full-frame glass first
   if (coverageCompat(l.specs?.coverage, camCoverage) === "vignette") b -= 12;
   return b;
