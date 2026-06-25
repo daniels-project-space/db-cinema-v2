@@ -188,7 +188,9 @@ export default function AssemblePage() {
   // camera changes to one that doesn't include it). MULTI stages (lights/lenses) stay — you may want extras.
   const stageSkipped = (s: any) => {
     const t = STAGE_TYPE[s.key];
-    return s.key !== "camera" && s.key !== "lens" && !s.multi && !!t && includedTypes.has(t);
+    // skip any category the chosen set already covers (monitor, lighting, tripod, mics, ND…) — re-added
+    // if the camera changes. Lenses + battery are never skipped (extra glass / spare cells are legit).
+    return s.key !== "camera" && s.key !== "lens" && s.key !== "battery" && !!t && includedTypes.has(t);
   };
   const flowStages = stages.filter((s: any) => !stageSkipped(s));
   const onReview = data && stageIdx >= flowStages.length;
