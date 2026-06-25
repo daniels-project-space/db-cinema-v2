@@ -31,7 +31,7 @@ export function Offers() {
             <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-charcoal-800">
               {o.heroImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={o.heroImage} alt={o.title} className="h-full w-full object-cover" />
+                <img src={o.heroImage} alt={o.title} loading="lazy" className="h-full w-full object-cover" />
               ) : null}
             </div>
             <div className="flex min-w-0 flex-1 flex-col">

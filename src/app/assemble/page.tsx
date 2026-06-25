@@ -115,7 +115,13 @@ export default function AssemblePage() {
       const n = { ...prev };
       let changed = false;
       for (const x of Object.values(prev) as any[]) {
+        const t = STAGE_TYPE[x.stageKey];
         if (x.role === "lens" && !lensFits(x.mount, camMounts)) {
+          delete n[x.listingId];
+          changed = true;
+        } else if (t && x.stageKey !== "camera" && x.stageKey !== "lens" && x.stageKey !== "battery" && includedTypes.has(t)) {
+          // the chosen set now covers this category → drop the redundant pick (its stage is hidden, so it
+          // would otherwise be stuck in the kit + cart with no way to deselect it)
           delete n[x.listingId];
           changed = true;
         }
@@ -123,7 +129,7 @@ export default function AssemblePage() {
       return changed ? n : prev;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camKey]);
+  }, [camKey, [...includedTypes].sort().join(",")]);
 
   // keep the conversation scrolled to the newest message/stage
   useEffect(() => {
