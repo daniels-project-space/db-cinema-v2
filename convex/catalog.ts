@@ -151,6 +151,7 @@ export const listListings = query({
       (a, b) =>
         (a.suppressed ? 1 : 0) - (b.suppressed ? 1 : 0) || // display-only items sink to the bottom
         (b.quietDeal ? 1 : 0) - (a.quietDeal ? 1 : 0) || // idle "quiet deals" surface first
+        ((b as any).demandScore ?? 0) - ((a as any).demandScore ?? 0) || // then by REAL rental demand (was alphabetical, which buried popular gear)
         a.title.localeCompare(b.title),
     );
     return rows.slice(0, limit ?? 500).map(card);
