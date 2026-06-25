@@ -246,7 +246,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
 
       {/* ── catchphrase + CTA (fades in under the logo) ── */}
       <h1 className="sr-only">
-        DB Cinema Rentals — professional camera, lens, lighting and audio rental in London
+        Camera Hire in London — rent cinema cameras, lenses, lighting, audio and drones from Db Cinema Rentals
       </h1>
       <div
         className="absolute inset-x-0 bottom-[5%] z-20 flex flex-col items-center px-6 text-center"

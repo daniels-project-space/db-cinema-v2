@@ -43,11 +43,11 @@ export default async function Home() {
     email: "dbcinemaproductions@gmail.com",
     image: `${SITE_URL}/opengraph-image`,
     description:
-      "Professional cinema camera, lens, lighting, audio and drone rental in London. Daily, 3-day and weekly rates, delivered.",
+      "Camera hire in London — professional cinema cameras, lenses, lighting, audio and drone rental. Daily, 3-day and weekly rates, delivered across London or collect in central London.",
     priceRange: "££",
     areaServed: { "@type": "City", name: "London" },
     address: { "@type": "PostalAddress", addressLocality: "London", addressCountry: "GB" },
-    knowsAbout: ["Camera rental", "Cinema lens hire", "Lighting hire", "Drone hire", "Audio equipment rental"],
+    knowsAbout: ["Camera hire London", "Cinema camera rental", "Lens hire London", "Lighting hire London", "Video camera hire", "Drone hire London", "Audio equipment hire", "Film equipment hire London", "RED ARRI Sony FX hire"],
     openingHoursSpecification: HOURS_WINDOWS.map((w) => ({
       "@type": "OpeningHoursSpecification",
       dayOfWeek: DAYS,
@@ -150,6 +150,10 @@ export default async function Home() {
               <h2 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
                 Every department, <span className="serif-accent gradient-text text-[1.06em]">covered</span>
               </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/45">
+                From cinema camera hire to lens, lighting, audio and drone rental, Db Cinema is London&apos;s
+                full-service film equipment hire — delivered across London or collected in central London.
+              </p>
             </Reveal>
             <div className="dim-grid mt-8 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
               {categories.map((c, i) => (
