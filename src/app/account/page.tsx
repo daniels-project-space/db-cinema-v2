@@ -9,7 +9,7 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { GoogleSignIn } from "@/components/account/GoogleSignIn";
 import { GearCard } from "@/components/GearCard";
 import { RenterChat } from "@/components/RenterChat";
-import { tierByKey } from "@/lib/membership";
+import { tierByKey, TIERS } from "@/lib/membership";
 import { MemberOffers } from "@/components/MemberOffers";
 import { AccentPicker } from "@/components/AccentPicker";
 import { CollectiveProfile } from "@/components/account/CollectiveProfile";
@@ -248,7 +248,7 @@ function Dashboard() {
       {/* MEMBERSHIP */}
       {tab === "membership" && (
         <div className="tab-in mt-6 space-y-6">
-          <Membership />
+          <Membership bookings={bookings} />
           <MemberOffers />
         </div>
       )}
@@ -340,10 +340,12 @@ function AccountSecurity() {
   );
 }
 
-function Membership() {
+function Membership({ bookings }: { bookings: any[] | null | undefined }) {
   const account = useAccount();
   const portal = useAction(api.checkout.billingPortal);
+  const subscribe = useAction(api.checkout.startMembership);
   const [busy, setBusy] = useState(false);
+  const [busyTier, setBusyTier] = useState<string | null>(null);
   const tier = account.me?.membershipActive ? tierByKey(account.me.membershipTier) : null;
 
   async function manage() {
@@ -355,44 +357,126 @@ function Membership() {
       setBusy(false);
     }
   }
+  async function join(tierKey: string) {
+    setBusyTier(tierKey);
+    try {
+      const { url } = await subscribe({ token: account.token!, tier: tierKey, origin: window.location.origin });
+      window.location.href = url;
+    } catch (e: any) {
+      setBusyTier(null);
+      alert(e?.message ?? "Could not start checkout.");
+    }
+  }
 
-  return (
-    <section className="spot gradient-border rounded-2xl p-5">
-      <h2 className="font-display font-semibold text-white/80">Membership</h2>
-      {tier ? (
+  // ── active member: what they're getting + manage ──
+  if (tier) {
+    const mo = new Date().toISOString().slice(0, 7);
+    const used = account.me?.freeAccessoryMonth === mo ? account.me?.freeAccessoryUsed ?? 0 : 0;
+    const left = Math.max(0, tier.freeAccessories - used);
+    return (
+      <section className="spot gradient-border rounded-2xl p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-display font-semibold text-white/80">Membership</h2>
+          <span className="rounded-full bg-accent-500/15 px-2.5 py-0.5 text-[11px] font-medium text-accent-300">
+            {tier.name} member
+          </span>
+        </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-white/60">
-            You're on <span className="font-medium text-accent-300">{tier.name}</span> —{" "}
-            {tier.pct}% off every rental{tier.freeDelivery ? " + free delivery" : ""}.
-            {tier.freeAccessories > 0 &&
-              (() => {
-                const mo = new Date().toISOString().slice(0, 10).slice(0, 7);
-                const used = account.me?.freeAccessoryMonth === mo ? account.me?.freeAccessoryUsed ?? 0 : 0;
-                const left = Math.max(0, tier.freeAccessories - used);
-                return (
-                  <span className="mt-1 block text-amber-300">
-                    {left} of {tier.freeAccessories} free accessories left this month
-                    (tripod, gimbal, filters or batteries).
-                  </span>
-                );
-              })()}
+            You're saving <span className="font-medium text-accent-300">{tier.pct}% on every rental</span>
+            {tier.freeDelivery ? " + free delivery" : ""}.
+            {tier.freeAccessories > 0 && (
+              <span className="mt-1 block text-amber-300">
+                {left} of {tier.freeAccessories} free accessories left this month (tripod, gimbal, filters or batteries).
+              </span>
+            )}
           </div>
-          <button
-            onClick={manage}
-            disabled={busy}
-            className="btn-ghost px-4 py-2 text-sm disabled:opacity-40"
-          >
+          <button onClick={manage} disabled={busy} className="btn-ghost px-4 py-2 text-sm disabled:opacity-40">
             {busy ? "…" : "Manage membership"}
           </button>
         </div>
+      </section>
+    );
+  }
+
+  // ── non-member: the pitch ──
+  const paid = (bookings ?? []).filter((b: any) => ["confirmed", "active", "returned"].includes(b.status));
+  const spend = Math.round(paid.reduce((n: number, b: any) => n + (b.subtotal ?? 0), 0));
+  const proPct = tierByKey("pro")?.pct ?? 15;
+  const wouldSave = Math.round((spend * proPct) / 100);
+
+  return (
+    <section className="spot gradient-border rounded-2xl p-5">
+      <div className="hud-label !text-accent-400/90">Db Cinema Membership</div>
+      <h2 className="mt-1 font-display text-2xl font-bold text-white">
+        Rent more, <span className="serif-accent gradient-text text-[1.05em]">pay less</span>
+      </h2>
+
+      {spend >= 50 ? (
+        <p className="mt-3 rounded-xl border border-accent-400/25 bg-accent-500/[0.07] px-4 py-3 text-sm text-white/70">
+          You've rented <span className="font-semibold text-white">£{spend.toLocaleString()}</span> of gear with us.
+          On <span className="font-medium text-accent-300">Pro</span> you'd have saved about{" "}
+          <span className="font-semibold text-emerald-300">£{wouldSave.toLocaleString()}</span>
+          {wouldSave >= 49 ? " — more than the membership costs." : " — and you'd keep saving on every shoot."}
+        </p>
       ) : (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-white/50">Save up to 20% on every rental with a membership.</div>
-          <Link href="/membership" className="btn-primary px-5 py-2 text-sm">
-            View plans
-          </Link>
-        </div>
+        <p className="mt-2 text-sm text-white/55">
+          Save <span className="text-white/80">10–20% on every rental</span>, get free accessories and member-only
+          gear — it pays for itself in a shoot or two.
+        </p>
       )}
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        {TIERS.map((t) => {
+          const popular = t.key === "pro";
+          return (
+            <div
+              key={t.key}
+              className={`relative rounded-2xl border p-4 ${
+                popular ? "border-accent-400/50 bg-accent-500/[0.06]" : "border-white/10 bg-white/[0.02]"
+              }`}
+            >
+              {popular && (
+                <span className="absolute -top-2 right-3 rounded-full bg-accent-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                  Most popular
+                </span>
+              )}
+              <div className="font-display text-lg font-bold text-white">{t.name}</div>
+              <div className="mt-0.5">
+                <span className="font-display text-2xl font-bold text-white">£{t.monthlyGbp}</span>
+                <span className="text-xs text-white/40">/mo</span>
+              </div>
+              <div className="mt-2 text-sm font-semibold text-accent-300">{t.pct}% off every rental</div>
+              <ul className="mt-2 space-y-1">
+                {t.perks.slice(1, 4).map((p) => (
+                  <li key={p} className="flex items-start gap-1.5 text-xs text-white/60">
+                    <span className="mt-0.5 shrink-0 text-accent-400">✓</span>
+                    {p}
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => join(t.key)}
+                disabled={!!busyTier}
+                className={`mt-3 w-full rounded-lg px-3 py-2 text-center text-xs font-semibold transition disabled:opacity-40 ${
+                  popular
+                    ? "bg-accent-500 text-white hover:bg-accent-600"
+                    : "border border-white/15 bg-white/[0.04] text-white/85 hover:bg-white/[0.08]"
+                }`}
+              >
+                {busyTier === t.key ? "…" : `Get ${t.name}`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-white/40">
+        <span>Cancel anytime · billed monthly · perks apply instantly</span>
+        <Link href="/membership" className="text-accent-300 hover:underline">
+          Compare plans in detail →
+        </Link>
+      </div>
     </section>
   );
 }
