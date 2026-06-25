@@ -106,7 +106,9 @@ function nonLensQuality(l: any, slot: string): number {
     s += 2; // for non-camera slots (lights/audio) a small bundle can be a fine pick
   }
   if (/fx3|fx6|fx9|a7s|a7 ?iii|a7iv|a7r|burano|venice|komodo|raptor|alexa|amira|ursa|c70|c300|c500|ronin|fs7|fs5/.test(t)) s += 3;
-  s += Math.min(3, Math.floor((l.pricing?.daily ?? 0) / 50));
+  // the day-rate bonus rewards expensive gear — fine for accessories, but for a CAMERA it pushes a
+  // £-heavy Venice over a practical FX3 on a casual shoot. Let real demand decide between bodies.
+  if (slot !== "camera" && slot !== "camera-body") s += Math.min(3, Math.floor((l.pricing?.daily ?? 0) / 50));
   return s;
 }
 /** Native-flagship lens boost: on a Sony E body, prefer Sony's G Master glass (the
