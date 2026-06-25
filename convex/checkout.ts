@@ -9,6 +9,20 @@ import { tierByKey, FREE_ACCESSORY_TYPES } from "./lib/membership";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 
+const subActive = (status: string) => status === "active" || status === "trialing";
+
+/** Map a Stripe subscription back to one of our tier keys: price lookup_key (dbc_member_<key>,
+ *  set by ensurePrice) first, then subscription metadata, then the monthly amount as a fallback. */
+function tierKeyFromSub(sub: Stripe.Subscription): string | undefined {
+  const price = sub.items?.data?.[0]?.price;
+  const lk = price?.lookup_key ?? undefined;
+  if (lk && lk.startsWith("dbc_member_")) return lk.slice("dbc_member_".length);
+  const meta = sub.metadata?.membershipTier;
+  if (meta) return meta;
+  const amt = price?.unit_amount ?? 0;
+  return amt >= 9900 ? "studio" : amt >= 4900 ? "pro" : amt >= 1900 ? "plus" : undefined;
+}
+
 function stripe() {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("STRIPE_SECRET_KEY not set on the Convex deployment");
@@ -565,7 +579,48 @@ export const stripeWebhook = internalAction({
         }
       }
     }
+    // Subscription lifecycle → keep membership perks honest (perks everywhere gate on membershipActive).
+    if (event.type === "customer.subscription.deleted") {
+      const sub = event.data.object as Stripe.Subscription;
+      await ctx.runMutation(internal.accounts._setMembershipBySubscription, { subscriptionId: sub.id, active: false });
+    } else if (event.type === "customer.subscription.updated") {
+      const sub = event.data.object as Stripe.Subscription;
+      await ctx.runMutation(internal.accounts._setMembershipBySubscription, {
+        subscriptionId: sub.id,
+        active: subActive(sub.status),
+        tier: tierKeyFromSub(sub),
+      });
+    }
     return true;
+  },
+});
+
+/** Safety net for membership perks: reconcile every subscriber's membershipActive/tier against the
+ *  REAL Stripe subscription so perks lapse with billing even when the Stripe webhook isn't configured.
+ *  Runs on a cron. Stripe outage/transient errors leave the flag untouched (fail-safe, retried next run). */
+export const reconcileMemberships = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; changed: number }> => {
+    if (!process.env.STRIPE_SECRET_KEY) return { checked: 0, changed: 0 };
+    const subs: any[] = await ctx.runQuery(internal.accounts._listSubscribers, {});
+    const sb = stripe();
+    let changed = 0;
+    for (const s of subs) {
+      let sub: Stripe.Subscription | null = null;
+      try {
+        sub = await sb.subscriptions.retrieve(s.subscriptionId);
+      } catch (e: any) {
+        if (e?.code === "resource_missing") sub = null; // deleted at Stripe → deactivate
+        else continue; // transient error — leave as-is, retry next cron
+      }
+      const active = sub ? subActive(sub.status) : false;
+      const tier = sub ? tierKeyFromSub(sub) : undefined;
+      if (active !== s.membershipActive || (tier && tier !== s.membershipTier)) {
+        await ctx.runMutation(internal.accounts._applyMembershipReconcile, { accountId: s.accountId, active, tier });
+        changed++;
+      }
+    }
+    return { checked: subs.length, changed };
   },
 });
 

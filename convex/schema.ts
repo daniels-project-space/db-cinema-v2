@@ -365,7 +365,7 @@ export default defineSchema({
     freeAccessoryUsed: v.optional(v.number()),
     stripeSubscriptionId: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_email", ["email"]),
+  }).index("by_email", ["email"]).index("by_subscription", ["stripeSubscriptionId"]),
 
   sessions: defineTable({
     token: v.string(),

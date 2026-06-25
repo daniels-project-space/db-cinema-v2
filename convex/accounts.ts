@@ -453,6 +453,49 @@ export const deleteAccount = mutation({
   },
 });
 
+/** Every account with a Stripe subscription — drives the membership reconcile cron. */
+export const _listSubscribers = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("accounts").collect();
+    return rows
+      .filter((a) => !!a.stripeSubscriptionId)
+      .map((a) => ({
+        accountId: a._id,
+        email: a.email,
+        subscriptionId: a.stripeSubscriptionId as string,
+        membershipActive: a.membershipActive ?? false,
+        membershipTier: a.membershipTier ?? null,
+      }));
+  },
+});
+
+/** Reconcile one account's membership to the REAL Stripe subscription state (cron). */
+export const _applyMembershipReconcile = internalMutation({
+  args: { accountId: v.id("accounts"), active: v.boolean(), tier: v.optional(v.string()) },
+  handler: async (ctx, { accountId, active, tier }) => {
+    const patch: Record<string, unknown> = { membershipActive: active };
+    if (tier) patch.membershipTier = tier;
+    await ctx.db.patch(accountId, patch);
+  },
+});
+
+/** Set membership active/tier for the account tied to a Stripe subscription id (webhook
+ *  customer.subscription.updated/deleted). No-op if no account carries that subscription yet. */
+export const _setMembershipBySubscription = internalMutation({
+  args: { subscriptionId: v.string(), active: v.boolean(), tier: v.optional(v.string()) },
+  handler: async (ctx, { subscriptionId, active, tier }) => {
+    const a = await ctx.db
+      .query("accounts")
+      .withIndex("by_subscription", (q) => q.eq("stripeSubscriptionId", subscriptionId))
+      .first();
+    if (!a) return;
+    const patch: Record<string, unknown> = { membershipActive: active };
+    if (tier) patch.membershipTier = tier;
+    await ctx.db.patch(a._id, patch);
+  },
+});
+
 export const _setStripeCustomer = internalMutation({
   args: { email: v.string(), customerId: v.string() },
   handler: async (ctx, { email, customerId }) => {

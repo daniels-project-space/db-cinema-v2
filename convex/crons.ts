@@ -9,6 +9,9 @@ crons.interval("release-holds", { minutes: 5 }, internal.bookings.releaseExpired
 // Retire abandoned (never-paid) checkouts whose Stripe session has expired.
 crons.interval("expire-stale-pending", { minutes: 15 }, internal.bookings.expireStalePending, {});
 
+// Lapse membership perks with the real Stripe subscription (deactivates cancelled/unpaid members).
+crons.interval("reconcile-memberships", { hours: 6 }, internal.checkout.reconcileMemberships, {});
+
 // Expire old login sessions (enforces session TTL — queries can't read the clock).
 crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSessions, {});
 
