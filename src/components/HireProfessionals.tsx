@@ -152,7 +152,7 @@ function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () =>
         muted
         loop
         playsInline
-        preload="auto"
+        preload="metadata"
         aria-hidden
       />
       <div className="crew-scrim" />
