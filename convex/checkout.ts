@@ -219,7 +219,7 @@ export const start = action({
     // soft-hold the units for 20 min so nobody else grabs them mid-checkout
     await ctx.runMutation(internal.bookings.placeHolds, {
       bookingId,
-      ttlMs: 20 * 60 * 1000,
+      ttlMs: 35 * 60 * 1000,
     });
 
     const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = a.items.map(
@@ -297,6 +297,10 @@ export const start = action({
 
     const session = await sb.checkout.sessions.create({
       mode: "payment",
+      // Align the payment window with the soft hold. Stripe defaults to a 24h session, but the
+      // hold only lasts ~35 min — so a late payment could confirm after the hold was released and
+      // the gear rebooked elsewhere (oversell). 31 min is just over Stripe's 30-min minimum.
+      expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
       line_items,
       discounts,
       ...(stripeCustomerId
@@ -351,6 +355,7 @@ export const startAddon = action({
 
     const session = await stripe().checkout.sessions.create({
       mode: "payment",
+      expires_at: Math.floor(Date.now() / 1000) + 31 * 60, // don't let an add-on confirm long after pricing/availability was checked
       line_items: [
         {
           quantity: 1,

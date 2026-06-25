@@ -204,6 +204,26 @@ export const releaseExpiredHolds = internalMutation({
   },
 });
 
+/** Retire abandoned checkouts: a pending_payment booking older than the Stripe session window
+ *  (31 min) can never be paid, so mark it cancelled and release its holds. Cleans the admin view
+ *  and frees any store-credit it was shadowing. Cancelled (not deleted) so the record survives. */
+export const expireStalePending = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - 45 * 60 * 1000; // well past the 31-min session + any in-flight payment
+    const all = await ctx.db.query("bookings").collect();
+    let n = 0;
+    for (const b of all) {
+      if (b.status !== "pending_payment" || b._creationTime >= cutoff) continue;
+      const res = await ctx.db.query("reservations").withIndex("by_booking", (q) => q.eq("bookingId", b._id)).collect();
+      for (const h of res) if (h.status === "hold") await ctx.db.delete(h._id);
+      await ctx.db.patch(b._id, { status: "cancelled", cancelledAt: Date.now() });
+      n++;
+    }
+    return { expired: n };
+  },
+});
+
 export const confirm = internalMutation({
   args: { bookingId: v.id("bookings"), paymentIntentId: v.optional(v.string()) },
   handler: async (ctx, { bookingId, paymentIntentId }) => {

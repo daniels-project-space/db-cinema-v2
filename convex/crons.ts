@@ -6,6 +6,9 @@ const crons = cronJobs();
 // Release expired soft cart holds.
 crons.interval("release-holds", { minutes: 5 }, internal.bookings.releaseExpiredHolds, {});
 
+// Retire abandoned (never-paid) checkouts whose Stripe session has expired.
+crons.interval("expire-stale-pending", { minutes: 15 }, internal.bookings.expireStalePending, {});
+
 // Expire old login sessions (enforces session TTL — queries can't read the clock).
 crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSessions, {});
 
