@@ -460,24 +460,36 @@ export const billingPortal = action({
   },
 });
 
-export const refundDeposit = action({
-  args: { token: v.string(), bookingId: v.id("bookings") },
-  handler: async (ctx, { token, bookingId }): Promise<{ refunded: boolean }> => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
-      throw new Error("unauthorized");
+/** Admin: mark a rental RETURNED and release its security deposit in one step. Pass damageKept to
+ *  retain part of the deposit for damage (that portion stays captured; the rest is refunded to the
+ *  card). Idempotent — the depositRefunded flag plus a Stripe idempotency key prevent a double refund. */
+export const markReturned = action({
+  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()) },
+  handler: async (
+    ctx,
+    { token, bookingId, damageKept },
+  ): Promise<{ ok: boolean; released: number; kept: number; alreadyReleased: boolean }> => {
+    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) throw new Error("unauthorized");
+    const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId });
+    if (!b) throw new Error("Booking not found.");
+
+    // always mark returned + free the inventory ledger (idempotent), even with no deposit
+    await ctx.runMutation(internal.bookings.markReturnedStatus, { bookingId });
+
+    const deposit = b.depositAmount ?? 0;
+    if (b.depositRefunded || deposit <= 0) {
+      return { ok: true, released: 0, kept: 0, alreadyReleased: !!b.depositRefunded };
     }
-    const b: any = await ctx.runQuery(internal.bookings.getForRefund, {
-      bookingId,
-    });
-    if (!b || !b.paymentIntentId || b.depositRefunded || b.depositAmount <= 0) {
-      return { refunded: false };
+    const kept = Math.max(0, Math.min(Math.round(damageKept ?? 0), deposit));
+    const toRefund = deposit - kept;
+    if (toRefund > 0 && b.paymentIntentId) {
+      await stripe().refunds.create(
+        { payment_intent: b.paymentIntentId, amount: pence(toRefund) },
+        { idempotencyKey: `dbc-deposit-release-${bookingId}` },
+      );
     }
-    await stripe().refunds.create({
-      payment_intent: b.paymentIntentId,
-      amount: pence(b.depositAmount),
-    });
-    await ctx.runMutation(internal.bookings.markDepositRefunded, { bookingId });
-    return { refunded: true };
+    await ctx.runMutation(internal.bookings.markDepositReleased, { bookingId, kept });
+    return { ok: true, released: b.paymentIntentId ? toRefund : 0, kept, alreadyReleased: false };
   },
 });
 

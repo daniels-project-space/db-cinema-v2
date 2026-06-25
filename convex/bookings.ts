@@ -382,6 +382,8 @@ export const adminList = query({
       depositAmount: b.depositAmount,
       total: b.total,
       depositRefunded: b.depositRefunded ?? false,
+      depositKept: b.depositKept ?? 0,
+      returnedAt: b.returnedAt ?? null,
       idVerifyStatus: b.idVerifyStatus ?? "required",
       agreementName: b.agreementName ?? null,
       promoCode: b.promoCode ?? null,
@@ -433,10 +435,26 @@ export const getForRefund = internalQuery({
   },
 });
 
-export const markDepositRefunded = internalMutation({
+/** Mark a booking returned + flip its reservations to returned (frees the inventory ledger). */
+export const markReturnedStatus = internalMutation({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
-    await ctx.db.patch(bookingId, { depositRefunded: true });
+    const b = await ctx.db.get(bookingId);
+    if (!b) return;
+    if (b.status !== "returned") await ctx.db.patch(bookingId, { status: "returned" });
+    const res = await ctx.db
+      .query("reservations")
+      .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
+      .collect();
+    for (const r of res) if (r.status !== "returned") await ctx.db.patch(r._id, { status: "returned" });
+  },
+});
+
+/** Record that the deposit was released (depositKept = amount retained for damage). */
+export const markDepositReleased = internalMutation({
+  args: { bookingId: v.id("bookings"), kept: v.number() },
+  handler: async (ctx, { bookingId, kept }) => {
+    await ctx.db.patch(bookingId, { depositRefunded: true, depositKept: kept, returnedAt: Date.now() });
   },
 });
 

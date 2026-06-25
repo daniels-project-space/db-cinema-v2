@@ -174,6 +174,8 @@ export default defineSchema({
     refundAmount: v.optional(v.number()),
     creditIssuedId: v.optional(v.id("credits")),
     creditApplied: v.optional(v.number()), // store credit redeemed at checkout (decremented on confirm)
+    depositKept: v.optional(v.number()), // portion of the deposit retained for damage on return
+    returnedAt: v.optional(v.number()), // when the rental was marked returned + deposit released
   })
     .index("by_customer", ["customerId"])
     .index("by_status", ["status"])

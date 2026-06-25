@@ -38,6 +38,7 @@ import type * as promo from "../promo.js";
 import type * as rateLimit from "../rateLimit.js";
 import type * as recommendations from "../recommendations.js";
 import type * as reviews from "../reviews.js";
+import type * as rmv2_sync from "../rmv2_sync.js";
 import type * as settings from "../settings.js";
 import type * as sync from "../sync.js";
 import type * as voice from "../voice.js";
@@ -80,6 +81,7 @@ declare const fullApi: ApiFromModules<{
   rateLimit: typeof rateLimit;
   recommendations: typeof recommendations;
   reviews: typeof reviews;
+  rmv2_sync: typeof rmv2_sync;
   settings: typeof settings;
   sync: typeof sync;
   voice: typeof voice;

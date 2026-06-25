@@ -6,7 +6,8 @@ import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 
 const day = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-const STATUSES = ["confirmed", "active", "returned", "cancelled"] as const;
+// "returned" is reached only via the Return button (which also releases the deposit), never a bare status set
+const STATUSES = ["confirmed", "active", "cancelled"] as const;
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -21,7 +22,7 @@ export default function AdminPage() {
   const contacts = useQuery(api.contact.adminList, token ? { token } : "skip");
   const setStatus = useMutation(api.bookings.adminSetStatus);
   const setId = useMutation(api.bookings.adminSetIdStatus);
-  const refund = useAction(api.checkout.refundDeposit);
+  const markReturned = useAction(api.checkout.markReturned);
   const markHandled = useMutation(api.contact.adminMarkHandled);
 
   const authed = bookings?.authorized;
@@ -137,7 +138,7 @@ export default function AdminPage() {
                     <span className="text-white/15">·</span>
                     <span>{b.fulfilment}</span>
                     <span className="text-white/15">·</span>
-                    <span>dep £{b.depositAmount}{b.depositRefunded ? " ↩" : ""}</span>
+                    <span>dep £{b.depositAmount}{b.depositRefunded ? (b.depositKept > 0 ? ` · kept £${b.depositKept}` : " · released ↩") : ""}</span>
                   </div>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
                     <span className={`rounded px-1.5 py-0.5 ${b.agreementName ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}`}>
@@ -166,14 +167,31 @@ export default function AdminPage() {
                         ID ✓
                       </button>
                     )}
-                    <button
-                      onClick={() => refund({ token, bookingId: b._id }).catch((e) => alert(e.message))}
-                      disabled={b.depositRefunded || b.depositAmount <= 0}
-                      title="Refund deposit"
-                      className="shrink-0 rounded-md bg-white/[0.05] px-2 py-1 text-[11px] text-white/55 hover:text-white disabled:opacity-25"
-                    >
-                      Refund
-                    </button>
+                    {!b.depositRefunded && b.depositAmount > 0 && ["confirmed", "active", "returned"].includes(b.status) && (
+                      <button
+                        onClick={() => {
+                          const ans = prompt(
+                            `Mark returned + release the £${b.depositAmount} deposit.\nDamage to keep? (0 = release the full deposit)`,
+                            "0",
+                          );
+                          if (ans === null) return;
+                          const kept = Math.max(0, Math.min(Math.round(Number(ans) || 0), b.depositAmount));
+                          markReturned({ token, bookingId: b._id, damageKept: kept })
+                            .then((r: any) =>
+                              alert(
+                                r.kept > 0
+                                  ? `Returned. Kept £${r.kept} for damage, released £${r.released}.`
+                                  : `Returned. Released £${r.released} deposit.`,
+                              ),
+                            )
+                            .catch((e: any) => alert(e.message));
+                        }}
+                        title="Mark returned + release deposit"
+                        className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/25"
+                      >
+                        Return
+                      </button>
+                    )}
                   </div>
                 </div>
               );
