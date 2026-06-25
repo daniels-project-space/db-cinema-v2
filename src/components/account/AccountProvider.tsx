@@ -19,6 +19,7 @@ type Me = {
   address: string | null;
   marketingEmails: boolean;
   favorites: string[];
+  avatarUrl: string | null;
   idVerified: boolean;
   membershipTier: string | null;
   membershipActive: boolean;

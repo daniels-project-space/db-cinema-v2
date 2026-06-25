@@ -40,7 +40,7 @@ export function SiteHeader() {
     };
   }, [mobile]);
 
-  const avatar = me ? `https://i.pravatar.cc/80?u=${encodeURIComponent(me.email)}` : "";
+  const avatar = me ? (me.avatarUrl ?? `https://i.pravatar.cc/80?u=${encodeURIComponent(me.email)}`) : "";
 
   return (
     <>
