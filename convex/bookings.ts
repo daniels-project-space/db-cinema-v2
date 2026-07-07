@@ -211,10 +211,15 @@ export const expireStalePending = internalMutation({
   args: {},
   handler: async (ctx) => {
     const cutoff = Date.now() - 45 * 60 * 1000; // well past the 31-min session + any in-flight payment
-    const all = await ctx.db.query("bookings").collect();
+    // PERF: was a whole-`bookings` scan every 15 min (cron). by_status narrows to
+    // the handful of pending_payment rows; the status check below is now redundant.
+    const all = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "pending_payment"))
+      .collect();
     let n = 0;
     for (const b of all) {
-      if (b.status !== "pending_payment" || b._creationTime >= cutoff) continue;
+      if (b._creationTime >= cutoff) continue;
       const res = await ctx.db.query("reservations").withIndex("by_booking", (q) => q.eq("bookingId", b._id)).collect();
       for (const h of res) if (h.status === "hold") await ctx.db.delete(h._id);
       await ctx.db.patch(b._id, { status: "cancelled", cancelledAt: Date.now() });

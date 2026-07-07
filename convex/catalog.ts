@@ -80,17 +80,12 @@ export const bestSellers = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit }) => {
     const n = limit ?? 6;
-    // real demand signal: bookings + add-to-cart events
-    const bookings = await ctx.db.query("bookings").collect();
-    const bk = new Map<string, number>();
-    for (const b of bookings) for (const li of b.lineItems) bk.set(li.listingId, (bk.get(li.listingId) ?? 0) + 1);
-    const events = await ctx.db
-      .query("events")
-      .withIndex("by_type", (q) => q.eq("type", "add_to_cart"))
-      .collect();
-    const cartBySlug = new Map<string, number>();
-    for (const e of events) if (e.path) cartBySlug.set(e.path, (cartBySlug.get(e.path) ?? 0) + 1);
-
+    // 2026-07-07: ranking is driven by demandScore (authoritative RMv2 rental
+    // history, refreshed by the applyDemand mutation) which DOMINATES the sort
+    // (×10). The live site bookings + add-to-cart tie-breakers were removed — on
+    // the homepage they forced a whole-`bookings` table scan + a full `events`
+    // add_to_cart scan AND made this query re-run on every booking/cart write
+    // (huge DB bandwidth for a ×5/×2 refinement). demandScore + base is stable.
     const ls = await ctx.db
       .query("listings")
       .withIndex("by_active", (q) => q.eq("active", true))
@@ -102,10 +97,7 @@ export const bestSellers = query({
       if (l.itemType === "camera-body") base += 2;
       if (/fx3|fx6|a7s|a7 ?iii|a7iv|sony|burano|komodo|ronin/.test(t)) base += 2;
       if (/\bset\b|\bkit\b|bundle|package/.test(t)) base += 1;
-      // REAL rental demand (RMv2 history, ~1,983 reservations) is the dominant signal so this
-      // section truly shows "the kits crews fight over" — the actual top-rented gear — not a
-      // heuristic. Site bookings + add-to-cart refine; the base only breaks ties.
-      const score = (l.demandScore ?? 0) * 10 + (bk.get(l._id) ?? 0) * 5 + (cartBySlug.get(l.slug) ?? 0) * 2 + base;
+      const score = (l.demandScore ?? 0) * 10 + base;
       return { l, score };
     });
     scored.sort((a, b) => b.score - a.score);
