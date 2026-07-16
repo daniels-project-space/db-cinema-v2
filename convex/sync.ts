@@ -188,12 +188,19 @@ export const syncFromRmv2 = action({
       };
     });
 
-    return await ctx.runMutation(internal.sync.applyCatalog, { items: payload });
+    const encoded = new TextEncoder().encode(JSON.stringify(payload));
+    const digest = await crypto.subtle.digest("SHA-256", encoded);
+    const fingerprint = Array.from(
+      new Uint8Array(digest),
+      (b) => b.toString(16).padStart(2, "0"),
+    ).join("");
+    return await ctx.runMutation(internal.sync.applyCatalog, { items: payload, fingerprint });
   },
 });
 
 export const applyCatalog = internalMutation({
   args: {
+    fingerprint: v.optional(v.string()),
     items: v.array(
       v.object({
         hyggloProductId: v.number(),
@@ -223,7 +230,17 @@ export const applyCatalog = internalMutation({
       }),
     ),
   },
-  handler: async (ctx, { items }) => {
+  handler: async (ctx, { items, fingerprint }) => {
+    const stateKey = "catalog-payload-v1";
+    const state = fingerprint
+      ? await ctx.db
+          .query("rmv2_sync_state")
+          .withIndex("by_key", (q) => q.eq("key", stateKey))
+          .first()
+      : null;
+    if (fingerprint && state?.cursor === fingerprint) {
+      return { listings: 0, units: 0, deactivated: 0, skipped: true };
+    }
     let unitCount = 0;
     let listingCount = 0;
     const unitCache = new Map<string, string>();
@@ -335,7 +352,18 @@ export const applyCatalog = internalMutation({
       }
     }
 
-    return { listings: listingCount, units: unitCount, deactivated };
+    if (fingerprint) {
+      const next = {
+        key: stateKey,
+        lastSyncedAt: Date.now(),
+        status: "ok",
+        cursor: fingerprint,
+        note: `${listingCount} listings / ${unitCount} units / ${deactivated} deactivated`,
+      };
+      if (state) await ctx.db.patch(state._id, next);
+      else await ctx.db.insert("rmv2_sync_state", next);
+    }
+    return { listings: listingCount, units: unitCount, deactivated, skipped: false };
   },
 });
 
