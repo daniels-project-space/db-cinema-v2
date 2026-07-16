@@ -33,6 +33,10 @@ crons.interval(
   {},
 );
 
+// Demand is historical analytics, not live availability. Recompute daily
+// rather than rereading the history during every 15-minute reservation sync.
+crons.interval("refresh-rental-demand", { hours: 24 }, api.sync.refreshDemandFromRmv2, {});
+
 // Sweep stale API rate-limit rows.
 crons.interval("sweep-rate-limits", { hours: 24 }, internal.rateLimit.sweep, {});
 

@@ -407,7 +407,7 @@ const dms = (iso?: string) => (iso ? Date.parse(iso + "T00:00:00Z") : NaN);
 export const syncHyggloReservations = action({
   args: {},
   handler: async (ctx): Promise<{ mirrored: number; rows: number }> => {
-    const all: any[] = await rmv2Query("reservations:listForReconcile", {
+    const all: any[] = await rmv2Query("reservations:listActiveForStorefront", {
       account_slug: ACCOUNT,
     });
     const today = new Date().toISOString().slice(0, 10);
@@ -431,8 +431,19 @@ export const syncHyggloReservations = action({
       return { ref: String(r.hygglo_order_id ?? r._id), start, end, items };
     }).filter((r) => !isNaN(r.start) && !isNaN(r.end));
 
-    // DEMAND: tally how often each canonical item was rented across the WHOLE history
-    // (not just upcoming) → per-listing demandScore for the bot's recommendations.
+    return await ctx.runMutation(internal.sync.applyHygglo, { rows });
+  },
+});
+
+/** Demand changes slowly; refresh it daily instead of during every 15-minute
+ * availability mirror. This keeps recommendation quality while removing the
+ * largest repeated cross-project history read. */
+export const refreshDemandFromRmv2 = action({
+  args: {},
+  handler: async (ctx) => {
+    const all: any[] = await rmv2Query("reservations:listForReconcile", {
+      account_slug: ACCOUNT,
+    });
     const byName = new Map<string, number>();
     for (const r of all) {
       if (r.is_obsolete || ["cancelled", "canceled", "declined"].includes(String(r.status)) || r.order_step === "CANCELED") continue;
@@ -445,8 +456,7 @@ export const syncHyggloReservations = action({
     await ctx.runMutation(internal.sync.applyDemand, {
       demand: [...byName.entries()].map(([name, count]) => ({ name, count })),
     });
-
-    return await ctx.runMutation(internal.sync.applyHygglo, { rows });
+    return { reservations: all.length, items: byName.size };
   },
 });
 
@@ -468,19 +478,41 @@ export const applyHygglo = internalMutation({
     ),
   },
   handler: async (ctx, { rows }) => {
-    // unit lookup maps
-    const units = await ctx.db.query("inventory_units").collect();
+    // Resolve only the handful of units present in live reservations. The old
+    // implementation collected every unit and every fat listing each cycle.
     const byRmv2 = new Map<string, any>();
     const byProduct = new Map<number, any>();
-    for (const u of units) {
-      if (u.rmv2ItemId) byRmv2.set(u.rmv2ItemId, u._id);
-      if (u.hyggloProductId) byProduct.set(u.hyggloProductId, u._id);
-    }
-    // also map productId via listings -> first component unit
-    const listings = await ctx.db.query("listings").collect();
-    for (const l of listings) {
-      if (l.hyggloProductId && l.components[0] && !byProduct.has(l.hyggloProductId))
-        byProduct.set(l.hyggloProductId, l.components[0].inventoryUnitId);
+    async function resolveUnit(itemId?: string, productId?: number) {
+      if (itemId) {
+        if (!byRmv2.has(itemId)) {
+          const unit = await ctx.db
+            .query("inventory_units")
+            .withIndex("by_rmv2ItemId", (q) => q.eq("rmv2ItemId", itemId))
+            .first();
+          byRmv2.set(itemId, unit?._id ?? null);
+        }
+        const id = byRmv2.get(itemId);
+        if (id) return id;
+      }
+      if (productId) {
+        if (!byProduct.has(productId)) {
+          const unit = await ctx.db
+            .query("inventory_units")
+            .withIndex("by_hyggloProductId", (q) => q.eq("hyggloProductId", productId))
+            .first();
+          let id = unit?._id ?? null;
+          if (!id) {
+            const listing = await ctx.db
+              .query("listings")
+              .withIndex("by_hyggloProductId", (q) => q.eq("hyggloProductId", productId))
+              .first();
+            id = listing?.components[0]?.inventoryUnitId ?? null;
+          }
+          byProduct.set(productId, id);
+        }
+        return byProduct.get(productId) ?? null;
+      }
+      return null;
     }
 
     // clear previous hygglo mirror
@@ -493,9 +525,7 @@ export const applyHygglo = internalMutation({
     let mirrored = 0;
     for (const row of rows) {
       for (const it of row.items) {
-        const unitId =
-          (it.itemId && byRmv2.get(it.itemId)) ||
-          (it.productId && byProduct.get(it.productId));
+        const unitId = await resolveUnit(it.itemId, it.productId);
         if (!unitId) continue;
         await ctx.db.insert("reservations", {
           inventoryUnitId: unitId,
