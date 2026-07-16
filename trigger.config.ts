@@ -2,15 +2,14 @@ import { defineConfig } from "@trigger.dev/sdk/v3";
 
 /**
  * Trigger.dev project for db-cinema-v2.
- * NOTE: `project` ref must be created in the Trigger.dev dashboard
- * (org: Daniels-Project-Space) and pasted here + stored in the vault as
- * TRIGGER_PROJECT_REF_DB_CINEMA. v4 has no non-interactive project-create.
+ * Dedicated project in Daniels Project space. The environment override keeps
+ * local/preview tooling portable without ever sharing another app's project.
  *
  * Planned tasks: cart-expiry, rmv2-availability-sync, subscription-renewal,
  * pickup/return reminders, deposit-release.
  */
 export default defineConfig({
-  project: "proj_REPLACE_ME",
+  project: process.env.TRIGGER_PROJECT_REF ?? "proj_mmebaxukqjxlxocffgew",
   dirs: ["./src/trigger"],
   maxDuration: 300,
 });
