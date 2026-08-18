@@ -298,6 +298,7 @@ export const confirm = internalMutation({
     await ctx.scheduler.runAfter(0, internal.notify.bookingAlert, { bookingId });
     await ctx.scheduler.runAfter(0, internal.invoice.invoiceEmail, { bookingId });
     await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
+    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
     return { already: false };
   },
 });
@@ -366,6 +367,9 @@ export const attachAddon = internalMutation({
         at: Date.now(),
         readByOwner: true,
       });
+    // Status is unchanged, but lineItems/total moved — RMv2's availability and
+    // revenue both read those, so this still needs to sync.
+    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
   },
 });
 
@@ -424,6 +428,7 @@ export const adminSetStatus = mutation({
           status: status === "returned" ? "returned" : "cancelled",
         });
     }
+    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
   },
 });
 
@@ -452,6 +457,7 @@ export const markReturnedStatus = internalMutation({
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
       .collect();
     for (const r of res) if (r.status !== "returned") await ctx.db.patch(r._id, { status: "returned" });
+    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
   },
 });
 
@@ -718,6 +724,7 @@ export const _finalizeCancellation = internalMutation({
       await ctx.db.insert("messages", { accountId, bookingId, sender: "system", text: note, at: Date.now(), readByOwner: true });
     }
     await ctx.scheduler.runAfter(0, internal.notify.cancellationEmail, { bookingId, mode, refundAmount, creditAmount });
+    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
     return { ok: true as const, creditId };
   },
 });
