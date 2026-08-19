@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { assertAdmin, checkAdminToken } from "./adminAuth";
 
 const DEFAULTS = {
   deliveryMarginPct: 10,
@@ -23,11 +24,6 @@ function configFrom(d: any) {
   };
 }
 
-function assertAdmin(token: string) {
-  if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN)
-    throw new Error("unauthorized");
-}
-
 /** Public config read (used by delivery, checkout, UI). Falls back to defaults. */
 export const get = query({
   args: {},
@@ -40,7 +36,7 @@ export const get = query({
 export const adminGet = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN)
+    if (!checkAdminToken(token))
       return { authorized: false as const };
     const d = await ctx.db.query("settings").first();
     return { authorized: true as const, config: configFrom(d) };
@@ -59,7 +55,7 @@ export const adminUpdate = mutation({
     businessPhone: v.optional(v.string()),
   },
   handler: async (ctx, { token, ...patch }) => {
-    assertAdmin(token);
+    await assertAdmin(ctx, token, "settings.adminUpdate");
     const existing = await ctx.db.query("settings").first();
     if (existing) await ctx.db.patch(existing._id, patch);
     else await ctx.db.insert("settings", { ...DEFAULTS, ...patch });

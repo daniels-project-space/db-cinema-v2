@@ -7,12 +7,7 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { peak, type Iv } from "./availability";
-
-function assertAdmin(token: string) {
-  if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
-    throw new Error("unauthorized");
-  }
-}
+import { assertAdmin, checkAdminToken } from "./adminAuth";
 
 const lineItem = v.object({
   listingId: v.id("listings"),
@@ -376,7 +371,7 @@ export const attachAddon = internalMutation({
 export const adminList = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+    if (!checkAdminToken(token)) {
       return { authorized: false as const, items: [] };
     }
     const rows = await ctx.db.query("bookings").order("desc").take(100);
@@ -415,7 +410,7 @@ export const adminSetStatus = mutation({
     ),
   },
   handler: async (ctx, { token, bookingId, status }) => {
-    assertAdmin(token);
+    await assertAdmin(ctx, token, "bookings.adminSetStatus");
     await ctx.db.patch(bookingId, { status });
     // free the ledger when a booking ends
     if (status === "returned" || status === "cancelled") {
@@ -629,7 +624,7 @@ async function markAccountVerified(ctx: any, bookingId: any) {
 export const adminSetIdStatus = mutation({
   args: { token: v.string(), bookingId: v.id("bookings"), status: v.string() },
   handler: async (ctx, { token, bookingId, status }) => {
-    assertAdmin(token);
+    await assertAdmin(ctx, token, "bookings.adminSetIdStatus");
     const prev = (await ctx.db.get(bookingId))?.idVerifyStatus ?? "required";
     await ctx.db.patch(bookingId, { idVerifyStatus: status });
     if (status === "verified") await markAccountVerified(ctx, bookingId);

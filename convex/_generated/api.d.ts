@@ -9,6 +9,7 @@
  */
 
 import type * as accounts from "../accounts.js";
+import type * as adminAuth from "../adminAuth.js";
 import type * as admin_republish from "../admin_republish.js";
 import type * as analytics from "../analytics.js";
 import type * as availability from "../availability.js";
@@ -54,6 +55,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
+  adminAuth: typeof adminAuth;
   admin_republish: typeof admin_republish;
   analytics: typeof analytics;
   availability: typeof availability;

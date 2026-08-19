@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { checkAdminToken } from "./adminAuth";
 
 /** Record a first-party event (views, funnel steps, zero-result searches). */
 export const track = mutation({
@@ -32,7 +33,7 @@ const DAYMS = 86400000;
 export const cartDemand = query({
   args: { token: v.string(), days: v.optional(v.number()), now: v.number() },
   handler: async (ctx, { token, days, now }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+    if (!checkAdminToken(token)) {
       return { authorized: false as const, days: 0, total: 0, series: [], top: [] };
     }
     const D = Math.min(Math.max(days ?? 30, 7), 120);
@@ -74,7 +75,7 @@ export const cartDemand = query({
 export const adminSummary = query({
   args: { token: v.string(), now: v.number() },
   handler: async (ctx, { token, now }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN)
+    if (!checkAdminToken(token))
       return { authorized: false as const };
 
     const DAY = 86400000;

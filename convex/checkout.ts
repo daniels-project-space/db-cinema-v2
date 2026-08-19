@@ -469,7 +469,7 @@ export const markReturned = action({
     ctx,
     { token, bookingId, damageKept },
   ): Promise<{ ok: boolean; released: number; kept: number; alreadyReleased: boolean }> => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) throw new Error("unauthorized");
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.markReturned" });
     const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId });
     if (!b) throw new Error("Booking not found.");
 

@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { TIER_RANK } from "./lib/membership";
+import { assertAdmin, checkAdminToken } from "./adminAuth";
 
 /**
  * Validate a promo code against the ELIGIBLE subtotal (non-offer rental lines
@@ -92,15 +93,10 @@ export const seed = mutation({
   },
 });
 
-function assertAdmin(token: string) {
-  if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN)
-    throw new Error("unauthorized");
-}
-
 export const adminList = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN)
+    if (!checkAdminToken(token))
       return { authorized: false as const, items: [] };
     const rows = await ctx.db.query("promo_codes").collect();
     return {
@@ -127,7 +123,7 @@ export const adminCreate = mutation({
     minSubtotal: v.optional(v.number()),
   },
   handler: async (ctx, { token, code, type, value, minSubtotal }) => {
-    assertAdmin(token);
+    await assertAdmin(ctx, token, "promo.adminCreate");
     const norm = code.trim().toLowerCase();
     if (!norm) throw new Error("code required");
     const existing = await ctx.db
@@ -150,7 +146,7 @@ export const adminCreate = mutation({
 export const adminToggle = mutation({
   args: { token: v.string(), id: v.id("promo_codes") },
   handler: async (ctx, { token, id }) => {
-    assertAdmin(token);
+    await assertAdmin(ctx, token, "promo.adminToggle");
     const p = await ctx.db.get(id);
     if (p) await ctx.db.patch(id, { active: !p.active });
   },
@@ -170,7 +166,7 @@ export const memberOffers = query({
 export const adminListMemberOffers = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN)
+    if (!checkAdminToken(token))
       return { authorized: false as const, items: [] };
     const rows = await ctx.db.query("member_offers").collect();
     return {
@@ -201,7 +197,7 @@ export const adminCreateMemberOffer = mutation({
     expiryDays: v.optional(v.number()),
   },
   handler: async (ctx, { token, title, blurb, badge, code, type, value, minSubtotal, limit, expiryDays }) => {
-    assertAdmin(token);
+    await assertAdmin(ctx, token, "promo.adminCreateMemberOffer");
     const norm = code.trim().toLowerCase();
     if (!norm || !title.trim()) throw new Error("title and code required");
     // Pro+ exclusive, non-stacking, with a usage limit (default: once a month)
@@ -247,7 +243,7 @@ export const adminCreateMemberOffer = mutation({
 export const adminToggleMemberOffer = mutation({
   args: { token: v.string(), id: v.id("member_offers") },
   handler: async (ctx, { token, id }) => {
-    assertAdmin(token);
+    await assertAdmin(ctx, token, "promo.adminToggleMemberOffer");
     const o = await ctx.db.get(id);
     if (o) await ctx.db.patch(id, { active: !o.active });
   },
