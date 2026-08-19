@@ -2,6 +2,7 @@ import { action, internalMutation, mutation } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE, categoryFor, isGenuineBundle } from "./lib/taxonomy";
+import { assertAdmin } from "./adminAuth";
 
 /**
  * Canonical camera-MODEL identity for inventory reconciliation against the rental
@@ -702,7 +703,7 @@ export const respec = mutation({
 export const applyClassification = mutation({
   args: { token: v.string(), items: v.array(v.object({ id: v.id("listings"), itemType: v.string(), category: v.string(), isPackage: v.boolean(), specs: v.any() })) },
   handler: async (ctx, { token, items }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) throw new Error("unauthorized");
+    await assertAdmin(ctx, token, "sync.applyClassification");
     let n = 0;
     for (const it of items) { await ctx.db.patch(it.id, { itemType: it.itemType, category: it.category, isPackage: it.isPackage, specs: it.specs }); n++; }
     return { updated: n };
@@ -726,7 +727,7 @@ export const fixUnitQty = mutation({
 export const applyKnowledge = mutation({
   args: { token: v.string(), items: v.array(v.object({ id: v.id("listings"), knowledge: v.any() })) },
   handler: async (ctx, { token, items }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) throw new Error("unauthorized");
+    await assertAdmin(ctx, token, "sync.applyKnowledge");
     let n = 0;
     for (const it of items) { await ctx.db.patch(it.id, { knowledge: it.knowledge }); n++; }
     return { updated: n };

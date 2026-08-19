@@ -157,6 +157,8 @@ export default defineSchema({
     stripePaymentIntentId: v.optional(v.string()),
     stripeDepositIntentId: v.optional(v.string()),
     idVerifyStatus: v.optional(v.string()),
+    idVerificationSource: v.optional(v.string()),
+    idVerifiedAt: v.optional(v.number()),
     depositRefunded: v.optional(v.boolean()),
     agreementSignedAt: v.optional(v.number()),
     agreementName: v.optional(v.string()),
@@ -490,6 +492,15 @@ export default defineSchema({
     windowStart: v.number(),
     count: v.number(),
   }).index("by_key", ["key"]),
+
+  // Audit trail for owner/admin passcode checks (mutation call sites only — Convex
+  // queries can't write, so read-side checks aren't logged here).
+  admin_audit_log: defineTable({
+    at: v.number(),
+    success: v.boolean(),
+    limited: v.boolean(),
+    fn: v.string(),
+  }).index("by_at", ["at"]),
 
   // "Notify me when available" requests for booked-out gear.
   availability_waitlist: defineTable({

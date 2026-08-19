@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { bump } from "./rateLimit";
 import { v } from "convex/values";
+import { assertAdmin, checkAdminToken } from "./adminAuth";
 
 export const submit = mutation({
   args: { name: v.string(), email: v.string(), message: v.string(), hp: v.optional(v.string()) },
@@ -24,16 +25,10 @@ export const submit = mutation({
   },
 });
 
-function assertAdmin(token: string) {
-  if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
-    throw new Error("unauthorized");
-  }
-}
-
 export const adminList = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+    if (!checkAdminToken(token)) {
       return { authorized: false as const, items: [] };
     }
     const rows = await ctx.db.query("contact_messages").order("desc").take(100);
@@ -52,7 +47,7 @@ export const adminList = query({
 export const adminMarkHandled = mutation({
   args: { token: v.string(), id: v.id("contact_messages") },
   handler: async (ctx, { token, id }) => {
-    assertAdmin(token);
+    await assertAdmin(ctx, token, "contact.adminMarkHandled");
     await ctx.db.patch(id, { handled: true });
   },
 });

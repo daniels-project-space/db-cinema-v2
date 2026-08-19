@@ -14,6 +14,7 @@
 import { query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
+import { checkAdminToken } from "./adminAuth";
 
 const PAID_STATUSES = new Set(["confirmed", "active", "returned"]);
 
@@ -96,7 +97,7 @@ export function mapBookingForSync(
 export const forRmv2Sync = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+    if (!checkAdminToken(token)) {
       return { authorized: false as const, bookings: [] };
     }
 

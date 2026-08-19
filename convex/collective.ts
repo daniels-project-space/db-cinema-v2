@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { assertAdmin, checkAdminToken } from "./adminAuth";
 
 const NEONS = ["cyan", "violet", "amber", "green", "pink", "blue", "orange"];
 
@@ -79,10 +80,6 @@ export const applicantUploadUrl = mutation({
   args: {},
   handler: async (ctx) => await ctx.storage.generateUploadUrl(),
 });
-
-function assertAdmin(token: string) {
-  if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) throw new Error("unauthorized");
-}
 
 // ── Member profile (token-scoped) ────────────────────────────────────
 /** Resolve the signed-in account's email from a session token. */
@@ -186,7 +183,7 @@ export const attachId = mutation({
 export const adminList = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+    if (!checkAdminToken(token)) {
       return { authorized: false as const, items: [] };
     }
     const rows = await ctx.db.query("collective_applications").order("desc").take(100);
@@ -206,7 +203,7 @@ export const adminList = query({
 export const setIdVerified = mutation({
   args: { token: v.string(), id: v.id("collective_applications"), verified: v.boolean() },
   handler: async (ctx, { token, id, verified }) => {
-    assertAdmin(token);
+    await assertAdmin(ctx, token, "collective.setIdVerified");
     await ctx.db.patch(id, { idStatus: verified ? "verified" : "submitted" });
     return { ok: true };
   },
@@ -241,7 +238,7 @@ export const review = mutation({
     ),
   },
   handler: async (ctx, { token, id, action, edits }) => {
-    assertAdmin(token);
+    await assertAdmin(ctx, token, "collective.review");
     const app = await ctx.db.get(id);
     if (!app) throw new Error("not found");
 
