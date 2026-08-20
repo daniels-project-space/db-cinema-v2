@@ -502,6 +502,17 @@ export default defineSchema({
     fn: v.string(),
   }).index("by_at", ["at"]),
 
+  // Every fetch of /api/swml/inbound by SignalWire, recorded so the inbound
+  // phone path is observable without Vercel log access: a row here proves
+  // SignalWire ran the call script, and its absence proves it never did.
+  swml_hits: defineTable({
+    at: v.number(),
+    method: v.string(),
+    ip: v.optional(v.string()),
+    ua: v.optional(v.string()),
+    detail: v.optional(v.string()), // JSON blob: query params + POST body
+  }).index("by_at", ["at"]),
+
   // "Notify me when available" requests for booked-out gear.
   availability_waitlist: defineTable({
     email: v.string(),

@@ -43,6 +43,7 @@ import type * as reviews from "../reviews.js";
 import type * as rmv2_sync from "../rmv2_sync.js";
 import type * as rmv2_webhook from "../rmv2_webhook.js";
 import type * as settings from "../settings.js";
+import type * as swml from "../swml.js";
 import type * as sync from "../sync.js";
 import type * as voice from "../voice.js";
 import type * as waitlist from "../waitlist.js";
@@ -89,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   rmv2_sync: typeof rmv2_sync;
   rmv2_webhook: typeof rmv2_webhook;
   settings: typeof settings;
+  swml: typeof swml;
   sync: typeof sync;
   voice: typeof voice;
   waitlist: typeof waitlist;
