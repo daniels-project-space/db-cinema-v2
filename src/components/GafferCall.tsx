@@ -35,10 +35,17 @@ export function GafferCall({ className = "", label = "Talk to Gaffer" }: { class
         agentId: AGENT_ID,
         onConnect: () => setState("live"),
         onDisconnect: () => { setState("idle"); setSpeaking(false); conv.current = null; },
-        onError: () => { setState("idle"); setSpeaking(false); conv.current = null; },
+        onError: (err: unknown) => {
+          console.error("[GafferCall] session error", err);
+          setState("idle"); setSpeaking(false); conv.current = null;
+        },
         onModeChange: (m: any) => setSpeaking(m?.mode === "speaking"),
       });
-    } catch {
+    } catch (err) {
+      // Never swallow this silently: a blocked mic (Permissions-Policy), a
+      // denied prompt and an SDK failure all land here and are otherwise
+      // indistinguishable from "the button does nothing".
+      console.error("[GafferCall] failed to start session", err);
       setState("idle");
       conv.current = null;
     }

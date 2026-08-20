@@ -23,7 +23,10 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" }, // clickjacking
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), browsing-topics=()" },
+  // microphone=(self): the Gaffer voice call (GafferCall.tsx) needs getUserMedia
+  // on our own origin. Everything else stays denied, and mic stays denied to any
+  // embedded third-party frame.
+  { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(), browsing-topics=()" },
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
   { key: "Content-Security-Policy", value: csp },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" }, // isolate, but keep Stripe/OAuth popups working
