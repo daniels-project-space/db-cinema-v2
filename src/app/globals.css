@@ -333,6 +333,42 @@ body {
   transition: transform 1.1s var(--ease-out-expo);
 }
 
+/* ── Gaffer picked this one ─────────────────────────────────────
+   Lights a gear tile the moment Gaffer names it on a call, a beat before it
+   lands in the basket — so the customer watches the thing being chosen instead
+   of a basket count changing somewhere off screen. */
+@keyframes gaffer-pick {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent-400) 62%, transparent), 0 0 0 0 transparent; }
+  35%  { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-400) 78%, transparent), 0 0 42px 6px color-mix(in srgb, var(--color-accent-400) 42%, transparent); }
+  100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent-400) 30%, transparent), 0 0 26px 2px color-mix(in srgb, var(--color-accent-400) 14%, transparent); }
+}
+.gear-card[data-gaffer-focus="true"] {
+  animation: gaffer-pick 1.6s var(--ease-out-expo) forwards;
+  /* lift it clear of neighbouring tiles so the bloom isn't clipped by them */
+  z-index: 5;
+}
+/* a quiet sweep across the image, so the tile reads as "being looked at" */
+.gear-card[data-gaffer-focus="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(105deg, transparent 38%, color-mix(in srgb, var(--color-accent-300) 26%, transparent) 50%, transparent 62%);
+  transform: translateX(-115%);
+  animation: gaffer-pick-sweep 1.15s var(--ease-out-expo) forwards;
+}
+@keyframes gaffer-pick-sweep { to { transform: translateX(115%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .gear-card[data-gaffer-focus="true"] {
+    animation: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent-400) 70%, transparent);
+  }
+  .gear-card[data-gaffer-focus="true"]::after { display: none; }
+}
+
 /* accent-tinted frost — keeps the primary action reading as primary
    without breaking the material */
 .btn-glass-accent {

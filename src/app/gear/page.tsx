@@ -14,10 +14,30 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
 import { getSessionId } from "@/lib/session";
 
+/** Both spellings are in the wild: links use ?cat / ?q, Gaffer's navigate_to
+ *  pushes ?category / ?search. Accept either rather than silently ignoring one. */
+const catParam = (p: URLSearchParams) => p.get("cat") ?? p.get("category");
+const qParam = (p: URLSearchParams) => p.get("q") ?? p.get("search");
+
 function GearPageInner() {
   const params = useSearchParams();
-  const [cat, setCat] = useState(() => params.get("cat") ?? "All");
-  const [search, setSearch] = useState("");
+  const [cat, setCat] = useState(() => catParam(params) ?? "All");
+  const [search, setSearch] = useState(() => qParam(params) ?? "");
+
+  // Gaffer filters this page by pushing a new URL. Without this the page is
+  // already mounted, so the initialisers above never run again and the grid
+  // ignores it — which is why voice-driven filtering did nothing before.
+  //
+  // When either param is present the URL owns BOTH: a push of "?q=sigma" with no
+  // category has to clear a category left over from the last push, or the search
+  // is silently narrowed to whatever was on screen before and comes back empty.
+  const urlCat = catParam(params);
+  const urlQ = qParam(params);
+  useEffect(() => {
+    if (urlCat === null && urlQ === null) return;
+    setCat(urlCat || "All");
+    setSearch(urlQ ?? "");
+  }, [urlCat, urlQ]);
 
   const cats = useQuery(api.catalog.categories) ?? [];
   const best = useQuery(api.catalog.bestSellers, { limit: 6 }) ?? [];

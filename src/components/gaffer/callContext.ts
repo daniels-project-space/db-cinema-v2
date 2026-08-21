@@ -16,9 +16,20 @@ export type CallBrief = { intent: string; brief: string };
 const title = (slug: string) =>
   slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
+/**
+ * How to actually run a sale on the phone. Spelled out because the tools now
+ * enforce it — add_to_basket refuses kit that isn't free, and go_to_checkout
+ * refuses a basket with a bad line, so an agent that doesn't know the sequence
+ * will just hit walls.
+ */
 const SELL_CLOSE =
-  "Quote the daily rate and the holding deposit, offer to put it in the basket for their dates, " +
-  "and ask for the dates if you don't have them.";
+  "Get their dates first — everything else depends on them. Use browse_for or find_gear to put real " +
+  "options on screen and check what's actually free for those dates; never promise something you " +
+  "haven't checked. When they pick one, add_to_basket highlights it on screen and drops it in. " +
+  "If it's booked out you'll be handed alternatives — offer those rather than dead-ending. " +
+  "Quote the daily rate and the refundable holding deposit. To close: review_basket first, so they " +
+  "see the full breakdown, and only once they confirm again, go_to_checkout. Two confirmations, " +
+  "never one.";
 
 export function pageBrief(pathname: string, topic?: string): CallBrief {
   const path = (pathname || "/").replace(/\/+$/, "") || "/";
@@ -55,7 +66,9 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
       "troubleshoot",
       "They are on the FAQ, so assume something is wrong or unclear — a fault with the kit, a " +
         "damage or deposit question, a late return, delivery or collection. Diagnose before you " +
-        "advise, give a direct answer, and if it needs a human say so and take their details.",
+        "advise, give a direct answer, and if it needs a human say so and take their details. " +
+        "If it turns out to be a how-do-I question about using the kit rather than a policy one, " +
+        "take them to the guides with navigate_to and walk them through it there.",
     );
   }
 
@@ -82,9 +95,11 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
   if (seg[0] === "cart" || seg[0] === "checkout") {
     return wrap(
       "close",
-      "They already have kit in the basket and are at the checkout, so this is the last hurdle — " +
-        "expect a question about dates, deposit, delivery or something they're unsure about. " +
-        "Answer it and get the booking over the line.",
+      "They already have kit in the basket, so this is the last hurdle — expect a question about " +
+        "dates, deposit, delivery or something they're unsure about. Run check_basket early: if a " +
+        "line has gone unavailable, say so plainly and offer either a swap (suggest_alternatives) " +
+        "or remove_unavailable, rather than letting them hit a blocked checkout. Once it's clean, " +
+        "go_to_checkout.",
     );
   }
 

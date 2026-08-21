@@ -7,6 +7,7 @@ import { CartDrawer } from "@/components/cart/CartDrawer";
 import { CartToast } from "@/components/cart/CartToast";
 import { AccountProvider } from "@/components/account/AccountProvider";
 import { GafferSessionProvider } from "@/components/gaffer/GafferSession";
+import { GafferFocusProvider } from "@/components/gaffer/GafferFocus";
 import { GafferDock } from "@/components/gaffer/GafferDock";
 import { Footer } from "@/components/Footer";
 import { AmbientBackground } from "@/components/AmbientBackground";
@@ -164,20 +165,25 @@ export default function RootLayout({
           <AnalyticsTracker />
           <AccountProvider>
             <CartProvider>
-              {/* Inside Account + Cart (its tools read both) and outside the
-                  page tree, so a call survives Gaffer navigating between pages. */}
-              <GafferSessionProvider>
-                <div id="main-content" tabIndex={-1} className="relative z-10">
-                  {children}
-                  <Footer />
-                </div>
-                <CartDrawer />
-                <CartToast />
-                <BotBubble />
-                <GearTurnOverlay />
-                <CheckoutTurnOverlay />
-                <GafferDock />
-              </GafferSessionProvider>
+              {/* Outside the session provider on purpose: gear tiles subscribe
+                  to focus, and the session context re-renders every second
+                  while a call is running. */}
+              <GafferFocusProvider>
+                {/* Inside Account + Cart (its tools read both) and outside the
+                    page tree, so a call survives Gaffer navigating between pages. */}
+                <GafferSessionProvider>
+                  <div id="main-content" tabIndex={-1} className="relative z-10">
+                    {children}
+                    <Footer />
+                  </div>
+                  <CartDrawer />
+                  <CartToast />
+                  <BotBubble />
+                  <GearTurnOverlay />
+                  <CheckoutTurnOverlay />
+                  <GafferDock />
+                </GafferSessionProvider>
+              </GafferFocusProvider>
             </CartProvider>
           </AccountProvider>
         </ConvexClientProvider>

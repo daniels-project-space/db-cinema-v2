@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
+import { useGafferFocus } from "@/components/gaffer/GafferFocus";
 import { SmartImage } from "@/components/SmartImage";
 import { IconHeart, IconCheck } from "@/components/icons";
 import { money } from "@/lib/pricing";
@@ -33,6 +34,9 @@ export function GearCard({ listing }: { listing: GearListing }) {
   const track = useMutation(api.analytics.track);
   const [registered, setRegistered] = useState(false);
   const faved = !!account.me?.favorites?.includes(listing._id);
+  // lit up when Gaffer names this item on a call, just before it goes in the basket
+  const { focusedId } = useGafferFocus();
+  const picked = focusedId === listing._id;
 
   function registerInterest(e: React.MouseEvent) {
     e.preventDefault();
@@ -54,7 +58,8 @@ export function GearCard({ listing }: { listing: GearListing }) {
   return (
     <Link
       href={`/gear/${slug}`}
-      className="group lift spot gradient-border relative flex h-full flex-col overflow-hidden rounded-2xl"
+      data-gaffer-focus={picked ? "true" : undefined}
+      className="gear-card group lift spot gradient-border relative flex h-full flex-col overflow-hidden rounded-2xl"
     >
       <button
         onClick={toggleFav}
