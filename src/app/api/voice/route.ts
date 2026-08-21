@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
-import { quote } from "@/lib/pricing";
+import { quote, depositFor } from "@/lib/pricing";
 import { dayMs } from "@/lib/dates";
 import { rateLimit } from "@/lib/ratelimit";
 import { londonToday, resolveDate, inclusiveDays, speak } from "@/lib/voiceDates";
@@ -26,6 +26,23 @@ const say = (result: string, extra: Record<string, unknown> = {}) =>
   NextResponse.json({ result, today: londonToday(), ...extra });
 
 const money = (n: number | null | undefined) => (n == null ? "" : `£${Math.round(n)}`);
+
+/**
+ * What the customer actually pays up front to hold the gear.
+ *
+ * A listing's `depositAmount` is its REPLACEMENT VALUE, not a charge — the
+ * checkout runs it through `depositFor` against the customer's protection
+ * choice, which defaults to "verify" (ID + insurance) and yields a small
+ * refundable hold of 5%, floored at £50 and capped at £200. Quoting the raw
+ * figure had Gaffer telling callers an FX3 needed £3,200 down when the real
+ * hold is £160 — the kind of number that ends a call.
+ *
+ * The full replacement deposit only applies if the customer declines the
+ * insurance route, so it's mentioned as the alternative, never the headline.
+ */
+function hold(replacementValue: number | null | undefined): number {
+  return depositFor("verify", Math.max(0, Number(replacementValue) || 0));
+}
 
 /** Read prices as a range the way a person would, not as a list. */
 function priceRange(from: number | null, to: number | null) {
@@ -148,7 +165,7 @@ export async function POST(req: NextRequest) {
           return say(
             `The ${shorten(top.title)} is ${money(qt.perDay)} a day` +
             (days > 1 ? `, ${money(qt.total)} for ${days} days` : "") +
-            `${top.deposit ? `, with a ${money(top.deposit)} deposit` : ""}. ` +
+            `${top.deposit ? `, plus a ${money(hold(top.deposit))} refundable holding deposit` : ""}. ` +
             `Shall I check it's free for your dates?${alt}`,
             { items: hits },
           );
@@ -197,7 +214,7 @@ export async function POST(req: NextRequest) {
           return say(
             `Good news — the ${shorten(top.title)} is free ${days > 1 ? `from ${speak(start.date)} to ${speak(endDate)}` : `on ${speak(start.date)}`}, ` +
             `at ${money(qt.perDay)} a day${days > 1 ? `, ${money(qt.total)} for the ${days} days` : ""}` +
-            `${top.deposit ? `, plus a ${money(top.deposit)} refundable deposit` : ""}. ` +
+            `${top.deposit ? `, plus a ${money(hold(top.deposit))} refundable holding deposit` : ""}. ` +
             `We deliver across London. Shall I take your details and hold it?`,
             { items: hits, start: start.date, end: endDate, days },
           );

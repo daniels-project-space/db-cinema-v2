@@ -6,7 +6,7 @@ import { useConvex } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
-import { quote } from "@/lib/pricing";
+import { quote, depositFor } from "@/lib/pricing";
 import { resolveDate, inclusiveDays, londonToday } from "@/lib/voiceDates";
 
 /**
@@ -158,7 +158,11 @@ export function useGafferTools() {
         instant();
         cart.close();
         router.push("/checkout");
-        return `Taking them to checkout, £${cart.subtotal} plus £${cart.depositTotal} deposit.`;
+        // cart.depositTotal is the summed REPLACEMENT value, which checkout runs
+        // through depositFor — quoting it raw would tell the customer an FX3
+        // needs £3,200 down instead of a £160 hold. Mirror the checkout default.
+        const holding = depositFor("verify", cart.depositTotal);
+        return `Taking them to checkout, £${cart.subtotal} plus a £${holding} refundable holding deposit.`;
       },
     }),
     [router, cart, findOne],
