@@ -2729,6 +2729,40 @@ html[data-gaffer-nav="1"] .tile-in {
   .fs-sample-copy b { font-size: 11px; }
 }
 
+/* The partner atmosphere and CTA art deliberately live before the responsive
+   refinements so their visual rules participate in the production CSS bundle. */
+.fs-overlay-atmosphere { position: absolute; z-index: 0; inset: 0; overflow: hidden; pointer-events: none; background: radial-gradient(ellipse at 50% 55%, rgba(10, 111, 60, 0.14), transparent 47%); }
+.fs-overlay-atmosphere::before, .fs-overlay-atmosphere::after { content: ""; position: absolute; width: min(74vw, 980px); aspect-ratio: 1; border-radius: 50%; filter: blur(84px); will-change: transform; }
+.fs-overlay-atmosphere::before { left: -24%; top: -42%; background: radial-gradient(circle, rgba(44, 236, 128, 0.4), rgba(8, 105, 54, 0.12) 40%, transparent 70%); animation: fs-atmosphere-drift-one 25s ease-in-out infinite alternate; }
+.fs-overlay-atmosphere::after { right: -27%; bottom: -47%; background: radial-gradient(circle, rgba(24, 183, 94, 0.33), rgba(6, 63, 32, 0.1) 44%, transparent 71%); animation: fs-atmosphere-drift-two 31s ease-in-out -8s infinite alternate; }
+@keyframes fs-atmosphere-drift-one { to { transform: translate3d(16vw, 11vh, 0) scale(1.15); } }
+@keyframes fs-atmosphere-drift-two { to { transform: translate3d(-14vw, -13vh, 0) scale(1.2); } }
+.fs-overlay-panel { z-index: 2; }
+.fs-overlay-light { z-index: 1; }
+
+.fs-offer-points li { position: relative; overflow: hidden; align-items: center; isolation: isolate; border-color: rgba(166, 255, 202, 0.19); border-radius: 1rem 0.62rem 0.9rem 0.7rem; background: linear-gradient(116deg, rgba(156, 255, 193, 0.1), transparent 43%), radial-gradient(circle at 87% 110%, rgba(37, 207, 106, 0.15), transparent 42%), rgba(4, 21, 12, 0.51); box-shadow: inset 0 1px rgba(241, 255, 246, 0.11), inset 0 -1px rgba(20, 122, 66, 0.2), 0 8px 24px rgba(0, 0, 0, 0.11); }
+.fs-offer-points li:nth-child(2) { border-radius: 0.66rem 1rem 0.66rem 0.92rem; transform: translateY(2px); }
+.fs-offer-points li:nth-child(3) { border-radius: 0.84rem 0.62rem 1rem 0.74rem; }
+.fs-offer-points li::before { content: ""; position: absolute; z-index: -1; inset: 0; opacity: 0.48; background: repeating-linear-gradient(132deg, transparent 0 9px, rgba(187, 255, 211, 0.08) 10px, transparent 11px 20px); mask-image: linear-gradient(90deg, black, transparent 78%); }
+.fs-offer-points li::after { content: ""; position: absolute; right: 0.55rem; top: 0.48rem; width: 0.72rem; height: 0.72rem; border-right: 1px solid rgba(173, 255, 205, 0.38); border-top: 1px solid rgba(173, 255, 205, 0.38); border-radius: 0 0.18rem 0 0; }
+.fs-offer-points li > span, .fs-offer-points li div { position: relative; z-index: 1; }
+.fs-offer-points li > span { box-shadow: 0 0 0 4px rgba(93, 246, 148, 0.09), 0 0 16px rgba(93, 246, 148, 0.7); }
+.fs-offer-points strong { font-family: var(--font-display, sans-serif); font-size: 11px; font-weight: 700; letter-spacing: -0.025em; }
+
+.fs-cta-row { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 36rem; }
+.fs-visit-button, .fs-sample-button { position: relative; min-height: 0; aspect-ratio: 21 / 9; padding: 0.58rem 0.7rem; overflow: hidden; }
+.fs-visit-button { justify-content: center; border-color: rgba(145, 255, 190, 0.48); background: linear-gradient(90deg, rgba(1, 8, 4, 0.05) 0%, rgba(1, 12, 6, 0.84) 37%, rgba(1, 12, 6, 0.94) 63%, rgba(1, 8, 4, 0.05) 100%), url("/brand/form-seven-explore-ugc.png") center / cover; box-shadow: inset 0 1px rgba(239, 255, 244, 0.2), 0 10px 28px rgba(20, 189, 94, 0.17); }
+.fs-visit-button::before { content: ""; position: absolute; left: 7%; right: 7%; top: 50%; height: 1px; background: linear-gradient(90deg, transparent, rgba(99, 250, 158, 0.72), rgba(226, 255, 234, 0.95), rgba(99, 250, 158, 0.72), transparent); box-shadow: 0 0 14px rgba(62, 238, 133, 0.74); animation: fs-synth-signal 3.8s ease-in-out infinite; }
+.fs-visit-button::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 26%, rgba(209, 255, 226, 0.1) 50%, transparent 74%); transform: translateX(-105%); animation: fs-card-sweep 7s ease-in-out infinite; }
+.fs-explore-copy { position: relative; z-index: 1; display: grid; gap: 0.1rem; justify-items: center; text-align: center; white-space: nowrap; text-shadow: 0 1px 12px rgba(0, 0, 0, 0.88); }
+.fs-explore-copy small { color: rgba(208, 255, 224, 0.68); font-family: var(--font-mono, monospace); font-size: 7px; font-weight: 700; letter-spacing: 0.18em; }
+.fs-explore-copy b { color: white; font-family: var(--font-display, sans-serif); font-size: 15px; letter-spacing: -0.035em; line-height: 0.88; }
+.fs-visit-button svg { position: absolute; z-index: 2; right: 0.65rem; top: 50%; transform: translateY(-50%); }
+.fs-sample-button { animation: fs-sample-card-glow 3.6s ease-in-out infinite; }
+@keyframes fs-synth-signal { 0%, 100% { opacity: 0.48; transform: scaleX(0.76); } 50% { opacity: 1; transform: scaleX(1); } }
+@keyframes fs-card-sweep { 0%, 60% { opacity: 0; transform: translateX(-105%); } 72% { opacity: 1; } 100% { opacity: 0; transform: translateX(105%); } }
+@keyframes fs-sample-card-glow { 0%, 100% { box-shadow: inset 0 1px rgba(239, 255, 244, 0.2), 0 8px 22px rgba(20, 189, 94, 0.12); } 50% { box-shadow: inset 0 1px rgba(239, 255, 244, 0.28), 0 0 0 1px rgba(158, 255, 195, 0.35), 0 10px 34px rgba(48, 227, 117, 0.33); } }
+
 @media (max-height: 680px) {
   .fs-overlay-panel { max-height: calc(100svh - 18px); }
   .fs-overlay-panel > header { min-height: 54px; }
@@ -2742,4 +2776,90 @@ html[data-gaffer-nav="1"] .tile-in {
   .fs-reel-stage { height: 126px; }
   .fs-reel-caption { min-height: 1.45rem; }
   .fs-visit-button, .fs-sample-button { min-height: 52px; }
+}
+
+/* A living, diffuse green field keeps the partner layer dimensional without
+   adding another hard-edged graphic behind the work. */
+.fs-overlay-atmosphere {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 56%, rgba(11, 98, 53, 0.11), transparent 46%);
+}
+.fs-overlay-atmosphere::before,
+.fs-overlay-atmosphere::after {
+  content: "";
+  position: absolute;
+  width: min(72vw, 980px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(84px);
+  opacity: 0.32;
+  will-change: transform;
+}
+.fs-overlay-atmosphere::before { left: -22%; top: -36%; background: radial-gradient(circle, rgba(44, 236, 128, 0.42), rgba(8, 105, 54, 0.14) 38%, transparent 70%); animation: fs-atmosphere-drift-one 25s ease-in-out infinite alternate; }
+.fs-overlay-atmosphere::after { right: -26%; bottom: -44%; background: radial-gradient(circle, rgba(24, 183, 94, 0.34), rgba(6, 63, 32, 0.12) 42%, transparent 71%); animation: fs-atmosphere-drift-two 31s ease-in-out -8s infinite alternate; }
+@keyframes fs-atmosphere-drift-one { to { transform: translate3d(16vw, 11vh, 0) scale(1.15); opacity: 0.48; } }
+@keyframes fs-atmosphere-drift-two { to { transform: translate3d(-14vw, -13vh, 0) scale(1.2); opacity: 0.46; } }
+.fs-overlay-panel { z-index: 2; }
+.fs-overlay-light { z-index: 1; }
+
+/* Offer tiles have their own slight asymmetry, inner edge work and low-lit
+   pigment so they feel art-directed rather than copied from a component kit. */
+.fs-offer-points li {
+  position: relative;
+  overflow: hidden;
+  align-items: center;
+  isolation: isolate;
+  border-color: rgba(166, 255, 202, 0.19);
+  border-radius: 1rem 0.62rem 0.9rem 0.7rem;
+  background:
+    linear-gradient(116deg, rgba(156, 255, 193, 0.1), transparent 43%),
+    radial-gradient(circle at 87% 110%, rgba(37, 207, 106, 0.15), transparent 42%),
+    rgba(4, 21, 12, 0.51);
+  box-shadow: inset 0 1px rgba(241, 255, 246, 0.11), inset 0 -1px rgba(20, 122, 66, 0.2), 0 8px 24px rgba(0, 0, 0, 0.11);
+}
+.fs-offer-points li:nth-child(2) { border-radius: 0.66rem 1rem 0.66rem 0.92rem; transform: translateY(2px); }
+.fs-offer-points li:nth-child(3) { border-radius: 0.84rem 0.62rem 1rem 0.74rem; }
+.fs-offer-points li::before { content: ""; position: absolute; z-index: -1; inset: 0; opacity: 0.48; background: repeating-linear-gradient(132deg, transparent 0 9px, rgba(187, 255, 211, 0.08) 10px, transparent 11px 20px); mask-image: linear-gradient(90deg, black, transparent 78%); }
+.fs-offer-points li::after { content: ""; position: absolute; right: 0.55rem; top: 0.48rem; width: 0.72rem; height: 0.72rem; border-right: 1px solid rgba(173, 255, 205, 0.38); border-top: 1px solid rgba(173, 255, 205, 0.38); border-radius: 0 0.18rem 0 0; }
+.fs-offer-points li > span, .fs-offer-points li div { position: relative; z-index: 1; }
+.fs-offer-points li > span { box-shadow: 0 0 0 4px rgba(93, 246, 148, 0.09), 0 0 16px rgba(93, 246, 148, 0.7); }
+.fs-offer-points strong { font-family: var(--font-display, sans-serif); font-size: 11px; font-weight: 700; letter-spacing: -0.025em; }
+.fs-offer-points small { max-width: 15rem; color: rgba(221, 255, 232, 0.55); }
+
+/* Both footer actions are true 21:9 film cards. The Explore card uses the
+   actual UGC talent; a live centre treatment keeps its message crisp. */
+.fs-cta-row { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 36rem; }
+.fs-visit-button, .fs-sample-button { position: relative; min-height: 0; aspect-ratio: 21 / 9; padding: 0.58rem 0.7rem; overflow: hidden; }
+.fs-visit-button {
+  justify-content: center;
+  border-color: rgba(145, 255, 190, 0.48);
+  background:
+    linear-gradient(90deg, rgba(1, 8, 4, 0.05) 0%, rgba(1, 12, 6, 0.84) 37%, rgba(1, 12, 6, 0.94) 63%, rgba(1, 8, 4, 0.05) 100%),
+    url("/brand/form-seven-explore-ugc.png") center / cover;
+  box-shadow: inset 0 1px rgba(239, 255, 244, 0.2), 0 10px 28px rgba(20, 189, 94, 0.17);
+}
+.fs-visit-button::before { content: ""; position: absolute; left: 7%; right: 7%; top: 50%; height: 1px; background: linear-gradient(90deg, transparent, rgba(99, 250, 158, 0.72), rgba(226, 255, 234, 0.95), rgba(99, 250, 158, 0.72), transparent); box-shadow: 0 0 14px rgba(62, 238, 133, 0.74); animation: fs-synth-signal 3.8s ease-in-out infinite; }
+.fs-visit-button::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 26%, rgba(209, 255, 226, 0.1) 50%, transparent 74%); transform: translateX(-105%); animation: fs-card-sweep 7s ease-in-out infinite; }
+.fs-explore-copy { position: relative; z-index: 1; display: grid; gap: 0.1rem; justify-items: center; text-align: center; text-shadow: 0 1px 12px rgba(0, 0, 0, 0.88); }
+.fs-explore-copy small { color: rgba(208, 255, 224, 0.68); font-family: var(--font-mono, monospace); font-size: 7px; font-weight: 700; letter-spacing: 0.18em; }
+.fs-explore-copy b { color: white; font-family: var(--font-display, sans-serif); font-size: 15px; letter-spacing: -0.035em; line-height: 0.88; }
+.fs-visit-button svg { position: absolute; z-index: 2; right: 0.65rem; top: 50%; transform: translateY(-50%); }
+.fs-sample-button { animation: fs-sample-card-glow 3.6s ease-in-out infinite; }
+@keyframes fs-synth-signal { 0%, 100% { opacity: 0.48; transform: scaleX(0.76); } 50% { opacity: 1; transform: scaleX(1); } }
+@keyframes fs-card-sweep { 0%, 60% { opacity: 0; transform: translateX(-105%); } 72% { opacity: 1; } 100% { opacity: 0; transform: translateX(105%); } }
+@keyframes fs-sample-card-glow { 0%, 100% { box-shadow: inset 0 1px rgba(239, 255, 244, 0.2), 0 8px 22px rgba(20, 189, 94, 0.12); } 50% { box-shadow: inset 0 1px rgba(239, 255, 244, 0.28), 0 0 0 1px rgba(158, 255, 195, 0.35), 0 10px 34px rgba(48, 227, 117, 0.33); } }
+
+@media (max-width: 639px) {
+  .fs-visit-button, .fs-sample-button { aspect-ratio: 21 / 9; min-height: 0; padding: 0.35rem 0.46rem; }
+  .fs-explore-copy small { font-size: 5px; letter-spacing: 0.12em; }
+  .fs-explore-copy b { font-size: 10px; }
+  .fs-visit-button svg { right: 0.38rem; width: 0.8rem; height: 0.8rem; }
+  .fs-offer-points li:nth-child(2) { transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fs-overlay-atmosphere::before, .fs-overlay-atmosphere::after, .fs-visit-button::before, .fs-visit-button::after, .fs-sample-button { animation: none !important; }
 }

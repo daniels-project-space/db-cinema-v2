@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { IconArrowRight, IconX } from "@/components/icons";
 import { FormSevenCarousel } from "@/components/FormSevenCarousel";
 
-const FORM_SEVEN_URL = process.env.NEXT_PUBLIC_FORM_SEVEN_URL || "https://form-seven-studio.rrxbrxtrqb.chatgpt.site";
-const FORM_SEVEN_SAMPLE_URL = `${FORM_SEVEN_URL.replace(/\/$/, "")}/?samplePlan=Free%20six-second%20sample#free-video`;
+// The active FORM / SEVEN site. An older custom-domain environment value points
+// to a separate deployment and cannot receive the free-sample referral state.
+const FORM_SEVEN_URL = "https://form-seven-studio.rrxbrxtrqb.chatgpt.site";
+const FORM_SEVEN_SAMPLE_URL = `${FORM_SEVEN_URL.replace(/\/$/, "")}/?samplePlan=Free%20six-second%20sample`;
 
 const FORM_SEVEN_POINTS = [
   ["Ads from £20", "Art-directed films, without the agency wait."],
@@ -67,6 +69,7 @@ export function SignatureProductionsOverlay({
   return (
     <div className="fixed inset-0 z-[130]" role="dialog" aria-modal="true" aria-label="FORM / SEVEN creative studio" aria-describedby="form-seven-overlay-description">
       <div onClick={onClose} className={`absolute inset-0 bg-[#02070b]/66 backdrop-blur-xl transition-opacity duration-500 ${shown ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
+      <div className="fs-overlay-atmosphere" aria-hidden="true" />
       <div className="fs-overlay-light fs-overlay-light-one" aria-hidden="true" />
       <div className="fs-overlay-light fs-overlay-light-two" aria-hidden="true" />
 
@@ -98,7 +101,7 @@ export function SignatureProductionsOverlay({
 
         <footer className="relative z-10">
           <div className="fs-cta-row">
-            <a href={FORM_SEVEN_URL} target="_blank" rel="noreferrer" className="fs-visit-button"><span>Explore FORM / SEVEN</span><IconArrowRight className="h-4 w-4" /></a>
+            <a href={FORM_SEVEN_URL} target="_blank" rel="noreferrer" className="fs-visit-button"><span className="fs-explore-copy"><small>FORM / SEVEN</small><b>EXPLORE</b></span><IconArrowRight className="h-4 w-4" /></a>
             <a href={FORM_SEVEN_SAMPLE_URL} target="_blank" rel="noreferrer" className="fs-sample-button"><span className="fs-sample-copy"><small>GET A FREE</small><b>AD SAMPLE</b></span><IconArrowRight className="h-4 w-4 shrink-0" /></a>
           </div>
         </footer>

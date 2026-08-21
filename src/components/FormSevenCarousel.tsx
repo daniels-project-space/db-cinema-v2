@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const ITEMS = [
   { src: "/brand/carousel/begim-serum-commercial.mp4", poster: "/brand/carousel/begim-serum-commercial.jpg", caption: "Begim Serum", detail: "Beauty / ritual" },
@@ -38,12 +38,29 @@ export function FormSevenCarousel() {
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
   const [readyIndexes, setReadyIndexes] = useState<Set<number>>(() => new Set());
+  const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
 
   useEffect(() => {
     if (paused || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = window.setInterval(() => setActive((index) => wrap(index + 1)), ADVANCE_EVERY);
     return () => window.clearInterval(id);
   }, [paused]);
+
+  useEffect(() => {
+    const keepEveryFilmPlaying = () => {
+      if (document.visibilityState === "hidden") return;
+      videoRefs.current.forEach((video) => {
+        if (video?.paused) void video.play().catch(() => undefined);
+      });
+    };
+    keepEveryFilmPlaying();
+    const interval = window.setInterval(keepEveryFilmPlaying, 1200);
+    document.addEventListener("visibilitychange", keepEveryFilmPlaying);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", keepEveryFilmPlaying);
+    };
+  }, []);
 
   const selected = ITEMS[active];
 
@@ -89,13 +106,17 @@ export function FormSevenCarousel() {
             >
               <img src={item.poster} alt="" loading={isSelected ? "eager" : "lazy"} decoding="async" className="h-full w-full object-cover" />
               <video
+                ref={(video) => { videoRefs.current[index] = video; }}
                 src={item.src}
                 autoPlay
                 muted
                 loop
                 playsInline
                 preload="auto"
-                onCanPlay={() => setReadyIndexes((ready) => ready.has(index) ? ready : new Set(ready).add(index))}
+                onCanPlay={(event) => {
+                  setReadyIndexes((ready) => ready.has(index) ? ready : new Set(ready).add(index));
+                  if (event.currentTarget.paused) void event.currentTarget.play().catch(() => undefined);
+                }}
                 aria-hidden="true"
                 className={`fs-reel-motion h-full w-full object-cover ${readyIndexes.has(index) ? "opacity-100" : "opacity-0"}`}
               />
