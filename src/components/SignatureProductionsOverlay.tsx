@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { IconArrowRight, IconCheck, IconSpark, IconX } from "@/components/icons";
+import { FormSevenCarousel } from "@/components/FormSevenCarousel";
 
 const FORM_SEVEN_URL = process.env.NEXT_PUBLIC_FORM_SEVEN_URL || "";
 
@@ -69,15 +70,15 @@ export function SignatureProductionsOverlay({
       {/* frosted backdrop */}
       <div
         onClick={onClose}
-        className={`absolute inset-0 bg-black/70 backdrop-blur-md transition-opacity duration-500 ${
+        className={`absolute inset-0 bg-black/45 backdrop-blur-lg transition-opacity duration-500 ${
           shown ? "opacity-100" : "opacity-0"
         }`}
         aria-hidden
       />
 
-      {/* panel */}
+      {/* panel — more frosted (heavier blur) and more see-through (lower fill opacity) for a modern glass feel */}
       <div
-        className={`absolute left-1/2 top-1/2 max-h-[90vh] w-[min(960px,94vw)] -translate-x-1/2 overflow-y-auto rounded-3xl border border-white/10 bg-charcoal-900/90 p-6 shadow-2xl shadow-black/70 backdrop-blur-xl transition-[opacity,transform] duration-500 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)] sm:p-8 ${
+        className={`absolute left-1/2 top-1/2 max-h-[90vh] w-[min(960px,94vw)] -translate-x-1/2 overflow-y-auto rounded-3xl border border-white/15 bg-charcoal-900/45 p-6 shadow-2xl shadow-black/70 backdrop-blur-2xl transition-[opacity,transform] duration-500 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)] sm:p-8 ${
           shown ? "-translate-y-1/2 scale-100 opacity-100" : "-translate-y-[47%] scale-[0.97] opacity-0"
         }`}
       >
@@ -193,6 +194,11 @@ export function SignatureProductionsOverlay({
               </button>
             )}
           </div>
+        </div>
+
+        <div className="mt-8 border-t border-white/10 pt-6">
+          <div className="hud-label mb-3 text-accent-400">Recent work, live from FORM / SEVEN</div>
+          <FormSevenCarousel />
         </div>
       </div>
     </div>

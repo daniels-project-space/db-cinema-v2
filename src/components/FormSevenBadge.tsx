@@ -69,12 +69,23 @@ function FormSevenMark({ shining }: { shining: boolean }) {
   );
 }
 
-/** The whole rounded-rect "coin" — badge frame + glow ring + mark all turn together as one unit. */
+/**
+ * The whole rounded-rect "coin" — badge frame + glow ring + mark all turn
+ * together as one unit. A duplicate of the mark sits on the back face
+ * (`backface-visibility: hidden` on both), so at every point in the turn one
+ * of the two is facing the camera — the mark stays persistently visible
+ * through the whole spin instead of fading through the edge-on moment.
+ */
 export function FormSevenCoin({ spinning, shining }: { spinning: boolean; shining: boolean }) {
   return (
     <span className="fs-coin-stage inline-flex shrink-0">
       <span className={`fs-badge relative flex h-12 aspect-[9/16] items-center justify-center rounded-lg ${spinning ? "fs-spin" : ""}`}>
-        <FormSevenMark shining={shining} />
+        <span className="fs-face fs-face-front">
+          <FormSevenMark shining={shining} />
+        </span>
+        <span className="fs-face fs-face-back">
+          <FormSevenMark shining={shining} />
+        </span>
       </span>
     </span>
   );

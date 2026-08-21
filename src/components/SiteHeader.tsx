@@ -80,31 +80,33 @@ export function SiteHeader() {
         }`}
       >
         <div className="relative mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-          {/* FORM / SEVEN coin + logo — hovering the coin swaps this whole row for a
-              centered takeover headline; clicking the coin opens the partner overlay */}
+          {/* logo + FORM / SEVEN coin — logo always stays put; hovering the coin fades
+              the nav out for a centered takeover headline. Clicking the coin opens
+              the partner overlay. */}
           <div
             className="flex items-center gap-3"
             onMouseEnter={() => setF7Hover(true)}
             onMouseLeave={() => setF7Hover(false)}
           >
+            <Link
+              href="/"
+              className="group inline-flex min-h-[44px] items-center gap-1.5 font-display text-xl font-bold tracking-tight"
+            >
+              <span className="text-white">DB</span>
+              <span className="gradient-text">CINEMA</span>
+              <span className="ml-1 hidden font-mono text-[10px] uppercase tracking-[0.3em] text-white/30 transition-colors group-hover:text-accent-400/70 lg:inline">
+                Rentals
+              </span>
+            </Link>
+            <span aria-hidden className="select-none text-lg font-light text-white/25">
+              ×
+            </span>
             <button
               onClick={() => setSignatureOpen(true)}
               aria-label="FORM / SEVEN — AI-native ad agency, open partner overlay"
             >
               <FormSevenCoin spinning={spinning} shining={shining} />
             </button>
-            <Link
-              href="/"
-              className={`group inline-flex min-h-[44px] items-center gap-1.5 font-display text-lg font-bold tracking-tight transition-opacity duration-300 ${
-                f7Hover ? "opacity-0" : "opacity-100"
-              }`}
-            >
-              <span className="text-white">DB</span>
-              <span className="gradient-text">CINEMA</span>
-              <span className="ml-1 hidden font-mono text-[9px] uppercase tracking-[0.3em] text-white/30 transition-colors group-hover:text-accent-400/70 lg:inline">
-                Rentals
-              </span>
-            </Link>
           </div>
 
           {/* centered takeover headline — shown only while hovering the coin */}
