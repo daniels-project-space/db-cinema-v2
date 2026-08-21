@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { useGafferTools } from "@/components/gaffer/useGafferTools";
 import { isSignOff, pageBrief } from "@/components/gaffer/callContext";
 import { createHintController } from "@/components/gaffer/hintTiming";
+import { micState, requestMic } from "@/components/gaffer/micPermission";
 
 /**
  * Owns the live Gaffer voice session, above the page tree.
@@ -41,7 +42,14 @@ type Ctx = {
    */
   dockOpen: boolean;
   setDockOpen: (open: boolean) => void;
+  /** Set while our own mic explainer is up. Null the rest of the time. */
+  micPrompt: MicPrompt;
+  /** Fires the real browser prompt, then starts the call if it's allowed. */
+  allowMic: () => Promise<void>;
+  dismissMicPrompt: () => void;
 };
+
+export type MicPrompt = { status: "ask" | "denied" | "error"; topic?: string } | null;
 
 /** How long the "here's how to hang up" hint stays up on its own. */
 const HINT_MS = 3_000;
@@ -92,8 +100,14 @@ function rememberOverridesBlocked() {
 /** Hang up after this much dead air from the caller. Time the agent spends
  *  talking doesn't count — only silence where a reply was expected. */
 const SILENCE_MS = 20_000;
-/** Grace after a sign-off, so Gaffer's goodbye actually plays before we cut. */
-const FAREWELL_MS = 6_000;
+/**
+ * Backstop only. After a sign-off we wait for Gaffer to stop speaking rather
+ * than counting seconds — a fixed window clipped any goodbye that ran long.
+ * This just catches a goodbye that never comes.
+ */
+const FAREWELL_MAX_MS = 14_000;
+/** Beat after the last word, so the audio tail isn't chopped. */
+const GOODBYE_TAIL_MS = 900;
 /**
  * A call that dies inside this window, with an override set and nobody having
  * hung up, is the agent refusing the override rather than a real disconnect.
@@ -130,6 +144,9 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   /** True when we hung up on purpose, so a retry isn't mistaken for a rejection. */
   const endedDeliberately = useRef(false);
   const [dockOpen, setDockOpen] = useState(false);
+  const [micPrompt, setMicPrompt] = useState<MicPrompt>(null);
+  /** Only gate on the mic once per page — after that the browser has an answer. */
+  const micAsked = useRef(false);
   /** Shows the hang-up panel once per call, in the first gap. See hintTiming. */
   const hint = useRef(
     createHintController({
@@ -176,13 +193,39 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         lastActivity.current = Date.now();
         return;
       }
-      if (Date.now() - lastActivity.current >= SILENCE_MS) void end();
+      if (Date.now() - lastActivity.current < SILENCE_MS) return;
+      // Out of patience — but let Gaffer land the sentence it's on. Marking it
+      // as signing off routes the hang-up through the same
+      // wait-for-the-last-word path a spoken goodbye uses, instead of cutting
+      // mid-word.
+      signingOff.current = true;
+      try {
+        conv.current?.sendContextualUpdate?.(
+          "[Context] The caller has gone quiet and hasn't answered. Finish your sentence, say a " +
+            "brief goodbye, and stop.",
+        );
+      } catch { /* non-fatal */ }
+      if (farewell.current) clearTimeout(farewell.current);
+      farewell.current = setTimeout(() => void end(), FAREWELL_MAX_MS);
     }, 1000);
     return () => clearInterval(id);
   }, [state, end]);
 
   const toggle = useCallback(async (topic?: string) => {
     if (state === "live" || state === "connecting") { void end(); return; }
+
+    // Explain before the browser asks. An unexplained mic prompt on a rental
+    // site is the kind of thing people refuse on reflex, and a refusal is
+    // sticky — Chrome won't ask twice.
+    if (!micAsked.current) {
+      const perm = await micState();
+      if (perm !== "granted") {
+        micAsked.current = true;
+        setMicPrompt({ status: perm === "denied" ? "denied" : "ask", topic });
+        return;
+      }
+    }
+
     setState("connecting");
     setError(null);
     signingOff.current = false;
@@ -259,11 +302,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
               try { localStorage.removeItem(OVERRIDE_MEMO_KEY); } catch { /* fine */ }
             }, OVERRIDE_PROBE_MS + 500);
           }
-          // Tell Gaffer where the call came from before it opens its mouth.
-          // A contextual update is injected as context, not spoken, and needs
-          // nothing configured on the agent — unlike dynamic variables, which
-          // are inert unless the agent prompt interpolates them.
-          try { conv.current?.sendContextualUpdate?.(brief); } catch { /* non-fatal */ }
+          // The brief is sent just after startSession resolves — see below for
+          // why it cannot be sent from here.
         },
         onDisconnect: () => {
           if (!mine()) return;
@@ -288,8 +328,12 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         },
         onMessage: ({ message, source }: { message: string; source: "user" | "ai" }) => {
           if (!mine()) return;
+          // Only the *caller* speaking counts as activity. Resetting on Gaffer's
+          // own messages meant a chatty agent kept the dead-air timer alive
+          // forever, so a caller who walked away was never hung up on.
+          if (source !== "user") return;
           lastActivity.current = Date.now();
-          if (source !== "user" || signingOff.current) return;
+          if (signingOff.current) return;
           if (!isSignOff(message)) return;
           // Let Gaffer say goodbye properly rather than cutting it dead.
           signingOff.current = true;
@@ -299,7 +343,11 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
                 "and stop — do not ask another question or offer anything else.",
             );
           } catch { /* non-fatal */ }
-          farewell.current = setTimeout(() => void end(), FAREWELL_MS);
+          // Don't hang up on a timer — that cut Gaffer off mid-goodbye whenever
+          // the farewell ran past the window. Wait for it to actually stop
+          // speaking (see onModeChange); this is only the backstop for a
+          // goodbye that never arrives.
+          farewell.current = setTimeout(() => void end(), FAREWELL_MAX_MS);
         },
         onError: (err: unknown) => {
           if (!mine()) return;
@@ -310,6 +358,15 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         onModeChange: (m: any) => {
           if (!mine()) return;
           const talking = m?.mode === "speaking";
+
+          // Signing off: hang up when the goodbye is actually finished, not on a
+          // fixed timer. A short beat after the last word so the audio tail
+          // isn't clipped.
+          if (signingOff.current && agentTalking.current && !talking) {
+            if (farewell.current) clearTimeout(farewell.current);
+            farewell.current = setTimeout(() => void end(), GOODBYE_TAIL_MS);
+          }
+
           // Gaffer has just finished its opening question — the first natural
           // gap in the call, and the moment to show how to hang up.
           hint.current.noteTalking(talking);
@@ -336,9 +393,26 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
        * rather than handing the customer a dead button.
        */
       try {
-        conv.current = withOverrides
+        const session = withOverrides
           ? await Conversation.startSession({ ...cfg, overrides: { agent: { firstMessage: opening } } })
           : await Conversation.startSession(cfg);
+
+        // Hung up while this was still connecting.
+        //
+        // `end()` can only close what it can see, and until this line there is
+        // nothing in `conv.current` to close — so a quick cancel left a fully
+        // live session with a hot mic that the UI showed as idle and no button
+        // could reach. Close it here instead of adopting it.
+        if (!mine()) {
+          try { await session.endSession(); } catch { /* already gone */ }
+          return;
+        }
+        conv.current = session;
+
+        // Send the page brief now, not in onConnect: that fires *inside*
+        // startSession, before this assignment, so `conv.current` was still
+        // null there and the update went nowhere.
+        try { session.sendContextualUpdate?.(brief); } catch { /* non-fatal */ }
       } catch (err: any) {
         if (!mine()) return;
         // Some rejections do throw. Same fallback, so either shape recovers.
@@ -369,9 +443,26 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     void conv.current?.endSession?.().catch?.(() => {});
   }, []);
 
+  /** Triggered from the explainer, so the browser prompt follows a real click. */
+  const allowMic = useCallback(async () => {
+    const topic = micPrompt?.topic;
+    const res = await requestMic();
+    if (!res.ok) {
+      setMicPrompt({ status: res.reason === "denied" ? "denied" : "error", topic });
+      return;
+    }
+    setMicPrompt(null);
+    void toggle(topic);
+  }, [micPrompt, toggle]);
+
+  const dismissMicPrompt = useCallback(() => setMicPrompt(null), []);
+
   const value = useMemo(
-    () => ({ state, speaking, secs, error, toggle, end, dockOpen, setDockOpen }),
-    [state, speaking, secs, error, toggle, end, dockOpen],
+    () => ({
+      state, speaking, secs, error, toggle, end, dockOpen, setDockOpen,
+      micPrompt, allowMic, dismissMicPrompt,
+    }),
+    [state, speaking, secs, error, toggle, end, dockOpen, micPrompt, allowMic, dismissMicPrompt],
   );
   return <GafferCtx.Provider value={value}>{children}</GafferCtx.Provider>;
 }

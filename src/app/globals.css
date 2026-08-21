@@ -651,6 +651,30 @@ html[data-gaffer-nav="1"] .tile-in {
    Same button, same corner — it just stops being amber and starts insisting.
    A second floating control only for calls meant two round buttons stacked in
    one corner, so this carries the call state instead. */
+/* ── Microphone explainer ────────────────────────────────────────
+   Fades in over the page, and slides up on a phone where it sits at the
+   bottom within thumb reach. */
+.mic-ask .mic-ask-scrim {
+  background: rgba(4, 4, 8, 0.72);
+  opacity: 0;
+  transition: opacity 0.32s var(--ease-out-expo);
+}
+.mic-ask .mic-ask-card {
+  opacity: 0;
+  transform: translateY(16px) scale(0.98);
+  transition:
+    opacity 0.32s var(--ease-out-expo),
+    transform 0.32s var(--ease-out-expo);
+}
+.mic-ask[data-visible="true"] .mic-ask-scrim { opacity: 1; }
+.mic-ask[data-visible="true"] .mic-ask-card { opacity: 1; transform: none; }
+.mic-ask[data-visible="false"] { pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mic-ask .mic-ask-scrim,
+  .mic-ask .mic-ask-card { transition-duration: 0.01ms; }
+}
+
 /* Idle colours, and the slow crossfade into "on a call".
    Held in CSS rather than swapped Tailwind classes so amber→red actually
    transitions — a class swap changes the colour on the next frame, which

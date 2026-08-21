@@ -314,6 +314,50 @@ export function useGafferTools() {
       },
 
       /**
+       * File the enquiry. This is the one that makes taking someone's details
+       * mean something.
+       *
+       * Without it Gaffer collected names, numbers and requirements on a call
+       * and they evaporated when the socket closed — nothing in the inbox,
+       * nothing in anyone's email. This lands it in the same contact inbox the
+       * website form feeds, and alerts the owner by email and Telegram, using
+       * the path the phone line already uses.
+       *
+       * Call it before the call ends, even if a follow-up email was also sent:
+       * the customer's copy and the owner's copy are different jobs.
+       */
+      log_enquiry: async ({ kind, name, phone, email, message }: {
+        kind?: string; name?: string; phone?: string; email?: string; message: string;
+      }) => {
+        const detail = String(message ?? "").trim();
+        if (!detail) return "Tell me what to write down first.";
+
+        const me: any = (account as any)?.me ?? null;
+        const who = String(name ?? "").trim() || me?.name || "Voice caller";
+        const addr = String(email ?? "").trim() || me?.email || undefined;
+        // booking | inquiry | issue | callback — anything else is an inquiry
+        const k = ["booking", "inquiry", "issue", "callback"].includes(String(kind))
+          ? String(kind)
+          : "inquiry";
+
+        try {
+          await convex.mutation(api.voice.lead, {
+            kind: k,
+            name: who,
+            phone: phone ? String(phone) : undefined,
+            email: addr,
+            message: detail,
+          });
+          return (
+            `Logged it as a ${k} for ${who}${addr ? ` (${addr})` : ""} — the team has it now ` +
+            `and will pick it up.`
+          );
+        } catch {
+          return "Couldn't file that just now — take their email and use send_follow_up instead.";
+        }
+      },
+
+      /**
        * "I'll email that over" — puts the outcome of the call in writing.
        *
        * The reply-to is threaded, so when the customer answers that email it

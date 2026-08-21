@@ -8,6 +8,7 @@ import { CartToast } from "@/components/cart/CartToast";
 import { AccountProvider } from "@/components/account/AccountProvider";
 import { GafferSessionProvider } from "@/components/gaffer/GafferSession";
 import { GafferFocusProvider } from "@/components/gaffer/GafferFocus";
+import { MicPermission } from "@/components/gaffer/MicPermission";
 import { GafferDock } from "@/components/gaffer/GafferDock";
 import { Footer } from "@/components/Footer";
 import { AmbientBackground } from "@/components/AmbientBackground";
@@ -182,6 +183,7 @@ export default function RootLayout({
                   <GearTurnOverlay />
                   <CheckoutTurnOverlay />
                   <GafferDock />
+                  <MicPermission />
                 </GafferSessionProvider>
               </GafferFocusProvider>
             </CartProvider>

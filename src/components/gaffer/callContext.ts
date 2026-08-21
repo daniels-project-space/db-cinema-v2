@@ -65,12 +65,14 @@ const SELL_CLOSE =
  * a thread Gaffer answers in; everyone else needs either an email or an account.
  */
 const FOLLOW_UP =
-  "If this needs anything after the call — a quote, a part, someone to check stock, a reply you " +
-  "can't give now — don't leave it in the air. If they're signed in, say you'll reply in their " +
-  "chat and use open_chat so they know where to look. If they're not, ask for their email and use " +
-  "send_follow_up to put it in writing; then offer them an account with offer_account, because a " +
-  "signed-in customer gets a chat you answer directly instead of waiting on email. Ask once, " +
-  "naturally, and don't push it if they say no.";
+  "The moment you have taken someone's name, number, email or a requirement you can't settle on " +
+  "the call, use log_enquiry — that is what puts it in front of the team. Details you only say " +
+  "back to the caller are lost the second the call ends. Do it before you wrap up, every time. " +
+  "Then: if they're signed in, say you'll reply in their chat and use open_chat so they know " +
+  "where to look. If they're not, ask for their email and use send_follow_up to put it in " +
+  "writing; then offer them an account with offer_account, because a signed-in customer gets a " +
+  "chat you answer directly instead of waiting on email. Ask once, naturally, and don't push it " +
+  "if they say no.";
 
 export function pageBrief(pathname: string, topic?: string): CallBrief {
   const path = (pathname || "/").replace(/\/+$/, "") || "/";
