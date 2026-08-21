@@ -110,6 +110,7 @@ export const PROFESSIONAL_TERMS: { h: string; p: string }[] = [
 
 /** Pitch bullets used on the professional onboarding choice + final step. */
 export const PROFESSIONAL_PERKS: { icon: string; h: string; p: string }[] = [
+  { icon: "⭐", h: "Free Pro membership", p: "Our £49/mo Pro membership, on us — 15% off every rental, priority availability and more, for as long as you're on the roster." },
   { icon: "📣", h: "We bring in the leads", p: "We market the roster and match you with paying clients directly." },
   { icon: "🎬", h: "50% off all our gear", p: "Rent any camera, lens, light or rig at half price for shoots booked through us." },
   { icon: "📝", h: "Contracts handled both ends", p: "We handle the contract and terms for you and the client." },

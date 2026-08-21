@@ -77,11 +77,32 @@ export const _create = internalMutation({
       name: a.name,
       createdAt: Date.now(),
     });
+    await _applyPendingCollectiveGrant(ctx, accountId, a.email);
     const now = Date.now();
     await ctx.db.insert("sessions", { token: a.token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
     return accountId;
   },
 });
+
+/** If a Creative Collective admin already approved this email for a complimentary
+ *  membership before an account existed (`collective_applications.grantActive === true`),
+ *  apply it to the freshly created account. Shared by both signup paths — password
+ *  (`_create` above) and Google (`_upsertGoogle`'s insert-new-row branch in googleAuth.ts;
+ *  the "link Google onto an existing account" branch never calls this — that account
+ *  already got its grant applied once, either here or by an admin grant/revoke). */
+export async function _applyPendingCollectiveGrant(ctx: any, accountId: any, email: string) {
+  const apps = await ctx.db
+    .query("collective_applications")
+    .withIndex("by_email", (q: any) => q.eq("email", email))
+    .collect();
+  const grant = apps.find((a: any) => a.grantActive === true && a.grantedTier);
+  if (!grant) return;
+  await ctx.db.patch(accountId, {
+    membershipTier: grant.grantedTier,
+    membershipActive: true,
+    membershipSource: "collective-comp",
+  });
+}
 
 export const _session = internalMutation({
   args: { accountId: v.id("accounts"), token: v.string() },
@@ -212,6 +233,39 @@ export const _setMembership = internalMutation({
         membershipActive: true,
         stripeSubscriptionId: subscriptionId,
       });
+  },
+});
+
+/** Admin-granted complimentary membership for an approved Creative Collective member
+ *  (professionals → "pro", gear-providers → "plus"). Marked `membershipSource:
+ *  "collective-comp"` so it's never confused with — or clobbered by — a real Stripe
+ *  subscription. No-op if the account doesn't exist yet (the applicant hasn't signed up);
+ *  `collective_applications.grantActive` is the source of truth until then, applied by
+ *  `_applyPendingCollectiveGrant` at signup time. */
+export const _grantComplimentaryMembership = internalMutation({
+  args: { email: v.string(), tier: v.string() },
+  handler: async (ctx, { email, tier }) => {
+    const a = await ctx.db
+      .query("accounts")
+      .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
+      .first();
+    if (!a) return;
+    await ctx.db.patch(a._id, { membershipTier: tier, membershipActive: true, membershipSource: "collective-comp" });
+  },
+});
+
+/** Revoke a complimentary Creative Collective membership. Only ever touches an account
+ *  whose current membership came from `_grantComplimentaryMembership` — never a real paid
+ *  subscription (guarded by `membershipSource`). */
+export const _revokeComplimentaryMembership = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const a = await ctx.db
+      .query("accounts")
+      .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
+      .first();
+    if (!a || a.membershipSource !== "collective-comp") return;
+    await ctx.db.patch(a._id, { membershipTier: undefined, membershipActive: false });
   },
 });
 

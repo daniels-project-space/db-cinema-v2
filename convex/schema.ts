@@ -344,6 +344,10 @@ export default defineSchema({
     // shared
     notes: v.optional(v.string()),
     reviewedAt: v.optional(v.number()),
+    // complimentary membership grant (applied on approval — see convex/accounts.ts)
+    grantedTier: v.optional(v.string()), // "pro" (professional) or "plus" (gear-provider)
+    grantActive: v.optional(v.boolean()), // false once an admin deactivates the member
+    operatorId: v.optional(v.id("operators")), // back-link to the roster row (professionals only)
   })
     .index("by_status", ["status"])
     .index("by_email", ["email"]),
@@ -366,6 +370,7 @@ export default defineSchema({
     stripeCustomerId: v.optional(v.string()),
     membershipTier: v.optional(v.string()),
     membershipActive: v.optional(v.boolean()),
+    membershipSource: v.optional(v.string()), // "collective-comp" = free grant from Creative Collective approval; undefined = real Stripe subscription
     freeAccessoryMonth: v.optional(v.string()),
     freeAccessoryUsed: v.optional(v.number()),
     stripeSubscriptionId: v.optional(v.string()),

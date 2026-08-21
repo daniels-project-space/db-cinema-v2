@@ -1,6 +1,7 @@
 import { action, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { _applyPendingCollectiveGrant } from "./accounts";
 
 const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — mirrors accounts.ts
 const GOOGLE_CERTS = "https://www.googleapis.com/oauth2/v3/certs";
@@ -101,6 +102,7 @@ export const _upsertGoogle = internalMutation({
         googleAvatarUrl: a.picture,
         createdAt: now,
       });
+      await _applyPendingCollectiveGrant(ctx, id, a.email);
       await ctx.db.insert("sessions", {
         token: a.token,
         accountId: id,

@@ -496,6 +496,7 @@ function AdminCollective({ token }: { token: string }) {
   const res = useQuery(api.collective.adminList, { token });
   const review = useMutation(api.collective.review);
   const setIdVerified = useMutation(api.collective.setIdVerified);
+  const setActive = useMutation(api.collective.setActive);
   const [busy, setBusy] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [edit, setEdit] = useState<any>(null);
@@ -539,6 +540,19 @@ function AdminCollective({ token }: { token: string }) {
       await review({ token, id: a._id, action, edits });
       setEditId(null);
       setEdit(null);
+    } catch (e: any) {
+      alert(e?.message ?? "Failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function toggleActive(a: any) {
+    // grantActive predates this feature for old approvals — undefined reads as active
+    const currentlyActive = a.grantActive !== false;
+    setBusy(a._id + "active");
+    try {
+      await setActive({ token, id: a._id, active: !currentlyActive });
     } catch (e: any) {
       alert(e?.message ?? "Failed");
     } finally {
@@ -681,6 +695,27 @@ function AdminCollective({ token }: { token: string }) {
                       Reject
                     </button>
                   </>
+                )}
+              </div>
+            )}
+
+            {a.status === "approved" && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => toggleActive(a)}
+                  disabled={busy === a._id + "active"}
+                  className={`rounded-full px-4 py-1.5 text-xs disabled:opacity-40 ${
+                    a.grantActive !== false
+                      ? "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+                      : "bg-red-500/15 text-red-300 hover:bg-red-500/25"
+                  }`}
+                >
+                  {a.grantActive !== false ? "Active — deactivate" : "Inactive — reactivate"}
+                </button>
+                {a.kind === "gear-provider" && (
+                  <span className="text-[11px] text-white/30">
+                    Only affects their free membership perk — not linked to any live listings.
+                  </span>
                 )}
               </div>
             )}

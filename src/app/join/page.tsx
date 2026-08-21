@@ -40,14 +40,14 @@ export default function JoinPage() {
                 eyebrow="Earn from your kit"
                 title="List your gear"
                 body={`Put idle equipment on our catalogue. We handle listing, bookings, vetting and insurance — you keep ${GEAR_SPLIT.provider}% of every rental.`}
-                bullets={[`${GEAR_SPLIT.provider}% of rental revenue to you`, "You keep full ownership", "We manage renters & insurance"]}
+                bullets={[`${GEAR_SPLIT.provider}% of rental revenue to you`, "You keep full ownership", "We manage renters & insurance", "Free Plus membership included"]}
               />
               <ChoiceCard
                 onClick={() => setPath("professional")}
                 eyebrow="Get hired"
                 title="Join as a professional"
                 body="Add your profile to our crew roster. Clients book you through Db Cinema for shoots across London — and you unlock crew-only perks."
-                bullets={["50% off our gear for your shoots", "We bring you clients directly", "Verified-crew badge clients trust"]}
+                bullets={["50% off our gear for your shoots", "We bring you clients directly", "Verified-crew badge clients trust", "Free Pro membership included"]}
               />
             </div>
 

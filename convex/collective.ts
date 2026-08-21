@@ -52,6 +52,9 @@ export const apply = mutation({
     if (a.kind === "gear-provider" && !a.gearValue?.trim()) {
       throw new Error("Please add an approximate total value of your gear.");
     }
+    // normalize to match accounts.ts (`.trim().toLowerCase()`) so a later signup's by_email
+    // lookup in _applyPendingCollectiveGrant reliably finds this application's grant.
+    a.email = a.email.trim().toLowerCase();
     await ctx.db.insert("collective_applications", { ...a, status: "pending", idStatus: "none" });
 
     const summary =
@@ -253,10 +256,14 @@ export const review = mutation({
     if (edits && Object.keys(edits).length > 0) await ctx.db.patch(id, edits);
 
     let published = false;
+    // complimentary membership grant — professionals get "pro", gear-providers get "plus"
+    // (see convex/accounts.ts _grantComplimentaryMembership / schema.ts membershipSource)
+    const grantPatch: Record<string, unknown> = { status: "approved", reviewedAt: Date.now() };
+    let grantTier: "pro" | "plus" | null = null;
     if (app.kind === "professional") {
       const ops = await ctx.db.query("operators").collect();
       const headshot = app.headshotStorageId ? await ctx.storage.getUrl(app.headshotStorageId) : null;
-      await ctx.db.insert("operators", {
+      const operatorId = await ctx.db.insert("operators", {
         role: e.role || "videographer",
         roleLabel: e.roleLabel || e.role || "Crew",
         firstName: e.firstName || app.fullName.split(" ")[0],
@@ -275,8 +282,42 @@ export const review = mutation({
         active: true,
       });
       published = true;
+      grantTier = "pro";
+      grantPatch.grantedTier = "pro";
+      grantPatch.grantActive = true;
+      grantPatch.operatorId = operatorId;
+    } else if (app.kind === "gear-provider") {
+      grantTier = "plus";
+      grantPatch.grantedTier = "plus";
+      grantPatch.grantActive = true;
     }
-    await ctx.db.patch(id, { status: "approved", reviewedAt: Date.now() });
+    await ctx.db.patch(id, grantPatch);
+    if (grantTier) {
+      await ctx.runMutation(internal.accounts._grantComplimentaryMembership, { email: app.email, tier: grantTier });
+    }
     return { ok: true, published };
+  },
+});
+
+/** Admin: activate/deactivate an approved member's complimentary membership perk (and, for
+ *  professionals, their published roster card). Deactivating never touches a real paid
+ *  Stripe subscription — `_revokeComplimentaryMembership` only acts on accounts whose
+ *  membership came from this grant (`membershipSource === "collective-comp"`). */
+export const setActive = mutation({
+  args: { token: v.string(), id: v.id("collective_applications"), active: v.boolean() },
+  handler: async (ctx, { token, id, active }) => {
+    await assertAdmin(ctx, token, "collective.setActive");
+    const app = await ctx.db.get(id);
+    if (!app) throw new Error("Application not found");
+    await ctx.db.patch(id, { grantActive: active });
+    if (active) {
+      const tier = app.grantedTier ?? (app.kind === "professional" ? "pro" : "plus");
+      await ctx.runMutation(internal.accounts._grantComplimentaryMembership, { email: app.email, tier });
+      if (app.operatorId) await ctx.db.patch(app.operatorId, { active: true });
+    } else {
+      await ctx.runMutation(internal.accounts._revokeComplimentaryMembership, { email: app.email });
+      if (app.operatorId) await ctx.db.patch(app.operatorId, { active: false });
+    }
+    return { ok: true };
   },
 });
