@@ -122,10 +122,12 @@ export function SiteHeader() {
           </div>
 
           <nav
-            className={`flex items-center gap-5 text-sm transition-opacity duration-300 ${
+            className={`flex items-center gap-3 text-sm transition-opacity duration-300 ${
               f7Hover ? "pointer-events-none opacity-0" : "opacity-100"
             }`}
           >
+            {/* sits hard against the account slot rather than drifting toward
+                the middle of the bar */}
             <div className="hidden items-center gap-5 md:flex">
               {DESKTOP_NAV.map((n) => {
                 const active = pathname === n.href || pathname.startsWith(n.href + "/");
@@ -146,7 +148,10 @@ export function SiteHeader() {
 
             {/* fixed-size slot: never reflows the header when auth resolves
                 (logged-out button / skeleton / avatar pill all occupy the same box) */}
-            <div className="hidden h-9 min-w-[148px] items-center justify-end md:flex">
+            {/* reserved width so the header never reflows when auth resolves —
+                trimmed to what the widest state actually needs, because the
+                spare space was pushing the nav links inward */}
+            <div className="hidden h-9 min-w-[118px] items-center justify-end md:flex">
               {me ? (
                 <div className="relative">
                   <button

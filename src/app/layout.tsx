@@ -19,6 +19,7 @@ import { SpotlightEffect } from "@/components/SpotlightEffect";
 import { ScrollProgress } from "@/components/ScrollProgress";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { BotBubble } from "@/components/BotBubble";
+import { FormSevenPrewarm } from "@/components/FormSevenPrewarm";
 import { SITE_URL } from "@/lib/site";
 
 const inter = Inter({
@@ -184,6 +185,7 @@ export default function RootLayout({
                   <CheckoutTurnOverlay />
                   <GafferDock />
                   <MicPermission />
+                  <FormSevenPrewarm />
                 </GafferSessionProvider>
               </GafferFocusProvider>
             </CartProvider>

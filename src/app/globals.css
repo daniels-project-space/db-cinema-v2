@@ -2416,49 +2416,79 @@ html[data-gaffer-nav="1"] .tile-in {
 
 /* ── FORM / SEVEN partner interstitial — a luminous, cinematically restrained
    glass bridge between DB Cinema's viewfinder language and the agency reel. ── */
+/* ── FORM / SEVEN panel surface ──────────────────────────────────
+   Rebuilt away from the three things that make a background read as generated:
+   a conic gradient rotating forever, two saturated blur blobs drifting around,
+   and an even grid over the top. Those move constantly and belong to nothing.
+
+   What replaces them comes from how a film set and a print actually look:
+   a lighting setup that is fixed rather than animated (a cool key high left, a
+   warm bounce low right — the standard two-source arrangement), a graded
+   colour split with teal in the shadows and amber in the highlights, a vignette
+   because every real photograph has one, and film grain, which is the thing
+   that stops a digital surface reading as flat vector fill.
+
+   Nothing here loops. The only movement in the panel is the reel, which is the
+   point of it. */
 .fs-overlay-panel {
   isolation: isolate;
   background:
-    radial-gradient(circle at 51% 42%, rgba(69, 255, 143, 0.13), transparent 25%),
-    radial-gradient(circle at 8% 0%, rgba(76, 229, 155, 0.12), transparent 25%),
-    linear-gradient(132deg, rgba(22, 30, 28, 0.7), rgba(5, 9, 8, 0.58) 54%, rgba(17, 28, 24, 0.68));
-  backdrop-filter: blur(32px) saturate(135%);
+    /* key light, high and left — soft-edged like a bounced source, not a blob */
+    radial-gradient(120% 90% at 18% -10%, rgba(150, 196, 210, 0.11), transparent 58%),
+    /* warm bounce, low and right, much weaker, as fill always is */
+    radial-gradient(95% 80% at 92% 108%, rgba(214, 160, 106, 0.075), transparent 62%),
+    /* the grade: cool shadow, neutral mid, faintly warm highlight */
+    linear-gradient(158deg, rgba(23, 32, 36, 0.82), rgba(9, 12, 14, 0.9) 46%, rgba(28, 25, 22, 0.84)),
+    /* the floor the whole thing sits on */
+    linear-gradient(#080a0c, #080a0c);
+  backdrop-filter: blur(30px) saturate(112%);
+  box-shadow:
+    /* physical thickness: a lit top edge, a shadowed bottom one */
+    inset 0 1px 0 rgba(255, 255, 255, 0.11),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    inset 0 0 90px rgba(0, 0, 0, 0.42),
+    0 40px 90px -30px rgba(0, 0, 0, 0.85);
 }
+
+/* Film grain. This is the layer doing most of the work — an even, static
+   surface is the giveaway, and real captured images always carry noise. */
 .fs-overlay-panel::before {
   content: "";
   position: absolute;
   z-index: -2;
   inset: 0;
-  opacity: 0.33;
-  background-image:
-    linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: linear-gradient(to bottom, black, transparent 86%);
+  border-radius: inherit;
+  opacity: 0.42;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.86' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  pointer-events: none;
 }
+
+/* Vignette — corners fall away, as they do through any real lens. */
 .fs-overlay-panel::after {
   content: "";
   position: absolute;
   z-index: -1;
-  inset: -30%;
-  opacity: 0.62;
-  background: conic-gradient(from 120deg at 50% 50%, transparent 0deg, rgba(64,255,155,0.08) 52deg, transparent 105deg, rgba(103,255,192,0.07) 185deg, transparent 250deg);
-  filter: blur(18px);
-  animation: fs-ambient-turn 20s linear infinite;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(115% 95% at 50% 42%, transparent 52%, rgba(0, 0, 0, 0.42) 100%);
+  pointer-events: none;
 }
+
+/* The two sources, held still. Kept as elements rather than folded into the
+   panel background so they can sit outside its bounds and spill, the way a
+   light on a cyc wall does. */
 .fs-overlay-light {
   position: absolute;
-  width: min(42vw, 580px);
-  aspect-ratio: 1;
+  width: min(46vw, 620px);
+  aspect-ratio: 1.35;
   border-radius: 999px;
-  filter: blur(70px);
+  filter: blur(96px);
   pointer-events: none;
-  opacity: 0.25;
 }
-.fs-overlay-light-one { left: -12%; top: -25%; background: #37d98a; animation: fs-light-drift 12s ease-in-out infinite alternate; }
-.fs-overlay-light-two { right: -14%; bottom: -32%; background: #129865; animation: fs-light-drift 15s ease-in-out -5s infinite alternate-reverse; }
-@keyframes fs-ambient-turn { to { transform: rotate(360deg); } }
-@keyframes fs-light-drift { to { transform: translate3d(11%, 12%, 0) scale(1.2); opacity: 0.36; } }
+.fs-overlay-light-one { left: -16%; top: -30%; background: rgba(126, 178, 198, 0.16); opacity: 0.9; }
+.fs-overlay-light-two { right: -18%; bottom: -34%; background: rgba(198, 142, 92, 0.12); opacity: 0.75; }
 
 .fs-mark-chip,
 .fs-close-button,
@@ -2557,23 +2587,19 @@ html[data-gaffer-nav="1"] .tile-in {
   animation: fs-caption-in 0.4s var(--ease-out-expo) both;
 }
 
-/* ── FORM / SEVEN refinement: a quieter, more translucent collaboration layer. ── */
+/* ── FORM / SEVEN refinement ──
+   This block used to re-apply the blue/green conic sweep and saturated lights
+   over the graded surface defined above, which is what the panel actually
+   rendered. Left as a translucency pass only: it lifts the glass slightly so
+   the page reads through, and nothing more. */
 .fs-overlay-panel {
-  background:
-    radial-gradient(ellipse at 15% 15%, rgba(31, 131, 255, 0.16), transparent 34%),
-    radial-gradient(ellipse at 85% 86%, rgba(89, 255, 169, 0.085), transparent 35%),
-    linear-gradient(132deg, rgba(7, 20, 33, 0.51), rgba(2, 8, 12, 0.34) 54%, rgba(8, 19, 17, 0.43));
-  backdrop-filter: blur(28px) saturate(125%);
+  backdrop-filter: blur(28px) saturate(108%);
 }
-.fs-overlay-panel::before { opacity: 0.2; background-size: 68px 68px; }
-.fs-overlay-panel::after { opacity: 0.33; background: conic-gradient(from 210deg at 50% 40%, transparent 0deg, rgba(37, 149, 255, 0.16) 48deg, transparent 115deg, rgba(86, 255, 172, 0.08) 208deg, transparent 278deg); animation-duration: 28s; }
-.fs-overlay-light { opacity: 0.16; filter: blur(82px); }
-.fs-overlay-light-one { background: #1684ff; }
-.fs-overlay-light-two { background: #49d995; opacity: 0.11; }
 
 .fs-collab-lockup { display: grid; justify-items: center; gap: 0.25rem; text-align: center; }
 .fs-collab-cards { display: flex; align-items: center; gap: 0.55rem; }
-.fs-collab-card { --collab-light: #5aaeff; position: relative; width: 2.95rem; aspect-ratio: 9 / 13; overflow: hidden; border: 1px solid color-mix(in srgb, var(--collab-light) 70%, transparent); border-radius: 0.68rem; background: #05090e; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1), 0 0 22px color-mix(in srgb, var(--collab-light) 25%, transparent), 0 12px 28px rgba(0,0,0,0.25); transform: translateZ(0); animation: fs-collab-float 6.5s ease-in-out infinite alternate; }
+/* trimmed: the lockup is a signature, not the headline — the reel is */
+.fs-collab-card { --collab-light: #5aaeff; position: relative; width: 2.45rem; aspect-ratio: 9 / 13; overflow: hidden; border: 1px solid color-mix(in srgb, var(--collab-light) 70%, transparent); border-radius: 0.68rem; background: #05090e; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1), 0 0 22px color-mix(in srgb, var(--collab-light) 25%, transparent), 0 12px 28px rgba(0,0,0,0.25); transform: translateZ(0); animation: fs-collab-float 6.5s ease-in-out infinite alternate; }
 .fs-collab-card-seven { --collab-light: #88efad; animation-delay: -3.1s; }
 .fs-collab-card img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.04); }
 .fs-collab-card::before { content: ""; position: absolute; z-index: 1; inset: 0; border: 1px solid color-mix(in srgb, var(--collab-light) 50%, transparent); border-radius: inherit; box-shadow: inset 0 0 18px color-mix(in srgb, var(--collab-light) 22%, transparent); pointer-events: none; }
@@ -2583,15 +2609,21 @@ html[data-gaffer-nav="1"] .tile-in {
 @keyframes fs-collab-float { to { transform: translate3d(0, -4px, 0) rotate(-1.2deg); } }
 @keyframes fs-collab-shine { 0%, 55% { opacity: 0; transform: translateX(-86%) rotate(8deg); } 70% { opacity: 0.9; } 100% { opacity: 0; transform: translateX(86%) rotate(8deg); } }
 
-.fs-offer-points { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; margin: 1rem auto 0; max-width: 46rem; padding: 0; list-style: none; }
-.fs-offer-points li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.5rem; padding: 0.65rem 0.7rem; border: 1px solid rgba(255,255,255,0.09); border-radius: 0.75rem; background: rgba(255,255,255,0.035); box-shadow: inset 0 1px rgba(255,255,255,0.055); }
+/* Equal cards, whatever the copy length. `align-items: stretch` alone wasn't
+   enough — the rows were sizing to their own content, so a two-line detail made
+   one card taller than its neighbours. grid-auto-rows: 1fr forces one shared
+   row height, and align-content: start keeps the text top-aligned inside the
+   taller box rather than floating to the middle. */
+.fs-offer-points { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 1fr; align-items: stretch; gap: 0.5rem; margin: 0.85rem auto 0; max-width: 44rem; padding: 0; list-style: none; }
+.fs-offer-points li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: start; gap: 0.5rem; padding: 0.6rem 0.65rem; border: 1px solid rgba(255,255,255,0.09); border-radius: 0.72rem; background: rgba(255,255,255,0.035); box-shadow: inset 0 1px rgba(255,255,255,0.055); }
 .fs-offer-points li > span { padding-top: 0.08rem; color: #74bdff; font-family: var(--font-mono, monospace); font-size: 8px; letter-spacing: 0.08em; }
 .fs-offer-points li div { display: grid; gap: 0.2rem; min-width: 0; }
 .fs-offer-points strong { color: rgba(255,255,255,0.88); font-size: 10px; line-height: 1.15; }
 .fs-offer-points small { color: rgba(255,255,255,0.43); font-size: 9px; line-height: 1.35; }
 
-.fs-reel-stage { height: clamp(220px, 30vh, 278px); }
-.fs-reel-card { width: clamp(7.4rem, 13vw, 9.8rem); border-radius: 0.95rem; }
+/* the reel is the centrepiece — it gets the room the lockup and buttons gave up */
+.fs-reel-stage { height: clamp(258px, 36vh, 340px); }
+.fs-reel-card { width: clamp(7.8rem, 14vw, 10.6rem); border-radius: 0.95rem; }
 .fs-reel-card > img { position: absolute; inset: 0; }
 .fs-reel-motion { position: absolute; inset: 0; z-index: 1; pointer-events: none; transition: opacity 360ms ease-out; }
 .fs-reel-frame, .fs-reel-card-meta { z-index: 3; }
@@ -2599,7 +2631,8 @@ html[data-gaffer-nav="1"] .tile-in {
 .fs-reel-stage::before { opacity: 0.7; }
 
 .fs-cta-row { display: grid; grid-template-columns: minmax(0, .84fr) minmax(0, 1.16fr); gap: 0.55rem; margin: 0 auto; max-width: 39rem; }
-.fs-visit-button, .fs-sample-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; min-width: 0; border-radius: 0.78rem; padding: 0.64rem 0.7rem; font-family: var(--font-mono, monospace); font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; transition: transform .22s ease, border-color .22s ease, background-color .22s ease, box-shadow .22s ease; }
+/* dialled back a notch so the reel above stays the loudest thing in the panel */
+.fs-visit-button, .fs-sample-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; min-width: 0; border-radius: 0.7rem; padding: 0.54rem 0.6rem; font-family: var(--font-mono, monospace); font-size: 8px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; transition: transform .22s ease, border-color .22s ease, background-color .22s ease, box-shadow .22s ease; }
 .fs-visit-button { border: 1px solid rgba(129,255,185,0.42); background: rgba(73, 213, 137, 0.11); color: #d2ffe1; }
 .fs-sample-button { justify-content: flex-start; border: 1px solid rgba(103,183,255,0.45); background: rgba(38, 126, 232, 0.13); color: #e5f4ff; text-align: left; }
 .fs-visit-button:hover, .fs-sample-button:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(0,0,0,0.2); }
@@ -2649,24 +2682,39 @@ html[data-gaffer-nav="1"] .tile-in {
   .fs-reel-card, .fs-close-button, .fs-reel-control, .fs-enter-button { transition-duration: .01ms !important; }
 }
 
-/* ── FORM / SEVEN: fixed, quiet green-glass landing composition. ── */
+/* ── FORM / SEVEN: the panel surface that actually renders ──
+   Last definition wins, so this is the real one. It previously flooded the
+   panel with saturated green glass and cancelled the grain and vignette with
+   `content: none` — which is why the surface read as a flat generated gradient
+   however carefully the earlier block was written.
+
+   Now: a graded, near-neutral glass. Cool key high-left, weak warm fill
+   low-right, teal shadows into warm highlights, a black floor so the film
+   thumbnails have something to sit against, and a lit top edge for thickness.
+   Green survives only as the faintest trace on the border, tying it to the
+   FORM / SEVEN mark without staining the whole panel. */
 .fs-overlay-panel {
   max-height: calc(100svh - 24px);
   overflow: hidden;
   isolation: isolate;
-  border-color: rgba(122, 244, 170, 0.31);
+  border-color: rgba(146, 214, 178, 0.16);
   background:
-    radial-gradient(ellipse at 10% 0%, rgba(37, 203, 112, 0.19), transparent 40%),
-    radial-gradient(ellipse at 92% 100%, rgba(15, 122, 70, 0.18), transparent 42%),
-    linear-gradient(137deg, rgba(3, 22, 13, 0.62), rgba(2, 11, 7, 0.43) 60%, rgba(4, 30, 17, 0.5));
-  box-shadow: inset 0 1px rgba(208, 255, 225, 0.12), 0 30px 100px rgba(0, 0, 0, 0.52), 0 0 64px rgba(34, 214, 122, 0.1);
-  backdrop-filter: blur(30px) saturate(135%);
+    radial-gradient(120% 92% at 16% -12%, rgba(152, 198, 212, 0.1), transparent 56%),
+    radial-gradient(96% 82% at 94% 110%, rgba(212, 158, 104, 0.07), transparent 60%),
+    linear-gradient(158deg, rgba(24, 33, 37, 0.8), rgba(9, 12, 14, 0.88) 46%, rgba(29, 26, 22, 0.82)),
+    linear-gradient(#070909, #070909);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.55),
+    inset 0 0 100px rgba(0, 0, 0, 0.45),
+    0 40px 96px -28px rgba(0, 0, 0, 0.86);
+  backdrop-filter: blur(30px) saturate(110%);
 }
-.fs-overlay-panel::before,
-.fs-overlay-panel::after { content: none; }
-.fs-overlay-light { opacity: 0.19; filter: blur(86px); }
-.fs-overlay-light-one { background: #2cd57a; }
-.fs-overlay-light-two { background: #117b49; opacity: 0.15; }
+/* grain and vignette restored — see the definitions above */
+.fs-overlay-panel::before { content: ""; }
+.fs-overlay-panel::after { content: ""; }
+.fs-overlay-light-one { background: rgba(126, 178, 198, 0.16); opacity: 0.85; }
+.fs-overlay-light-two { background: rgba(198, 142, 92, 0.12); opacity: 0.7; }
 
 .fs-collab-lockup { gap: 0.16rem; }
 .fs-collab-cards { gap: 0.42rem; }
@@ -2688,9 +2736,11 @@ html[data-gaffer-nav="1"] .tile-in {
 
 .fs-carousel-wrap { margin-top: 0.65rem; }
 .fs-reel-topline { max-width: 25rem; margin-bottom: 0.35rem; color: rgba(207, 255, 224, 0.5); font-size: 8px; }
-.fs-reel-stage { height: clamp(150px, 22vh, 190px); }
+/* The reel is the centrepiece, so it gets the height back that this
+   compaction pass took away — the lockup and the buttons shrank to pay for it. */
+.fs-reel-stage { height: clamp(240px, 33vh, 320px); }
 .fs-reel-stage::before { width: min(42%, 220px); opacity: 0.5; }
-.fs-reel-card { width: clamp(5.9rem, 10vw, 7.6rem); border-radius: 0.78rem; }
+.fs-reel-card { width: clamp(7.2rem, 12.5vw, 9.6rem); border-radius: 0.86rem; }
 .fs-reel-frame { inset: 0.3rem; border-radius: 0.56rem; }
 .fs-reel-card-meta { top: 0.52rem; right: 0.56rem; font-size: 7px; }
 .fs-reel-caption { min-height: 1.8rem; max-width: 25rem; margin-top: 0; }
@@ -2721,8 +2771,8 @@ html[data-gaffer-nav="1"] .tile-in {
   .fs-offer-points li { min-height: 44px; padding: 0.42rem; }
   .fs-offer-points strong { font-size: 8px; }
   .fs-offer-points small { display: none; }
-  .fs-reel-stage { height: clamp(142px, 21vh, 164px); }
-  .fs-reel-card { width: clamp(5.2rem, 27vw, 6.5rem); }
+  .fs-reel-stage { height: clamp(196px, 29vh, 232px); }
+  .fs-reel-card { width: clamp(6.4rem, 32vw, 7.8rem); }
   .fs-overlay-panel footer { margin-top: 0.48rem; padding-top: 0; }
   .fs-visit-button, .fs-sample-button { min-height: 58px; padding: 0.5rem 0.58rem; }
   .fs-visit-button { font-size: 7px; letter-spacing: 0.03em; }
@@ -2731,12 +2781,9 @@ html[data-gaffer-nav="1"] .tile-in {
 
 /* The partner atmosphere and CTA art deliberately live before the responsive
    refinements so their visual rules participate in the production CSS bundle. */
-.fs-overlay-atmosphere { position: absolute; z-index: 0; inset: 0; overflow: hidden; pointer-events: none; background: radial-gradient(ellipse at 50% 55%, rgba(10, 111, 60, 0.14), transparent 47%); }
-.fs-overlay-atmosphere::before, .fs-overlay-atmosphere::after { content: ""; position: absolute; width: min(74vw, 980px); aspect-ratio: 1; border-radius: 50%; filter: blur(84px); will-change: transform; }
-.fs-overlay-atmosphere::before { left: -24%; top: -42%; background: radial-gradient(circle, rgba(44, 236, 128, 0.4), rgba(8, 105, 54, 0.12) 40%, transparent 70%); animation: fs-atmosphere-drift-one 25s ease-in-out infinite alternate; }
-.fs-overlay-atmosphere::after { right: -27%; bottom: -47%; background: radial-gradient(circle, rgba(24, 183, 94, 0.33), rgba(6, 63, 32, 0.1) 44%, transparent 71%); animation: fs-atmosphere-drift-two 31s ease-in-out -8s infinite alternate; }
-@keyframes fs-atmosphere-drift-one { to { transform: translate3d(16vw, 11vh, 0) scale(1.15); } }
-@keyframes fs-atmosphere-drift-two { to { transform: translate3d(-14vw, -13vh, 0) scale(1.2); } }
+/* (an earlier duplicate of .fs-overlay-atmosphere lived here — it set the same
+   green drifting orbs and was entirely superseded by the block further down.
+   Removed rather than left to fight it.) */
 .fs-overlay-panel { z-index: 2; }
 .fs-overlay-light { z-index: 1; }
 
@@ -2778,15 +2825,20 @@ html[data-gaffer-nav="1"] .tile-in {
   .fs-visit-button, .fs-sample-button { min-height: 52px; }
 }
 
-/* A living, diffuse green field keeps the partner layer dimensional without
-   adding another hard-edged graphic behind the work. */
+/* The room behind the panel.
+   Two saturated green orbs used to drift across here on 25s and 31s loops —
+   the single most recognisable "generated landing page" motif, and it pulled
+   the eye away from the films. Replaced with a still, dark studio falloff: the
+   sort of unlit cyc wall a product would actually be shot against. */
 .fs-overlay-atmosphere {
   position: absolute;
   z-index: 0;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
-  background: radial-gradient(ellipse at 50% 56%, rgba(11, 98, 53, 0.11), transparent 46%);
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 44%, rgba(24, 34, 40, 0.5), transparent 70%),
+    radial-gradient(ellipse 120% 90% at 50% 120%, rgba(0, 0, 0, 0.55), transparent 60%);
 }
 .fs-overlay-atmosphere::before,
 .fs-overlay-atmosphere::after {
@@ -2799,10 +2851,10 @@ html[data-gaffer-nav="1"] .tile-in {
   opacity: 0.32;
   will-change: transform;
 }
-.fs-overlay-atmosphere::before { left: -22%; top: -36%; background: radial-gradient(circle, rgba(44, 236, 128, 0.42), rgba(8, 105, 54, 0.14) 38%, transparent 70%); animation: fs-atmosphere-drift-one 25s ease-in-out infinite alternate; }
-.fs-overlay-atmosphere::after { right: -26%; bottom: -44%; background: radial-gradient(circle, rgba(24, 183, 94, 0.34), rgba(6, 63, 32, 0.12) 42%, transparent 71%); animation: fs-atmosphere-drift-two 31s ease-in-out -8s infinite alternate; }
-@keyframes fs-atmosphere-drift-one { to { transform: translate3d(16vw, 11vh, 0) scale(1.15); opacity: 0.48; } }
-@keyframes fs-atmosphere-drift-two { to { transform: translate3d(-14vw, -13vh, 0) scale(1.2); opacity: 0.46; } }
+/* Held still, and desaturated to a lit-wall grey rather than a colour wash.
+   The one warm note sits low right, where a bounce card would be. */
+.fs-overlay-atmosphere::before { left: -22%; top: -38%; opacity: 0.5; animation: none; background: radial-gradient(circle, rgba(122, 160, 176, 0.16), rgba(20, 32, 38, 0.06) 42%, transparent 72%); }
+.fs-overlay-atmosphere::after { right: -26%; bottom: -46%; opacity: 0.42; animation: none; background: radial-gradient(circle, rgba(186, 138, 92, 0.13), rgba(38, 26, 18, 0.05) 44%, transparent 73%); }
 .fs-overlay-panel { z-index: 2; }
 .fs-overlay-light { z-index: 1; }
 

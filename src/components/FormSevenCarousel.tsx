@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const ITEMS = [
+/** Exported so the page can warm these before the overlay is ever opened. */
+export const CAROUSEL_ITEMS = [
   { src: "/brand/carousel/begim-serum-commercial.mp4", poster: "/brand/carousel/begim-serum-commercial.jpg", caption: "Begim Serum", detail: "Beauty / ritual" },
   { src: "/brand/carousel/sunline-fashion.mp4", poster: "/brand/carousel/posters/sunline-fashion.jpg", caption: "Sunline", detail: "Campaign film" },
   { src: "/brand/carousel/heirloom-jewellery.mp4", poster: "/brand/carousel/posters/heirloom-jewellery.jpg", caption: "Heirloom", detail: "Palace world" },
@@ -11,7 +12,19 @@ const ITEMS = [
   { src: "/brand/carousel/pop-the-ordinary.mp4", poster: "/brand/carousel/pop-the-ordinary.jpg", caption: "Pop The Ordinary", detail: "Launch film" },
 ] as const;
 
-const ADVANCE_EVERY = 6200;
+const ITEMS = CAROUSEL_ITEMS;
+
+const ADVANCE_EVERY = 4200;
+
+/**
+ * How far from centre a film still plays.
+ *
+ * Every film used to be mounted, autoplaying and force-resumed on a 1.2s
+ * interval — six simultaneous video decodes for three visible cards, which is
+ * what made playback stutter. Only the front rank decodes now; the rest hold
+ * their poster frame and resume when they come round.
+ */
+const PLAY_WITHIN = 1;
 
 function circularDistance(index: number, active: number, total: number) {
   const raw = index - active;
@@ -46,21 +59,31 @@ export function FormSevenCarousel() {
     return () => window.clearInterval(id);
   }, [paused]);
 
+  /**
+   * Play the front rank, hold the rest.
+   *
+   * Runs on every change of `active` rather than on a polling interval — the
+   * old version resumed all six twice a second whether they were on screen or
+   * not, which is both the stutter and a lot of wasted decode. A film that
+   * isn't playing keeps its poster, so nothing goes blank.
+   */
   useEffect(() => {
-    const keepEveryFilmPlaying = () => {
-      if (document.visibilityState === "hidden") return;
-      videoRefs.current.forEach((video) => {
-        if (video?.paused) void video.play().catch(() => undefined);
+    const sync = () => {
+      const hidden = document.visibilityState === "hidden";
+      videoRefs.current.forEach((video, index) => {
+        if (!video) return;
+        const near = Math.abs(circularDistance(index, active, ITEMS.length)) <= PLAY_WITHIN;
+        if (near && !hidden) {
+          if (video.paused) void video.play().catch(() => undefined);
+        } else if (!video.paused) {
+          video.pause();
+        }
       });
     };
-    keepEveryFilmPlaying();
-    const interval = window.setInterval(keepEveryFilmPlaying, 1200);
-    document.addEventListener("visibilitychange", keepEveryFilmPlaying);
-    return () => {
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", keepEveryFilmPlaying);
-    };
-  }, []);
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => document.removeEventListener("visibilitychange", sync);
+  }, [active]);
 
   const selected = ITEMS[active];
 
@@ -96,10 +119,17 @@ export function FormSevenCarousel() {
               aria-label={`Show ${item.caption}: ${item.detail}`}
               aria-current={isSelected ? "true" : undefined}
               className="fs-reel-card"
+              /**
+               * A cascade, not a row of near-equal cards. The centre film is
+               * the point of this panel, so it sits well above its neighbours
+               * in size, brightness and saturation and each rank steps down
+               * clearly — the previous curve only shed 22% per step, which read
+               * as three similar tiles rather than one hero with support.
+               */
               style={{
-                transform: `translate3d(calc(-50% + ${distance * 114}px), -50%, ${-absoluteDistance * 54}px) rotateY(${-distance * 15}deg) rotateZ(${-distance * 1.25}deg) scale(${Math.max(0.57, 1.05 - absoluteDistance * 0.22)})`,
-                opacity: isVisible ? Math.max(0.18, 1 - absoluteDistance * 0.36) : 0,
-                filter: `brightness(${isSelected ? 1.06 : Math.max(0.45, 0.9 - absoluteDistance * 0.17)}) saturate(${isSelected ? 1.08 : 0.76})`,
+                transform: `translate3d(calc(-50% + ${distance * 132}px), -50%, ${-absoluteDistance * 78}px) rotateY(${-distance * 17}deg) rotateZ(${-distance * 1.4}deg) scale(${isSelected ? 1.26 : Math.max(0.46, 0.78 - (absoluteDistance - 1) * 0.2)})`,
+                opacity: isVisible ? (isSelected ? 1 : Math.max(0.14, 0.66 - (absoluteDistance - 1) * 0.34)) : 0,
+                filter: `brightness(${isSelected ? 1.1 : Math.max(0.34, 0.68 - (absoluteDistance - 1) * 0.2)}) saturate(${isSelected ? 1.14 : 0.6})`,
                 zIndex: 20 - Math.round(absoluteDistance),
                 pointerEvents: isVisible ? "auto" : "none",
               }}
@@ -108,17 +138,26 @@ export function FormSevenCarousel() {
               <video
                 ref={(video) => { videoRefs.current[index] = video; }}
                 src={item.src}
-                autoPlay
                 muted
                 loop
                 playsInline
-                preload="auto"
+                // the front rank is worth buffering; the back rank only needs
+                // enough to start quickly when it comes round
+                preload={absoluteDistance <= PLAY_WITHIN ? "auto" : "metadata"}
                 onCanPlay={(event) => {
                   setReadyIndexes((ready) => ready.has(index) ? ready : new Set(ready).add(index));
-                  if (event.currentTarget.paused) void event.currentTarget.play().catch(() => undefined);
+                  // only start it if it's actually in the front rank — otherwise
+                  // buffering a back card would kick off a decode we just paused
+                  if (absoluteDistance <= PLAY_WITHIN && event.currentTarget.paused) {
+                    void event.currentTarget.play().catch(() => undefined);
+                  }
                 }}
                 aria-hidden="true"
-                className={`fs-reel-motion h-full w-full object-cover ${readyIndexes.has(index) ? "opacity-100" : "opacity-0"}`}
+                // a paused back card would otherwise sit on a frozen frame;
+                // fall back to its poster until it plays again
+                className={`fs-reel-motion h-full w-full object-cover ${
+                  readyIndexes.has(index) && absoluteDistance <= PLAY_WITHIN ? "opacity-100" : "opacity-0"
+                }`}
               />
               <span className="fs-reel-frame" aria-hidden="true" />
               <span className="fs-reel-card-meta" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
