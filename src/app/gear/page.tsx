@@ -87,6 +87,15 @@ function GearPageInner() {
           </span>
         </Link>
 
+        {/* hire professionals — crew for hire, booked through us (shows on every
+            category so it's there when a category is clicked from the home page; hidden only on search) */}
+        {!search && (
+          <>
+            <HireProfessionals />
+            <div className="mt-12 border-t border-white/5" />
+          </>
+        )}
+
         {/* sticky toolbar: search + category tabs */}
         <div className="-mx-6 mt-8 border-b border-white/[0.06] bg-[#060608]/95 px-6 py-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -122,15 +131,6 @@ function GearPageInner() {
             </div>
           </div>
         </div>
-
-        {/* hire professionals — crew for hire, booked through us (shows on every
-            category so it's there when a category is clicked from the home page; hidden only on search) */}
-        {!search && (
-          <>
-            <HireProfessionals />
-            <div className="mt-12 border-t border-white/5" />
-          </>
-        )}
 
         {/* best sellers (data-driven) — only on All, no search */}
         {cat === "All" && !search && best.length > 0 && (

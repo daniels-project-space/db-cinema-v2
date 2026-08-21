@@ -155,7 +155,7 @@ function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () =>
         preload="metadata"
         aria-hidden
       />
-      <div className="crew-scrim" />
+      <div className={`crew-scrim${g.role === "videographer" ? " crew-scrim--strong" : ""}`} />
 
       <div className="crew-body">
         <div className="flex items-center gap-2">
