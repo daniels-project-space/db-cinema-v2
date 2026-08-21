@@ -77,7 +77,10 @@ const SUPPORT_AGENT_ID = process.env.NEXT_PUBLIC_GAFFER_SUPPORT_AGENT_ID || SALE
  * day, so enabling the setting still takes effect on its own without making
  * every caller wait in the meantime.
  */
-const OVERRIDE_MEMO_KEY = "dbc_gaffer_overrides_blocked_at";
+// v2: bumped when first_message overrides were enabled on the agent, so
+// browsers holding a cached "blocked" answer re-probe immediately instead of
+// waiting out the day-long TTL and getting the generic greeting until then.
+const OVERRIDE_MEMO_KEY = "dbc_gaffer_overrides_blocked_at_v2";
 const OVERRIDE_RECHECK_MS = 24 * 60 * 60 * 1000;
 
 function overridesRecentlyBlocked(): boolean {
