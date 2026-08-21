@@ -5,9 +5,9 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
-import { IconArrowRight, IconCart, IconMenu, IconSpark, IconUser, IconX } from "@/components/icons";
+import { IconArrowRight, IconCart, IconMenu, IconUser, IconX } from "@/components/icons";
 import { SignatureProductionsOverlay } from "@/components/SignatureProductionsOverlay";
-import { FormSevenBadge } from "@/components/FormSevenBadge";
+import { FormSevenCoin, FormSevenMobileTrigger, useSpinAndShine } from "@/components/FormSevenBadge";
 
 type NavItem = { href: string; label: string; external?: boolean };
 
@@ -37,6 +37,8 @@ export function SiteHeader() {
   const [mobile, setMobile] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [signatureOpen, setSignatureOpen] = useState(false);
+  const [f7Hover, setF7Hover] = useState(false);
+  const { spinning, shining } = useSpinAndShine();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -70,35 +72,58 @@ export function SiteHeader() {
 
   return (
     <>
-      {/* promo strip — cross-link to FORM / SEVEN, opens the overlay, never navigates */}
-      <div className="sticky top-0 z-50 h-8 border-b border-white/5 bg-gradient-to-r from-accent-500/10 via-charcoal-900/70 to-accent-500/10">
-        <button
-          onClick={() => setSignatureOpen(true)}
-          className="mx-auto flex h-8 w-full max-w-7xl items-center justify-center gap-2 px-6 text-center font-mono text-[10.5px] uppercase tracking-[0.18em] text-accent-300 transition-colors hover:text-accent-200 sm:text-[11px]"
-        >
-          <IconSpark className="h-3 w-3 shrink-0" />
-          <span className="truncate">Signature Productions — meet our AI-native creative partner, FORM / SEVEN</span>
-          <IconArrowRight className="h-3 w-3 shrink-0" />
-        </button>
-      </div>
-
       <header
-        className={`sticky top-8 z-40 transition-[background-color,border-color,box-shadow] duration-500 ${
+        className={`sticky top-0 z-40 transition-[background-color,border-color,box-shadow] duration-500 ${
           scrolled
             ? "border-b border-white/[0.07] bg-[#060608]/95 shadow-[0_12px_40px_-20px_rgba(0,0,0,0.8)]"
             : "border-b border-transparent bg-transparent"
         }`}
       >
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-          <Link href="/" className="group inline-flex min-h-[44px] items-center gap-1.5 font-display text-lg font-bold tracking-tight">
-            <span className="text-white">DB</span>
-            <span className="gradient-text">CINEMA</span>
-            <span className="ml-1 hidden font-mono text-[9px] uppercase tracking-[0.3em] text-white/30 transition-colors group-hover:text-accent-400/70 lg:inline">
-              Rentals
-            </span>
-          </Link>
+        <div className="relative mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+          {/* FORM / SEVEN coin + logo — hovering the coin swaps this whole row for a
+              centered takeover headline; clicking the coin opens the partner overlay */}
+          <div
+            className="flex items-center gap-3"
+            onMouseEnter={() => setF7Hover(true)}
+            onMouseLeave={() => setF7Hover(false)}
+          >
+            <button
+              onClick={() => setSignatureOpen(true)}
+              aria-label="FORM / SEVEN — AI-native ad agency, open partner overlay"
+            >
+              <FormSevenCoin spinning={spinning} shining={shining} />
+            </button>
+            <Link
+              href="/"
+              className={`group inline-flex min-h-[44px] items-center gap-1.5 font-display text-lg font-bold tracking-tight transition-opacity duration-300 ${
+                f7Hover ? "opacity-0" : "opacity-100"
+              }`}
+            >
+              <span className="text-white">DB</span>
+              <span className="gradient-text">CINEMA</span>
+              <span className="ml-1 hidden font-mono text-[9px] uppercase tracking-[0.3em] text-white/30 transition-colors group-hover:text-accent-400/70 lg:inline">
+                Rentals
+              </span>
+            </Link>
+          </div>
 
-          <nav className="flex items-center gap-5 text-sm">
+          {/* centered takeover headline — shown only while hovering the coin */}
+          <div
+            className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${
+              f7Hover ? "opacity-100" : "opacity-0"
+            }`}
+            aria-hidden={!f7Hover}
+          >
+            <span className="serif-accent whitespace-nowrap text-3xl not-italic text-white sm:text-4xl">
+              FORM 7 <span className="text-accent-300">ad agency</span>
+            </span>
+          </div>
+
+          <nav
+            className={`flex items-center gap-5 text-sm transition-opacity duration-300 ${
+              f7Hover ? "pointer-events-none opacity-0" : "opacity-100"
+            }`}
+          >
             <div className="hidden items-center gap-5 md:flex">
               {DESKTOP_NAV.map((n) => {
                 const active = pathname === n.href || pathname.startsWith(n.href + "/");
@@ -115,7 +140,6 @@ export function SiteHeader() {
                   </Link>
                 );
               })}
-              <FormSevenBadge />
             </div>
 
             {/* fixed-size slot: never reflows the header when auth resolves
@@ -326,7 +350,14 @@ export function SiteHeader() {
           })}
         </nav>
 
-        <FormSevenBadge mobile />
+        <FormSevenMobileTrigger
+          spinning={spinning}
+          shining={shining}
+          onOpen={() => {
+            setMobile(false);
+            setSignatureOpen(true);
+          }}
+        />
 
         <div className="mt-auto">
           <span className="hud-label">
