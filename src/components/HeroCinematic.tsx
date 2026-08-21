@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Magnetic } from "@/components/Magnetic";
 import { GafferCall } from "@/components/GafferCall";
 import { IconArrowRight, IconStar } from "@/components/icons";
 
@@ -274,19 +273,16 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
             transitionDelay: "0.24s",
           }}
         >
-          <Magnetic>
-            <Link href="/gear" className="btn-primary px-5 py-2.5 text-sm lg:px-8 lg:py-3 lg:text-base">
-              Browse the kit
-              <IconArrowRight className="h-4 w-4" />
-            </Link>
-          </Magnetic>
-          <Magnetic>
-            <Link href="/how-it-works" className="btn-ghost px-5 py-2.5 text-sm lg:px-8 lg:py-3 lg:text-base">
-              How it works
-            </Link>
-          </Magnetic>
-          {/* straight into a live voice call with Gaffer — glass tone so it doesn't
-              compete with the amber primary, but keeps the full call animation */}
+          {/* all three are the same frosted material, and none of them move:
+              no magnetic lean over the footage, just light and colour */}
+          <Link href="/gear" className="btn-glass btn-glass-accent px-5 py-2.5 text-sm lg:px-8 lg:py-3 lg:text-base">
+            Browse the kit
+            <IconArrowRight className="h-4 w-4" />
+          </Link>
+          <Link href="/how-it-works" className="btn-glass px-5 py-2.5 text-sm lg:px-8 lg:py-3 lg:text-base">
+            How it works
+          </Link>
+          {/* straight into a live voice call with Gaffer */}
           <GafferCall
             variant="glass"
             label="Call us"
