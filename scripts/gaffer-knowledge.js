@@ -1,0 +1,382 @@
+#!/usr/bin/env node
+/**
+ * Build and publish everything Gaffer needs to know, from the live catalogue.
+ *
+ *   - a knowledge base: one policy document plus one per category, written from
+ *     each listing's `knowledge` (summary, features, limits, pairsWith) and its
+ *     real price ladder, so answers about what's in a set come from the
+ *     catalogue rather than the model's imagination
+ *   - ASR keywords: the model names people actually say, so "FX3" and "Ronin"
+ *     stop coming back as "effects three" and "roning"
+ *   - agent settings: the LLM, the native end-call and silence handling, and
+ *     the post-call extraction that turns a conversation into a record
+ *
+ * Only bookable stock is ever described. Suppressed and display-only rows are
+ * excluded outright — Gaffer must never offer something that can't be hired,
+ * and must never describe an item using internal words like "display only".
+ *
+ * Usage:
+ *   node scripts/gaffer-knowledge.js --dry-run
+ *   node scripts/gaffer-knowledge.js --apply            (everything)
+ *   node scripts/gaffer-knowledge.js --apply --only=kb  (kb|asr|settings)
+ */
+
+const fs = require("fs");
+const path = require("path");
+
+const AGENT_ID = process.env.GAFFER_AGENT_ID || "agent_4601kvk2pfznfrws6ah700jnxvfv";
+const API = "https://api.elevenlabs.io/v1/convai";
+const KEY = process.env.ELEVENLABS_API_KEY;
+const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
+const LISTINGS = process.env.LISTINGS_JSONL || "/tmp/dbcx/listings/documents.jsonl";
+
+const el = (p, init = {}) =>
+  fetch(`${API}${p}`, { ...init, headers: { "xi-api-key": KEY, ...(init.headers || {}) } });
+
+// ── pricing, mirrored from src/lib/pricing.ts ───────────────────────────
+const SYNTH = { 3: 0.1, 7: 0.18, 14: 0.27, 30: 0.38 };
+const ladder = (p = {}) => {
+  const d = p.daily || 0;
+  if (!d) return "";
+  const rung = (days, key) => {
+    const raw = p[key];
+    const per = typeof raw === "number" && raw > 0 ? raw : Math.round(d * (1 - (SYNTH[days] ?? 0)));
+    return `${days}d £${Math.round(per)}/day`;
+  };
+  return [`1d £${Math.round(d)}/day`, rung(3, "day3"), rung(7, "day7"), rung(14, "day14"), rung(30, "day30")].join(", ");
+};
+const damageHold = (replacement) => Math.max(50, Math.min(200, Math.round((replacement || 0) * 0.05)));
+
+/** Bookable only. Anything suppressed or display-only is invisible to Gaffer. */
+const bookable = (rows) => rows.filter((r) => r.active && !r.suppressed && !r.displayOnly);
+
+const isSet = (r) =>
+  r.specs?.includesLens === true || /[+]|\bset\b|\bultimate\b|\bbundle\b|\bkit\b|\d\s*[x×]\s/i.test(r.title || "");
+
+/** Same derivation the voice tools use, so screen and speech agree. */
+function inclusions(r) {
+  const s = r.specs || {};
+  const inc = [];
+  const exc = [];
+  if (r.category === "Cameras") {
+    if (s.includesLens && s.lensFocal) inc.push(`${s.lensFocal}mm lens included`);
+    else if (!s.includesLens) exc.push("no lens — body only");
+    if (s.batteryType) inc.push(`${s.batteryType} battery`);
+    exc.push("memory cards not included");
+  }
+  if (r.category === "Lenses") {
+    if (s.mount) inc.push(`${s.mount} mount`);
+    if (s.filterThreadMm) inc.push(`${s.filterThreadMm}mm filter thread`);
+    exc.push("no camera body — lens only");
+  }
+  if (r.category === "Stabilizers") exc.push("no camera — gimbal only");
+  if (r.category === "Lighting") exc.push("stands and modifiers separate unless the title lists them");
+  return { inc, exc };
+}
+
+/** `knowledge` is a v.any() column — the shape is not guaranteed per row. */
+const arr = (x) =>
+  Array.isArray(x) ? x.filter((v) => typeof v === "string" && v.trim()) : typeof x === "string" && x.trim() ? [x] : [];
+const text = (x) => (typeof x === "string" ? x.trim() : "");
+
+function listingBlock(r) {
+  const k = r.knowledge && typeof r.knowledge === "object" ? r.knowledge : {};
+  const { inc, exc } = inclusions(r);
+  const lines = [`### ${r.title}`];
+  if (text(k.summary)) lines.push(text(k.summary));
+  lines.push(`Rates: ${ladder(r.pricing)}.`);
+  lines.push(
+    `Refundable damage hold £${damageHold(r.depositAmount)} (5% of replacement value, min £50, max £200).` +
+      (r.minimumRentalDays > 1 ? ` Minimum hire ${r.minimumRentalDays} days.` : ""),
+  );
+  if (isSet(r)) lines.push("This is a set — it bundles several items together.");
+  if (inc.length) lines.push(`Included: ${inc.join(", ")}.`);
+  if (exc.length) lines.push(`NOT included: ${exc.join("; ")}.`);
+  const feats = arr(k.features);
+  const best = arr(k.bestFor);
+  const pairs = arr(k.pairsWith);
+  const lims = arr(k.limits);
+  if (feats.length) lines.push(`Key specs: ${feats.join("; ")}.`);
+  if (best.length) lines.push(`Best for: ${best.join(", ")}.`);
+  if (pairs.length) lines.push(`Pairs with: ${pairs.join(", ")}.`);
+  if (lims.length) lines.push(`Limitations: ${lims.join("; ")}.`);
+  return lines.join("\n");
+}
+
+const POLICY_DOC = `# Db Cinema Rentals — rates, deposits, delivery and terms
+
+## How renting works
+Browse the catalogue, pick dates, add gear to the basket and check out. Confirmation
+arrives by email. Collect from central London or have it delivered.
+
+## Rates and multi-day discounts
+Rates are per day and get cheaper the longer the hire, applied automatically — there is
+no code to enter. Where a specific rate isn't set for a length, the discount off the
+daily rate is: 3 days 10% off, 7 days 18% off, 14 days 27% off, 30 days 38% off per day.
+A longer hire is never more expensive per day than a shorter one.
+Members save a further 10-30% on every rental.
+
+## Deposits and insurance
+ID-verified renters pay a small refundable damage hold plus insurance cover, instead of a
+large deposit. The hold is 5% of the item's replacement value, with a minimum of £50 and a
+maximum of £200. It is refundable. Verify ID once and it is saved to the account.
+The alternative is a full refundable security deposit equal to the replacement value.
+
+## Delivery
+Delivery is available across London and quoted both ways — the fee is based on distance
+and load, and larger setups travel by van. Pickup or delivery is chosen at checkout along
+with a time window. Members may get free delivery.
+
+## Opening hours
+Pickups and returns run 10:00-12:00 and 19:00-21:00, every day. Delivery windows are
+arranged when booking.
+
+## Changes, extensions and cancellations
+Compatible gear can be added up to an hour before the rental starts, and dates can be
+extended — ask, or message us from the account area. To change or cancel a booking,
+message from the account area as early as possible; a member of the team confirms it.
+Never invent a cancellation window or a refund figure — if asked for specifics beyond
+this, say a human will confirm and take their details.
+
+## What is never included unless stated
+Memory cards are not included with cameras. A lens is only included if the listing says
+so. A gimbal never includes a camera. Lighting stands and modifiers are separate unless
+the title lists them. Always say what is not in the case before the customer books.
+`;
+
+// ── ASR keywords ────────────────────────────────────────────────────────
+const STOP = new Set(
+  ("camera cameras lens lenses set sets kit kits bundle package with for the and pro full frame cinema " +
+    "mirrorless digital video professional new mark plus zoom prime wide mount rigged rig photography film " +
+    "content creator advanced basic portable powered capacity spare extra mini max ultra black white inch " +
+    "battery batteries light lights lighting led audio sound mic mics microphone monitor monitors drone " +
+    "drones gimbal tripod grip slider power charger accessory accessories speaker speakers f28 f18 f14 " +
+    "mm cm kg gb tb hire rental london day days include included").split(/\s+/),
+);
+
+/** Brands worth boosting by name — these are what callers lead with. */
+const BRANDS = [
+  "sony", "canon", "dji", "blackmagic", "bmpcc", "fujifilm", "panasonic", "lumix", "nikon",
+  "aputure", "godox", "nanlite", "amaran", "rode", "sennheiser", "deity", "atomos", "smallhd",
+  "feelworld", "hollyland", "sigma", "tamron", "samyang", "zeiss", "tilta", "zhiyun", "insta360",
+  "gopro", "osmo", "manfrotto", "sirui", "laowa", "ronin", "arri", "sachtler", "teradek",
+];
+
+/**
+ * The names people say out loud, ranked by how often the gear actually rents.
+ *
+ * Only fifty slots exist, so they go to brands and model designations — the
+ * words speech-to-text mangles into something unsearchable ("FX3" as "effects
+ * three", "a7 III" as "a seven three"). Ordinary English earns nothing here: a
+ * boost on "stand" or "image" costs a slot and fixes nothing, and generic
+ * fragments like "2x" or "f2" are noise from titles rather than things anyone
+ * says as a product name.
+ */
+function asrKeywords(rows, cap = 50) {
+  const looksLikeModel = (t) =>
+    /^[a-z]{1,5}[- ]?\d{1,4}[a-z]{0,4}$/.test(t) || /^\d{1,3}[a-z]{1,4}$/.test(t);
+  const isMultiplier = (t) => /^\d+x$/.test(t) || /^f\d/.test(t) || /^\d+(k|mm|gb|tb|w)$/.test(t);
+
+  const score = new Map();
+  for (const r of rows) {
+    const weight = 1 + (r.demandScore ?? 0);
+    for (const raw of String(r.title).toLowerCase().match(/[a-z0-9][a-z0-9-]{1,}/g) ?? []) {
+      const t = raw.replace(/^-+|-+$/g, "");
+      if (t.length < 2 || t.length > 18 || STOP.has(t)) continue;
+      if (/^\d+$/.test(t) || isMultiplier(t)) continue;
+      const brand = BRANDS.includes(t);
+      if (!brand && !looksLikeModel(t)) continue; // ordinary words earn no slot
+      // brands lead a request, so they matter more than any single model
+      score.set(t, (score.get(t) ?? 0) + weight * (brand ? 3 : 1));
+    }
+  }
+  return [...score.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, cap)
+    .map(([t]) => t);
+}
+
+// ── data collection + evaluation, so calls become records ───────────────
+const DATA_COLLECTION = {
+  customer_name: { type: "string", description: "The caller's name, if given." },
+  customer_email: { type: "string", description: "Their email address, if given." },
+  customer_phone: { type: "string", description: "Their phone number, if given." },
+  gear_discussed: { type: "string", description: "Which items were discussed or added to the basket." },
+  hire_dates: { type: "string", description: "The hire dates they asked about, as spoken." },
+  outcome: {
+    type: "string",
+    description: "One of: booked, basket_started, enquiry_logged, support_resolved, no_outcome.",
+  },
+};
+
+const EVALUATION = [
+  {
+    name: "answered_the_question",
+    conversation_goal_prompt:
+      "Did the agent actually answer what the caller asked, using real catalogue data rather than guessing? Fail if it invented an item, a price, or an availability claim.",
+  },
+  {
+    name: "stated_exclusions",
+    conversation_goal_prompt:
+      "If gear was recommended or added, did the agent say what is NOT included (no lens, no memory card, no camera with a gimbal)? Not applicable if no gear was discussed.",
+  },
+  {
+    name: "captured_follow_up",
+    conversation_goal_prompt:
+      "If the call needed anything afterwards, did the agent log the enquiry or take an email rather than leaving it in the air?",
+  },
+];
+
+async function main() {
+  if (!KEY) throw new Error("ELEVENLABS_API_KEY is not set");
+  const apply = process.argv.includes("--apply");
+  const only = (process.argv.find((a) => a.startsWith("--only=")) || "").split("=")[1] || "all";
+  const want = (n) => only === "all" || only === n;
+
+  if (!fs.existsSync(LISTINGS)) throw new Error(`No listings export at ${LISTINGS} — run: convex export`);
+  const all = fs.readFileSync(LISTINGS, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  const rows = bookable(all);
+  console.log(`listings: ${all.length} total, ${rows.length} bookable (${all.length - rows.length} excluded)`);
+
+  // ── documents ──
+  const byCat = {};
+  for (const r of rows) (byCat[r.category] ??= []).push(r);
+  const docs = [{ name: "Db Cinema — rates, deposits, delivery and terms", text: POLICY_DOC }];
+  for (const [cat, items] of Object.entries(byCat).sort()) {
+    const body = items
+      .sort((a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0))
+      .map(listingBlock)
+      .join("\n\n");
+    docs.push({ name: `Db Cinema catalogue — ${cat}`, text: `# ${cat} (${items.length} items available to hire)\n\n${body}` });
+  }
+  const kw = asrKeywords(rows);
+
+  console.log(`\nknowledge base: ${docs.length} documents`);
+  for (const d of docs) console.log(`  ${String(d.text.length).padStart(7)} chars  ${d.name}`);
+  console.log(`\nASR keywords (${kw.length}): ${kw.join(", ")}`);
+  console.log(`\nLLM -> google/gemini-3.7-flash via OpenRouter (key ${OPENROUTER_KEY ? "present" : "MISSING"})`);
+  console.log(`data collection: ${Object.keys(DATA_COLLECTION).join(", ")}`);
+  console.log(`evaluation criteria: ${EVALUATION.map((e) => e.name).join(", ")}`);
+
+  if (!apply) {
+    console.log("\nDry run. Re-run with --apply to write.");
+    return;
+  }
+
+  const agent = await (await el(`/agents/${AGENT_ID}`)).json();
+  const kbIds = [];
+
+  if (want("kb")) {
+    // replace our own previous docs so re-running doesn't pile up duplicates
+    const existing = await (await el(`/knowledge-base?page_size=100`)).json();
+    for (const d of existing.documents ?? []) {
+      if (String(d.name).startsWith("Db Cinema")) {
+        await el(`/knowledge-base/${d.id}`, { method: "DELETE" });
+        console.log(`  removed old doc: ${d.name}`);
+      }
+    }
+    for (const d of docs) {
+      const r = await el("/knowledge-base/text", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: d.name, text: d.text }),
+      });
+      if (!r.ok) throw new Error(`KB upload "${d.name}" failed: ${r.status} ${await r.text()}`);
+      const j = await r.json();
+      kbIds.push({ type: "text", name: d.name, id: j.id, usage_mode: "auto" });
+      console.log(`  uploaded: ${d.name} -> ${j.id}`);
+    }
+  }
+
+  const prompt = { ...agent.conversation_config.agent.prompt };
+  delete prompt.tools; // tool_ids is authoritative; sending both is rejected
+
+  if (want("kb")) {
+    prompt.knowledge_base = kbIds;
+    // RAG, because the catalogue is far too big to sit in a prompt
+    prompt.rag = { ...(prompt.rag || {}), enabled: true };
+  }
+  if (want("settings")) {
+    if (!OPENROUTER_KEY) throw new Error("OPENROUTER_API_KEY is not set — needed for the custom LLM");
+    /**
+     * The key has to live in the workspace secret store; the agent config only
+     * ever holds a reference to it. Reused if it already exists, so re-running
+     * doesn't litter the store with duplicates.
+     */
+    const secrets = await (await el("/secrets")).json();
+    let secret = (secrets.secrets ?? []).find((s) => s.name === "OPENROUTER_API_KEY");
+    if (!secret) {
+      const r = await el("/secrets", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "new", name: "OPENROUTER_API_KEY", value: OPENROUTER_KEY }),
+      });
+      if (!r.ok) throw new Error(`secret create failed: ${r.status} ${await r.text()}`);
+      secret = await r.json();
+      console.log(`  stored workspace secret OPENROUTER_API_KEY -> ${secret.secret_id || secret.id}`);
+    } else {
+      console.log(`  reusing workspace secret OPENROUTER_API_KEY`);
+    }
+
+    prompt.llm = "custom-llm";
+    prompt.custom_llm = {
+      url: "https://openrouter.ai/api/v1",
+      model_id: "google/gemini-3.7-flash",
+      api_key: { secret_id: secret.secret_id || secret.id },
+      request_headers: {},
+    };
+    // a salesperson at 0 is a robot reading a list
+    prompt.temperature = 0.4;
+    prompt.built_in_tools = {
+      ...(prompt.built_in_tools || {}),
+      end_call: {
+        name: "end_call",
+        description: "End the call once the caller has said goodbye or is clearly finished.",
+        type: "system",
+        params: { system_tool_type: "end_call" },
+      },
+    };
+  }
+
+  const body = { conversation_config: { agent: { prompt } } };
+  if (want("settings")) {
+    body.conversation_config.asr = { ...(agent.conversation_config.asr || {}), keywords: kw };
+    body.conversation_config.turn = {
+      ...(agent.conversation_config.turn || {}),
+      silence_end_call_timeout: 25, // native backstop under our own 20s handling
+    };
+    body.platform_settings = {
+      ...(agent.platform_settings || {}),
+      data_collection: Object.fromEntries(
+        Object.entries(DATA_COLLECTION).map(([k, v]) => [k, { type: v.type, description: v.description, dynamic_variable: "", constant_value: "" }]),
+      ),
+      evaluation: { criteria: EVALUATION.map((e) => ({ ...e, id: e.name, type: "prompt", use_knowledge_base: false })) },
+    };
+  }
+
+  const patch = await el(`/agents/${AGENT_ID}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!patch.ok) throw new Error(`PATCH failed: ${patch.status} ${await patch.text()}`);
+
+  const after = await (await el(`/agents/${AGENT_ID}`)).json();
+  const ap = after.conversation_config.agent.prompt;
+  console.log(`\napplied:`);
+  console.log(`  llm:              ${ap.llm}${ap.custom_llm ? ` (${ap.custom_llm.model_id} @ ${ap.custom_llm.url})` : ""}`);
+  console.log(`  temperature:      ${ap.temperature}`);
+  console.log(`  knowledge base:   ${(ap.knowledge_base || []).length} docs, rag ${ap.rag?.enabled}`);
+  console.log(`  asr keywords:     ${(after.conversation_config.asr?.keywords || []).length}`);
+  console.log(`  end_call tool:    ${!!ap.built_in_tools?.end_call}`);
+  console.log(`  silence timeout:  ${after.conversation_config.turn?.silence_end_call_timeout}`);
+  console.log(`  data collection:  ${Object.keys(after.platform_settings?.data_collection || {}).length} fields`);
+  console.log(`  evaluation:       ${(after.platform_settings?.evaluation?.criteria || []).length} criteria`);
+  console.log(`  tools intact:     ${(ap.tool_ids || []).length}`);
+  console.log(`  prompt unchanged: ${ap.prompt === agent.conversation_config.agent.prompt.prompt}`);
+}
+
+main().catch((e) => {
+  console.error(String(e.message || e));
+  process.exit(1);
+});

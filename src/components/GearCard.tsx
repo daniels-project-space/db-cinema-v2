@@ -77,6 +77,17 @@ export function GearCard({ listing }: { listing: GearListing }) {
       </button>
 
       <div className="relative overflow-hidden">
+        {/* Says why this card is lit up. A ring on its own reads as a hover
+            state; naming it makes the shortlist legible as Gaffer's doing. */}
+        {(picked || suggested) && (
+          <span
+            className={`gaffer-pick-badge absolute right-2.5 top-2.5 z-20 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide shadow-lg ${
+              picked ? "bg-accent-400 text-black" : "bg-accent-400/25 text-accent-200 ring-1 ring-accent-400/50"
+            }`}
+          >
+            {picked ? "Gaffer's pick" : "Suggested"}
+          </span>
+        )}
         {displayOnly ? (
           <span className="absolute left-2.5 top-2.5 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg">
             Display only

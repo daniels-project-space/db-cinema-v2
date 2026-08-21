@@ -361,6 +361,14 @@ body {
 }
 @keyframes gaffer-pick-sweep { to { transform: translateX(115%); } }
 
+/* the badge shouldn't pop in — it arrives with the ring */
+@keyframes gaffer-badge-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+.gaffer-pick-badge { animation: gaffer-badge-in 0.4s var(--ease-out-expo) both; }
+@media (prefers-reduced-motion: reduce) { .gaffer-pick-badge { animation: none; } }
+
 /* The shortlist Gaffer just read out. Quieter than the picked card on purpose —
    these are "worth a look", the golden one is "this is the one". Fades in so a
    filtered grid doesn't snap into a wall of rings. */
@@ -2037,11 +2045,14 @@ html[data-gaffer-nav="1"] .tile-in {
 }
 
 /* Permanent-video crew tiles + polished crew profile cards */
-.crew-card--vid { min-height: 200px; padding: 0.85rem; }
+.crew-card--vid { min-height: 180px; padding: 0.85rem; }
 .crew-video { opacity: 1; }                    /* permanent — always playing/visible */
 .crew-card:hover .crew-video { opacity: 1; }
 .crew-card--vid .crew-scrim {
   background: linear-gradient(180deg, rgba(8, 8, 10, 0.5) 0%, rgba(8, 8, 10, 0.12) 38%, rgba(8, 8, 10, 0.88) 100%);
+}
+.crew-card--vid .crew-scrim.crew-scrim--strong {
+  background: linear-gradient(180deg, rgba(8, 8, 10, 0.68) 0%, rgba(8, 8, 10, 0.32) 38%, rgba(8, 8, 10, 0.92) 100%);
 }
 .crew-headshot {
   position: relative;
