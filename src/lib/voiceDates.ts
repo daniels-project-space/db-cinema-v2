@@ -59,8 +59,54 @@ export function resolveDate(input: string | undefined, today = londonToday()): R
   if (raw === "tomorrow") return { ok: true, date: addDays(today, 1) };
   if (raw === "day after tomorrow") return { ok: true, date: addDays(today, 2) };
 
-  const inDays = raw.match(/^in (\d{1,2}) days?$/);
-  if (inDays) return { ok: true, date: addDays(today, Number(inDays[1])) };
+  /**
+   * Strip the padding people put around a spoken date before matching.
+   *
+   * "in a week from now" used to fall through every branch to the unparsed
+   * fallback, and the caller silently got a one-day hire starting tomorrow —
+   * they say one thing, the basket says another, and nothing flags it.
+   */
+  const norm = raw
+    .replace(/\bfrom (now|today)\b/g, "")
+    .replace(/[.,!?]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const WORD_NUM: Record<string, number> = {
+    a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
+    eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, couple: 2, few: 3,
+  };
+
+  // "in 3 days", "in a week", "two weeks", "a week" (from now already stripped)
+  const rel = norm.match(/^(?:in\s+)?(?:(a couple of|[a-z]+|\d{1,2})\s+)?(day|days|week|weeks|month|months)$/);
+  if (rel) {
+    const word = (rel[1] ?? "1").trim();
+    const n = /^\d+$/.test(word) ? Number(word) : word === "a couple of" ? 2 : (WORD_NUM[word] ?? 1);
+    const mult = rel[2].startsWith("day") ? 1 : rel[2].startsWith("week") ? 7 : 30;
+    return { ok: true, date: addDays(today, n * mult) };
+  }
+
+  // "next week" / "next month" — same weekday, a week or a month out
+  if (norm === "next week") return { ok: true, date: addDays(today, 7) };
+  if (norm === "next month") return { ok: true, date: addDays(today, 30) };
+
+  // "the 5th" / "on the 22nd" — this month if still ahead, otherwise next
+  const dayOfMonth = norm.match(/^(?:on )?(?:the )?(\d{1,2})(?:st|nd|rd|th)$/);
+  if (dayOfMonth) {
+    const want = Number(dayOfMonth[1]);
+    if (want >= 1 && want <= 31) {
+      const [y, m] = today.split("-").map(Number);
+      const iso = (yy: number, mm: number) =>
+        `${yy}-${String(mm).padStart(2, "0")}-${String(want).padStart(2, "0")}`;
+      const valid = (d: string) =>
+        !Number.isNaN(new Date(`${d}T12:00:00Z`).getTime()) &&
+        new Date(`${d}T12:00:00Z`).toISOString().slice(8, 10) === String(want).padStart(2, "0");
+      const thisMonth = iso(y, m);
+      if (thisMonth >= today && valid(thisMonth)) return { ok: true, date: thisMonth };
+      const next = m === 12 ? iso(y + 1, 1) : iso(y, m + 1);
+      if (valid(next)) return { ok: true, date: next };
+    }
+  }
 
   if (raw === "this weekend" || raw === "the weekend" || raw === "weekend") {
     // Saturday of the current week; if it's already the weekend, today.

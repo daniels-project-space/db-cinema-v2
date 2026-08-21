@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useConvex } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -63,6 +63,14 @@ export function useGafferTools() {
   const account = useAccount();
   const convex = useConvex();
   const { focus } = useGafferFocus();
+  /**
+   * Has the customer been shown the basket breakdown yet this basket?
+   * Reset whenever the basket changes, so adding something after reviewing
+   * means they see the new total before paying rather than skipping past it.
+   */
+  const reviewed = useRef(false);
+  const basketSig = cart.items.map((i) => `${i.listingId}:${i.start}:${i.end}`).join("|");
+  useEffect(() => { reviewed.current = false; }, [basketSig]);
 
   /** Resolve a spoken item name to a real listing via the same matcher the phone line uses. */
   const findOne = useCallback(
@@ -120,6 +128,45 @@ export function useGafferTools() {
     const endIso = e?.ok ? e.date : startIso;
     return { startIso, endIso, days: Math.max(inclusiveDays(startIso, endIso), minDays), pencilled: !s.ok };
   }, []);
+
+  /**
+   * Guard against booking the wrong bundle.
+   *
+   * The catalogue has several near-identical bodies that differ only by the
+   * lens in the box — an a7 III with a 28-70 and an a7 III with a GM 24-70 are
+   * different listings at different prices. Title matching alone picks one of
+   * them, so someone asking for "the a7 III with the 24-70" can end up booked
+   * on the 28-70 and only discover it at collection.
+   *
+   * If the caller named a focal length and the match doesn't carry it, look for
+   * a sibling that does rather than adding the wrong one.
+   */
+  const lensMismatch = useCallback(
+    async (request: string, hit: any): Promise<{ wanted: string; better: any | null } | null> => {
+      const wanted = String(request ?? "").match(/(\d{2,3})\s*(?:-|to|–)\s*(\d{2,3})/);
+      if (!wanted) return null;
+      const asked = `${wanted[1]}-${wanted[2]}`;
+      const got = hit?.lensFocal ? String(hit.lensFocal) : null;
+      if (got === asked) return null;
+      // nothing bundled and nothing asked-for to contradict → not a mismatch
+      if (!hit?.includesLens && !got) return null;
+
+      // Prefer the same body carrying the right glass over any old listing that
+      // happens to include that focal length — offering a bare lens when they
+      // asked for the camera-with-lens bundle is its own kind of wrong.
+      const siblings = (await findMany(request, 10)).filter(
+        (s: any) => String(s.lensFocal ?? "") === asked && s.id !== hit.id,
+      );
+      const words = (s: string) =>
+        new Set(String(s).toLowerCase().match(/[a-z0-9]{3,}/g) ?? []);
+      const hitWords = words(hit.title);
+      const overlap = (s: any) => [...words(s.title)].filter((w) => hitWords.has(w)).length;
+      const better =
+        siblings.slice().sort((a: any, b: any) => overlap(b) - overlap(a))[0] ?? null;
+      return { wanted: asked, better };
+    },
+    [findMany],
+  );
 
   /** In-category substitutes that are actually free, minus anything already held. */
   const alternativesFor = useCallback(
@@ -257,6 +304,20 @@ export function useGafferTools() {
         if (!hit) return `Couldn't find ${item} to add.`;
         if (cart.has(hit.id)) return `${hit.title} is already in the basket.`;
 
+        // Wrong-lens guard: don't book the 28-70 body when they asked for the
+        // 24-70 one. Check before anything goes in the basket.
+        const lens = await lensMismatch(item, hit);
+        if (lens) {
+          return lens.better
+            ? `Careful — "${hit.title}" comes with the ${hit.lensFocal ?? "kit"} lens, not the ` +
+                `${lens.wanted} they asked for. There is a separate listing with the ${lens.wanted}: ` +
+                `"${lens.better.title}" at £${lens.better.daily} a day. Confirm which one they want, ` +
+                `then add that one by name.`
+            : `Careful — "${hit.title}" comes with the ${hit.lensFocal ?? "kit"} lens, not the ` +
+                `${lens.wanted}. We don't have that body bundled with a ${lens.wanted}; offer the ` +
+                `${lens.wanted} as a separate hire alongside it, or this bundle as it is.`;
+        }
+
         const { startIso, endIso, days, pencilled } = resolveWindow(start, end, hit.minDays ?? 1);
         const stock = await availabilityFor(hit.id, startIso, endIso);
 
@@ -287,9 +348,17 @@ export function useGafferTools() {
         });
         cart.open();
         return (
-          `Added ${hit.title} for ${days} day${days > 1 ? "s" : ""}, £${q.total}. ` +
-          `Basket is now ${cart.count + 1} item${cart.count ? "s" : ""}.` +
-          (pencilled ? " I've pencilled it in for tomorrow — say the word if the dates differ." : "")
+          `Added ${hit.title}` +
+          (hit.includesLens && hit.lensFocal ? ` (includes the ${hit.lensFocal} lens)` : "") +
+          `, ${startIso} to ${endIso}, ${days} day${days > 1 ? "s" : ""}, £${q.total}. ` +
+          `Basket is now ${cart.count + 1} item${cart.count ? "s" : ""}. ` +
+          // Say the dates back. A misheard date is the single most expensive
+          // thing to get wrong here and the least likely to be noticed.
+          `Read the dates back to them to confirm.` +
+          (pencilled
+            ? ` NOTE: I could not understand the date you passed, so this is pencilled in for ` +
+              `${startIso}. Ask them for the dates and add it again with them.`
+            : "")
         );
       },
 
@@ -475,6 +544,34 @@ export function useGafferTools() {
             `${bad.length > 1 ? "aren't" : "isn't"} available for those dates. ` +
             `Shall I swap ${bad.length > 1 ? "them" : "it"} for something free, or take ${bad.length > 1 ? "them" : "it"} off?`
           );
+
+        /**
+         * First ask shows the breakdown; only a second one goes to payment.
+         *
+         * Enforced here rather than in the agent's instructions because the
+         * agent has no review_basket tool registered — it only knows
+         * go_to_checkout, so asking it to "review first" could never work. This
+         * makes the checkout button itself the two-step: nobody reaches payment
+         * without having seen dates, line prices and the deposit, and without
+         * availability having been checked at that moment.
+         */
+        if (!reviewed.current) {
+          reviewed.current = true;
+          instant();
+          cart.close();
+          router.push("/cart");
+          const holding = depositFor("verify", cart.depositTotal);
+          const lines = cart.items
+            .map((i) => `${i.title}, ${i.start} to ${i.end}, £${i.total}`)
+            .join("; ");
+          return (
+            `Full breakdown is on screen and everything in it is available. ${lines}. ` +
+            `That's £${cart.subtotal} plus a £${holding} refundable holding deposit. ` +
+            `Read it back to them, then ask if they're happy to go through to payment — ` +
+            `call go_to_checkout again only once they say yes.`
+          );
+        }
+
         instant();
         cart.close();
         router.push("/checkout");
@@ -485,7 +582,7 @@ export function useGafferTools() {
         return `Taking them to checkout, £${cart.subtotal} plus a £${holding} refundable holding deposit.`;
       },
     }),
-    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems],
+    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch],
   );
 
   /**

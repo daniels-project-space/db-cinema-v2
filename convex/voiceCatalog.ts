@@ -159,6 +159,13 @@ function shape(r: Doc<"listings">) {
     deposit: r.depositAmount ?? null,
     minDays: r.minimumRentalDays ?? 1,
     deal: r.quietDeal ?? null,
+    // What glass is in the box. The catalogue carries several near-identical
+    // bodies that differ only by the lens bundled with them — an a7 III with a
+    // 28-70 and an a7 III with a GM 24-70 are separate listings at different
+    // prices. Without this the voice agent picks one on title match alone and
+    // the customer finds out which lens they booked when it arrives.
+    includesLens: (r as any).specs?.includesLens ?? false,
+    lensFocal: (r as any).specs?.lensFocal ?? null,
   };
 }
 
