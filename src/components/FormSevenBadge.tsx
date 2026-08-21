@@ -112,7 +112,10 @@ export function FormSevenMobileTrigger({
       className="mt-2 flex w-full items-center gap-3 border-t border-white/[0.06] py-4 text-left"
     >
       <FormSevenCoin spinning={spinning} shining={shining} />
-      <span className="font-display text-lg font-semibold text-white/85">FORM 7</span>
+      {/* names the relationship, not just the partner — this sits in a list of
+          our own pages, where a bare brand name reads as another section of
+          this site */}
+      <span className="font-display text-lg font-semibold text-white/85">FORM 7 collaboration</span>
     </button>
   );
 }

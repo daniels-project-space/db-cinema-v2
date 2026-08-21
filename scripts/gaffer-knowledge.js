@@ -30,6 +30,15 @@ const KEY = process.env.ELEVENLABS_API_KEY;
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
 const LISTINGS = process.env.LISTINGS_JSONL || "/tmp/dbcx/listings/documents.jsonl";
 
+/**
+ * Namespace for this business's knowledge-base documents.
+ *
+ * The ElevenLabs workspace is shared with other agents, so every document this
+ * script creates or deletes must be identifiably ours. Never widen this, and
+ * never reuse it in another business's script.
+ */
+const DOC_PREFIX = "Db Cinema";
+
 const el = (p, init = {}) =>
   fetch(`${API}${p}`, { ...init, headers: { "xi-api-key": KEY, ...(init.headers || {}) } });
 
@@ -144,6 +153,54 @@ so. A gimbal never includes a camera. Lighting stands and modifiers are separate
 the title lists them. Always say what is not in the case before the customer books.
 `;
 
+/**
+ * The FORM / SEVEN collaboration, as far as Gaffer is allowed to know it.
+ *
+ * Deliberately a partner briefing and not a copy of their business. Gaffer can
+ * say who they are, what the collaboration gives our customers, and hand over.
+ * It cannot quote their prices, promise a turnaround, check what they have
+ * capacity for, or take a brief on their behalf — that is Madeline's job on
+ * their own site, and an agent improvising another company's commercial terms
+ * is how a partnership turns into a complaint.
+ *
+ * The bounds at the end of this document are the gate. Keep them.
+ */
+const PARTNER_DOC = `# FORM / SEVEN — our creative collaboration
+
+## Who they are
+FORM / SEVEN is an AI-native production studio for social — a startup founded by
+Daniel that turns a product into short-form advertising: UGC-style ads, polished
+product films, and social systems built to sell rather than fill a feed. They work
+with founders and small teams who need their product to look considered without an
+agency retainer or a full production day.
+
+## Why we work with them
+We hire out the kit; they make the film. A customer renting a camera to shoot their
+own product often needs the advert made, and a brand that needs an advert often needs
+kit for the shoot. The collaboration means neither of us sends someone away
+empty-handed.
+
+## What our customers get
+Db Cinema Rentals customers get 10% off FORM / SEVEN work. Mention it when someone is
+renting for a product shoot, a launch, a campaign, or is clearly making something to
+advertise with — it is a genuine saving and the reason the partnership exists. Don't
+force it into unrelated calls.
+
+## How to hand over
+Point them at form7.net. Their own assistant, Madeline, handles briefs, packages and
+pricing there. If they want, take their email and note the interest with log_enquiry so
+someone follows up.
+
+## The bounds — read this before answering anything about them
+You may explain who FORM / SEVEN are, that we collaborate, and the 10% off.
+You may NOT:
+- quote their prices, packages or what any package includes
+- promise a turnaround, a delivery date, or that they can take on a job
+- describe their availability, capacity or process in detail
+- take a creative brief, agree scope, or commit them to anything
+If asked any of that, say plainly that their team handles it, send them to form7.net,
+and offer to pass their details on. Never guess at another company's terms.`;
+
 // ── ASR keywords ────────────────────────────────────────────────────────
 const STOP = new Set(
   ("camera cameras lens lenses set sets kit kits bundle package with for the and pro full frame cinema " +
@@ -241,7 +298,10 @@ async function main() {
   // ── documents ──
   const byCat = {};
   for (const r of rows) (byCat[r.category] ??= []).push(r);
-  const docs = [{ name: "Db Cinema — rates, deposits, delivery and terms", text: POLICY_DOC }];
+  const docs = [
+    { name: `${DOC_PREFIX} — rates, deposits, delivery and terms`, text: POLICY_DOC },
+    { name: `${DOC_PREFIX} — the FORM / SEVEN collaboration`, text: PARTNER_DOC },
+  ];
   for (const [cat, items] of Object.entries(byCat).sort()) {
     const body = items
       .sort((a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0))
@@ -267,13 +327,26 @@ async function main() {
   const kbIds = [];
 
   if (want("kb")) {
-    // replace our own previous docs so re-running doesn't pile up duplicates
+    /**
+     * Replace our own previous docs so re-running doesn't pile up duplicates.
+     *
+     * Scoped two ways on purpose. The workspace is shared with other agents
+     * (Madeline, for FORM / SEVEN), and a destructive sweep keyed on a loose
+     * prefix is exactly how one business's script deletes another's knowledge:
+     *   - the name must start with this script's own prefix, AND
+     *   - the document must already be attached to THIS agent
+     * A document belonging to another agent fails the second test even if
+     * someone later gives it a colliding name.
+     */
+    const attachedToUs = new Set(
+      (agent.conversation_config?.agent?.prompt?.knowledge_base ?? []).map((d) => d.id),
+    );
     const existing = await (await el(`/knowledge-base?page_size=100`)).json();
     for (const d of existing.documents ?? []) {
-      if (String(d.name).startsWith("Db Cinema")) {
-        await el(`/knowledge-base/${d.id}`, { method: "DELETE" });
-        console.log(`  removed old doc: ${d.name}`);
-      }
+      const ours = String(d.name).startsWith(DOC_PREFIX) && attachedToUs.has(d.id);
+      if (!ours) continue;
+      await el(`/knowledge-base/${d.id}`, { method: "DELETE" });
+      console.log(`  removed old doc: ${d.name}`);
     }
     for (const d of docs) {
       const r = await el("/knowledge-base/text", {
