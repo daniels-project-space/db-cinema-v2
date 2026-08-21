@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCart } from "./CartProvider";
 import { IconX, IconArrowRight } from "@/components/icons";
+import { smallDamageHold } from "@/lib/pricing";
 
 export function CartDrawer() {
   const { items, remove, subtotal, depositTotal, isOpen, close } = useCart();
@@ -84,10 +85,7 @@ export function CartDrawer() {
                       {it.start} → {it.end} · {it.days}d
                     </div>
                     <div className="mt-1 text-sm text-accent-400">
-                      £{it.total}{" "}
-                      <span className="text-xs text-white/30">
-                        +£{it.deposit} deposit
-                      </span>
+                      £{it.total}
                     </div>
                   </div>
                   <button
@@ -109,10 +107,17 @@ export function CartDrawer() {
               <span>Subtotal</span>
               <span className="font-mono text-white/90">£{subtotal}</span>
             </div>
+            {/* The per-item `deposit` is the gear's REPLACEMENT VALUE, not a
+                charge. Showing it summed made the basket read "£4,700 deposits"
+                on a £90 hire. Default to the ID+insurance route, which is what
+                checkout preselects, and label it as the refundable hold it is. */}
             <div className="mt-1 flex justify-between text-xs text-white/35">
-              <span>Refundable deposits</span>
-              <span className="font-mono">£{depositTotal}</span>
+              <span>Refundable hold</span>
+              <span className="font-mono">£{smallDamageHold(depositTotal)}</span>
             </div>
+            <p className="mt-1 text-[11px] leading-snug text-white/25">
+              Fully refunded after return. Covers minor damage with ID + insurance.
+            </p>
             <Link
               href="/cart"
               onClick={close}

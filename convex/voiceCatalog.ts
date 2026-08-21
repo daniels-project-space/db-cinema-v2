@@ -71,6 +71,28 @@ function haystack(r: Doc<"listings">): string {
 const isBundle = (t: string) =>
   /\+|\bset\b|\bultimate\b|\bbundle\b|\bkit\b|\d\s*[x×]\s/i.test(String(t));
 
+/**
+ * How much extra gear a title bolts on beyond the headline item.
+ *
+ * Titles list companions with "+", so "a7 iii + 28-70mm + DJI wireless mic" is
+ * three things. Used to keep a body-plus-gimbal package from outranking the
+ * bare body when someone just says "a7 iii".
+ */
+function extras(title: string): number {
+  return (String(title).match(/\+/g) ?? []).length;
+}
+
+/**
+ * Spelling-insensitive form for model matching: "a7 iii", "a7iii", "A7-III"
+ * all collapse to "a7iii".
+ *
+ * Product titles compress models ("Sony a7iii") while callers space them out
+ * ("a7 iii"), and word-boundary matching scored that backwards — bundles whose
+ * titles happened to contain "a7" as a standalone word beat the bare body,
+ * which is how asking for an a7 iii produced a gimbal package.
+ */
+const squash = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
+
 /** Bookable items only; display-only marketing rows must never be quoted. */
 function bookable(rows: Doc<"listings">[]) {
   return rows.filter((r) => r.active && !r.suppressed);
@@ -98,6 +120,23 @@ function score(r: Doc<"listings">, tokens: string[], brand: string | null, categ
   }
   if (brand && hay.includes(brand)) s += 2;
   if (category && r.category === category) s += 2;
+
+  // The caller's words, spacing removed, appearing intact in the title: this is
+  // the strongest signal we have that it's the model they actually named, and
+  // it's immune to "a7 iii" vs "a7iii" spelling.
+  const sq = squash(tokens.join(""));
+  if (sq.length >= 3 && squash(r.title).includes(sq)) s += 6;
+
+  // Every bolted-on extra makes this less like the thing they asked for. Enough
+  // to demote a package below the bare item, not enough to bury a package when
+  // it's the only match.
+  s -= Math.min(extras(r.title), 3) * 2;
+
+  // Specificity: a short title is mostly the thing itself, a long one is the
+  // thing plus a keyword haul. Without this, per-word bonuses reward the
+  // longest title — the bundle that happens to spell "a7 iii" as two words beats
+  // the bare body whose title is literally "Sony a7iii".
+  s += Math.max(0, 6 - Math.floor(squash(r.title).length / 12));
   return s;
 }
 
@@ -138,6 +177,8 @@ export const search = query({
     if (!tokens.length) return { matches: [], total: rows.length, brand: null, category: null };
 
     const { brand, category } = detect(tokens);
+    // Did they actually ask for a package? Only then should sets outrank bodies.
+    const wantsBundle = /\b(set|kit|bundle|package|combo|with|plus)\b/i.test(q);
     // Model tokens are the ones that identify a product: not the brand, not the
     // category word. If the caller named one, every result must contain it —
     // otherwise "FX3" quietly returns any old Sony.
@@ -151,19 +192,44 @@ export const search = query({
         const hay = haystack(x.r);
         return modelTokens.some((t) => hay.includes(t));
       })
-      .sort(
-        (a, b) =>
+      .sort((a, b) => {
+        // Someone who says "an FX3" means the camera. Unless they asked for a
+        // set, bare items come first as a hard rule rather than a tiebreak —
+        // scoring alone kept surfacing packages, because a short bundle title
+        // ("Sony FX3 + Gimbal set") looks specific by every other measure.
+        if (!wantsBundle) {
+          const ab = isBundle(a.r.title) ? 1 : 0;
+          const bb = isBundle(b.r.title) ? 1 : 0;
+          if (ab !== bb) return ab - bb;
+        }
+        return (
           b.s - a.s ||
-          (isBundle(a.r.title) ? 1 : 0) - (isBundle(b.r.title) ? 1 : 0) || // bare item before bundle
           (b.r.demandScore ?? 0) - (a.r.demandScore ?? 0) ||
-          a.r.title.length - b.r.title.length,
-      );
+          a.r.title.length - b.r.title.length
+        );
+      });
+
+    // Split the configurations out explicitly. Gaffer told a customer the a7 iii
+    // "is only offered like that" after being handed a gimbal package — it had
+    // no way to know a bare body existed, so it filled the gap with a guess.
+    // Now the answer is in the payload: the cheapest standalone, and every
+    // package, as separate facts it can read out.
+    const standalone = scored.filter((x) => !isBundle(x.r.title));
+    const packages = scored.filter((x) => isBundle(x.r.title));
+    const cheapest = [...standalone].sort(
+      (a, b) => (a.r.pricing?.daily ?? 1e9) - (b.r.pricing?.daily ?? 1e9),
+    )[0];
 
     return {
       matches: scored.slice(0, limit ?? 5).map((x) => shape(x.r)),
       total: scored.length,
       brand,
       category,
+      /** Cheapest bare version, or null if we genuinely only bundle it. */
+      standalone: cheapest ? shape(cheapest.r) : null,
+      standaloneCount: standalone.length,
+      packageCount: packages.length,
+      packages: packages.slice(0, 4).map((x) => shape(x.r)),
     };
   },
 });

@@ -159,7 +159,18 @@ export async function POST(req: NextRequest) {
         const top = hits[0];
         const days = Math.max(1, Number(args.days) || 1);
         const qt: any = quote({ daily: top.daily ?? 0 } as any, days);
-        const alt = hits.length > 1 ? ` We've also got ${readList(hits.slice(1, 3).map((h) => h.title))}.` : "";
+
+        // Say what configurations exist. Gaffer once told a customer the a7 iii
+        // "is only offered like that" after being handed a gimbal package —
+        // it couldn't see the bare body, so it guessed. State the shape of the
+        // options instead, and it never has to.
+        const pkgs: Match[] = (s?.packages ?? []).filter((p: Match) => p.id !== top.id);
+        const alt = pkgs.length
+          ? ` We also do it in ${pkgs.length} package${pkgs.length > 1 ? "s" : ""} — ` +
+            `${readList(pkgs.slice(0, 2).map((p) => p.title))}, from ${money(Math.min(...pkgs.map((p) => p.daily ?? 0).filter(Boolean)))} a day.`
+          : hits.length > 1
+            ? ` We've also got ${readList(hits.slice(1, 3).map((h) => h.title))}.`
+            : "";
 
         if (name === "get_price") {
           return say(

@@ -104,7 +104,11 @@ export default function CartPage() {
                         ) : over ? (
                           <div className="mt-1.5 text-xs text-red-300">Only {a.available} available for these dates (you have {a.demanded})</div>
                         ) : (
-                          <div className="mt-1.5 text-xs text-white/30">refundable deposit £{it.deposit}</div>
+                          // `it.deposit` is the item's replacement value, not a
+                          // charge — the refundable hold is worked out across
+                          // the whole basket below, so quoting it per line just
+                          // frightened people with the price of the camera.
+                          <div className="mt-1.5 text-xs text-white/30">insured hire · refundable hold</div>
                         )}
                       </div>
                       <div className="flex flex-col items-end justify-between">
