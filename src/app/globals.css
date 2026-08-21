@@ -629,6 +629,48 @@ html[data-gaffer-nav="1"] .tile-in {
   .gaffer-dock .gd-pulse { animation: none !important; }
 }
 
+/* ── The chat launcher, while a call is running ──────────────────
+   Same button, same corner — it just stops being amber and starts insisting.
+   A second floating control only for calls meant two round buttons stacked in
+   one corner, so this carries the call state instead. */
+@keyframes launcher-call-glow {
+  0%, 100% {
+    box-shadow:
+      0 10px 40px -8px rgba(244, 63, 94, 0.55),
+      0 0 0 0 rgba(244, 63, 94, 0.45);
+  }
+  50% {
+    box-shadow:
+      0 14px 52px -6px rgba(244, 63, 94, 0.9),
+      0 0 0 10px rgba(244, 63, 94, 0);
+  }
+}
+.launcher[data-on-call="true"] {
+  animation: launcher-call-glow 1.5s ease-in-out infinite;
+}
+/* the existing idle ring, re-tinted rather than replaced */
+.launcher[data-on-call="true"] .launcher-ring {
+  border-color: rgba(251, 113, 133, 0.75) !important;
+  background: radial-gradient(circle, rgba(244, 63, 94, 0.28), transparent 70%);
+  animation-duration: 1.2s;
+}
+/* equaliser: the dock rules are scoped to .gaffer-dock, so the launcher needs
+   its own — otherwise the bars sit frozen through the whole call */
+.launcher[data-on-call="true"] .gd-bar { height: 32%; transition: height 0.2s ease; }
+.launcher[data-speaking="true"] .gd-bar { animation: gd-bar 0.7s ease-in-out infinite; }
+.launcher[data-speaking="true"] .gd-bar:nth-child(2) { animation-delay: 0.12s; }
+.launcher[data-speaking="true"] .gd-bar:nth-child(3) { animation-delay: 0.24s; }
+.launcher[data-speaking="true"] .gd-bar:nth-child(4) { animation-delay: 0.36s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher[data-on-call="true"],
+  .launcher[data-on-call="true"] .launcher-ring,
+  .launcher .gd-bar { animation: none !important; }
+  .launcher[data-on-call="true"] {
+    box-shadow: 0 10px 40px -8px rgba(244, 63, 94, 0.7);
+  }
+}
+
 /* image load: fade-in + settle */
 .smart-img {
   opacity: 0;

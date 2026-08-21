@@ -11,6 +11,7 @@ import { BotAvatar, BotAvatarBadge } from "@/components/chat/BotAvatar";
 import { ChatBubble, TypingIndicator, Chips } from "@/components/chat/ChatKit";
 import { GlowSlider } from "@/components/GlowSlider";
 import { GafferCall } from "@/components/GafferCall";
+import { useGafferSession } from "@/components/gaffer/GafferSession";
 
 type Card = any;
 type Msg = { role: "user" | "assistant"; content: string; cards?: Card[]; suggestions?: string[] };
@@ -27,6 +28,17 @@ const IDLE_CHIPS = [
 
 export function BotBubble() {
   const [open, setOpen] = useState(false);
+  // While a voice call is running this launcher stops being a chat button and
+  // becomes the call's handle — see the launcher markup below.
+  const { state: callState, speaking: gafferSpeaking, secs, dockOpen, setDockOpen } = useGafferSession();
+  const onCall = callState === "live" || callState === "connecting";
+
+  // The call panel and the chat panel both sit at bottom-24 right-5, so they'd
+  // stack on top of each other. Talking beats typing: fold the chat away when a
+  // call starts — it's one click back once they've hung up.
+  useEffect(() => {
+    if (onCall) setOpen(false);
+  }, [onCall]);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -174,23 +186,47 @@ export function BotBubble() {
 
   return (
     <>
-      {/* launcher — Gaffer peeks out of a glowing chip */}
+      {/* launcher — Gaffer peeks out of a glowing chip, and goes red on a call.
+          One button in this corner, not two: while a call is live this stops
+          being "open the chat" and becomes the call's handle, so hanging up
+          never means hunting for the control that started it. */}
       <button
-        onClick={() => setOpen((o) => !o)}
-        aria-label={open ? "Close chat" : "Chat with Gaffer, the kit assistant"}
-        className="group fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full border border-accent-400/40 bg-charcoal-900 shadow-[0_10px_40px_-8px_color-mix(in_srgb,var(--color-accent-400)_60%,transparent)] transition-transform duration-300 hover:scale-105 active:scale-95"
+        onClick={() => (onCall ? setDockOpen(!dockOpen) : setOpen((o) => !o))}
+        aria-label={
+          onCall
+            ? dockOpen ? "Hide call controls" : "Show call controls — you're on a call with Gaffer"
+            : open ? "Close chat" : "Chat with Gaffer, the kit assistant"
+        }
+        data-on-call={onCall ? "true" : undefined}
+        data-speaking={onCall && gafferSpeaking ? "true" : undefined}
+        className={`group launcher fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full transition-transform duration-300 hover:scale-105 active:scale-95 ${
+          onCall
+            ? "border border-rose-400/60 bg-rose-950"
+            : "border border-accent-400/40 bg-charcoal-900 shadow-[0_10px_40px_-8px_color-mix(in_srgb,var(--color-accent-400)_60%,transparent)]"
+        }`}
       >
-        {!open && <span className="launcher-ring" aria-hidden />}
-        {open ? (
+        {(!open || onCall) && <span className="launcher-ring" aria-hidden />}
+        {onCall ? (
+          // the equaliser dances while Gaffer talks, so the button reads as live
+          <span className="flex h-5 items-end gap-[3px] text-rose-300" aria-hidden>
+            {[0, 1, 2, 3].map((i) => (
+              <span key={i} className="gd-bar w-[3px] rounded-full bg-current" />
+            ))}
+          </span>
+        ) : open ? (
           <IconX className="h-5 w-5 text-white/80" />
         ) : (
           <BotAvatar mood="idle" className="h-9 w-9" />
         )}
-        {!open && (
+        {onCall ? (
+          <span className="pointer-events-none absolute right-full mr-3 hidden whitespace-nowrap rounded-full border border-rose-400/30 bg-rose-950/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-rose-200/90 sm:block">
+            On call · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
+          </span>
+        ) : !open ? (
           <span className="pointer-events-none absolute right-full mr-3 hidden whitespace-nowrap rounded-full border border-white/10 bg-charcoal-900/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-white/60 opacity-0 transition-opacity duration-300 group-hover:opacity-100 sm:block">
             Ask Gaffer
           </span>
-        )}
+        ) : null}
       </button>
 
       {open && (
