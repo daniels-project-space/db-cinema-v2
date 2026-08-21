@@ -57,8 +57,8 @@ function FormSevenMark({ spinning, shining }: { spinning: boolean; shining: bool
   const [imgOk, setImgOk] = useState(true);
 
   return (
-    <span className="fs-badge relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl">
-      <span className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-2xl bg-[#0a1f14]">
+    <span className="fs-badge relative flex h-12 aspect-[9/16] shrink-0 items-center justify-center rounded-lg">
+      <span className="fs-mark-stage relative flex h-full w-full items-center justify-center overflow-hidden rounded-lg bg-[#0a1f14]">
         {imgOk ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img

@@ -2344,15 +2344,22 @@ html[data-gaffer-nav="1"] .tile-in {
   .fs-badge::before { animation: fs-glow-rot 4.5s linear infinite; }
 }
 
-/* mark — a single eased rotation, played by toggling .fs-spin from JS on an interval */
+/* mark — a single eased horizontal "revolving door" turn (rotateY, not a flat spin),
+   played by toggling .fs-spin from JS on an interval. Perspective lives on the stage
+   (the mark's parent) so the turn reads as 3D depth, not a 2D squash. */
+.fs-mark-stage {
+  perspective: 260px;
+}
 .fs-mark {
   transform-box: fill-box;
   transform-origin: center;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
   display: block;
 }
 @keyframes fs-mark-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(360deg); }
 }
 @media (prefers-reduced-motion: no-preference) {
   .fs-mark.fs-spin { animation: fs-mark-spin 1.8s cubic-bezier(0.65, 0, 0.35, 1) 1 both; }
