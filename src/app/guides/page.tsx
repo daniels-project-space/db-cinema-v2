@@ -3,6 +3,7 @@ import { PageHero } from "@/components/PageHero";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { GUIDES, GUIDE_CATEGORIES } from "@/lib/guides";
+import { AskGaffer } from "@/components/gaffer/AskGaffer";
 import { Reveal } from "@/components/Reveal";
 import { IconArrowRight } from "@/components/icons";
 
@@ -24,6 +25,12 @@ export default function GuidesPage() {
           lead="Shoot"
           accent="smarter"
           sub="Straight-talking advice on renting the right gear — and how-to videos for getting the most out of it."
+        />
+
+        <AskGaffer
+          className="mt-8"
+          title="Stuck on set right now?"
+          blurb="Skip the reading. Tell Gaffer which bit of kit you're wrestling with and it'll talk you through the setup step by step."
         />
 
         {GUIDE_CATEGORIES.map((cat) => {

@@ -3,6 +3,7 @@ import { PageHero } from "@/components/PageHero";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Accordion } from "@/components/Accordion";
+import { AskGaffer } from "@/components/gaffer/AskGaffer";
 import { FAQS } from "@/lib/guides";
 
 export const metadata: Metadata = {
@@ -36,7 +37,12 @@ export default function FAQPage() {
         <div className="mt-10">
           <Accordion items={FAQS} />
         </div>
-        <div className="mt-10 text-center text-sm text-white/40">
+        <AskGaffer
+          className="mt-10"
+          title="Not answered here?"
+          blurb="Talk it through with Gaffer. Say what's gone wrong and it'll work out whether it's a settings issue, a fault, or something we need to sort at our end."
+        />
+        <div className="mt-8 text-center text-sm text-white/40">
           Still stuck?{" "}
           <Link href="/account" className="arrow-link text-accent-400 hover:text-accent-300">
             Message us in your account <span className="arrow">→</span>

@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
 import { guideBySlug, GUIDES, type GuideVideo } from "@/lib/guides";
 import { IconChevronLeft, IconArrowRight, IconCheck } from "@/components/icons";
+import { AskGaffer } from "@/components/gaffer/AskGaffer";
 
 import { SITE_URL as BASE } from "@/lib/site";
 
@@ -164,6 +165,14 @@ export default async function GuidePage({
             </Reveal>
           ))}
         </div>
+        {/* topic = the guide's real title, so Gaffer opens the call already
+            knowing which setup it's walking them through */}
+        <AskGaffer
+          className="mt-12"
+          title="Want this walked through out loud?"
+          blurb="Gaffer can take you through it hands-free, one step at a time — handy when both of yours are holding the rig."
+          topic={g.title}
+        />
         <Reveal className="mt-14">
           <div className="spot gradient-border rounded-2xl p-7 text-center">
             <p className="serif-accent text-2xl text-white/85">Ready to book your kit?</p>

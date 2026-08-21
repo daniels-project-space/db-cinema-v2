@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { PageHero } from "@/components/PageHero";
 import { IconCheck, IconClock, IconPin, IconSend } from "@/components/icons";
 import { HOURS_WINDOWS } from "@/lib/site";
+import { AskGaffer } from "@/components/gaffer/AskGaffer";
 
 export default function ContactPage() {
   const submit = useMutation(api.contact.submit);
@@ -130,6 +131,11 @@ export default function ContactPage() {
             </div>
           </aside>
         </div>
+        <AskGaffer
+          className="mt-10"
+          title="Don't fancy typing it out?"
+          blurb="Ask Gaffer instead. It can answer most things on the spot, and takes your details across to us if it can't."
+        />
       </main>
     </>
   );

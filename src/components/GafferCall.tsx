@@ -33,6 +33,7 @@ export function GafferCall({
   label = "Talk to Gaffer",
   variant = "solid",
   compact = false,
+  topic,
 }: {
   className?: string;
   label?: string;
@@ -40,6 +41,9 @@ export function GafferCall({
   variant?: "solid" | "glass";
   /** Drop the spoken-state wording during a call — for tight spots like the bot header. */
   compact?: boolean;
+  /** What the caller was reading, when the page alone doesn't say — a guide's
+   *  title, say. Passed to Gaffer as context at connect. */
+  topic?: string;
 }) {
   // The session itself lives in GafferSessionProvider (root layout) so a call
   // survives Gaffer navigating between pages. This is now purely the control.
@@ -50,7 +54,7 @@ export function GafferCall({
 
   return (
     <button
-      onClick={toggle}
+      onClick={() => toggle(topic)}
       data-state={state}
       data-variant={variant}
       data-speaking={live && speaking ? "true" : "false"}

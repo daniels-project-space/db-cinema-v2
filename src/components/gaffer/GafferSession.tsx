@@ -4,7 +4,9 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import { useGafferTools } from "@/components/gaffer/useGafferTools";
+import { isSignOff, pageBrief } from "@/components/gaffer/callContext";
 
 /**
  * Owns the live Gaffer voice session, above the page tree.
@@ -24,11 +26,19 @@ type Ctx = {
   secs: number;
   /** Last failure, so the UI can say why instead of silently resetting. */
   error: string | null;
-  toggle: () => void;
+  /** `topic` names what the caller was looking at, for buttons that know more
+   *  than the URL does (a guide's title, a listing's name). */
+  toggle: (topic?: string) => void;
   end: () => void;
 };
 
 const AGENT_ID = "agent_4601kvk2pfznfrws6ah700jnxvfv";
+
+/** Hang up after this much dead air from the caller. Time the agent spends
+ *  talking doesn't count — only silence where a reply was expected. */
+const SILENCE_MS = 20_000;
+/** Grace after a sign-off, so Gaffer's goodbye actually plays before we cut. */
+const FAREWELL_MS = 6_000;
 const GafferCtx = createContext<Ctx | null>(null);
 
 export function GafferSessionProvider({ children }: { children: ReactNode }) {
@@ -38,6 +48,14 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const conv = useRef<any>(null);
   const { clientTools, dynamicVariables } = useGafferTools();
+  const pathname = usePathname();
+
+  // Auto-hangup bookkeeping. Refs, not state: these are read inside SDK
+  // callbacks and a 1s watchdog, none of which should trigger a render.
+  const lastActivity = useRef(0);
+  const agentTalking = useRef(false);
+  const signingOff = useRef(false);
+  const farewell = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep the tools fresh without restarting the call: the basket and page
   // change mid-conversation, and the SDK captured whatever we passed at start.
@@ -52,16 +70,36 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   }, [live]);
 
   const end = useCallback(async () => {
+    if (farewell.current) { clearTimeout(farewell.current); farewell.current = null; }
+    signingOff.current = false;
+    agentTalking.current = false;
     try { await conv.current?.endSession?.(); } catch { /* already gone */ }
     conv.current = null;
     setState("idle");
     setSpeaking(false);
   }, []);
 
-  const toggle = useCallback(async () => {
+  // Dead-air watchdog. Only runs while connected, and only counts silence the
+  // caller owns — if Gaffer is mid-sentence, the caller isn't being rude.
+  useEffect(() => {
+    if (state !== "live") return;
+    const id = setInterval(() => {
+      if (agentTalking.current || signingOff.current) {
+        lastActivity.current = Date.now();
+        return;
+      }
+      if (Date.now() - lastActivity.current >= SILENCE_MS) void end();
+    }, 1000);
+    return () => clearInterval(id);
+  }, [state, end]);
+
+  const toggle = useCallback(async (topic?: string) => {
     if (state === "live" || state === "connecting") { void end(); return; }
     setState("connecting");
     setError(null);
+    signingOff.current = false;
+    lastActivity.current = Date.now();
+    const { intent, brief } = pageBrief(pathname ?? "/", topic);
     try {
       const { Conversation } = await import("@elevenlabs/client");
       await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -75,15 +113,41 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       conv.current = await Conversation.startSession({
         agentId: AGENT_ID,
         clientTools: tools,
-        dynamicVariables,
-        onConnect: () => setState("live"),
+        dynamicVariables: { ...dynamicVariables, call_intent: intent },
+        onConnect: () => {
+          setState("live");
+          lastActivity.current = Date.now();
+          // Tell Gaffer where the call came from before it opens its mouth.
+          // A contextual update is injected as context, not spoken, and needs
+          // nothing configured on the agent — unlike dynamic variables, which
+          // are inert unless the agent prompt interpolates them.
+          try { conv.current?.sendContextualUpdate?.(brief); } catch { /* non-fatal */ }
+        },
         onDisconnect: () => { setState("idle"); setSpeaking(false); conv.current = null; },
+        onMessage: ({ message, source }: { message: string; source: "user" | "ai" }) => {
+          lastActivity.current = Date.now();
+          if (source !== "user" || signingOff.current) return;
+          if (!isSignOff(message)) return;
+          // Let Gaffer say goodbye properly rather than cutting it dead.
+          signingOff.current = true;
+          try {
+            conv.current?.sendContextualUpdate?.(
+              "[Context] The caller has signalled they're finished. Say one short, warm goodbye " +
+                "and stop — do not ask another question or offer anything else.",
+            );
+          } catch { /* non-fatal */ }
+          farewell.current = setTimeout(() => void end(), FAREWELL_MS);
+        },
         onError: (err: unknown) => {
           console.error("[Gaffer] session error", err);
           setError("The call dropped — try again?");
           setState("idle"); setSpeaking(false); conv.current = null;
         },
-        onModeChange: (m: any) => setSpeaking(m?.mode === "speaking"),
+        onModeChange: (m: any) => {
+          const talking = m?.mode === "speaking";
+          agentTalking.current = talking;
+          setSpeaking(talking);
+        },
       });
     } catch (err: any) {
       // Never swallow: a blocked mic, a denied prompt and an SDK fault all land
@@ -100,10 +164,13 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       setState("idle");
       conv.current = null;
     }
-  }, [state, end, dynamicVariables]);
+  }, [state, end, dynamicVariables, pathname]);
 
   // Belt and braces: don't leave a session running if the whole app unmounts.
-  useEffect(() => () => { void conv.current?.endSession?.().catch?.(() => {}); }, []);
+  useEffect(() => () => {
+    if (farewell.current) clearTimeout(farewell.current);
+    void conv.current?.endSession?.().catch?.(() => {});
+  }, []);
 
   const value = useMemo(
     () => ({ state, speaking, secs, error, toggle, end }),
