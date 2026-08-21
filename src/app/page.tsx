@@ -240,7 +240,9 @@ export default async function Home() {
       </section>
 
       {/* ───────────────── testimonials ───────────────── */}
-      <section id="reviews" className="section-glass px-6 py-20">
+      {/* scroll-mt keeps the heading clear of the sticky header when the hero
+          rating links down here */}
+      <section id="reviews" className="section-glass scroll-mt-24 px-6 py-20">
         <Reveal className="mx-auto max-w-6xl">
           <div className="text-center">
             <div className="hud-label !text-accent-400/90">What crews say</div>

@@ -291,21 +291,31 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         </div>
         {rating && (
           <div
-            className="mt-3 flex items-center gap-2.5 text-xs text-white/55 lg:mt-5 lg:text-sm"
             style={{
               opacity: ctaVisible ? 1 : 0,
               transition: "opacity 1s cubic-bezier(0.16,1,0.3,1)",
               transitionDelay: "0.48s",
             }}
           >
-            <span className="flex text-accent-400">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <IconStar key={i} className="h-3.5 w-3.5" />
-              ))}
-            </span>
-            <span className="font-mono text-white/80">{rating.ratingValue.toFixed(2)}</span>
-            <span className="text-white/25">·</span>
-            <span>{rating.reviewCount}+ verified reviews</span>
+            {/* the rating is the proof — make it go to the proof. A plain hash
+                link, so the browser does the smooth scroll (html already sets
+                scroll-behavior: smooth, and drops it under prefers-reduced-motion). */}
+            <a
+              href="#reviews"
+              aria-label={`Read the ${rating.reviewCount}+ verified reviews`}
+              className="group mt-3 inline-flex items-center gap-2.5 rounded-full text-xs text-white/55 transition-colors hover:text-white/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-400/70 lg:mt-5 lg:text-sm"
+            >
+              <span className="flex text-accent-400">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <IconStar key={i} className="h-3.5 w-3.5" />
+                ))}
+              </span>
+              <span className="font-mono text-white/80">{rating.ratingValue.toFixed(2)}</span>
+              <span className="text-white/25">·</span>
+              <span className="underline decoration-white/20 decoration-dotted underline-offset-4 transition-colors group-hover:decoration-accent-400/70">
+                {rating.reviewCount}+ verified reviews
+              </span>
+            </a>
           </div>
         )}
       </div>
