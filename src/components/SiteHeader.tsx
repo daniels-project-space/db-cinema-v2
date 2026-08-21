@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
-import { IconArrowRight, IconCamera, IconCart, IconMenu, IconSpark, IconUser, IconX } from "@/components/icons";
+import { IconArrowRight, IconCart, IconMenu, IconSpark, IconUser, IconX } from "@/components/icons";
 import { SignatureProductionsOverlay } from "@/components/SignatureProductionsOverlay";
 import { FormSevenBadge } from "@/components/FormSevenBadge";
 
@@ -24,7 +24,9 @@ const NAV: NavItem[] = [
   { href: "/contact", label: "Contact" },
 ];
 
-const DESKTOP_NAV = NAV.filter((n) => n.href !== "/membership" && n.href !== "/how-it-works");
+const DESKTOP_NAV = NAV.filter(
+  (n) => n.href !== "/membership" && n.href !== "/how-it-works" && n.href !== "/about" && n.href !== "/join"
+);
 
 export function SiteHeader() {
   const { count, open } = useCart();
@@ -234,15 +236,6 @@ export function SiteHeader() {
                 </div>
               )}
             </div>
-
-            <Link
-              href="/gear"
-              onClick={(e) => gearClick(e, "/gear")}
-              className="hidden h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition hover:border-accent-400/40 hover:text-white md:flex"
-              aria-label="Browse gear"
-            >
-              <IconCamera className="h-4.5 w-4.5" />
-            </Link>
 
             <button
               onClick={open}

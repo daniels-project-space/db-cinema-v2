@@ -168,7 +168,7 @@ export function SignatureProductionsOverlay({
 
             <div className="mt-4 flex items-center gap-2 text-xs text-white/40">
               <IconArrowRight className="h-4 w-4 shrink-0 -rotate-90 text-accent-400" />
-              Check out our page and partner company
+              Get your free sample ad today!
             </div>
           </div>
 
