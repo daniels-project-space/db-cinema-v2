@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Magnetic } from "@/components/Magnetic";
+import { GafferCall } from "@/components/GafferCall";
 import { IconArrowRight, IconStar } from "@/components/icons";
 
 type Rating = { ratingValue: number; reviewCount: number } | null;
@@ -264,7 +265,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           the gear that <span className="gradient-text">makes the shot.</span>
         </p>
         <div
-          className="mt-4 flex flex-nowrap items-center justify-center gap-2.5 lg:mt-6 lg:flex-wrap lg:gap-3"
+          className="mt-4 flex flex-wrap items-center justify-center gap-2.5 lg:mt-6 lg:gap-3"
           style={{
             opacity: ctaVisible ? 1 : 0,
             transform: ctaVisible ? "translateY(0)" : "translateY(26px)",
@@ -284,6 +285,13 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
               How it works
             </Link>
           </Magnetic>
+          {/* straight into a live voice call with Gaffer — glass tone so it doesn't
+              compete with the amber primary, but keeps the full call animation */}
+          <GafferCall
+            variant="glass"
+            label="Call us"
+            className="!px-5 !py-2.5 !text-sm !font-medium lg:!px-8 lg:!py-3 lg:!text-base"
+          />
         </div>
         {rating && (
           <div

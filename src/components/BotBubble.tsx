@@ -211,7 +211,7 @@ export function BotBubble() {
                 {busy ? "on it…" : "online · builds kits live"}
               </div>
             </div>
-            <GafferCall className="!px-3 !py-1.5 !text-xs" label="Voice" />
+            <GafferCall className="!px-3 !py-1.5 !text-xs" label="Voice" compact />
             {msgs.length > 0 && (
               <button
                 onClick={clearChat}
