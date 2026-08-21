@@ -2414,14 +2414,159 @@ html[data-gaffer-nav="1"] .tile-in {
   .fs-shine.fs-shine-on { animation: none !important; }
 }
 
-/* ── FORM / SEVEN carousel — coverflow tiles + caption swap ── */
-.fs-carousel-tile {
-  transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s ease-out;
+/* ── FORM / SEVEN partner interstitial — a luminous, cinematically restrained
+   glass bridge between DB Cinema's viewfinder language and the agency reel. ── */
+.fs-overlay-panel {
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 51% 42%, rgba(69, 255, 143, 0.13), transparent 25%),
+    radial-gradient(circle at 8% 0%, rgba(76, 229, 155, 0.12), transparent 25%),
+    linear-gradient(132deg, rgba(22, 30, 28, 0.7), rgba(5, 9, 8, 0.58) 54%, rgba(17, 28, 24, 0.68));
+  backdrop-filter: blur(32px) saturate(135%);
 }
+.fs-overlay-panel::before {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  opacity: 0.33;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(to bottom, black, transparent 86%);
+}
+.fs-overlay-panel::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -30%;
+  opacity: 0.62;
+  background: conic-gradient(from 120deg at 50% 50%, transparent 0deg, rgba(64,255,155,0.08) 52deg, transparent 105deg, rgba(103,255,192,0.07) 185deg, transparent 250deg);
+  filter: blur(18px);
+  animation: fs-ambient-turn 20s linear infinite;
+}
+.fs-overlay-light {
+  position: absolute;
+  width: min(42vw, 580px);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  filter: blur(70px);
+  pointer-events: none;
+  opacity: 0.25;
+}
+.fs-overlay-light-one { left: -12%; top: -25%; background: #37d98a; animation: fs-light-drift 12s ease-in-out infinite alternate; }
+.fs-overlay-light-two { right: -14%; bottom: -32%; background: #129865; animation: fs-light-drift 15s ease-in-out -5s infinite alternate-reverse; }
+@keyframes fs-ambient-turn { to { transform: rotate(360deg); } }
+@keyframes fs-light-drift { to { transform: translate3d(11%, 12%, 0) scale(1.2); opacity: 0.36; } }
+
+.fs-mark-chip,
+.fs-close-button,
+.fs-reel-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.055);
+  box-shadow: inset 0 1px rgba(255,255,255,0.08), 0 12px 28px rgba(0,0,0,0.16);
+  backdrop-filter: blur(12px);
+}
+.fs-mark-chip { width: 2.5rem; height: 2.5rem; border-radius: 0.9rem; color: var(--color-accent-300); }
+.fs-close-button { width: 2.4rem; height: 2.4rem; border-radius: 999px; color: rgba(255,255,255,0.55); transition: background-color .25s ease, color .25s ease, transform .25s ease; }
+.fs-close-button:hover { color: white; background: rgba(255,255,255,0.12); transform: rotate(90deg); }
+.fs-close-button:focus-visible,
+.fs-reel-control:focus-visible,
+.fs-reel-card:focus-visible,
+.fs-enter-button:focus-visible { outline: 2px solid var(--color-accent-300); outline-offset: 3px; }
+
+/* The campaign reel remains intentionally central: an active frame is a living
+   piece of work, while its neighbours act like a luminous contact sheet. */
+.fs-work-reel { min-width: 0; }
+.fs-reel-topline,
+.fs-reel-caption,
+.fs-signal-note {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+.fs-reel-topline { display: flex; justify-content: space-between; margin: 0 auto 0.65rem; max-width: 31rem; color: rgba(255,255,255,0.47); }
+.fs-reel-stage {
+  position: relative;
+  height: clamp(285px, 42vh, 410px);
+  overflow: hidden;
+  perspective: 870px;
+  mask-image: linear-gradient(90deg, transparent, black 14%, black 86%, transparent);
+}
+.fs-reel-stage::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  width: min(50%, 250px);
+  height: 20%;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse, rgba(68,255,147,0.21), rgba(31,170,105,0.07) 42%, transparent 72%);
+  filter: blur(18px);
+}
+.fs-reel-horizon { position: absolute; top: 50%; left: 4%; right: 4%; height: 1px; background: linear-gradient(90deg, transparent, rgba(132,255,190,0.22), transparent); }
+.fs-reel-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: clamp(9.6rem, 17vw, 13.2rem);
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 1.1rem;
+  background: #080c0a;
+  box-shadow: 0 26px 48px -26px rgba(0,0,0,0.95), inset 0 0 0 1px rgba(255,255,255,0.1);
+  transform-style: preserve-3d;
+  transition: transform .76s cubic-bezier(.16,1,.3,1), opacity .56s ease, filter .56s ease;
+  will-change: transform, opacity;
+}
+.fs-reel-card::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(125deg, rgba(255,255,255,0.16), transparent 24%, transparent 72%, rgba(82,255,164,0.1)); mix-blend-mode: screen; }
+.fs-reel-frame { position: absolute; z-index: 2; inset: 0.45rem; border: 1px solid rgba(255,255,255,0.22); border-radius: 0.78rem; pointer-events: none; }
+.fs-reel-frame::before,
+.fs-reel-frame::after { content: ""; position: absolute; width: 0.8rem; height: 0.8rem; border-color: var(--color-accent-300); opacity: 0.92; }
+.fs-reel-frame::before { left: -1px; top: -1px; border-left: 1px solid; border-top: 1px solid; border-radius: 0.1rem 0 0 0; }
+.fs-reel-frame::after { right: -1px; bottom: -1px; border-right: 1px solid; border-bottom: 1px solid; border-radius: 0 0 0.1rem 0; }
+.fs-reel-card-meta { position: absolute; z-index: 3; right: 0.75rem; top: 0.72rem; color: rgba(255,255,255,0.72); font-family: var(--font-mono, monospace); font-size: 9px; letter-spacing: .14em; }
+.fs-reel-caption { display: flex; min-height: 2.3rem; align-items: center; justify-content: space-between; gap: 1rem; max-width: 31rem; margin: -0.1rem auto 0; color: white; }
+.fs-reel-caption > div:first-child { display: grid; gap: 0.18rem; }
+.fs-reel-caption span { font-size: 11px; letter-spacing: .2em; }
+.fs-reel-caption small { color: rgba(255,255,255,0.42); font-size: 9px; letter-spacing: .15em; }
+.fs-reel-control { width: 2rem; height: 2rem; border-radius: 999px; color: rgba(255,255,255,0.66); transition: background-color .2s ease, color .2s ease, transform .2s ease; }
+.fs-reel-control:hover { color: var(--color-accent-200); background: rgba(102,255,177,0.15); transform: translateY(-1px); }
+
+.fs-signal-note { min-height: 12rem; flex-direction: column; align-items: center; justify-content: center; gap: 0.9rem; color: rgba(255,255,255,0.52); text-align: center; line-height: 1.5; }
+.fs-signal-note-left { border-right: 1px solid rgba(255,255,255,0.11); }
+.fs-signal-note-right { border-left: 1px solid rgba(255,255,255,0.11); }
+.fs-signal-note small { color: var(--color-accent-300); font-size: 8px; letter-spacing: .22em; }
+@media (min-width: 1024px) { .fs-signal-note { display: flex; } }
+.fs-live-pip { width: .45rem; height: .45rem; border-radius: 99px; background: var(--color-accent-300); box-shadow: 0 0 0 4px rgba(82,255,151,0.13), 0 0 14px rgba(82,255,151,0.75); animation: fs-pip-pulse 2s ease-out infinite; }
+@keyframes fs-pip-pulse { 50% { box-shadow: 0 0 0 7px rgba(82,255,151,0), 0 0 20px rgba(82,255,151,0.9); } }
+.fs-enter-button { display: inline-flex; align-items: center; gap: .55rem; border: 1px solid rgba(121,255,182,0.44); border-radius: 999px; background: linear-gradient(135deg, rgba(102,255,170,0.22), rgba(41,180,106,0.09)); padding: .68rem 1rem; color: var(--color-accent-100); font-family: var(--font-mono, monospace); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .14em; box-shadow: inset 0 1px rgba(255,255,255,0.15), 0 8px 30px rgba(26,195,101,0.14); transition: transform .25s ease, background-color .25s ease, box-shadow .25s ease; }
+.fs-enter-button:hover { transform: translateY(-2px); background: rgba(87,255,160,0.27); box-shadow: inset 0 1px rgba(255,255,255,0.2), 0 14px 35px rgba(26,195,101,0.22); }
+
 @keyframes fs-caption-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .fs-caption-in {
   animation: fs-caption-in 0.4s var(--ease-out-expo) both;
+}
+
+@media (max-width: 639px) {
+  .fs-overlay-panel { border-radius: 1.5rem; }
+  .fs-reel-stage { height: clamp(264px, 48vh, 350px); }
+  .fs-reel-card { width: clamp(8.2rem, 42vw, 10.6rem); }
+  .fs-reel-topline, .fs-reel-caption { max-width: 22rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fs-overlay-panel::after,
+  .fs-overlay-light,
+  .fs-live-pip,
+  .fs-caption-in { animation: none !important; }
+  .fs-reel-card, .fs-close-button, .fs-reel-control, .fs-enter-button { transition-duration: .01ms !important; }
 }
