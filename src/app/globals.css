@@ -453,6 +453,38 @@ html[data-gaffer-nav="1"] .tile-in {
   transition: none !important;
 }
 
+/* ── Gaffer floating call dock ───────────────────────────────────
+   Only on screen during a call. The equaliser reflects who's talking, so the
+   customer can tell at a glance whether Gaffer is speaking or waiting on them
+   — the same signal the main button gives, carried to wherever they've been
+   navigated to. */
+@keyframes gd-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.gaffer-dock .gd-pill,
+.gaffer-dock .gd-menu { animation: gd-in 0.28s var(--ease-out-expo) both; }
+
+@keyframes gd-bar {
+  0%, 100% { height: 30%; }
+  50% { height: 100%; }
+}
+.gaffer-dock .gd-bar { height: 35%; transition: height 0.2s ease; }
+.gaffer-dock[data-speaking="true"] .gd-bar { animation: gd-bar 0.7s ease-in-out infinite; }
+.gaffer-dock[data-speaking="true"] .gd-bar:nth-child(2) { animation-delay: 0.12s; }
+.gaffer-dock[data-speaking="true"] .gd-bar:nth-child(3) { animation-delay: 0.24s; }
+.gaffer-dock[data-speaking="true"] .gd-bar:nth-child(4) { animation-delay: 0.36s; }
+
+@keyframes gd-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.gaffer-dock .gd-pulse { animation: gd-pulse 1.6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gaffer-dock .gd-pill,
+  .gaffer-dock .gd-menu,
+  .gaffer-dock .gd-bar,
+  .gaffer-dock .gd-pulse { animation: none !important; }
+}
+
 /* image load: fade-in + settle */
 .smart-img {
   opacity: 0;

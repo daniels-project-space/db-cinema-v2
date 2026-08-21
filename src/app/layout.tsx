@@ -6,6 +6,8 @@ import { CartProvider } from "@/components/cart/CartProvider";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { CartToast } from "@/components/cart/CartToast";
 import { AccountProvider } from "@/components/account/AccountProvider";
+import { GafferSessionProvider } from "@/components/gaffer/GafferSession";
+import { GafferDock } from "@/components/gaffer/GafferDock";
 import { Footer } from "@/components/Footer";
 import { AmbientBackground } from "@/components/AmbientBackground";
 import { GearTurnOverlay } from "@/components/GearTurnOverlay";
@@ -162,15 +164,20 @@ export default function RootLayout({
           <AnalyticsTracker />
           <AccountProvider>
             <CartProvider>
-              <div id="main-content" tabIndex={-1} className="relative z-10">
-                {children}
-                <Footer />
-              </div>
-              <CartDrawer />
-              <CartToast />
-              <BotBubble />
-              <GearTurnOverlay />
-              <CheckoutTurnOverlay />
+              {/* Inside Account + Cart (its tools read both) and outside the
+                  page tree, so a call survives Gaffer navigating between pages. */}
+              <GafferSessionProvider>
+                <div id="main-content" tabIndex={-1} className="relative z-10">
+                  {children}
+                  <Footer />
+                </div>
+                <CartDrawer />
+                <CartToast />
+                <BotBubble />
+                <GearTurnOverlay />
+                <CheckoutTurnOverlay />
+                <GafferDock />
+              </GafferSessionProvider>
             </CartProvider>
           </AccountProvider>
         </ConvexClientProvider>

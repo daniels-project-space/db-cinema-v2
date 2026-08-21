@@ -1,11 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useGafferTools } from "@/components/gaffer/useGafferTools";
-
-// The Db Cinema "Gaffer" ElevenLabs Conversational-AI agent (British female voice,
-// wired to the live catalogue + booking/inquiry tools). Public agent → agentId is enough.
-const AGENT_ID = "agent_4601kvk2pfznfrws6ah700jnxvfv";
+import { useGafferSession } from "@/components/gaffer/GafferSession";
 
 function Headset() {
   return (
@@ -46,68 +41,12 @@ export function GafferCall({
   /** Drop the spoken-state wording during a call — for tight spots like the bot header. */
   compact?: boolean;
 }) {
-  const [state, setState] = useState<"idle" | "connecting" | "live">("idle");
-  const [speaking, setSpeaking] = useState(false);
-  const [secs, setSecs] = useState(0);
-  const conv = useRef<any>(null);
-  // Lets Gaffer drive the page (open gear, fill the basket) and know who it's
-  // talking to — see useGafferTools.
-  const { clientTools, dynamicVariables } = useGafferTools();
+  // The session itself lives in GafferSessionProvider (root layout) so a call
+  // survives Gaffer navigating between pages. This is now purely the control.
+  const { state, speaking, secs, error, toggle } = useGafferSession();
 
   const live = state === "live";
   const connecting = state === "connecting";
-
-  // call timer — only ticks while connected
-  useEffect(() => {
-    if (!live) {
-      setSecs(0);
-      return;
-    }
-    const id = setInterval(() => setSecs((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, [live]);
-
-  // never leave a session open behind an unmount (route change with the footer on screen)
-  useEffect(() => {
-    return () => {
-      void conv.current?.endSession?.().catch?.(() => {});
-      conv.current = null;
-    };
-  }, []);
-
-  async function toggle() {
-    if (state === "live" || state === "connecting") return end();
-    setState("connecting");
-    try {
-      const { Conversation } = await import("@elevenlabs/client");
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      conv.current = await Conversation.startSession({
-        agentId: AGENT_ID,
-        clientTools,
-        dynamicVariables,
-        onConnect: () => setState("live"),
-        onDisconnect: () => { setState("idle"); setSpeaking(false); conv.current = null; },
-        onError: (err: unknown) => {
-          console.error("[GafferCall] session error", err);
-          setState("idle"); setSpeaking(false); conv.current = null;
-        },
-        onModeChange: (m: any) => setSpeaking(m?.mode === "speaking"),
-      });
-    } catch (err) {
-      // Never swallow this silently: a blocked mic (Permissions-Policy), a
-      // denied prompt and an SDK failure all land here and are otherwise
-      // indistinguishable from "the button does nothing".
-      console.error("[GafferCall] failed to start session", err);
-      setState("idle");
-      conv.current = null;
-    }
-  }
-  async function end() {
-    try { await conv.current?.endSession(); } catch {}
-    conv.current = null;
-    setState("idle");
-    setSpeaking(false);
-  }
 
   return (
     <button
@@ -116,6 +55,7 @@ export function GafferCall({
       data-variant={variant}
       data-speaking={live && speaking ? "true" : "false"}
       aria-label={live ? "End voice call with Gaffer" : "Start a voice call with Gaffer"}
+      title={error ?? undefined}
       className={`gaffer-call relative inline-flex select-none items-center rounded-full px-4 py-2 text-sm font-semibold text-white ${className}`}
     >
       {/* colour plates — cross-fade amber→rose instead of swapping gradients */}
@@ -171,9 +111,18 @@ export function GafferCall({
         </span>
       </span>
 
-      {/* the only thing screen readers should hear about the call's state */}
+      {/* the only thing screen readers should hear about the call's state.
+          A failed start is announced here and surfaced as the button's tooltip,
+          so "nothing happened" always has a stated reason — without disturbing
+          the layout the rest of this component works hard to keep stable. */}
       <span className="sr-only" aria-live="polite">
-        {live ? (speaking ? "Gaffer is speaking" : "Gaffer is listening") : connecting ? "Connecting" : ""}
+        {error
+          ? error
+          : live
+            ? (speaking ? "Gaffer is speaking" : "Gaffer is listening")
+            : connecting
+              ? "Connecting"
+              : ""}
       </span>
     </button>
   );
