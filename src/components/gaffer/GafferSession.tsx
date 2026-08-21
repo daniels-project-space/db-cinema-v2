@@ -46,7 +46,48 @@ type Ctx = {
 /** How long the "here's how to hang up" hint stays up on its own. */
 const HINT_MS = 3_000;
 
-const AGENT_ID = "agent_4601kvk2pfznfrws6ah700jnxvfv";
+/**
+ * Which agent takes the call.
+ *
+ * Support and sales are genuinely different jobs — one is walking someone
+ * through balancing a gimbal, the other is closing a booking — and the cleanest
+ * way to give them different openings and different instructions is a second
+ * ElevenLabs agent, configured for support in the dashboard. Point
+ * NEXT_PUBLIC_GAFFER_SUPPORT_AGENT_ID at one and calls from the guides and the
+ * FAQ route to it automatically. Without it everything falls back to the single
+ * agent, which is the behaviour we already had.
+ */
+const SALES_AGENT_ID =
+  process.env.NEXT_PUBLIC_GAFFER_AGENT_ID || "agent_4601kvk2pfznfrws6ah700jnxvfv";
+const SUPPORT_AGENT_ID = process.env.NEXT_PUBLIC_GAFFER_SUPPORT_AGENT_ID || SALES_AGENT_ID;
+
+/**
+ * Remember, across page loads, that this agent refuses firstMessage overrides.
+ *
+ * Probing costs a whole connect-reject-reconnect cycle, and doing that on every
+ * call is exactly the delay it introduced. Probe once, remember the answer for a
+ * day, so enabling the setting still takes effect on its own without making
+ * every caller wait in the meantime.
+ */
+const OVERRIDE_MEMO_KEY = "dbc_gaffer_overrides_blocked_at";
+const OVERRIDE_RECHECK_MS = 24 * 60 * 60 * 1000;
+
+function overridesRecentlyBlocked(): boolean {
+  try {
+    const at = Number(localStorage.getItem(OVERRIDE_MEMO_KEY) ?? 0);
+    return at > 0 && Date.now() - at < OVERRIDE_RECHECK_MS;
+  } catch {
+    return false;
+  }
+}
+
+function rememberOverridesBlocked() {
+  try {
+    localStorage.setItem(OVERRIDE_MEMO_KEY, String(Date.now()));
+  } catch {
+    /* private mode — we just probe again next time */
+  }
+}
 
 /** Hang up after this much dead air from the caller. Time the agent spends
  *  talking doesn't count — only silence where a reply was expected. */
@@ -146,7 +187,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     setError(null);
     signingOff.current = false;
     lastActivity.current = Date.now();
-    const { intent, brief, opening } = pageBrief(pathname ?? "/", topic);
+    const { intent, mode, brief, opening } = pageBrief(pathname ?? "/", topic);
+    const agentId = mode === "support" ? SUPPORT_AGENT_ID : SALES_AGENT_ID;
 
     let Conversation: any;
     try {
@@ -192,13 +234,31 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         ]),
       );
       const cfg: any = {
-        agentId: AGENT_ID,
+        agentId,
         clientTools: tools,
-        dynamicVariables: { ...dynamicVariables, call_intent: intent },
+        dynamicVariables: {
+          ...dynamicVariables,
+          call_intent: intent,
+          call_mode: mode,
+          // Third route to a page-specific greeting, and the one that needs no
+          // special permission: put {{opening_line}} in the agent's First
+          // Message field and this fills it in. Harmless if unused.
+          opening_line: opening,
+        },
         onConnect: () => {
           if (!mine()) return;
           setState("live");
           lastActivity.current = Date.now();
+          // Connecting proves nothing — a refused override connects first and is
+          // closed a moment later. Only a call still alive past the probe window
+          // tells us overrides are genuinely on.
+          if (withOverrides) {
+            setTimeout(() => {
+              if (!mine()) return;
+              overridesAllowed = true;
+              try { localStorage.removeItem(OVERRIDE_MEMO_KEY); } catch { /* fine */ }
+            }, OVERRIDE_PROBE_MS + 500);
+          }
           // Tell Gaffer where the call came from before it opens its mouth.
           // A contextual update is injected as context, not spoken, and needs
           // nothing configured on the agent — unlike dynamic variables, which
@@ -213,6 +273,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           // instant disconnect the customer didn't ask for.
           if (withOverrides && !endedDeliberately.current && Date.now() - startedAt < OVERRIDE_PROBE_MS) {
             overridesAllowed = false;
+            rememberOverridesBlocked();
             console.warn(
               "[Gaffer] the call dropped immediately with a firstMessage override — enable " +
                 "overrides for 'first message' in the agent's security settings to get " +
@@ -294,8 +355,10 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    // Skip the doomed first attempt once we've learned overrides are off, so
-    // the customer doesn't see a connect-then-drop flicker on every call.
+    // Skip the doomed first attempt once we've learned overrides are off — in
+    // this session, or on a previous visit. Probing every call is what made
+    // connecting slow.
+    if (overridesAllowed === null && overridesRecentlyBlocked()) overridesAllowed = false;
     await start(overridesAllowed !== false);
   }, [state, end, dynamicVariables, pathname]);
 

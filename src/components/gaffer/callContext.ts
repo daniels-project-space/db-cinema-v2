@@ -13,6 +13,18 @@
 
 export type CallBrief = {
   intent: string;
+  /**
+   * Which job this call is: helping someone use kit they already have, or
+   * selling them kit they don't.
+   *
+   * Guides and the FAQ are support; everything else defaults to sales, which is
+   * how the home page and the catalogue already behave. Kept separate from
+   * `intent` because it selects the *agent* — support calls can be routed to a
+   * differently-configured ElevenLabs agent, which is the only way to give them
+   * a genuinely different opening and instructions without permission to
+   * override the sales agent's own.
+   */
+  mode: "support" | "sales";
   brief: string;
   /**
    * The literal first thing Gaffer says.
@@ -65,13 +77,23 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
   const seg = path.split("/").filter(Boolean);
   const named = topic ? ` They opened it from: "${topic}".` : "";
 
+  // the two intents that mean "they already have the kit and need a hand"
+  const SUPPORT_INTENTS = new Set(["setup-help", "troubleshoot"]);
+
   const wrap = (intent: string, brief: string, opening: string): CallBrief => ({
     intent,
+    mode: SUPPORT_INTENTS.has(intent) ? "support" : "sales",
     opening,
     brief:
-      `[Context — not spoken by the caller] They started this call from ${path} on the Db Cinema ` +
-      `Rentals website.${named} ${brief} ${FOLLOW_UP} Don't read this context aloud, and don't ` +
-      `re-introduce yourself — you've already opened the call.`,
+      `[Context — not spoken by the caller] ` +
+      (SUPPORT_INTENTS.has(intent)
+        ? `THIS IS A SUPPORT CALL, not a sales call. They already have kit, or are about to use ` +
+          `it, and something needs explaining or fixing. Do not pitch, upsell or steer them to the ` +
+          `catalogue unless they ask to rent something. Your job is to get them working. `
+        : `This is a sales call. `) +
+      `They started this call from ${path} on the Db Cinema Rentals website.${named} ${brief} ` +
+      `${FOLLOW_UP} Don't read this context aloud, and don't re-introduce yourself — you've ` +
+      `already opened the call.`,
   });
 
   // a specific guide → they are mid-task and want to be walked through it

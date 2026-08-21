@@ -199,11 +199,9 @@ export function BotBubble() {
         }
         data-on-call={onCall ? "true" : undefined}
         data-speaking={onCall && gafferSpeaking ? "true" : undefined}
-        className={`group launcher fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full transition-transform duration-300 hover:scale-105 active:scale-95 ${
-          onCall
-            ? "border border-rose-400/60 bg-rose-950"
-            : "border border-accent-400/40 bg-charcoal-900 shadow-[0_10px_40px_-8px_color-mix(in_srgb,var(--color-accent-400)_60%,transparent)]"
-        }`}
+        // colours live in globals.css keyed on data-on-call, so amber→red is a
+        // slow crossfade rather than a class swap that snaps
+        className="group launcher fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full border hover:scale-105 active:scale-95"
       >
         {(!open || onCall) && <span className="launcher-ring" aria-hidden />}
         {onCall ? (

@@ -602,12 +602,30 @@ html[data-gaffer-nav="1"] .tile-in {
    customer can tell at a glance whether Gaffer is speaking or waiting on them
    — the same signal the main button gives, carried to wherever they've been
    navigated to. */
-@keyframes gd-in {
-  from { opacity: 0; transform: translateY(10px) scale(0.96); }
-  to { opacity: 1; transform: none; }
+/* Fades both ways. The panel shows itself and hides itself a few seconds later
+   without anyone touching it, so an abrupt exit is far more noticeable than an
+   abrupt entrance — it blinks out mid-call. Transition rather than animation,
+   so the two directions are symmetrical and interruptible: clicking the
+   launcher mid-fade reverses it instead of restarting. */
+.gaffer-dock.gd-menu {
+  opacity: 0;
+  transform: translateY(12px) scale(0.97);
+  transform-origin: bottom right;
+  transition:
+    opacity 0.4s var(--ease-out-expo),
+    transform 0.4s var(--ease-out-expo);
+  will-change: opacity, transform;
 }
-.gaffer-dock .gd-pill,
-.gaffer-dock .gd-menu { animation: gd-in 0.28s var(--ease-out-expo) both; }
+.gaffer-dock.gd-menu[data-visible="true"] {
+  opacity: 1;
+  transform: none;
+}
+/* the exit is a touch quicker than the entrance, which reads as decisive
+   rather than sluggish */
+.gaffer-dock.gd-menu[data-visible="false"] {
+  transition-duration: 0.34s;
+  pointer-events: none;
+}
 
 @keyframes gd-bar {
   0%, 100% { height: 30%; }
@@ -633,6 +651,28 @@ html[data-gaffer-nav="1"] .tile-in {
    Same button, same corner — it just stops being amber and starts insisting.
    A second floating control only for calls meant two round buttons stacked in
    one corner, so this carries the call state instead. */
+/* Idle colours, and the slow crossfade into "on a call".
+   Held in CSS rather than swapped Tailwind classes so amber→red actually
+   transitions — a class swap changes the colour on the next frame, which
+   reads as a jolt on a button that is otherwise calm. */
+.launcher {
+  border-color: color-mix(in srgb, var(--color-accent-400) 40%, transparent);
+  background-color: var(--color-charcoal-900);
+  box-shadow: 0 10px 40px -8px color-mix(in srgb, var(--color-accent-400) 60%, transparent);
+  transition:
+    background-color 1.15s ease,
+    border-color 1.15s ease,
+    box-shadow 1.15s ease,
+    transform 0.3s var(--ease-out-expo);
+}
+.launcher[data-on-call="true"] {
+  border-color: rgba(251, 113, 133, 0.6);
+  background-color: #4c0519; /* rose-950 */
+  box-shadow: 0 10px 40px -8px rgba(244, 63, 94, 0.55);
+  /* wait for the colour to arrive before starting to pulse, so the two don't
+     fight over box-shadow and the red eases in rather than snapping */
+  animation: launcher-call-glow 1.6s ease-in-out 1.15s infinite;
+}
 @keyframes launcher-call-glow {
   0%, 100% {
     box-shadow:
@@ -642,11 +682,8 @@ html[data-gaffer-nav="1"] .tile-in {
   50% {
     box-shadow:
       0 14px 52px -6px rgba(244, 63, 94, 0.9),
-      0 0 0 10px rgba(244, 63, 94, 0);
+      0 0 0 12px rgba(244, 63, 94, 0);
   }
-}
-.launcher[data-on-call="true"] {
-  animation: launcher-call-glow 1.5s ease-in-out infinite;
 }
 /* the existing idle ring, re-tinted rather than replaced */
 .launcher[data-on-call="true"] .launcher-ring {
@@ -666,9 +703,13 @@ html[data-gaffer-nav="1"] .tile-in {
   .launcher[data-on-call="true"],
   .launcher[data-on-call="true"] .launcher-ring,
   .launcher .gd-bar { animation: none !important; }
+  .launcher {
+    transition: background-color 0.01ms, border-color 0.01ms, box-shadow 0.01ms;
+  }
   .launcher[data-on-call="true"] {
     box-shadow: 0 10px 40px -8px rgba(244, 63, 94, 0.7);
   }
+  .gaffer-dock.gd-menu { transition-duration: 0.01ms !important; }
 }
 
 /* image load: fade-in + settle */

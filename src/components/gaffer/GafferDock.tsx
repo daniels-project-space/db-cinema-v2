@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useGafferSession } from "@/components/gaffer/GafferSession";
 
 /**
@@ -21,6 +21,9 @@ function clock(total: number) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
+/** Must outlast the fade-out in globals.css, or the panel vanishes mid-fade. */
+const EXIT_MS = 420;
+
 export function GafferDock() {
   const { state, speaking, secs, end, dockOpen, setDockOpen } = useGafferSession();
   const ref = useRef<HTMLDivElement>(null);
@@ -28,6 +31,24 @@ export function GafferDock() {
   const live = state === "live";
   const connecting = state === "connecting";
   const shown = live || connecting;
+
+  /**
+   * Stay mounted through the fade-out.
+   *
+   * The panel shows itself and then hides itself a few seconds later, so an
+   * instant unmount is very visible — it blinks out of existence mid-call. This
+   * keeps it in the tree until the exit animation has finished.
+   */
+  const [rendered, setRendered] = useState(dockOpen);
+  const visible = dockOpen && shown;
+  useEffect(() => {
+    if (visible) {
+      setRendered(true);
+      return;
+    }
+    const t = setTimeout(() => setRendered(false), EXIT_MS);
+    return () => clearTimeout(t);
+  }, [visible]);
 
   // Click-away and Escape — a floating panel that traps the page is worse than
   // no panel at all.
@@ -45,7 +66,7 @@ export function GafferDock() {
     };
   }, [dockOpen, setDockOpen]);
 
-  if (!shown || !dockOpen) return null;
+  if (!rendered) return null;
 
   return (
     <div
@@ -53,6 +74,8 @@ export function GafferDock() {
       // sits directly above the launcher, which is h-14 at bottom-5
       className="gaffer-dock gd-menu fixed bottom-24 right-5 z-[60] w-56 overflow-hidden rounded-2xl border border-white/10 bg-neutral-900/95 text-white shadow-2xl backdrop-blur"
       data-speaking={live && speaking ? "true" : "false"}
+      data-visible={visible ? "true" : "false"}
+      aria-hidden={!visible}
       role="dialog"
       aria-label="Call with Gaffer"
     >
