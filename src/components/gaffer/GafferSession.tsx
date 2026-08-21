@@ -99,7 +99,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     setError(null);
     signingOff.current = false;
     lastActivity.current = Date.now();
-    const { intent, brief } = pageBrief(pathname ?? "/", topic);
+    const { intent, brief, opening } = pageBrief(pathname ?? "/", topic);
     try {
       const { Conversation } = await import("@elevenlabs/client");
       await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -110,7 +110,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           (args: any) => (toolsRef.current as any)[k](args),
         ]),
       );
-      conv.current = await Conversation.startSession({
+      const cfg: any = {
         agentId: AGENT_ID,
         clientTools: tools,
         dynamicVariables: { ...dynamicVariables, call_intent: intent },
@@ -148,7 +148,38 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           agentTalking.current = talking;
           setSpeaking(talking);
         },
-      });
+      };
+
+      /**
+       * Override only the *first message*, and only that.
+       *
+       * The agent greets the instant the socket opens, before any contextual
+       * update can land — which is why every call used to open with the same
+       * line no matter which page it came from. Overriding firstMessage is the
+       * only way to make the opening itself page-specific.
+       *
+       * Deliberately NOT overriding `prompt`: that replaces the agent's whole
+       * system prompt, throwing away its persona, catalogue knowledge and tool
+       * instructions. The page brief goes in as a contextual update instead,
+       * which adds to the prompt rather than replacing it.
+       *
+       * Overrides have to be allowed in the agent's security settings. If they
+       * aren't, ElevenLabs rejects the session — so fall back to a plain start
+       * rather than handing the customer a dead button.
+       */
+      try {
+        conv.current = await Conversation.startSession({
+          ...cfg,
+          overrides: { agent: { firstMessage: opening } },
+        });
+      } catch (overrideErr) {
+        console.warn(
+          "[Gaffer] first-message override rejected — enable 'first message' overrides in the " +
+            "agent's security settings for page-specific greetings. Falling back.",
+          overrideErr,
+        );
+        conv.current = await Conversation.startSession(cfg);
+      }
     } catch (err: any) {
       // Never swallow: a blocked mic, a denied prompt and an SDK fault all land
       // here and otherwise look identical to a dead button.

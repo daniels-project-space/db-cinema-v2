@@ -19,11 +19,18 @@ async function telegram(text: string) {
   }
 }
 
-async function email(to: string, subject: string, html: string, attachments?: Array<{ filename: string; path: string }>) {
+async function email(
+  to: string,
+  subject: string,
+  html: string,
+  attachments?: Array<{ filename: string; path: string }>,
+  /** Overrides the owner address — used to thread Gaffer follow-up replies. */
+  replyToOverride?: string,
+) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return; // email disabled until a Resend key is set
   const from = process.env.RESEND_FROM ?? "Db Cinema <onboarding@resend.dev>";
-  const replyTo = process.env.OWNER_EMAIL ?? "dbcinemaproductions@gmail.com";
+  const replyTo = replyToOverride ?? process.env.OWNER_EMAIL ?? "dbcinemaproductions@gmail.com";
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -155,6 +162,63 @@ export const contactAlert = internalAction({
   handler: async (ctx, a) => {
     await telegram(
       `✉️ <b>New contact message</b>\nFrom: ${a.name} (${a.email})\n\n${a.message}`,
+    );
+  },
+});
+
+const esc = (s: string) =>
+  String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+
+/**
+ * What Gaffer promised on the call, in writing.
+ *
+ * reply_to carries the thread key, so when the customer hits reply the answer
+ * comes back to /api/email/inbound already knowing which conversation it belongs
+ * to. Needs INBOUND_EMAIL_DOMAIN set and inbound routing pointed at that route;
+ * without it this still sends fine, replies just go to the owner's inbox as
+ * normal mail.
+ */
+export const followUpEmail = internalAction({
+  args: {
+    to: v.string(),
+    name: v.string(),
+    subject: v.string(),
+    summary: v.string(),
+    replyKey: v.string(),
+  },
+  handler: async (ctx, a) => {
+    const domain = process.env.INBOUND_EMAIL_DOMAIN;
+    const replyTo = domain ? `gaffer+${a.replyKey}@${domain}` : undefined;
+    const hello = a.name ? `Hi ${esc(a.name)},` : "Hi,";
+    const body = esc(a.summary).replace(/\n/g, "<br/>");
+
+    await email(
+      a.to,
+      a.subject,
+      `<div style="font-family:system-ui,sans-serif;line-height:1.55;color:#111">
+         <p>${hello}</p>
+         <p>Following up on your call with Gaffer at Db Cinema Rentals:</p>
+         <div style="border-left:3px solid #e0992f;padding:2px 0 2px 14px;margin:16px 0">${body}</div>
+         <p>Just reply to this email if you need anything else — it comes straight back to us.</p>
+         <p style="color:#666">— Gaffer · Db Cinema Rentals</p>
+       </div>`,
+      undefined,
+      replyTo,
+    );
+    await telegram(`📨 <b>Gaffer follow-up sent</b>\nTo: ${a.to}\n\n${a.summary.slice(0, 500)}`);
+  },
+});
+
+/** A customer replied to a follow-up but has no account to route it into. */
+export const followUpReplyAlert = internalAction({
+  args: { email: v.string(), body: v.string() },
+  handler: async (ctx, a) => {
+    await telegram(`↩️ <b>Reply to a Gaffer follow-up</b>\nFrom: ${a.email}\n\n${a.body.slice(0, 800)}`);
+    const owner = process.env.OWNER_EMAIL ?? "dbcinemaproductions@gmail.com";
+    await email(
+      owner,
+      `Reply from ${a.email} — Gaffer follow-up`,
+      `<p><b>${esc(a.email)}</b> replied to a Gaffer follow-up:</p><blockquote>${esc(a.body).replace(/\n/g, "<br/>")}</blockquote>`,
     );
   },
 });

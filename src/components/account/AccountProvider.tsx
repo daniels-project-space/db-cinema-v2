@@ -63,6 +63,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const signOutM = useMutation(api.accounts.signOut);
   const updateM = useMutation(api.accounts.updateProfile);
   const favM = useMutation(api.accounts.toggleFavorite);
+  const claimFollowUpsM = useMutation(api.followUp.claimForAccount);
 
   const persist = (t: string | null) => {
     setToken(t);
@@ -74,8 +75,16 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     async (email: string, password: string, name?: string) => {
       const { token } = await signUpA({ email, password, name });
       persist(token);
+      // Someone who took a Gaffer call, got an email follow-up and only then
+      // signed up is the same person — attach that history to the new account so
+      // their chat continues the conversation rather than starting a blank one.
+      try {
+        await claimFollowUpsM({ token, email });
+      } catch {
+        /* continuity is a bonus, never a reason to fail a signup */
+      }
     },
-    [signUpA],
+    [signUpA, claimFollowUpsM],
   );
   const signIn = useCallback(
     async (email: string, password: string) => {

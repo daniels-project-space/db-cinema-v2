@@ -313,6 +313,61 @@ export function useGafferTools() {
         return `Removed ${line.title}. Basket is now ${cart.count - 1} items.`;
       },
 
+      /**
+       * "I'll email that over" — puts the outcome of the call in writing.
+       *
+       * The reply-to is threaded, so when the customer answers that email it
+       * comes back into this same conversation rather than as an orphan in the
+       * owner's inbox. If they have an account it lands in their chat and Gaffer
+       * answers it there.
+       */
+      send_follow_up: async ({ email, name, summary, subject }: { email?: string; name?: string; summary: string; subject?: string }) => {
+        // A signed-in caller has already told us their address — don't make them
+        // say it out loud again.
+        const to = String(email ?? "").trim() || ((account as any)?.me?.email ?? "");
+        if (!to) return "I need an email address before I can send that — what's the best one?";
+        if (!summary?.trim()) return "Tell me what to put in it first.";
+        try {
+          return await convex.action(api.followUp.send, {
+            email: to,
+            name: name ?? (account as any)?.me?.name ?? undefined,
+            summary: String(summary),
+            subject: subject ? String(subject) : undefined,
+          });
+        } catch {
+          return "Couldn't get that email away just now — I'll flag it for the team instead.";
+        }
+      },
+
+      /**
+       * "Want an account? Then I can just answer you in your chat."
+       *
+       * The pitch is the point: a registered customer gets a thread Gaffer
+       * replies in directly, instead of waiting on email round-trips.
+       */
+      offer_account: async () => {
+        if ((account as any)?.me) {
+          instant();
+          router.push("/account");
+          return "They're already signed in — their chat is open on screen.";
+        }
+        instant();
+        router.push("/account");
+        return (
+          "Sign-up is on screen. Tell them it takes a moment and means I can answer them directly " +
+          "in their own chat instead of going back and forth by email."
+        );
+      },
+
+      /** "I'll pick this up in your chat" — only useful once they're signed in. */
+      open_chat: async () => {
+        if (!(account as any)?.me)
+          return "They're not signed in, so there's no chat yet — offer them an account, or take an email address.";
+        instant();
+        router.push("/account#chat");
+        return "Their chat is on screen — anything they send there comes to me.";
+      },
+
       /** Quick peek — the drawer, without leaving the page. */
       show_basket: async () => {
         cart.open();
@@ -386,7 +441,7 @@ export function useGafferTools() {
         return `Taking them to checkout, £${cart.subtotal} plus a £${holding} refundable holding deposit.`;
       },
     }),
-    [router, cart, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems],
+    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems],
   );
 
   /**

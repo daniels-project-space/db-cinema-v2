@@ -110,6 +110,18 @@ function Dashboard() {
     setMarketing(me.marketingEmails);
   }, [me]);
 
+  // Gaffer sends people here with /account#chat when it says "I'll pick this up
+  // in your chat" — the chat is a tab, so the hash has to select it or they land
+  // on Rentals wondering where the conversation went.
+  useEffect(() => {
+    const openFromHash = () => {
+      if (window.location.hash.replace("#", "").toLowerCase() === "chat") setTab("chat");
+    };
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
+  }, []);
+
   async function save() {
     await account.updateProfile({ name, phone, address, marketingEmails: marketing });
     setSaved(true);

@@ -24,6 +24,7 @@ import type * as contact from "../contact.js";
 import type * as credits from "../credits.js";
 import type * as crons from "../crons.js";
 import type * as delivery from "../delivery.js";
+import type * as followUp from "../followUp.js";
 import type * as gaffer from "../gaffer.js";
 import type * as googleAuth from "../googleAuth.js";
 import type * as http from "../http.js";
@@ -72,6 +73,7 @@ declare const fullApi: ApiFromModules<{
   credits: typeof credits;
   crons: typeof crons;
   delivery: typeof delivery;
+  followUp: typeof followUp;
   gaffer: typeof gaffer;
   googleAuth: typeof googleAuth;
   http: typeof http;

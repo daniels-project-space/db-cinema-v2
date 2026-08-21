@@ -513,6 +513,30 @@ export default defineSchema({
     detail: v.optional(v.string()), // JSON blob: query params + POST body
   }).index("by_at", ["at"]),
 
+  // Written follow-ups Gaffer promised on a voice call.
+  //
+  // A call leaves the customer nothing to refer back to, so anything that needs
+  // chasing has to land somewhere durable. `replyKey` is the thread handle: it
+  // goes out in the reply-to address, and inbound replies are matched back on it
+  // so an email answer continues the same conversation instead of arriving as an
+  // orphan in the owner's inbox.
+  gaffer_follow_ups: defineTable({
+    at: v.number(),
+    email: v.string(),
+    name: v.optional(v.string()),
+    subject: v.string(),
+    body: v.string(),
+    replyKey: v.string(),
+    // set once the caller turns into a registered customer, so their email
+    // thread and their in-app chat are the same conversation
+    accountId: v.optional(v.id("accounts")),
+    direction: v.string(), // "out" (Gaffer -> customer) | "in" (customer reply)
+    handled: v.boolean(),
+  })
+    .index("by_replyKey", ["replyKey"])
+    .index("by_email", ["email"])
+    .index("by_at", ["at"]),
+
   // "Notify me when available" requests for booked-out gear.
   availability_waitlist: defineTable({
     email: v.string(),

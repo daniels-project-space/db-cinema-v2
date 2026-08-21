@@ -11,7 +11,21 @@
  * variables only do anything if the agent prompt already interpolates them.
  */
 
-export type CallBrief = { intent: string; brief: string };
+export type CallBrief = {
+  intent: string;
+  brief: string;
+  /**
+   * The literal first thing Gaffer says.
+   *
+   * This is why every call used to open identically no matter which page it was
+   * started from: the agent speaks its configured first_message the instant the
+   * socket connects, which is *before* a contextual update can land. Sending the
+   * context alone therefore never changed the greeting — only what came after.
+   * This is passed as overrides.agent.firstMessage so the opening line itself is
+   * about the page they're on.
+   */
+  opening: string;
+};
 
 const title = (slug: string) =>
   slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -31,17 +45,33 @@ const SELL_CLOSE =
   "see the full breakdown, and only once they confirm again, go_to_checkout. Two confirmations, " +
   "never one.";
 
+/**
+ * What to do when the call can't finish the job — which is most support calls.
+ *
+ * A voice call leaves no trace for the customer, so anything needing follow-up
+ * has to land somewhere they can find it again. Signed-in callers already have
+ * a thread Gaffer answers in; everyone else needs either an email or an account.
+ */
+const FOLLOW_UP =
+  "If this needs anything after the call — a quote, a part, someone to check stock, a reply you " +
+  "can't give now — don't leave it in the air. If they're signed in, say you'll reply in their " +
+  "chat and use open_chat so they know where to look. If they're not, ask for their email and use " +
+  "send_follow_up to put it in writing; then offer them an account with offer_account, because a " +
+  "signed-in customer gets a chat you answer directly instead of waiting on email. Ask once, " +
+  "naturally, and don't push it if they say no.";
+
 export function pageBrief(pathname: string, topic?: string): CallBrief {
   const path = (pathname || "/").replace(/\/+$/, "") || "/";
   const seg = path.split("/").filter(Boolean);
   const named = topic ? ` They opened it from: "${topic}".` : "";
 
-  const wrap = (intent: string, brief: string): CallBrief => ({
+  const wrap = (intent: string, brief: string, opening: string): CallBrief => ({
     intent,
+    opening,
     brief:
       `[Context — not spoken by the caller] They started this call from ${path} on the Db Cinema ` +
-      `Rentals website.${named} ${brief} Open by confirming what they need in one short sentence, ` +
-      `then help. Don't read this context aloud.`,
+      `Rentals website.${named} ${brief} ${FOLLOW_UP} Don't read this context aloud, and don't ` +
+      `re-introduce yourself — you've already opened the call.`,
   });
 
   // a specific guide → they are mid-task and want to be walked through it
@@ -51,6 +81,8 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
       `They are reading the "${title(seg[1])}" guide, so assume hands-on setup help — rigging, ` +
         `balancing, mounting, menu settings. Walk them through it one step at a time and wait for ` +
         `them to confirm each step before moving on. Don't try to sell them anything unless they ask.`,
+      `Gaffer here — you're on the ${topic ?? title(seg[1])} guide. Want me to talk you through it, ` +
+        `or is there one bit that's not behaving?`,
     );
   }
   if (seg[0] === "guides") {
@@ -58,6 +90,7 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
       "setup-help",
       "They are browsing the setup guides, so assume they want practical help using kit they " +
         "already have out. Find out which piece, then talk them through it step by step.",
+      "Gaffer here. Which bit of kit are you setting up? I'll walk you through it.",
     );
   }
 
@@ -69,6 +102,8 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
         "advise, give a direct answer, and if it needs a human say so and take their details. " +
         "If it turns out to be a how-do-I question about using the kit rather than a policy one, " +
         "take them to the guides with navigate_to and walk them through it there.",
+      "Gaffer here. What's the problem — something not working, or a question about deposits, " +
+        "dates or returns?",
     );
   }
 
@@ -78,6 +113,7 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
       "They were on the contact page about to write a message, so they have a specific question " +
         "and would rather not type it. Find out what it is. If it turns into a booking or needs " +
         "following up, capture their name and how to reach them before the call ends.",
+      "Gaffer here — saves you typing it out. What did you want to ask?",
     );
   }
 
@@ -87,10 +123,15 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
       "sell",
       `They are looking at the "${title(seg[1])}" listing. Help them decide whether it's right for ` +
         `their shoot, and suggest what pairs with it. ${SELL_CLOSE}`,
+      `Gaffer here — that's the ${topic ?? title(seg[1])}. Want me to check if it's free for your dates?`,
     );
   }
   if (seg[0] === "gear") {
-    return wrap("sell", `They are browsing the catalogue. Find out what they're shooting and build them a kit. ${SELL_CLOSE}`);
+    return wrap(
+      "sell",
+      `They are browsing the catalogue. Find out what they're shooting and build them a kit. ${SELL_CLOSE}`,
+      "Gaffer here. What are you shooting, and when? I'll pull up what's free.",
+    );
   }
   if (seg[0] === "cart" || seg[0] === "checkout") {
     return wrap(
@@ -100,6 +141,7 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
         "line has gone unavailable, say so plainly and offer either a swap (suggest_alternatives) " +
         "or remove_unavailable, rather than letting them hit a blocked checkout. Once it's clean, " +
         "go_to_checkout.",
+      "Gaffer here. Anything you want checking before you book — dates, deposit, delivery?",
     );
   }
 
@@ -108,6 +150,7 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
       "membership",
       "They are looking at membership. Explain what the tiers actually save them for the kind of " +
         "work they do, and sign them up if it's a fit.",
+      "Gaffer here. Tell me how often you shoot and I'll tell you if membership actually pays off.",
     );
   }
   if (seg[0] === "how-it-works" || seg[0] === "about") {
@@ -115,6 +158,7 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
       "enquiry",
       "They are new and working out how renting here works. Keep it plain — dates, deposit, " +
         "collection or delivery — then steer them toward the kit they need.",
+      "Gaffer here. First time renting with us? Ask me anything — dates, deposits, collection.",
     );
   }
 
@@ -122,6 +166,7 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
     "general",
     "They are on the home page, so you don't know yet what they want. Ask, then either help them " +
       "find kit or answer the question.",
+    "Gaffer here. What are you after — kit for a shoot, or a hand with something?",
   );
 }
 
