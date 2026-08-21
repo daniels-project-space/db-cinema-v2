@@ -68,6 +68,14 @@ const DATES = {
 
 const NEW_TOOLS = [
   clientTool(
+    "recommend_gear",
+    "THE tool for 'what do you have' questions. Filters the catalogue page on screen to what they asked for, highlights the shortlist and scrolls it into view, then tells you the prices and exactly what is and isn't included. Offer the bare item before the sets unless they asked for a package, and always say what is not in the box.",
+    {
+      item: str("What they asked for in their words, e.g. 'sony camera', 'gimbal', 'wide lens'."),
+      category: str("Optional category to pin: Cameras, Lenses, Lighting, Audio, Monitors, Drones, Stabilizers, Grip, Power, Accessories, Packages."),
+    },
+  ),
+  clientTool(
     "review_basket",
     "Show the full basket breakdown page with dates, line prices and the refundable deposit, and re-check availability. Use this when the customer says they want to book, BEFORE going to checkout.",
   ),

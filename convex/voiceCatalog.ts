@@ -280,6 +280,100 @@ export const browse = query({
   },
 });
 
+/**
+ * Is this listing a bundle rather than the bare item?
+ *
+ * The catalogue is overwhelmingly combos — of 170 cameras only nine are bare
+ * bodies — so someone asking for "a Sony camera" gets buried in
+ * body-plus-lens-plus-tripod listings unless the two are separated. There is no
+ * flag for it: `components` is empty on every row and `itemType` is the class of
+ * thing ("camera-body"), not whether it is a set. So it is inferred from the
+ * bundled-lens spec and the way sets are titled.
+ */
+function isSet(r: Doc<"listings">): boolean {
+  // a bundled lens makes it a set even when the title doesn't say so
+  return (r as any).specs?.includesLens === true || isBundle(r.title);
+}
+
+/**
+ * What the customer will and won't find in the case.
+ *
+ * Derived rather than stored: there is no inclusions field, but the specs carry
+ * enough to answer the questions that actually cause problems on collection —
+ * whether glass is in the box, what mount it is, what batteries it eats, what
+ * filter thread it takes. Being explicit about what is *not* included is the
+ * half that prevents a bad handover.
+ */
+function inclusions(r: Doc<"listings">) {
+  const s = (r as any).specs ?? {};
+  const includes: string[] = [];
+  const excludes: string[] = [];
+
+  if (r.category === "Cameras") {
+    if (s.includesLens && s.lensFocal) includes.push(`${s.lensFocal}mm lens`);
+    else if (!s.includesLens) excludes.push("no lens — body only");
+    if (s.batteryType) includes.push(`${s.batteryType} battery`);
+    excludes.push("memory cards are not included");
+  }
+  if (r.category === "Lenses") {
+    if (s.mount) includes.push(`${s.mount} mount`);
+    if (s.filterThreadMm) includes.push(`${s.filterThreadMm}mm filter thread`);
+    excludes.push("no camera body — lens only");
+  }
+  if (r.category === "Stabilizers") excludes.push("no camera — gimbal only");
+  if (r.category === "Lighting") excludes.push("stands and modifiers are separate unless the title says otherwise");
+
+  return { includes, excludes };
+}
+
+/**
+ * A shortlist to put on screen, split so the bare item can be offered before
+ * the sets. Used by Gaffer to filter the real catalogue page and highlight what
+ * it just recommended, rather than describing gear the caller can't see.
+ */
+export const recommend = query({
+  args: {
+    q: v.optional(v.string()),
+    category: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { q, category, limit }) => {
+    const tokens = tokenize(q ?? "");
+    const guess = detect(tokens);
+    const cat = category && category !== "All" ? category : guess.category;
+    const brand = guess.brand;
+
+    let rows = bookable(await ctx.db.query("listings").collect());
+    if (cat) rows = rows.filter((r) => r.category === cat);
+    if (brand) rows = rows.filter((r) => r.title.toLowerCase().includes(brand));
+
+    // model tokens beyond the brand/category words narrow it further
+    const rest = tokens.filter((t) => t !== brand && !CATEGORY_WORDS[t]);
+    if (rest.length) {
+      const narrowed = rows.filter((r) => {
+        const t = r.title.toLowerCase();
+        return rest.some((tok) => t.includes(tok));
+      });
+      if (narrowed.length) rows = narrowed;
+    }
+
+    const byDemand = (a: Doc<"listings">, b: Doc<"listings">) =>
+      ((b as any).demandScore ?? 0) - ((a as any).demandScore ?? 0);
+    const n = limit ?? 6;
+    const single = rows.filter((r) => !isSet(r)).sort(byDemand).slice(0, n);
+    const sets = rows.filter(isSet).sort(byDemand).slice(0, n);
+
+    const withInfo = (r: Doc<"listings">) => ({ ...shape(r), ...inclusions(r) });
+    return {
+      category: cat ?? null,
+      brand,
+      total: rows.length,
+      standalone: single.map(withInfo),
+      bundles: sets.map(withInfo),
+    };
+  },
+});
+
 /** Categories we stock, with counts — so Gaffer can orient a vague caller. */
 export const overview = query({
   args: {},

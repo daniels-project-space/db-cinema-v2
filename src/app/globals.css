@@ -361,12 +361,23 @@ body {
 }
 @keyframes gaffer-pick-sweep { to { transform: translateX(115%); } }
 
+/* The shortlist Gaffer just read out. Quieter than the picked card on purpose —
+   these are "worth a look", the golden one is "this is the one". Fades in so a
+   filtered grid doesn't snap into a wall of rings. */
+.gear-card[data-gaffer-suggested="true"] {
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--color-accent-400) 45%, transparent),
+    0 0 22px -6px color-mix(in srgb, var(--color-accent-400) 30%, transparent);
+  transition: box-shadow 0.6s var(--ease-out-expo);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .gear-card[data-gaffer-focus="true"] {
     animation: none;
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent-400) 70%, transparent);
   }
   .gear-card[data-gaffer-focus="true"]::after { display: none; }
+  .gear-card[data-gaffer-suggested="true"] { transition: none; }
 }
 
 /* accent-tinted frost — keeps the primary action reading as primary

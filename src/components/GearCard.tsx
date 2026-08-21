@@ -35,8 +35,9 @@ export function GearCard({ listing }: { listing: GearListing }) {
   const [registered, setRegistered] = useState(false);
   const faved = !!account.me?.favorites?.includes(listing._id);
   // lit up when Gaffer names this item on a call, just before it goes in the basket
-  const { focusedId } = useGafferFocus();
+  const { focusedId, suggestedIds } = useGafferFocus();
   const picked = focusedId === listing._id;
+  const suggested = !picked && suggestedIds.includes(listing._id);
 
   function registerInterest(e: React.MouseEvent) {
     e.preventDefault();
@@ -58,7 +59,9 @@ export function GearCard({ listing }: { listing: GearListing }) {
   return (
     <Link
       href={`/gear/${slug}`}
+      data-listing-id={listing._id}
       data-gaffer-focus={picked ? "true" : undefined}
+      data-gaffer-suggested={suggested ? "true" : undefined}
       className="gear-card group lift spot gradient-border relative flex h-full flex-col overflow-hidden rounded-2xl"
     >
       <button

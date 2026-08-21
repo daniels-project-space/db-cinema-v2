@@ -62,7 +62,7 @@ export function useGafferTools() {
   const cart = useCart();
   const account = useAccount();
   const convex = useConvex();
-  const { focus } = useGafferFocus();
+  const { focus, suggest } = useGafferFocus();
   /**
    * Has the customer been shown the basket breakdown yet this basket?
    * Reset whenever the basket changes, so adding something after reviewing
@@ -271,6 +271,61 @@ export function useGafferTools() {
           );
         }
         return `For ${w.startIso} to ${w.endIso}: ${lines.join("; ")}.`;
+      },
+
+      /**
+       * "Let's have a look at what we've got" — the recommendation tool.
+       *
+       * Filters the real catalogue page to what was asked for, highlights the
+       * shortlist and scrolls the top pick into view, then reports back what is
+       * on screen with prices and what is and isn't in the case. Bare items are
+       * offered before sets: the catalogue is overwhelmingly combos, so asking
+       * for "a Sony camera" otherwise buries the bodies under
+       * body-plus-lens-plus-tripod listings.
+       */
+      recommend_gear: async ({ item, category }: { item?: string; category?: string }) => {
+        const q = String(item ?? "").trim();
+        const cat = category
+          ? CATEGORIES.find((c) => c.toLowerCase().startsWith(String(category).toLowerCase()))
+          : undefined;
+
+        let res: any;
+        try {
+          res = await convex.query(api.voiceCatalog.recommend, {
+            q: q || undefined,
+            category: cat,
+            limit: 6,
+          });
+        } catch {
+          return "Couldn't pull the catalogue up just now.";
+        }
+
+        const picks = [...(res.standalone ?? []), ...(res.bundles ?? [])];
+        if (!picks.length) return `Nothing in the catalogue matches ${q || cat || "that"}.`;
+
+        // put them on the real page, filtered the same way
+        const qs = new URLSearchParams();
+        if (res.category) qs.set("cat", res.category);
+        if (res.brand) qs.set("q", res.brand);
+        else if (q) qs.set("q", q);
+        instant();
+        router.push(`/gear?${qs.toString()}`);
+        suggest(picks.map((p: any) => p.id));
+
+        const line = (p: any) =>
+          `${p.title} at £${p.daily} a day` +
+          (p.includes?.length ? ` (includes ${p.includes.join(", ")})` : "") +
+          (p.excludes?.length ? ` — ${p.excludes.join("; ")}` : "");
+
+        const parts: string[] = [];
+        if (res.standalone?.length)
+          parts.push(`On their own: ${res.standalone.slice(0, 3).map(line).join(". ")}.`);
+        if (res.bundles?.length)
+          parts.push(`With extras included: ${res.bundles.slice(0, 3).map(line).join(". ")}.`);
+        return (
+          `${picks.length} on screen and highlighted. ${parts.join(" ")} ` +
+          `Offer the bare item first unless they asked for a set, and say what isn't included.`
+        );
       },
 
       /** "That one" — lights the tile up without touching the basket. */
@@ -582,7 +637,7 @@ export function useGafferTools() {
         return `Taking them to checkout, £${cart.subtotal} plus a £${holding} refundable holding deposit.`;
       },
     }),
-    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch],
+    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest],
   );
 
   /**
