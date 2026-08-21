@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { IconArrowRight, IconCamera, IconCheck, IconSpark, IconX } from "@/components/icons";
+import { IconArrowRight, IconCheck, IconSpark, IconX } from "@/components/icons";
 
 const FORM_SEVEN_URL = process.env.NEXT_PUBLIC_FORM_SEVEN_URL || "";
 
@@ -151,9 +151,16 @@ export function SignatureProductionsOverlay({
                     </button>
                   </>
                 ) : (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-white/25">
-                    <IconCamera className="h-6 w-6" />
-                    <span className="font-mono text-[11px] uppercase tracking-widest">Preview coming soon</span>
+                  <div className="relative h-full w-full">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/brand/form-seven-preview.png"
+                      alt="FORM / SEVEN"
+                      className="h-full w-full object-cover"
+                    />
+                    <span className="absolute bottom-2 right-2 rounded-full border border-white/15 bg-black/60 px-2.5 py-1 font-mono text-[9px] uppercase tracking-widest text-white/50 backdrop-blur">
+                      Live preview coming soon
+                    </span>
                   </div>
                 )}
               </div>

@@ -53,24 +53,33 @@ function useSpinAndShine() {
   return { spinning, shining };
 }
 
-function FormSevenMark({ spinning, shining }: { spinning: boolean; shining: boolean }) {
+function FormSevenMark({ shining }: { shining: boolean }) {
   const [imgOk, setImgOk] = useState(true);
 
   return (
-    <span className="fs-badge relative flex h-12 aspect-[9/16] shrink-0 items-center justify-center rounded-lg">
-      <span className="fs-mark-stage relative flex h-full w-full items-center justify-center overflow-hidden rounded-lg bg-[#0a1f14]">
-        {imgOk ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src="/brand/form-seven-mark.png"
-            alt="FORM / SEVEN"
-            onError={() => setImgOk(false)}
-            className={`fs-mark h-full w-full object-contain p-1.5 ${spinning ? "fs-spin" : ""}`}
-          />
-        ) : (
-          <span className="font-display text-lg font-semibold text-emerald-400/40">7</span>
-        )}
-        <span aria-hidden className={`fs-shine ${shining ? "fs-shine-on" : ""}`} />
+    <span className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-lg bg-[#0a1f14]">
+      {imgOk ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src="/brand/form-seven-mark.png"
+          alt="FORM / SEVEN"
+          onError={() => setImgOk(false)}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <span className="font-display text-lg font-semibold text-emerald-400/40">7</span>
+      )}
+      <span aria-hidden className={`fs-shine ${shining ? "fs-shine-on" : ""}`} />
+    </span>
+  );
+}
+
+/** The whole rounded-rect "coin" — badge frame + glow ring + mark all turn together as one unit. */
+function FormSevenCoin({ spinning, shining }: { spinning: boolean; shining: boolean }) {
+  return (
+    <span className="fs-coin-stage inline-flex shrink-0">
+      <span className={`fs-badge relative flex h-12 aspect-[9/16] items-center justify-center rounded-lg ${spinning ? "fs-spin" : ""}`}>
+        <FormSevenMark shining={shining} />
       </span>
     </span>
   );
@@ -78,16 +87,17 @@ function FormSevenMark({ spinning, shining }: { spinning: boolean; shining: bool
 
 /**
  * FORM / SEVEN brand badge — replaces the old plain "Media Engine" text link.
- * Desktop: a glowing rounded-rect badge with a continuously orbiting edge
- * glow, a periodic eased rotation of the mark itself, an idle shine sweep,
- * and a hover reveal ("FORM 7 ad agency"). Mobile: the same mark + a static
- * "FORM 7" label, no hover interaction (touch has no hover state).
- * All motion is hand-rolled CSS keyframes in globals.css, gated behind
- * prefers-reduced-motion — same convention as SiteHeader's gear-turn click.
+ * Desktop: a glowing rounded-rect badge (edge glow ring + mark turn together as
+ * one "coin") with a continuously orbiting edge glow, a periodic eased
+ * revolving-door turn, an idle shine sweep, and a hover reveal ("FORM 7 ad
+ * agency") that fades in beside the badge without reflowing the nav. Mobile:
+ * the same coin + a static "FORM 7" label, no hover interaction (touch has no
+ * hover state). All motion is hand-rolled CSS keyframes in globals.css, gated
+ * behind prefers-reduced-motion — same convention as SiteHeader's gear-turn click.
  */
 export function FormSevenBadge({ mobile = false }: { mobile?: boolean }) {
   const { spinning, shining } = useSpinAndShine();
-  const mark = <FormSevenMark spinning={spinning} shining={shining} />;
+  const mark = <FormSevenCoin spinning={spinning} shining={shining} />;
 
   if (mobile) {
     const content = (
@@ -122,13 +132,11 @@ export function FormSevenBadge({ mobile = false }: { mobile?: boolean }) {
       }}
       aria-label="FORM / SEVEN — AI-native ad agency"
       title={hasFormSeven ? undefined : "Coming soon"}
-      className={`fs-link flex h-11 items-center ${hasFormSeven ? "" : "pointer-events-none opacity-40"}`}
+      className={`fs-link relative flex h-12 items-center ${hasFormSeven ? "" : "pointer-events-none opacity-40"}`}
     >
-      <span className="fs-mark-wrap">{mark}</span>
-      <span className="fs-reveal">
-        <span className="whitespace-nowrap pl-3 font-mono text-[11px] uppercase tracking-wider text-white/70">
-          FORM 7 ad agency
-        </span>
+      <span className="fs-mark-wrap relative z-10">{mark}</span>
+      <span className="fs-reveal-text absolute left-full top-1/2 ml-3 whitespace-nowrap font-mono text-[11px] uppercase tracking-wider text-white/70">
+        FORM 7 ad agency
       </span>
     </a>
   );

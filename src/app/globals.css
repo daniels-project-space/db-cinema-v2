@@ -2344,25 +2344,23 @@ html[data-gaffer-nav="1"] .tile-in {
   .fs-badge::before { animation: fs-glow-rot 4.5s linear infinite; }
 }
 
-/* mark — a single eased horizontal "revolving door" turn (rotateY, not a flat spin),
-   played by toggling .fs-spin from JS on an interval. Perspective lives on the stage
-   (the mark's parent) so the turn reads as 3D depth, not a 2D squash. */
-.fs-mark-stage {
+/* the whole coin (badge frame + glow ring + mark) turns together — a single eased
+   horizontal "revolving door" turn (rotateY, not a flat spin), played by toggling
+   .fs-spin from JS on an interval. Perspective lives one level up on the stage so
+   the turn reads as 3D depth, not a 2D squash. */
+.fs-coin-stage {
   perspective: 260px;
 }
-.fs-mark {
-  transform-box: fill-box;
-  transform-origin: center;
+.fs-badge {
   transform-style: preserve-3d;
   backface-visibility: hidden;
-  display: block;
 }
 @keyframes fs-mark-spin {
   from { transform: rotateY(0deg); }
   to { transform: rotateY(360deg); }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .fs-mark.fs-spin { animation: fs-mark-spin 1.8s cubic-bezier(0.65, 0, 0.35, 1) 1 both; }
+  .fs-badge.fs-spin { animation: fs-mark-spin 1.8s cubic-bezier(0.65, 0, 0.35, 1) 1 both; }
 }
 
 /* idle shine — one diagonal sheen pass, played by toggling .fs-shine-on from JS */
@@ -2384,27 +2382,27 @@ html[data-gaffer-nav="1"] .tile-in {
   .fs-shine.fs-shine-on { animation: fs-shine-sweep 0.9s ease-in-out 1 both; }
 }
 
-/* hover reveal — mark nudges left, "FORM 7 ad agency" label expands in just after it */
+/* hover reveal — the coin nudges aside and "FORM 7 ad agency" fades in as a
+   plain absolutely-positioned overlay beside it (no width/grid growth), so it
+   never reflows or sits stacked above the rest of the nav — it just fades in
+   in place, smoothly, alongside the coin. Hidden entirely outside hover. */
 .fs-mark-wrap {
   transition: transform 0.5s var(--ease-out-expo);
 }
-.fs-link:hover .fs-mark-wrap { transform: translateX(-8px); }
-.fs-reveal {
-  display: grid;
-  grid-template-columns: 0fr;
-  transition: grid-template-columns 0.45s var(--ease-out-expo);
-}
-.fs-link:hover .fs-reveal { grid-template-columns: 1fr; }
-.fs-reveal > span {
-  overflow: hidden;
+.fs-link:hover .fs-mark-wrap { transform: translateX(-6px); }
+.fs-reveal-text {
+  pointer-events: none;
   opacity: 0;
-  transform: translateX(-8px);
-  transition: opacity 0.35s var(--ease-out-expo) 0.08s, transform 0.35s var(--ease-out-expo) 0.08s;
+  transform: translateY(-50%) translateX(-6px);
+  transition: opacity 0.4s var(--ease-out-expo), transform 0.4s var(--ease-out-expo);
 }
-.fs-link:hover .fs-reveal > span { opacity: 1; transform: none; }
+.fs-link:hover .fs-reveal-text {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .fs-badge::before,
-  .fs-mark.fs-spin,
+  .fs-badge.fs-spin,
   .fs-shine.fs-shine-on { animation: none !important; }
 }
