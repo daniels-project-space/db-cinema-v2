@@ -31,28 +31,19 @@ function DirectionArrow({ direction }: { direction: "previous" | "next" }) {
 }
 
 /**
- * A poster-first work reel. All campaign frames are immediate, tiny images;
- * only the selected frame mounts and decodes video. The following film receives
- * a low-priority warm-up after the visitor has had time to view the current one.
+ * A live campaign reel. Every visible film is mounted and plays continuously so
+ * the contact sheet feels alive even while another film sits at the front.
  */
 export function FormSevenCarousel() {
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
-  const [readyIndex, setReadyIndex] = useState<number | null>(null);
-  const [warmIndex, setWarmIndex] = useState<number | null>(null);
+  const [readyIndexes, setReadyIndexes] = useState<Set<number>>(() => new Set());
 
   useEffect(() => {
     if (paused || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = window.setInterval(() => setActive((index) => wrap(index + 1)), ADVANCE_EVERY);
     return () => window.clearInterval(id);
   }, [paused]);
-
-  useEffect(() => {
-    const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
-    if (connection?.saveData) return;
-    const id = window.setTimeout(() => setWarmIndex(wrap(active + 1)), 1100);
-    return () => window.clearTimeout(id);
-  }, [active]);
 
   const selected = ITEMS[active];
 
@@ -67,7 +58,6 @@ export function FormSevenCarousel() {
         if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false);
       }}
     >
-      {warmIndex !== null && warmIndex !== active && <link rel="preload" as="video" href={ITEMS[warmIndex].src} />}
       <div className="fs-reel-topline">
         <span>Selected signals</span>
         <span aria-live="polite">{String(active + 1).padStart(2, "0")} / {String(ITEMS.length).padStart(2, "0")}</span>
@@ -98,20 +88,17 @@ export function FormSevenCarousel() {
               }}
             >
               <img src={item.poster} alt="" loading={isSelected ? "eager" : "lazy"} decoding="async" className="h-full w-full object-cover" />
-              {isSelected && (
-                <video
-                  key={item.src}
-                  src={item.src}
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  preload="auto"
-                  onCanPlay={() => setReadyIndex(index)}
-                  aria-hidden="true"
-                  className={`fs-reel-motion h-full w-full object-cover ${readyIndex === index ? "opacity-100" : "opacity-0"}`}
-                />
-              )}
+              <video
+                src={item.src}
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="auto"
+                onCanPlay={() => setReadyIndexes((ready) => ready.has(index) ? ready : new Set(ready).add(index))}
+                aria-hidden="true"
+                className={`fs-reel-motion h-full w-full object-cover ${readyIndexes.has(index) ? "opacity-100" : "opacity-0"}`}
+              />
               <span className="fs-reel-frame" aria-hidden="true" />
               <span className="fs-reel-card-meta" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
             </button>
