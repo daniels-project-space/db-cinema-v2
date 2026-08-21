@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
+import { AdminGafferCalls } from "@/components/admin/GafferCalls";
 
 const day = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 // "returned" is reached only via the Return button (which also releases the deposit), never a bare status set
@@ -12,7 +13,7 @@ const STATUSES = ["confirmed", "active", "cancelled"] as const;
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
-  const [tab, setTab] = useState<"overview" | "bookings" | "inbox" | "settings">("overview");
+  const [tab, setTab] = useState<"overview" | "bookings" | "inbox" | "calls" | "settings">("overview");
 
   useEffect(() => {
     setToken(localStorage.getItem("dbc_admin"));
@@ -87,6 +88,7 @@ export default function AdminPage() {
               ["overview", "Overview"],
               ["bookings", `Bookings${bookings?.items.length ? ` (${bookings.items.length})` : ""}`],
               ["inbox", `Inbox${contacts?.items.filter((m: any) => !m.handled).length ? ` (${contacts.items.filter((m: any) => !m.handled).length})` : ""}`],
+              ["calls", "Gaffer calls"],
               ["settings", "Settings"],
             ] as const
           ).map(([key, label]) => (
@@ -224,6 +226,8 @@ export default function AdminPage() {
             )}
           </div>
         )}
+
+        {tab === "calls" && <AdminGafferCalls token={token} />}
 
         {tab === "settings" && (
           <div className="mt-2">

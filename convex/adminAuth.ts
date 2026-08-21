@@ -1,4 +1,4 @@
-import { internalMutation, type MutationCtx } from "./_generated/server";
+import { internalMutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { bump } from "./rateLimit";
 
@@ -23,6 +23,16 @@ export function checkAdminToken(token: string): boolean {
   const secret = process.env.ADMIN_TOKEN;
   return !!secret && timingSafeEqual(token, secret);
 }
+
+/** Token check for server code that lives *outside* Convex — specifically the
+ *  Next route that proxies ElevenLabs. Keeps ADMIN_TOKEN in exactly one place
+ *  (the Convex env) rather than duplicating the secret into Vercel's env too.
+ *  Same read-only caveat as `checkAdminToken`: pair with `assertAdmin` for
+ *  anything that writes. */
+export const verify = query({
+  args: { token: v.string() },
+  handler: async (_ctx, { token }) => ({ ok: checkAdminToken(token) }),
+});
 
 /** For `mutation` handlers: throws on bad token; rate-limits + audit-logs failures.
  *  `fn` is a short label (e.g. "bookings.adminSetStatus") for the audit trail. */
