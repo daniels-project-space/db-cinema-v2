@@ -105,7 +105,7 @@ export function SignatureProductionsOverlay({
         <footer className="relative z-10">
           <div className="fs-cta-row">
             <a href={FORM_SEVEN_URL} target="_blank" rel="noreferrer" className="fs-visit-button"><span className="fs-explore-copy"><small>FORM / SEVEN</small><b>EXPLORE</b></span><IconArrowRight className="h-4 w-4" /></a>
-            <a href={FORM_SEVEN_SAMPLE_URL} target="_blank" rel="noreferrer" className="fs-sample-button"><span className="fs-sample-copy"><small>GET A FREE</small><b>AD SAMPLE</b></span><IconArrowRight className="h-4 w-4 shrink-0" /></a>
+            <a href={FORM_SEVEN_SAMPLE_URL} target="_blank" rel="noreferrer" className="fs-sample-button"><span className="fs-sample-copy"><small>GET A FREE</small><b>CUSTOM AD SAMPLE</b></span><IconArrowRight className="h-4 w-4 shrink-0" /></a>
           </div>
         </footer>
       </div>

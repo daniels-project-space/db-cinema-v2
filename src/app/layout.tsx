@@ -20,6 +20,7 @@ import { ScrollProgress } from "@/components/ScrollProgress";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { BotBubble } from "@/components/BotBubble";
 import { FormSevenPrewarm } from "@/components/FormSevenPrewarm";
+import { JukeboxAmbience } from "@/components/JukeboxAmbience";
 import { SITE_URL } from "@/lib/site";
 
 const inter = Inter({
@@ -186,6 +187,7 @@ export default function RootLayout({
                   <GafferDock />
                   <MicPermission />
                   <FormSevenPrewarm />
+                  <JukeboxAmbience />
                 </GafferSessionProvider>
               </GafferFocusProvider>
             </CartProvider>

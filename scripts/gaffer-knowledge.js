@@ -366,8 +366,22 @@ async function main() {
 
   if (want("kb")) {
     prompt.knowledge_base = kbIds;
-    // RAG, because the catalogue is far too big to sit in a prompt
-    prompt.rag = { ...(prompt.rag || {}), enabled: true };
+    /**
+     * RAG, because the catalogue is far too big to sit in a prompt — but tuned
+     * for a phone call rather than a chat window.
+     *
+     * The defaults retrieve up to twenty chunks and fifty thousand characters
+     * per turn. On a voice call that is paid for twice: once in time-to-first
+     * word, and once in the caller sitting in silence wondering if the line
+     * dropped. Eight chunks and twelve thousand characters still answers "what
+     * does this include" from the real catalogue, and answers it quickly.
+     */
+    prompt.rag = {
+      ...(prompt.rag || {}),
+      enabled: true,
+      max_retrieved_rag_chunks_count: 8,
+      max_documents_length: 12000,
+    };
   }
   if (want("settings")) {
     if (!OPENROUTER_KEY) throw new Error("OPENROUTER_API_KEY is not set — needed for the custom LLM");

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useCart } from "@/components/cart/CartProvider";
+import { playCoinClash, playCoinHover } from "@/lib/siteAudio";
 import { useAccount } from "@/components/account/AccountProvider";
 import { IconArrowRight, IconCart, IconMenu, IconUser, IconX } from "@/components/icons";
 import { SignatureProductionsOverlay } from "@/components/SignatureProductionsOverlay";
@@ -79,7 +80,10 @@ export function SiteHeader() {
             : "border-b border-transparent bg-transparent"
         }`}
       >
-        <div className="relative mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+        {/* Narrower side padding pulls the lockup left and the nav right,
+            closing the dead space that had the links drifting toward the
+            middle. The nav sits flush to the edge — no trailing gap. */}
+        <div className="relative mx-auto flex max-w-7xl items-center justify-between py-3 pl-3 pr-2 sm:pl-4 sm:pr-3">
           {/* logo + FORM / SEVEN coin — logo always stays put; hovering the coin fades
               the nav out for a centered takeover headline. Clicking the coin opens
               the partner overlay. */}
@@ -102,7 +106,9 @@ export function SiteHeader() {
               ×
             </span>
             <button
-              onClick={() => setSignatureOpen(true)}
+              onClick={() => { playCoinClash(); setSignatureOpen(true); }}
+              onMouseEnter={playCoinHover}
+              onFocus={playCoinHover}
               aria-label="FORM / SEVEN — AI-native ad agency, open partner overlay"
             >
               <FormSevenCoin spinning={spinning} shining={shining} />
@@ -149,9 +155,9 @@ export function SiteHeader() {
             {/* fixed-size slot: never reflows the header when auth resolves
                 (logged-out button / skeleton / avatar pill all occupy the same box) */}
             {/* reserved width so the header never reflows when auth resolves —
-                trimmed to what the widest state actually needs, because the
-                spare space was pushing the nav links inward */}
-            <div className="hidden h-9 min-w-[118px] items-center justify-end md:flex">
+                trimmed again to what the widest state actually needs, because
+                the spare space was pushing the nav links inward */}
+            <div className="hidden h-9 min-w-[104px] items-center justify-end md:flex">
               {me ? (
                 <div className="relative">
                   <button
@@ -282,10 +288,16 @@ export function SiteHeader() {
               )}
             </button>
 
+            {/* Always present, at the far right.
+                It used to be md:hidden, so on a desktop the sheet — which holds
+                Membership, How it works, About, Join the Collective and the
+                FORM 7 collaboration — had no way in at all. Those pages were
+                only reachable by shrinking the window. */}
             <button
               onClick={() => setMobile(true)}
-              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition hover:text-white md:hidden"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition hover:border-accent-400/40 hover:bg-white/[0.07] hover:text-white"
               aria-label="Open menu"
+              aria-expanded={mobile}
             >
               <IconMenu className="h-5 w-5" />
             </button>

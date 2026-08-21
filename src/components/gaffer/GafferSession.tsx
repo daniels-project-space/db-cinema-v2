@@ -112,6 +112,14 @@ const FAREWELL_MAX_MS = 14_000;
 /** Beat after the last word, so the audio tail isn't chopped. */
 const GOODBYE_TAIL_MS = 900;
 /**
+ * Rope before the caller has said anything at all.
+ *
+ * They may still be listening to the greeting, reading the page, or have been
+ * held up by the browser's microphone prompt. Treating that as "gone quiet"
+ * hung up on people who had not yet had a turn.
+ */
+const OPENING_SILENCE_MS = 60_000;
+/**
  * A call that dies inside this window, with an override set and nobody having
  * hung up, is the agent refusing the override rather than a real disconnect.
  */
@@ -138,7 +146,11 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
 
   // Auto-hangup bookkeeping. Refs, not state: these are read inside SDK
   // callbacks and a 1s watchdog, none of which should trigger a render.
-  const lastActivity = useRef(0);
+  // Date.now(), never 0 — a zero here reads as "silent since 1970", which fired
+  // the dead-air watchdog on the very first tick of a brand-new call.
+  const lastActivity = useRef(Date.now());
+  /** Has the caller taken a turn yet? Until they have, dead air isn't dead air. */
+  const hasSpoken = useRef(false);
   const agentTalking = useRef(false);
   const signingOff = useRef(false);
   const farewell = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -179,6 +191,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     generation.current++;
     hint.current.reset();
     setDockOpen(false);
+    hasSpoken.current = false;
+    lastActivity.current = Date.now();
     signingOff.current = false;
     agentTalking.current = false;
     try { await conv.current?.endSession?.(); } catch { /* already gone */ }
@@ -196,7 +210,17 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         lastActivity.current = Date.now();
         return;
       }
-      if (Date.now() - lastActivity.current < SILENCE_MS) return;
+      /**
+       * Nobody has spoken yet.
+       *
+       * Before the first user turn there is no "gone quiet" to detect — they
+       * are listening to the greeting, or reading the page, or were held up by
+       * the microphone prompt. Firing here told a caller who had said nothing
+       * that they had gone quiet, and worse, latched signingOff for the rest of
+       * the call. They get a much longer rope until they have spoken once.
+       */
+      const grace = hasSpoken.current ? SILENCE_MS : OPENING_SILENCE_MS;
+      if (Date.now() - lastActivity.current < grace) return;
       // Out of patience — but let Gaffer land the sentence it's on. Marking it
       // as signing off routes the hang-up through the same
       // wait-for-the-last-word path a spoken goodbye uses, instead of cutting
@@ -232,6 +256,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     setState("connecting");
     setError(null);
     signingOff.current = false;
+    hasSpoken.current = false;
     lastActivity.current = Date.now();
     const { intent, mode, brief, opening } = pageBrief(pathname ?? "/", topic);
     const agentId = mode === "support" ? SUPPORT_AGENT_ID : SALES_AGENT_ID;
@@ -336,7 +361,20 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           // forever, so a caller who walked away was never hung up on.
           if (source !== "user") return;
           lastActivity.current = Date.now();
-          if (signingOff.current) return;
+          hasSpoken.current = true;
+
+          /**
+           * They're back. Cancel any wind-down in progress.
+           *
+           * Without this a sign-off — real or, worse, one the dead-air watchdog
+           * decided on its own — was permanent: this handler returned early on
+           * signingOff and never cleared it, so the next time the agent stopped
+           * speaking the farewell timer hung up on a caller who was mid-order.
+           */
+          if (signingOff.current) {
+            signingOff.current = false;
+            if (farewell.current) { clearTimeout(farewell.current); farewell.current = null; }
+          }
           if (!isSignOff(message)) return;
           // Let Gaffer say goodbye properly rather than cutting it dead.
           signingOff.current = true;
