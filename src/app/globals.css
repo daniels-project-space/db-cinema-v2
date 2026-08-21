@@ -436,6 +436,23 @@ body {
   .reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
 }
 
+/* ── Gaffer-driven navigation ────────────────────────────────────
+   When Gaffer opens a page mid-sentence the customer hasn't clicked anything,
+   so a 0.9s rise-and-fade reads as lag rather than polish — and Gaffer is
+   already describing what should be on screen. Land instantly for those
+   navigations only; a customer browsing normally still gets the full entrance.
+   Set by useGafferTools (cleared ~1.2s later). */
+html[data-gaffer-nav="1"] .reveal,
+html[data-gaffer-nav="1"] .page-in,
+html[data-gaffer-nav="1"] .hero-rise,
+html[data-gaffer-nav="1"] .smart-img,
+html[data-gaffer-nav="1"] .tile-in {
+  opacity: 1 !important;
+  transform: none !important;
+  animation: none !important;
+  transition: none !important;
+}
+
 /* image load: fade-in + settle */
 .smart-img {
   opacity: 0;
@@ -1777,31 +1794,191 @@ body {
 .skip-link:focus { transform: translateY(0); outline: none; }
 #main-content:focus { outline: none; }
 
-/* ── Gaffer voice-call button ── */
-@keyframes gc-glow { 0%, 100% { opacity: 0.3; transform: scale(0.97); } 50% { opacity: 0.6; transform: scale(1.05); } }
-.gc-glow { animation: gc-glow 2.8s ease-in-out infinite; }
+/* ── Gaffer voice-call button ──────────────────────────────────
+   Design rule: nothing that changes while Gaffer is speaking may change layout.
+   Speaking is expressed through --gc-amp (equaliser height), halo opacity and
+   shadow — all eased, all composited. The only width change is the deliberate
+   idle→live expansion, animated with grid-template-columns 0fr→1fr. */
 
-@keyframes gc-ring { 0% { transform: scale(0.85); opacity: 0.7; } 100% { transform: scale(1.75); opacity: 0; } }
-.gc-ring { animation: gc-ring 1.5s ease-out infinite; }
+/* registered so the equaliser amplitude can be *transitioned* rather than
+   snapping between a paused and a running animation */
+@property --gc-amp {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.24;
+}
 
-@keyframes gc-eq { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
-.gc-bar { height: 100%; transform-origin: bottom; animation: gc-eq 0.85s ease-in-out infinite; }
-.gc-bar:nth-child(2) { animation-delay: 0.12s; }
-.gc-bar:nth-child(3) { animation-delay: 0.26s; }
-.gc-bar:nth-child(4) { animation-delay: 0.4s; }
-.gc-bar-idle { animation-play-state: paused; transform: scaleY(0.3); }
+.gaffer-call {
+  --gc-amp: 0.24;
+  --gc-halo: 0.32;
+  --gc-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 0.625rem;
+  isolation: isolate;
+  transition:
+    --gc-amp 0.5s ease,
+    box-shadow 0.55s ease,
+    transform 0.3s var(--gc-ease);
+}
+.gaffer-call[data-variant="solid"] { box-shadow: 0 6px 22px -6px rgba(224, 153, 47, 0.6); }
+.gaffer-call[data-variant="solid"][data-state="idle"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px -8px rgba(224, 153, 47, 0.78);
+}
+.gaffer-call[data-variant="glass"][data-state="idle"]:hover { transform: translateY(-2px); }
+.gaffer-call:active { transform: scale(0.96); }
 
+/* live + speaking emphasis (zero layout cost) */
+.gaffer-call[data-state="live"] {
+  --gc-amp: 0.4;
+  --gc-halo: 0.4;
+  box-shadow: 0 6px 26px -8px rgba(244, 63, 94, 0.6);
+}
+.gaffer-call[data-speaking="true"] {
+  --gc-amp: 1;
+  --gc-halo: 0.82;
+  box-shadow: 0 8px 34px -8px rgba(244, 63, 94, 0.85);
+}
+
+/* ── colour plates ── */
+.gc-fill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 9999px;
+  transition: opacity 0.6s ease;
+}
+.gc-fill-idle { opacity: 1; background: linear-gradient(135deg, var(--color-accent-400), var(--color-accent-600)); }
+.gc-fill-live { opacity: 0; background: linear-gradient(135deg, #fb7185, #e11d48); }
+.gaffer-call[data-state="connecting"] .gc-fill-idle { opacity: 0.7; }
+.gaffer-call[data-state="live"] .gc-fill-live { opacity: 1; }
+
+/* glass variant — for sitting on top of hero footage */
+.gaffer-call[data-variant="glass"] .gc-fill-idle {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+  transition: opacity 0.6s ease, background 0.3s ease, border-color 0.3s ease;
+}
+.gaffer-call[data-variant="glass"][data-state="idle"]:hover .gc-fill-idle {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: color-mix(in srgb, var(--color-accent-400) 45%, transparent);
+}
+
+/* ── halo ── */
+@keyframes gc-breathe { 0%, 100% { transform: scale(0.96); } 50% { transform: scale(1.06); } }
+.gc-halo {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 9999px;
+  filter: blur(9px);
+  animation: gc-breathe 3.4s ease-in-out infinite;
+  transition: opacity 0.5s ease;
+}
+.gc-halo-idle { opacity: var(--gc-halo); background: color-mix(in srgb, var(--color-accent-400) 70%, transparent); }
+.gc-halo-live { opacity: 0; background: rgba(244, 63, 94, 0.8); }
+.gaffer-call[data-variant="glass"] .gc-halo-idle { opacity: calc(var(--gc-halo) * 0.55); }
+.gaffer-call[data-state="live"] .gc-halo-idle { opacity: 0; }
+.gaffer-call[data-state="live"] .gc-halo-live { opacity: var(--gc-halo); }
+
+/* ── live sonar rings — fixed cadence so a speaking flip never restarts them ── */
+@keyframes gc-ring { 0% { transform: scale(0.9); opacity: 0.5; } 100% { transform: scale(1.5); opacity: 0; } }
+.gc-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 205, 212, 0.7);
+  opacity: 0;
+}
+.gaffer-call[data-state="live"] .gc-ring { animation: gc-ring 2s ease-out infinite; }
+.gaffer-call[data-state="live"] .gc-ring-2 { animation-delay: 1s; }
+
+/* ── hover light-sweep (idle only) ── */
+.gc-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: 9999px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.gaffer-call[data-state="idle"] .gc-sheen { opacity: 1; }
 .gc-sheen::before {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 9999px;
   background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.38) 50%, transparent 70%);
   transform: translateX(-130%);
 }
 @keyframes gc-sheen { to { transform: translateX(130%); } }
-.gaffer-call:hover .gc-sheen::before { animation: gc-sheen 0.9s ease-out; }
+.gaffer-call[data-state="idle"]:hover .gc-sheen::before { animation: gc-sheen 0.9s ease-out; }
+
+/* ── icon slot — three icons cross-fade inside one fixed square ── */
+.gc-icon {
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+}
+.gc-icon-layer {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.55) rotate(-10deg);
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.45s var(--gc-ease);
+}
+.gc-icon-layer[data-on="true"] { opacity: 1; transform: none; }
+
+/* ── equaliser ── */
+@keyframes gc-eq { 0%, 100% { transform: scaleY(0.2); } 50% { transform: scaleY(var(--gc-amp)); } }
+.gc-bar { height: 100%; transform-origin: bottom; animation: gc-eq 0.9s ease-in-out infinite; }
+.gc-bar:nth-child(2) { animation-delay: 0.13s; }
+.gc-bar:nth-child(3) { animation-delay: 0.27s; }
+.gc-bar:nth-child(4) { animation-delay: 0.4s; }
+
+/* ── label rail ── */
+.gc-rail { display: flex; align-items: center; min-width: 0; }
+.gc-seg {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transition: grid-template-columns 0.55s var(--gc-ease), opacity 0.3s ease;
+}
+.gc-seg[data-open="true"] { grid-template-columns: 1fr; opacity: 1; }
+.gc-seg-in {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* every label that can appear in a single state shares one cell, so the cell is
+   as wide as the longest of them and the words cross-fade without a reflow */
+.gc-stack { display: grid; }
+.gc-stack > * {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity 0.28s ease, transform 0.34s var(--gc-ease);
+}
+.gc-stack > [data-on="true"] { opacity: 1; transform: none; }
+.gc-timer {
+  font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9em;
+  font-weight: 500;
+  opacity: 0.72;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .gc-glow, .gc-ring, .gc-bar, .gc-sheen::before { animation: none !important; }
+  .gc-halo, .gc-ring, .gc-bar, .gc-sheen::before { animation: none !important; }
+  .gc-bar { transform: scaleY(var(--gc-amp)); }
+  .gaffer-call, .gc-seg, .gc-stack > *, .gc-icon-layer { transition-duration: 0.01ms !important; }
 }

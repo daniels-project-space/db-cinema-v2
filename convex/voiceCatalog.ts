@@ -101,12 +101,21 @@ function score(r: Doc<"listings">, tokens: string[], brand: string | null, categ
   return s;
 }
 
+/** Same image precedence as `catalog.card`, so voice-added basket lines show
+ *  the identical thumbnail the customer sees when browsing. */
+function heroImage(r: Doc<"listings">): string | null {
+  const r2 = (r as any).r2Images ?? [];
+  if (r2.length) return r2[0];
+  return ((r as any).sourceImages ?? (r as any).gallery ?? [])[0] ?? null;
+}
+
 function shape(r: Doc<"listings">) {
   return {
     id: String(r._id),
     title: r.title,
     slug: r.slug,
     category: r.category,
+    heroImage: heroImage(r),
     daily: r.pricing?.daily ?? null,
     deposit: r.depositAmount ?? null,
     minDays: r.minimumRentalDays ?? 1,
