@@ -46,6 +46,7 @@ import type * as settings from "../settings.js";
 import type * as swml from "../swml.js";
 import type * as sync from "../sync.js";
 import type * as voice from "../voice.js";
+import type * as voiceCatalog from "../voiceCatalog.js";
 import type * as waitlist from "../waitlist.js";
 
 import type {
@@ -93,6 +94,7 @@ declare const fullApi: ApiFromModules<{
   swml: typeof swml;
   sync: typeof sync;
   voice: typeof voice;
+  voiceCatalog: typeof voiceCatalog;
   waitlist: typeof waitlist;
 }>;
 
