@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { IconArrowRight, IconX } from "@/components/icons";
 import { FormSevenCarousel } from "@/components/FormSevenCarousel";
 
-// The active FORM / SEVEN site. An older custom-domain environment value points
-// to a separate deployment and cannot receive the free-sample referral state.
-const FORM_SEVEN_URL = "https://form-seven-studio.rrxbrxtrqb.chatgpt.site";
+// The FORM / SEVEN site, on its own Cloudflare custom domain (the worker
+// media-engine-showcase serves form7.net and www.form7.net). This replaces the
+// temporary *.chatgpt.site preview host the overlay shipped against; that host
+// still answers, so nothing broke visibly and the stale link could sit here
+// unnoticed. Verified this domain carries the samplePlan query through.
+const FORM_SEVEN_URL = "https://form7.net";
 const FORM_SEVEN_SAMPLE_URL = `${FORM_SEVEN_URL.replace(/\/$/, "")}/?samplePlan=Free%20six-second%20sample`;
 
 const FORM_SEVEN_POINTS = [
