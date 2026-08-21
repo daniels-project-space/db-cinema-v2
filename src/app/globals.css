@@ -2308,3 +2308,96 @@ html[data-gaffer-nav="1"] .tile-in {
   .gc-bar { transform: scaleY(var(--gc-amp)); }
   .gaffer-call, .gc-seg, .gc-stack > *, .gc-icon-layer { transition-duration: 0.01ms !important; }
 }
+
+/* ── FORM / SEVEN badge — orbiting edge glow, eased periodic spin, idle shine, hover reveal ── */
+@property --fs-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes fs-glow-rot {
+  to { --fs-angle: 360deg; }
+}
+.fs-badge {
+  position: relative;
+}
+.fs-badge::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--fs-angle),
+    transparent 0deg,
+    transparent 260deg,
+    #22c55e 315deg,
+    #6ee7b7 340deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fs-badge::before { animation: fs-glow-rot 4.5s linear infinite; }
+}
+
+/* mark — a single eased rotation, played by toggling .fs-spin from JS on an interval */
+.fs-mark {
+  transform-box: fill-box;
+  transform-origin: center;
+  display: block;
+}
+@keyframes fs-mark-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fs-mark.fs-spin { animation: fs-mark-spin 1.8s cubic-bezier(0.65, 0, 0.35, 1) 1 both; }
+}
+
+/* idle shine — one diagonal sheen pass, played by toggling .fs-shine-on from JS */
+.fs-shine {
+  position: absolute;
+  inset: -25%;
+  background: linear-gradient(75deg, transparent 42%, rgba(255, 255, 255, 0.65) 50%, transparent 58%);
+  mix-blend-mode: overlay;
+  opacity: 0;
+  transform: translateX(-140%);
+  pointer-events: none;
+}
+@keyframes fs-shine-sweep {
+  0% { opacity: 0; transform: translateX(-140%); }
+  25% { opacity: 0.9; }
+  100% { opacity: 0; transform: translateX(140%); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fs-shine.fs-shine-on { animation: fs-shine-sweep 0.9s ease-in-out 1 both; }
+}
+
+/* hover reveal — mark nudges left, "FORM 7 ad agency" label expands in just after it */
+.fs-mark-wrap {
+  transition: transform 0.5s var(--ease-out-expo);
+}
+.fs-link:hover .fs-mark-wrap { transform: translateX(-8px); }
+.fs-reveal {
+  display: grid;
+  grid-template-columns: 0fr;
+  transition: grid-template-columns 0.45s var(--ease-out-expo);
+}
+.fs-link:hover .fs-reveal { grid-template-columns: 1fr; }
+.fs-reveal > span {
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(-8px);
+  transition: opacity 0.35s var(--ease-out-expo) 0.08s, transform 0.35s var(--ease-out-expo) 0.08s;
+}
+.fs-link:hover .fs-reveal > span { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-badge::before,
+  .fs-mark.fs-spin,
+  .fs-shine.fs-shine-on { animation: none !important; }
+}

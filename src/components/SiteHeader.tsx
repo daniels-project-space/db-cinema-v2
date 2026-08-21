@@ -5,15 +5,26 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
-import { IconMenu, IconX, IconArrowRight } from "@/components/icons";
+import { IconArrowRight, IconCamera, IconCart, IconMenu, IconSpark, IconUser, IconX } from "@/components/icons";
+import { SignatureProductionsOverlay } from "@/components/SignatureProductionsOverlay";
+import { FormSevenBadge } from "@/components/FormSevenBadge";
 
-const NAV = [
+type NavItem = { href: string; label: string; external?: boolean };
+
+// Full set — everything lives here for the mobile sheet (a separate,
+// already-scrollable menu). The desktop row shows a trimmed subset below;
+// Membership / How it works move into the profile dropdown(s) instead.
+const NAV: NavItem[] = [
   { href: "/gear", label: "Gear" },
   { href: "/membership", label: "Membership" },
   { href: "/how-it-works", label: "How it works" },
   { href: "/guides", label: "Guides" },
   { href: "/about", label: "About" },
+  { href: "/join", label: "Join the Collective" },
+  { href: "/contact", label: "Contact" },
 ];
+
+const DESKTOP_NAV = NAV.filter((n) => n.href !== "/membership" && n.href !== "/how-it-works");
 
 export function SiteHeader() {
   const { count, open } = useCart();
@@ -23,6 +34,7 @@ export function SiteHeader() {
   const [menu, setMenu] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [signatureOpen, setSignatureOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -42,10 +54,34 @@ export function SiteHeader() {
 
   const avatar = me ? (me.avatarUrl ?? `https://i.pravatar.cc/80?u=${encodeURIComponent(me.email)}`) : "";
 
+  const gearClick = (e: React.MouseEvent, href: string) => {
+    if (href === "/gear" && pathname === "/" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent("dbc:gear-turn"));
+    }
+  };
+
+  const mobileLinks: NavItem[] = [
+    ...NAV,
+    { href: "/account", label: me ? "My account" : "Account" },
+  ];
+
   return (
     <>
+      {/* promo strip — cross-link to FORM / SEVEN, opens the overlay, never navigates */}
+      <div className="sticky top-0 z-50 h-8 border-b border-white/5 bg-gradient-to-r from-accent-500/10 via-charcoal-900/70 to-accent-500/10">
+        <button
+          onClick={() => setSignatureOpen(true)}
+          className="mx-auto flex h-8 w-full max-w-7xl items-center justify-center gap-2 px-6 text-center font-mono text-[10.5px] uppercase tracking-[0.18em] text-accent-300 transition-colors hover:text-accent-200 sm:text-[11px]"
+        >
+          <IconSpark className="h-3 w-3 shrink-0" />
+          <span className="truncate">Signature Productions — meet our AI-native creative partner, FORM / SEVEN</span>
+          <IconArrowRight className="h-3 w-3 shrink-0" />
+        </button>
+      </div>
+
       <header
-        className={`sticky top-0 z-40 transition-[background-color,border-color,box-shadow] duration-500 ${
+        className={`sticky top-8 z-40 transition-[background-color,border-color,box-shadow] duration-500 ${
           scrolled
             ? "border-b border-white/[0.07] bg-[#060608]/95 shadow-[0_12px_40px_-20px_rgba(0,0,0,0.8)]"
             : "border-b border-transparent bg-transparent"
@@ -62,22 +98,13 @@ export function SiteHeader() {
 
           <nav className="flex items-center gap-5 text-sm">
             <div className="hidden items-center gap-5 md:flex">
-              {NAV.map((n) => {
+              {DESKTOP_NAV.map((n) => {
                 const active = pathname === n.href || pathname.startsWith(n.href + "/");
                 return (
                   <Link
                     key={n.href}
                     href={n.href}
-                    onClick={(e) => {
-                      if (
-                        n.href === "/gear" &&
-                        pathname === "/" &&
-                        !window.matchMedia("(prefers-reduced-motion: reduce)").matches
-                      ) {
-                        e.preventDefault();
-                        window.dispatchEvent(new CustomEvent("dbc:gear-turn"));
-                      }
-                    }}
+                    onClick={(e) => gearClick(e, n.href)}
                     className={`nav-link transition-colors ${
                       active ? "active text-white" : "text-white/55 hover:text-white"
                     }`}
@@ -86,10 +113,11 @@ export function SiteHeader() {
                   </Link>
                 );
               })}
+              <FormSevenBadge />
             </div>
 
             {/* fixed-size slot: never reflows the header when auth resolves
-                (logged-out link / skeleton / avatar pill all occupy the same box) */}
+                (logged-out button / skeleton / avatar pill all occupy the same box) */}
             <div className="hidden h-9 min-w-[148px] items-center justify-end md:flex">
               {me ? (
                 <div className="relative">
@@ -121,6 +149,20 @@ export function SiteHeader() {
                         My account &amp; bookings
                       </Link>
                       <Link
+                        href="/membership"
+                        onClick={() => setMenu(false)}
+                        className="block px-4 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                      >
+                        Membership
+                      </Link>
+                      <Link
+                        href="/how-it-works"
+                        onClick={() => setMenu(false)}
+                        className="block px-4 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                      >
+                        How it works
+                      </Link>
+                      <Link
                         href="/join"
                         onClick={() => setMenu(false)}
                         className="block border-t border-white/5 px-4 py-2.5 text-sm text-accent-300 transition-colors hover:bg-white/5 hover:text-accent-200"
@@ -149,22 +191,65 @@ export function SiteHeader() {
                   <span className="h-3 w-16 animate-pulse rounded bg-white/10" />
                 </div>
               ) : (
-                <Link
-                  href="/account"
-                  className={`nav-link transition-colors ${
-                    pathname.startsWith("/account") ? "active text-white" : "text-white/55 hover:text-white"
-                  }`}
-                >
-                  Account
-                </Link>
+                <div className="relative">
+                  <button
+                    onClick={() => setMenu((m) => !m)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-accent-400/40 hover:bg-white/[0.07] hover:text-white"
+                    aria-label="Account"
+                  >
+                    <IconUser className="h-4 w-4" />
+                  </button>
+                  {menu && (
+                    <div className="absolute right-0 mt-2 w-52 overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900 shadow-2xl shadow-black/60">
+                      <Link
+                        href="/account"
+                        onClick={() => setMenu(false)}
+                        className="block px-4 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                      >
+                        Sign in
+                      </Link>
+                      <Link
+                        href="/account"
+                        onClick={() => setMenu(false)}
+                        className="block border-t border-white/5 px-4 py-2.5 text-sm text-accent-300 transition-colors hover:bg-white/5 hover:text-accent-200"
+                      >
+                        Sign up
+                      </Link>
+                      <Link
+                        href="/membership"
+                        onClick={() => setMenu(false)}
+                        className="block border-t border-white/5 px-4 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                      >
+                        Membership
+                      </Link>
+                      <Link
+                        href="/how-it-works"
+                        onClick={() => setMenu(false)}
+                        className="block px-4 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                      >
+                        How it works
+                      </Link>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
+
+            <Link
+              href="/gear"
+              onClick={(e) => gearClick(e, "/gear")}
+              className="hidden h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition hover:border-accent-400/40 hover:text-white md:flex"
+              aria-label="Browse gear"
+            >
+              <IconCamera className="h-4.5 w-4.5" />
+            </Link>
 
             <button
               onClick={open}
               className="relative flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-white/80 transition hover:border-accent-400/40 hover:text-white"
               aria-label="Open kit"
             >
+              <IconCart className="h-4 w-4" />
               <span>Kit</span>
               {count > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-500 px-1 font-mono text-xs font-semibold text-white">
@@ -206,33 +291,49 @@ export function SiteHeader() {
         </div>
 
         <nav className="mt-10 flex flex-col">
-          {[...NAV, { href: "/account", label: me ? "My account" : "Account" }, { href: "/join", label: "Join the Collective" }, { href: "/contact", label: "Contact" }].map(
-            (n, i) => (
-              <Link
-                key={n.href}
-                href={n.href}
-                onClick={(e) => {
-                  setMobile(false);
-                  if (
-                    n.href === "/gear" &&
-                    pathname === "/" &&
-                    !window.matchMedia("(prefers-reduced-motion: reduce)").matches
-                  ) {
-                    e.preventDefault();
-                    window.dispatchEvent(new CustomEvent("dbc:gear-turn"));
-                  }
-                }}
-                className="group flex items-center justify-between border-b border-white/[0.06] py-4"
-                style={mobile ? { animation: `stage-in 0.5s var(--ease-out-expo) ${80 + i * 55}ms both` } : undefined}
-              >
+          {mobileLinks.map((n, i) => {
+            const style = mobile ? { animation: `stage-in 0.5s var(--ease-out-expo) ${80 + i * 55}ms both` } : undefined;
+            const content = (
+              <>
                 <span className="font-display text-2xl font-semibold text-white/85 transition-colors group-hover:text-white">
                   {n.label}
                 </span>
                 <IconArrowRight className="h-5 w-5 text-white/25 transition-transform group-hover:translate-x-1 group-hover:text-accent-400" />
+              </>
+            );
+            if (n.external) {
+              return (
+                <a
+                  key={n.href + n.label}
+                  href={n.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setMobile(false)}
+                  className="group flex items-center justify-between border-b border-white/[0.06] py-4"
+                  style={style}
+                >
+                  {content}
+                </a>
+              );
+            }
+            return (
+              <Link
+                key={n.href + n.label}
+                href={n.href}
+                onClick={(e) => {
+                  setMobile(false);
+                  gearClick(e, n.href);
+                }}
+                className="group flex items-center justify-between border-b border-white/[0.06] py-4"
+                style={style}
+              >
+                {content}
               </Link>
-            ),
-          )}
+            );
+          })}
         </nav>
+
+        <FormSevenBadge mobile />
 
         <div className="mt-auto">
           <span className="hud-label">
@@ -240,6 +341,8 @@ export function SiteHeader() {
           </span>
         </div>
       </div>
+
+      <SignatureProductionsOverlay open={signatureOpen} onClose={() => setSignatureOpen(false)} />
     </>
   );
 }

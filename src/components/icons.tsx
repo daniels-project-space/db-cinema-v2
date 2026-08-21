@@ -231,3 +231,24 @@ export function IconTicket(p: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** User — logged-out profile / account entry point. */
+export function IconUser(p: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(p)}>
+      <circle cx="12" cy="8" r="3.6" />
+      <path d="M4.5 20c1.2-4 4-6 7.5-6s6.3 2 7.5 6" />
+    </svg>
+  );
+}
+
+/** Shopping cart — Kit quick access. */
+export function IconCart(p: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(p)}>
+      <path d="M3.5 4h2l2.2 11.2a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 2-1.6L20.5 8H6.5" />
+      <circle cx="9.5" cy="20" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="17" cy="20" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
