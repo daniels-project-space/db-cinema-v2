@@ -48,11 +48,24 @@ function readList(titles: string[]) {
  */
 function shorten(title: string): string {
   let t = String(title).split("|")[0].split("(")[0].trim();
-  if (t.length > 60) {
-    const plus = t.indexOf(" + ", 30);
-    t = plus > 0 ? t.slice(0, plus) : `${t.slice(0, 57).trim()}…`;
-  }
-  return t;
+  // Drop the "+ extras" tail first — "FX3 + 24-70 + 70-200 + cards" is a
+  // keyword list, and the caller only needs the thing it actually is.
+  const plus = t.indexOf(" + ");
+  if (plus > 12) t = t.slice(0, plus).trim();
+  // Titles repeat the model for search ("Sony fx 3 fx3 full frame 4k camera").
+  // Collapse consecutive near-duplicate words so it reads like speech.
+  const seen = new Set<string>();
+  t = t
+    .split(/\s+/)
+    .filter((w) => {
+      const k = w.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (!k || k.length < 2) return true;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .join(" ");
+  return t.length > 52 ? `${t.slice(0, 49).trim()}…` : t;
 }
 
 type Match = {
@@ -91,8 +104,10 @@ export async function POST(req: NextRequest) {
             .map(([k, v]) => `${v} ${String(k).toLowerCase()}`);
           return say(`We've got ${o?.total ?? 0} items in total — ${readList(cats)}. What are you shooting?`);
         }
-        const what = [b.brand ? cap(b.brand) : "", b.category ? b.category.toLowerCase() : "gear"]
-          .filter(Boolean).join(" ");
+        // "405 gear" is not a sentence — fall back to "items" when the caller
+        // named neither a brand nor a category.
+        const what = [b.brand ? cap(b.brand) : "", b.category ? b.category.toLowerCase() : ""]
+          .filter(Boolean).join(" ") || "items";
         return say(
           `Yes — we've got ${b.count} ${what}, ${priceRange(b.from, b.to)}. ` +
           `Popular ones are ${readList(b.items.slice(0, 3).map((i: Match) => i.title))}. ` +
