@@ -2993,11 +2993,11 @@ html[data-gaffer-nav="1"] .tile-in {
      and then crawled, reaching near-full width in ~700ms. This spreads the
      movement evenly across the whole duration so it genuinely drifts in. */
   transition:
-    grid-template-columns 1.6s cubic-bezier(0.45, 0.05, 0.3, 1),
-    opacity 1.4s cubic-bezier(0.4, 0, 0.6, 1),
-    margin 1.6s cubic-bezier(0.45, 0.05, 0.3, 1);
+    grid-template-columns 1.25s cubic-bezier(0.45, 0.05, 0.3, 1),
+    opacity 1.1s cubic-bezier(0.4, 0, 0.6, 1),
+    margin 1.25s cubic-bezier(0.45, 0.05, 0.3, 1);
 }
-.f7-lockup[data-intro="true"] .f7-reveal--tail { transition-delay: 0.35s; }
+.f7-lockup[data-intro="true"] .f7-reveal--tail { transition-delay: 0.28s; }
 
 /* The collaboration line is long; below a wide desktop it would run into the
    nav, so only the FORM half reveals there. */
