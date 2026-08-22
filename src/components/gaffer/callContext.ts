@@ -74,6 +74,19 @@ const FOLLOW_UP =
   "chat you answer directly instead of waiting on email. Ask once, naturally, and don't push it " +
   "if they say no.";
 
+/**
+ * Don't narrate an action that didn't happen.
+ *
+ * Observed on a real call on the sister site: the agent announced "I've pulled
+ * that up on your screen" three times while every tool was returning an error.
+ * The caller is then looking at a screen that contradicts the voice, which is
+ * worse than never offering — it reads as the whole thing being broken.
+ */
+const TOOL_HONESTY =
+  "Every tool hands you back a result — read it before you speak. Never claim you have shown, " +
+  "added, filed or changed something unless the tool said it worked. If it returns an error or " +
+  "says it couldn't find something, say so plainly and offer another way.";
+
 export function pageBrief(pathname: string, topic?: string): CallBrief {
   const path = (pathname || "/").replace(/\/+$/, "") || "/";
   const seg = path.split("/").filter(Boolean);
@@ -94,8 +107,8 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
           `catalogue unless they ask to rent something. Your job is to get them working. `
         : `This is a sales call. `) +
       `They started this call from ${path} on the Db Cinema Rentals website.${named} ${brief} ` +
-      `${FOLLOW_UP} Don't read this context aloud, and don't re-introduce yourself — you've ` +
-      `already opened the call.`,
+      `${FOLLOW_UP} ${TOOL_HONESTY} Don't read this context aloud, and don't re-introduce ` +
+      `yourself — you've already opened the call.`,
   });
 
   // a specific guide → they are mid-task and want to be walked through it
