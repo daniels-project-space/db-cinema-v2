@@ -22,8 +22,29 @@ import { londonToday, resolveDate, inclusiveDays, speak } from "@/lib/voiceDates
  */
 export const maxDuration = 30;
 
+/**
+ * Every field that goes into this response is context the model has to read
+ * on the next turn — and this is a webhook, not the browser: nothing here
+ * ever reaches a screen, so any field that only exists for rendering (a
+ * thumbnail URL, a slug, a raw deposit figure Gaffer never quotes) is pure
+ * weight with no payoff. Measured on a real "anamorphic lenses" call: the
+ * spoken `result` was 278 characters, the `items` array riding alongside it
+ * was 2478 bytes — heroImage URLs alone were 460 of that, on a phone line
+ * that can't show an image. Trimmed to what a follow-up turn could actually
+ * use: the name, spoken from `result` anyway, and the price.
+ */
+function trimItems(items: unknown): unknown {
+  if (!Array.isArray(items)) return items;
+  return items.map((i: any) => ({ title: i?.title, daily: i?.daily ?? null }));
+}
+
 const say = (result: string, extra: Record<string, unknown> = {}) =>
-  NextResponse.json({ result, today: londonToday(), ...extra });
+  NextResponse.json({
+    result,
+    today: londonToday(),
+    ...extra,
+    ...("items" in extra ? { items: trimItems(extra.items) } : {}),
+  });
 
 const money = (n: number | null | undefined) => (n == null ? "" : `£${Math.round(n)}`);
 
@@ -125,6 +146,24 @@ export async function POST(req: NextRequest) {
         // named neither a brand nor a category.
         const what = [b.brand ? cap(b.brand) : "", b.category ? b.category.toLowerCase() : ""]
           .filter(Boolean).join(" ") || "items";
+
+        // A real call asked for anamorphic lenses. `browse` used to drop
+        // "anamorphic" silently and answer for "lenses" in general, so this
+        // said "yes" and then read out three lenses that had nothing to do
+        // with the question — the caller was told no dedicated glass existed
+        // while nineteen real listings sat in the very count just quoted.
+        // `askedFor` set with `matchedSpecific` false means the specific word
+        // genuinely matched nothing; say that honestly rather than reusing the
+        // broad "yes" sentence for a question it never actually answered.
+        if (b.askedFor && !b.matchedSpecific) {
+          return say(
+            `We don't specifically carry dedicated ${b.askedFor}, but we do have ${b.count} ${what}, ` +
+            `${priceRange(b.from, b.to)} — like ${readList(b.items.slice(0, 2).map((i: Match) => i.title))}. ` +
+            `Would one of those work, or is there something else you had in mind?`,
+            { items: b.items },
+          );
+        }
+
         return say(
           `Yes — we've got ${b.count} ${what}, ${priceRange(b.from, b.to)}. ` +
           `Popular ones are ${readList(b.items.slice(0, 3).map((i: Match) => i.title))}. ` +

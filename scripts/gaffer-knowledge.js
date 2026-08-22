@@ -326,7 +326,14 @@ const WEBHOOK_TOOL_DESCRIPTIONS = {
     "you whether anything is free. Never present its answer as availability, and never use it " +
     "in place of an availability check: if the caller has given you dates, follow up with " +
     "find_gear or check_availability before promising anything. If find_gear or recommend_gear " +
-    "has already put suitable items on screen for those dates, you do not need this at all.",
+    "has already put suitable items on screen for those dates, you do not need this at all. " +
+    "ONLY use this for a genuinely open question — 'what Sony cameras do you have', 'what's " +
+    "your lighting range like'. The moment the caller names a specific thing — a model number, " +
+    "a lens type, a feature like 'anamorphic' or '70-200' — call find_gear instead, every time. " +
+    "This tool only recognises broad brand and category words; a named model or feature narrows " +
+    "the count when it can, but if it can't find that word at all you will be told so honestly " +
+    "rather than handed an unrelated 'yes'. find_gear checks the caller's actual words against " +
+    "every listing and will not make that mistake.",
 };
 
 async function pinWebhookToolDescriptions(toolIds) {

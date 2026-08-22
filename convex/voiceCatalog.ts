@@ -197,7 +197,15 @@ export const search = query({
         if (x.s <= 0) return false;
         if (!modelTokens.length) return true;
         const hay = haystack(x.r);
-        return modelTokens.some((t) => hay.includes(t));
+        // Plain substring, or squashed — "a75" spoken for "a7 V" / "a7v" as
+        // written misses a plain check on spacing alone. score() already
+        // squash-matches for ranking; this is the same trick applied to the
+        // gate that decides whether a result is admitted at all. Without it,
+        // asking for "a75" returned zero matches even though the A7 V listing
+        // was sitting right there, and the caller was told to try browse()'s
+        // softer "can't find that exact model" fallback instead of a direct hit.
+        const sq = squash(hay);
+        return modelTokens.some((t) => hay.includes(t) || sq.includes(squash(t)));
       })
       .sort((a, b) => {
         // Someone who says "an FX3" means the camera. Unless they asked for a
@@ -248,6 +256,18 @@ export const search = query({
  * turns a stock question into a booking. Falls back to the whole catalogue when
  * neither brand nor category is recognised, so Gaffer can always say something
  * true about what we stock rather than inventing it.
+ *
+ * A real call: "do you have any anamorphic lenses?" reached this query as
+ * `browse("anamorphic lenses")`. "lenses" is a recognised category word, so it
+ * filtered to Lenses — but "anamorphic" is neither a brand nor a category word,
+ * and every token that isn't one was silently thrown away. The caller's actual
+ * question was never asked. It came back "yes, 64 lenses", Gaffer read out three
+ * that had nothing to do with anamorphic glass, and told the caller we don't
+ * carry any — while nineteen real anamorphic listings sat in that same result,
+ * just never looked at. `search` never had this bug: it scores every token.
+ * `browse` now checks anything left over the same way, so a feature word either
+ * narrows the count for real or is honestly reported as not narrowing it —
+ * never dropped in silence.
  */
 export const browse = query({
   args: { q: v.optional(v.string()), limit: v.optional(v.number()) },
@@ -259,6 +279,28 @@ export const browse = query({
     let sel = rows;
     if (brand) sel = sel.filter((r) => haystack(r).includes(brand));
     if (category) sel = sel.filter((r) => r.category === category);
+
+    // Everything left is the actual ask: a feature, a lens type, a model
+    // number. Two ways to hit — plain substring for a real word ("anamorphic"),
+    // squashed for a model spoken with different spacing than it's typed
+    // ("a75" said, "a7 5" / "a7v" written; squash makes both "a75").
+    const rest = tokens.filter((t) => t !== brand && !CATEGORY_WORDS[t]);
+    let matchedSpecific = false;
+    if (rest.length) {
+      const narrowed = sel.filter((r) => {
+        const hay = haystack(r);
+        const sq = squash(hay);
+        return rest.some((t) => hay.includes(t) || sq.includes(squash(t)));
+      });
+      // Only narrow when it actually found something. An empty result here
+      // means "we don't carry that specifically" — worth knowing, but the
+      // caller still deserves the honest count of the broader category rather
+      // than a hard zero, so the fallback sentence can offer real alternatives.
+      if (narrowed.length) {
+        sel = narrowed;
+        matchedSpecific = true;
+      }
+    }
 
     sel.sort(
       (a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0) || a.title.localeCompare(b.title),
@@ -276,6 +318,10 @@ export const browse = query({
       to: prices.length ? Math.max(...prices) : null,
       byCategory: counts,
       items: sel.slice(0, limit ?? 6).map(shape),
+      /** True only when a specific word beyond brand/category actually matched something. */
+      matchedSpecific,
+      /** What that specific ask was, so the caller can be told plainly when it drew a blank. */
+      askedFor: rest.length ? rest.join(" ") : null,
     };
   },
 });
@@ -371,6 +417,29 @@ export const recommend = query({
       standalone: single.map(withInfo),
       bundles: sets.map(withInfo),
     };
+  },
+});
+
+/**
+ * Real, bookable items in a category — nothing else.
+ *
+ * Exists because `alternativesFor` (the substitute-offering path, used when a
+ * requested item is booked out) was calling `catalog.listListings` instead —
+ * the query built for the public /gear page, which deliberately keeps
+ * display-only marketing rows visible (sunk to the bottom of the page, not
+ * hidden) so a human browsing can still see them. A voice call has no bottom
+ * of the page: whatever this returns, Gaffer offers as a real thing the
+ * caller can book. So it goes through the same `bookable()` gate every other
+ * voice-facing query in this file uses, and nowhere else.
+ */
+export const byCategory = query({
+  args: { category: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { category, limit }) => {
+    const rows = bookable(
+      await ctx.db.query("listings").withIndex("by_category", (q) => q.eq("category", category)).collect(),
+    );
+    rows.sort((a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0));
+    return rows.slice(0, limit ?? 12).map(shape);
   },
 });
 

@@ -58,6 +58,24 @@ const SELL_CLOSE =
   "never one.";
 
 /**
+ * Pass a model number through as heard. Don't "correct" it.
+ *
+ * A real call: the caller said "a75", meaning the Sony A7 V — its own listing
+ * title spells it out as "a7V / a7 V / a7v / Alpha 7 V / a7 5". Gaffer instead
+ * called find_gear for "Sony A7R V" — a real but completely different Sony
+ * line (the R stands for Resolution; it's the high-megapixel body, not the
+ * one asked for) — and the tool dutifully found and offered that instead. The
+ * caller had been heard correctly; the model second-guessed itself turning
+ * what it heard into a search.
+ */
+const MODEL_VERBATIM =
+  "When a caller gives you a shorthand model number — 'a75', 'a73', 'fx3' and the like — pass it to " +
+  "find_gear exactly as they said it, in one word with no spaces and no added letters. Do not expand " +
+  "or 'correct' it into a different real model — Sony's line-up has near-identical names (A7 III vs " +
+  "A7R III vs A7S III; A7 V vs A7R V) and guessing between them gets a genuinely different camera. " +
+  "If what comes back doesn't look right, read the title back to them before adding anything.";
+
+/**
  * What to do when the call can't finish the job — which is most support calls.
  *
  * A voice call leaves no trace for the customer, so anything needing follow-up
@@ -130,7 +148,7 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
           `catalogue unless they ask to rent something. Your job is to get them working. `
         : `This is a sales call. `) +
       `They started this call from ${path} on the Db Cinema Rentals website.${named} ${brief} ` +
-      `${FOLLOW_UP} ${SPOKEN_PACE} ${TOOL_HONESTY} Don't read this context aloud, and don't re-introduce ` +
+      `${FOLLOW_UP} ${SPOKEN_PACE} ${TOOL_HONESTY} ${MODEL_VERBATIM} Don't read this context aloud, and don't re-introduce ` +
       `yourself — you've already opened the call.`,
   });
 

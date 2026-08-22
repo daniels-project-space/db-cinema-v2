@@ -168,17 +168,26 @@ export function useGafferTools() {
     [findMany],
   );
 
-  /** In-category substitutes that are actually free, minus anything already held. */
+  /**
+   * In-category substitutes that are actually free, minus anything already held.
+   *
+   * Was reading from `catalog.listListings` — the query built for the public
+   * /gear page, which keeps display-only marketing rows visible on purpose
+   * (sunk to the bottom, not hidden, for a human scrolling past them). A voice
+   * call has no bottom of the page: whatever this returned, Gaffer would offer
+   * as a real booking. `voiceCatalog.byCategory` is the same bookable-only
+   * gate every other Gaffer-facing query in this file already goes through.
+   */
   const alternativesFor = useCallback(
     async (hit: any, startIso: string, endIso: string, limit = 3) => {
       if (!hit?.category) return [];
-      const rows: any[] = (await convex.query(api.catalog.listListings, { category: hit.category, limit: 12 })) ?? [];
+      const rows: any[] = (await convex.query(api.voiceCatalog.byCategory, { category: hit.category, limit: 12 })) ?? [];
       const out: { title: string; daily: number }[] = [];
       for (const r of rows) {
-        const id = String(r._id);
+        const id = String(r.id);
         if (id === hit.id || cart.has(id)) continue;
         const a = await availabilityFor(id, startIso, endIso);
-        if (a.available >= 1) out.push({ title: r.title, daily: r.pricing?.daily ?? 0 });
+        if (a.available >= 1) out.push({ title: r.title, daily: r.daily ?? 0 });
         if (out.length >= limit) break;
       }
       return out;
