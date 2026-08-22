@@ -76,7 +76,7 @@ export function SiteHeader() {
      * 0.35s behind it, so closing two seconds after the *trigger* would leave
      * barely half a second of stillness to read them in.
      */
-    const REVEAL_MS = 1250 + 280;
+    const REVEAL_MS = 800 + 180;
     const HOLD_MS = 2000;
     const timers = [
       setTimeout(() => { setIntroSlow(true); setIntro(true); }, 1000),
