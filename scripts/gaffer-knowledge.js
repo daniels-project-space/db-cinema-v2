@@ -465,7 +465,18 @@ async function main() {
     body.conversation_config.asr = { ...(agent.conversation_config.asr || {}), keywords: kw };
     body.conversation_config.turn = {
       ...(agent.conversation_config.turn || {}),
-      silence_end_call_timeout: 25, // native backstop under our own 20s handling
+      /**
+       * Backstop only — our own watchdog is the one that should decide.
+       *
+       * At 25s this fired during ordinary work. A three-item request chains
+       * several lookups, each costing a model round-trip, and the caller is
+       * silent through all of it because they're waiting: 36 seconds of it in
+       * the call that surfaced this. ElevenLabs counts that as dead air and
+       * hangs up on a customer who did nothing wrong. Ours reads the same
+       * silence correctly — it knows a lookup is running — so this only needs
+       * to catch the case where our own timer never runs at all.
+       */
+      silence_end_call_timeout: 90,
     };
     body.platform_settings = {
       ...(agent.platform_settings || {}),

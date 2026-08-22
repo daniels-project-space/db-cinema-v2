@@ -152,6 +152,18 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   /** Has the caller taken a turn yet? Until they have, dead air isn't dead air. */
   const hasSpoken = useRef(false);
   const agentTalking = useRef(false);
+  /**
+   * How many client tools are mid-flight.
+   *
+   * A tool call is the one stretch of a call where nobody is speaking and yet
+   * nothing is wrong: the caller has asked for something and is waiting for it.
+   * The watchdog only knew about `agentTalking`, which covers speech and not
+   * work, so a multi-item request — which fans out into a chain of lookups —
+   * looked exactly like a caller who had walked away.
+   */
+  const toolsInFlight = useRef(0);
+  /** The caller has spoken and is still waiting for a reply. Their silence is earned. */
+  const awaitingAgent = useRef(false);
   const signingOff = useRef(false);
   const farewell = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Bumped per connection attempt; stale sessions' callbacks check it and bail. */
@@ -195,6 +207,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     lastActivity.current = Date.now();
     signingOff.current = false;
     agentTalking.current = false;
+    awaitingAgent.current = false;
+    toolsInFlight.current = 0;
     try { await conv.current?.endSession?.(); } catch { /* already gone */ }
     conv.current = null;
     setState("idle");
@@ -206,7 +220,18 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (state !== "live") return;
     const id = setInterval(() => {
-      if (agentTalking.current || signingOff.current) {
+      /**
+       * None of this is the caller going quiet:
+       *   - Gaffer is mid-sentence
+       *   - a lookup is running because they asked for something
+       *   - they've spoken and Gaffer hasn't answered yet
+       * The last one matters most. A three-item request fans out into a chain
+       * of lookups, each needing its own model round-trip, and the caller sits
+       * through all of it in silence — thirty-six seconds of it in the call
+       * that prompted this. Hanging up there punishes them for the agent's
+       * latency. Dead air is only dead air once Gaffer has had its say.
+       */
+      if (agentTalking.current || signingOff.current || toolsInFlight.current > 0 || awaitingAgent.current) {
         lastActivity.current = Date.now();
         return;
       }
@@ -257,6 +282,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     setError(null);
     signingOff.current = false;
     hasSpoken.current = false;
+    awaitingAgent.current = false;
+    toolsInFlight.current = 0;
     lastActivity.current = Date.now();
     const { intent, mode, brief, opening } = pageBrief(pathname ?? "/", topic);
     const agentId = mode === "support" ? SUPPORT_AGENT_ID : SALES_AGENT_ID;
@@ -301,7 +328,19 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       const tools = Object.fromEntries(
         Object.keys(toolsRef.current).map((k) => [
           k,
-          (args: any) => (toolsRef.current as any)[k](args),
+          async (args: any) => {
+            // Work counts as activity, at both ends: the caller is owed the
+            // full silence window from when the answer lands, not from before
+            // they asked for it.
+            toolsInFlight.current += 1;
+            lastActivity.current = Date.now();
+            try {
+              return await (toolsRef.current as any)[k](args);
+            } finally {
+              toolsInFlight.current = Math.max(0, toolsInFlight.current - 1);
+              lastActivity.current = Date.now();
+            }
+          },
         ]),
       );
       const cfg: any = {
@@ -356,12 +395,20 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         },
         onMessage: ({ message, source }: { message: string; source: "user" | "ai" }) => {
           if (!mine()) return;
+          // Gaffer has answered, so the caller owns the silence again from here.
+          if (source === "ai") {
+            awaitingAgent.current = false;
+            lastActivity.current = Date.now();
+            return;
+          }
           // Only the *caller* speaking counts as activity. Resetting on Gaffer's
           // own messages meant a chatty agent kept the dead-air timer alive
           // forever, so a caller who walked away was never hung up on.
           if (source !== "user") return;
           lastActivity.current = Date.now();
           hasSpoken.current = true;
+          // They've asked for something; the clock is on Gaffer until it replies.
+          awaitingAgent.current = true;
 
           /**
            * They're back. Cancel any wind-down in progress.

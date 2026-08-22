@@ -75,6 +75,29 @@ const FOLLOW_UP =
   "if they say no.";
 
 /**
+ * Fill the silence, and stop paying for it twice.
+ *
+ * The lookups themselves are quick — those endpoints answer in well under a
+ * second — but each one costs a full model round-trip, so a three-item request
+ * chains seven of them and the caller sits through half a minute of nothing.
+ * There's no spinner on a phone call. One short line before the lookups turns
+ * dead air into a pause someone will happily wait through.
+ *
+ * The second half is the bigger win. find_gear and browse_for are already given
+ * the dates and already report what's free, and the agent was following them
+ * with check_availability for the very same item and dates — doubling the wait
+ * to learn what it had just been told.
+ */
+const SPOKEN_PACE =
+  "Checking something takes a few seconds, and the caller hears silence the whole time with nothing " +
+  "on screen to say you're working. So say what you're doing before you do it — one short line, " +
+  "'let me check those dates for you', then make the call. If they've asked about several items at " +
+  "once, say it once up front ('give me a moment, I'll check all three') rather than before each " +
+  "one, then tell them everything you found together. Never go quiet mid-lookup. " +
+  "And don't ask the same question twice: find_gear and browse_for already tell you what's free for " +
+  "the dates you gave them, so never follow one with check_availability for the same item and dates.";
+
+/**
  * Don't narrate an action that didn't happen.
  *
  * Observed on a real call on the sister site: the agent announced "I've pulled
@@ -107,7 +130,7 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
           `catalogue unless they ask to rent something. Your job is to get them working. `
         : `This is a sales call. `) +
       `They started this call from ${path} on the Db Cinema Rentals website.${named} ${brief} ` +
-      `${FOLLOW_UP} ${TOOL_HONESTY} Don't read this context aloud, and don't re-introduce ` +
+      `${FOLLOW_UP} ${SPOKEN_PACE} ${TOOL_HONESTY} Don't read this context aloud, and don't re-introduce ` +
       `yourself — you've already opened the call.`,
   });
 
