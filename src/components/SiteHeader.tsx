@@ -56,18 +56,35 @@ export function SiteHeader() {
    * in sync by hand — and hovering during or after it behaves exactly as before.
    */
   const [intro, setIntro] = useState(false);
+  /**
+   * Separate from `intro` because it has to outlive it.
+   *
+   * This is what selects the slow timing, and the withdrawal needs it just as
+   * much as the entrance — dropping it at the same moment `intro` flips would
+   * snap the words away at hover speed after easing them in.
+   */
+  const [introSlow, setIntroSlow] = useState(false);
   const { spinning, shining } = useSpinAndShine();
 
   useEffect(() => {
     // An unprompted animation is the first thing this preference is asking us
     // not to do. The hover reveal stays available either way.
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    const show = setTimeout(() => setIntro(true), 1000);
-    const hide = setTimeout(() => setIntro(false), 3000); // 1s in, 2s held
-    return () => {
-      clearTimeout(show);
-      clearTimeout(hide);
-    };
+    /**
+     * The hold starts once the words have actually arrived, not when they start
+     * moving. At this speed the reveal takes ~1.4s and the tail waits another
+     * 0.35s behind it, so closing two seconds after the *trigger* would leave
+     * barely half a second of stillness to read them in.
+     */
+    const REVEAL_MS = 1600 + 350;
+    const HOLD_MS = 2000;
+    const timers = [
+      setTimeout(() => { setIntroSlow(true); setIntro(true); }, 1000),
+      setTimeout(() => setIntro(false), 1000 + REVEAL_MS + HOLD_MS),
+      // only once the withdrawal has finished does the timing go back to hover's
+      setTimeout(() => setIntroSlow(false), 1000 + REVEAL_MS * 2 + HOLD_MS + 200),
+    ];
+    return () => timers.forEach(clearTimeout);
   }, []);
 
   useEffect(() => {
@@ -143,6 +160,9 @@ export function SiteHeader() {
             <button
               className="f7-lockup"
               data-open={hover === "f7" || intro}
+              // Hovering hands control back immediately — a pointer should never
+              // wait on the intro's leisurely timing.
+              data-intro={introSlow && hover !== "f7" ? "true" : undefined}
               onClick={() => setSignatureOpen(true)}
               onMouseEnter={() => setHover("f7")}
               onMouseLeave={() => setHover(null)}

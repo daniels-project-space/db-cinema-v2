@@ -2980,6 +2980,25 @@ html[data-gaffer-nav="1"] .tile-in {
 .f7-lockup[data-open="true"] .f7-reveal--lead { margin-right: 0.45rem; }
 .f7-lockup[data-open="true"] .f7-reveal--tail { margin-left: 0.6rem; }
 
+/* The once-on-load reveal runs much slower than the hover one.
+   They want different things from the same motion: hover answers a pointer and
+   has to feel immediate, while the intro is unprompted and is asking to be
+   read, so it opens and fades at roughly a third of the speed. Same properties,
+   same easing — only the durations change — and the attribute stays on through
+   the withdrawal so the exit is just as slow as the entrance. */
+.f7-lockup[data-intro="true"] .f7-reveal {
+  /* A gentler curve than hover's, not just a longer one. ease-out-expo puts
+     almost all of its travel in the first fraction of the duration — ideal for
+     answering a pointer, wrong here: stretched to 1.4s it still snapped open
+     and then crawled, reaching near-full width in ~700ms. This spreads the
+     movement evenly across the whole duration so it genuinely drifts in. */
+  transition:
+    grid-template-columns 1.6s cubic-bezier(0.45, 0.05, 0.3, 1),
+    opacity 1.4s cubic-bezier(0.4, 0, 0.6, 1),
+    margin 1.6s cubic-bezier(0.45, 0.05, 0.3, 1);
+}
+.f7-lockup[data-intro="true"] .f7-reveal--tail { transition-delay: 0.35s; }
+
 /* The collaboration line is long; below a wide desktop it would run into the
    nav, so only the FORM half reveals there. */
 @media (max-width: 1279px) {
