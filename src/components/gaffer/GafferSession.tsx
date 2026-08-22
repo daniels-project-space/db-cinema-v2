@@ -170,6 +170,21 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const generation = useRef(0);
   /** True when we hung up on purpose, so a retry isn't mistaken for a rejection. */
   const endedDeliberately = useRef(false);
+  /**
+   * One free reconnect per call, for a drop nobody asked for.
+   *
+   * A live session that disconnects outside the override-probe window had
+   * nowhere to go but idle — silently, with no error shown, whatever the
+   * cause. Diagnosed from a real call: mid-conversation, several tool calls
+   * in a row with no speech between them, then "Client disconnected: 1000" —
+   * a clean, client-initiated close with nothing in ElevenLabs' own logs
+   * (metadata.error was null) and nothing in this file's own watchdog logic
+   * that could have fired that fast. Whatever the transport-level cause,
+   * the fix that helps regardless of it is not silently accepting the loss:
+   * try once to pick the call back up, and only give up with a visible
+   * reason if that also fails immediately.
+   */
+  const autoReconnectTried = useRef(false);
   const [dockOpen, setDockOpen] = useState(false);
   const [micPrompt, setMicPrompt] = useState<MicPrompt>(null);
   /** Only gate on the mic once per page — after that the browser has an answer. */
@@ -209,6 +224,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     agentTalking.current = false;
     awaitingAgent.current = false;
     toolsInFlight.current = 0;
+    autoReconnectTried.current = false;
     try { await conv.current?.endSession?.(); } catch { /* already gone */ }
     conv.current = null;
     setState("idle");
@@ -284,6 +300,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     hasSpoken.current = false;
     awaitingAgent.current = false;
     toolsInFlight.current = 0;
+    autoReconnectTried.current = false;
     lastActivity.current = Date.now();
     const { intent, mode, brief, opening } = pageBrief(pathname ?? "/", topic);
     const agentId = mode === "support" ? SUPPORT_AGENT_ID : SALES_AGENT_ID;
@@ -388,6 +405,28 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             );
             void start(false);
             return;
+          }
+
+          /**
+           * A drop nobody asked for, past the probe window — try once to pick
+           * the call back up rather than silently going idle.
+           *
+           * Whatever the caller had already confirmed is untouched: the basket
+           * is a separate provider from the voice session, so anything already
+           * added survived this regardless of the socket. The reconnect just
+           * gets Gaffer's ears back so the rest of the request isn't lost too.
+           */
+          if (!endedDeliberately.current && !autoReconnectTried.current) {
+            autoReconnectTried.current = true;
+            console.warn("[Gaffer] unexpected disconnect mid-call — attempting one reconnect.");
+            void start(withOverrides);
+            return;
+          }
+
+          // The reconnect itself didn't hold either — say so rather than
+          // leaving the customer looking at a call that just went quiet.
+          if (autoReconnectTried.current && !endedDeliberately.current) {
+            setError("The line dropped — try calling again.");
           }
           setState("idle");
           setSpeaking(false);

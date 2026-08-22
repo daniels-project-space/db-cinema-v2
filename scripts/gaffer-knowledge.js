@@ -293,9 +293,18 @@ const EVALUATION = [
 ];
 
 /**
- * What the model reads about each webhook tool, every turn.
+ * What the model reads about specific tools, every turn — webhook AND client.
  *
- * ANNOUNCE is on all four lookups because none of them is instant from the
+ * These tools were created by two different scripts, both additive-only by
+ * design (a webhook bootstrap and gaffer-agent-sync.js, which explicitly
+ * "leaves existing tools exactly as they are" to protect the phone line).
+ * Neither ever *updates* a description once a tool exists, so wording that
+ * matters this much — what the model reads on every single turn — existed
+ * nowhere in the repo for these two client tools, and could drift in the
+ * dashboard with nothing to catch it. Pinned here instead, same as the
+ * webhook tools already were.
+ *
+ * ANNOUNCE is on the slow lookups because none of them is instant from the
  * caller's side: the endpoint answers in well under a second, but the model
  * round-trip around it doesn't, and a phone call has no spinner.
  *
@@ -314,7 +323,7 @@ const NO_RECHECK =
   " Do not call this for an item and date range that find_gear or browse_for has already " +
   "reported as free — they check the same calendar.";
 
-const WEBHOOK_TOOL_DESCRIPTIONS = {
+const PINNED_TOOL_DESCRIPTIONS = {
   check_availability:
     ANNOUNCE + "Check if a piece of gear is free for given dates and its price." + NO_RECHECK,
   check_stock: ANNOUNCE + "Check whether the shop stocks a piece of gear." + NO_RECHECK,
@@ -334,14 +343,57 @@ const WEBHOOK_TOOL_DESCRIPTIONS = {
     "the count when it can, but if it can't find that word at all you will be told so honestly " +
     "rather than handed an unrelated 'yes'. find_gear checks the caller's actual words against " +
     "every listing and will not make that mistake.",
+
+  /**
+   * A real call: "show me the other lighting options" reached this tool
+   * instead of recommend_gear, because this tool's own description said its
+   * destination "can be... a category (cameras, lenses, lighting...)" — the
+   * exact same words recommend_gear's description uses to describe what IT
+   * does. Two tools claiming the same job, and the model picked the one that
+   * does less: this is a bare page swap, nothing highlighted, nothing
+   * scrolled into view, no availability read. The caller was left looking at
+   * an unfiltered grid with no indication which of forty-odd lights Gaffer
+   * meant. (The call also ended right here, separately — see GafferSession's
+   * reconnect handling — but even a call that had lived would have shown
+   * nothing worth looking at.)
+   */
+  navigate_to:
+    "Open a NAMED PAGE on the customer's screen — the basket, checkout, membership, account, " +
+    "contact, how it works, guides, or the bare catalogue with no filter. Never pass a category " +
+    "or an item here. The moment the ask is a category ('lighting', 'cameras') or something to " +
+    "find ('a wide lens', 'what Sony do you have'), that is recommend_gear or browse_for, not " +
+    "this — they filter to what was actually asked for, highlight the shortlist, scroll it into " +
+    "view, and report real prices and availability. This tool does none of that: passing a " +
+    "category here leaves the customer looking at an unfiltered grid with nothing marked out, " +
+    "having heard you say you'd show them something specific.",
+
+  /**
+   * A real call: the caller named three items and said "once you've added
+   * all of that" — about as explicit as consent gets — and none of the
+   * three were ever added. The call ended before Gaffer got back to them,
+   * but "ask before adding" is also just the wrong instinct for gear that
+   * was named with the word "add" already in the sentence: asking again
+   * reads as not having listened. Also pushes toward adding as each item
+   * clears, not batching every check before any commitment — so a call that
+   * ends unexpectedly still leaves whatever was already confirmed sitting
+   * in the basket rather than lost with nothing to show for it.
+   */
+  add_to_basket:
+    "Add an item to the customer's basket and open it. If they've already told you to add it, " +
+    "get it, or book it — that already IS the ask; call this directly, don't check back first. " +
+    "Only ask before adding when you are the one suggesting the item, not them. If you know the " +
+    "hire dates pass them; otherwise it is pencilled in for tomorrow and the customer can change " +
+    "it. When someone names several items to add in one breath, add each the moment it checks " +
+    "out available rather than checking all of them and adding at the end — if anything " +
+    "interrupts the call, whatever already cleared should already be in the basket.",
 };
 
-async function pinWebhookToolDescriptions(toolIds) {
+async function pinToolDescriptions(toolIds) {
   let changed = 0;
   for (const id of toolIds) {
     const tool = await (await el(`/tools/${id}`)).json();
     const cfg = tool.tool_config || {};
-    const wanted = WEBHOOK_TOOL_DESCRIPTIONS[cfg.name];
+    const wanted = PINNED_TOOL_DESCRIPTIONS[cfg.name];
     if (!wanted || cfg.description === wanted) continue;
     const r = await el(`/tools/${id}`, {
       method: "PATCH",
@@ -475,7 +527,7 @@ async function main() {
   const prompt = { ...agent.conversation_config.agent.prompt };
   delete prompt.tools; // tool_ids is authoritative; sending both is rejected
 
-  if (want("tools")) await pinWebhookToolDescriptions(prompt.tool_ids || []);
+  if (want("tools")) await pinToolDescriptions(prompt.tool_ids || []);
 
   if (want("kb")) {
     prompt.knowledge_base = kbIds;
