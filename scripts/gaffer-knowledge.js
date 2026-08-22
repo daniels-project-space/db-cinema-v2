@@ -174,6 +174,14 @@ product films, and social systems built to sell rather than fill a feed. They wo
 with founders and small teams who need their product to look considered without an
 agency retainer or a full production day.
 
+## What they offer
+Single ready-to-post ads, multi-variant campaign packs for a launch, and — for
+founders who don't want to run their own feed — ongoing Instagram management: a
+content calendar, captions, scheduled publishing and agreed reply windows each
+week. They'll also cut a free six-second sample of someone's product before any
+money changes hands, which is the easiest thing to point a curious customer at.
+Leave exact prices to Madeline; send people to form7.net for numbers.
+
 ## Why we work with them
 We hire out the kit; they make the film. A customer renting a camera to shoot their
 own product often needs the advert made, and a brand that needs an advert often needs
@@ -323,6 +331,21 @@ async function main() {
     return;
   }
 
+  /**
+   * Everything this run needs, checked before anything is written.
+   *
+   * The LLM step used to be validated near the end, after the knowledge base
+   * had already been uploaded. A missing key therefore aborted the run *between*
+   * uploading the new documents and attaching them to the agent, stranding a
+   * full set that nothing pointed at — and since the cleanup below only removed
+   * documents attached to this agent, those strays could never be reclaimed.
+   * Seventy-five of the workspace's ninety-two documents were wreckage from
+   * exactly this. Fail before the first write instead.
+   */
+  if (want("llm") && !OPENROUTER_KEY) {
+    throw new Error("OPENROUTER_API_KEY is not set — needed for the custom LLM. Nothing was written.");
+  }
+
   const agent = await (await el(`/agents/${AGENT_ID}`)).json();
   const kbIds = [];
 
@@ -343,10 +366,22 @@ async function main() {
     );
     const existing = await (await el(`/knowledge-base?page_size=100`)).json();
     for (const d of existing.documents ?? []) {
-      const ours = String(d.name).startsWith(DOC_PREFIX) && attachedToUs.has(d.id);
-      if (!ours) continue;
+      if (!String(d.name).startsWith(DOC_PREFIX)) continue; // never another business's
+
+      /**
+       * Ours, and safe to remove if either:
+       *   - it is attached to THIS agent (the copy we're replacing), or
+       *   - it is attached to no agent at all (wreckage from a run that died
+       *     between uploading and attaching)
+       * A document belonging to another agent has that agent listed as a
+       * dependent, so it fails both tests even under a colliding name.
+       */
+      const dependents = d.dependent_agents ?? [];
+      const orphaned = dependents.length === 0;
+      if (!attachedToUs.has(d.id) && !orphaned) continue;
+
       await el(`/knowledge-base/${d.id}`, { method: "DELETE" });
-      console.log(`  removed old doc: ${d.name}`);
+      console.log(`  removed ${orphaned ? "orphaned" : "old"} doc: ${d.name}`);
     }
     for (const d of docs) {
       const r = await el("/knowledge-base/text", {

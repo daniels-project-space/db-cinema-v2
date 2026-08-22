@@ -670,35 +670,6 @@ html[data-gaffer-nav="1"] .tile-in {
    Same button, same corner — it just stops being amber and starts insisting.
    A second floating control only for calls meant two round buttons stacked in
    one corner, so this carries the call state instead. */
-/* ── Jukebox toggle ──────────────────────────────────────────────
-   Bottom-left, opposite the chat launcher so the two never collide, and quiet
-   enough to ignore — but always findable, because background audio you can't
-   switch off is worse than none. */
-.jukebox-toggle {
-  position: fixed;
-  bottom: 1.25rem;
-  left: 1.25rem;
-  z-index: 45;
-  display: flex;
-  height: 2.25rem;
-  width: 2.25rem;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(13, 13, 18, 0.72);
-  color: rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(6px);
-  transition: color .3s ease, border-color .3s ease, background .3s ease;
-}
-.jukebox-toggle:hover {
-  color: rgba(255, 255, 255, 0.85);
-  border-color: color-mix(in srgb, var(--color-accent-400) 40%, transparent);
-  background: rgba(13, 13, 18, 0.9);
-}
-@keyframes jukebox-wave { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
-.jukebox-wave { animation: jukebox-wave 2.4s ease-in-out infinite; transform-origin: center; }
-@media (prefers-reduced-motion: reduce) { .jukebox-wave { animation: none; } }
 
 /* ── Microphone explainer ────────────────────────────────────────
    Fades in over the page, and slides up on a phone where it sits at the

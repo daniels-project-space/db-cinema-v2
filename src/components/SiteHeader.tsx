@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useCart } from "@/components/cart/CartProvider";
-import { playCoinClash, playCoinHover } from "@/lib/siteAudio";
 import { useAccount } from "@/components/account/AccountProvider";
 import { IconArrowRight, IconCart, IconMenu, IconUser, IconX } from "@/components/icons";
 import { SignatureProductionsOverlay } from "@/components/SignatureProductionsOverlay";
@@ -122,10 +121,10 @@ export function SiteHeader() {
             <button
               className="f7-lockup"
               data-open={hover === "f7"}
-              onClick={() => { playCoinClash(); setSignatureOpen(true); }}
-              onMouseEnter={() => { setHover("f7"); playCoinHover(); }}
+              onClick={() => setSignatureOpen(true)}
+              onMouseEnter={() => setHover("f7")}
               onMouseLeave={() => setHover(null)}
-              onFocus={() => { setHover("f7"); playCoinHover(); }}
+              onFocus={() => setHover("f7")}
               onBlur={() => setHover(null)}
               aria-label="FORM / SEVEN — ad agency collaboration, open partner overlay"
             >

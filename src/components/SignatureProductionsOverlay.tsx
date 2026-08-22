@@ -12,10 +12,20 @@ import { FormSevenCarousel } from "@/components/FormSevenCarousel";
 const FORM_SEVEN_URL = "https://form7.net";
 const FORM_SEVEN_SAMPLE_URL = `${FORM_SEVEN_URL.replace(/\/$/, "")}/?samplePlan=Free%20six-second%20sample`;
 
+/**
+ * Three of them, because the grid is a hand-tuned three across with per-card
+ * radii — a fourth orphans onto its own row.
+ *
+ * Each now carries something checkable: the real entry price, the free sample,
+ * and the monthly social option. The previous set led with "Ads from £20" when
+ * the cheapest ad is £29, then followed it with two lines — "one idea,
+ * composed for every format" and "distinctive worlds from a simple brief" —
+ * that any agency could say about anything.
+ */
 const FORM_SEVEN_POINTS = [
-  ["Ads from £20", "Art-directed films, without the agency wait."],
-  ["21:9 to social", "One idea, composed for every format."],
-  ["Made for your brand", "Distinctive worlds from a simple brief."],
+  ["Ads from £29", "One ready-to-post film, cut for every aspect ratio you need."],
+  ["Free sample first", "A six-second cut of your product before you spend a penny."],
+  ["Social managed too", "Optional £500/month — calendar, captions, publishing, replies."],
 ] as const;
 
 type Phase = "closed" | "opening" | "open" | "closing";
