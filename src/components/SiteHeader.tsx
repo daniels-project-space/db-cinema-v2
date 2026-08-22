@@ -142,7 +142,7 @@ export function SiteHeader() {
               href="/"
               onMouseEnter={() => setHover("db")}
               onMouseLeave={() => setHover(null)}
-              className="group inline-flex min-h-[44px] items-center gap-1.5 font-display text-xl font-bold tracking-tight"
+              className="group inline-flex min-h-[44px] items-center gap-1.5 font-display text-xl font-bold tracking-tight sm:text-2xl"
             >
               <span className="text-white">DB</span>
               <span className="gradient-text">CINEMA</span>
