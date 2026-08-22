@@ -18,7 +18,7 @@
  * Usage:
  *   node scripts/gaffer-knowledge.js --dry-run
  *   node scripts/gaffer-knowledge.js --apply            (everything)
- *   node scripts/gaffer-knowledge.js --apply --only=kb  (kb|asr|settings)
+ *   node scripts/gaffer-knowledge.js --apply --only=kb  (kb|asr|settings|tools|llm)
  */
 
 const fs = require("fs");
@@ -292,6 +292,62 @@ const EVALUATION = [
   },
 ];
 
+/**
+ * What the model reads about each webhook tool, every turn.
+ *
+ * ANNOUNCE is on all four lookups because none of them is instant from the
+ * caller's side: the endpoint answers in well under a second, but the model
+ * round-trip around it doesn't, and a phone call has no spinner.
+ *
+ * The rest is about not paying that cost twice. find_gear and browse_for are
+ * handed the dates and already report what's free, so re-checking the same item
+ * for the same dates buys nothing and doubles the wait. browse_range is the odd
+ * one out — it takes a search term, not an item, and never looks at dates at
+ * all — so its rule isn't "don't repeat a check", it's "don't mistake this for
+ * one". Presenting a catalogue listing as an availability answer is how a
+ * caller gets told something is free when nobody has looked.
+ */
+const ANNOUNCE =
+  'ALWAYS say one short line out loud before calling this ("let me check those dates") — ' +
+  "the caller hears nothing while it runs. ";
+const NO_RECHECK =
+  " Do not call this for an item and date range that find_gear or browse_for has already " +
+  "reported as free — they check the same calendar.";
+
+const WEBHOOK_TOOL_DESCRIPTIONS = {
+  check_availability:
+    ANNOUNCE + "Check if a piece of gear is free for given dates and its price." + NO_RECHECK,
+  check_stock: ANNOUNCE + "Check whether the shop stocks a piece of gear." + NO_RECHECK,
+  get_price: ANNOUNCE + "Get the daily and total price of a piece of gear.",
+  browse_range:
+    ANNOUNCE +
+    "Browse what the shop carries in a category or brand, with a price range. " +
+    "This answers what EXISTS and what it COSTS — it does not look at dates and cannot tell " +
+    "you whether anything is free. Never present its answer as availability, and never use it " +
+    "in place of an availability check: if the caller has given you dates, follow up with " +
+    "find_gear or check_availability before promising anything. If find_gear or recommend_gear " +
+    "has already put suitable items on screen for those dates, you do not need this at all.",
+};
+
+async function pinWebhookToolDescriptions(toolIds) {
+  let changed = 0;
+  for (const id of toolIds) {
+    const tool = await (await el(`/tools/${id}`)).json();
+    const cfg = tool.tool_config || {};
+    const wanted = WEBHOOK_TOOL_DESCRIPTIONS[cfg.name];
+    if (!wanted || cfg.description === wanted) continue;
+    const r = await el(`/tools/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tool_config: { ...cfg, description: wanted } }),
+    });
+    if (!r.ok) throw new Error(`tool "${cfg.name}" description failed: ${r.status} ${await r.text()}`);
+    console.log(`  pinned description: ${cfg.name}`);
+    changed++;
+  }
+  if (!changed) console.log("  tool descriptions already current");
+}
+
 async function main() {
   if (!KEY) throw new Error("ELEVENLABS_API_KEY is not set");
   const apply = process.argv.includes("--apply");
@@ -331,6 +387,19 @@ async function main() {
     return;
   }
 
+  /**
+   * ---- webhook tool descriptions live here, not only in the dashboard ----
+   *
+   * These six tools were created by a one-shot bootstrap (scripts/el-agent.mjs)
+   * that doesn't define browse_range at all and can't update anything — it only
+   * creates. So the wording the model reads every single turn existed nowhere in
+   * this repository. Pinning it from the sync makes the file the source of truth
+   * and means a dashboard edit can't quietly drift away from it.
+   *
+   * The wording matters more than it looks. A lookup answers in under a second,
+   * but each one costs a full model round-trip, and the caller hears silence
+   * with nothing on screen to say anything is happening.
+   */
   /**
    * Everything this run needs, checked before anything is written.
    *
@@ -398,6 +467,8 @@ async function main() {
 
   const prompt = { ...agent.conversation_config.agent.prompt };
   delete prompt.tools; // tool_ids is authoritative; sending both is rejected
+
+  if (want("tools")) await pinWebhookToolDescriptions(prompt.tool_ids || []);
 
   if (want("kb")) {
     prompt.knowledge_base = kbIds;

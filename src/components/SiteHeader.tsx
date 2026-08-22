@@ -46,7 +46,29 @@ export function SiteHeader() {
    * rest of the bar.
    */
   const [hover, setHover] = useState<null | "db" | "f7">(null);
+  /**
+   * The lockup introduces itself once, on arrival.
+   *
+   * Nothing on the bar suggests the coin opens into anything, so the words play
+   * themselves in a second after landing, hold long enough to be read, and
+   * withdraw behind the 7. It drives the same `data-open` attribute the hover
+   * does, so it is literally the same animation rather than a second one kept
+   * in sync by hand — and hovering during or after it behaves exactly as before.
+   */
+  const [intro, setIntro] = useState(false);
   const { spinning, shining } = useSpinAndShine();
+
+  useEffect(() => {
+    // An unprompted animation is the first thing this preference is asking us
+    // not to do. The hover reveal stays available either way.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const show = setTimeout(() => setIntro(true), 1000);
+    const hide = setTimeout(() => setIntro(false), 3000); // 1s in, 2s held
+    return () => {
+      clearTimeout(show);
+      clearTimeout(hide);
+    };
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -120,7 +142,7 @@ export function SiteHeader() {
                 words are clickable rather than only the coin. */}
             <button
               className="f7-lockup"
-              data-open={hover === "f7"}
+              data-open={hover === "f7" || intro}
               onClick={() => setSignatureOpen(true)}
               onMouseEnter={() => setHover("f7")}
               onMouseLeave={() => setHover(null)}
