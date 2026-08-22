@@ -38,7 +38,15 @@ export function SiteHeader() {
   const [mobile, setMobile] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [signatureOpen, setSignatureOpen] = useState(false);
-  const [f7Hover, setF7Hover] = useState(false);
+  /**
+   * Which half of the lockup is under the cursor.
+   *
+   * Was a single f7Hover boolean set on the whole group, which is why hovering
+   * the Db Cinema wordmark also triggered the FORM 7 takeover and blanked the
+   * nav. The two sides now announce different things and neither hides the
+   * rest of the bar.
+   */
+  const [hover, setHover] = useState<null | "db" | "f7">(null);
   const { spinning, shining } = useSpinAndShine();
 
   useEffect(() => {
@@ -80,20 +88,22 @@ export function SiteHeader() {
             : "border-b border-transparent bg-transparent"
         }`}
       >
-        {/* Narrower side padding pulls the lockup left and the nav right,
-            closing the dead space that had the links drifting toward the
-            middle. The nav sits flush to the edge — no trailing gap. */}
-        <div className="relative mx-auto flex max-w-7xl items-center justify-between py-3 pl-3 pr-2 sm:pl-4 sm:pr-3">
+        {/* Past 1536px the bar goes full width and is held off the edges by
+            padding alone.
+            Capped at the content's own max-w-7xl it stopped dead at 1280px, so
+            on a wide monitor the nav sat stranded with ~540px of empty screen
+            beside it — not tucked into the corner, not deliberately centred,
+            just adrift. Anchoring to the viewport reads as intentional at any
+            width; the hover headline fills the middle it opens up. */}
+        <div className="relative mx-auto flex max-w-7xl items-center justify-between py-3 pl-3 pr-2 sm:pl-4 sm:pr-3 2xl:max-w-none 2xl:pl-10 2xl:pr-9">
           {/* logo + FORM / SEVEN coin — logo always stays put; hovering the coin fades
               the nav out for a centered takeover headline. Clicking the coin opens
               the partner overlay. */}
-          <div
-            className="flex items-center gap-3"
-            onMouseEnter={() => setF7Hover(true)}
-            onMouseLeave={() => setF7Hover(false)}
-          >
+          <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
             <Link
               href="/"
+              onMouseEnter={() => setHover("db")}
+              onMouseLeave={() => setHover(null)}
               className="group inline-flex min-h-[44px] items-center gap-1.5 font-display text-xl font-bold tracking-tight"
             >
               <span className="text-white">DB</span>
@@ -105,36 +115,54 @@ export function SiteHeader() {
             <span aria-hidden className="select-none text-lg font-light text-white/25">
               ×
             </span>
+            {/* The coin doesn't sit alone any more: hovering slides it right to
+                make room for FORM in front of it, then the collaboration line
+                arrives just behind. The whole lockup is the target, so the
+                words are clickable rather than only the coin. */}
             <button
+              className="f7-lockup"
+              data-open={hover === "f7"}
               onClick={() => { playCoinClash(); setSignatureOpen(true); }}
-              onMouseEnter={playCoinHover}
-              onFocus={playCoinHover}
-              aria-label="FORM / SEVEN — AI-native ad agency, open partner overlay"
+              onMouseEnter={() => { setHover("f7"); playCoinHover(); }}
+              onMouseLeave={() => setHover(null)}
+              onFocus={() => { setHover("f7"); playCoinHover(); }}
+              onBlur={() => setHover(null)}
+              aria-label="FORM / SEVEN — ad agency collaboration, open partner overlay"
             >
+              <span className="f7-reveal f7-reveal--lead" aria-hidden>
+                <span>FORM</span>
+              </span>
               <FormSevenCoin spinning={spinning} shining={shining} />
+              <span className="f7-reveal f7-reveal--tail" aria-hidden>
+                <span>ad agency collaboration</span>
+              </span>
             </button>
           </div>
 
-          {/* centered takeover headline — shown only while hovering the coin */}
-          <div
-            className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${
-              f7Hover ? "opacity-100" : "opacity-0"
-            }`}
-            aria-hidden={!f7Hover}
-          >
-            <span className="serif-accent whitespace-nowrap text-3xl not-italic text-white sm:text-4xl">
-              FORM 7 <span className="text-accent-300">ad agency</span>
+          {/* What each half of the lockup gets you, said in the middle of the
+              bar. Only ever one at a time, and it no longer takes the bar over
+              — the nav stays put and stays usable. */}
+          <div className="pointer-events-none absolute inset-0 hidden items-center justify-center lg:flex" aria-hidden>
+            <span
+              className={`absolute serif-accent whitespace-nowrap text-2xl not-italic text-white transition-opacity duration-300 ${
+                hover === "db" ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              Book <span className="text-accent-300">gear</span>
+            </span>
+            <span
+              className={`absolute serif-accent whitespace-nowrap text-2xl not-italic text-white transition-opacity duration-300 ${
+                hover === "f7" ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              Create <span className="text-accent-300">an ad</span>
             </span>
           </div>
 
-          <nav
-            className={`flex items-center gap-3 text-sm transition-opacity duration-300 ${
-              f7Hover ? "pointer-events-none opacity-0" : "opacity-100"
-            }`}
-          >
+          <nav className="flex items-center gap-2 text-sm sm:gap-2.5">
             {/* sits hard against the account slot rather than drifting toward
                 the middle of the bar */}
-            <div className="hidden items-center gap-5 md:flex">
+            <div className="mr-1 hidden items-center gap-4 md:flex lg:gap-5">
               {DESKTOP_NAV.map((n) => {
                 const active = pathname === n.href || pathname.startsWith(n.href + "/");
                 return (
@@ -154,10 +182,13 @@ export function SiteHeader() {
 
             {/* fixed-size slot: never reflows the header when auth resolves
                 (logged-out button / skeleton / avatar pill all occupy the same box) */}
-            {/* reserved width so the header never reflows when auth resolves —
-                trimmed again to what the widest state actually needs, because
-                the spare space was pushing the nav links inward */}
-            <div className="hidden h-9 min-w-[104px] items-center justify-end md:flex">
+            {/* Sizes to its contents now. The old fixed 104px reserve existed
+                to stop the bar reflowing when auth resolved, but a signed-out
+                visitor only has a 36px icon in there — the other ~70px was
+                dead air wedged between the nav links and Kit, holding them
+                apart. The skeleton below carries the reserve instead, so the
+                anti-reflow guarantee survives where it actually applies. */}
+            <div className="hidden h-9 items-center justify-end md:flex">
               {me ? (
                 <div className="relative">
                   <button
