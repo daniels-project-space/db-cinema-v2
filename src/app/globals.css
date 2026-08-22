@@ -2667,8 +2667,11 @@ html[data-gaffer-nav="1"] .tile-in {
 .fs-visit-button { border: 1px solid rgba(129,255,185,0.42); background: rgba(73, 213, 137, 0.11); color: #d2ffe1; }
 .fs-sample-button { justify-content: flex-start; border: 1px solid rgba(103,183,255,0.45); background: rgba(38, 126, 232, 0.13); color: #e5f4ff; text-align: left; }
 .fs-visit-button:hover, .fs-sample-button:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(0,0,0,0.2); }
-.fs-visit-button:hover { background: rgba(73, 213, 137, 0.2); }
-.fs-sample-button:hover { background: rgba(38, 126, 232, 0.23); }
+/* background-color, never the `background` shorthand: these two cards get a
+   photographic background-image further down, and the shorthand resets
+   background-image to none — so hovering Explore made its artwork vanish. */
+.fs-visit-button:hover { background-color: rgba(73, 213, 137, 0.2); }
+.fs-sample-button:hover { background-color: rgba(38, 126, 232, 0.23); }
 .fs-sample-button > span:nth-child(2) { display: grid; gap: 0.1rem; min-width: 0; }
 .fs-sample-button b { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .fs-sample-compact { display: none; }
@@ -2927,6 +2930,15 @@ html[data-gaffer-nav="1"] .tile-in {
     url("/brand/form-seven-explore-ugc.png") center / cover;
   box-shadow: inset 0 1px rgba(239, 255, 244, 0.2), 0 10px 28px rgba(20, 189, 94, 0.17);
 }
+/* Hover brightens the whole card rather than restating its background.
+   Two earlier attempts to tint it lost outright: `background` is declared for
+   this element in several places across different cascade contexts, so a
+   hover rule here either got beaten or — using the shorthand — wiped the
+   photograph out entirely, which is the bug being fixed. `filter` is declared
+   nowhere else on this element, so it cannot collide, and it lifts the
+   artwork itself instead of painting a panel over it. */
+.fs-visit-button { transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease, filter .22s ease; }
+.fs-visit-button:hover { filter: brightness(1.16) saturate(1.06); }
 .fs-visit-button::before { content: ""; position: absolute; left: 7%; right: 7%; top: 50%; height: 1px; background: linear-gradient(90deg, transparent, rgba(99, 250, 158, 0.72), rgba(226, 255, 234, 0.95), rgba(99, 250, 158, 0.72), transparent); box-shadow: 0 0 14px rgba(62, 238, 133, 0.74); animation: fs-synth-signal 3.8s ease-in-out infinite; }
 .fs-visit-button::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 26%, rgba(209, 255, 226, 0.1) 50%, transparent 74%); transform: translateX(-105%); animation: fs-card-sweep 7s ease-in-out infinite; }
 .fs-explore-copy { position: relative; z-index: 1; display: grid; gap: 0.1rem; justify-items: center; text-align: center; text-shadow: 0 1px 12px rgba(0, 0, 0, 0.88); }

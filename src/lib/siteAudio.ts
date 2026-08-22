@@ -36,6 +36,17 @@ export function setMuted(muted: boolean) {
     master.gain.cancelScheduledValues(ctx.currentTime);
     master.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.25);
   }
+  /**
+   * Muting tears the jukebox down rather than just turning it down.
+   *
+   * Ducking the master gain left every oscillator and the repeating chord
+   * timer running forever behind a silent fader, so "off" was never actually
+   * off. Worse: the coin plays 800ms before the music starts, so muting
+   * inside that window hit a stopAmbience() that had nothing to stop yet,
+   * and the pending timer then started the music *after* it had been
+   * switched off. Doing it here makes mute authoritative whoever calls it.
+   */
+  if (muted) stopAmbience();
 }
 
 /** Lazily create the context. Returns null before any user gesture. */
@@ -216,10 +227,28 @@ export function playCoinInsert(): number {
  * for the pitch instability of a belt-driven mechanism.
  */
 let ambience: { stop: () => void } | null = null;
+/** A start that hasn't happened yet still has to be cancellable. */
+let pendingStart: number | null = null;
+
+/**
+ * Start after the coin has finished dropping.
+ *
+ * Owned here rather than by the caller so that stopAmbience() can cancel a
+ * start that is still in flight — a bare setTimeout in the component could
+ * not be reached once mute had been pressed.
+ */
+export function startAmbienceAfter(seconds: number) {
+  if (pendingStart !== null) window.clearTimeout(pendingStart);
+  pendingStart = window.setTimeout(() => {
+    pendingStart = null;
+    if (isMuted()) return; // they changed their mind while the coin was falling
+    startAmbience();
+  }, Math.max(0, seconds * 1000));
+}
 
 export function startAmbience() {
   const a = audio();
-  if (!a || ambience) return;
+  if (!a || ambience || isMuted()) return;
   const { ctx: c, master: out } = a;
 
   // ── the radio itself ──
@@ -282,6 +311,14 @@ export function startAmbience() {
       osc.start(t);
       osc.stop(t + 8.2);
       voices.push(osc);
+      // Without this the array grows by four every 7.6s and never shrinks —
+      // an hour of ambience is ~1,900 dead nodes held alive by the closure.
+      osc.onended = () => {
+        const at = voices.indexOf(osc);
+        if (at !== -1) voices.splice(at, 1);
+        osc.disconnect();
+        gain.disconnect();
+      };
     });
   };
 
@@ -293,14 +330,26 @@ export function startAmbience() {
       stopped = true;
       window.clearInterval(timer);
       try { hiss.stop(); } catch { /* already stopped */ }
-      voices.forEach((v) => { try { v.stop(); } catch { /* already stopped */ } });
-      bed.gain.setTargetAtTime(0, c.currentTime, 0.4);
+      // copy first: onended splices entries out of `voices` as each one dies
+      [...voices].forEach((v) => { try { v.stop(); } catch { /* already stopped */ } });
+      voices.length = 0;
+      bed.gain.cancelScheduledValues(c.currentTime);
+      bed.gain.setTargetAtTime(0, c.currentTime, 0.25);
+      // setTargetAtTime only approaches zero, so cut the graph once it's
+      // inaudible — otherwise a muted jukebox keeps trickling into the mix.
+      window.setTimeout(() => {
+        try { bed.disconnect(); hissGain.disconnect(); } catch { /* gone */ }
+      }, 900);
       ambience = null;
     },
   };
 }
 
 export function stopAmbience() {
+  if (pendingStart !== null) {
+    window.clearTimeout(pendingStart);
+    pendingStart = null;
+  }
   ambience?.stop();
 }
 

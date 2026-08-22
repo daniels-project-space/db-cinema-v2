@@ -114,7 +114,6 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         // (scaleX 1.0325 scaleY 1.0125), so no CSS transform — alignment is in
         // the pixels and immune to window size / sub-pixel rendering.
         style={{ opacity: reduce || phase === "c1" ? 1 : 0 }}
-        src="/intro.mp4"
         poster="/intro-poster.jpg"
         autoPlay
         muted
@@ -122,24 +121,32 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         preload="auto"
         tabIndex={-1}
         aria-hidden
-      />
+      >
+        {/* 1080p at ~3.4Mbps is five times more pixels than a phone can show
+            and was taking most of a mobile connection before the first frame.
+            Desktop source stays first so a browser that ignores `media` on
+            <source> falls back to exactly the previous behaviour. */}
+        <source src="/intro.mp4" type="video/mp4" media="(min-width: 769px)" />
+        <source src="/intro-mobile.mp4" type="video/mp4" />
+      </video>
       <video
         ref={c2Ref}
         className="absolute inset-0 h-full w-full scale-[1.2] object-contain object-center lg:scale-100 lg:object-cover"
         style={{ opacity: !reduce && phase === "c2" ? 1 : 0 }}
-        src="/intro2.mp4"
         poster="/intro2-poster.jpg"
         muted
         playsInline
         preload="none"
         tabIndex={-1}
         aria-hidden
-      />
+      >
+        <source src="/intro2.mp4" type="video/mp4" media="(min-width: 769px)" />
+        <source src="/intro2-mobile.mp4" type="video/mp4" />
+      </video>
       <video
         ref={loopRef}
         className="absolute inset-0 h-full w-full scale-[1.2] object-contain object-center lg:scale-100 lg:object-cover"
         style={{ opacity: !reduce && phase === "loop" ? 1 : 0 }}
-        src="/loop.mp4"
         poster="/loop-poster.jpg"
         muted
         loop
@@ -147,7 +154,10 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
         preload="none"
         tabIndex={-1}
         aria-hidden
-      />
+      >
+        <source src="/loop.mp4" type="video/mp4" media="(min-width: 769px)" />
+        <source src="/loop-mobile.mp4" type="video/mp4" />
+      </video>
 
       {/* legibility scrim — strongest once the CTA is up */}
       <div

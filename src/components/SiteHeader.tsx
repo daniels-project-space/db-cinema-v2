@@ -307,7 +307,11 @@ export function SiteHeader() {
 
       {/* mobile menu — full-screen sheet with staggered links */}
       <div
-        className={`fixed inset-0 z-50 flex flex-col bg-[#060608]/[0.985] px-6 pb-10 pt-4 transition-opacity duration-300 md:hidden ${
+        /* No md:hidden here. The button that opens this is visible at every
+           width, so hiding the sheet above md meant a desktop click set the
+           state and then rendered display:none — the menu appeared to do
+           nothing at all. */
+        className={`fixed inset-0 z-50 flex flex-col bg-[#060608]/[0.985] px-6 pb-10 pt-4 transition-opacity duration-300 ${
           mobile ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
         role="dialog"

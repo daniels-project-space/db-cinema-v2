@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ambienceRunning, isMuted, playCoinInsert, setMuted, startAmbience, stopAmbience } from "@/lib/siteAudio";
+import { ambienceRunning, isMuted, playCoinInsert, setMuted, startAmbienceAfter, stopAmbience } from "@/lib/siteAudio";
 
 /**
  * The diner ambience, and the only control for it.
@@ -30,7 +30,7 @@ export function JukeboxAmbience() {
     const arm = () => {
       if (ambienceRunning()) return;
       const delay = playCoinInsert(); // the coin goes in first
-      window.setTimeout(() => startAmbience(), delay * 1000);
+      startAmbienceAfter(delay);
       setArmed(true);
     };
     const opts = { once: true, passive: true } as AddEventListenerOptions;
@@ -52,7 +52,7 @@ export function JukeboxAmbience() {
     }
     // turning it back on: coin first, same as the first time
     const delay = playCoinInsert();
-    window.setTimeout(() => startAmbience(), delay * 1000);
+    startAmbienceAfter(delay);
     setArmed(true);
   };
 
