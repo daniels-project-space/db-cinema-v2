@@ -38,6 +38,17 @@ export function GearCard({ listing }: { listing: GearListing }) {
   const { focusedId, suggestedIds } = useGafferFocus();
   const picked = focusedId === listing._id;
   const suggested = !picked && suggestedIds.includes(listing._id);
+  /**
+   * Everything else dims while Gaffer is confirming a single pick.
+   *
+   * Scoped to `focusedId` only, not `suggestedIds` — a shortlist ("here's
+   * what we've got") wants every option readable at once, but naming one
+   * specific item to add is a single-item confirm moment, and the basket
+   * drawer that follows a beat later used to cover the grid before the
+   * highlight had time to register as "this one, about to be added" rather
+   * than just another hover state.
+   */
+  const dimmed = focusedId !== null && !picked;
 
   function registerInterest(e: React.MouseEvent) {
     e.preventDefault();
@@ -62,6 +73,7 @@ export function GearCard({ listing }: { listing: GearListing }) {
       data-listing-id={listing._id}
       data-gaffer-focus={picked ? "true" : undefined}
       data-gaffer-suggested={suggested ? "true" : undefined}
+      data-gaffer-dimmed={dimmed ? "true" : undefined}
       className="gear-card group lift spot gradient-border relative flex h-full flex-col overflow-hidden rounded-2xl"
     >
       <button

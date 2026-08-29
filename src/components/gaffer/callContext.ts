@@ -51,11 +51,19 @@ const title = (slug: string) =>
 const SELL_CLOSE =
   "Get their dates first — everything else depends on them. Use browse_for or find_gear to put real " +
   "options on screen and check what's actually free for those dates; never promise something you " +
-  "haven't checked. When they pick one, add_to_basket highlights it on screen and drops it in. " +
+  "haven't checked. When they pick one, add_to_basket highlights it on screen and drops it in — do " +
+  "this as soon as each item is confirmed, not batched at the end; a call that gets interrupted should " +
+  "still leave whatever was already agreed sitting in the basket. " +
   "If it's booked out you'll be handed alternatives — offer those rather than dead-ending. " +
-  "Quote the daily rate and the refundable holding deposit. To close: review_basket first, so they " +
-  "see the full breakdown, and only once they confirm again, go_to_checkout. Two confirmations, " +
-  "never one.";
+  "Quote the daily rate and the refundable holding deposit. " +
+  "Once something real is in the basket, call suggest_addons — it only ever returns a genuine, " +
+  "currently-discounted match for what's actually in there (an ND filter for a lens, a tripod or " +
+  "gimbal for a camera), never an invented one. Mention it once, naturally, right after the main add " +
+  "or when they say that's everything — don't push if they say no, and don't call it on an empty " +
+  "basket or a basket that already has that type of thing. " +
+  "To close: review_basket first, so they see the full breakdown — availability and compatibility are " +
+  "both checked at that moment, and only there, so adding stays quick — and only once they confirm " +
+  "again, go_to_checkout. Two confirmations, never one.";
 
 /**
  * Pass a model number through as heard. Don't "correct" it.
@@ -107,11 +115,14 @@ const FOLLOW_UP =
  * to learn what it had just been told.
  */
 const SPOKEN_PACE =
-  "Checking something takes a few seconds, and the caller hears silence the whole time with nothing " +
-  "on screen to say you're working. So say what you're doing before you do it — one short line, " +
-  "'let me check those dates for you', then make the call. If they've asked about several items at " +
-  "once, say it once up front ('give me a moment, I'll check all three') rather than before each " +
-  "one, then tell them everything you found together. Never go quiet mid-lookup. " +
+  "ANY tool call is a few seconds of silence the caller can't see into — a lookup, pulling up a page, " +
+  "filtering the catalogue, adding to the basket, all of it. So the rule is general, not just for " +
+  "checking availability: before you call a tool, say one short line about what you're about to do — " +
+  "'let me pull that up for you', 'one sec, I'll check those dates', 'adding that now' — THEN make the " +
+  "call. Never go straight from hearing them to a silent tool call; that's the 10-15 second dead air " +
+  "that made a caller think the line had dropped. If they've asked for several things at once, say it " +
+  "once up front ('give me a moment, I'll get all three sorted') rather than before each one, then tell " +
+  "them everything you found or did together. Never go quiet mid-sequence. " +
   "And don't ask the same question twice: find_gear and browse_for already tell you what's free for " +
   "the dates you gave them, so never follow one with check_availability for the same item and dates.";
 

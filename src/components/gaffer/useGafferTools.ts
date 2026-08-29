@@ -9,7 +9,7 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { quote, depositFor } from "@/lib/pricing";
 import { resolveDate, inclusiveDays, londonToday } from "@/lib/voiceDates";
 import { dayMs } from "@/lib/dates";
-import { useGafferFocus } from "@/components/gaffer/GafferFocus";
+import { useGafferFocus, scrollToId } from "@/components/gaffer/GafferFocus";
 
 /**
  * Lets Gaffer act on the page while it talks.
@@ -55,6 +55,17 @@ function instant() {
   window.setTimeout(() => {
     delete document.documentElement.dataset.gafferNav;
   }, 1200);
+}
+
+/**
+ * The compat engine reports three levels; "info" is for the page, not a
+ * phone call — a fixed-lens note or a redundant-lens heads-up reads as
+ * competent on screen but as filler out loud. Only error/warn get said.
+ */
+function speakCompat(warnings: { level: string; text: string }[]): string {
+  const said = warnings.filter((w) => w.level === "error" || w.level === "warn");
+  if (!said.length) return "";
+  return " Compatibility check: " + said.map((w) => w.text).join(" ");
 }
 
 export function useGafferTools() {
@@ -208,6 +219,31 @@ export function useGafferTools() {
     }
   }, [convex, cart]);
 
+  /**
+   * Mount, coverage, filter thread, battery — the same cross-item engine the
+   * cart page itself uses (src/lib/compat.ts, via /api/compat), so Gaffer can
+   * never disagree with what the customer sees on screen. Not reimplemented
+   * here: that engine needs full specs per item (mount, filter thread,
+   * battery type) that the cart only carries a price/title summary of, and
+   * the route already does the spec lookup — hitting it is simpler and
+   * guaranteed consistent, not a shortcut around real logic.
+   */
+  const compatWarnings = useCallback(async () => {
+    if (cart.items.length < 2) return { warnings: [], upgrades: [] };
+    try {
+      const r = await fetch("/api/compat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          items: cart.items.map((i) => ({ listingId: i.listingId, title: i.title, total: i.total, start: i.start, end: i.end })),
+        }),
+      });
+      return await r.json();
+    } catch {
+      return { warnings: [], upgrades: [] };
+    }
+  }, [cart]);
+
   const clientTools = useMemo(
     () => ({
       /** "Show me your lighting" / "take me to the basket". */
@@ -247,7 +283,17 @@ export function useGafferTools() {
         router.push(`/gear?${qs.toString()}`);
 
         const hits = q ? await findMany(q, 4) : [];
-        if (!hits.length) return `Showing ${cat ?? "the catalogue"} on screen.`;
+        if (!hits.length) {
+          /**
+           * A category-only browse ("show me lighting") has no single item to
+           * focus, so nothing ever scrolled — the customer was left looking at
+           * the hero and assembly card while the actual, correctly filtered
+           * results sat a full screen below the fold. Scroll to the toolbar
+           * regardless of whether a specific item was found.
+           */
+          scrollToId("gear-toolbar");
+          return `Showing ${cat ?? "the catalogue"} on screen — scrolled down to it.`;
+        }
 
         const w = resolveWindow(start, end);
         const free: string[] = [];
@@ -410,6 +456,14 @@ export function useGafferTools() {
           total: q.total,
           deposit: hit.deposit ?? 0,
         });
+        /**
+         * The drawer's backdrop is a full-screen black/65 overlay — opening it
+         * right on top of the add covered the highlighted, dimmed-around card
+         * before the confirm had time to register as anything more than a
+         * hover flicker. This beat lets the pick actually land in view first;
+         * the glow (2.6s total) is still visible once the drawer slides over.
+         */
+        await new Promise((r) => setTimeout(r, 450));
         cart.open();
         return (
           `Added ${hit.title}` +
@@ -562,11 +616,12 @@ export function useGafferTools() {
         instant();
         cart.close();
         router.push("/cart");
-        const bad = await basketProblems();
+        const [bad, compat] = await Promise.all([basketProblems(), compatWarnings()]);
         const holding = depositFor("verify", cart.depositTotal);
         const summary =
           `Basket breakdown is on screen: ${cart.items.length} line${cart.items.length > 1 ? "s" : ""}, ` +
-          `£${cart.subtotal} plus a £${holding} refundable holding deposit.`;
+          `£${cart.subtotal} plus a £${holding} refundable holding deposit.` +
+          speakCompat(compat.warnings ?? []);
         return bad.length
           ? `${summary} Heads up — ${bad.map((b) => b.title).join(" and ")} won't be free for those dates. ` +
               `Offer alternatives, or offer to take it off.`
@@ -583,6 +638,73 @@ export function useGafferTools() {
           `${bad.length > 1 ? "aren't" : "isn't"} available for those dates. ` +
           `I can swap for something similar, or take ${bad.length > 1 ? "them" : "it"} off the basket.`
         );
+      },
+
+      /**
+       * "Anything else that goes with this?" — the same contextual add-on
+       * engine the cart page itself uses (convex/offers.ts), so the discount
+       * and the reason are never invented: an ND filter only comes up because
+       * there's a lens or camera in the basket and no filter yet, a tripod
+       * only because there's something to lock off and no tripod yet, and the
+       * percentage off is the one figure checkout will actually honour.
+       */
+      suggest_addons: async () => {
+        if (!cart.count) return "Basket is empty — nothing to suggest add-ons for yet.";
+        let offers: any[] = [];
+        try {
+          offers = await convex.query(api.offers.forCart, {
+            items: cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end), total: i.total })),
+          });
+        } catch {
+          return "Couldn't pull up add-on offers just now.";
+        }
+        if (!offers.length) return "Nothing extra suggested for what's in the basket right now.";
+        const lines = offers
+          .map((o: any) => `${o.title} at ${o.pct}% off — £${o.total} for ${o.days} day${o.days > 1 ? "s" : ""} (${o.reason})`)
+          .join("; ");
+        return `On screen: ${lines}. Offer these naturally, don't read out all of them like a list — add whichever they want.`;
+      },
+
+      /**
+       * Add one of the offers suggest_addons just named. Re-checks the offer
+       * rather than trusting what was said a turn or two ago — the basket may
+       * have changed since — and carries offerType through so checkout
+       * applies the real discount rather than the full price.
+       */
+      add_addon: async ({ type }: { type: string }) => {
+        if (!cart.count) return "Basket is empty — nothing to add an offer to yet.";
+        let offers: any[] = [];
+        try {
+          offers = await convex.query(api.offers.forCart, {
+            items: cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end), total: i.total })),
+          });
+        } catch {
+          return "Couldn't check that offer just now.";
+        }
+        const want = String(type ?? "").toLowerCase().replace(/[^a-z-]/g, "");
+        const hit = offers.find((o: any) => o.offerType.startsWith(want)) ?? offers.find((o: any) => o.title.toLowerCase().includes(want));
+        if (!hit) return `That offer isn't available for what's in the basket right now.`;
+        if (cart.has(hit.listingId)) return `${hit.title} is already in the basket.`;
+
+        const iso = (m: number) => new Date(m).toISOString().slice(0, 10);
+        focus(hit.listingId);
+        await new Promise((r) => setTimeout(r, 1000));
+        cart.add({
+          listingId: hit.listingId,
+          slug: hit.slug,
+          title: hit.title,
+          heroImage: hit.heroImage ?? null,
+          start: iso(hit.start),
+          end: iso(hit.end),
+          days: hit.days,
+          perDay: hit.perDay,
+          total: hit.total,
+          deposit: hit.deposit ?? 0,
+          offerType: hit.offerType,
+        });
+        await new Promise((r) => setTimeout(r, 450));
+        cart.open();
+        return `Added ${hit.title} at ${hit.pct}% off — £${hit.total} for ${hit.days} day${hit.days > 1 ? "s" : ""}. Basket is now ${cart.count + 1} items.`;
       },
 
       /** "Just take the ones that aren't available off." */
@@ -624,12 +746,13 @@ export function useGafferTools() {
           instant();
           cart.close();
           router.push("/cart");
+          const compat = await compatWarnings();
           const holding = depositFor("verify", cart.depositTotal);
           const lines = cart.items
             .map((i) => `${i.title}, ${i.start} to ${i.end}, £${i.total}`)
             .join("; ");
           return (
-            `Full breakdown is on screen and everything in it is available. ${lines}. ` +
+            `Full breakdown is on screen and everything in it is available.${speakCompat(compat.warnings ?? [])} ${lines}. ` +
             `That's £${cart.subtotal} plus a £${holding} refundable holding deposit. ` +
             `Read it back to them, then ask if they're happy to go through to payment — ` +
             `call go_to_checkout again only once they say yes.`

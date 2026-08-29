@@ -109,16 +109,37 @@ function detect(tokens: string[]) {
  * hits so "a7" doesn't score the same as a genuine "a7iii" match, and the
  * brand/category signals are weighted low: they broaden a search, they
  * shouldn't outrank the actual model the caller named.
+ *
+ * "Nanlite 300" ranked "Aputure 300d ii Light" first and the actual Nanlite
+ * forza 300 fifth. Neither the brand bonus nor the mismatch were enough:
+ * Aputure's title has no "nanlite" anywhere, but "300" is a plain substring
+ * of "300d" so it still scored, and the real item's long bundled title
+ * ("+ stand + Gels") ate enough of the extras penalty to fall behind an item
+ * that didn't even carry the brand asked for. A caller who names a brand has
+ * ruled out every other one — a title that doesn't contain it at all should
+ * never be able to outrank one that does purely on a coincidental digit
+ * match, so a mismatch is now penalised as hard as a match is rewarded.
  */
 function score(r: Doc<"listings">, tokens: string[], brand: string | null, category: string | null) {
   const hay = haystack(r);
   const words = new Set(hay.match(/[a-z0-9]+/g) ?? []);
   let s = 0;
   for (const t of tokens) {
-    if (words.has(t)) s += 3;
-    else if (hay.includes(t)) s += 1;
+    // A bare number is the most decisive word in a model query — "300" said
+    // for a Nanlite means the 300-watt one — so it needs to be weighted like
+    // it, not like an ordinary word. But titles here are keyword-stuffed with
+    // *other* products' model numbers as comparison references ("like Aputure
+    // 300d"), and "300" is a plain substring of "300d". Giving that partial
+    // credit was scoring marketing noise as a real match: three listings that
+    // only ever say "300d" outranked the one genuine 300-watt light because
+    // none of them paid the honest bundle's extras penalty. A number only
+    // counts here if it stands on its own — no credit at all for landing
+    // inside a longer one.
+    const numeric = /^\d+$/.test(t);
+    if (words.has(t)) s += numeric ? 8 : 3;
+    else if (!numeric && hay.includes(t)) s += 1;
   }
-  if (brand && hay.includes(brand)) s += 2;
+  if (brand) s += hay.includes(brand) ? 4 : -4;
   if (category && r.category === category) s += 2;
 
   // The caller's words, spacing removed, appearing intact in the title: this is
@@ -208,6 +229,20 @@ export const search = query({
         return modelTokens.some((t) => hay.includes(t) || sq.includes(squash(t)));
       })
       .sort((a, b) => {
+        // Brand match outranks everything below it. "Nanlite 300" put an
+        // Aputure light first and the actual Nanlite forza 300 last — the
+        // score fix above made the real item win on points, but the
+        // bare-before-bundle rule beneath this one is a hard cut, not a
+        // tiebreak, and the Nanlite forza 300 genuinely IS a kit (it comes
+        // with a stand and gels — that's how it's sold, not a sign it's the
+        // wrong thing). A bare item from a brand the caller didn't name has
+        // no business outranking the bundle from the brand they did.
+        if (brand) {
+          const hayA = haystack(a.r), hayB = haystack(b.r);
+          const am = hayA.includes(brand) ? 1 : 0;
+          const bm = hayB.includes(brand) ? 1 : 0;
+          if (am !== bm) return bm - am;
+        }
         // Someone who says "an FX3" means the camera. Unless they asked for a
         // set, bare items come first as a hard rule rather than a tiebreak —
         // scoring alone kept surfacing packages, because a short bundle title

@@ -133,6 +133,19 @@ const NEW_TOOLS = [
     { item: str("The item that isn't available."), ...DATES },
     ["item"],
   ),
+  clientTool(
+    "suggest_addons",
+    "Check for genuine complementary add-ons for what's already in the basket — an ND filter for a lens, a " +
+      "tripod or gimbal for a camera, a wireless mic, extra battery. Real discounts, only offered when they " +
+      "actually apply (never invent a percentage). Use once the basket has something in it, especially before " +
+      "closing — a good moment is right after adding the main item, or when they say that's everything.",
+  ),
+  clientTool(
+    "add_addon",
+    "Add one of the offers suggest_addons just named, at its real discount. Confirm which one before calling this.",
+    { type: str("Which add-on — the type word from the offer, e.g. 'tripod', 'gimbal', 'nd-filter', 'wireless-mic', 'battery', 'monitor', 'mixer'.") },
+    ["type"],
+  ),
 ];
 
 async function main() {

@@ -43,6 +43,31 @@ const FocusCtx = createContext<Ctx>({
 export const FOCUS_MS = 2600;
 
 /**
+ * Scroll an element into view once the page has settled, if it isn't already
+ * comfortably on screen. Shared by scrollToCard below and by a plain category
+ * browse with no single item to point at — that path used to leave the
+ * customer looking at the hero section while the actual results sat a full
+ * screen below the fold, correctly filtered and completely out of sight.
+ */
+function scrollToSelector(selector: string, opts: { block?: ScrollLogicalPosition; edge?: number } = {}) {
+  const { block = "center", edge = 90 } = opts;
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      const el = document.querySelector(selector);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const offScreen = r.top < edge || r.bottom > window.innerHeight - 40;
+      if (offScreen) el.scrollIntoView({ behavior: "smooth", block });
+    }, 120);
+  });
+}
+
+/** Bring an arbitrary element into view by id — the toolbar, a section, whatever Gaffer needs to point at. */
+export function scrollToId(elementId: string) {
+  scrollToSelector(`#${CSS.escape(elementId)}`, { block: "start", edge: 110 });
+}
+
+/**
  * Bring a card into view when Gaffer picks it.
  *
  * The catalogue runs to 400 items, so naming one on a call is useless if it's
@@ -50,15 +75,7 @@ export const FOCUS_MS = 2600;
  * filter change, and gives up quietly if the card isn't on this page.
  */
 function scrollToCard(listingId: string) {
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      const el = document.querySelector(`[data-listing-id="${CSS.escape(listingId)}"]`);
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const offScreen = r.top < 90 || r.bottom > window.innerHeight - 40;
-      if (offScreen) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 120);
-  });
+  scrollToSelector(`[data-listing-id="${CSS.escape(listingId)}"]`);
 }
 
 export function GafferFocusProvider({ children }: { children: ReactNode }) {

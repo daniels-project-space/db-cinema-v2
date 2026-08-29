@@ -96,8 +96,13 @@ function GearPageInner() {
           </>
         )}
 
-        {/* sticky toolbar: search + category tabs */}
-        <div className="-mx-6 mt-8 border-b border-white/[0.06] bg-[#060608]/95 px-6 py-3">
+        {/* sticky toolbar: search + category tabs.
+            id="gear-toolbar" is Gaffer's scroll target for a category browse
+            with no single item to focus — see GafferFocus.scrollToId. Without
+            it, filtering to a category and finding several matches left the
+            customer still looking at the hero/assembly card up top, with the
+            actual results a full screen below the fold. */}
+        <div id="gear-toolbar" className="-mx-6 mt-8 border-b border-white/[0.06] bg-[#060608]/95 px-6 py-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative w-full max-w-md">
               <IconSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
