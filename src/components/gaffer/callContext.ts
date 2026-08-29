@@ -43,6 +43,17 @@ const title = (slug: string) =>
   slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 /**
+ * FOLLOW_UP, MODEL_VERBATIM, SPOKEN_PACE and TOOL_HONESTY used to live here and
+ * get re-sent, verbatim, as part of the contextual update on literally every
+ * single call regardless of page — 2000+ characters of identical text the
+ * model had to process before it could respond to anything, on every connect.
+ * They don't vary by page, so they're not page *context* — they're baked into
+ * the agent's own base prompt.prompt instead (see the "SPEAK BEFORE YOU LOOK",
+ * "HONESTY", "PASS MODEL NUMBERS EXACTLY AS HEARD" and "CAPTURING THE CALL"
+ * sections there) and sent once, not on every call.
+ */
+
+/**
  * How to actually run a sale on the phone. Spelled out because the tools now
  * enforce it — add_to_basket refuses kit that isn't free, and go_to_checkout
  * refuses a basket with a bad line, so an agent that doesn't know the sequence
@@ -65,80 +76,6 @@ const SELL_CLOSE =
   "both checked at that moment, and only there, so adding stays quick — and only once they confirm " +
   "again, go_to_checkout. Two confirmations, never one.";
 
-/**
- * Pass a model number through as heard. Don't "correct" it.
- *
- * A real call: the caller said "a75", meaning the Sony A7 V — its own listing
- * title spells it out as "a7V / a7 V / a7v / Alpha 7 V / a7 5". Gaffer instead
- * called find_gear for "Sony A7R V" — a real but completely different Sony
- * line (the R stands for Resolution; it's the high-megapixel body, not the
- * one asked for) — and the tool dutifully found and offered that instead. The
- * caller had been heard correctly; the model second-guessed itself turning
- * what it heard into a search.
- */
-const MODEL_VERBATIM =
-  "When a caller gives you a shorthand model number — 'a75', 'a73', 'fx3' and the like — pass it to " +
-  "find_gear exactly as they said it, in one word with no spaces and no added letters. Do not expand " +
-  "or 'correct' it into a different real model — Sony's line-up has near-identical names (A7 III vs " +
-  "A7R III vs A7S III; A7 V vs A7R V) and guessing between them gets a genuinely different camera. " +
-  "If what comes back doesn't look right, read the title back to them before adding anything.";
-
-/**
- * What to do when the call can't finish the job — which is most support calls.
- *
- * A voice call leaves no trace for the customer, so anything needing follow-up
- * has to land somewhere they can find it again. Signed-in callers already have
- * a thread Gaffer answers in; everyone else needs either an email or an account.
- */
-const FOLLOW_UP =
-  "The moment you have taken someone's name, number, email or a requirement you can't settle on " +
-  "the call, use log_enquiry — that is what puts it in front of the team. Details you only say " +
-  "back to the caller are lost the second the call ends. Do it before you wrap up, every time. " +
-  "Then: if they're signed in, say you'll reply in their chat and use open_chat so they know " +
-  "where to look. If they're not, ask for their email and use send_follow_up to put it in " +
-  "writing; then offer them an account with offer_account, because a signed-in customer gets a " +
-  "chat you answer directly instead of waiting on email. Ask once, naturally, and don't push it " +
-  "if they say no.";
-
-/**
- * Fill the silence, and stop paying for it twice.
- *
- * The lookups themselves are quick — those endpoints answer in well under a
- * second — but each one costs a full model round-trip, so a three-item request
- * chains seven of them and the caller sits through half a minute of nothing.
- * There's no spinner on a phone call. One short line before the lookups turns
- * dead air into a pause someone will happily wait through.
- *
- * The second half is the bigger win. find_gear and browse_for are already given
- * the dates and already report what's free, and the agent was following them
- * with check_availability for the very same item and dates — doubling the wait
- * to learn what it had just been told.
- */
-const SPOKEN_PACE =
-  "ANY tool call is a few seconds of silence the caller can't see into — a lookup, pulling up a page, " +
-  "filtering the catalogue, adding to the basket, all of it. So the rule is general, not just for " +
-  "checking availability: before you call a tool, say one short line about what you're about to do — " +
-  "'let me pull that up for you', 'one sec, I'll check those dates', 'adding that now' — THEN make the " +
-  "call. Never go straight from hearing them to a silent tool call; that's the 10-15 second dead air " +
-  "that made a caller think the line had dropped. If they've asked for several things at once, say it " +
-  "once up front ('give me a moment, I'll get all three sorted') rather than before each one, then tell " +
-  "them everything you found or did together. Never go quiet mid-sequence. " +
-  "And don't ask the same question twice: find_gear and browse_for already tell you what's free for " +
-  "the dates you gave them, so never follow one with check_availability for the same item and dates.";
-
-/**
- * Don't narrate an action that didn't happen.
- *
- * Observed on a real call on the sister site: the agent announced "I've pulled
- * that up on your screen" three times while every tool was returning an error.
- * The caller is then looking at a screen that contradicts the voice, which is
- * worse than never offering — it reads as the whole thing being broken.
- */
-const TOOL_HONESTY =
-  "Every tool hands you back a result — read it before you speak. Never claim you have shown, " +
-  "added, filed or changed something unless the tool said it worked. If it returns an error or " +
-  "says it couldn't find something, say so plainly and offer another way.";
-
 export function pageBrief(pathname: string, topic?: string): CallBrief {
   const path = (pathname || "/").replace(/\/+$/, "") || "/";
   const seg = path.split("/").filter(Boolean);
@@ -159,8 +96,7 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
           `catalogue unless they ask to rent something. Your job is to get them working. `
         : `This is a sales call. `) +
       `They started this call from ${path} on the Db Cinema Rentals website.${named} ${brief} ` +
-      `${FOLLOW_UP} ${SPOKEN_PACE} ${TOOL_HONESTY} ${MODEL_VERBATIM} Don't read this context aloud, and don't re-introduce ` +
-      `yourself — you've already opened the call.`,
+      `Don't read this context aloud, and don't re-introduce yourself — you've already opened the call.`,
   });
 
   // a specific guide → they are mid-task and want to be walked through it

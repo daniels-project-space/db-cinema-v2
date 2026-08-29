@@ -409,6 +409,7 @@ const FORCE_PRE_TOOL_SPEECH = new Set([
   "navigate_to", "browse_for", "find_gear", "recommend_gear", "add_to_basket",
   "suggest_addons", "add_addon", "review_basket", "go_to_checkout", "remove_unavailable",
   "check_availability", "check_stock", "get_price", "browse_range",
+  "check_basket", "log_enquiry", "send_follow_up", "suggest_alternatives",
 ]);
 
 async function pinToolDescriptions(toolIds) {
