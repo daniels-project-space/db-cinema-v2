@@ -545,8 +545,22 @@ async function main() {
     const attachedToUs = new Set(
       (agent.conversation_config?.agent?.prompt?.knowledge_base ?? []).map((d) => d.id),
     );
-    const existing = await (await el(`/knowledge-base?page_size=100`)).json();
-    for (const d of existing.documents ?? []) {
+    /**
+     * Paginated on purpose. A single page_size=100 fetch works today at 33
+     * workspace documents, but the count only grows — every other agent's
+     * docs count too — and a single-page fetch would silently stop cleaning
+     * anything past the first 100 with no error at all, which is exactly the
+     * kind of thing that compounds: the docs it fails to clean are the same
+     * kind of stray that pushes the workspace further past the page size.
+     */
+    let existingDocs = [], cursor;
+    do {
+      const path = `/knowledge-base?page_size=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+      const page = await (await el(path)).json();
+      existingDocs = existingDocs.concat(page.documents ?? []);
+      cursor = page.next_cursor || null;
+    } while (cursor);
+    for (const d of existingDocs) {
       if (!String(d.name).startsWith(DOC_PREFIX)) continue; // never another business's
 
       /**
@@ -561,8 +575,14 @@ async function main() {
       const orphaned = dependents.length === 0;
       if (!attachedToUs.has(d.id) && !orphaned) continue;
 
-      await el(`/knowledge-base/${d.id}`, { method: "DELETE" });
-      console.log(`  removed ${orphaned ? "orphaned" : "old"} doc: ${d.name}`);
+      // Checked, not assumed: this used to log "removed" unconditionally, so
+      // a delete the API silently rejected (rate limit, a transient 5xx,
+      // anything) looked identical in the output to one that actually
+      // happened — exactly the kind of gap that let orphans accumulate for
+      // a long time with every run reporting success.
+      const r = await el(`/knowledge-base/${d.id}`, { method: "DELETE" });
+      if (r.ok) console.log(`  removed ${orphaned ? "orphaned" : "old"} doc: ${d.name}`);
+      else console.warn(`  delete FAILED for ${orphaned ? "orphaned" : "old"} doc "${d.name}": ${r.status}`);
     }
     for (const d of docs) {
       const r = await el("/knowledge-base/text", {
@@ -677,12 +697,85 @@ async function main() {
   });
   if (!patch.ok) throw new Error(`PATCH failed: ${patch.status} ${await patch.text()}`);
 
-  const after = await (await el(`/agents/${AGENT_ID}`)).json();
+  let after = await (await el(`/agents/${AGENT_ID}`)).json();
+
+  /**
+   * Verify the PATCH actually stuck — by id, not by count.
+   *
+   * Found the hard way: the exact same code, run twice in a row, succeeded
+   * once and silently failed once. The failed run's newly-uploaded documents
+   * went straight from "just created" to orphaned — the agent's
+   * knowledge_base still pointed at whatever it had before, with none of
+   * the just-uploaded ids in it. The old success log only ever printed the
+   * COUNT ("knowledge base: 14 docs"), which stayed 14 either way, so a run
+   * that silently kept last time's stale knowledge (or none at all) looked
+   * identical in the output to one that actually updated. Likeliest cause:
+   * the agent PATCH references documents created moments earlier, before
+   * ElevenLabs' backend has finished indexing them — retrying the same PATCH
+   * after a short pause is enough to clear it when it happens.
+   */
+  if (want("kb")) {
+    const attachedIds = new Set((after.conversation_config.agent.prompt.knowledge_base ?? []).map((d) => d.id));
+    const wantedIds = kbIds.map((d) => d.id);
+    let missing = wantedIds.filter((id) => !attachedIds.has(id));
+    for (let attempt = 1; missing.length && attempt <= 3; attempt++) {
+      console.warn(`  knowledge_base attach incomplete (${missing.length}/${wantedIds.length} missing) — retrying (${attempt}/3)`);
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+      const retryPrompt = { ...after.conversation_config.agent.prompt, knowledge_base: kbIds };
+      delete retryPrompt.tools;
+      const retry = await el(`/agents/${AGENT_ID}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversation_config: { agent: { prompt: retryPrompt } } }),
+      });
+      if (!retry.ok) throw new Error(`knowledge_base retry PATCH failed: ${retry.status} ${await retry.text()}`);
+      after = await (await el(`/agents/${AGENT_ID}`)).json();
+      const nowAttached = new Set((after.conversation_config.agent.prompt.knowledge_base ?? []).map((d) => d.id));
+      missing = wantedIds.filter((id) => !nowAttached.has(id));
+    }
+    if (missing.length) {
+      throw new Error(
+        `knowledge_base attach never stuck after 3 retries — ${missing.length}/${wantedIds.length} documents ` +
+          `still not referenced by the agent. Uploaded docs are real but orphaned; re-run the sync, and if this ` +
+          `keeps happening it needs escalating to ElevenLabs, not retrying further here.`,
+      );
+    }
+
+    /**
+     * A final sweep, after everything above has actually settled.
+     *
+     * The scan-then-delete pass earlier in this run works from a snapshot
+     * taken before any of this run's own uploads or the final PATCH — so a
+     * document that only became orphaned as a SIDE EFFECT of this run's own
+     * attach (the previous generation, replaced moments ago) is invisible to
+     * that pass by construction, not by a bug in it. Running the same
+     * prefix-and-zero-dependents check again now, once the agent's real
+     * knowledge_base is confirmed correct, catches exactly that generation
+     * with nothing left to race against.
+     */
+    let sweepDocs = [], sweepCursor;
+    do {
+      const path = `/knowledge-base?page_size=100${sweepCursor ? `&cursor=${encodeURIComponent(sweepCursor)}` : ""}`;
+      const page = await (await el(path)).json();
+      sweepDocs = sweepDocs.concat(page.documents ?? []);
+      sweepCursor = page.next_cursor || null;
+    } while (sweepCursor);
+    let swept = 0;
+    for (const d of sweepDocs) {
+      if (!String(d.name).startsWith(DOC_PREFIX)) continue;
+      if ((d.dependent_agents ?? []).length !== 0) continue;
+      const r = await el(`/knowledge-base/${d.id}`, { method: "DELETE" });
+      if (r.ok) { console.log(`  final sweep removed: ${d.name}`); swept++; }
+      else console.warn(`  final sweep: delete failed for ${d.name} (${r.status})`);
+    }
+    if (!swept) console.log("  final sweep: nothing left to clean");
+  }
+
   const ap = after.conversation_config.agent.prompt;
   console.log(`\napplied:`);
   console.log(`  llm:              ${ap.llm}${ap.custom_llm ? ` (${ap.custom_llm.model_id} @ ${ap.custom_llm.url})` : ""}`);
   console.log(`  temperature:      ${ap.temperature}`);
-  console.log(`  knowledge base:   ${(ap.knowledge_base || []).length} docs, rag ${ap.rag?.enabled}`);
+  console.log(`  knowledge base:   ${(ap.knowledge_base || []).length} docs (ids verified), rag ${ap.rag?.enabled}`);
   console.log(`  asr keywords:     ${(after.conversation_config.asr?.keywords || []).length}`);
   console.log(`  end_call tool:    ${!!ap.built_in_tools?.end_call}`);
   console.log(`  silence timeout:  ${after.conversation_config.turn?.silence_end_call_timeout}`);
