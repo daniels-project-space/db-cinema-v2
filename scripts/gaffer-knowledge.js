@@ -388,23 +388,71 @@ const PINNED_TOOL_DESCRIPTIONS = {
     "interrupts the call, whatever already cleared should already be in the basket.",
 };
 
+/**
+ * Every tool named here MUST get a spoken line before it runs, mechanically —
+ * not just told to in the prompt. A real call showed why the prompt-only rule
+ * (SPOKEN_PACE) isn't enough on its own: the model can still choose to chain
+ * several of these with nothing said in between, which is exactly the 10-15s
+ * of silence a caller mistook for a dropped line. `force_pre_tool_speech`
+ * makes ElevenLabs itself require a spoken turn immediately before the tool
+ * fires — the caller hears "let me pull that up for you" before the pause,
+ * not instead of it. Scoped to tools that genuinely take a beat (a lookup, a
+ * navigation, an add) — instant ones like select_item don't need it and
+ * forcing speech there would just make every call chattier for no reason.
+ */
+const FORCE_PRE_TOOL_SPEECH = new Set([
+  "navigate_to", "browse_for", "find_gear", "recommend_gear", "add_to_basket",
+  "suggest_addons", "add_addon", "review_basket", "go_to_checkout", "remove_unavailable",
+  "check_availability", "check_stock", "get_price", "browse_range",
+]);
+
 async function pinToolDescriptions(toolIds) {
   let changed = 0;
   for (const id of toolIds) {
     const tool = await (await el(`/tools/${id}`)).json();
     const cfg = tool.tool_config || {};
-    const wanted = PINNED_TOOL_DESCRIPTIONS[cfg.name];
-    if (!wanted || cfg.description === wanted) continue;
-    const r = await el(`/tools/${id}`, {
+    const wantedDescription = PINNED_TOOL_DESCRIPTIONS[cfg.name];
+    const wantsForce = FORCE_PRE_TOOL_SPEECH.has(cfg.name);
+    const descriptionStale = wantedDescription && cfg.description !== wantedDescription;
+    const forceStale = wantsForce && cfg.force_pre_tool_speech !== true;
+    if (!descriptionStale && !forceStale) continue;
+
+    const next = { ...cfg };
+    if (descriptionStale) next.description = wantedDescription;
+    if (forceStale) next.force_pre_tool_speech = true;
+
+    let r = await el(`/tools/${id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ tool_config: { ...cfg, description: wanted } }),
+      body: JSON.stringify({ tool_config: next }),
     });
-    if (!r.ok) throw new Error(`tool "${cfg.name}" description failed: ${r.status} ${await r.text()}`);
-    console.log(`  pinned description: ${cfg.name}`);
+    /**
+     * force_pre_tool_speech is confirmed on client tools; it's untested here
+     * against webhook tools since this was written without live access to
+     * verify. If the combined PATCH is rejected, retry with the description
+     * alone rather than let one tool's schema mismatch abort every other
+     * tool's update in the same run — a partial success beats a full abort.
+     */
+    if (!r.ok && forceStale && descriptionStale) {
+      console.warn(`  ${cfg.name}: combined update rejected (${r.status}), retrying description only`);
+      r = await el(`/tools/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tool_config: { ...cfg, description: wantedDescription } }),
+      });
+    }
+    if (!r.ok) {
+      console.warn(`  ${cfg.name}: update failed (${r.status}) — ${(await r.text()).slice(0, 200)}`);
+      continue;
+    }
+    console.log(
+      `  updated ${cfg.name}:` +
+        (descriptionStale ? " description" : "") +
+        (forceStale ? " force_pre_tool_speech" : ""),
+    );
     changed++;
   }
-  if (!changed) console.log("  tool descriptions already current");
+  if (!changed) console.log("  tool descriptions and pre-tool-speech already current");
 }
 
 async function main() {
