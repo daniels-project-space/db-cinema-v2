@@ -393,12 +393,17 @@ const PINNED_TOOL_DESCRIPTIONS = {
  * not just told to in the prompt. A real call showed why the prompt-only rule
  * (SPOKEN_PACE) isn't enough on its own: the model can still choose to chain
  * several of these with nothing said in between, which is exactly the 10-15s
- * of silence a caller mistook for a dropped line. `force_pre_tool_speech`
- * makes ElevenLabs itself require a spoken turn immediately before the tool
- * fires — the caller hears "let me pull that up for you" before the pause,
- * not instead of it. Scoped to tools that genuinely take a beat (a lookup, a
- * navigation, an add) — instant ones like select_item don't need it and
- * forcing speech there would just make every call chattier for no reason.
+ * of silence a caller mistook for a dropped line. Setting `pre_tool_speech`
+ * to "force" makes ElevenLabs itself require a spoken turn immediately before
+ * the tool fires — the caller hears "let me pull that up for you" before the
+ * pause, not instead of it. Scoped to tools that genuinely take a beat (a
+ * lookup, a navigation, an add) — instant ones like select_item don't need it.
+ *
+ * The API exposes a `force_pre_tool_speech` boolean too, but it's read-only —
+ * PATCHing it directly returns 200 and silently keeps the old value; verified
+ * live, three times, against a real tool. The actual control is the
+ * `pre_tool_speech` enum (auto | force | off); "force" is what the boolean
+ * reflects, not something settable on its own.
  */
 const FORCE_PRE_TOOL_SPEECH = new Set([
   "navigate_to", "browse_for", "find_gear", "recommend_gear", "add_to_basket",
@@ -414,12 +419,12 @@ async function pinToolDescriptions(toolIds) {
     const wantedDescription = PINNED_TOOL_DESCRIPTIONS[cfg.name];
     const wantsForce = FORCE_PRE_TOOL_SPEECH.has(cfg.name);
     const descriptionStale = wantedDescription && cfg.description !== wantedDescription;
-    const forceStale = wantsForce && cfg.force_pre_tool_speech !== true;
+    const forceStale = wantsForce && cfg.pre_tool_speech !== "force";
     if (!descriptionStale && !forceStale) continue;
 
     const next = { ...cfg };
     if (descriptionStale) next.description = wantedDescription;
-    if (forceStale) next.force_pre_tool_speech = true;
+    if (forceStale) next.pre_tool_speech = "force";
 
     let r = await el(`/tools/${id}`, {
       method: "PATCH",
@@ -427,11 +432,11 @@ async function pinToolDescriptions(toolIds) {
       body: JSON.stringify({ tool_config: next }),
     });
     /**
-     * force_pre_tool_speech is confirmed on client tools; it's untested here
-     * against webhook tools since this was written without live access to
-     * verify. If the combined PATCH is rejected, retry with the description
-     * alone rather than let one tool's schema mismatch abort every other
-     * tool's update in the same run — a partial success beats a full abort.
+     * pre_tool_speech is confirmed valid on both client and webhook tools —
+     * verified live — but this stays defensive against any other field this
+     * pass might one day carry that isn't universal: a rejected combined PATCH
+     * retries with the description alone rather than aborting every other
+     * tool's update in the same run.
      */
     if (!r.ok && forceStale && descriptionStale) {
       console.warn(`  ${cfg.name}: combined update rejected (${r.status}), retrying description only`);
@@ -448,7 +453,7 @@ async function pinToolDescriptions(toolIds) {
     console.log(
       `  updated ${cfg.name}:` +
         (descriptionStale ? " description" : "") +
-        (forceStale ? " force_pre_tool_speech" : ""),
+        (forceStale ? " pre_tool_speech=force" : ""),
     );
     changed++;
   }
