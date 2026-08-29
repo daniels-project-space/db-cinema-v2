@@ -30,6 +30,19 @@ const MAX_OFFERS = 3;
 // for an offer line, so a tampered cart can't forge an arbitrary % off (anti-tamper).
 export const OFFER_PCT_BY_TYPE: Record<string, number> = Object.fromEntries(RULES.map((r) => [r.want, r.pct]));
 
+/**
+ * The other half of the anti-tamper story: which item types actually earn
+ * each discount. Without this, checkout re-priced an offer line purely by
+ * looking up its own itemType's percentage — an ND filter, tripod or gimbal
+ * added on its own, in an otherwise empty basket, still priced at the
+ * discount, because nothing checked that the thing it's meant to complement
+ * (a lens, a camera) was actually in the cart. `forCart` above already gates
+ * on this when it *suggests* an offer; repriceLines has to gate on it again
+ * when the price is actually charged, or the suggestion-time check is
+ * theatre — a client can call cart.add with any offerType string it likes.
+ */
+export const OFFER_NEEDS_BY_TYPE: Record<string, string[]> = Object.fromEntries(RULES.map((r) => [r.want, r.needs]));
+
 async function pickByType(ctx: any, itemType: string, exclude: Set<string>) {
   const all = await ctx.db
     .query("listings")
