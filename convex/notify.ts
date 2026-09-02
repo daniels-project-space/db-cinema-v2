@@ -1,6 +1,9 @@
+"use node";
+
 import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
+import { sendMail } from "./lib/mailer";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -19,6 +22,9 @@ async function telegram(text: string) {
   }
 }
 
+/** Thin shim over the shared transport (convex/lib/mailer.ts), which picks
+ * Gmail SMTP or Resend and logs its own failures. Signature kept so the
+ * thirteen call sites below read exactly as they did. */
 async function email(
   to: string,
   subject: string,
@@ -27,22 +33,7 @@ async function email(
   /** Overrides the owner address — used to thread Gaffer follow-up replies. */
   replyToOverride?: string,
 ) {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return; // email disabled until a Resend key is set
-  const from = process.env.RESEND_FROM ?? "Db Cinema <onboarding@resend.dev>";
-  const replyTo = replyToOverride ?? process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${key}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ from, to, subject, html, reply_to: replyTo, ...(attachments && attachments.length ? { attachments } : {}) }),
-    });
-  } catch {
-    /* best-effort */
-  }
+  await sendMail({ to, subject, html, attachments, replyTo: replyToOverride });
 }
 
 export const bookingAlert = internalAction({
