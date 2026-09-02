@@ -40,7 +40,7 @@ export const invoiceEmail = internalAction({
     const body: any = {
       from,
       to: b.guestEmail,
-      reply_to: process.env.OWNER_EMAIL ?? "dbcinemaproductions@gmail.com",
+      reply_to: process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com",
       subject: "Your Db Cinema receipt 🎬",
       html: `<h2>Receipt</h2><p>Thanks for renting with Db Cinema. Your receipt${attachment ? " is attached as a PDF" : " is below"}.</p><p>${items}</p><p>Total paid: <b>£${b.total}</b> (incl. £${b.depositAmount} refundable deposit)</p>`,
     };

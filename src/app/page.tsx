@@ -40,7 +40,7 @@ export default async function Home() {
     "@id": `${SITE_URL}/#business`,
     name: SITE_NAME,
     url: SITE_URL,
-    email: "dbcinemaproductions@gmail.com",
+    email: "dbcinemarentals@gmail.com",
     image: `${SITE_URL}/opengraph-image`,
     description:
       "Camera hire in London — professional cinema cameras, lenses, lighting, audio and drone rental. Daily, 3-day and weekly rates, delivered across London or collect in central London.",

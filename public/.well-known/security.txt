@@ -1,5 +1,5 @@
 # Security contact for dbcinemarentals.com (RFC 9116)
-Contact: mailto:dbcinemaproductions@gmail.com
+Contact: mailto:dbcinemarentals@gmail.com
 Contact: https://dbcinemarentals.com/contact
 Expires: 2027-06-20T00:00:00.000Z
 Preferred-Languages: en

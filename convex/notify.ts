@@ -30,7 +30,7 @@ async function email(
   const key = process.env.RESEND_API_KEY;
   if (!key) return; // email disabled until a Resend key is set
   const from = process.env.RESEND_FROM ?? "Db Cinema <onboarding@resend.dev>";
-  const replyTo = replyToOverride ?? process.env.OWNER_EMAIL ?? "dbcinemaproductions@gmail.com";
+  const replyTo = replyToOverride ?? process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -214,7 +214,7 @@ export const followUpReplyAlert = internalAction({
   args: { email: v.string(), body: v.string() },
   handler: async (ctx, a) => {
     await telegram(`↩️ <b>Reply to a Gaffer follow-up</b>\nFrom: ${a.email}\n\n${a.body.slice(0, 800)}`);
-    const owner = process.env.OWNER_EMAIL ?? "dbcinemaproductions@gmail.com";
+    const owner = process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
     await email(
       owner,
       `Reply from ${a.email} — Gaffer follow-up`,
@@ -233,7 +233,7 @@ export const ownerLead = internalAction({
     message: v.string(),
   },
   handler: async (_ctx, a) => {
-    const owner = process.env.OWNER_EMAIL ?? "dbcinemaproductions@gmail.com";
+    const owner = process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
     const who = `${a.name}${a.phone ? ` · ${a.phone}` : ""}${a.email ? ` · ${a.email}` : ""}`;
     await email(
       owner,

@@ -46,8 +46,8 @@ export async function Footer() {
               </div>
             )}
             <div>
-              <a href="mailto:dbcinemaproductions@gmail.com" className="transition-colors hover:text-white">
-                dbcinemaproductions@gmail.com
+              <a href="mailto:dbcinemarentals@gmail.com" className="transition-colors hover:text-white">
+                dbcinemarentals@gmail.com
               </a>
             </div>
             <div>Open {cfg.openingHours ?? HOURS_LABEL}</div>

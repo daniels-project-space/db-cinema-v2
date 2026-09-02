@@ -96,8 +96,8 @@ export default function ContactPage() {
                 <span className="hud-label !text-white/60">Email</span>
               </div>
               <p className="mt-2 text-sm leading-relaxed text-white/60">
-                <a href="mailto:dbcinemaproductions@gmail.com" className="break-all transition-colors hover:text-white">
-                  dbcinemaproductions@gmail.com
+                <a href="mailto:dbcinemarentals@gmail.com" className="break-all transition-colors hover:text-white">
+                  dbcinemarentals@gmail.com
                 </a>
                 <br />
                 <span className="text-white/35">we reply within a day</span>
