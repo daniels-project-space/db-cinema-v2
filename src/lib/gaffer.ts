@@ -21,6 +21,17 @@ import { mountOf, coverageOf, deriveItemType } from "../../convex/lib/taxonomy";
  * intent into structured form and (2) writes prose FROM the engine's facts + chosen
  * cards. It is structurally impossible for Gaffer to deny inventory we own or to show
  * a card that contradicts the prose.
+ *
+ * That guarantee held only for the NARRATOR. The engine could still manufacture a false
+ * denial: the specific-item branches resolve intent.subject against the catalogue and
+ * report NOT STOCKED on a miss, which is sound for a product ("sony fx3") but a lie for
+ * a category ("a camera", "lenses for video") — unresolvable by construction. So Gaffer
+ * told customers "we don't carry cameras" while ~170 sat on the shelf. Two rules keep the
+ * guarantee real, and both must hold: (1) only a subject that names a PRODUCT
+ * (isSpecificSubject) may ever produce a NOT STOCKED fact — a category subject is a "what
+ * do you have" question and goes to the recommender; (2) the narrator may not deny
+ * anything the FACTS don't deny word for word, because FACTS are this turn's lookups and
+ * never the catalogue.
  */
 
 // ── tokenisation / matching (validated against real catalogue data) ─────────────
@@ -59,6 +70,21 @@ function queryIdentity(text: string): { ranges: string[]; models: string[]; nums
   const nums = ts.filter((t) => /^\d{2,}$/.test(t) && !rangeNums.has(t));
   const words = ts.filter((t) => t.length >= 5 && !GENERIC.has(t));
   return { ranges, models, nums, words };
+}
+/**
+ * Does this subject name a PARTICULAR product, or merely a category?
+ *
+ * "sony fx3", "24-70", "sigma art" name a product; "a camera", "lenses for video" name a
+ * category we stock hundreds of. This distinction is the whole basis of a NOT STOCKED
+ * fact: failing to resolve a *product* means we genuinely don't carry it, but failing to
+ * resolve a *category* only means the customer hasn't said WHICH one — and reporting that
+ * as `we don't carry "a camera"` is exactly how Gaffer ended up denying the ~170 camera
+ * bodies on our own shelf. Reuses queryIdentity, so "specific" here means precisely what
+ * the catalogue matcher means by it.
+ */
+function isSpecificSubject(text: string): boolean {
+  const id = queryIdentity(text || "");
+  return !!(id.ranges.length || id.models.length || id.nums.length || id.words.length);
 }
 /** Genuine name match. Focal ranges must appear contiguously; model designators / standalone
  * numbers / distinctive words must all appear (checked against the despaced title so "24-70"
@@ -185,6 +211,23 @@ function itemTypeMatches(slot: string, itemType: string | null | undefined): boo
   if (!expected) return true;
   return !!itemType && expected.includes(itemType);
 }
+/** Plural human label for a gear type, for facts that ASSERT we stock a category. */
+const CATEGORY_PLURAL: Record<string, string> = {
+  camera: "camera bodies", lens: "lenses", light: "lights", gimbal: "gimbals",
+  filter: "ND filters", battery: "batteries", monitor: "monitors", mic: "microphones",
+  tripod: "tripods", drone: "drones", speaker: "speakers",
+};
+const categoryLabel = (t: string) => CATEGORY_PLURAL[TERM[t] || t] || "gear of that kind";
+/**
+ * Genuine compatibility phrasing. The classifier drifts into `compatibility` on any
+ * message that pairs gear with a purpose — "i need a camera for a product shoot for my
+ * skincare brand" came back as a compatibility question — and that branch then hunts the
+ * catalogue for a product named "a camera", finds none, and denies the category. A real
+ * compatibility question always ASKS whether one thing goes on another; if the customer
+ * never asked that, they were describing a need, and the recommender should answer.
+ */
+const COMPAT_RE =
+  /\b(?:fits?|fitting|compatible|compatibility|adapters?|adaptors?|mounts? (?:on|to|onto)|works? (?:with|on)|go(?:es)? (?:on|with)|attach(?:es)? (?:to|on))\b|\buse\b(?:\W+\w+){0,6}?\W+\b(?:on|with)\b/i;
 
 // ── FORM / SEVEN, our creative collaboration ────────────────────────────────────
 /**
@@ -659,6 +702,19 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
   const facts: string[] = [];
   const cards: any[] = [];
   const primaryType = intent.itemTypes?.[0] || "";
+  // A NOT STOCKED fact is only ever true of a PRODUCT we failed to find. Said of a category
+  // subject it is a lie about the shelf, so every branch below gates on this.
+  const specificSubject = isSpecificSubject(intent.subject);
+  /** We looked for one product and missed. Say that about THAT product, and say plainly that
+   * the category itself is stocked, so the narrator has no room to generalise the miss. */
+  const notStocked = (type: string) => {
+    facts.push(`NOT STOCKED: we do not carry the specific item "${intent.subject}".`);
+    facts.push(`This applies ONLY to that one product. We DO stock ${categoryLabel(type)} — never tell the customer we don't carry the category, the brand, or anything wider than that exact item.`);
+  };
+  /** They named a category, not a product. Never a denial — an invitation to narrow down. */
+  const askWhichOne = (type: string) => {
+    facts.push(`NO SPECIFIC ITEM NAMED: the customer said "${intent.subject}", which is a category rather than a particular product. We DO stock ${categoryLabel(type)}. Do NOT say we don't carry it — ask which one they mean, or go from the options shown.`);
+  };
   if (ctx.cartTitles.length) facts.push(`Already in the customer's cart (don't re-recommend these): ${ctx.cartTitles.join("; ")}.`);
 
   const pushCard = async (l: any, reason: string, checkAvail = true) => {
@@ -683,8 +739,9 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
           if (alts.length) facts.push(`Free for those dates instead: ${alts.map(titlePrice).join("; ")}.`);
         }
       } else {
-        facts.push(`NOT STOCKED: we do not carry "${intent.subject}".`);
-        const alts = await findAlternatives(c, intent.subject, primaryType || "lens", ctx, 3, undefined, subjectMounts(intent.subject, null));
+        const type = primaryType || "lens";
+        if (specificSubject) notStocked(type); else askWhichOne(type);
+        const alts = await findAlternatives(c, intent.subject, type, ctx, 3, undefined, subjectMounts(intent.subject, null));
         for (const a of alts) await pushCard(a, "Closest we stock");
         if (alts.length) facts.push(`Closest we DO stock: ${alts.map(titlePrice).join("; ")}.`);
       }
@@ -714,8 +771,12 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
           `${(k.limits || []).length ? `Real limits: ${(k.limits || []).join(", ")}. ` : ""}${(k.pairsWith || []).length ? `Pairs with: ${(k.pairsWith || []).join(", ")}.` : ""}`,
         );
         facts.push(`Only state the specs/limits listed above — do not add others.`);
+      } else if (specificSubject) {
+        notStocked(primaryType || "lens");
+        facts.push(`So there is no spec sheet for that one item to share.`);
       } else {
-        facts.push(`NOT STOCKED: we do not carry "${intent.subject}", so no spec sheet to share.`);
+        askWhichOne(primaryType || "lens");
+        facts.push(`Ask them which particular one they want the specs for.`);
       }
       break;
     }
@@ -725,8 +786,11 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
         await pushCard(subj, estimated ? "Priced for an example window" : "Priced for your dates");
         const card = cards[cards.length - 1];
         facts.push(`PRICE: ${titlePrice(subj)} is £${card.item.perDay}/day, £${card.item.total} total for ${card.item.days} day(s)${estimated ? " (example dates — give me yours to confirm)" : ` (${start}→${end})`}.`);
+      } else if (specificSubject) {
+        notStocked(primaryType || "lens");
       } else {
-        facts.push(`NOT STOCKED: we do not carry "${intent.subject}".`);
+        askWhichOne(primaryType || "lens");
+        facts.push(`Ask which one they mean so you can quote a real price — never invent one.`);
       }
       break;
     }
@@ -753,7 +817,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
       }
       const names = cards.map((cd) => titlePrice(cd.item)).join("; ");
       if (names) facts.push(`RECOMMENDED (in stock${ctx.camMounts.length ? `, compatible with ${ctx.camMounts.join("/")} mount` : ""}): ${names}.`);
-      else facts.push(`No matching in-stock gear found for ${types.join(", ")}.`);
+      else facts.push(`Nothing suitable came back for ${types.join(", ")} on this search — ask them for a model or their dates so you can look properly. This is a search that returned nothing, NOT evidence we lack the category; do not tell them we don't stock it.`);
       break;
     }
     case "build_kit": {
@@ -769,9 +833,18 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
       break;
     }
     case "compatibility": {
-      // subject = the lens/gear; ctx.camMounts = the body to fit it on
-      const subj = await resolveSubjectListing(c, intent.subject, { camMounts: ctx.camMounts, itemType: "lens" });
+      // subject = the lens/gear; ctx.camMounts = the body to fit it on. Resolve WITHOUT an
+      // itemType constraint: hardcoding "lens" meant a compatibility question about a monitor
+      // or an adapter could never resolve, and fell through to a denial of gear we stock.
+      // resolveSubjectListing still prefers a lens when the subject matches one.
+      // "an EF lens" is a mount question, not a product — resolving it lands on whatever
+      // bundle happens to mention EF glass. Only look up a subject that names a product;
+      // otherwise answer from the mount rule and show compatible options.
+      const subj = specificSubject ? await resolveSubjectListing(c, intent.subject, { camMounts: ctx.camMounts }) : null;
       const cam = ctx.camMounts;
+      // the body is named by cameraModel, so the gear being FITTED is glass unless the
+      // customer's own itemTypes say otherwise.
+      const compatType = primaryType && primaryType !== "camera" && primaryType !== "camera-body" ? primaryType : "lens";
       if (subj && subj.itemType === "lens") {
         const verdict = cam.length ? bestCompat(parseMounts(subj.specs?.mount), cam) : "unknown";
         if (verdict === "incompatible") {
@@ -788,10 +861,15 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
           await pushCard(subj, "Compatible with your camera");
           facts.push(`COMPATIBILITY: ${titlePrice(subj)} ${cam.length ? `is NATIVE ${cam.join("/")} mount — fits directly, no adapter needed` : "is in stock"}.`);
         }
+      } else if (subj) {
+        // resolved, but it isn't glass (a monitor, an adapter, a cage) — there's no mount
+        // verdict to give, but it IS on the shelf, which is the opposite of a denial.
+        await pushCard(subj, "The item you asked about");
+        facts.push(`IN STOCK: we DO carry ${titlePrice(subj)}. State only what you know about fitting it — do not invent a compatibility verdict.`);
       } else {
-        facts.push(`NOT STOCKED: we don't carry "${intent.subject}".`);
+        if (specificSubject) notStocked(compatType); else askWhichOne(compatType);
         if (cam.length) facts.push(`Mount rule for a ${cam.join("/")}-mount body: native ${cam[0]} glass fits directly; EF/PL glass needs an adapter; RF/MFT won't fit. Answer the can-it-be-used question with this rule.`);
-        const alts = await findAlternatives(c, intent.subject, "lens", ctx, 3);
+        const alts = await findAlternatives(c, intent.subject, compatType, ctx, 3);
         for (const a of alts) await pushCard(a, "Compatible option we stock");
         if (alts.length) facts.push(`Compatible options we stock: ${alts.map(titlePrice).join("; ")}.`);
       }
@@ -861,6 +939,9 @@ ABSOLUTE GROUNDING RULES (never break):
 - State ONLY what the FACTS below say. Do NOT claim we have, lack, or recommend any gear not in FACTS/CARDS.
 - The CARDS listed below are the EXACT bookable tiles the customer sees. Reference only those items by name (you may **bold** them). Never name gear that isn't in CARDS or FACTS.
 - If a FACT says NOT STOCKED for a specific item, say we don't have THAT specific item — never generalise to a whole brand or category (we may stock other gear from it) — then point them to the alternative CARDS shown.
+- NEVER say or imply we don't stock something unless a FACT explicitly says NOT STOCKED for that exact item. The FACTS are not a catalogue — they are only what was looked up for this turn, so a category's ABSENCE from FACTS is not evidence we lack it. Db Cinema is a full rental house.
+- Category denials are ALWAYS wrong: never write anything of the form "we don't carry cameras", "we don't rent camera bodies", "we specialise in glass", "we don't do video lenses", or "we have no X category". We stock cameras, lenses, lights, audio, grip and more.
+- If the CARDS are a different kind of gear from what the customer asked for, just present them as your suggestion — or ask what they're after. Do NOT explain the mismatch by claiming we don't carry what they asked for. An unhelpful card is a bad suggestion; it is never proof of an empty shelf.
 - Never invent specs, prices, availability, or model names. Never say "let me check" or promise a later message — everything is already decided here.
 - LINKS: when a FACT gives you a link as [label](url), paste it EXACTLY as written — the chat renders it as a real clickable link. Never invent, shorten or alter a URL, and never link to anything that isn't in FACTS.
 - If ${result.askDates ? "TRUE" : "FALSE"} is TRUE, ask for their shoot dates in ONE short question (the card prices shown are for example dates).
@@ -907,6 +988,18 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
   // advert is never a gear query, and must not be resolved against the catalogue — "form 7"
   // matches no listing, and the classifier reads "make me an advert" as a kit request.
   if (isPartnerAsk(lastUser)) intent.intent = "partner";
+  // deterministic CATEGORY backstop: the specific-item branches (availability /
+  // compatibility) resolve the subject against the catalogue and report NOT STOCKED when it
+  // misses. That is only sound for a subject that names a PRODUCT. "a camera" or "lenses for
+  // video" name a category — unresolvable by construction — so those branches manufactured a
+  // categorical denial of stock we hold in depth. A category subject is a "what do you have"
+  // question, which is what the recommender is for. Compatibility additionally requires the
+  // customer to have actually ASKED whether one thing fits another, since the classifier
+  // drifts into it on any gear-plus-purpose sentence.
+  if (!isSpecificSubject(intent.subject)) {
+    if (intent.intent === "availability") intent.intent = "recommend";
+    else if (intent.intent === "compatibility" && !COMPAT_RE.test(lastUser)) intent.intent = "recommend";
+  }
   // deterministic relative-date backstop: if the LLM left dates unresolved, derive them
   // from the latest user message ("this weekend", "tomorrow", "next week").
   if (!intent.start || !intent.end) {
