@@ -6,6 +6,7 @@ import { v } from "convex/values";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateObject } from "ai";
 import { z } from "zod";
+import { BOT_MODEL_DEFAULT, BOT_PROVIDER_ROUTING } from "./lib/botModel";
 
 /** Gaffer auto-replies to a renter message in the booking chat — unless a human has taken over. */
 export const gafferReply = internalAction({
@@ -16,8 +17,8 @@ export const gafferReply = internalAction({
     if (!cx || cx.escalated) return; // human is handling it — stay quiet
 
     const or = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
-    const model = or(process.env.BOT_MODEL || "deepseek/deepseek-chat-v3.1", {
-      extraBody: { provider: { ignore: ["SiliconFlow"], allow_fallbacks: true } },
+    const model = or(process.env.BOT_MODEL || BOT_MODEL_DEFAULT, {
+      extraBody: { ...BOT_PROVIDER_ROUTING },
     });
 
     const b = cx.booking;

@@ -1,8 +1,7 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
-import { generateObject } from "ai";
 import { z } from "zod";
-import { botModel } from "@/lib/ai";
+import { generateBotObject } from "@/lib/ai";
 import { quote } from "@/lib/pricing";
 import { tierByKey } from "@/lib/membership";
 import { dayMs } from "@/lib/dates";
@@ -676,10 +675,9 @@ const IntentSchema = z.object({
   end: z.string().optional().describe("rental end YYYY-MM-DD if stated/derivable, else omit"),
 });
 
-async function understand(model: any, history: any[], today: string): Promise<z.infer<typeof IntentSchema>> {
+async function understand(history: any[], today: string): Promise<z.infer<typeof IntentSchema>> {
   const convo = history.map((m: any) => `${m.role === "user" ? "CUSTOMER" : "GAFFER"}: ${String(m.content || "")}`).join("\n");
-  const { object } = await generateObject({
-    model,
+  const object = await generateBotObject({
     schema: IntentSchema,
     prompt:
       `You parse a camera-rental chat into a structured intent for a downstream engine. ` +
@@ -931,12 +929,11 @@ const NarrateSchema = z.object({
   suggestions: z.array(z.string()).describe("exactly 2-3 short next actions in the customer's voice, max 5 words each"),
 });
 
-async function narrate(model: any, history: any[], result: ExecResult, ctx: Ctx): Promise<{ reply: string; suggestions: string[] }> {
+async function narrate(history: any[], result: ExecResult, ctx: Ctx): Promise<{ reply: string; suggestions: string[] }> {
   const cardLines = result.cards.map((cd) => `- ${cd.item.title} — £${cd.item.perDay}/day${cd.item.favorite ? " (their saved favourite)" : ""}${cd.item.available === false ? " (NOT free for the requested dates)" : ""}`).join("\n") || "(no cards)";
   const who = `Customer: ${ctx.customerName}.${ctx.memberName ? ` ${ctx.memberName} member — apply their ${ctx.memberPct}% discount and mention the saving.` : ""}${ctx.favTitles.length ? ` Saved favourites: ${ctx.favTitles.join(", ")}.` : ""}${ctx.cartTitles.length ? ` Currently in their cart: ${ctx.cartTitles.join(", ")}.` : ""}${ctx.pastTitles.length ? ` Previously rented: ${ctx.pastTitles.join(", ")}.` : ""}`;
   const convo = history.slice(-6).map((m: any) => `${m.role === "user" ? "CUSTOMER" : "GAFFER"}: ${String(m.content || "")}`).join("\n");
-  const { object } = await generateObject({
-    model,
+  const object = await generateBotObject({
     schema: NarrateSchema,
     prompt:
 `You are Gaffer, Db Cinema Rentals' kit assistant — warm, confident, plain English, lightly playful. London cinema-gear rental shop.
@@ -944,6 +941,7 @@ async function narrate(model: any, history: any[], result: ExecResult, ctx: Ctx)
 FORMAT (always — replies must be SCANNABLE, never a wall of text):
 - Line 1: ONE short lead sentence (the headline). You may **bold** key words.
 - Then, when presenting gear or options/points, put EACH on its own line as a markdown bullet starting "- ", ≤ 14 words, e.g. "- **Sony 24-70 GM** — £20/day, native E-mount, no adapter". One bullet per CARD you're recommending.
+- NAME GEAR THE WAY A HUMAN WOULD. Catalogue titles are SEO keyword soup — repeated model names, trailing "+", unclosed brackets — so pasting one verbatim looks broken and always busts the 14-word limit. Shorten each to its trade name (brand + model + the one spec that matters): the card "Sony 24-70 mm f2.8 gmaster gm g-master g master zoom lens e mount autofocus +" becomes "**Sony 24-70mm f2.8 GM**", and "Sony FX 3 Cinema Camera Full Frame Mirrorless 4k Sony fx3 (same sensor as a7siii" becomes "**Sony FX3**". Shortening the LABEL is required; inventing a model, spec or price is still forbidden.
 - Last line: ONE short question / call-to-action.
 - Separate the lead, bullets and closing with newlines. NEVER write a paragraph longer than one sentence.
 
@@ -979,7 +977,6 @@ Write Gaffer's reply now in the scannable FORMAT above (lead line, bullets, clos
 export async function handleChat(body: any): Promise<{ reply: string; cards: any[]; suggestions: string[]; booking: any }> {
   if (!process.env.OPENROUTER_API_KEY) return { reply: "The assistant isn't configured yet.", cards: [], suggestions: [], booking: null };
   const history = Array.isArray(body?.messages) ? body.messages.slice(-12) : [];
-  const model = botModel();
   const ctx = await loadContext(body);
   // camera mounts from the whole conversation
   const allUserText = history.filter((m: any) => m.role === "user").map((m: any) => String(m.content || "")).join("  \n  ");
@@ -995,7 +992,7 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
   ctx.partnerMentioned = history.some((m: any) => m.role !== "user" && PARTNER_MENTIONED_RE.test(String(m.content || "")));
 
   const lastUser = String([...history].reverse().find((m: any) => m.role === "user")?.content || "");
-  const intent = await understand(model, history, ctx.today);
+  const intent = await understand(history, ctx.today);
   // deterministic backstop: naming FORM / SEVEN, the free ad, or asking us to MAKE the
   // advert is never a gear query, and must not be resolved against the catalogue — "form 7"
   // matches no listing, and the classifier reads "make me an advert" as a kit request.
@@ -1019,6 +1016,6 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
     if (rel.start) { intent.start = intent.start || rel.start; intent.end = intent.end || rel.end; }
   }
   const result = await execute(intent, ctx);
-  const { reply, suggestions } = await narrate(model, history, result, ctx);
+  const { reply, suggestions } = await narrate(history, result, ctx);
   return { reply, cards: result.cards, suggestions, booking: ctx.activeBooking };
 }
