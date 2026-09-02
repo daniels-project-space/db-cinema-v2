@@ -4,16 +4,43 @@ import { useEffect, useState, type ReactNode } from "react";
 import { BotAvatarBadge, type BotMood } from "./BotAvatar";
 
 /** Inline **bold** segments → styled spans. */
-function inline(text: string): ReactNode[] {
+function bold(text: string, keyPrefix: string): ReactNode[] {
   return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
     part.startsWith("**") && part.endsWith("**") ? (
-      <strong key={i} className="font-semibold text-white">
+      <strong key={`${keyPrefix}b${i}`} className="font-semibold text-white">
         {part.slice(2, -2)}
       </strong>
     ) : (
       part
     ),
   );
+}
+
+/** Markdown links `[label](https://…)` → real anchors, so Gaffer can hand a customer
+ * off (the FORM / SEVEN studio, the free sample) with something they can actually click.
+ * http(s) only — an unrecognised scheme stays inert text rather than becoming a link. */
+const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
+function inline(text: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(LINK_RE)) {
+    const at = m.index ?? 0;
+    if (at > last) out.push(...bold(text.slice(last, at), `t${at}`));
+    out.push(
+      <a
+        key={`l${at}`}
+        href={m[2]}
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-accent-300 underline decoration-accent-400/40 underline-offset-2 transition-colors hover:text-accent-200 hover:decoration-accent-300"
+      >
+        {m[1]}
+      </a>,
+    );
+    last = at + m[0].length;
+  }
+  if (last < text.length) out.push(...bold(text.slice(last), `t${last}`));
+  return out;
 }
 
 /** Structured formatting: line breaks become real lines and `- `/`• ` lines become
@@ -37,6 +64,16 @@ function richText(text: string): ReactNode[] {
   });
 }
 
+/** Hold a half-written `[label](url)` back rather than typing raw markdown out one
+ * character at a time — it reveals as a finished link the moment the `)` lands. */
+function trimPartialLink(s: string): string {
+  const open = s.lastIndexOf("[");
+  if (open === -1) return s;
+  const tail = s.slice(open);
+  if (tail.includes(")") || tail.includes("\n")) return s; // finished, or just a stray bracket
+  return s.slice(0, open);
+}
+
 /** Typewriter stream with blinking caret. */
 export function Stream({ text, speed = 2 }: { text: string; speed?: number }) {
   const [n, setN] = useState(0);
@@ -58,7 +95,7 @@ export function Stream({ text, speed = 2 }: { text: string; speed?: number }) {
   const live = n < text.length;
   return (
     <>
-      {richText(text.slice(0, n))}
+      {richText(trimPartialLink(text.slice(0, n)))}
       {live && <span className="ml-0.5 inline-block h-3.5 w-[7px] animate-pulse rounded-[1px] bg-accent-400/80 align-middle" />}
     </>
   );

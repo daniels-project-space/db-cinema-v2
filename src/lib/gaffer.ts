@@ -186,6 +186,56 @@ function itemTypeMatches(slot: string, itemType: string | null | undefined): boo
   return !!itemType && expected.includes(itemType);
 }
 
+// ── FORM / SEVEN, our creative collaboration ────────────────────────────────────
+/**
+ * The partner briefing, chat-side.
+ *
+ * The voice agent carries the same brief as an ElevenLabs knowledge-base document
+ * (scripts/gaffer-knowledge.js, PARTNER_DOC) — the text chat never touches that KB,
+ * so it knew nothing about the collaboration the header coin and the overlay
+ * advertise on every page.
+ *
+ * Deliberately a briefing and NOT a copy of their business. Gaffer may say who they
+ * are, what the collaboration gives our customers, and hand over with a link. It may
+ * not quote their prices, promise a turnaround, describe capacity or take a brief —
+ * that is Madeline's job on their own site, and an agent improvising another
+ * company's commercial terms is how a partnership turns into a complaint. The BOUNDS
+ * fact is the gate; keep it, and keep it last so it is the closest instruction to
+ * the narrator's own rules.
+ */
+const FORM_SEVEN_URL = "https://form7.net";
+// Same deep link the SignatureProductionsOverlay CTA uses — it carries the plan
+// through to their sample form, so a customer Gaffer sends lands on the right step.
+const FORM_SEVEN_SAMPLE_URL = `${FORM_SEVEN_URL}/?samplePlan=Free%20six-second%20sample`;
+
+const PARTNER_FACTS: string[] = [
+  `FORM / SEVEN is our creative collaboration — an AI-native production studio for social that turns a product into short-form advertising: UGC-style ads, polished product films, and social content built to sell rather than fill a feed. They work with founders and small teams who want their product to look considered without an agency retainer.`,
+  `What they make: single ready-to-post ads, multi-variant campaign packs for a launch, and — optionally — ongoing Instagram management (content calendar, captions, scheduled publishing, agreed reply windows).`,
+  `THE FREE AD: they will cut a free six-second sample of the customer's product before any money changes hands — no commitment. This is the easiest thing to point an interested customer at, so lead with it.`,
+  `Db Cinema Rentals customers get 10% off FORM / SEVEN work — a genuine saving, and the reason the collaboration exists.`,
+  `Why we work with them: we hire out the kit, they make the film. Someone renting a camera to shoot their own product often needs the advert made, and a brand that needs an advert often needs kit for the shoot — so neither of us sends anyone away empty-handed.`,
+  `LINKS you may paste, exactly as written: [form7.net](${FORM_SEVEN_URL}) for the studio, and [claim the free six-second sample](${FORM_SEVEN_SAMPLE_URL}) for the free ad. Their own assistant, Madeline, handles briefs and pricing over there.`,
+  `BOUNDS — you may explain who FORM / SEVEN are, that we collaborate, the free sample and the 10% off. You may NOT quote their prices or what any package includes, promise a turnaround or a delivery date, describe their availability, capacity or process in detail, or take a creative brief. If asked any of that, say plainly that their team handles it and give the link. Never guess at another company's terms.`,
+  `You have NO way to contact FORM / SEVEN, book them, or pass a message to Madeline — so never offer to. The customer goes through the link themselves; if they'd rather talk to a person here first, point them at our Contact page (dbcinemarentals.com/contact).`,
+];
+
+/** An explicit naming of the partner, or of the free ad, is never a gear query. */
+const PARTNER_NAME_RE = /\bform\s*\/?\s*(?:7|seven)\b|form7|\bfree (?:six[- ]second |6[- ]second )?(?:ad|advert|sample ad|sample video)\b/i;
+/**
+ * "can you make me an advert" — they want the FILM made, not the kit hired, which is
+ * exactly what the collaboration is for. Kept to unambiguous advertising words (never
+ * bare "video" or "content") so a real gear query — "can you find me a video monitor"
+ * — is never swallowed by it.
+ */
+const PARTNER_MAKE_RE =
+  /\b(?:can|could|do|would|will)\s+you\b(?:\W+\w+){0,6}?\W+(?:ads?|advert\w*|commercials?|promos?|ugc)\b|\b(?:make|create|produce|shoot|film|edit)\b(?:\W+\w+){0,4}?\W+(?:ads?|advert\w*|commercials?|promos?|ugc|reels?)\b(?:\W+\w+){0,4}?\W+for\s+(?:me|us|my|our)\b/i;
+const isPartnerAsk = (t: string) => PARTNER_NAME_RE.test(t) || PARTNER_MAKE_RE.test(t);
+/** Already handed over earlier in this conversation — don't pitch it twice. */
+const PARTNER_MENTIONED_RE = /\bform\s*\/?\s*(?:7|seven)\b|form7/i;
+/** The shoot is clearly commercial, which is exactly who the collaboration is for. */
+const COMMERCIAL_RE =
+  /\b(?:product (?:shoot|film|video|photo\w*)|advert\w*|commercial shoot|ad campaign|campaign|ugc|promo(?:tional)? (?:video|film|shoot)|brand (?:shoot|film|campaign)|content for (?:my|our) (?:brand|shop|store|business|product)|social (?:media )?(?:content|ads?)|tiktok|instagram reels?)\b/i;
+
 // ── date safety: NEVER book the past ────────────────────────────────────────────
 const DAY = 86400000;
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -460,6 +510,10 @@ type Ctx = {
   start: string;
   end: string;
   pricePref: "cheaper" | "premium" | "any";
+  /** This shoot is commercial — the FORM / SEVEN collaboration is worth one mention. */
+  commercialShoot: boolean;
+  /** Gaffer already handed the partner over earlier in this chat — don't pitch twice. */
+  partnerMentioned: boolean;
 };
 
 /** Camera mounts named anywhere in the conversation (e.g. "FX3" ⇒ E). */
@@ -507,6 +561,7 @@ async function loadContext(body: any): Promise<Ctx> {
     c, memberPct: 0, memberName: null, favorites: [], favTitles: [], activeBooking: null,
     camMounts: [], camCoverage: null, customerName: "there", email: null, pastTitles: [], cartTitles: [], cartIds: [],
     today, estimated: false, start: "", end: "", pricePref: "any",
+    commercialShoot: false, partnerMentioned: false,
   };
   const camSet = new Set<string>();
   // account: name, membership, favourites, bookings
@@ -557,8 +612,8 @@ async function loadContext(body: any): Promise<Ctx> {
 
 // ── stage 1: understand ───────────────────────────────────────────────────────────
 const IntentSchema = z.object({
-  intent: z.enum(["availability", "alternative", "recommend", "build_kit", "spec", "price", "compatibility", "support", "other"])
-    .describe("availability=do you have X; alternative=suggest a substitute for X; recommend=suggest gear of a type; build_kit=assemble a full kit; spec=specs/limits of X; price=cost of X; compatibility=will/can X work with/fit/mount on Y; support=complaint/damage/refund/cancellation/dispute; other=greeting/policy/chitchat"),
+  intent: z.enum(["availability", "alternative", "recommend", "build_kit", "spec", "price", "compatibility", "support", "partner", "other"])
+    .describe("availability=do you have X; alternative=suggest a substitute for X; recommend=suggest gear of a type; build_kit=assemble a full kit; spec=specs/limits of X; price=cost of X; compatibility=will/can X work with/fit/mount on Y; support=complaint/damage/refund/cancellation/dispute; partner=they ask about FORM / SEVEN, about having an advert or promo made FOR them rather than hiring kit to shoot it themselves, or about the free sample ad; other=greeting/policy/chitchat"),
   subject: z.string().describe("the SPECIFIC item the customer named (the LENS/gear for a compatibility question), verbatim-ish, or empty string"),
   itemTypes: z.array(z.string()).describe("gear types from [camera,lens,light,gimbal,mic,monitor,tripod,nd-filter,battery,drone,speaker]"),
   cameraModel: z.string().describe("the camera model OR mount in play (e.g. 'FX3', 'Sony E mount') — for a compatibility question this is the BODY they want to fit the subject onto; else empty"),
@@ -742,6 +797,11 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
       }
       break;
     }
+    case "partner": {
+      // No cards: FORM / SEVEN is a collaboration, not a bookable line on our shelf.
+      facts.push(...PARTNER_FACTS);
+      break;
+    }
     case "support": {
       facts.push(`SUPPORT / OUT-OF-SCOPE (damage, refund, cancellation, complaint or dispute): do NOT try to resolve it, admit fault, or promise a refund. Be warm and apologetic, and tell them our team handles these directly — they can reach the team via the Contact page (dbcinemarentals.com/contact).`);
       break;
@@ -752,6 +812,18 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
       facts.push(`No specific gear was requested; answer helpfully and invite them to name a camera, gear type, or dates.`);
       break;
     }
+  }
+
+  // ONE soft mention of the collaboration when the shoot is clearly commercial — that
+  // customer is exactly who FORM / SEVEN exists for. Gated on the conversation actually
+  // being commercial and on never having mentioned it before, so it stays an offer and
+  // never becomes an advert Gaffer reads out on every turn.
+  if (intent.intent !== "partner" && ctx.commercialShoot && !ctx.partnerMentioned) {
+    facts.push(
+      `SIDE NOTE — this reads as a commercial shoot. You MAY add ONE short closing line (never more, and only if it lands naturally): ` +
+      `we collaborate with FORM / SEVEN, who make the advert itself; Db Cinema customers get 10% off, and they'll cut a free six-second ` +
+      `sample of the product first — [free six-second sample](${FORM_SEVEN_SAMPLE_URL}). Never describe their prices, packages or turnaround.`,
+    );
   }
 
   // single-type discipline: a one-type ask shows only that type
@@ -790,6 +862,7 @@ ABSOLUTE GROUNDING RULES (never break):
 - The CARDS listed below are the EXACT bookable tiles the customer sees. Reference only those items by name (you may **bold** them). Never name gear that isn't in CARDS or FACTS.
 - If a FACT says NOT STOCKED for a specific item, say we don't have THAT specific item — never generalise to a whole brand or category (we may stock other gear from it) — then point them to the alternative CARDS shown.
 - Never invent specs, prices, availability, or model names. Never say "let me check" or promise a later message — everything is already decided here.
+- LINKS: when a FACT gives you a link as [label](url), paste it EXACTLY as written — the chat renders it as a real clickable link. Never invent, shorten or alter a URL, and never link to anything that isn't in FACTS.
 - If ${result.askDates ? "TRUE" : "FALSE"} is TRUE, ask for their shoot dates in ONE short question (the card prices shown are for example dates).
 ${ctx.favTitles.length ? "- If relevant, acknowledge their saved favourites naturally." : ""}
 
@@ -823,12 +896,21 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
     ctx.camCoverage = biggerCoverage(ctx.camCoverage, res.coverage);
   } catch {}
 
+  // FORM / SEVEN context, from the conversation rather than the model: whether this is a
+  // commercial shoot, and whether we've already handed the partner over (so we don't twice).
+  ctx.commercialShoot = COMMERCIAL_RE.test(allUserText);
+  ctx.partnerMentioned = history.some((m: any) => m.role !== "user" && PARTNER_MENTIONED_RE.test(String(m.content || "")));
+
+  const lastUser = String([...history].reverse().find((m: any) => m.role === "user")?.content || "");
   const intent = await understand(model, history, ctx.today);
+  // deterministic backstop: naming FORM / SEVEN, the free ad, or asking us to MAKE the
+  // advert is never a gear query, and must not be resolved against the catalogue — "form 7"
+  // matches no listing, and the classifier reads "make me an advert" as a kit request.
+  if (isPartnerAsk(lastUser)) intent.intent = "partner";
   // deterministic relative-date backstop: if the LLM left dates unresolved, derive them
   // from the latest user message ("this weekend", "tomorrow", "next week").
   if (!intent.start || !intent.end) {
-    const lastUser = [...history].reverse().find((m: any) => m.role === "user")?.content || "";
-    const rel = resolveRelativeDates(String(lastUser), ctx.today);
+    const rel = resolveRelativeDates(lastUser, ctx.today);
     if (rel.start) { intent.start = intent.start || rel.start; intent.end = intent.end || rel.end; }
   }
   const result = await execute(intent, ctx);
