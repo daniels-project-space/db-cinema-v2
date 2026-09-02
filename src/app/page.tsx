@@ -86,22 +86,35 @@ export default async function Home() {
       {/* ───────────────── trust strip ───────────────── */}
       <section className="section-window border-y border-white/5 px-6 py-12">
         {/* four across on desktop, two-up on tablet — a fourth tile in the old
-            three-column grid orphaned itself onto a row of its own */}
-        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            three-column grid orphaned itself onto a row of its own.
+            Icon beside the text on mobile, ABOVE it once the grid splits into
+            columns. In a narrow column the old side-by-side layout left the heading
+            ~158px and wrapped every one onto two lines ("Based in Trafalgar /
+            Square"), so stacking buys back the full width; but on a single-column
+            phone the tile is ~342px wide and stacking just leaves a dead patch
+            beside the icon and makes the strip 660px tall. Neither layout is right
+            at both widths.
+            auto-rows-fr + h-full on both the Reveal and the tile is what makes all
+            four match the tallest, at every breakpoint. h-full alone only equalises
+            within a row (the shortest, "Booked in minutes", sat 24px short with a
+            gap beneath); auto-rows-fr equalises the ROWS too, so the four also match
+            when they stack one- or two-up and no hardcoded min-height can go stale
+            when the copy changes. */}
+        <div className="mx-auto grid max-w-6xl auto-rows-fr grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {[
+            [BadgeSquare, "Based in Trafalgar Square", "collect from the middle of London"],
             [BadgeTruck, "Delivered across London", "or collect in central London"],
             [BadgeShield, "Pro-maintained gear", "checked and cleaned between rentals"],
             [BadgeClock, "Booked in minutes", "online, any time, instant confirmation"],
-            [BadgeSquare, "Based in Trafalgar Square", "collect from the middle of London"],
           ].map(([Icon, h, p]: any, i) => (
-            <Reveal key={h} delay={i * 90}>
-              <div className="spot gradient-border flex items-start gap-4 rounded-2xl p-5">
-                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400">
-                  <Icon className="h-10 w-10" />
+            <Reveal key={h} delay={i * 90} className="h-full">
+              <div className="spot gradient-border flex h-full flex-row items-center gap-4 rounded-2xl p-6 sm:flex-col sm:items-stretch">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400">
+                  <Icon className="h-8 w-8" />
                 </span>
-                <span>
-                  <span className="block font-display font-semibold text-white/90">{h}</span>
-                  <span className="mt-1 block text-sm text-white/40">{p}</span>
+                <span className="block">
+                  <span className="block font-display font-semibold leading-snug text-white/90">{h}</span>
+                  <span className="mt-1.5 block text-sm leading-relaxed text-white/40">{p}</span>
                 </span>
               </div>
             </Reveal>
