@@ -1,11 +1,11 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 
 const DEFAULTS = {
   deliveryMarginPct: 10,
   deliveryMaxKm: 30,
-  openingHours: "10:00–12:00 & 19:00–21:00, daily",
+  openingHours: "09:00–22:00, daily",
   acceptingOrders: true,
   googleReviewUrl: "",
   businessAddress: "",
@@ -40,6 +40,29 @@ export const adminGet = query({
       return { authorized: false as const };
     const d = await ctx.db.query("settings").first();
     return { authorized: true as const, config: configFrom(d) };
+  },
+});
+
+/**
+ * Ops-only override write, for the CLI (`convex run settings:opsPatch '{...}'`).
+ *
+ * The stored row SHADOWS the DEFAULTS above — configFrom prefers it — so
+ * changing a default in code does nothing while a stale value sits in the
+ * database. The only other write path is adminUpdate, which needs ADMIN_TOKEN
+ * and a browser. Internal, so it is unreachable from any client.
+ */
+export const opsPatch = internalMutation({
+  args: {
+    openingHours: v.optional(v.string()),
+    acceptingOrders: v.optional(v.boolean()),
+    businessAddress: v.optional(v.string()),
+    businessPhone: v.optional(v.string()),
+  },
+  handler: async (ctx, patch) => {
+    const existing = await ctx.db.query("settings").first();
+    if (existing) await ctx.db.patch(existing._id, patch);
+    else await ctx.db.insert("settings", { ...DEFAULTS, ...patch });
+    return configFrom(await ctx.db.query("settings").first());
   },
 });
 

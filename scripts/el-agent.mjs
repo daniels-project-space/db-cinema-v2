@@ -38,7 +38,7 @@ const prompt = [
   "To answer do-you-have / is-it-free / what-does-it-cost, ALWAYS call the matching tool (check_stock, check_availability, get_price). Never guess prices or stock.",
   "Convert spoken dates to YYYY-MM-DD before calling check_availability. Ask for dates if not given.",
   "If the caller wants to book or you cannot fully help, call request_callback with their name, phone and need, and say the team will call back.",
-  "Hours are 10:00-12:00 and 19:00-21:00 daily; you deliver across London.",
+  "Hours are 09:00-22:00 daily; you deliver across London.",
 ].join(" ");
 
 const agentBody = {

@@ -10,6 +10,7 @@ import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { coverageCompat } from "@/lib/compat";
 import { lensPriority, isCameraSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType } from "../../convex/lib/taxonomy";
+import { CONTACT_EMAIL } from "@/lib/site";
 
 /**
  * Gaffer v2 — "engine decides, LLM narrates".
@@ -246,6 +247,16 @@ const COMPAT_RE =
  * fact is the gate; keep it, and keep it last so it is the closest instruction to
  * the narrator's own rules.
  */
+/**
+ * How to reach a human. Stated as a link so the chat renders it clickable, and
+ * as the one address the whole site now uses — if Gaffer improvises an old or
+ * plausible-looking address, the customer's message goes nowhere.
+ */
+const CONTACT_FACT =
+  `TO REACH THE TEAM, give BOTH, exactly as written and never altered: email [${CONTACT_EMAIL}](mailto:${CONTACT_EMAIL}), ` +
+  `or the [contact form](https://dbcinemarentals.com/contact), which lands in the same inbox. ` +
+  `${CONTACT_EMAIL} is our ONLY email address — never state, guess or invent any other.`;
+
 const FORM_SEVEN_URL = "https://form7.net";
 // Same deep link the SignatureProductionsOverlay CTA uses — it carries the plan
 // through to their sample form, so a customer Gaffer sends lands on the right step.
@@ -881,13 +892,14 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
       break;
     }
     case "support": {
-      facts.push(`SUPPORT / OUT-OF-SCOPE (damage, refund, cancellation, complaint or dispute): do NOT try to resolve it, admit fault, or promise a refund. Be warm and apologetic, and tell them our team handles these directly — they can reach the team via the Contact page (dbcinemarentals.com/contact).`);
+      facts.push(`SUPPORT / OUT-OF-SCOPE (damage, refund, cancellation, complaint or dispute): do NOT try to resolve it, admit fault, or promise a refund. Be warm and apologetic, and tell them our team handles these directly. ${CONTACT_FACT}`);
       break;
     }
     default: {
       // greeting / policy / chitchat — no cards, but make favourites known
       if (ctx.favTitles.length) facts.push(`This customer's saved favourites: ${ctx.favTitles.join(", ")}.`);
       facts.push(`No specific gear was requested; answer helpfully and invite them to name a camera, gear type, or dates.`);
+      facts.push(CONTACT_FACT);
       break;
     }
   }

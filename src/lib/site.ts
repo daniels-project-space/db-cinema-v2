@@ -6,13 +6,16 @@ export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://dbcinemaren
 export const SITE_NAME = "Db Cinema Rentals";
 export const AREA = "London, United Kingdom";
 
+/** The public contact address. Convex keeps its own copy (it can't import from
+ * src/) — see OWNER_EMAIL there; change both, or neither. */
+export const CONTACT_EMAIL = "dbcinemarentals@gmail.com";
+
 /** Pickup/return/delivery windows. Slots are derived from the windows. */
 export const HOURS_WINDOWS: readonly { opens: string; closes: string }[] = [
-  { opens: "10:00", closes: "12:00" },
-  { opens: "19:00", closes: "21:00" },
+  { opens: "09:00", closes: "22:00" },
 ];
-export const HOURS_LABEL = "10:00–12:00 & 19:00–21:00, daily";
-export const HOURS_SENTENCE = "10:00–12:00 and 19:00–21:00, every day";
+export const HOURS_LABEL = "09:00–22:00, daily";
+export const HOURS_SENTENCE = "09:00–22:00, every day";
 export const PICKUP_SLOTS = HOURS_WINDOWS.flatMap(({ opens, closes }) => {
   const out: string[] = [];
   for (let h = Number(opens.slice(0, 2)); h <= Number(closes.slice(0, 2)); h++)

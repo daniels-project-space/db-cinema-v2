@@ -195,3 +195,48 @@ export function BadgeLock(p: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** Trafalgar Square — Nelson's Column between two working fountains, a pigeon
+ * crossing the square, and a location ping washing out from the base. Drawn
+ * rather than reached for as a generic map pin: the column is the silhouette
+ * that says *this* square, and the pin says nothing a hundred other sites
+ * aren't already saying. */
+export function BadgeSquare(p: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...svg(p)}>
+      {/* location ping, washing out across the paving */}
+      <ellipse className="ab-ping" cx="24" cy="41.5" rx="10" ry="2.6" strokeWidth="1.5" />
+      <ellipse className="ab-ping ab-pg2" cx="24" cy="41.5" rx="10" ry="2.6" strokeWidth="1.5" />
+
+      {/* fountain basins either side */}
+      <path d="M7 41.5h7M34 41.5h7" strokeWidth="1.5" />
+      {/* jets — scale from the basin up */}
+      <path className="ab-jet" d="M10.5 41.5c0-4.2 1.4-6.6 3-7.8" strokeWidth="1.5" />
+      <path className="ab-jet ab-j2" d="M37.5 41.5c0-4.2-1.4-6.6-3-7.8" strokeWidth="1.5" />
+      <circle className="ab-drop" cx="14.6" cy="32.6" r="1" fill="currentColor" stroke="none" />
+      <circle className="ab-drop ab-d2" cx="33.4" cy="32.6" r="1" fill="currentColor" stroke="none" />
+
+      {/* the column */}
+      <g className="ab-column">
+        {/* Nelson on top */}
+        <circle cx="24" cy="8.4" r="1.5" />
+        <path d="M24 10v3.2M22.4 11.4h3.2" strokeWidth="1.5" />
+        {/* capital */}
+        <path d="M21 15.5h6M20.2 17.5h7.6" strokeWidth="1.6" />
+        {/* shaft, tapering */}
+        <path d="M22.1 17.5 21.4 35M25.9 17.5l.7 17.5" />
+        {/* pedestal */}
+        <path d="M19.6 35h8.8M18 38h12v3.5H18z" strokeWidth="1.6" />
+      </g>
+
+      {/* ground line */}
+      <path d="M4 41.5h40" strokeWidth="1.5" />
+
+      {/* a pigeon crossing the square */}
+      <g className="ab-pigeon">
+        <path className="ab-wing" d="M9 15.5c1.4-1.8 2.8-1.8 4.2 0" strokeWidth="1.5" />
+        <path d="M13.2 15.5c1.4-1.8 2.8-1.8 4.2 0" strokeWidth="1.5" />
+      </g>
+    </svg>
+  );
+}

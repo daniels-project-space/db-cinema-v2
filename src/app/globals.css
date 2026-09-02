@@ -1290,6 +1290,19 @@ html[data-gaffer-nav="1"] .tile-in {
   transform-box: fill-box;
   transform-origin: 50% 100%;
 }
+/* jets grow out of the basin and the column settles onto its plinth, so both
+   scale from their base rather than their middle */
+.ab-jet,
+.ab-column {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.ab-pigeon,
+.ab-wing,
+.ab-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+}
 .ab-faceB,
 .ab-conf,
 .ab-wind,
@@ -1297,6 +1310,8 @@ html[data-gaffer-nav="1"] .tile-in {
 .ab-puff,
 .ab-spark,
 .ab-lockspark,
+.ab-drop,
+.ab-ping,
 .ab-calcheck { opacity: 0; }
 .ab-road { opacity: 0.35; }
 .ab-card { opacity: 0.45; }
@@ -1344,6 +1359,47 @@ html[data-gaffer-nav="1"] .tile-in {
   .ab-lockbody { animation: ab-lock-click 4.2s ease-out infinite; }
   .ab-lockspark { animation: ab-lock-spark 4.2s ease-out infinite; }
   .ab-ls2 { animation-delay: 0.06s; }
+
+  /* Trafalgar Square — fountains breathe, a pigeon crosses, the square pings */
+  .ab-jet { animation: ab-jet-rise 3.4s ease-in-out infinite; }
+  .ab-j2 { animation-delay: 0.55s; }
+  .ab-drop { animation: ab-drop-fall 3.4s ease-in infinite; }
+  .ab-d2 { animation-delay: 0.55s; }
+  .ab-ping { animation: ab-ping-ring 3.4s ease-out infinite; }
+  .ab-pg2 { animation-delay: 1.7s; }
+  .ab-pigeon { animation: ab-pigeon-fly 5.6s ease-in-out infinite; }
+  .ab-wing { animation: ab-wing-flap 0.34s ease-in-out infinite; }
+  .ab-column { animation: ab-column-settle 5.6s ease-out infinite; }
+}
+
+@keyframes ab-jet-rise {
+  0%, 100% { transform: scaleY(0.7); opacity: 0.5; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+@keyframes ab-drop-fall {
+  0% { transform: translateY(0) scale(0.5); opacity: 0; }
+  20% { opacity: 0.85; }
+  100% { transform: translateY(7px) scale(1); opacity: 0; }
+}
+@keyframes ab-ping-ring {
+  0% { transform: scale(0.45); opacity: 0; }
+  25% { opacity: 0.55; }
+  100% { transform: scale(1.2); opacity: 0; }
+}
+@keyframes ab-pigeon-fly {
+  0%, 6% { transform: translate(0, 0); opacity: 0; }
+  16% { opacity: 0.85; }
+  62% { opacity: 0.85; }
+  74%, 100% { transform: translate(25px, -8px); opacity: 0; }
+}
+@keyframes ab-wing-flap {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(0.3); }
+}
+@keyframes ab-column-settle {
+  0%, 80% { transform: translateY(0); }
+  87% { transform: translateY(-1.2px); }
+  100% { transform: translateY(0); }
 }
 
 @keyframes ab-rumble {

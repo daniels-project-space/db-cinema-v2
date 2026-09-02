@@ -431,6 +431,6 @@ export const FAQS: Faq[] = [
   { q: "Do you deliver across London?", a: "Yes. Delivery is quoted both ways based on distance and load — larger setups travel by van. You choose pickup or delivery at checkout and pick your time window." },
   { q: "What about deposits and insurance?", a: "ID-verified renters pay a small refundable damage hold plus insurance cover instead of a large deposit. Verify your ID once and it's saved to your account." },
   { q: "How are the rates structured?", a: "Daily, 3-day and weekly rates — the longer you rent, the lower the per-day price, applied automatically. Members save a further 10-30% on every rental." },
-  { q: "What are your opening hours?", a: "Pickups and returns run 10:00-12:00 and 19:00-21:00, every day. Delivery times are arranged when you book." },
+  { q: "What are your opening hours?", a: "Pickups and returns run 09:00-22:00, every day. Delivery times are arranged when you book." },
   { q: "Can I extend or add to my booking?", a: "Yes — message us in your account and you can add compatible gear up to an hour before your rental starts, or ask about extending your dates." },
 ];

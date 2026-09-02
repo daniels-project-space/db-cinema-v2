@@ -132,7 +132,7 @@ export const _gafferContext = internalQuery({
       messages: msgs,
       booking,
       location: settings?.businessAddress || null,
-      hours: settings?.openingHours || "10:00–12:00 & 19:00–21:00, daily",
+      hours: settings?.openingHours || "09:00–22:00, daily",
     };
   },
 });

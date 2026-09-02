@@ -157,9 +157,29 @@ export const changeEmail = internalAction({
   },
 });
 
+/**
+ * A contact-form submission.
+ *
+ * This used to fire Telegram ONLY — the message landed in the database and a
+ * chat, and never reached the company inbox at all. It now emails the owner
+ * too, with reply_to set to the SENDER, so hitting reply answers the customer
+ * directly rather than looping back to our own address.
+ */
 export const contactAlert = internalAction({
   args: { name: v.string(), email: v.string(), message: v.string() },
   handler: async (ctx, a) => {
+    const owner = process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
+    const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
+    await email(
+      owner,
+      `✉️ Contact form — ${a.name}`,
+      `<h2>New message from the contact form</h2>
+       <p><b>${esc(a.name)}</b> &lt;${esc(a.email)}&gt;</p>
+       <pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;border-left:3px solid #e0992f;padding:2px 0 2px 14px;margin:16px 0">${esc(a.message)}</pre>
+       <p style="color:#888">Reply to this email to answer ${esc(a.name)} directly. Also saved in <a href="${app}/admin">the admin inbox</a>.</p>`,
+      undefined,
+      a.email,
+    );
     await telegram(
       `✉️ <b>New contact message</b>\nFrom: ${a.name} (${a.email})\n\n${a.message}`,
     );
@@ -281,7 +301,7 @@ export const sendReminders = internalAction({
         await email(
           b.guestEmail,
           "Your Db Cinema pickup is tomorrow 🎬",
-          `<p>Quick reminder — your rental ${b.fulfilment === "delivery" ? "delivery" : "pickup"} is <b>tomorrow</b>${b.pickupTime ? " at " + b.pickupTime : ""}.</p><p>${b.summary}</p><p>Windows: 10:00–12:00 and 19:00–21:00.</p>`,
+          `<p>Quick reminder — your rental ${b.fulfilment === "delivery" ? "delivery" : "pickup"} is <b>tomorrow</b>${b.pickupTime ? " at " + b.pickupTime : ""}.</p><p>${b.summary}</p><p>Windows: 09:00–22:00.</p>`,
         );
         await telegram(`⏰ <b>Pickup tomorrow</b>\n${b.guestEmail} ${b.pickupTime ?? ""}\n${b.summary}`);
         await ctx.runMutation(internal.bookings.markReminded, { bookingId: b._id, which: "pickup" });

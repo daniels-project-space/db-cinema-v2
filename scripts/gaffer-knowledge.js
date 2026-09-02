@@ -137,7 +137,7 @@ and load, and larger setups travel by van. Pickup or delivery is chosen at check
 with a time window. Members may get free delivery.
 
 ## Opening hours
-Pickups and returns run 10:00-12:00 and 19:00-21:00, every day. Delivery windows are
+Pickups and returns run 09:00-22:00, every day. Delivery windows are
 arranged when booking.
 
 ## Changes, extensions and cancellations
@@ -151,6 +151,13 @@ this, say a human will confirm and take their details.
 Memory cards are not included with cameras. A lens is only included if the listing says
 so. A gimbal never includes a camera. Lighting stands and modifiers are separate unless
 the title lists them. Always say what is not in the case before the customer books.
+
+## How to reach us
+Our email address is dbcinemarentals@gmail.com — say it aloud as "d b cinema rentals, at
+gmail dot com". This is the ONLY address we use; never state or guess at another one.
+Messages sent through the contact form at dbcinemarentals.com/contact arrive in the same
+inbox. Anything you file with request_callback or log_enquiry also lands there, so filing
+it yourself is normally better than asking the customer to send an email.
 `;
 
 /**

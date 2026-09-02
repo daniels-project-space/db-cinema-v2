@@ -14,7 +14,7 @@ import { GearCard, type GearListing } from "@/components/GearCard";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { Magnetic } from "@/components/Magnetic";
 import { IconArrowRight } from "@/components/icons";
-import { BadgeTruck, BadgeShield, BadgeClock, BadgeBrowse, BadgeCalendar, BadgeLock } from "@/components/AnimatedIcons";
+import { BadgeTruck, BadgeShield, BadgeClock, BadgeSquare, BadgeBrowse, BadgeCalendar, BadgeLock } from "@/components/AnimatedIcons";
 import { SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 
 export default async function Home() {
@@ -85,11 +85,14 @@ export default async function Home() {
 
       {/* ───────────────── trust strip ───────────────── */}
       <section className="section-window border-y border-white/5 px-6 py-12">
-        <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 sm:grid-cols-3">
+        {/* four across on desktop, two-up on tablet — a fourth tile in the old
+            three-column grid orphaned itself onto a row of its own */}
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {[
             [BadgeTruck, "Delivered across London", "or collect in central London"],
             [BadgeShield, "Pro-maintained gear", "checked and cleaned between rentals"],
             [BadgeClock, "Booked in minutes", "online, any time, instant confirmation"],
+            [BadgeSquare, "Based in Trafalgar Square", "collect from the middle of London"],
           ].map(([Icon, h, p]: any, i) => (
             <Reveal key={h} delay={i * 90}>
               <div className="spot gradient-border flex items-start gap-4 rounded-2xl p-5">

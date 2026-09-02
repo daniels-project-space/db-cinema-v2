@@ -15,7 +15,7 @@ import { AGREEMENTS } from "@/lib/legal";
 import { depositFor, smallDamageHold, type Protection } from "@/lib/pricing";
 
 import { dayMs as ms } from "@/lib/dates";
-import { PICKUP_SLOTS as SLOTS } from "@/lib/site";
+import { PICKUP_SLOTS as SLOTS, HOURS_SENTENCE } from "@/lib/site";
 
 const PC_RE = /([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})/i;
 
@@ -210,7 +210,7 @@ export default function CheckoutPage() {
             <StepCard
               n="02"
               title="Fulfilment"
-              sub="Pickup, return & delivery windows: 10:00–12:00 and 19:00–21:00, daily."
+              sub={`Pickup, return & delivery windows: ${HOURS_SENTENCE}.`}
               done={fulfilmentDone}
               delay={70}
             >

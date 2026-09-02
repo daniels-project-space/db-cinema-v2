@@ -4,6 +4,7 @@ import { api } from "@cvx/_generated/api";
 import { Marquee } from "@/components/Marquee";
 import { GafferCall } from "@/components/GafferCall";
 import { HOURS_LABEL } from "@/lib/site";
+import { EmailLink } from "@/components/EmailLink";
 
 export async function Footer() {
   let cfg: any = {};
@@ -46,9 +47,7 @@ export async function Footer() {
               </div>
             )}
             <div>
-              <a href="mailto:dbcinemarentals@gmail.com" className="transition-colors hover:text-white">
-                dbcinemarentals@gmail.com
-              </a>
+              <EmailLink className="transition-colors hover:text-white" />
             </div>
             <div>Open {cfg.openingHours ?? HOURS_LABEL}</div>
           </address>

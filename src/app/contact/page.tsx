@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { PageHero } from "@/components/PageHero";
 import { IconCheck, IconClock, IconPin, IconSend } from "@/components/icons";
 import { HOURS_WINDOWS } from "@/lib/site";
+import { EmailLink } from "@/components/EmailLink";
 import { AskGaffer } from "@/components/gaffer/AskGaffer";
 
 export default function ContactPage() {
@@ -96,9 +97,7 @@ export default function ContactPage() {
                 <span className="hud-label !text-white/60">Email</span>
               </div>
               <p className="mt-2 text-sm leading-relaxed text-white/60">
-                <a href="mailto:dbcinemarentals@gmail.com" className="break-all transition-colors hover:text-white">
-                  dbcinemarentals@gmail.com
-                </a>
+                <EmailLink className="break-all transition-colors hover:text-white" />
                 <br />
                 <span className="text-white/35">we reply within a day</span>
               </p>
