@@ -67,6 +67,7 @@ const DATES = {
 };
 
 const NEW_TOOLS = [
+  clientTool("request_better_price", "ONLY after the caller explicitly asks for a better price or discount. Applies 10% when the rental subtotal is strictly above £400, excluding already-discounted add-ons, deposits and delivery. Never offer it proactively; report the tool result."),
   clientTool(
     "recommend_gear",
     "THE tool for 'what do you have' questions. Filters the catalogue page on screen to what they asked for, highlights the shortlist and scrolls it into view, then tells you the prices and exactly what is and isn't included. Offer the bare item before the sets unless they asked for a package, and always say what is not in the box.",
@@ -228,7 +229,9 @@ async function main() {
   console.log(`prompt unchanged: ${after.conversation_config.agent.prompt.prompt === agent.conversation_config.agent.prompt.prompt}`);
 }
 
-main().catch((e) => {
+module.exports = { NEW_TOOLS };
+
+if (require.main === module) main().catch((e) => {
   console.error(String(e.message || e));
   process.exit(1);
 });

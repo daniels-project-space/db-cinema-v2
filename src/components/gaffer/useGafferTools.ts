@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useConvex } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { GAFFER_PRICE_CODE } from "@cvx/lib/gafferDiscount";
+import { asksForBetterPrice } from "./priceRequest";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { quote, depositFor } from "@/lib/pricing";
@@ -70,6 +72,11 @@ function speakCompat(warnings: { level: string; text: string }[]): string {
 
 export function useGafferTools() {
   const router = useRouter();
+  const priceRequested = useRef(false);
+  const noteCustomerMessage = useCallback((message: string) => {
+    if (asksForBetterPrice(message)) priceRequested.current = true;
+  }, []);
+  const resetPriceRequest = useCallback(() => { priceRequested.current = false; }, []);
   const cart = useCart();
   const account = useAccount();
   const convex = useConvex();
@@ -244,25 +251,55 @@ export function useGafferTools() {
     }
   }, [cart]);
 
+  const rentalSummary = useCallback(async () => {
+    if (!cart.promo) return `£${cart.subtotal}`;
+    const result = await convex.query(api.promo.validate, {
+      code: cart.promo, eligibleSubtotal: cart.eligibleSubtotal, rentalSubtotal: cart.subtotal,
+      tier: account.me?.membershipTier ?? undefined, membershipActive: !!account.me?.membershipActive,
+      email: account.me?.email,
+    });
+    return result.valid ? `£${cart.subtotal - result.discount} after a £${result.discount} saving` : `£${cart.subtotal}`;
+  }, [cart, account, convex]);
+
   const clientTools = useMemo(
     () => ({
+      request_better_price: async () => {
+        if (!priceRequested.current) return "No discount applied: the caller has not asked for a better price. Do not offer this proactively.";
+        const args = { eligibleSubtotal: cart.eligibleSubtotal, rentalSubtotal: cart.subtotal,
+          tier: account.me?.membershipTier ?? undefined, membershipActive: !!account.me?.membershipActive, email: account.me?.email };
+        const deal = await convex.query(api.promo.validate, { ...args, code: GAFFER_PRICE_CODE });
+        if (!deal.valid) return `No discount applied: ${deal.reason}.`;
+        if (cart.promo && cart.promo !== GAFFER_PRICE_CODE) {
+          const current = await convex.query(api.promo.validate, { ...args, code: cart.promo });
+          if (current.valid && current.discount >= deal.discount) return `Your existing code already saves £${current.discount}; kept the better price.`;
+        }
+        cart.setPromo(GAFFER_PRICE_CODE);
+        return `Applied 10% to the eligible rental lines: saving £${deal.discount}, rental total £${cart.subtotal - deal.discount}. Already-discounted add-ons keep their existing price. Deposits and delivery are unchanged; checkout keeps any better membership discount.`;
+      },
       /** "Show me your lighting" / "take me to the basket". */
       navigate_to: async ({ destination }: { destination: string }) => {
         const d = String(destination ?? "").toLowerCase().trim();
         instant();
+        cart.close();
 
         const direct = ROUTES[d];
         if (direct) {
-          router.push(direct);
+          router.push(direct, { scroll: direct !== "/gear" });
+          if (direct === "/gear" && !await scrollToId("gear-toolbar", direct))
+            return "Catalogue requested, but it has not finished loading on screen.";
           return `Opened ${d}.`;
         }
         const cat = CATEGORIES.find((c) => c.toLowerCase() === d || c.toLowerCase().startsWith(d));
         if (cat) {
-          router.push(`/gear?cat=${encodeURIComponent(cat)}`);
-          return `Showing ${cat} on screen.`;
+          const route = `/gear?cat=${encodeURIComponent(cat)}`;
+          router.push(route, { scroll: false });
+          const shown = await scrollToId("gear-toolbar", route);
+          return shown ? `Showing ${cat} on screen.` : `Requested ${cat}, but the catalogue has not finished loading on screen.`;
         }
-        router.push(`/gear?q=${encodeURIComponent(d)}`);
-        return `Searching the catalogue for ${d}.`;
+        const route = `/gear?q=${encodeURIComponent(d)}`;
+        router.push(route, { scroll: false });
+        const shown = await scrollToId("gear-toolbar", route);
+        return shown ? `Searching the catalogue for ${d}.` : `Search for ${d} requested, but the catalogue has not finished loading on screen.`;
       },
 
       /**
@@ -279,10 +316,13 @@ export function useGafferTools() {
         const qs = new URLSearchParams();
         if (cat) qs.set("cat", cat);
         if (q) qs.set("q", q);
-        instant();
-        router.push(`/gear?${qs.toString()}`);
-
+        cart.close();
         const hits = q ? await findMany(q, 4) : [];
+        if (hits.length) qs.set("gaffer", "1");
+        const route = `/gear?${qs.toString()}`;
+        instant();
+        router.push(route, { scroll: false });
+        const shown = hits.length ? await suggest(hits.map((h) => h.id), route) : false;
         if (!hits.length) {
           /**
            * A category-only browse ("show me lighting") has no single item to
@@ -291,8 +331,8 @@ export function useGafferTools() {
            * results sat a full screen below the fold. Scroll to the toolbar
            * regardless of whether a specific item was found.
            */
-          scrollToId("gear-toolbar");
-          return `Showing ${cat ?? "the catalogue"} on screen — scrolled down to it.`;
+          const shown = await scrollToId("gear-toolbar", route);
+          return shown ? `Showing ${cat ?? "the catalogue"} on screen.` : "Catalogue requested, but it has not finished loading on screen.";
         }
 
         const w = resolveWindow(start, end);
@@ -304,7 +344,7 @@ export function useGafferTools() {
         }
         if (!free.length) return `Nothing matching ${q} is free ${w.startIso} to ${w.endIso}. Booked: ${taken.join("; ")}.`;
         return (
-          `On screen now. Free ${w.startIso} to ${w.endIso}: ${free.join("; ")}.` +
+          `${shown ? "On screen now." : "Found these options, but the catalogue has not finished loading on screen."} Free ${w.startIso} to ${w.endIso}: ${free.join("; ")}.` +
           (taken.length ? ` Already booked: ${taken.join("; ")}.` : "")
         );
       },
@@ -339,6 +379,7 @@ export function useGafferTools() {
        * body-plus-lens-plus-tripod listings.
        */
       recommend_gear: async ({ item, category }: { item?: string; category?: string }) => {
+        cart.close();
         const q = String(item ?? "").trim();
         const cat = category
           ? CATEGORIES.find((c) => c.toLowerCase().startsWith(String(category).toLowerCase()))
@@ -363,9 +404,12 @@ export function useGafferTools() {
         if (res.category) qs.set("cat", res.category);
         if (res.brand) qs.set("q", res.brand);
         else if (q) qs.set("q", q);
+        qs.set("gaffer", "1");
+        const route = `/gear?${qs.toString()}`;
         instant();
-        router.push(`/gear?${qs.toString()}`);
-        suggest(picks.map((p: any) => p.id));
+        cart.close();
+        router.push(route, { scroll: false });
+        const shown = await suggest(picks.map((p: any) => p.id), route);
 
         const line = (p: any) =>
           `${p.title} at £${p.daily} a day` +
@@ -378,7 +422,7 @@ export function useGafferTools() {
         if (res.bundles?.length)
           parts.push(`With extras included: ${res.bundles.slice(0, 3).map(line).join(". ")}.`);
         return (
-          `${picks.length} on screen and highlighted. ${parts.join(" ")} ` +
+          `${shown ? `${picks.length} on screen and highlighted` : "Catalogue requested but screen is still loading"}. ${parts.join(" ")} ` +
           `Offer the bare item first unless they asked for a set, and say what isn't included.`
         );
       },
@@ -387,12 +431,18 @@ export function useGafferTools() {
       select_item: async ({ item }: { item: string }) => {
         const hit = await findOne(item);
         if (!hit) return `Couldn't find ${item} on screen.`;
-        focus(hit.id);
-        return `Highlighted ${hit.title} on screen.`;
+        cart.close();
+        const route = `/gear?q=${encodeURIComponent(hit.title)}&gaffer=1`;
+        instant();
+        router.push(route, { scroll: false });
+        await suggest([hit.id], route);
+        const shown = await focus(hit.id, undefined, route);
+        return shown ? `Highlighted ${hit.title} on screen.` : `Found ${hit.title}, but the screen is still loading.`;
       },
 
       /** "Let me show you the FX3" — opens the actual product page. */
       show_gear: async ({ item }: { item: string }) => {
+        cart.close();
         const hit = await findOne(item);
         if (!hit) return `Couldn't find ${item} to show.`;
         instant();
@@ -603,7 +653,7 @@ export function useGafferTools() {
       show_basket: async () => {
         cart.open();
         if (!cart.count) return "Basket is empty.";
-        return `Basket: ${cart.items.map((i) => i.title).join(", ")}. Subtotal £${cart.subtotal}.`;
+        return `Basket: ${cart.items.map((i) => i.title).join(", ")}. Rental total ${await rentalSummary()}.`;
       },
 
       /**
@@ -620,7 +670,7 @@ export function useGafferTools() {
         const holding = depositFor("verify", cart.depositTotal);
         const summary =
           `Basket breakdown is on screen: ${cart.items.length} line${cart.items.length > 1 ? "s" : ""}, ` +
-          `£${cart.subtotal} plus a £${holding} refundable holding deposit.` +
+          `${await rentalSummary()} plus a £${holding} refundable holding deposit.` +
           speakCompat(compat.warnings ?? []);
         return bad.length
           ? `${summary} Heads up — ${bad.map((b) => b.title).join(" and ")} won't be free for those dates. ` +
@@ -753,7 +803,7 @@ export function useGafferTools() {
             .join("; ");
           return (
             `Full breakdown is on screen and everything in it is available.${speakCompat(compat.warnings ?? [])} ${lines}. ` +
-            `That's £${cart.subtotal} plus a £${holding} refundable holding deposit. ` +
+            `That's ${await rentalSummary()} plus a £${holding} refundable holding deposit. ` +
             `Read it back to them, then ask if they're happy to go through to payment — ` +
             `call go_to_checkout again only once they say yes.`
           );
@@ -766,10 +816,10 @@ export function useGafferTools() {
         // through depositFor — quoting it raw would tell the customer an FX3
         // needs £3,200 down instead of a £160 hold. Mirror the checkout default.
         const holding = depositFor("verify", cart.depositTotal);
-        return `Taking them to checkout, £${cart.subtotal} plus a £${holding} refundable holding deposit.`;
+        return `Taking them to checkout, ${await rentalSummary()} plus a £${holding} refundable holding deposit.`;
       },
     }),
-    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest],
+    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest, rentalSummary],
   );
 
   /**
@@ -794,5 +844,5 @@ export function useGafferTools() {
     };
   }, [account, cart]);
 
-  return { clientTools, dynamicVariables };
+  return { clientTools, dynamicVariables, noteCustomerMessage, resetPriceRequest };
 }

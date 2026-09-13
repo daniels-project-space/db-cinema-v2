@@ -4,6 +4,7 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
   type ReactNode,
 } from "react";
+import { scrollToSelector } from "./scrollTarget";
 
 /**
  * Which listing Gaffer is talking about right now.
@@ -27,55 +28,33 @@ type Ctx = {
    */
   suggestedIds: string[];
   /** Light one tile up, clearing itself after `ms`. Passing null clears now. */
-  focus: (listingId: string | null, ms?: number) => void;
+  focus: (listingId: string | null, ms?: number, route?: string) => Promise<boolean>;
   /** Mark a shortlist. Stays until the next one, or until cleared. */
-  suggest: (listingIds: string[]) => void;
+  suggest: (listingIds: string[], route?: string) => Promise<boolean>;
 };
 
 const FocusCtx = createContext<Ctx>({
   focusedId: null,
   suggestedIds: [],
-  focus: () => {},
-  suggest: () => {},
+  focus: async () => false,
+  suggest: async () => false,
 });
 
 /** Long enough to register as "that one", short enough not to linger. */
 export const FOCUS_MS = 2600;
 
 /**
- * Scroll an element into view once the page has settled, if it isn't already
- * comfortably on screen. Shared by scrollToCard below and by a plain category
+ * Scroll an element into view after the destination and its results are ready. Shared by scrollToCard below and by a plain category
  * browse with no single item to point at — that path used to leave the
  * customer looking at the hero section while the actual results sat a full
  * screen below the fold, correctly filtered and completely out of sight.
  */
-function scrollToSelector(selector: string, opts: { block?: ScrollLogicalPosition; edge?: number } = {}) {
-  const { block = "center", edge = 90 } = opts;
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      const el = document.querySelector(selector);
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const offScreen = r.top < edge || r.bottom > window.innerHeight - 40;
-      if (offScreen) el.scrollIntoView({ behavior: "smooth", block });
-    }, 120);
-  });
+export function scrollToId(elementId: string, route?: string) {
+  return scrollToSelector(`#${CSS.escape(elementId)}`, route, "start");
 }
 
-/** Bring an arbitrary element into view by id — the toolbar, a section, whatever Gaffer needs to point at. */
-export function scrollToId(elementId: string) {
-  scrollToSelector(`#${CSS.escape(elementId)}`, { block: "start", edge: 110 });
-}
-
-/**
- * Bring a card into view when Gaffer picks it.
- *
- * The catalogue runs to 400 items, so naming one on a call is useless if it's
- * eight rows below the fold. Waits a frame for the grid to re-render after a
- * filter change, and gives up quietly if the card isn't on this page.
- */
-function scrollToCard(listingId: string) {
-  scrollToSelector(`[data-listing-id="${CSS.escape(listingId)}"]`);
+function scrollToCard(listingId: string, route?: string) {
+  return scrollToSelector(`[data-listing-id="${CSS.escape(listingId)}"]`, route);
 }
 
 export function GafferFocusProvider({ children }: { children: ReactNode }) {
@@ -83,22 +62,23 @@ export function GafferFocusProvider({ children }: { children: ReactNode }) {
   const [suggestedIds, setSuggestedIds] = useState<string[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const focus = useCallback((listingId: string | null, ms: number = FOCUS_MS) => {
+  const focus = useCallback(async (listingId: string | null, ms: number = FOCUS_MS, route?: string) => {
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     setFocusedId(listingId);
-    if (!listingId) return;
-    scrollToCard(listingId);
+    if (!listingId) return false;
+    const shown = await scrollToCard(listingId, route);
     timer.current = setTimeout(() => {
       setFocusedId(null);
       timer.current = null;
     }, ms);
+    return shown;
   }, []);
 
-  const suggest = useCallback((listingIds: string[]) => {
+  const suggest = useCallback(async (listingIds: string[], route?: string) => {
     const ids = listingIds.filter(Boolean);
     setSuggestedIds(ids);
     // put the top pick on screen; the rest are around it
-    if (ids[0]) scrollToCard(ids[0]);
+    return ids[0] ? scrollToCard(ids[0], route) : false;
   }, []);
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);

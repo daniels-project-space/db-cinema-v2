@@ -6,6 +6,7 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import { useGafferTools } from "@/components/gaffer/useGafferTools";
+import { createCallMemory } from "./callMemory";
 import { isSignOff, pageBrief } from "@/components/gaffer/callContext";
 import { createHintController } from "@/components/gaffer/hintTiming";
 import { micState, requestMic } from "@/components/gaffer/micPermission";
@@ -141,8 +142,14 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const [secs, setSecs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const conv = useRef<any>(null);
-  const { clientTools, dynamicVariables } = useGafferTools();
+  const { clientTools, dynamicVariables, noteCustomerMessage, resetPriceRequest } = useGafferTools();
+  const memory = useRef(createCallMemory());
+  const callGeneration = useRef(0);
+  const variablesRef = useRef(dynamicVariables);
+  variablesRef.current = dynamicVariables;
   const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
 
   // Auto-hangup bookkeeping. Refs, not state: these are read inside SDK
   // callbacks and a 1s watchdog, none of which should trigger a render.
@@ -215,6 +222,9 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     // Mark before tearing down: the disconnect this causes must not be read as
     // the agent rejecting an override and trigger a reconnect.
     endedDeliberately.current = true;
+    callGeneration.current++;
+    memory.current.clear();
+    resetPriceRequest();
     generation.current++;
     hint.current.reset();
     setDockOpen(false);
@@ -229,7 +239,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     conv.current = null;
     setState("idle");
     setSpeaking(false);
-  }, []);
+  }, [resetPriceRequest]);
 
   // Dead-air watchdog. Only runs while connected, and only counts silence the
   // caller owns — if Gaffer is mid-sentence, the caller isn't being rude.
@@ -294,6 +304,10 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    callGeneration.current++;
+    memory.current.clear();
+    resetPriceRequest();
+    setSecs(0);
     setState("connecting");
     setError(null);
     signingOff.current = false;
@@ -305,10 +319,12 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     const { intent, mode, brief, opening } = pageBrief(pathname ?? "/", topic);
     const agentId = mode === "support" ? SUPPORT_AGENT_ID : SALES_AGENT_ID;
 
+    const preflightGeneration = generation.current;
     let Conversation: any;
     try {
       ({ Conversation } = await import("@elevenlabs/client"));
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
     } catch (err: any) {
       // Never swallow: a blocked mic, a denied prompt and an SDK fault all land
       // here and otherwise look identical to a dead button.
@@ -326,6 +342,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (generation.current !== preflightGeneration) return;
+
     /**
      * One attempt. `withOverrides` is retried without on an instant drop.
      *
@@ -337,8 +355,13 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
      */
     const start = async (withOverrides: boolean): Promise<void> => {
       const myGen = ++generation.current;
+      const myCall = callGeneration.current;
       const mine = () => generation.current === myGen;
       const startedAt = Date.now();
+      const continuity = memory.current.context();
+      const firstMessage = continuity ? "I'm back — let's carry on where we left off." : opening;
+      agentTalking.current = false;
+      setSpeaking(false);
       endedDeliberately.current = false;
 
       // Proxy every tool through the ref so mid-call basket changes are visible.
@@ -349,13 +372,25 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
             // Work counts as activity, at both ends: the caller is owed the
             // full silence window from when the answer lands, not from before
             // they asked for it.
+            if (!mine()) return "This connection is no longer active; no action taken.";
             toolsInFlight.current += 1;
+            memory.current.add("tool", JSON.stringify({ name: k, args, status: "in progress; do not repeat until its outcome is known" }));
             lastActivity.current = Date.now();
             try {
-              return await (toolsRef.current as any)[k](args);
+              const result = await (toolsRef.current as any)[k](args);
+              if (myCall === callGeneration.current) {
+                const outcome = JSON.stringify({ name: k, args, result });
+                memory.current.add("tool", outcome);
+                if (!mine()) {
+                  try { conv.current?.sendContextualUpdate?.("[Previous connection tool completed] " + outcome); } catch { /* included in the handover if still connecting */ }
+                }
+              }
+              return result;
             } finally {
-              toolsInFlight.current = Math.max(0, toolsInFlight.current - 1);
-              lastActivity.current = Date.now();
+              if (myCall === callGeneration.current) {
+                toolsInFlight.current = Math.max(0, toolsInFlight.current - 1);
+                lastActivity.current = Date.now();
+              }
             }
           },
         ]),
@@ -364,17 +399,18 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         agentId,
         clientTools: tools,
         dynamicVariables: {
-          ...dynamicVariables,
+          ...variablesRef.current,
           call_intent: intent,
           call_mode: mode,
           // Third route to a page-specific greeting, and the one that needs no
           // special permission: put {{opening_line}} in the agent's First
           // Message field and this fills it in. Harmless if unused.
-          opening_line: opening,
+          opening_line: firstMessage,
         },
         onConnect: () => {
           if (!mine()) return;
           setState("live");
+          setError(null);
           lastActivity.current = Date.now();
           // Connecting proves nothing — a refused override connects first and is
           // closed a moment later. Only a call still alive past the probe window
@@ -416,7 +452,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
            * added survived this regardless of the socket. The reconnect just
            * gets Gaffer's ears back so the rest of the request isn't lost too.
            */
-          if (!endedDeliberately.current && !autoReconnectTried.current) {
+          if (!endedDeliberately.current && !signingOff.current && !autoReconnectTried.current) {
             autoReconnectTried.current = true;
             console.warn("[Gaffer] unexpected disconnect mid-call — attempting one reconnect.");
             void start(withOverrides);
@@ -434,6 +470,8 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         },
         onMessage: ({ message, source }: { message: string; source: "user" | "ai" }) => {
           if (!mine()) return;
+          memory.current.add(source, message);
+          if (source === "user") noteCustomerMessage(message);
           // Gaffer has answered, so the caller owns the silence again from here.
           if (source === "ai") {
             awaitingAgent.current = false;
@@ -480,7 +518,9 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           if (!mine()) return;
           console.error("[Gaffer] session error", err);
           setError("The call dropped — try again?");
-          setState("idle"); setSpeaking(false); conv.current = null;
+          // Let onDisconnect perform the bounded reconnect. Clearing conv here
+          // orphaned a still-connected session and discarded its context.
+          setSpeaking(false);
         },
         onModeChange: (m: any) => {
           if (!mine()) return;
@@ -521,7 +561,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
        */
       try {
         const session = withOverrides
-          ? await Conversation.startSession({ ...cfg, overrides: { agent: { firstMessage: opening } } })
+          ? await Conversation.startSession({ ...cfg, overrides: { agent: { firstMessage } } })
           : await Conversation.startSession(cfg);
 
         // Hung up while this was still connecting.
@@ -539,7 +579,11 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         // Send the page brief now, not in onConnect: that fires *inside*
         // startSession, before this assignment, so `conv.current` was still
         // null there and the update went nowhere.
-        try { session.sendContextualUpdate?.(brief); } catch { /* non-fatal */ }
+        try {
+          const currentBrief = continuity ? pageBrief(pathnameRef.current ?? "/").brief : brief;
+          session.sendContextualUpdate?.(currentBrief);
+          if (continuity) session.sendContextualUpdate?.(memory.current.context() + "\nCurrent customer and basket: " + JSON.stringify(variablesRef.current));
+        } catch { /* non-fatal */ }
       } catch (err: any) {
         if (!mine()) return;
         // Some rejections do throw. Same fallback, so either shape recovers.
@@ -561,7 +605,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     // connecting slow.
     if (overridesAllowed === null && overridesRecentlyBlocked()) overridesAllowed = false;
     await start(overridesAllowed !== false);
-  }, [state, end, dynamicVariables, pathname]);
+  }, [state, end, dynamicVariables, pathname, noteCustomerMessage, resetPriceRequest]);
 
   // Belt and braces: don't leave a session running if the whole app unmounts.
   useEffect(() => () => {

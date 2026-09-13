@@ -2,6 +2,7 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { TIER_RANK } from "./lib/membership";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
+import { GAFFER_PRICE_CODE, gafferDiscount } from "./lib/gafferDiscount";
 
 /**
  * Validate a promo code against the ELIGIBLE subtotal (non-offer rental lines
@@ -12,13 +13,21 @@ export const validate = query({
   args: {
     code: v.string(),
     eligibleSubtotal: v.number(),
+    rentalSubtotal: v.optional(v.number()),
     tier: v.optional(v.string()),
     membershipActive: v.optional(v.boolean()),
     email: v.optional(v.string()),
   },
-  handler: async (ctx, { code, eligibleSubtotal, tier, membershipActive, email }) => {
+  handler: async (ctx, { code, eligibleSubtotal, rentalSubtotal, tier, membershipActive, email }) => {
     const norm = code.trim().toLowerCase();
     if (!norm) return { valid: false as const, reason: "empty" };
+    // Explicitly requested via Gaffer (or entered as a code), never automatic.
+    // Checkout supplies its server-repriced totals; preview totals cannot authorise a charge.
+    if (norm === GAFFER_PRICE_CODE) {
+      const discount = gafferDiscount(rentalSubtotal ?? 0, eligibleSubtotal);
+      if (!discount) return { valid: false as const, reason: "Rental subtotal must be above £400 with eligible items" };
+      return { valid: true as const, code: norm, type: "percent", value: 10, discount };
+    }
     const promo: any = await ctx.db
       .query("promo_codes")
       .withIndex("by_code", (q) => q.eq("code", norm))

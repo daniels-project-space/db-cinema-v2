@@ -7,7 +7,7 @@ import { useCart } from "./CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 
 export function usePromo(eligibleSubtotal: number) {
-  const { promo, setPromo } = useCart();
+  const { promo, setPromo, subtotal } = useCart();
   const account = useAccount();
   const [draft, setDraft] = useState(promo ?? "");
 
@@ -17,6 +17,7 @@ export function usePromo(eligibleSubtotal: number) {
       ? {
           code: promo,
           eligibleSubtotal,
+          rentalSubtotal: subtotal,
           tier: account.me?.membershipTier ?? undefined,
           membershipActive: !!account.me?.membershipActive,
           email: account.me?.email,

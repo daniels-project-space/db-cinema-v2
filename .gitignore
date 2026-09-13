@@ -40,3 +40,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local code-navigation metadata, never application/deployment inputs.
+graphify-out/
+.serena/

@@ -31,6 +31,7 @@ import type * as http from "../http.js";
 import type * as identity from "../identity.js";
 import type * as invoice from "../invoice.js";
 import type * as lib_botModel from "../lib/botModel.js";
+import type * as lib_gafferDiscount from "../lib/gafferDiscount.js";
 import type * as lib_mailer from "../lib/mailer.js";
 import type * as lib_membership from "../lib/membership.js";
 import type * as lib_mount from "../lib/mount.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   identity: typeof identity;
   invoice: typeof invoice;
   "lib/botModel": typeof lib_botModel;
+  "lib/gafferDiscount": typeof lib_gafferDiscount;
   "lib/mailer": typeof lib_mailer;
   "lib/membership": typeof lib_membership;
   "lib/mount": typeof lib_mount;

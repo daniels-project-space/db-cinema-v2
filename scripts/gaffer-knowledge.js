@@ -175,25 +175,24 @@ it yourself is normally better than asking the customer to send an email.
 const PARTNER_DOC = `# FORM / SEVEN — our creative collaboration
 
 ## Who they are
-FORM / SEVEN is an AI-native production studio for social — a startup founded by
-Daniel that turns a product into short-form advertising: UGC-style ads, polished
-product films, and social systems built to sell rather than fill a feed. They work
-with founders and small teams who need their product to look considered without an
-agency retainer or a full production day.
+FORM / SEVEN is an AI advertising agency founded by Daniel. Their own site describes
+AI-enabled production, UGC-style ads and product films. These are AI-produced ads,
+not a conventional crew hire, physical studio rental, or real creators filming
+customer testimonials. Say the AI aspect explicitly whenever explaining them.
+Fact-checked against https://form7.net on 13 September 2026 and the owner's correction.
 
 ## What they offer
 Single ready-to-post ads, multi-variant campaign packs for a launch, and — for
 founders who don't want to run their own feed — ongoing Instagram management: a
 content calendar, captions, scheduled publishing and agreed reply windows each
-week. They'll also cut a free six-second sample of someone's product before any
-money changes hands, which is the easiest thing to point a curious customer at.
+week. Customers can request a free six-second sample of their product; briefs are
+reviewed before a render starts, which is the easiest thing to point a curious customer at.
 Leave exact prices to Madeline; send people to form7.net for numbers.
 
 ## Why we work with them
-We hire out the kit; they make the film. A customer renting a camera to shoot their
-own product often needs the advert made, and a brand that needs an advert often needs
-kit for the shoot. The collaboration means neither of us sends someone away
-empty-handed.
+We hire out camera equipment. They offer AI-produced advertising for brands that
+want an ad made from a product brief or references. Do not imply they need our
+rental kit, provide a shoot crew, or film the customer in person.
 
 ## What our customers get
 Db Cinema Rentals customers get 10% off FORM / SEVEN work. Mention it when someone is
@@ -673,6 +672,7 @@ async function main() {
 
   const body = { conversation_config: { agent: { prompt } } };
   if (want("settings")) {
+    body.conversation_config.conversation = { max_duration_seconds: 3600 };
     body.conversation_config.asr = { ...(agent.conversation_config.asr || {}), keywords: kw };
     body.conversation_config.turn = {
       ...(agent.conversation_config.turn || {}),
@@ -793,7 +793,9 @@ async function main() {
   console.log(`  prompt unchanged: ${ap.prompt === agent.conversation_config.agent.prompt.prompt}`);
 }
 
-main().catch((e) => {
+module.exports = { PARTNER_DOC };
+
+if (require.main === module) main().catch((e) => {
   console.error(String(e.message || e));
   process.exit(1);
 });

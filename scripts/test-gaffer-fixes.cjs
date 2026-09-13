@@ -1,0 +1,144 @@
+/** Behavioural regression checks. No network, bookings, emails or payments. */
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require('typescript');
+const root = path.resolve(__dirname, '..');
+function load(file, mocks = {}, globals = {}) {
+  const filename = path.resolve(root, file);
+  const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
+  }).outputText;
+  const mod = { exports: {} };
+  const req = (name) => {
+    if (name in mocks) return mocks[name];
+    if (name.startsWith('.')) {
+      let target = path.resolve(path.dirname(filename), name);
+      if (!path.extname(target)) target += fs.existsSync(target + '.ts') ? '.ts' : '.js';
+      if (target.endsWith('.ts')) return load(target, mocks, globals);
+      return require(target);
+    }
+    return require(name);
+  };
+  new Function('require', 'module', 'exports', ...Object.keys(globals), source)(req, mod, mod.exports, ...Object.values(globals));
+  return mod.exports;
+}
+const registered = { query: x => x, mutation: x => x, internalQuery: x => x, action: x => x, internalAction: x => x };
+const refs = new Proxy({}, { get: (_, group) => new Proxy({}, { get: (_, name) => `${String(group)}:${String(name)}` }) });
+const serverMocks = { './_generated/server': registered, './_generated/api': { api: refs, internal: refs }, './adminAuth': {} };
+const { validate } = load('convex/promo.ts', serverMocks);
+const { start } = load('convex/checkout.ts', serverMocks);
+const { gafferDiscount } = load('convex/lib/gafferDiscount.ts');
+const { asksForBetterPrice } = load('src/components/gaffer/priceRequest.ts');
+const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
+
+(async () => {
+  for (const [subtotal, eligible, expected] of [[400.00000000001,400,0],[399,399,0],[400,400,0],[400.01,400.01,40],[550,500,50],[450,390,39],[500,0,0],[NaN,500,0],[500,NaN,0],[412.55,412.55,41.26]]) {
+    assert.equal(gafferDiscount(subtotal, eligible), expected);
+  }
+  for (const phrase of ['Can you do a better price?', 'Could you make it cheaper?', 'Any discount?', 'Can you knock something off?', 'What is your best price?']) assert.ok(asksForBetterPrice(phrase), phrase);
+  for (const phrase of ['How much is it?', 'My budget is £500', 'Show me cameras', 'No discount please', "I don’t want a better price"]) assert.equal(asksForBetterPrice(phrase), false, phrase);
+  assert.equal((await validate.handler({}, {code:'GAFFER10', eligibleSubtotal:390, rentalSubtotal:450})).discount,39);
+  assert.equal((await validate.handler({}, {code:'gaffer10', eligibleSubtotal:500})).valid,false);
+
+  // Exercise the real checkout action up to createPending. Repricing is supplied by
+  // the authoritative query boundary; reject before any booking/Stripe side effect.
+  async function checkout(prices, {code, submittedTotal=99999, deliveryFee=0} = {}) {
+    let pending;
+    const stop = new Error('captured booking boundary');
+    const ctx = {
+      runQuery: async (ref,args) => {
+        if(ref==='settings:get') return {acceptingOrders:true};
+        if(ref==='catalog:repriceLines') return prices.map(total=>({total,deposit:1000}));
+        if(ref==='availability:forListing') return {available:10};
+        if(ref==='promo:validate') return validate.handler({},args);
+        throw Error(`Unexpected query ${ref}`);
+      },
+      runMutation: async (ref,args) => { assert.equal(ref,'bookings:createPending'); pending=args; throw stop; },
+    };
+    const args={items:prices.map((_,i)=>({listingId:`listing${i}`,title:`Item ${i}`,start:0,end:0,qty:1,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),customer:{email:'test@example.invalid'},fulfilment:'pickup',deliveryFee,promoCode:code,agreement:{name:'Test',documents:[]},origin:'https://example.invalid'};
+    await assert.rejects(start.handler(ctx,args),e=>e===stop);
+    return pending;
+  }
+  let order=await checkout([500,50]); assert.equal(order.discount,0,'never automatic');
+  order=await checkout([500,50],{code:'gaffer10',submittedTotal:1}); assert.equal(order.subtotal,550);assert.equal(order.discount,50);assert.equal(order.lineItems[1].lineTotal,50);
+  order=await checkout([390,60],{code:'gaffer10'});assert.equal(order.discount,39,'offer counts toward threshold, not saving');
+  order=await checkout([400],{code:'gaffer10',deliveryFee:200});assert.equal(order.discount,0,'delivery/deposit do not qualify order');
+  order=await checkout([401],{code:'gaffer10'});assert.equal(order.discount,40.1);
+  order=await checkout([350],{code:'gaffer10'});assert.equal(order.discount,0,'discount is removed after basket shrinks');
+
+  const memory=createCallMemory();
+  memory.add('user','My name is Alex. I need the FX3 next Friday.');
+  memory.add('tool','Added FX3; dates confirmed; enquiry saved.');
+  memory.add('user','Could you do a better price?');
+  assert.match(memory.context(),/Alex/);assert.match(memory.context(),/enquiry saved/);assert.match(memory.context(),/do not repeat completed basket changes/);
+  memory.clear();assert.equal(memory.context(),'');
+  const cart={items:[],count:2,subtotal:550,eligibleSubtotal:500,promo:null,close(){},setPromo(code){this.promo=code;}};
+  const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts',{
+    react:{useRef:current=>({current}),useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{}},
+    'next/navigation':{useRouter:()=>({push(){}})},'convex/react':{useConvex:()=>({query:async(ref,args)=>{
+      if(ref==='voiceCatalog:search')return {matches:[{id:'fx3',title:'Sony FX3',daily:47}]};
+      if(ref==='availability:forListing')return {available:1};
+      return args.code==='better15'?{valid:true,discount:75}:validate.handler({},args);
+    }})},
+    '@cvx/_generated/api':{api:refs},'@cvx/lib/gafferDiscount':{GAFFER_PRICE_CODE:'gaffer10'},
+    '@/components/cart/CartProvider':{useCart:()=>cart},'@/components/account/AccountProvider':{useAccount:()=>({})},
+    '@/lib/pricing':{},'@/lib/voiceDates':{londonToday:()=> '2026-09-13',resolveDate:()=>({ok:true,date:'2026-09-14'}),inclusiveDays:()=>1},'@/lib/dates':{dayMs:()=>0},
+    '@/components/gaffer/GafferFocus':{useGafferFocus:()=>({suggest:async()=>false}),scrollToId:async()=>false},
+  });
+  const priceTool=useGafferTools();
+  priceTool.noteCustomerMessage('My budget is £550');
+  assert.match(await priceTool.clientTools.request_better_price(),/has not asked/);assert.equal(cart.promo,null);
+  priceTool.noteCustomerMessage('Can you do a better price?');
+  assert.match(await priceTool.clientTools.request_better_price(),/saving £50, rental total £500/);assert.equal(cart.promo,'gaffer10');
+  cart.promo='better15';assert.match(await priceTool.clientTools.request_better_price(),/kept the better price/);assert.equal(cart.promo,'better15');
+  priceTool.resetPriceRequest();assert.match(await priceTool.clientTools.request_better_price(),/has not asked/);
+
+  for (const destination of ['gear','Lighting','sony fx3']) {
+    assert.match(await priceTool.clientTools.navigate_to({destination}),/not finished loading on screen/);
+  }
+  const delayedBrowse=await priceTool.clientTools.browse_for({item:'Sony FX3'});
+  assert.match(delayedBrowse,/not finished loading on screen/);assert.doesNotMatch(delayedBrowse,/On screen now/);
+
+  // Execute the real provider's SDK callbacks through a deterministic hook harness.
+  // No paid calls: verify the handover supplied to the transport and its lifecycle.
+  const slots=[];let cursor=0;const sessions=[];let now=10_000;let variables={basket_count:'0',basket_items:''};
+  const React={
+    createContext:()=>({Provider:'provider'}),useContext:()=>null,
+    useState:(initial)=>{const i=cursor++;if(!(i in slots))slots[i]=initial;return [slots[i],v=>{slots[i]=typeof v==='function'?v(slots[i]):v;}];},
+    useRef:(initial)=>{const i=cursor++;if(!(i in slots))slots[i]={current:initial};return slots[i];},
+    useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{},
+  };
+  let priceAllowed=false;
+  const {GafferSessionProvider}=load('src/components/gaffer/GafferSession.tsx',{
+    react:React,'react/jsx-runtime':{jsx:(_type,props)=>props},
+    'next/navigation':{usePathname:()=>'/gear'},
+    '@/components/gaffer/useGafferTools':{useGafferTools:()=>({clientTools:{add_to_basket:async()=> 'Added FX3'},dynamicVariables:variables,noteCustomerMessage:message=>{priceAllowed=asksForBetterPrice(message);},resetPriceRequest:()=>{priceAllowed=false;}})},
+    '@/components/gaffer/callContext':{pageBrief:()=>({intent:'gear',mode:'sales',brief:'Gear page',opening:'Hello there'}),isSignOff:text=>text==='goodbye'},
+    '@/components/gaffer/hintTiming':{createHintController:()=>({reset(){},noteTalking(){}})},
+    '@/components/gaffer/micPermission':{micState:async()=> 'granted',requestMic:async()=>({ok:true})},
+    '@elevenlabs/client':{Conversation:{startSession:async cfg=>{const session={cfg,updates:[],ended:false,sendContextualUpdate(text){this.updates.push(text);},async endSession(){this.ended=true;cfg.onDisconnect();}};sessions.push(session);cfg.onConnect();return session;}}},
+  },{Date:{now:()=>now},navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})}},localStorage:{getItem:()=>null,removeItem(){},setItem(){}},setTimeout:()=>1,clearTimeout:()=>{},console:{warn(){},error(){}}});
+  const render=()=>{cursor=0;return GafferSessionProvider({children:null}).value;};
+  await render().toggle();assert.equal(render().state,'live');
+  const first=sessions[0];
+  first.cfg.onMessage({source:'user',message:'My name is Alex; FX3 next Friday.'});
+  await first.cfg.clientTools.add_to_basket({item:'FX3'});
+  first.cfg.onMessage({source:'user',message:'Could you do a better price?'});assert.equal(priceAllowed,true);
+  variables={basket_count:'1',basket_items:'FX3 next Friday'};render();
+  now+=600_000;first.cfg.onDisconnect();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(sessions.length,2);assert.equal(render().state,'live');
+  const resumed=sessions[1];
+  assert.equal(resumed.cfg.dynamicVariables.basket_count,'1','reconnect uses fresh basket');
+  assert.match(resumed.cfg.overrides.agent.firstMessage,/carry on/);
+  assert.match(resumed.updates.join(' '),/Alex/);assert.match(resumed.updates.join(' '),/Added FX3/);
+  assert.equal(priceAllowed,true,'negotiation request survives reconnect');
+  first.cfg.onDisconnect();assert.equal(sessions.length,2,'stale callbacks cannot restart');
+  assert.match(await first.cfg.clientTools.add_to_basket({}),/no action taken/);
+  await render().end();assert.equal(render().state,'idle');assert.equal(priceAllowed,false);
+  await render().toggle();assert.equal(sessions.length,3);assert.equal(sessions[2].cfg.overrides.agent.firstMessage,'Hello there');
+  assert.doesNotMatch(sessions[2].updates.join(' '),/Alex/,'new call does not inherit private history');
+  sessions[2].cfg.onMessage({source:'user',message:'goodbye'});now+=10_000;sessions[2].cfg.onDisconnect();
+  assert.equal(sessions.length,3,'intentional sign-off never reconnects');
+  console.log('PASS: discount boundaries, offer exclusion, explicit requests, authoritative checkout repricing, deposit/delivery exclusion, changed baskets, reconnect history, fresh basket, stale callbacks, deliberate reset and sign-off.');
+})().catch(e=>{console.error(e);process.exitCode=1});

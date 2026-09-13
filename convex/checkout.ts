@@ -159,6 +159,7 @@ export const start = action({
       const res: any = await ctx.runQuery(api.promo.validate, {
         code: a.promoCode,
         eligibleSubtotal: eligible,
+        rentalSubtotal: subtotal,
         tier: acct?.membershipTier ?? undefined,
         membershipActive: !!acct?.membershipActive,
         email: a.customer.email,

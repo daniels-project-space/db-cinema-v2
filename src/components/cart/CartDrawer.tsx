@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useCart } from "./CartProvider";
 import { IconX, IconArrowRight } from "@/components/icons";
 import { smallDamageHold } from "@/lib/pricing";
+import { usePromo } from "./usePromo";
 
 export function CartDrawer() {
-  const { items, remove, subtotal, depositTotal, isOpen, close } = useCart();
+  const { items, remove, subtotal, eligibleSubtotal, depositTotal, isOpen, close } = useCart();
+  const promo = usePromo(eligibleSubtotal);
 
   return (
     <>
@@ -104,9 +106,10 @@ export function CartDrawer() {
         {items.length > 0 && (
           <div className="border-t border-white/5 px-5 py-4">
             <div className="flex justify-between text-sm text-white/60">
-              <span>Subtotal</span>
-              <span className="font-mono text-white/90">£{subtotal}</span>
+              <span>Rental total</span>
+              <span className="font-mono text-white/90">£{subtotal - promo.discount}</span>
             </div>
+            {promo.discount > 0 && <div className="mt-1 text-xs text-accent-400">Saving £{promo.discount} · {promo.applied?.toUpperCase()}</div>}
             {/* The per-item `deposit` is the gear's REPLACEMENT VALUE, not a
                 charge. Showing it summed made the basket read "£4,700 deposits"
                 on a £90 hire. Default to the ID+insurance route, which is what

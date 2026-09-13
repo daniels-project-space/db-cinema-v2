@@ -2,6 +2,7 @@
 
 import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { useGafferFocus } from "@/components/gaffer/GafferFocus";
 import { IconSliders, IconSearch } from "@/components/icons";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { GearLoopBanner } from "@/components/GearLoopBanner";
@@ -21,6 +22,7 @@ const qParam = (p: URLSearchParams) => p.get("q") ?? p.get("search");
 
 function GearPageInner() {
   const params = useSearchParams();
+  const { suggestedIds } = useGafferFocus();
   const [cat, setCat] = useState(() => catParam(params) ?? "All");
   const [search, setSearch] = useState(() => qParam(params) ?? "");
 
@@ -34,18 +36,24 @@ function GearPageInner() {
   const urlCat = catParam(params);
   const urlQ = qParam(params);
   useEffect(() => {
-    if (urlCat === null && urlQ === null) return;
     setCat(urlCat || "All");
     setSearch(urlQ ?? "");
   }, [urlCat, urlQ]);
 
   const cats = useQuery(api.catalog.categories) ?? [];
   const best = useQuery(api.catalog.bestSellers, { limit: 6 }) ?? [];
-  const listings =
+  const filteredListings =
     useQuery(api.catalog.listListings, {
       category: cat === "All" ? undefined : cat,
       search: search || undefined,
     }) ?? undefined;
+  // Voice matching understands model aliases and spoken requests; literal title
+  // search does not. Render the actual returned picks on the voice shortlist.
+  const shortlist = params.get("gaffer") === "1" && cat === (urlCat || "All") && search === (urlQ ?? "");
+  const pickedListings = useQuery(api.catalog.listingsByIds,
+    shortlist && suggestedIds.length ? { ids: suggestedIds as any } : "skip");
+  const listings = shortlist && suggestedIds.length ? pickedListings : filteredListings;
+  const route = "/gear" + (params.toString() ? `?${params.toString()}` : "");
 
   const total = cats.reduce((n, c) => n + c.count, 0);
   const tabs = [{ name: "All", count: total }, ...cats];
@@ -68,7 +76,7 @@ function GearPageInner() {
     <>
       <SiteHeader />
       <GearLoopBanner />
-      <main className="section-window mx-auto min-h-screen max-w-7xl px-6 pb-12 pt-8">
+      <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto min-h-screen max-w-7xl px-6 pb-12 pt-8">
         <Link
           href="/assemble"
           className="spot border-beam press group mt-8 flex items-center gap-4 rounded-2xl p-4 sm:p-5"
@@ -102,7 +110,7 @@ function GearPageInner() {
             it, filtering to a category and finding several matches left the
             customer still looking at the hero/assembly card up top, with the
             actual results a full screen below the fold. */}
-        <div id="gear-toolbar" className="-mx-6 mt-8 border-b border-white/[0.06] bg-[#060608]/95 px-6 py-3">
+        <div id="gear-toolbar" className="scroll-mt-24 -mx-6 mt-8 border-b border-white/[0.06] bg-[#060608]/95 px-6 py-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative w-full max-w-md">
               <IconSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
