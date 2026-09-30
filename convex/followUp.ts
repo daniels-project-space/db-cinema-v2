@@ -1,3 +1,4 @@
+import { postRentalMessage } from "./lib/rentalChat";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -162,12 +163,10 @@ export const inbound = mutation({
       .first();
 
     if (account) {
-      await ctx.db.insert("messages", {
+      await postRentalMessage(ctx, {
         accountId: account._id,
         sender: "renter",
         text: body,
-        at: Date.now(),
-        readByOwner: false,
       });
       await ctx.scheduler.runAfter(0, internal.gaffer.gafferReply, { accountId: account._id });
       return { routed: "chat" as const };

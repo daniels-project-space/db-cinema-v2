@@ -131,6 +131,12 @@ export default defineSchema({
     .index("by_guestToken", ["guestToken"]),
 
   bookings: defineTable({
+    activeAdditionId:v.optional(v.id("rental_additions")),
+    chatUpdatedAt:v.optional(v.number()),chatUnreadOwner:v.optional(v.number()),chatUnreadRenter:v.optional(v.number()),
+    cancellationDecision:v.optional(v.object({
+      kind:v.union(v.literal("full_refund"),v.literal("store_credit")),createdAt:v.number(),
+      quote:v.optional(v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})),
+    })),
     customerId: v.optional(v.id("customers")),
     guestEmail: v.optional(v.string()),
     status: v.union(
@@ -148,24 +154,44 @@ export default defineSchema({
         end: v.number(),
         qty: v.number(),
         lineTotal: v.number(),
+        dailyRate: v.optional(v.number()),
       }),
     ),
     fulfilment: v.union(v.literal("pickup"), v.literal("delivery")),
     address: v.optional(v.string()),
+    billingAddress: v.optional(v.string()),
     deliveryFee: v.number(),
     subtotal: v.number(),
     promoCode: v.optional(v.string()),
     discount: v.number(),
     depositAmount: v.number(),
+    depositHoldAmount: v.optional(v.number()),
+    depositHoldStatus: v.optional(v.string()),
+    depositHoldExpiresAt: v.optional(v.number()),
+    depositHoldRenewalIntentId: v.optional(v.string()),
+    depositHoldRenewalStatus: v.optional(v.string()),
+    depositHoldRenewalAt: v.optional(v.number()),
+    depositHoldPreviousIntentIds: v.optional(v.array(v.string())),
     total: v.number(),
     currency: v.string(), // "GBP"
     stripePaymentIntentId: v.optional(v.string()),
+    stripeCheckoutSessionId: v.optional(v.string()),
     stripeDepositIntentId: v.optional(v.string()),
+    diditSessionId: v.optional(v.string()),
+    diditEventId: v.optional(v.string()),
+    diditEventAt: v.optional(v.number()),
+    diditManualDecisionAt: v.optional(v.number()),
+    diditReconciledAt: v.optional(v.number()),
+    verificationProvider: v.optional(v.string()),
+    verificationNote: v.optional(v.string()),
+    verificationUpdatedAt: v.optional(v.number()),
     idVerifyStatus: v.optional(v.string()),
     idVerificationSource: v.optional(v.string()),
     idVerifiedAt: v.optional(v.number()),
     depositRefunded: v.optional(v.boolean()),
     agreementSignedAt: v.optional(v.number()),
+    securityHoldConsentAt: v.optional(v.number()),
+    laterChargeConsentAt: v.optional(v.number()),
     agreementName: v.optional(v.string()),
     agreementDocs: v.optional(
       v.array(v.object({ kind: v.string(), version: v.string() })),
@@ -185,14 +211,61 @@ export default defineSchema({
     returnTime: v.optional(v.string()),
     // customer self-service cancellation bookkeeping (Phase 3)
     cancelledAt: v.optional(v.number()),
+    adminCancellationReason: v.optional(v.string()),
     refundAmount: v.optional(v.number()),
     creditIssuedId: v.optional(v.id("credits")),
     creditApplied: v.optional(v.number()), // store credit redeemed at checkout (decremented on confirm)
     depositKept: v.optional(v.number()), // portion of the deposit retained for damage on return
+    depositRefundAmount: v.optional(v.number()),
+    depositHoldCapturedForDamage: v.optional(v.number()),
+    depositDeductionNote: v.optional(v.string()),
+    damageNoticeSentAt: v.optional(v.number()),
     returnedAt: v.optional(v.number()), // when the rental was marked returned + deposit released
+    actualReturnedAt: v.optional(v.number()),
+    returnDecision: v.optional(v.object({
+      actualReturnedAt: v.number(), damageKept: v.number(),
+      damageNote: v.optional(v.string()), chargeLate: v.boolean(),
+      lateWaiverReason: v.optional(v.string()), startedAt: v.number(),
+    })),
+    lateFeeAmount: v.optional(v.number()),
+    lateFeeWaivedAmount: v.optional(v.number()),
+    lateFeeWaiverReason: v.optional(v.string()),
+    lateFeeStatus: v.optional(v.string()),
+    lateFeeNoticeAt: v.optional(v.number()),
+    lateFeeNoticeAttemptAt: v.optional(v.number()),
+    lateFeeChargingAt: v.optional(v.number()),
+    lateFeeIntentId: v.optional(v.string()),
+    lateFeePaidFromHold: v.optional(v.number()),
+    lateFeePaidFromCard: v.optional(v.number()),
+    lateFeeReceiptEmailStatus: v.optional(v.string()),
+    lateFeeReceiptEmailAttemptAt: v.optional(v.number()),
+    lateFeeReceiptEmailedAt: v.optional(v.number()),
+    lateFeeNote: v.optional(v.string()),
+    lateFeeBreakdown: v.optional(v.array(v.object({ title: v.string(), days: v.number(), dailyRate: v.number(), amount: v.number() }))),
+    returnStatement: v.optional(v.object({
+      number: v.string(), issuedAt: v.number(), actualReturnedAt: v.number(),
+      agreedReturnTime: v.optional(v.string()),
+      supplierName: v.string(), supplierAddress: v.optional(v.string()),
+      customerName: v.optional(v.string()), customerEmail: v.string(), billingAddress: v.optional(v.string()),
+      lineItems: v.array(v.object({ title: v.string(), start: v.number(), end: v.number(), qty: v.number(), lineTotal: v.number() })),
+      subtotal: v.number(), discount: v.number(), deliveryFee: v.number(), creditApplied: v.number(),
+      checkoutPaid: v.number(), rentalRefunded:v.optional(v.number()), securityPaid: v.number(), securityRefunded: v.number(),
+      holdStatus: v.optional(v.string()),
+      damageTotal: v.number(), damageFromHold: v.number(), damageNote: v.optional(v.string()),
+      lateAssessed: v.number(), lateWaived: v.number(),
+      lateBreakdown: v.array(v.object({ title: v.string(), days: v.number(), dailyRate: v.number(), amount: v.number() })),
+    })),
+    returnStatementEmailStatus: v.optional(v.string()),
+    returnStatementEmailAttemptAt: v.optional(v.number()),
+    returnStatementEmailedAt: v.optional(v.number()),
   })
     .index("by_customer", ["customerId"])
+    .index("by_chat_updated",["chatUpdatedAt"])
+    .index("by_status_chat_updated",["status","chatUpdatedAt"])
+    .index("by_guest_chat_updated",["guestEmail","chatUpdatedAt"])
+    .index("by_owner_unread_updated",["chatUnreadOwner","chatUpdatedAt"])
     .index("by_status", ["status"])
+    .index("by_verificationProvider_status", ["verificationProvider", "status"])
     .index("by_stripePaymentIntentId", ["stripePaymentIntentId"])
     .index("by_guestEmail", ["guestEmail"])
     .index("by_review_check", ["status", "reviewFollowUpCheckedAt"]),
@@ -399,14 +472,17 @@ export default defineSchema({
   messages: defineTable({
     accountId: v.id("accounts"),
     bookingId: v.optional(v.id("bookings")),
-    sender: v.union(v.literal("renter"), v.literal("bot"), v.literal("system")),
+    sender: v.union(v.literal("renter"), v.literal("bot"), v.literal("system"), v.literal("owner")),
     text: v.string(),
     meta: v.optional(v.any()),
     at: v.number(),
     readByOwner: v.optional(v.boolean()),
+    threadCounted: v.optional(v.boolean()),
   })
     .index("by_account", ["accountId"])
-    .index("by_unread", ["sender", "readByOwner"]),
+    .index("by_unread", ["sender", "readByOwner"])
+    .index("by_booking_at", ["bookingId", "at"])
+    .index("by_account_at", ["accountId", "at"]),
 
   promo_redemptions: defineTable({
     email: v.string(),
@@ -465,6 +541,24 @@ export default defineSchema({
     .index("by_account", ["accountId"])
     .index("by_status", ["status"]),
 
+  rental_additions:defineTable({
+    bookingId:v.id("bookings"),requestId:v.string(),listingId:v.id("listings"),title:v.string(),
+    start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number(),
+    complimentary:v.optional(v.boolean()),draftReplacement:v.optional(v.boolean()),baseTotal:v.optional(v.number()),baseSecurity:v.optional(v.number()),baseSessionId:v.optional(v.string()),
+    securityCharge:v.number(),holdTotal:v.number(),oldHoldId:v.optional(v.string()),
+    status:v.string(),reason:v.string(),createdAt:v.number(),updatedAt:v.number(),
+    sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),
+    holdIntentId:v.optional(v.string()),holdExpiresAt:v.optional(v.number()),
+  }).index("by_booking",["bookingId"]).index("by_request",["requestId"]).index("by_session",["sessionId"]).index("by_status",["status"]).index("by_status_updated",["status","updatedAt"]),
+
+  rental_refunds: defineTable({
+    bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.number(),reason:v.string(),
+    status:v.union(v.literal("prepared"),v.literal("pending"),v.literal("succeeded"),v.literal("failed")),
+    allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()}))),
+    parts:v.optional(v.array(v.object({paymentIntentId:v.string(),stripeRefundId:v.string(),status:v.string(),amountPence:v.number()}))),
+    stripeRefundId:v.optional(v.string()),createdAt:v.number(),updatedAt:v.number(),
+  }).index("by_booking",["bookingId"]).index("by_request",["requestId"]),
+
   // ── Reschedule / item-level extend requests (Phase 3b) ──────────
   booking_change_requests: defineTable({
     bookingId: v.id("bookings"),
@@ -496,12 +590,22 @@ export default defineSchema({
   // ── Rental-chat escalation state (Phase 4: Gaffer AI + human handoff) ──
   chat_threads: defineTable({
     accountId: v.id("accounts"),
+    bookingId: v.optional(v.id("bookings")),
+    unreadOwner: v.optional(v.number()),
+    unreadRenter: v.optional(v.number()),
+    ownerReadAt: v.optional(v.number()),
+    renterReadAt: v.optional(v.number()),
+    lastMessage: v.optional(v.string()),
+    lastSender: v.optional(v.string()),
+    gafferReplyTo: v.optional(v.id("messages")),
     escalated: v.boolean(), // true → a human is handling it; Gaffer stops auto-replying
     tgMessageId: v.optional(v.number()), // the Telegram alert msg id (admin replies to it → thread)
     updatedAt: v.number(),
   })
     .index("by_account", ["accountId"])
-    .index("by_tgMessageId", ["tgMessageId"]),
+    .index("by_tgMessageId", ["tgMessageId"])
+    .index("by_account_booking", ["accountId", "bookingId"])
+    .index("by_updated", ["updatedAt"]),
 
   // Fixed-window API rate limiting (per IP + bucket) for the public endpoints.
   rate_limits: defineTable({

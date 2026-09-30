@@ -7,6 +7,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 
 // ── crypto helpers (Web Crypto, available in Convex actions) ──────
 const toHex = (b: Uint8Array) =>
@@ -57,7 +58,8 @@ export const _byToken = internalQuery({
       .query("sessions")
       .withIndex("by_token", (q) => q.eq("token", token))
       .first();
-    return s ? await ctx.db.get(s.accountId) : null;
+    if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
+    return ctx.db.get(s.accountId);
   },
 });
 
@@ -170,7 +172,7 @@ async function resolve(ctx: any, token: string) {
     .query("sessions")
     .withIndex("by_token", (q: any) => q.eq("token", token))
     .first();
-  if (!s) return null;
+  if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
   return await ctx.db.get(s.accountId);
 }
 
@@ -364,24 +366,10 @@ export const signOut = mutation({
   },
 });
 
-/** Remove an UNPAID (pending_payment) booking the renter owns — aborts an abandoned checkout.
- *  Releases any soft holds. No payment was taken, so nothing to refund. */
+/** Kept for old clients: cancellation must consult Stripe and preserve the conversation. */
 export const deletePending = mutation({
   args: { token: v.string(), bookingId: v.id("bookings") },
-  handler: async (ctx, { token, bookingId }) => {
-    const a: any = await resolve(ctx, token);
-    if (!a) throw new Error("unauthorized");
-    const b = await ctx.db.get(bookingId);
-    if (!b || (b.guestEmail ?? "").trim().toLowerCase() !== a.email) throw new Error("unauthorized");
-    if (b.status !== "pending_payment") throw new Error("Only an unpaid booking can be removed.");
-    const res = await ctx.db
-      .query("reservations")
-      .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
-      .collect();
-    for (const r of res) await ctx.db.delete(r._id);
-    await ctx.db.delete(bookingId);
-    return { ok: true };
-  },
+  handler: async () => { throw new Error("Refresh this page to cancel checkout safely. Rental conversations are retained."); },
 });
 
 export const myBookings = query({
@@ -394,8 +382,13 @@ export const myBookings = query({
       .withIndex("by_guestEmail", (q) => q.eq("guestEmail", a.email))
       .order("desc")
       .take(50);
+    return enrichBookings(ctx,rows);
+  },
+});
+
+async function enrichBookings(ctx:any,rows:any[]) {
     const allReviews = await ctx.db.query("reviews").collect();
-    const reviewed = new Set(allReviews.map((r) => r.verifiedBookingId).filter(Boolean));
+    const reviewed = new Set(allReviews.map((r:any) => r.verifiedBookingId).filter(Boolean));
 
     // resolve a display image url for a listing (R2 → source → gallery), cached across bookings
     const listingCache = new Map<string, any>();
@@ -440,13 +433,21 @@ export const myBookings = query({
         deliveryFee: b.deliveryFee ?? 0,
         creditApplied: b.creditApplied ?? 0,
         depositAmount: b.depositAmount,
+        depositHoldAmount: b.depositHoldAmount ?? 0,
+        depositHoldStatus: b.depositHoldStatus ?? null,
+        depositHoldExpiresAt: b.depositHoldExpiresAt ?? null,
+        depositHoldRenewalStatus: b.depositHoldRenewalStatus ?? null,
         depositRefunded: b.depositRefunded ?? false,
+        hasReturnStatement: !!b.returnStatement,
+        lateFeeAmount: b.lateFeeAmount ?? 0,
+        lateFeeStatus: b.lateFeeStatus ?? null,
         currency: b.currency ?? "GBP",
         fulfilment: b.fulfilment,
         address: b.address ?? null,
         pickupTime: b.pickupTime ?? null,
         returnTime: b.returnTime ?? null,
         idVerifyStatus: b.idVerifyStatus ?? "required",
+        verificationNote: b.verificationNote ?? null,
         reviewed: reviewed.has(b._id),
         firstSlug: lines[0]?.slug ?? null,
         start: starts.length ? Math.min(...starts) : null,
@@ -455,8 +456,12 @@ export const myBookings = query({
       });
     }
     return out;
-  },
-});
+}
+export const myBookingsPage=query({args:{token:v.string(),paginationOpts:paginationOptsValidator},handler:async(ctx,{token,paginationOpts})=>{
+ const a:any=await resolve(ctx,token);if(!a)return {page:[],isDone:true,continueCursor:""};
+ const page=await ctx.db.query("bookings").withIndex("by_guestEmail",q=>q.eq("guestEmail",a.email)).order("desc").paginate({...paginationOpts,numItems:Math.min(50,paginationOpts.numItems)});
+ return {...page,page:await enrichBookings(ctx,page.page)};
+}});
 
 // ── account management: change password / delete ─────────────────
 export const _authFor = internalQuery({

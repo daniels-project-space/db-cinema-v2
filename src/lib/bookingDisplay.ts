@@ -1,6 +1,9 @@
 // Booking presentation helpers — London timezone, inclusive rental days (Hygglo convention).
 // Pure/display only; no money is moved here.
 
+import { londonStartOfDay, cancelKind } from "./cancellationPolicy";
+export { londonStartOfDay, cancelKind };
+
 export type EnrichedLine = {
   listingId: string;
   title: string;
@@ -24,13 +27,21 @@ export type EnrichedBooking = {
   deliveryFee?: number;
   creditApplied?: number;
   depositAmount: number;
+  depositHoldAmount?: number;
+  depositHoldStatus?: string | null;
+  depositHoldExpiresAt?: number | null;
+  depositHoldRenewalStatus?: string | null;
   depositRefunded?: boolean;
+  hasReturnStatement?: boolean;
+  lateFeeAmount?: number;
+  lateFeeStatus?: string | null;
   currency: string;
   fulfilment: "pickup" | "delivery";
   address: string | null;
   pickupTime: string | null;
   returnTime: string | null;
   idVerifyStatus: string;
+  verificationNote?: string | null;
   reviewed: boolean;
   firstSlug: string | null;
   start: number | null;
@@ -93,15 +104,6 @@ export function rentalDays(start: number, end: number) {
   return Math.max(1, Math.round((end - start) / 86400000) + 1);
 }
 
-// London "start of civil day" in ms — for countdown + cancellation-window math
-export function londonStartOfDay(ms: number): number {
-  const p = new Intl.DateTimeFormat("en-CA", { timeZone: LDN, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(ms));
-  const y = +p.find((x) => x.type === "year")!.value;
-  const m = +p.find((x) => x.type === "month")!.value;
-  const d = +p.find((x) => x.type === "day")!.value;
-  return Date.UTC(y, m - 1, d);
-}
-
 function dayDelta(target: number, now: number) {
   return Math.round((londonStartOfDay(target) - londonStartOfDay(now)) / 86400000);
 }
@@ -116,18 +118,21 @@ export function countdown(start: number, now: number): string {
   return `in ${Math.round(d / 7)} weeks`;
 }
 
-// cancellation window (locked decision): ≥3 London-days before start → full cash refund,
-// otherwise a 90-day store credit. Cancel is never disabled — it converts.
-export function cancelKind(start: number, now: number): "full_refund" | "store_credit" {
-  return dayDelta(start, now) >= 3 ? "full_refund" : "store_credit";
-}
-
 // ── Rental progress stepper ───────────────────────────────────────
 export type Step = { label: string; state: "done" | "current" | "todo" };
 
 /** Four-stage lifecycle for the minimal progress bar above a tile. */
-export function bookingSteps(b: { status: string; idVerifyStatus: string }): { cancelled: boolean; steps: Step[] } {
-  const labels = ["Confirmed", "ID verified", "Pickup", "Return"];
+export function bookingSteps(b: { status: string; idVerifyStatus: string; depositHoldAmount?: number; depositHoldStatus?: string | null }): { cancelled: boolean; steps: Step[] } {
+  const verificationLabel = b.idVerifyStatus === "verified" ? "ID + address verified"
+    : b.idVerifyStatus === "processing" ? "Verification in progress"
+    : b.idVerifyStatus === "manual_review" ? "Human review needed"
+    : b.idVerifyStatus === "requires_input" ? "Resubmission needed"
+    : b.idVerifyStatus === "rejected" ? "Verification declined"
+    : "Verify ID + address";
+  const withHold = (b.depositHoldAmount ?? 0) > 0;
+  const labels = withHold
+    ? ["Payment", "Card hold", verificationLabel, "Pickup", "Return"]
+    : ["Confirmed", verificationLabel, "Pickup", "Return"];
   if (b.status === "cancelled") {
     return { cancelled: true, steps: labels.map((label) => ({ label, state: "todo" as const })) };
   }
@@ -136,10 +141,11 @@ export function bookingSteps(b: { status: string; idVerifyStatus: string }): { c
   const out = ["active", "returned"].includes(b.status);
   const back = b.status === "returned";
   let reached = 0; // index of the CURRENT step (earlier steps are done)
-  if (back) reached = 4;
-  else if (out) reached = 3;
-  else if (booked && verified) reached = 2;
-  else if (booked) reached = 1;
+  if (back) reached = labels.length;
+  else if (out) reached = labels.length - 1;
+  else if (booked && withHold && b.depositHoldStatus !== "held") reached = 1;
+  else if (booked && verified) reached = labels.length - 2;
+  else if (booked) reached = withHold ? 2 : 1;
   else reached = 0; // pending_payment → "Confirmed" is in progress
   const steps: Step[] = labels.map((label, i) => ({
     label,

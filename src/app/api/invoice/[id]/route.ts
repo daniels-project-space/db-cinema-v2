@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { createElement } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
-import { InvoiceDocument } from "@/lib/invoice/InvoiceDocument";
+import { InvoiceDocument, ReturnStatementDocument } from "@/lib/invoice/InvoiceDocument";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const { id } = await ctx.params;
   const sp = req.nextUrl.searchParams;
   const token = sp.get("token") ?? undefined;
-  const key = sp.get("key") ?? undefined;
+  const key = req.headers.get("x-invoice-key") ?? undefined;
 
   const convex = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convex) return new Response("not configured", { status: 500 });
@@ -30,11 +30,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   }
   if (!data) return new Response("Not found or unauthorized", { status: 403 });
 
-  const buf = await renderToBuffer(createElement(InvoiceDocument, { data }) as any);
+  const isReturn = sp.get("phase") === "return";
+  if (isReturn && !data.returnStatement) return new Response("Return statement not issued", { status: 404 });
+
+  const document = isReturn
+    ? createElement(ReturnStatementDocument, { data: data.returnStatement })
+    : createElement(InvoiceDocument, { data });
+  const buf = await renderToBuffer(document as Parameters<typeof renderToBuffer>[0]);
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="DbCinema-receipt-${id.slice(-8)}.pdf"`,
+      "Content-Disposition": `inline; filename="DbCinema-${isReturn ? "return" : "receipt"}-${id.slice(-8)}.pdf"`,
       "Cache-Control": "private, no-store",
     },
   });

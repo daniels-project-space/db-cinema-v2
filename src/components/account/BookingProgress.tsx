@@ -3,7 +3,7 @@
 import { Fragment } from "react";
 import { bookingSteps } from "@/lib/bookingDisplay";
 
-/** Minimal 4-dot rental progress bar (Confirmed → ID → Picked up → Returned). */
+/** Rental progress bar, including a separate card hold for new bookings. */
 export function BookingProgress({ booking }: { booking: { status: string; idVerifyStatus: string } }) {
   const { cancelled, steps } = bookingSteps(booking);
   if (cancelled) {

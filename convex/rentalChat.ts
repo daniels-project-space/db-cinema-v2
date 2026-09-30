@@ -1,0 +1,477 @@
+import { query, mutation, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
+import { assertAdmin, checkAdminToken } from "./adminAuth";
+import {
+  accountForToken,
+  ownedBooking,
+  postRentalMessage,
+  rentalThread,
+} from "./lib/rentalChat";
+
+async function ownerAccount(ctx: any, bookingId?: any, accountId?: any) {
+  if (bookingId) {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    return ctx.db
+      .query("accounts")
+      .withIndex("by_email", (q: any) =>
+        q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
+      )
+      .first();
+  }
+  return accountId ? ctx.db.get(accountId) : null;
+}
+async function bookingView(ctx: any, b: any, account: any) {
+  const thread = account ? await rentalThread(ctx, account._id, b._id) : null;
+  const items = await Promise.all(
+    b.lineItems.map(async (li: any) => {
+      const l = await ctx.db.get(li.listingId);
+      return {
+        ...li,
+        heroImage:
+          (l?.r2Images?.length
+            ? l.r2Images
+            : l?.sourceImages?.length
+              ? l.sourceImages
+              : (l?.gallery ?? []))[0] ?? null,
+        slug: l?.slug ?? null,
+      };
+    }),
+  );
+  return {
+    _id: b._id,
+    status: b.status,
+    guestEmail: b.guestEmail,
+    name: account?.name ?? null,
+    start: Math.min(...items.map((li: any) => li.start)),
+    end: Math.max(...items.map((li: any) => li.end)),
+    total: b.total,
+    items,
+    accountId: account?._id ?? null,
+    escalated: !!thread?.escalated,
+    unreadOwner: thread?.unreadOwner ?? 0,
+    unreadRenter: thread?.unreadRenter ?? 0,
+    lastMessage: thread?.lastMessage ?? null,
+    lastSender: thread?.lastSender ?? null,
+    updatedAt: thread?.updatedAt ?? b._creationTime,
+  };
+}
+export const mine = query({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const a = await accountForToken(ctx, token);
+    if (!a) return null;
+    const bookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_guestEmail", (q) => q.eq("guestEmail", a.email))
+      .order("desc")
+      .take(200);
+    return Promise.all(bookings.map((b) => bookingView(ctx, b, a)));
+  },
+});
+export const adminInbox = query({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    if (!checkAdminToken(token)) return { authorized: false, items: [] };
+    const bookings = await ctx.db.query("bookings").order("desc").take(200);
+    const items = await Promise.all(
+      bookings.map(async (b) => {
+        const a = await ctx.db
+          .query("accounts")
+          .withIndex("by_email", (q) =>
+            q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
+          )
+          .first();
+        return bookingView(ctx, b, a);
+      }),
+    );
+    return { authorized: true, items };
+  },
+});
+export const messages = query({
+  args: {
+    token: v.string(),
+    bookingId: v.optional(v.id("bookings")),
+    admin: v.optional(v.boolean()),
+    accountId: v.optional(v.id("accounts")),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (
+    ctx,
+    { token, bookingId, admin, accountId, paginationOpts },
+  ) => {
+    let a: any;
+    if (admin) {
+      if (!checkAdminToken(token)) return null;
+      a = await ownerAccount(ctx, bookingId, accountId);
+    } else {
+      a = await accountForToken(ctx, token);
+      if (!a) return null;
+      if (bookingId) await ownedBooking(ctx, a, bookingId);
+    }
+    if (!a)
+      return { page: [], isDone: true, continueCursor: "", escalated: false };
+    // Account filter also protects old rows created before booking ownership was enforced.
+    const page = await ctx.db
+      .query("messages")
+      .withIndex("by_booking_at", (q) => q.eq("bookingId", bookingId))
+      .filter((q) => q.eq(q.field("accountId"), a._id))
+      .order("desc")
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(50, paginationOpts.numItems),
+      });
+    const thread = await rentalThread(ctx, a._id, bookingId);
+    return { ...page, escalated: !!thread?.escalated };
+  },
+});
+export const sendOwner = mutation({
+  args: {
+    token: v.string(),
+    bookingId: v.optional(v.id("bookings")),
+    accountId: v.optional(v.id("accounts")),
+    text: v.string(),
+  },
+  handler: async (ctx, { token, bookingId, accountId, text }) => {
+    await assertAdmin(ctx, token, "rentalChat.sendOwner");
+    const a = await ownerAccount(ctx, bookingId, accountId);
+    if (!a)
+      throw Error(
+        "The renter must create an account with their booking email to use chat.",
+      );
+    if (!text.trim() || text.trim().length > 2000)
+      throw Error("Write a message of up to 2,000 characters.");
+    await postRentalMessage(ctx, {
+      accountId: a._id,
+      bookingId,
+      sender: "owner",
+      text: text.trim(),
+    });
+    const t = await rentalThread(ctx, a._id, bookingId);
+    if (t) await ctx.db.patch(t._id, { escalated: true });
+    return { ok: true };
+  },
+});
+export const markRead = mutation({
+  args: {
+    token: v.string(),
+    bookingId: v.optional(v.id("bookings")),
+    admin: v.optional(v.boolean()),
+    accountId: v.optional(v.id("accounts")),
+    through: v.id("messages"),
+  },
+  handler: async (ctx, { token, bookingId, admin, accountId, through }) => {
+    let a: any;
+    if (admin) {
+      await assertAdmin(ctx, token, "rentalChat.markRead");
+      a = await ownerAccount(ctx, bookingId, accountId);
+    } else {
+      a = await accountForToken(ctx, token);
+      if (bookingId) await ownedBooking(ctx, a, bookingId);
+    }
+    if (!a) return;
+    const t = await rentalThread(ctx, a._id, bookingId);
+    if (!t) return;
+    const seen = await ctx.db.get(through);
+    if (!seen || seen.accountId !== a._id || seen.bookingId !== bookingId)
+      throw Error("Invalid read marker");
+    const previous = admin ? t.ownerReadAt : t.renterReadAt;
+    if (previous != null && previous > seen.at) return;
+    // at is monotonic for new messages; creation time disambiguates historical ties.
+    const newer = await ctx.db
+      .query("messages")
+      .withIndex("by_booking_at", (q) =>
+        q.eq("bookingId", bookingId).gte("at", seen.at),
+      )
+      .filter((q) => q.eq(q.field("accountId"), a._id))
+      .collect();
+    const unread = newer.filter(
+      (m) =>
+        (m.at > seen.at || m._creationTime > seen._creationTime) &&
+        (admin ? m.sender === "renter" : m.sender !== "renter"),
+    ).length;
+    await ctx.db.patch(
+      t._id,
+      admin
+        ? { unreadOwner: unread, ownerReadAt: seen.at }
+        : { unreadRenter: unread, renterReadAt: seen.at },
+    );
+    if (bookingId)
+      await ctx.db.patch(
+        bookingId,
+        admin ? { chatUnreadOwner: unread } : { chatUnreadRenter: unread },
+      );
+  },
+});
+export const setHandler = mutation({
+  args: {
+    token: v.string(),
+    bookingId: v.optional(v.id("bookings")),
+    accountId: v.optional(v.id("accounts")),
+    gaffer: v.boolean(),
+  },
+  handler: async (ctx, { token, bookingId, accountId, gaffer }) => {
+    await assertAdmin(ctx, token, "rentalChat.setHandler");
+    const a = await ownerAccount(ctx, bookingId, accountId);
+    if (!a) throw Error("No renter account yet");
+    const t = await rentalThread(ctx, a._id, bookingId);
+    if (t)
+      await ctx.db.patch(t._id, { escalated: !gaffer, updatedAt: Date.now() });
+    else
+      await ctx.db.insert("chat_threads", {
+        accountId: a._id,
+        bookingId,
+        escalated: !gaffer,
+        updatedAt: Date.now(),
+      });
+    await postRentalMessage(ctx, {
+      accountId: a._id,
+      bookingId,
+      sender: "system",
+      text: gaffer
+        ? "Gaffer is here to help with this rental."
+        : "The team is handling this conversation.",
+    });
+    if (gaffer)
+      await ctx.scheduler.runAfter(0, internal.gaffer.gafferReply, {
+        accountId: a._id,
+        bookingId,
+      });
+  },
+});
+
+export const minePage = query({
+  args: { token: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { token, paginationOpts }) => {
+    const a = await accountForToken(ctx, token);
+    if (!a) return { page: [], isDone: true, continueCursor: "" };
+    const page = await ctx.db
+      .query("bookings")
+      .withIndex("by_guest_chat_updated", (q) => q.eq("guestEmail", a.email))
+      .order("desc")
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(50, paginationOpts.numItems),
+      });
+    return {
+      ...page,
+      page: await Promise.all(page.page.map((b) => bookingView(ctx, b, a))),
+    };
+  },
+});
+export const adminPage = query({
+  args: {
+    token: v.string(),
+    stage: v.optional(v.string()),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, { token, stage, paginationOpts }) => {
+    if (!checkAdminToken(token))
+      return { page: [], isDone: true, continueCursor: "" };
+    const statuses = [
+      "pending_payment",
+      "confirmed",
+      "active",
+      "returned",
+      "cancelled",
+    ] as const;
+    if (stage && stage !== "unread" && !statuses.includes(stage as any))
+      throw Error("Invalid rental stage");
+    const query =
+      stage === "unread"
+        ? ctx.db
+            .query("bookings")
+            .withIndex("by_owner_unread_updated", (q) =>
+              q.gt("chatUnreadOwner", 0),
+            )
+        : stage
+          ? ctx.db
+              .query("bookings")
+              .withIndex("by_status_chat_updated", (q) =>
+                q.eq("status", stage as (typeof statuses)[number]),
+              )
+          : ctx.db.query("bookings").withIndex("by_chat_updated");
+    const page = await query.order("desc").paginate({
+      ...paginationOpts,
+      numItems: Math.min(50, paginationOpts.numItems),
+    });
+    return {
+      ...page,
+      page: await Promise.all(
+        page.page.map(async (b) => {
+          const a = await ctx.db
+            .query("accounts")
+            .withIndex("by_email", (q) =>
+              q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
+            )
+            .first();
+          return bookingView(ctx, b, a);
+        }),
+      ),
+    };
+  },
+});
+export const unreadTotals = query({
+  args: { token: v.string(), admin: v.optional(v.boolean()) },
+  handler: async (ctx, { token, admin }) => {
+    if (admin && !checkAdminToken(token)) return 0;
+    const account = admin ? null : await accountForToken(ctx, token);
+    if (!admin && !account) return 0;
+    const threads = admin
+      ? await ctx.db.query("chat_threads").collect()
+      : await ctx.db
+          .query("chat_threads")
+          .withIndex("by_account", (q) => q.eq("accountId", account!._id))
+          .collect();
+    return threads.reduce(
+      (sum, t) => sum + (admin ? (t.unreadOwner ?? 0) : (t.unreadRenter ?? 0)),
+      0,
+    );
+  },
+});
+
+export const generalOwnerPage = query({
+  args: { token: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { token, paginationOpts }) => {
+    if (!checkAdminToken(token))
+      return { page: [], isDone: true, continueCursor: "" };
+    const page = await ctx.db
+      .query("chat_threads")
+      .withIndex("by_updated")
+      .filter((q) => q.eq(q.field("bookingId"), undefined))
+      .order("desc")
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(50, paginationOpts.numItems),
+      });
+    const entries = await Promise.all(
+      page.page.map(async (t) => {
+        const a = await ctx.db.get(t.accountId);
+        return {
+          _id: t.accountId,
+          accountId: t.accountId,
+          status: "support",
+          name: a?.name ?? null,
+          guestEmail: a?.email ?? "",
+          start: 0,
+          end: 0,
+          total: 0,
+          items: [],
+          escalated: t.escalated,
+          unreadOwner: t.unreadOwner ?? 0,
+          unreadRenter: t.unreadRenter ?? 0,
+          lastMessage: t.lastMessage ?? null,
+          lastSender: t.lastSender ?? null,
+          updatedAt: t.updatedAt,
+        };
+      }),
+    );
+    return { ...page, page: entries };
+  },
+});
+export const getConversation = query({
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    admin: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { token, bookingId, admin }) => {
+    let account: any, b: any;
+    if (admin) {
+      if (!checkAdminToken(token)) return null;
+      b = await ctx.db.get(bookingId);
+      if (!b) return null;
+      account = await ownerAccount(ctx, bookingId);
+    } else {
+      account = await accountForToken(ctx, token);
+      if (!account) return null;
+      b = await ownedBooking(ctx, account, bookingId);
+    }
+    return bookingView(ctx, b, account);
+  },
+});
+
+/** One-time bounded migration. Per-message receipts make retries safe alongside new messages. */
+export const migrateLegacyUnread = internalMutation({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db
+      .query("messages")
+      .order("asc")
+      .paginate({ numItems: 100, cursor });
+    let migrated = 0;
+    for (const m of page.page) {
+      if (m.threadCounted) continue;
+      const account = await ctx.db.get(m.accountId);
+      if (!account) continue;
+      const b = m.bookingId ? await ctx.db.get(m.bookingId) : null;
+      if (
+        m.bookingId &&
+        (!b ||
+          (b.guestEmail ?? "").trim().toLowerCase() !==
+            account.email.trim().toLowerCase())
+      )
+        continue;
+      const t = await rentalThread(ctx, m.accountId, m.bookingId);
+      const ownerUnread =
+        m.sender === "renter" && !m.readByOwner && m.at > (t?.ownerReadAt ?? 0);
+      const renterUnread =
+        m.sender !== "renter" && m.at > (t?.renterReadAt ?? 0);
+      const patch = {
+        unreadOwner: (t?.unreadOwner ?? 0) + (ownerUnread ? 1 : 0),
+        unreadRenter: (t?.unreadRenter ?? 0) + (renterUnread ? 1 : 0),
+        ...(m.at >= (t?.updatedAt ?? 0)
+          ? {
+              updatedAt: m.at,
+              lastMessage: m.text.slice(0, 160),
+              lastSender: m.sender,
+            }
+          : {}),
+      };
+      if (t) await ctx.db.patch(t._id, patch);
+      else
+        await ctx.db.insert("chat_threads", {
+          accountId: m.accountId,
+          bookingId: m.bookingId,
+          escalated: false,
+          updatedAt: m.at,
+          ...patch,
+        });
+      if (b)
+        await ctx.db.patch(b._id, {
+          chatUpdatedAt: Math.max(t?.updatedAt ?? 0, m.at),
+          chatUnreadOwner: patch.unreadOwner,
+          chatUnreadRenter: patch.unreadRenter,
+        });
+      await ctx.db.patch(m._id, { threadCounted: true });
+      migrated++;
+    }
+    return { cursor: page.continueCursor, isDone: page.isDone, migrated };
+  },
+});
+
+export const unreadBreakdown = query({
+  args: { token: v.string(), admin: v.optional(v.boolean()) },
+  handler: async (ctx, { token, admin }) => {
+    if (admin && !checkAdminToken(token)) return { rentals: 0, general: 0 };
+    const account = admin ? null : await accountForToken(ctx, token);
+    if (!admin && !account) return { rentals: 0, general: 0 };
+    const threads = admin
+      ? await ctx.db.query("chat_threads").collect()
+      : await ctx.db
+          .query("chat_threads")
+          .withIndex("by_account", (q) => q.eq("accountId", account!._id))
+          .collect();
+    return threads.reduce(
+      (sum, t) => {
+        const count = admin ? (t.unreadOwner ?? 0) : (t.unreadRenter ?? 0);
+        if (t.bookingId) sum.rentals += count;
+        else sum.general += count;
+        return sum;
+      },
+      { rentals: 0, general: 0 },
+    );
+  },
+});

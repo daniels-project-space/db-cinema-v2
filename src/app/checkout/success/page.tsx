@@ -10,18 +10,25 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
 import { IdVerify } from "@/components/IdVerify";
 import { tierByKey } from "@/lib/membership";
+import { loadStripe } from "@stripe/stripe-js";
+import { formatGbp } from "@/lib/pricing";
 
 function SuccessInner() {
   const params = useSearchParams();
   const sessionId = params.get("session_id");
   const finalize = useAction(api.checkout.finalize);
+  const syncAddition=useAction(api.rentalAdditions.sync);
+  const [additionId,setAdditionId]=useState<string|null>(null);
+  const syncHold = useAction(api.checkout.syncHold);
   const { clear } = useCart();
 
-  const [state, setState] = useState<"working" | "paid" | "unpaid" | "error">(
+  const [state, setState] = useState<"working" | "paid" | "unpaid" | "cancelled" | "error">(
     "working",
   );
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [membership, setMembership] = useState<string | null>(null);
+  const [holdStatus, setHoldStatus] = useState<string | null>(null);
+  const [holdSecret, setHoldSecret] = useState<string | null>(null);
   const ran = useRef(false);
 
   useEffect(() => {
@@ -30,16 +37,36 @@ function SuccessInner() {
     finalize({ sessionId })
       .then((r) => {
         if (r.paid) {
+          if (r.closed) { setState("cancelled"); return; }
           setBookingId(r.bookingId);
+          setAdditionId(r.additionId??null);
           setMembership((r as any).membership ?? null);
+          setHoldStatus(r.holdStatus ?? null);
+          setHoldSecret(r.holdClientSecret ?? null);
           setState("paid");
-          if (!(r as any).membership) clear();
+          if (!(r as any).membership&&!r.additionId) clear();
         } else {
           setState("unpaid");
         }
       })
       .catch(() => setState("error"));
   }, [sessionId, finalize, clear]);
+
+  useEffect(() => {
+    if (!sessionId || !holdSecret || holdStatus !== "requires_action") return;
+    const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    if (!key) return;
+    let alive = true;
+    loadStripe(key).then(async (stripe) => {
+      if (!stripe) return;
+      const result = await stripe.confirmCardPayment(holdSecret);
+      if (!alive) return;
+      if (result.error) { setHoldStatus("failed"); return; }
+      const updated = additionId?await syncAddition({sessionId}):await syncHold({ sessionId });
+      if (alive) { setHoldStatus(updated.status); setHoldSecret(null); }
+    }).catch(() => { if (alive) setHoldStatus("failed"); });
+    return () => { alive = false; };
+  }, [sessionId, holdSecret, holdStatus, syncHold,additionId,syncAddition]);
 
   const booking = useQuery(
     api.bookings.get,
@@ -62,8 +89,15 @@ function SuccessInner() {
     return (
       <Msg title="Payment not completed" body="Your card was not charged." cta />
     );
+  if (state === "cancelled")
+    return <Msg title="This booking is closed" body="This checkout belongs to a cancelled booking. Please contact us if your bank shows a charge so we can confirm its refund." cta />;
   if (state === "error")
     return <Msg title="Something went wrong" body="Please contact us." cta />;
+
+  if(additionId){
+    const ready=holdStatus==="held";
+    return <Msg title={ready?"Items added to your rental":"Payment received · approval pending"} body={ready?"Your order and rental conversation now include the extra items.":holdStatus==="requires_action"?"Complete the bank approval to add these items. You can resume it in your rental conversation.":"The extra items are waiting for a valid security hold. Open your rental conversation to check the status or ask the team for help."} cta />;
+  }
 
   // membership subscription confirmation
   if (membership) {
@@ -102,7 +136,7 @@ function SuccessInner() {
         <span className="rec-dot" /> Scene locked
       </div>
       <h1 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
-        Booking <span className="serif-accent gradient-text text-[1.06em]">confirmed</span>
+        {holdStatus === "held" ? "Booking " : "Payment "}<span className="serif-accent gradient-text text-[1.06em]">{holdStatus === "held" ? "confirmed" : "received"}</span>
       </h1>
       <p className="mt-3 text-white/40">
         A confirmation has been sent to {booking?.guestEmail ?? "your email"}.
@@ -115,18 +149,25 @@ function SuccessInner() {
             {booking.lineItems.map((li, i) => (
               <div key={i} className="flex justify-between py-1 text-sm text-white/60">
                 <span className="mr-2 line-clamp-1">{li.title}</span>
-                <span className="font-mono">£{li.lineTotal}</span>
+                <span className="font-mono">{formatGbp(li.lineTotal)}</span>
               </div>
             ))}
           </div>
           <hr className="receipt-sep" />
           <div className="flex justify-between font-display font-bold text-white">
             <span>Paid</span>
-            <span className="font-mono">£{booking.total}</span>
+            <span className="font-mono">{formatGbp(booking.total)}</span>
           </div>
           <div className="mt-1 text-right font-mono text-xs text-white/35">
-            incl. £{booking.depositAmount} refundable deposit
+            incl. {formatGbp(booking.depositAmount)} refundable security payment
           </div>
+          {booking.depositHoldAmount > 0 && <div className="mt-1 text-right font-mono text-xs text-white/35">Separate {formatGbp(booking.depositHoldAmount)} card hold: {booking.depositHoldStatus ?? holdStatus ?? "processing"} (not charged)</div>}
+        </div>
+      )}
+
+      {booking?.depositHoldAmount && booking.depositHoldStatus !== "held" && (
+        <div className="mx-auto mt-5 max-w-md rounded-xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm text-amber-200">
+          {holdStatus === "requires_action" ? "Your bank is confirming the refundable card hold. Complete any bank prompt to finish." : "The card hold is not active yet. Equipment cannot be handed over until it is authorised. Please contact us if this does not update."}
         </div>
       )}
 
@@ -139,7 +180,7 @@ function SuccessInner() {
               <p className="mb-2 text-sm text-white/50">
                 One last step before handover — verify your identity:
               </p>
-              <IdVerify bookingId={booking._id} status={booking.idVerifyStatus} />
+              <IdVerify bookingId={booking._id} status={booking.idVerifyStatus} note={booking.verificationNote} checkoutSessionId={sessionId} autoStart />
             </>
           )}
         </div>

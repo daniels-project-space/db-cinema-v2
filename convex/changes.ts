@@ -1,3 +1,4 @@
+import { postRentalMessage } from "./lib/rentalChat";
 import { mutation, internalMutation, internalQuery, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -42,7 +43,9 @@ export const requestBookingChange = mutation({
     const s = await ctx.db.query("sessions").withIndex("by_token", (q) => q.eq("token", a.token)).first();
     const acct: any = s ? await ctx.db.get(s.accountId) : null;
     const b = await ctx.db.get(a.bookingId);
+    if(!s||(s.expiresAt??0)<=Date.now())throw Error("Please sign in again");
     if (!acct || !b || (b.guestEmail ?? "").trim().toLowerCase() !== acct.email) throw new Error("unauthorized");
+    if(b.cancellationDecision)throw Error("Cancellation is in progress");
     if (!["confirmed", "active"].includes(b.status)) throw new Error("This booking can't be changed online.");
     if (a.type === "reschedule" && (a.requestedStart == null || a.requestedEnd == null)) throw new Error("Pick new dates.");
     if (a.type === "reschedule") {
@@ -74,7 +77,7 @@ export const requestBookingChange = mutation({
     const msg = a.type === "reschedule"
       ? `You asked to reschedule your rental to ${iso(a.requestedStart!)} → ${iso(a.requestedEnd!)} — we'll confirm shortly.`
       : `You asked to extend ${names || "your rental"} by ${a.extraDays} day${a.extraDays! > 1 ? "s" : ""} — we'll confirm shortly.`;
-    await ctx.db.insert("messages", { accountId: acct._id, bookingId: a.bookingId, sender: "system", text: msg, at: Date.now(), readByOwner: true });
+    await postRentalMessage(ctx, { accountId: acct._id, bookingId: a.bookingId, sender: "system", text: msg, });
     await ctx.scheduler.runAfter(0, internal.changes._changeAlert, { requestId });
     return { ok: true, requestId };
   },
@@ -124,7 +127,7 @@ export const _decline = internalMutation({
     const r = await ctx.db.get(requestId);
     if (!r || r.status !== "pending") return { ok: false };
     await ctx.db.patch(requestId, { status: "declined", resolvedAt: Date.now() });
-    await ctx.db.insert("messages", { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: "We couldn't make that change this time — your rental is unchanged. Reply here and we'll help find an option.", at: Date.now(), readByOwner: true });
+    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: "We couldn't make that change this time — your rental is unchanged. Reply here and we'll help find an option.", });
     return { ok: true };
   },
 });
@@ -137,12 +140,13 @@ export const _applyReschedule = internalMutation({
     if (!r || r.status !== "pending" || r.type !== "reschedule") return { ok: false, reason: "gone" };
     const b = await ctx.db.get(r.bookingId);
     if (!b || r.requestedStart == null || r.requestedEnd == null) return { ok: false, reason: "gone" };
+    if(b.cancellationDecision||b.status!=="confirmed")throw Error("This rental can no longer be rescheduled");
     const newStart = r.requestedStart, newEnd = r.requestedEnd;
     // every listing must be free over the new window (excluding this booking's own holds)
     for (const li of b.lineItems) {
       if (!(await listingFree(ctx, li.listingId, newStart, newEnd, r.bookingId))) {
         await ctx.db.patch(requestId, { status: "declined", resolvedAt: Date.now(), note: "unavailable" });
-        await ctx.db.insert("messages", { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Sorry — ${li.title} isn't available for ${iso(newStart)} → ${iso(newEnd)}. Your rental is unchanged; reply here and we'll find an option.`, at: Date.now(), readByOwner: true });
+        await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Sorry — ${li.title} isn't available for ${iso(newStart)} → ${iso(newEnd)}. Your rental is unchanged; reply here and we'll find an option.`, });
         return { ok: false, reason: "unavailable" };
       }
     }
@@ -154,7 +158,7 @@ export const _applyReschedule = internalMutation({
       }
     }
     await ctx.db.patch(requestId, { status: "applied", resolvedAt: Date.now() });
-    await ctx.db.insert("messages", { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Done — your rental is rescheduled to ${iso(newStart)} → ${iso(newEnd)}. ✓`, at: Date.now(), readByOwner: true });
+    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Done — your rental is rescheduled to ${iso(newStart)} → ${iso(newEnd)}. ✓`, });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: r.bookingId, kind: "rescheduled", detail: `${iso(newStart)} → ${iso(newEnd)}` });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId: r.bookingId });
     return { ok: true };
@@ -168,7 +172,7 @@ export const _approveExtendPending = internalMutation({
     const r = await ctx.db.get(requestId);
     if (!r || r.status !== "pending") return { ok: false };
     await ctx.db.patch(requestId, { status: "approved", resolvedAt: Date.now() });
-    await ctx.db.insert("messages", { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Your extension is approved — we'll send a secure payment link here for the extra day${(r.extraDays ?? 1) > 1 ? "s" : ""} shortly.`, at: Date.now(), readByOwner: true });
+    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Your extension is approved — we'll send a secure payment link here for the extra day${(r.extraDays ?? 1) > 1 ? "s" : ""} shortly.`, });
     return { ok: true };
   },
 });
@@ -181,6 +185,7 @@ export const _extendQuote = internalQuery({
     if (!r || r.type !== "extend") return { ok: false as const, reason: "gone" };
     const b = await ctx.db.get(r.bookingId);
     if (!b) return { ok: false as const, reason: "gone" };
+    if(b.cancellationDecision||!["confirmed","active"].includes(b.status))throw Error("This rental can no longer be extended");
     const extra = r.extraDays ?? 0;
     const idxs = r.lineItemIndexes?.length ? r.lineItemIndexes : b.lineItems.map((_, i) => i);
     let priceDelta = 0;
@@ -207,11 +212,10 @@ export const _setAwaitingPayment = internalMutation({
     const r = await ctx.db.get(requestId);
     if (!r || r.status !== "pending") return;
     await ctx.db.patch(requestId, { status: "awaiting_payment", paymentLinkUrl: url, stripePaymentLinkId: sessionId, priceDelta });
-    await ctx.db.insert("messages", {
+    await postRentalMessage(ctx, {
       accountId: r.accountId, bookingId: r.bookingId, sender: "system",
       text: `Your extension is approved! Pay £${priceDelta} for the extra ${r.extraDays} day${(r.extraDays ?? 1) > 1 ? "s" : ""} to lock it in:`,
       meta: { kind: "paylink", url, amount: priceDelta },
-      at: Date.now(), readByOwner: true,
     });
   },
 });
@@ -222,7 +226,7 @@ export const _declineUnavailable = internalMutation({
     const r = await ctx.db.get(requestId);
     if (!r) return;
     await ctx.db.patch(requestId, { status: "declined", resolvedAt: Date.now(), note: "unavailable" });
-    await ctx.db.insert("messages", { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Sorry — ${item ?? "that item"} isn't available for the extra day(s). Your rental is unchanged; reply here and we'll find an option.`, at: Date.now(), readByOwner: true });
+    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Sorry — ${item ?? "that item"} isn't available for the extra day(s). Your rental is unchanged; reply here and we'll find an option.`, });
   },
 });
 
@@ -233,7 +237,7 @@ export const _applyExtendPaid = internalMutation({
     const r = await ctx.db.get(requestId);
     if (!r || r.status === "applied") return { ok: true, already: true };
     const b = await ctx.db.get(r.bookingId);
-    if (!b) return { ok: false };
+    if (!b||b.cancellationDecision||!["confirmed","active"].includes(b.status)||r.status==="declined") return {ok:false,closed:true};
     const extra = r.extraDays ?? 0;
     const idxs = r.lineItemIndexes?.length ? r.lineItemIndexes : b.lineItems.map((_, i) => i);
     const idxSet = new Set(idxs);
@@ -251,7 +255,7 @@ export const _applyExtendPaid = internalMutation({
       }
     }
     await ctx.db.patch(requestId, { status: "applied", paidAt: Date.now(), resolvedAt: Date.now() });
-    await ctx.db.insert("messages", { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Done — your rental is extended by ${extra} day${extra > 1 ? "s" : ""}. ✓`, at: Date.now(), readByOwner: true });
+    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Done — your rental is extended by ${extra} day${extra > 1 ? "s" : ""}. ✓`, });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: r.bookingId, kind: "extended", detail: `+${extra} day(s)` });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId: r.bookingId });
     return { ok: true };

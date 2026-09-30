@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { IconLock, IconShield, IconCheck, IconTruck, IconPin, IconArrowRight } from "@/components/icons";
 import { useAction, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -12,12 +12,12 @@ import { useCart } from "@/components/cart/CartProvider";
 import { usePromo } from "@/components/cart/usePromo";
 import { useAccount } from "@/components/account/AccountProvider";
 import { AGREEMENTS } from "@/lib/legal";
-import { depositFor, smallDamageHold, type Protection } from "@/lib/pricing";
+import { depositFor, depositChargeFor, smallDamageHold, formatGbp, type Protection } from "@/lib/pricing";
 
 import { dayMs as ms } from "@/lib/dates";
 import { PICKUP_SLOTS as SLOTS, HOURS_SENTENCE } from "@/lib/site";
 
-const PC_RE = /([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})/i;
+const PC_RE = /\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i;
 
 function StepCard({
   n,
@@ -65,6 +65,7 @@ export default function CheckoutPage() {
   const account = useAccount();
   const promo = usePromo(eligibleSubtotal);
   const start = useAction(api.checkout.start);
+  const getPriceQuote = useAction(api.checkout.priceQuote);
   const getQuote = useAction(api.delivery.quote);
   const track = useMutation(api.analytics.track);
 
@@ -74,6 +75,7 @@ export default function CheckoutPage() {
   const [email, setEmail] = useState(account.me?.email ?? "");
   const [name, setName] = useState(account.me?.name ?? "");
   const [phone, setPhone] = useState(account.me?.phone ?? "");
+  const [billingAddress, setBillingAddress] = useState(account.me?.address ?? "");
   const [fulfilment, setFulfilment] = useState<"pickup" | "delivery">("pickup");
   const [address, setAddress] = useState(account.me?.address ?? "");
   const [postcode, setPostcode] = useState(acctPostcode);
@@ -84,20 +86,67 @@ export default function CheckoutPage() {
   const [returnTime, setReturnTime] = useState("");
   const [deliveryAgreed, setDeliveryAgreed] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [holdAgreed, setHoldAgreed] = useState(false);
+  const [laterChargeAgreed, setLaterChargeAgreed] = useState(false);
   const [signature, setSignature] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [quoted, setQuoted] = useState<{
+    key: string;
+    value: Awaited<ReturnType<typeof getPriceQuote>>;
+  } | null>(null);
 
   const deliveryFee = fulfilment === "delivery" && dq?.ok ? dq.fee : 0;
-  const depositAmount = depositFor(protection, replacementSum);
-  const total = subtotal + depositAmount + deliveryFee - promo.discount;
 
-  const detailsDone = /\S+@\S+\.\S+/.test(email);
+  const detailsDone = /\S+@\S+\.\S+/.test(email) && name.trim().length >= 3 && billingAddress.trim().length >= 10;
+  const deliveryAddressPostcode = address.match(PC_RE)?.[1]?.replace(/\s/g, "").toUpperCase() ?? "";
+  const quotedPostcode = postcode.match(PC_RE)?.[1]?.replace(/\s/g, "").toUpperCase() ?? "";
   const fulfilmentDone =
-    !!pickupTime && !!returnTime && (fulfilment === "pickup" || (dq?.ok && address.trim().length > 5 && deliveryAgreed));
-  const signDone = agreed && signature.trim().length > 2;
+    !!pickupTime && !!returnTime && (fulfilment === "pickup" ||
+      (dq?.ok && address.trim().length >= 10 && deliveryAddressPostcode === quotedPostcode && !!quotedPostcode && deliveryAgreed));
+  const priceArgs = {
+    items: items.map((i) => ({
+      listingId: i.listingId as any, title: i.title, start: ms(i.start), end: ms(i.end),
+      qty: 1, total: i.total, deposit: i.deposit, offerType: i.offerType,
+    })),
+    token: account.token ?? undefined,
+    customerEmail: email,
+    fulfilment,
+    address: fulfilment === "delivery" ? address : undefined,
+    deliveryPostcode: fulfilment === "delivery" ? postcode : undefined,
+    promoCode: promo.applied ?? undefined,
+    protection,
+  };
+  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null });
+  const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
+  const holdAmount = currentQuote?.depositHoldAmount ?? depositFor(protection, replacementSum);
+  const depositAmount = currentQuote?.depositAmount ?? depositChargeFor(protection, replacementSum);
 
-  const valid = items.length > 0 && detailsDone && fulfilmentDone && signDone;
+  useEffect(() => {
+    setHoldAgreed(false);
+    setLaterChargeAgreed(false);
+    setQuoteError(null);
+    if (!detailsDone || !fulfilmentDone || !priceArgs.items.length) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      getPriceQuote(priceArgs).then((value) => {
+        if (!cancelled) {
+          // A refreshed provider-side price needs a fresh, amount-specific consent.
+          setHoldAgreed(false);
+          setLaterChargeAgreed(false);
+          setQuoted({ key: quoteKey, value });
+        }
+      }).catch((e: any) => {
+        if (!cancelled) setQuoteError(e?.message ?? "Could not calculate this rental total.");
+      });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [quoteKey, detailsDone, fulfilmentDone, getPriceQuote]);
+
+  const signDone = agreed && holdAgreed && laterChargeAgreed && signature.trim().length > 2;
+
+  const valid = items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
 
   async function quoteDelivery() {
     if (!postcode.trim()) return;
@@ -133,16 +182,17 @@ export default function CheckoutPage() {
           offerType: i.offerType,
         })),
         token: account.token ?? undefined, // authenticated member perks (discount, free accessories) require this
-        customer: { email, name: name || undefined, phone: phone || undefined },
+        customer: { email, name: name || undefined, phone: phone || undefined, billingAddress },
         fulfilment,
         address: fulfilment === "delivery" ? address : undefined,
-        deliveryFee,
+        deliveryPostcode: fulfilment === "delivery" ? postcode : undefined,
+        deliveryFee: currentQuote!.quotedDeliveryFee,
+        expectedTotalDue: currentQuote!.totalDue,
         promoCode: promo.applied ?? undefined,
         protection,
         pickupTime,
         returnTime,
-        agreement: { name: signature.trim(), documents: docs },
-        origin: window.location.origin,
+        agreement: { name: signature.trim(), securityHoldConsent: holdAgreed, laterChargeConsent: laterChargeAgreed, documents: docs },
       });
       window.location.href = url;
     } catch (e: any) {
@@ -179,7 +229,7 @@ export default function CheckoutPage() {
             Encrypted checkout by Stripe
           </span>
           <span className="text-white/20">·</span>
-          <span>Your deposit is released after you return the gear</span>
+          <span>The refundable security payment is returned after safe return; the card hold is released separately</span>
           <span className="text-white/20">·</span>
           <span>Need a hand? Message us any time</span>
         </p>
@@ -195,13 +245,18 @@ export default function CheckoutPage() {
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <div className="flex-1">
-                    <label className={label} htmlFor="co-name">Name</label>
+                    <label className={label} htmlFor="co-name">Full billing name *</label>
                     <input id="co-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="input w-full" />
                   </div>
                   <div className="flex-1">
                     <label className={label} htmlFor="co-phone">Phone</label>
                     <input id="co-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="For pickup coordination" className="input w-full" />
                   </div>
+                </div>
+                <div>
+                  <label className={label} htmlFor="co-billing-address">Billing address *</label>
+                  <textarea id="co-billing-address" value={billingAddress} onChange={(e) => setBillingAddress(e.target.value)} rows={2} placeholder="Street, town or city, postcode" className="input w-full" />
+                  <p className="mt-1 text-[11px] text-white/40">Used on your rental statement. You will separately submit proof of address through the verification provider.</p>
                 </div>
               </div>
             </StepCard>
@@ -260,7 +315,9 @@ export default function CheckoutPage() {
                   ) : (
                     <div className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{dq.reason}</div>
                   ))}
-                  <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Full delivery address *" rows={2} className="input w-full" />
+                  <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Full delivery address, including postcode *" rows={2} className="input w-full" />
+                  {address.trim().length > 0 && deliveryAddressPostcode !== quotedPostcode &&
+                    <p className="text-xs text-amber-200">Include the same postcode in your delivery address as the quote above.</p>}
                   <label className="flex items-start gap-2 text-xs leading-relaxed text-white/55">
                     <input type="checkbox" checked={deliveryAgreed} onChange={(e) => setDeliveryAgreed(e.target.checked)} className="mt-0.5 accent-accent-500" />
                     <span>I understand delivery uses a third-party courier (Addison Lee). Times are estimates only — no exact time is guaranteed and delivery may be affected by traffic. Estimates are accurate within ~15%; the final price is confirmed by the courier. No refunds for courier delays.</span>
@@ -310,10 +367,10 @@ export default function CheckoutPage() {
                         recommended
                       </span>
                     </span>
-                    <span className="shrink-0 font-mono text-sm text-accent-300">£{smallDamageHold(replacementSum)} hold</span>
+                    <span className="shrink-0 font-mono text-sm text-accent-300">{formatGbp(smallDamageHold(replacementSum))} hold</span>
                   </div>
                   <p className="mt-1.5 text-xs text-white/40">
-                    Small refundable damage hold + a quick ID check before handover. No large deposit.
+                    {formatGbp(depositChargeFor("verify", replacementSum))} refundable security payment at checkout, plus a separate {formatGbp(smallDamageHold(replacementSum))} card hold. Automatic ID, selfie and address check before handover.
                   </p>
                 </button>
                 <button
@@ -327,11 +384,11 @@ export default function CheckoutPage() {
                   <div className="flex items-center justify-between gap-3">
                     <span className="flex items-center gap-2.5 text-sm font-medium text-white/85">
                       <IconLock className={`h-4.5 w-4.5 ${protection === "deposit" ? "text-accent-400" : "text-white/40"}`} />
-                      Security deposit
+                      Full-value card hold
                     </span>
-                    <span className="shrink-0 font-mono text-sm text-accent-300">£{replacementSum} deposit</span>
+                    <span className="shrink-0 font-mono text-sm text-accent-300">{formatGbp(replacementSum)} hold</span>
                   </div>
-                  <p className="mt-1.5 text-xs text-white/40">Full refundable deposit, released on safe return. No ID check.</p>
+                  <p className="mt-1.5 text-xs text-white/40">{formatGbp(depositChargeFor("deposit", replacementSum))} refundable security payment at checkout, plus a separate {formatGbp(replacementSum)} card hold. Automatic ID, selfie and address check before handover.</p>
                 </button>
               </div>
             </StepCard>
@@ -350,6 +407,14 @@ export default function CheckoutPage() {
                   ))}
                 </span>
               </label>
+              <label className="mt-3 flex items-start gap-2.5 text-xs leading-relaxed text-white/60">
+                <input type="checkbox" checked={holdAgreed} disabled={!currentQuote} onChange={(e) => setHoldAgreed(e.target.checked)} className="mt-0.5 accent-accent-500 disabled:opacity-40" />
+                <span>I authorise a separate {formatGbp(holdAmount)} card hold for equipment security, in addition to the {formatGbp(depositAmount)} refundable payment charged now. I understand the hold may expire and my bank may require a new authorisation.</span>
+              </label>
+              <label className="mt-3 flex items-start gap-2.5 text-xs leading-relaxed text-white/60">
+                <input type="checkbox" checked={laterChargeAgreed} disabled={!currentQuote} onChange={(e) => setLaterChargeAgreed(e.target.checked)} className="mt-0.5 accent-accent-500 disabled:opacity-40" />
+                <span>I separately agree to itemised late rental time at each booked item’s daily rate, and documented loss, damage or insurance excess. After notice, an unused active hold may cover a late fee if no damage is due; any balance may be attempted on this saved card. No amount will be collected twice. A new charge may require bank authentication.</span>
+              </label>
               <div className="mt-4">
                 <label className={label} htmlFor="co-sig">Sign by typing your full name *</label>
                 <input
@@ -367,40 +432,48 @@ export default function CheckoutPage() {
           <aside className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky! lg:top-24">
             <div className="hud-label !text-accent-400/90">Order summary</div>
             <div className="mt-4 flex flex-col gap-2 text-sm">
-              {items.map((i) => (
+              {items.map((i, index) => (
                 <div key={i.key} className="flex justify-between text-white/55">
                   <span className="mr-2 line-clamp-1">
-                    {i.title}
+                    {currentQuote?.items[index]?.title ?? i.title}
                     {i.offerType ? " (offer)" : ""}
                   </span>
-                  <span className="shrink-0 font-mono">£{i.total}</span>
+                  <span className="shrink-0 font-mono">{formatGbp(currentQuote?.items[index]?.total ?? i.total)}</span>
                 </div>
               ))}
             </div>
             <hr className="receipt-sep" />
             <div className="text-sm">
-              <Row label="Rental subtotal" value={subtotal} />
-              {promo.discount > 0 && (
+              <Row label="Rental subtotal" value={currentQuote?.subtotal ?? subtotal} />
+              {!!currentQuote && currentQuote.totalReduction > 0 && (
                 <div className="flex justify-between text-emerald-300">
-                  <span>{promo.applied?.toUpperCase()}</span>
-                  <span className="font-mono">−£{promo.discount}</span>
+                  <span>{currentQuote.reductionLabel ?? "Rental discount"}</span>
+                  <span className="font-mono">−{formatGbp(currentQuote.totalReduction)}</span>
                 </div>
               )}
-              {deliveryFee > 0 && <Row label="Delivery (round trip)" value={deliveryFee} />}
-              <Row label={protection === "deposit" ? "Refundable deposit" : "Refundable damage hold"} value={depositAmount} muted />
+              {(currentQuote?.deliveryFee ?? deliveryFee) > 0 && <Row label="Delivery (round trip)" value={currentQuote?.deliveryFee ?? deliveryFee} />}
+              <Row label="Refundable security payment (50%)" value={depositAmount} muted />
+              <Row label="Separate card hold (not charged)" value={holdAmount} muted />
+              {!!currentQuote && currentQuote.creditApplied > 0 && (
+                <div className="flex justify-between text-emerald-300">
+                  <span>Account credit</span>
+                  <span className="font-mono">−{formatGbp(currentQuote.creditApplied)}</span>
+                </div>
+              )}
               <hr className="receipt-sep" />
               <div className="flex justify-between font-display text-xl font-bold text-white">
                 <span>Total due</span>
-                <span className="font-mono">£{total}</span>
+                <span className="font-mono">{currentQuote ? formatGbp(currentQuote.totalDue) : "Calculating…"}</span>
               </div>
             </div>
+            {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
             {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
             <button onClick={pay} disabled={!valid || busy} className="btn-primary mt-5 w-full py-3">
               {busy ? "Redirecting…" : "Pay with card"}
               {!busy && <IconLock className="h-4 w-4" />}
             </button>
             <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">
-              Secured by Stripe · test mode
+              Secured by Stripe
             </p>
           </aside>
         </div>
@@ -413,7 +486,7 @@ function Row({ label, value, muted }: { label: string; value: number; muted?: bo
   return (
     <div className={`flex justify-between ${muted ? "text-white/35" : "text-white/60"}`}>
       <span>{label}</span>
-      <span className="font-mono">£{value}</span>
+      <span className="font-mono">{formatGbp(value)}</span>
     </div>
   );
 }

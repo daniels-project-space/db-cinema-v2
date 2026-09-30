@@ -1,3 +1,7 @@
+import { assertRentalInventory } from "./lib/rentalInventory";
+import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
+import { rentalPaymentSources } from "./lib/rentalPaymentSources";
+import { postRentalMessage } from "./lib/rentalChat";
 import {
   internalMutation,
   internalQuery,
@@ -8,6 +12,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { peak, type Iv } from "./availability";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
+import { cancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 
 const lineItem = v.object({
   listingId: v.id("listings"),
@@ -16,6 +21,27 @@ const lineItem = v.object({
   end: v.number(),
   qty: v.number(),
   lineTotal: v.number(),
+  dailyRate: v.optional(v.number()),
+});
+
+async function availableCreditFor(ctx: any, accountId: any): Promise<number> {
+  const acct = await ctx.db.get(accountId);
+  if (!acct) return 0;
+  const now = Date.now();
+  const credits = await ctx.db.query("credits")
+    .withIndex("by_account", (q: any) => q.eq("accountId", accountId)).collect();
+  const balance = credits.filter((c: any) => c.status === "active" && c.expiresAt > now)
+    .reduce((n: number, c: any) => n + c.remaining, 0);
+  const pending = await ctx.db.query("bookings")
+    .withIndex("by_guestEmail", (q: any) => q.eq("guestEmail", acct.email.trim().toLowerCase())).collect();
+  const reserved = pending.filter((b: any) => b.status === "pending_payment")
+    .reduce((n: number, b: any) => n + (b.creditApplied ?? 0), 0);
+  return Math.max(0, balance - reserved);
+}
+
+export const availableCheckoutCredit = internalQuery({
+  args: { accountId: v.id("accounts") },
+  handler: async (ctx, { accountId }) => availableCreditFor(ctx, accountId),
 });
 
 export const createPending = internalMutation({
@@ -25,32 +51,45 @@ export const createPending = internalMutation({
     phone: v.optional(v.string()),
     fulfilment: v.union(v.literal("pickup"), v.literal("delivery")),
     address: v.optional(v.string()),
+    billingAddress: v.optional(v.string()),
     deliveryFee: v.number(),
     lineItems: v.array(lineItem),
     subtotal: v.number(),
     depositAmount: v.number(),
+    depositHoldAmount: v.optional(v.number()),
     promoCode: v.optional(v.string()),
     discount: v.optional(v.number()),
     total: v.number(),
+    expectedTotalDue: v.number(),
     creditAccountId: v.optional(v.id("accounts")),
     currency: v.string(),
     agreementName: v.optional(v.string()),
+    securityHoldConsent: v.optional(v.boolean()),
+    laterChargeConsent: v.optional(v.boolean()),
     agreementDocs: v.optional(
       v.array(v.object({ kind: v.string(), version: v.string() })),
     ),
     protection: v.optional(v.string()),
     idVerifyStatus: v.optional(v.string()),
+    verificationProvider: v.optional(v.string()),
     pickupTime: v.optional(v.string()),
     returnTime: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
+    const customerEmail = a.customerEmail.trim().toLowerCase();
+    if (!customerEmail) throw new Error("Customer email is required.");
+    if (a.creditAccountId) {
+      const creditAccount = await ctx.db.get(a.creditAccountId);
+      if (!creditAccount || creditAccount.email.trim().toLowerCase() !== customerEmail)
+        throw new Error("Account credit belongs to a different customer.");
+    }
     let customer = await ctx.db
       .query("customers")
-      .withIndex("by_email", (q) => q.eq("email", a.customerEmail))
+      .withIndex("by_email", (q) => q.eq("email", customerEmail))
       .first();
     if (!customer) {
       const id = await ctx.db.insert("customers", {
-        email: a.customerEmail,
+        email: customerEmail,
         name: a.customerName,
         phone: a.phone,
       });
@@ -64,49 +103,42 @@ export const createPending = internalMutation({
     // reservation automatically; the actual decrement still happens on confirm.
     let creditApplied = 0;
     if (a.creditAccountId) {
-      const acct: any = await ctx.db.get(a.creditAccountId);
-      if (acct) {
-        const now = Date.now();
-        const credits = await ctx.db
-          .query("credits")
-          .withIndex("by_account", (q) => q.eq("accountId", a.creditAccountId!))
-          .collect();
-        const balance = credits
-          .filter((c) => c.status === "active" && c.expiresAt > now)
-          .reduce((n, c) => n + c.remaining, 0);
-        const pending = await ctx.db
-          .query("bookings")
-          .withIndex("by_guestEmail", (q) => q.eq("guestEmail", acct.email))
-          .collect();
-        const reserved = pending
-          .filter((b) => b.status === "pending_payment")
-          .reduce((n, b) => n + (b.creditApplied ?? 0), 0);
-        const available = Math.max(0, balance - reserved);
-        creditApplied = Math.min(available, Math.max(0, a.total - a.depositAmount));
-      }
+      const available = await availableCreditFor(ctx, a.creditAccountId);
+      creditApplied = Math.min(available, Math.max(0, a.total - a.depositAmount));
     }
     const chargedTotal = a.total - creditApplied;
+    // Credit can be spent in another checkout between the preview and this mutation.
+    // Reject atomically before a booking or Stripe session is created.
+    if (Math.round(chargedTotal * 100) !== Math.round(a.expectedTotalDue * 100))
+      throw new Error("Your available credit changed. Review the updated total before paying.");
 
     const bookingId = await ctx.db.insert("bookings", {
       customerId: customer!._id,
-      guestEmail: a.customerEmail,
+      guestEmail: customerEmail,
       status: "pending_payment",
       lineItems: a.lineItems,
       fulfilment: a.fulfilment,
       address: a.address,
+      billingAddress: a.billingAddress,
       deliveryFee: a.deliveryFee,
       subtotal: a.subtotal,
       discount: a.discount ?? 0,
       promoCode: a.promoCode,
       depositAmount: a.depositAmount,
+      depositHoldAmount: a.depositHoldAmount,
+      depositHoldStatus: a.depositHoldAmount ? "awaiting_payment" : undefined,
       total: chargedTotal,
       creditApplied,
       currency: a.currency,
       agreementName: a.agreementName,
       agreementSignedAt: a.agreementName ? Date.now() : undefined,
+      securityHoldConsentAt: a.securityHoldConsent ? Date.now() : undefined,
+      laterChargeConsentAt: a.laterChargeConsent ? Date.now() : undefined,
       agreementDocs: a.agreementDocs,
       protection: a.protection,
       idVerifyStatus: a.idVerifyStatus ?? "required",
+      verificationProvider: a.verificationProvider,
+      verificationUpdatedAt: Date.now(),
       pickupTime: a.pickupTime,
       returnTime: a.returnTime,
     });
@@ -150,15 +182,17 @@ export const placeHolds = internalMutation({
       const owned = unit?.quantityOwned ?? 1;
       const lo = Math.min(...d.ivs.map((i) => i.start));
       const hi = Math.max(...d.ivs.map((i) => i.end));
-      const existing: Iv[] = (
-        await ctx.db.query("reservations").withIndex("by_unit", (q) => q.eq("inventoryUnitId", uid as any)).collect()
-      )
-        .filter(
-          (r: any) =>
-            ACTIVE.has(r.status) && r.start <= hi && r.end >= lo && r.bookingId !== bookingId &&
-            !(r.status === "hold" && (r.holdExpiresAt ?? 0) < now),
-        )
-        .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty || 1 }));
+      const existing: Iv[] = [];
+      const rows = await ctx.db.query("reservations")
+        .withIndex("by_unit", (q) => q.eq("inventoryUnitId", uid as any)).collect();
+      for (const r of rows) {
+        if (!ACTIVE.has(r.status) || r.start > hi || r.end < lo || r.bookingId === bookingId) continue;
+        if (r.status === "hold" && (r.holdExpiresAt ?? 0) < now) {
+          const pendingBooking = r.bookingId ? await ctx.db.get(r.bookingId) : null;
+          if (pendingBooking?.status !== "pending_payment") continue;
+        }
+        existing.push({ start: r.start, end: r.end, qty: r.qty || 1 });
+      }
       if (peak([...existing, ...d.ivs]) > owned) {
         throw new Error(`"${d.title}" was just taken for those dates — please adjust your dates or remove it.`);
       }
@@ -192,6 +226,10 @@ export const releaseExpiredHolds = internalMutation({
     let n = 0;
     for (const h of holds)
       if ((h.holdExpiresAt ?? 0) < now) {
+        const booking = h.bookingId ? await ctx.db.get(h.bookingId) : null;
+        // A pending payment can already be paid at Stripe while its webhook is
+        // delayed. Only the Stripe reconciliation action may close that booking.
+        if (booking?.status === "pending_payment") continue;
         await ctx.db.delete(h._id);
         n++;
       }
@@ -199,28 +237,34 @@ export const releaseExpiredHolds = internalMutation({
   },
 });
 
-/** Retire abandoned checkouts: a pending_payment booking older than the Stripe session window
- *  (31 min) can never be paid, so mark it cancelled and release its holds. Cleans the admin view
- *  and frees any store-credit it was shadowing. Cancelled (not deleted) so the record survives. */
-export const expireStalePending = internalMutation({
+/** Provider reconciliation reads these without trusting a booking's age as payment evidence. */
+export const pendingCheckoutSessions = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const cutoff = Date.now() - 45 * 60 * 1000; // well past the 31-min session + any in-flight payment
-    // PERF: was a whole-`bookings` scan every 15 min (cron). by_status narrows to
-    // the handful of pending_payment rows; the status check below is now redundant.
-    const all = await ctx.db
-      .query("bookings")
+    const rows = await ctx.db.query("bookings")
       .withIndex("by_status", (q) => q.eq("status", "pending_payment"))
       .collect();
-    let n = 0;
-    for (const b of all) {
-      if (b._creationTime >= cutoff) continue;
-      const res = await ctx.db.query("reservations").withIndex("by_booking", (q) => q.eq("bookingId", b._id)).collect();
-      for (const h of res) if (h.status === "hold") await ctx.db.delete(h._id);
-      await ctx.db.patch(b._id, { status: "cancelled", cancelledAt: Date.now() });
-      n++;
-    }
-    return { expired: n };
+    return rows.map((b) => ({
+      bookingId: b._id,
+      sessionId: b.stripeCheckoutSessionId ?? null,
+      createdAt: b._creationTime,
+    }));
+  },
+});
+
+/** Called only after Stripe says the session is terminal and unpaid, or no
+ * session was ever bound and the checkout action never returned a URL. */
+export const expireUnpaidPending = internalMutation({
+  args: { bookingId: v.id("bookings"), sessionId: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, sessionId }) => {
+    const booking = await ctx.db.get(bookingId);
+    if (!booking || booking.activeAdditionId || booking.status !== "pending_payment" ||
+        (booking.stripeCheckoutSessionId ?? undefined) !== sessionId) return false;
+    const res = await ctx.db.query("reservations")
+      .withIndex("by_booking", (q) => q.eq("bookingId", bookingId)).collect();
+    for (const hold of res) if (hold.status === "hold") await ctx.db.delete(hold._id);
+    await ctx.db.patch(bookingId, { status: "cancelled", cancelledAt: Date.now() });
+    return true;
   },
 });
 
@@ -229,7 +273,10 @@ export const confirm = internalMutation({
   handler: async (ctx, { bookingId, paymentIntentId }) => {
     const booking = await ctx.db.get(bookingId);
     if (!booking) throw new Error("booking not found");
+    if (booking.cancellationDecision || booking.status === "cancelled" || booking.status === "returned")
+      return { closed: true, duplicatePayment: false };
     if (booking.status === "confirmed" || booking.status === "active") {
+      if(paymentIntentId&&booking.stripePaymentIntentId&&paymentIntentId!==booking.stripePaymentIntentId)return {closed:true,duplicatePayment:true};
       return { already: true };
     }
     // clear this booking's soft holds before writing the real reservations
@@ -278,7 +325,11 @@ export const confirm = internalMutation({
         const rows = (
           await ctx.db.query("credits").withIndex("by_account", (q) => q.eq("accountId", acct._id)).collect()
         )
-          .filter((c) => c.status === "active" && c.expiresAt > now && c.remaining > 0)
+          // Credit was reserved while valid at checkout. The provider webhook may
+          // arrive after its expiry, so consume that reservation rather than
+          // silently giving a discount without using the credit.
+          .filter((c) => c.status === "active" && c.createdAt <= booking._creationTime &&
+            c.expiresAt > booking._creationTime && c.remaining > 0)
           .sort((a, b) => a.expiresAt - b.expiresAt);
         let need = booking.creditApplied;
         for (const c of rows) {
@@ -295,6 +346,17 @@ export const confirm = internalMutation({
     await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
     return { already: false };
+  },
+});
+
+export const bindCheckoutSession = internalMutation({
+  args: { bookingId: v.id("bookings"), sessionId: v.string() },
+  handler: async (ctx, { bookingId, sessionId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.status !== "pending_payment") throw new Error("Checkout is no longer pending.");
+    if (b.stripeCheckoutSessionId && b.stripeCheckoutSessionId !== sessionId)
+      throw new Error("Checkout session already exists.");
+    await ctx.db.patch(bookingId, { stripeCheckoutSessionId: sessionId });
   },
 });
 
@@ -319,53 +381,27 @@ export const getForChat = internalQuery({
 });
 
 /** Attach a paid add-on to an existing booking (instant upsell checkout). */
+/** Backwards-compatible fulfilment for sessions created before owner-only proposals. */
 export const attachAddon = internalMutation({
-  args: {
-    bookingId: v.id("bookings"),
-    listingId: v.id("listings"),
-    title: v.string(),
-    start: v.number(),
-    end: v.number(),
-    total: v.number(),
-  },
-  handler: async (ctx, { bookingId, listingId, title, start, end, total }) => {
-    const b = await ctx.db.get(bookingId);
-    if (!b) return;
-    await ctx.db.patch(bookingId, {
-      lineItems: [...b.lineItems, { listingId, title, start, end, qty: 1, lineTotal: total }],
-      total: b.total + total,
-    });
-    const listing = await ctx.db.get(listingId);
-    if (listing)
-      for (const comp of listing.components) {
-        await ctx.db.insert("reservations", {
-          inventoryUnitId: comp.inventoryUnitId,
-          listingId,
-          bookingId,
-          start,
-          end,
-          qty: comp.qty,
-          source: "site",
-          status: "confirmed",
-        });
-      }
-    const acct = await ctx.db
-      .query("accounts")
-      .withIndex("by_email", (q) => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()))
-      .first();
-    if (acct)
-      await ctx.db.insert("messages", {
-        accountId: acct._id,
-        bookingId,
-        sender: "system",
-        text: `Added to your rental: ${title} ✓`,
-        at: Date.now(),
-        readByOwner: true,
-      });
-    // Status is unchanged, but lineItems/total moved — RMv2's availability and
-    // revenue both read those, so this still needs to sync.
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
-  },
+ args:{bookingId:v.id("bookings"),listingId:v.id("listings"),title:v.string(),start:v.number(),end:v.number(),total:v.number(),sessionId:v.string(),paymentIntentId:v.string()},
+ handler:async(ctx,a)=>{
+  const prior=await ctx.db.query("rental_additions").withIndex("by_session",q=>q.eq("sessionId",a.sessionId)).first();
+  if(prior)return {closed:prior.status!=="applied",already:true};
+  const b=await ctx.db.get(a.bookingId);
+  if(!b||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||b.activeAdditionId)return {closed:true};
+  const listing=await ctx.db.get(a.listingId);if(!listing)return {closed:true};
+  const line={listingId:a.listingId,title:listing.title,start:a.start,end:a.end,qty:1,lineTotal:a.total,dailyRate:listing.pricing.daily};
+  if(!Number.isFinite(a.total)||a.total<=0||a.start%86400000!==0||a.end%86400000!==0)return {closed:true};
+  try{await assertRentalInventory(ctx,[...b.lineItems,line],b._id);}catch{return {closed:true};}
+  const now=Date.now();
+  await ctx.db.insert("rental_additions",{...line,bookingId:b._id,requestId:`legacy-${a.sessionId}`,securityCharge:0,holdTotal:b.depositHoldAmount??0,status:"applied",reason:"Legacy paid item addition",createdAt:now,updatedAt:now,sessionId:a.sessionId,paymentIntentId:a.paymentIntentId});
+  await ctx.db.patch(b._id,{lineItems:[...b.lineItems,line],subtotal:b.subtotal+a.total,total:b.total+a.total});
+  for(const comp of listing.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:a.listingId,bookingId:b._id,start:a.start,end:a.end,qty:comp.qty,source:"site",status:b.status==="active"?"active":"confirmed"});
+  const account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",(b.guestEmail??"").trim().toLowerCase())).first();
+  if(account)await postRentalMessage(ctx,{accountId:account._id,bookingId:b._id,sender:"system",text:`Added to your rental: ${listing.title}. Rental charge £${a.total.toFixed(2)}.`});
+  await ctx.scheduler.runAfter(0,internal.rmv2_webhook.push,{bookingId:b._id});
+  return {closed:false};
+ }
 });
 
 export const adminList = query({
@@ -384,11 +420,32 @@ export const adminList = query({
       address: b.address,
       subtotal: b.subtotal,
       depositAmount: b.depositAmount,
+      depositHoldAmount: b.depositHoldAmount ?? 0,
+      depositHoldStatus: b.depositHoldStatus ?? null,
+      depositHoldExpiresAt: b.depositHoldExpiresAt ?? null,
+      depositHoldRenewalStatus: b.depositHoldRenewalStatus ?? null,
+      lateFeeAmount: b.lateFeeAmount ?? 0,
+      lateFeeWaivedAmount: b.lateFeeWaivedAmount ?? 0,
+      lateFeeStatus: b.lateFeeStatus ?? null,
+      lateFeeBreakdown: b.lateFeeBreakdown ?? [],
+      lateFeePaidFromHold: b.lateFeePaidFromHold ?? 0,
+      lateFeePaidFromCard: b.lateFeePaidFromCard ?? 0,
+      lateFeeReceiptEmailStatus: b.lateFeeReceiptEmailStatus ?? null,
       total: b.total,
       depositRefunded: b.depositRefunded ?? false,
       depositKept: b.depositKept ?? 0,
+      depositRefundAmount: b.depositRefundAmount ?? 0,
+      damageNoticeSentAt: b.damageNoticeSentAt ?? null,
       returnedAt: b.returnedAt ?? null,
+      actualReturnedAt: b.actualReturnedAt ?? null,
+      returnDecision: b.returnDecision ?? null,
+      returnTime: b.returnTime ?? null,
+      returnStatementEmailStatus: b.returnStatementEmailStatus ?? null,
       idVerifyStatus: b.idVerifyStatus ?? "required",
+      verificationProvider: b.verificationProvider ?? "stripe",
+      diditSessionId: b.diditSessionId ?? null,
+      verificationNote: b.verificationNote ?? null,
+      verificationUpdatedAt: b.verificationUpdatedAt ?? null,
       agreementName: b.agreementName ?? null,
       promoCode: b.promoCode ?? null,
       discount: b.discount ?? 0,
@@ -405,24 +462,25 @@ export const adminSetStatus = mutation({
     status: v.union(
       v.literal("confirmed"),
       v.literal("active"),
-      v.literal("returned"),
-      v.literal("cancelled"),
     ),
   },
   handler: async (ctx, { token, bookingId, status }) => {
     await assertAdmin(ctx, token, "bookings.adminSetStatus");
+    const booking = await ctx.db.get(bookingId);
+    if (!booking) throw new Error("Booking not found");
+    if(booking.returnDecision)throw Error("Return settlement is in progress; finish it before changing this rental.");
+    if(booking.activeAdditionId)throw Error("Finish or withdraw the item addition before handover.");
+    if(booking.cancellationDecision)throw Error("Cancellation is in progress; resume its settlement before changing this rental.");
+    if (["cancelled", "returned"].includes(booking.status) && booking.status !== status)
+      throw new Error("A closed booking cannot be reopened by changing its status.");
+    if (booking.status === "pending_payment")
+      throw new Error("Payment must be confirmed by Stripe before this booking is confirmed.");
+    if (status === "active" && booking.idVerifyStatus !== "verified")
+      throw new Error("Identity and address verification must be approved before handover.");
+    if (status === "active" && booking.depositHoldAmount &&
+        (booking.depositHoldStatus !== "held" || (booking.depositHoldExpiresAt ?? 0) <= Date.now()))
+      throw new Error("The card hold must be active before handover.");
     await ctx.db.patch(bookingId, { status });
-    // free the ledger when a booking ends
-    if (status === "returned" || status === "cancelled") {
-      const res = await ctx.db
-        .query("reservations")
-        .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
-        .collect();
-      for (const r of res)
-        await ctx.db.patch(r._id, {
-          status: status === "returned" ? "returned" : "cancelled",
-        });
-    }
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
   },
 });
@@ -433,10 +491,170 @@ export const getForRefund = internalQuery({
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     return {
+      paymentSources:await rentalPaymentSources(ctx,b),
       paymentIntentId: b.stripePaymentIntentId ?? null,
       depositAmount: b.depositAmount,
+      depositHoldAmount: b.depositHoldAmount ?? 0,
+      depositHoldStatus: b.depositHoldStatus ?? null,
+      depositHoldIntentId: b.stripeDepositIntentId ?? null,
+      depositHoldPreviousIntentIds: b.depositHoldPreviousIntentIds ?? [],
+      lineItems: b.lineItems,
+      returnTime: b.returnTime ?? null,
+      guestEmail: b.guestEmail ?? null,
+      returnDecision: b.returnDecision ?? null,
       depositRefunded: b.depositRefunded ?? false,
+      depositKept: b.depositKept ?? 0,
+      depositRefundAmount: b.depositRefundAmount ?? 0,
+      damageNoticeSentAt: b.damageNoticeSentAt ?? null,
     };
+  },
+});
+
+export const beginReturnDecision = internalMutation({
+  args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), damageKept: v.number(), damageNote: v.optional(v.string()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || !["confirmed", "active", "returned"].includes(b.status)) throw new Error("Booking is not available for return.");
+    if(b.activeAdditionId)throw Error("Finish or withdraw the item addition before returning this rental");
+    if(b.cancellationDecision)throw Error("Cancellation settlement is in progress; resume it first.");
+    const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+    if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("Wait for the rental refund to settle before recording the return.");
+    const saved = b.returnDecision;
+    if (saved) {
+      if (saved.actualReturnedAt !== actualReturnedAt || saved.damageKept !== damageKept ||
+          (saved.damageNote ?? "") !== (damageNote ?? "") || saved.chargeLate !== chargeLate ||
+          (saved.lateWaiverReason ?? "") !== (lateWaiverReason ?? ""))
+        throw new Error("A return settlement is already in progress with different amounts. Resume the saved decision or contact support before changing it.");
+      return;
+    }
+    await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, startedAt: Date.now() } });
+  },
+});
+
+export const markDamageNoticeSent = internalMutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (b?.returnDecision && !b.damageNoticeSentAt)
+      await ctx.db.patch(bookingId, { damageNoticeSentAt: Date.now() });
+  },
+});
+
+export const holdContext = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    return {
+      status: b.status,
+      amount: b.depositHoldAmount ?? 0,
+      intentId: b.stripeDepositIntentId ?? null,
+      holdStatus: b.depositHoldStatus ?? null,
+    };
+  },
+});
+
+export const setHold = internalMutation({
+  args: {
+    bookingId: v.id("bookings"),
+    intentId: v.optional(v.string()),
+    status: v.string(),
+    expiresAt: v.optional(v.number()),
+  },
+  handler: async (ctx, { bookingId, intentId, status, expiresAt }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || !b.depositHoldAmount) return;
+    if (b.stripeDepositIntentId && intentId && b.stripeDepositIntentId !== intentId)
+      throw new Error("A different hold is already linked to this booking");
+    await ctx.db.patch(bookingId, {
+      stripeDepositIntentId: intentId ?? b.stripeDepositIntentId,
+      depositHoldStatus: status,
+      depositHoldExpiresAt: expiresAt,
+    });
+  },
+});
+
+export const renewalCandidates = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const confirmed = await ctx.db.query("bookings").withIndex("by_status", (q) => q.eq("status", "confirmed")).order("desc").take(1000);
+    const active = await ctx.db.query("bookings").withIndex("by_status", (q) => q.eq("status", "active")).order("desc").take(1000);
+    return [...confirmed, ...active]
+      .filter((b) => (b.depositHoldPreviousIntentIds?.length ?? 0) > 0 ||
+        (b.depositHoldAmount && b.depositHoldStatus === "held" && b.stripeDepositIntentId &&
+        (b.depositHoldExpiresAt ?? 0) <= now + 24 * 3600000 &&
+        Math.max(...b.lineItems.map((li) => li.end)) >= now - 30 * 86400000))
+      .map((b) => b._id);
+  },
+});
+
+export const renewalContext = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    return {
+      status: b.status, guestEmail: b.guestEmail ?? null,
+      amount: b.depositHoldAmount ?? 0, oldIntentId: b.stripeDepositIntentId ?? null,
+      expiresAt: b.depositHoldExpiresAt ?? null,
+      renewalIntentId: b.depositHoldRenewalIntentId ?? null,
+      renewalStatus: b.depositHoldRenewalStatus ?? null,
+      renewalAt: b.depositHoldRenewalAt ?? null,
+      previousIntentIds: b.depositHoldPreviousIntentIds ?? [],
+    };
+  },
+});
+
+export const claimRenewal = internalMutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    const now = Date.now();
+    if (!b || b.activeAdditionId || b.cancellationDecision || b.returnDecision || !["confirmed", "active"].includes(b.status) || !b.depositHoldAmount || b.depositHoldStatus !== "held" || !b.stripeDepositIntentId ||
+      (b.depositHoldExpiresAt ?? 0) > now + 24 * 3600000 ||
+      ["requires_action", "failed"].includes(b.depositHoldRenewalStatus ?? "") ||
+      (b.depositHoldRenewalStatus === "starting" && (b.depositHoldRenewalAt ?? now) > now - 15 * 60000)) return false;
+    await ctx.db.patch(bookingId, { depositHoldRenewalStatus: "starting", depositHoldRenewalAt: now });
+    return true;
+  },
+});
+
+export const setRenewalResult = internalMutation({
+  args: { bookingId: v.id("bookings"), oldIntentId: v.string(), status: v.string(), intentId: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, oldIntentId, status, intentId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.stripeDepositIntentId !== oldIntentId) return;
+    await ctx.db.patch(bookingId, { depositHoldRenewalStatus: status, depositHoldRenewalIntentId: intentId, depositHoldRenewalAt: Date.now() });
+  },
+});
+
+export const replaceHold = internalMutation({
+  args: { bookingId: v.id("bookings"), oldIntentId: v.string(), newIntentId: v.string(), expiresAt: v.number() },
+  handler: async (ctx, { bookingId, oldIntentId, newIntentId, expiresAt }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.stripeDepositIntentId !== oldIntentId || !["confirmed", "active"].includes(b.status)) return false;
+    await ctx.db.patch(bookingId, {
+      stripeDepositIntentId: newIntentId,
+      depositHoldStatus: "held",
+      depositHoldExpiresAt: expiresAt,
+      depositHoldRenewalIntentId: undefined,
+      depositHoldRenewalStatus: "renewed",
+      depositHoldRenewalAt: Date.now(),
+      depositHoldPreviousIntentIds: [...(b.depositHoldPreviousIntentIds ?? []), oldIntentId],
+    });
+    return true;
+  },
+});
+
+export const clearPreviousHold = internalMutation({
+  args: { bookingId: v.id("bookings"), intentId: v.string() },
+  handler: async (ctx, { bookingId, intentId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return;
+    await ctx.db.patch(bookingId, {
+      depositHoldPreviousIntentIds: (b.depositHoldPreviousIntentIds ?? []).filter((id) => id !== intentId),
+    });
   },
 });
 
@@ -458,9 +676,227 @@ export const markReturnedStatus = internalMutation({
 
 /** Record that the deposit was released (depositKept = amount retained for damage). */
 export const markDepositReleased = internalMutation({
-  args: { bookingId: v.id("bookings"), kept: v.number() },
-  handler: async (ctx, { bookingId, kept }) => {
-    await ctx.db.patch(bookingId, { depositRefunded: true, depositKept: kept, returnedAt: Date.now() });
+  args: { bookingId: v.id("bookings"), kept: v.number(), refunded: v.number(), capturedFromHold: v.number(), note: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, kept, refunded, capturedFromHold, note }) => {
+    await ctx.db.patch(bookingId, { depositRefunded: true, depositKept: kept, depositRefundAmount: refunded, depositHoldCapturedForDamage: capturedFromHold, depositDeductionNote: note, returnedAt: Date.now() });
+  },
+});
+
+const lateLine = v.object({ title: v.string(), days: v.number(), dailyRate: v.number(), amount: v.number() });
+
+export const recordLateFee = internalMutation({
+  args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), amount: v.number(), breakdown: v.array(lateLine), waivedAmount: v.optional(v.number()), waiverReason: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, actualReturnedAt, amount, breakdown, waivedAmount, waiverReason }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.actualReturnedAt) return;
+    await ctx.db.patch(bookingId, {
+      actualReturnedAt,
+      lateFeeAmount: amount,
+      lateFeeWaivedAmount: waivedAmount,
+      lateFeeWaiverReason: waiverReason,
+      lateFeeBreakdown: breakdown,
+      lateFeeStatus: amount > 0 ? "notice_pending" : waivedAmount ? "waived" : "none",
+    });
+    const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
+    const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+    const issuedAt = Date.now();
+    await ctx.db.patch(bookingId, {
+      returnStatement: {
+        number: `DBC-R-${String(bookingId).toUpperCase()}`, issuedAt, actualReturnedAt,
+        agreedReturnTime: b.returnTime,
+        supplierName: process.env.BUSINESS_LEGAL_NAME || "Db Cinema Rentals",
+        supplierAddress: process.env.BUSINESS_INVOICE_ADDRESS || undefined,
+        customerName: customer?.name || undefined,
+        customerEmail: b.guestEmail ?? "",
+        billingAddress: b.billingAddress ?? b.address,
+        lineItems: b.lineItems.map((line) => ({ title: line.title, start: line.start, end: line.end, qty: line.qty, lineTotal: line.lineTotal })),
+        subtotal: b.subtotal, discount: b.discount ?? 0, deliveryFee: b.deliveryFee ?? 0,
+        creditApplied: b.creditApplied ?? 0, checkoutPaid: b.total, rentalRefunded:confirmedRentalRefundPence(refundJobs)/100,
+        securityPaid: b.depositAmount, securityRefunded: b.depositRefundAmount ?? 0,
+        holdStatus: b.depositHoldStatus,
+        damageTotal: b.depositKept ?? 0, damageFromHold: b.depositHoldCapturedForDamage ?? 0,
+        damageNote: b.depositDeductionNote,
+        lateAssessed: amount, lateWaived: waivedAmount ?? 0, lateBreakdown: breakdown,
+      },
+      returnStatementEmailStatus: "pending",
+    });
+    if (amount > 0) await ctx.scheduler.runAfter(0, internal.lateFees.sendNotice, { bookingId });
+    await ctx.scheduler.runAfter(0, internal.invoice.returnSettlementEmail, { bookingId });
+  },
+});
+
+export const lateFeeContext = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    return {
+      status: b.status, guestEmail: b.guestEmail ?? null,
+      lateFeeAmount: b.lateFeeAmount ?? 0, lateFeeStatus: b.lateFeeStatus ?? null,
+      lateFeeBreakdown: b.lateFeeBreakdown ?? [], lateFeeNoticeAt: b.lateFeeNoticeAt ?? null,
+      stripePaymentIntentId: b.stripePaymentIntentId ?? null,
+      actualReturnedAt: b.actualReturnedAt ?? null,
+      agreedReturnTime: b.returnTime ?? null,
+      stripeDepositIntentId: b.stripeDepositIntentId ?? null,
+      depositHoldAmount: b.depositHoldAmount ?? 0,
+      depositKept: b.depositKept ?? 0,
+      lateFeePaidFromHold: b.lateFeePaidFromHold ?? 0,
+      lateFeePaidFromCard: b.lateFeePaidFromCard ?? 0,
+      lateFeeIntentId: b.lateFeeIntentId ?? null,
+    };
+  },
+});
+
+/** A bank challenge can finish after the renter closes the page. Reconcile its
+ * existing PaymentIntent only; never create a second charge. */
+export const pendingLateAuthentications = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "returned"))
+      .order("desc").take(1000);
+    return rows.filter((b) => b.lateFeeIntentId &&
+      ["requires_action", "processing"].includes(b.lateFeeStatus ?? ""))
+      .map((b) => b._id);
+  },
+});
+
+export const settleAuthenticatedLateCharge = internalMutation({
+  args: {
+    bookingId: v.id("bookings"), intentId: v.string(), status: v.string(),
+    paidFromCard: v.number(), note: v.optional(v.string()),
+  },
+  handler: async (ctx, { bookingId, intentId, status, paidFromCard, note }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.status !== "returned" || b.lateFeeIntentId !== intentId ||
+      !["requires_action", "processing"].includes(b.lateFeeStatus ?? "")) return false;
+    if (!Number.isFinite(paidFromCard) || paidFromCard < 0 ||
+      paidFromCard > Math.max(0, (b.lateFeeAmount ?? 0) - (b.lateFeePaidFromHold ?? 0)))
+      throw new Error("Late charge settlement amount is invalid.");
+    if (status === b.lateFeeStatus && paidFromCard === (b.lateFeePaidFromCard ?? 0)) return false;
+    await ctx.db.patch(bookingId, {
+      lateFeeStatus: status,
+      lateFeePaidFromCard: paidFromCard,
+      lateFeeNote: note?.slice(0, 400),
+      lateFeeReceiptEmailStatus: "pending",
+    });
+    await ctx.scheduler.runAfter(0, internal.lateFees.sendCollectionResult, { bookingId });
+    return true;
+  },
+});
+
+export const claimLateNotice = internalMutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || !b.lateFeeAmount || !(
+      ["notice_pending", "notice_failed"].includes(b.lateFeeStatus ?? "") ||
+      (b.lateFeeStatus === "sending_notice" && (b.lateFeeNoticeAttemptAt ?? 0) < Date.now() - 15 * 60000)
+    )) return false;
+    await ctx.db.patch(bookingId, { lateFeeStatus: "sending_notice", lateFeeNoticeAttemptAt: Date.now() });
+    return true;
+  },
+});
+
+export const markLateNotice = internalMutation({
+  args: { bookingId: v.id("bookings"), sent: v.boolean() },
+  handler: async (ctx, { bookingId, sent }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.lateFeeStatus !== "sending_notice") return;
+    await ctx.db.patch(bookingId, {
+      lateFeeStatus: sent ? "notice_sent" : "notice_failed",
+      lateFeeNoticeAt: sent ? Date.now() : undefined,
+    });
+  },
+});
+
+export const dueLateFees = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("bookings").withIndex("by_status", (q) => q.eq("status", "returned")).order("desc").take(1000);
+    const now = Date.now();
+    return rows.filter((b) =>
+      b.lateFeeStatus === "notice_pending" || b.lateFeeStatus === "notice_failed" ||
+      (b.lateFeeStatus === "sending_notice" && (b.lateFeeNoticeAttemptAt ?? 0) <= now - 15 * 60000) ||
+      (b.lateFeeStatus === "notice_sent" && (b.lateFeeNoticeAt ?? now) <= now - 7 * 86400000) ||
+      (b.lateFeeStatus === "charging" && (b.lateFeeChargingAt ?? now) <= now - 15 * 60000),
+    ).map((b) => ({ bookingId: b._id, status: b.lateFeeStatus }));
+  },
+});
+
+export const claimLateCharge = internalMutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (b?.actualReturnedAt && Date.now() > b.actualReturnedAt + 30 * 86400000) {
+      await ctx.db.patch(bookingId, { lateFeeStatus: "expired", lateFeeNote: "30-day collection window elapsed" });
+      return false;
+    }
+    if (!b || b.status !== "returned" || !["notice_sent", "charging"].includes(b.lateFeeStatus ?? "") || !b.lateFeeAmount ||
+      !b.lateFeeNoticeAt || b.lateFeeNoticeAt > Date.now() - 7 * 86400000) return false;
+    if (b.lateFeeStatus === "charging" && (b.lateFeeChargingAt ?? Date.now()) > Date.now() - 15 * 60000) return false;
+    await ctx.db.patch(bookingId, { lateFeeStatus: "charging", lateFeeChargingAt: Date.now() });
+    return true;
+  },
+});
+
+export const markLateCharge = internalMutation({
+  args: { bookingId: v.id("bookings"), status: v.string(), intentId: v.optional(v.string()), note: v.optional(v.string()), paidFromHold: v.number(), paidFromCard: v.number() },
+  handler: async (ctx, { bookingId, status, intentId, note, paidFromHold, paidFromCard }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.lateFeeStatus !== "charging") return;
+    await ctx.db.patch(bookingId, {
+      lateFeeStatus: status, lateFeeIntentId: intentId,
+      lateFeeNote: note?.slice(0, 400),
+      lateFeePaidFromHold: paidFromHold,
+      lateFeePaidFromCard: paidFromCard,
+      lateFeeReceiptEmailStatus: "pending",
+    });
+    await ctx.scheduler.runAfter(0, internal.lateFees.sendCollectionResult, { bookingId });
+  },
+});
+
+export const claimLateFeeReceiptEmail = internalMutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || !["pending", "failed", "sending"].includes(b.lateFeeReceiptEmailStatus ?? "") ||
+      (b.lateFeeReceiptEmailStatus === "sending" && (b.lateFeeReceiptEmailAttemptAt ?? 0) > Date.now() - 15 * 60000)) return false;
+    await ctx.db.patch(bookingId, { lateFeeReceiptEmailStatus: "sending", lateFeeReceiptEmailAttemptAt: Date.now() });
+    return true;
+  },
+});
+
+export const markLateFeeReceiptEmail = internalMutation({
+  args: { bookingId: v.id("bookings"), sent: v.boolean() },
+  handler: async (ctx, { bookingId, sent }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.lateFeeReceiptEmailStatus !== "sending") return;
+    await ctx.db.patch(bookingId, { lateFeeReceiptEmailStatus: sent ? "sent" : "failed", lateFeeReceiptEmailedAt: sent ? Date.now() : undefined });
+  },
+});
+
+export const dueLateFeeReceiptEmails = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const rows = await ctx.db.query("bookings").withIndex("by_status", (q) => q.eq("status", "returned")).order("desc").take(1000);
+    return rows.filter((b) => b.lateFeeReceiptEmailStatus === "pending" || b.lateFeeReceiptEmailStatus === "failed" ||
+      (b.lateFeeReceiptEmailStatus === "sending" && (b.lateFeeReceiptEmailAttemptAt ?? 0) <= now - 15 * 60000))
+      .map((b) => b._id);
+  },
+});
+
+export const adminPauseLateFee = mutation({
+  args: { token: v.string(), bookingId: v.id("bookings"), reason: v.string() },
+  handler: async (ctx, { token, bookingId, reason }) => {
+    await assertAdmin(ctx, token, "bookings.adminPauseLateFee");
+    if (reason.trim().length < 5) throw new Error("Record the dispute or waiver reason.");
+    const b = await ctx.db.get(bookingId);
+    if (!b || !["notice_pending", "notice_failed", "notice_sent"].includes(b.lateFeeStatus ?? ""))
+      throw new Error("This late charge can no longer be paused.");
+    await ctx.db.patch(bookingId, { lateFeeStatus: "paused", lateFeeNote: reason.trim().slice(0, 400) });
+    await ctx.scheduler.runAfter(0, internal.checkout.releasePausedLateHold, { bookingId });
   },
 });
 
@@ -532,12 +968,16 @@ export const get = query({
       lineItems: b.lineItems,
       subtotal: b.subtotal,
       depositAmount: b.depositAmount,
+      depositHoldAmount: b.depositHoldAmount ?? 0,
+      depositHoldStatus: b.depositHoldStatus ?? null,
       deliveryFee: b.deliveryFee,
       total: b.total,
       currency: b.currency,
       fulfilment: b.fulfilment,
       guestEmail: b.guestEmail,
       idVerifyStatus: b.idVerifyStatus ?? "required",
+      verificationProvider: b.verificationProvider ?? "stripe",
+      verificationNote: b.verificationNote ?? null,
       agreementName: b.agreementName ?? null,
       agreementSignedAt: b.agreementSignedAt ?? null,
     };
@@ -556,14 +996,20 @@ export const invoiceData = query({
       ok = true;
     } else if (token) {
       const s = await ctx.db.query("sessions").withIndex("by_token", (q) => q.eq("token", token)).first();
-      const acct: any = s ? await ctx.db.get(s.accountId) : null;
+      const acct: any = s && (s.expiresAt ?? 0) > Date.now() ? await ctx.db.get(s.accountId) : null;
       if (acct && acct.email === (b.guestEmail ?? "").trim().toLowerCase()) ok = true;
     }
     if (!ok) return null;
     const customer: any = b.customerId ? await ctx.db.get(b.customerId) : null;
+    const rentalRefunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+    const issuedCredit=b.creditIssuedId?await ctx.db.get(b.creditIssuedId):null;
     return {
+      rentalRefunds:rentalRefunds.map(r=>({amount:r.amountPence/100,status:r.status,reason:r.reason})),
+      cancellationRefund:b.refundAmount??0,accountCreditIssued:issuedCredit?.amount??0,
       number: `DBC-${String(b._id).slice(-8).toUpperCase()}`,
       issuedAt: b._creationTime,
+      supplierName: process.env.BUSINESS_LEGAL_NAME || "Db Cinema Rentals",
+      supplierAddress: process.env.BUSINESS_INVOICE_ADDRESS || undefined,
       status: b.status,
       customerName: customer?.name ?? null,
       email: b.guestEmail ?? null,
@@ -578,7 +1024,50 @@ export const invoiceData = query({
       depositAmount: b.depositAmount,
       total: b.total,
       promoCode: b.promoCode ?? null,
+      returnStatement: b.returnStatement ? {...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(rentalRefunds)/100} : null,
     };
+  },
+});
+
+export const returnStatementContext = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if(!b?.returnStatement)return null;
+    const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+    return {statement:{...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(refundJobs)/100},status:b.returnStatementEmailStatus??"pending"};
+  },
+});
+
+export const claimReturnStatementEmail = internalMutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b?.returnStatement || b.returnStatementEmailStatus === "sent" ||
+      (b.returnStatementEmailStatus === "sending" && (b.returnStatementEmailAttemptAt ?? 0) > Date.now() - 15 * 60000)) return false;
+    await ctx.db.patch(bookingId, { returnStatementEmailStatus: "sending", returnStatementEmailAttemptAt: Date.now() });
+    return true;
+  },
+});
+
+export const markReturnStatementEmail = internalMutation({
+  args: { bookingId: v.id("bookings"), sent: v.boolean() },
+  handler: async (ctx, { bookingId, sent }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.returnStatementEmailStatus !== "sending") return;
+    await ctx.db.patch(bookingId, { returnStatementEmailStatus: sent ? "sent" : "failed", returnStatementEmailedAt: sent ? Date.now() : undefined });
+  },
+});
+
+export const dueReturnStatementEmails = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const rows = await ctx.db.query("bookings").withIndex("by_status", (q) => q.eq("status", "returned")).order("desc").take(1000);
+    return rows.filter((b) => b.returnStatement &&
+      (["pending", "failed"].includes(b.returnStatementEmailStatus ?? "") ||
+        (b.returnStatementEmailStatus === "sending" && (b.returnStatementEmailAttemptAt ?? 0) <= now - 15 * 60000)))
+      .map((b) => b._id);
   },
 });
 
@@ -591,6 +1080,43 @@ export const getIdentity = internalQuery({
       sessionId: b.stripeIdentitySessionId ?? null,
       status: b.idVerifyStatus ?? "required",
     };
+  },
+});
+
+export const verificationAccess = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b) return null;
+    const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
+    return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,
+      idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId,
+      renterName: b.agreementName || customer?.name, billingAddress: b.billingAddress };
+  },
+});
+
+/** Oldest checked first so a failed provider request cannot starve other rentals. */
+export const diditReconcileCandidates = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const confirmed = await ctx.db.query("bookings")
+      .withIndex("by_verificationProvider_status", (q) => q.eq("verificationProvider", "didit").eq("status", "confirmed")).collect();
+    const active = await ctx.db.query("bookings")
+      .withIndex("by_verificationProvider_status", (q) => q.eq("verificationProvider", "didit").eq("status", "active")).collect();
+    return [...confirmed, ...active]
+      .filter((b) => !!b.diditSessionId && !!b.guestEmail)
+      .sort((a, b) => (a.diditReconciledAt ?? 0) - (b.diditReconciledAt ?? 0))
+      .slice(0, 50)
+      .map((b) => ({ bookingId: b._id, sessionId: b.diditSessionId!, email: b.guestEmail! }));
+  },
+});
+
+export const markDiditReconciled = internalMutation({
+  args: { bookingId: v.id("bookings"), sessionId: v.string(), attemptedAt: v.number() },
+  handler: async (ctx, { bookingId, sessionId, attemptedAt }) => {
+    const b = await ctx.db.get(bookingId);
+    if (b?.diditSessionId === sessionId)
+      await ctx.db.patch(bookingId, { diditReconciledAt: attemptedAt });
   },
 });
 
@@ -611,6 +1137,84 @@ export const setIdentity = internalMutation({
   },
 });
 
+/** Bind a Didit session to the paid booking before any result can be accepted. */
+export const setDiditSession = internalMutation({
+  args: { bookingId: v.id("bookings"), sessionId: v.string() },
+  handler: async (ctx, { bookingId, sessionId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.verificationProvider !== "didit" || !["confirmed", "active"].includes(b.status) ||
+        !["required", "processing", "requires_input"].includes(b.idVerifyStatus ?? "required")) return false;
+    if (b.diditSessionId !== sessionId) {
+      await ctx.db.patch(bookingId, {
+        diditSessionId: sessionId,
+        diditEventId: undefined,
+        diditEventAt: undefined,
+        diditManualDecisionAt: undefined,
+        diditReconciledAt: undefined,
+        idVerifyStatus: "processing",
+        verificationUpdatedAt: Date.now(),
+      });
+    }
+    return true;
+  },
+});
+
+/** Didit webhooks are signed in the node action. Never accept browser results. */
+export const setDiditResult = internalMutation({
+  args: {
+    bookingId: v.id("bookings"),
+    sessionId: v.string(),
+    eventId: v.string(),
+    status: v.union(v.literal("processing"), v.literal("manual_review"), v.literal("verified"), v.literal("requires_input"), v.literal("rejected")),
+    providerStatus: v.optional(v.string()),
+    note: v.optional(v.string()),
+    poaPostcodes: v.array(v.string()),
+    eventAt: v.number(),
+  },
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
+    if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
+        (b.diditManualDecisionAt ?? 0) >= eventAt) return true;
+    // The provider checks the bill and its holder. Also require its UK postcode
+    // to match the address this renter supplied for the booking.
+    const postcode = (s: string) => s.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";
+    if (status === "verified" && (!postcode(b.billingAddress ?? "") || !poaPostcodes.length ||
+        !poaPostcodes.every((p) => postcode(p) === postcode(b.billingAddress ?? "")))) {
+      status = "manual_review";
+      note = "The verified address does not match the booking address. Please contact us.";
+    }
+    // A deliberate admin approval can override a feature-level review. Didit
+    // still sends top-level Approved with the original feature decisions; keep
+    // that human decision, while allowing an actual later decline to revoke it.
+    if (b.idVerificationSource === "manual" && b.idVerifyStatus === "verified" &&
+        providerStatus === "Approved" && status === "manual_review") {
+      await ctx.db.patch(bookingId, { diditEventId: eventId, diditEventAt: eventAt });
+      return true;
+    }
+    if (b.idVerifyStatus === "verified" && status === "processing") {
+      await ctx.db.patch(bookingId, { diditEventId: eventId, diditEventAt: eventAt });
+      return true;
+    }
+    const previous = b.idVerifyStatus;
+    await ctx.db.patch(bookingId, {
+      diditEventId: eventId,
+      diditEventAt: eventAt,
+      idVerifyStatus: status,
+      idVerificationSource: "didit",
+      idVerifiedAt: status === "verified" ? Date.now() : undefined,
+      verificationNote: note?.slice(0, 400),
+      verificationUpdatedAt: Date.now(),
+    });
+    if (status === "verified") await markAccountVerified(ctx, bookingId);
+    if (previous !== status && ["verified", "manual_review", "requires_input", "rejected"].includes(status))
+      await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
+    if (previous !== status && status === "manual_review")
+      await ctx.scheduler.runAfter(0, internal.notify.verificationReviewAlert, { bookingId });
+    return true;
+  },
+});
+
 async function markAccountVerified(ctx: any, bookingId: any) {
   const b = await ctx.db.get(bookingId);
   if (!b?.guestEmail) return;
@@ -622,14 +1226,60 @@ async function markAccountVerified(ctx: any, bookingId: any) {
 }
 
 export const adminSetIdStatus = mutation({
-  args: { token: v.string(), bookingId: v.id("bookings"), status: v.string() },
-  handler: async (ctx, { token, bookingId, status }) => {
+  args: { token: v.string(), bookingId: v.id("bookings"), status: v.string(), note: v.string() },
+  handler: async (ctx, { token, bookingId, status, note }) => {
     await assertAdmin(ctx, token, "bookings.adminSetIdStatus");
-    const prev = (await ctx.db.get(bookingId))?.idVerifyStatus ?? "required";
-    await ctx.db.patch(bookingId, { idVerifyStatus: status });
+    const b = await ctx.db.get(bookingId);
+    if (!b || !["confirmed", "active"].includes(b.status))
+      throw new Error("Only a paid, open rental can receive a manual verification decision.");
+    if (b.verificationProvider === "didit")
+      throw new Error("Use the Didit review action so the provider and booking stay in sync.");
+    const prev = b.idVerifyStatus ?? "required";
+    if (!["verified", "requires_input", "rejected"].includes(status)) throw new Error("Invalid review decision");
+    if (note.trim().length < 5) throw new Error("Record why the manual decision was made.");
+    await ctx.db.patch(bookingId, {
+      idVerifyStatus: status,
+      idVerificationSource: "manual",
+      idVerifiedAt: status === "verified" ? Date.now() : undefined,
+      verificationUpdatedAt: Date.now(),
+      verificationNote: note.trim().slice(0, 400),
+    });
     if (status === "verified") await markAccountVerified(ctx, bookingId);
     if (status !== prev && ["verified", "requires_input", "canceled"].includes(status))
       await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
+  },
+});
+
+/** Called only after the authenticated admin action has read and, when needed,
+ * updated this exact Didit session. A signed webhook may arrive first. */
+export const setDiditManualReview = internalMutation({
+  args: {
+    bookingId: v.id("bookings"), sessionId: v.string(),
+    decision: v.union(v.literal("approve"), v.literal("resubmit"), v.literal("decline")),
+    note: v.string(),
+  },
+  handler: async (ctx, { bookingId, sessionId, decision, note }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId ||
+        !["confirmed", "active"].includes(b.status)) return false;
+    const previous = b.idVerifyStatus ?? "required";
+    if (decision === "approve" && !["manual_review", "rejected", "verified"].includes(previous)) return false;
+    if (decision !== "approve" && !["manual_review", "rejected", "requires_input"].includes(previous)) return false;
+    const status = decision === "approve" ? "verified" : decision === "resubmit" ? "requires_input" : "rejected";
+    await ctx.db.patch(bookingId, {
+      idVerifyStatus: status,
+      idVerificationSource: "manual",
+      diditManualDecisionAt: Date.now(),
+      idVerifiedAt: status === "verified" ? Date.now() : undefined,
+      verificationUpdatedAt: Date.now(),
+      verificationNote: decision === "resubmit" ? "Please replace the requested verification document."
+        : decision === "decline" ? "Identity and address verification was declined. Please contact us."
+        : note.trim().slice(0, 400),
+    });
+    if (status === "verified") await markAccountVerified(ctx, bookingId);
+    if (status !== previous)
+      await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
+    return true;
   },
 });
 
@@ -648,20 +1298,45 @@ export const getForCancel = internalQuery({
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
       .collect();
+    const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+    if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("A rental refund is still processing. Wait for settlement before cancellation.");
     return {
+      paymentSources:await rentalPaymentSources(ctx,b),
+      cancellationDecision:b.cancellationDecision??null,
       accountId: acct?._id ?? null,
       guestEmail: (b.guestEmail ?? "").trim().toLowerCase(),
       status: b.status,
+      stripeCheckoutSessionId: b.stripeCheckoutSessionId ?? null,
       total: b.total,
+      creditApplied: b.creditApplied ?? 0,
       depositAmount: b.depositAmount,
+      depositRefundAmount:b.depositRefundAmount??0,
       currency: b.currency ?? "GBP",
       stripePaymentIntentId: b.stripePaymentIntentId ?? null,
+      stripeDepositIntentId: b.stripeDepositIntentId ?? null,
+      depositHoldRenewalIntentId: b.depositHoldRenewalIntentId ?? null,
+      depositHoldPreviousIntentIds: b.depositHoldPreviousIntentIds ?? [],
       cancelledAt: b.cancelledAt ?? null,
       earliestStart: b.lineItems.length ? Math.min(...b.lineItems.map((li) => li.start)) : null,
       siteOnly: res.every((r) => r.source === "site"), // never customer-cancel Hygglo-sourced rows
     };
   },
 });
+
+/** Freeze cancellation policy and order edits before any external payment call. */
+export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
+ const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if(b?.activeAdditionId)throw Error("Finish or withdraw the item addition before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
+ if(b.cancellationDecision)return b.cancellationDecision;
+ const jobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+ if(jobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("A refund is still processing");
+ const kind=cancelKind(Math.min(...b.lineItems.map(li=>li.start)),Date.now());
+ const decision={kind,createdAt:Date.now()};await ctx.db.patch(bookingId,{cancellationDecision:decision});return decision;
+}});
+export const recordCancellationQuote=internalMutation({args:{bookingId:v.id("bookings"),quote:v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})},handler:async(ctx,{bookingId,quote})=>{
+ const b=await ctx.db.get(bookingId);if(!b?.cancellationDecision)throw Error("Cancellation has not been prepared");
+ if(b.cancellationDecision.quote)return b.cancellationDecision.quote;
+ await ctx.db.patch(bookingId,{cancellationDecision:{...b.cancellationDecision,quote}});return quote;
+}});
 
 /** Atomically finalise a cancellation: flip status, free the ledger, issue store credit if late,
  *  post a chat note, schedule the email. Idempotent (no-op if already cancelled). The Stripe
@@ -674,8 +1349,9 @@ export const _finalizeCancellation = internalMutation({
     refundAmount: v.number(),
     creditAmount: v.number(),
     currency: v.string(),
+    adminReason: v.optional(v.string()),
   },
-  handler: async (ctx, { bookingId, accountId, mode, refundAmount, creditAmount, currency }) => {
+  handler: async (ctx, { bookingId, accountId, mode, refundAmount, creditAmount, currency, adminReason }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return { ok: false as const };
     if (b.status === "cancelled") return { ok: true as const, already: true };
@@ -687,16 +1363,17 @@ export const _finalizeCancellation = internalMutation({
         amount: creditAmount,
         remaining: creditAmount,
         currency,
-        reason: `late_cancellation:${bookingId}`,
+        reason: `${mode === "refund" ? "restored_credit" : "late_cancellation"}:${bookingId}`,
         bookingId,
         createdAt: Date.now(),
-        expiresAt: Date.now() + 90 * 86400000,
+        expiresAt: Date.now() + CANCELLATION_CREDIT_DAYS * 86400000,
         status: "active",
       });
     }
     await ctx.db.patch(bookingId, {
       status: "cancelled",
       cancelledAt: Date.now(),
+      adminCancellationReason: adminReason,
       refundAmount,
       creditIssuedId: creditId,
       depositRefunded: mode !== "none" ? true : (b.depositRefunded ?? false),
@@ -712,11 +1389,11 @@ export const _finalizeCancellation = internalMutation({
     if (accountId) {
       const note =
         mode === "credit"
-          ? `Your booking was cancelled. Your deposit is refunded to your card, and £${creditAmount} store credit (valid 90 days) has been added to your account.`
+          ? `Your booking was cancelled. £${refundAmount} is being returned to your card, and £${creditAmount} account credit (valid ${CANCELLATION_CREDIT_DAYS} days) has been added to your account.`
           : mode === "refund"
-            ? `Your booking was cancelled and £${refundAmount} has been refunded to your card.`
+            ? `Your booking was cancelled. £${refundAmount} is being returned to your card.${creditAmount > 0 ? ` £${creditAmount} of previously used credit has been restored to your account for ${CANCELLATION_CREDIT_DAYS} days.` : ""}`
             : `Your booking was cancelled.`;
-      await ctx.db.insert("messages", { accountId, bookingId, sender: "system", text: note, at: Date.now(), readByOwner: true });
+      await postRentalMessage(ctx,{accountId,bookingId,sender:"system",text:note});
     }
     await ctx.scheduler.runAfter(0, internal.notify.cancellationEmail, { bookingId, mode, refundAmount, creditAmount });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });

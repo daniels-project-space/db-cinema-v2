@@ -6,8 +6,10 @@ const crons = cronJobs();
 // Release expired soft cart holds.
 crons.interval("release-holds", { minutes: 5 }, internal.bookings.releaseExpiredHolds, {});
 
-// Retire abandoned (never-paid) checkouts whose Stripe session has expired.
-crons.interval("expire-stale-pending", { minutes: 15 }, internal.bookings.expireStalePending, {});
+// Reconcile paid checkouts when webhooks are delayed; retire only Stripe-confirmed unpaid ones.
+crons.interval("reconcile-rental-checkouts", { minutes: 5 }, internal.checkout.reconcilePendingPayments, {});
+
+crons.interval("reconcile-rental-additions",{minutes:5},internal.rentalAdditions.reconcile,{});
 
 // Lapse membership perks with the real Stripe subscription (deactivates cancelled/unpaid members).
 crons.interval("reconcile-memberships", { hours: 6 }, internal.checkout.reconcileMemberships, {});
@@ -18,6 +20,10 @@ crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSes
 // Pickup-tomorrow / return-today reminders (email + Telegram).
 crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {});
 crons.interval("settled-rental-review-emails", { hours: 12 }, internal.reviewFollowUp.processDue, {});
+crons.interval("late-fee-notices-and-collection", { hours: 1 }, internal.lateFees.processDue, {});
+crons.interval("send-return-statements", { hours: 1 }, internal.invoice.retryReturnStatements, {});
+crons.interval("renew-rental-security-holds", { hours: 1 }, internal.holdRenewal.renewDue, {});
+crons.interval("reconcile-rental-verifications", { hours: 1 }, internal.didit.reconcileOpenSessions, {});
 
 // Expire store credit past its 90-day window (Phase 3).
 crons.interval("expire-credits", { hours: 24 }, internal.credits.expire, {});

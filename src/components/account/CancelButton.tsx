@@ -5,6 +5,7 @@ import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { cancelKind, type EnrichedBooking } from "@/lib/bookingDisplay";
+import { CANCELLATION_CREDIT_DAYS } from "@/lib/cancellationPolicy";
 
 /** Self-service cancel. Hidden unless the server feature flag (customerActionsEnabled) is on
  *  and the booking is still cancellable. Label reflects the refund vs 90-day-credit window. */
@@ -25,7 +26,7 @@ export function CancelButton({ booking }: { booking: EnrichedBooking }) {
       ? "Cancel"
       : kind === "full_refund"
         ? "Cancel · full refund"
-        : "Cancel · 90-day credit";
+        : `Cancel · ${CANCELLATION_CREDIT_DAYS}-day credit`;
 
   async function go() {
     setBusy(true);
@@ -49,7 +50,7 @@ export function CancelButton({ booking }: { booking: EnrichedBooking }) {
 
   return (
     <span className="inline-flex flex-wrap items-center gap-2 text-xs">
-      <span className="text-white/50">{kind === "store_credit" ? "Cancel for 90-day credit?" : "Cancel & refund?"}</span>
+      <span className="text-white/50">{kind === "store_credit" ? `Cancel for a security refund and ${CANCELLATION_CREDIT_DAYS}-day rental credit?` : "Cancel & refund?"}</span>
       <button onClick={go} disabled={busy} className="rounded-full bg-rose-500/80 px-3 py-1 font-medium text-white hover:bg-rose-500 disabled:opacity-50">
         {busy ? "…" : "Yes, cancel"}
       </button>

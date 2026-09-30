@@ -18,6 +18,20 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/didit-webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const body = await req.text();
+    const ok: boolean = await ctx.runAction(internal.didit.webhook, {
+      body,
+      signature: req.headers.get("x-signature-v2") ?? "",
+      timestamp: req.headers.get("x-timestamp") ?? "",
+    });
+    return new Response(ok ? "ok" : "invalid", { status: ok ? 200 : 400 });
+  }),
+});
+
 // Telegram inbound — Approve/Decline inline-button callbacks for booking change requests.
 // Set the bot webhook to https://<deployment>.convex.site/telegram with secret_token = TELEGRAM_WEBHOOK_SECRET.
 http.route({

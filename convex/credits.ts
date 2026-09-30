@@ -41,6 +41,16 @@ export const expire = internalMutation({
     let n = 0;
     for (const c of rows) {
       if (c.expiresAt <= now) {
+        const account = await ctx.db.get(c.accountId);
+        if (account) {
+          const pending = await ctx.db.query("bookings")
+            .withIndex("by_guestEmail", (q) => q.eq("guestEmail", account.email))
+            .collect();
+          // A checkout can reserve a credit just before expiry. Keep it
+          // redeemable until Stripe's paid/expired outcome is reconciled.
+          if (pending.some((b) => b.status === "pending_payment" && (b.creditApplied ?? 0) > 0 &&
+            b._creationTime < c.expiresAt)) continue;
+        }
         await ctx.db.patch(c._id, { status: "expired" });
         n++;
       }
