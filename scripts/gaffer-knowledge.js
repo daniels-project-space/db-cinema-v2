@@ -312,6 +312,7 @@ const NO_RECHECK =
   "reported as free — they check the same calendar.";
 
 const PINNED_TOOL_DESCRIPTIONS = {
+  recommend_gear: "THE tool for 'what do you have' questions. Filters the catalogue page on screen to what they asked for, highlights the shortlist and scrolls it into view, then tells you prices and seller-documented contents for each exact listing. Offer the bare item before sets unless they asked for a package. Distinguish included items, on-request items and explicit exclusions; anything else is unconfirmed, not excluded.",
   check_availability:
     ANNOUNCE + "Check if a piece of gear is free for given dates and its price." + NO_RECHECK,
   check_stock: ANNOUNCE + "Check whether the shop stocks a piece of gear." + NO_RECHECK,
