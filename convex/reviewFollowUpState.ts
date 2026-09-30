@@ -9,7 +9,6 @@ export const candidates = internalQuery({
     .order("asc")
     .filter(q => q.and(q.neq(q.field("remindedReview"), true),
       q.neq(q.field("reviewFollowUpStatus"), "sent"),
-      q.neq(q.field("reviewFollowUpStatus"), "suppressed"),
       q.neq(q.field("reviewFollowUpStatus"), "sending")))
     .take(50),
 });
