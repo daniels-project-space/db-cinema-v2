@@ -71,3 +71,14 @@ Unknown means accessory details are unconfirmed, not that the main advertised it
 5. `node scripts/gaffer-contents-sync.cjs` prepares exact category documents in /tmp/dbc-gaffer-contents-kb. After approval, inject ELEVENLABS_API_KEY and use `--apply`. It attaches the new categories and contents rule, preserves the existing model/voice/tools/policy/partner documents, and detaches old catalogue documents only from this agent. Shared documents are not deleted.
 
 Live ElevenLabs inspection confirmed 12 old catalogue documents and no seller-documented contents rule. The proposed replacement therefore still needs publishing; staging evidence alone does not prove live Gaffer is fixed.
+
+## Approved live publication — 30 September 2026
+
+Daniel approved publication. PR #3 isolated the contents changes onto the production base, and merged as `9e2645fb3c651d6b1c00beaef60c64f7c0cd1d4b`. The exact `dbcinemarentals.com` alias was verified against Vercel deployment `dpl_CYoLRELxS3e2EPjpPrapCDkg4KkW`, the expected repository and that commit. PR #2 is superseded for publication; the unfinished checkout branch stays separate.
+
+- Public backend `veracious-wombat-196` has all 405 contents records, verified through all 405 exact listing detail responses. Voice search retains actual included cards and explicit exclusions.
+- Live ElevenLabs agent has 12 replacement contents documents. Reading their actual provider content confirmed all 405 entries, the reviewed Venice/Blackmagic partial facts and the C-stand sandbag exclusion. Old catalogue documents were detached, not deleted. Model, voice and remaining conversation settings were verified unchanged during contents publication.
+- Rendered production browser `find_gear` closure returned FX3 card facts and confirmed/unknown C-stand details. Authenticated production `/api/voice` lookup also returned actual contents; an invalid voice secret returned 401. No paid voice call or customer message was used for testing.
+- Related gaps fixed: blank Vercel production Convex URL, an evaluator requiring blanket accessory exclusions, and stale `recommend_gear` instructions requiring exclusions. Evaluation/tool updates were verified independently with their remaining settings unchanged.
+- Production checkout and automatic late collection remain disabled. Those features were not activated by this release.
+- Focused follow-up review found no additional contents-related gaps. 28 listings still lack sufficiently specific accessories evidence and remain explicitly unconfirmed; Gaffer must ask for confirmation rather than invent a packing list.
