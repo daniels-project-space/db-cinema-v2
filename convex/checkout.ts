@@ -13,6 +13,7 @@ import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
 import { cancelKind, cancellationSettlement } from "../src/lib/cancellationPolicy";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
+const postcodeFromAddress = (address: string) => address.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";
 
 const subActive = (status: string) => status === "active" || status === "trialing";
 
@@ -57,6 +58,7 @@ export const start = action({
     }),
     fulfilment: v.union(v.literal("pickup"), v.literal("delivery")),
     address: v.optional(v.string()),
+    deliveryPostcode: v.optional(v.string()),
     deliveryFee: v.number(),
     promoCode: v.optional(v.string()),
     protection: v.optional(v.union(v.literal("verify"), v.literal("deposit"))),
@@ -70,10 +72,12 @@ export const start = action({
         documents: v.array(v.object({ kind: v.string(), version: v.string() })),
       }),
     ),
-    origin: v.string(),
   },
   handler: async (ctx, a): Promise<{ url: string }> => {
     if (a.items.length === 0) throw new Error("empty cart");
+    if (a.items.some((item) => item.qty !== 1 || !Number.isSafeInteger(item.start) ||
+        !Number.isSafeInteger(item.end) || item.end < item.start))
+      throw new Error("Each rental line must be one item with valid dates. Please refresh your basket.");
     if (process.env.RENTAL_CHECKOUT_ENABLED !== "true")
       throw new Error("Direct rental checkout is being prepared. Please contact us to arrange your rental.");
     if (process.env.BUSINESS_VAT_REGISTERED === "true")
@@ -118,7 +122,7 @@ export const start = action({
     a.items = a.items.map((it, idx) => {
       const r = repriced[idx];
       if (!r) throw new Error(`"${it.title}" is no longer available.`);
-      return { ...it, total: r.total, deposit: r.deposit };
+      return { ...it, title: r.title, total: r.total, deposit: r.deposit };
     });
 
     // server-side availability re-check (quantity-aware, grouped by listing)
@@ -232,8 +236,26 @@ export const start = action({
           : `${freedCount} free accessor${freedCount > 1 ? "ies" : "y"}`
         : discountLabel;
 
+    // Requote the actual destination and basket at payment time. The browser's fee is
+    // only a displayed estimate and can never set the amount charged.
+    let quotedDeliveryFee = 0;
+    if (a.fulfilment === "delivery") {
+      const quotedPostcode = postcodeFromAddress(a.deliveryPostcode ?? "");
+      const addressPostcode = postcodeFromAddress(a.address ?? "");
+      if (!quotedPostcode || quotedPostcode !== addressPostcode || (a.address ?? "").trim().length < 10)
+        throw new Error("Enter the full delivery address with the same postcode used for the quote.");
+      const quote: any = await ctx.runAction(api.delivery.quote, {
+        postcode: quotedPostcode,
+        listingIds: a.items.map((item) => item.listingId),
+      });
+      if (!quote?.ok || !Number.isSafeInteger(quote.fee) || quote.fee < 0)
+        throw new Error(quote?.reason ?? "Delivery is unavailable for this address.");
+      quotedDeliveryFee = quote.fee;
+      if (!Number.isFinite(a.deliveryFee) || pence(a.deliveryFee) !== pence(quotedDeliveryFee))
+        throw new Error("Your delivery quote has changed. Please refresh it before paying.");
+    }
     // members on Pro/Studio get free local delivery
-    const deliveryFee = member?.freeDelivery && a.fulfilment === "delivery" ? 0 : a.deliveryFee;
+    const deliveryFee = member?.freeDelivery && a.fulfilment === "delivery" ? 0 : quotedDeliveryFee;
     const total = subtotal + deliveryFee + depositAmount - totalReduction;
 
     const sb = stripe();
@@ -374,8 +396,8 @@ export const start = action({
       ...(stripeCustomerId
         ? { customer: stripeCustomerId }
         : { customer_email: a.customer.email, customer_creation: "always" as const }),
-      success_url: `${a.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${a.origin}/cart`,
+      success_url: `${new URL(process.env.APP_URL!).origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${new URL(process.env.APP_URL!).origin}/cart`,
       metadata: { bookingId },
       payment_intent_data: {
         metadata: { bookingId },

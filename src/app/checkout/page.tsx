@@ -17,7 +17,7 @@ import { depositFor, depositChargeFor, smallDamageHold, formatGbp, type Protecti
 import { dayMs as ms } from "@/lib/dates";
 import { PICKUP_SLOTS as SLOTS, HOURS_SENTENCE } from "@/lib/site";
 
-const PC_RE = /([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})/i;
+const PC_RE = /\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i;
 
 function StepCard({
   n,
@@ -97,8 +97,11 @@ export default function CheckoutPage() {
   const total = subtotal + depositAmount + deliveryFee - promo.discount;
 
   const detailsDone = /\S+@\S+\.\S+/.test(email) && name.trim().length >= 3 && billingAddress.trim().length >= 10;
+  const deliveryAddressPostcode = address.match(PC_RE)?.[1]?.replace(/\s/g, "").toUpperCase() ?? "";
+  const quotedPostcode = postcode.match(PC_RE)?.[1]?.replace(/\s/g, "").toUpperCase() ?? "";
   const fulfilmentDone =
-    !!pickupTime && !!returnTime && (fulfilment === "pickup" || (dq?.ok && address.trim().length > 5 && deliveryAgreed));
+    !!pickupTime && !!returnTime && (fulfilment === "pickup" ||
+      (dq?.ok && address.trim().length >= 10 && deliveryAddressPostcode === quotedPostcode && !!quotedPostcode && deliveryAgreed));
   const signDone = agreed && holdAgreed && laterChargeAgreed && signature.trim().length > 2;
 
   const valid = items.length > 0 && detailsDone && fulfilmentDone && signDone;
@@ -140,13 +143,13 @@ export default function CheckoutPage() {
         customer: { email, name: name || undefined, phone: phone || undefined, billingAddress },
         fulfilment,
         address: fulfilment === "delivery" ? address : undefined,
+        deliveryPostcode: fulfilment === "delivery" ? postcode : undefined,
         deliveryFee,
         promoCode: promo.applied ?? undefined,
         protection,
         pickupTime,
         returnTime,
         agreement: { name: signature.trim(), securityHoldConsent: holdAgreed, laterChargeConsent: laterChargeAgreed, documents: docs },
-        origin: window.location.origin,
       });
       window.location.href = url;
     } catch (e: any) {
@@ -269,7 +272,9 @@ export default function CheckoutPage() {
                   ) : (
                     <div className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{dq.reason}</div>
                   ))}
-                  <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Full delivery address *" rows={2} className="input w-full" />
+                  <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Full delivery address, including postcode *" rows={2} className="input w-full" />
+                  {address.trim().length > 0 && deliveryAddressPostcode !== quotedPostcode &&
+                    <p className="text-xs text-amber-200">Include the same postcode in your delivery address as the quote above.</p>}
                   <label className="flex items-start gap-2 text-xs leading-relaxed text-white/55">
                     <input type="checkbox" checked={deliveryAgreed} onChange={(e) => setDeliveryAgreed(e.target.checked)} className="mt-0.5 accent-accent-500" />
                     <span>I understand delivery uses a third-party courier (Addison Lee). Times are estimates only — no exact time is guaranteed and delivery may be affected by traffic. Estimates are accurate within ~15%; the final price is confirmed by the courier. No refunds for courier delays.</span>
@@ -418,7 +423,7 @@ export default function CheckoutPage() {
               {!busy && <IconLock className="h-4 w-4" />}
             </button>
             <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">
-              Secured by Stripe · test mode
+              Secured by Stripe
             </p>
           </aside>
         </div>

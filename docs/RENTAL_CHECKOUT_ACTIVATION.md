@@ -38,6 +38,7 @@ The original checkout receipt and return statement are **not VAT invoices**. UK 
 
 - Complete Didit sandbox ID, selfie, utility bill, retry, rejection, and manual approval paths. Confirm the signed webhook updates both account and admin progress.
 - Complete Stripe test checkout for both protection categories; confirm the amount charged is half the category amount, the separate hold equals the full category amount, and the card appears only once in checkout.
+- Confirm checkout rejects a forged item quantity, forged listing title, changed delivery postcode, or browser-supplied delivery fee. The server must reprice each catalog line, calculate delivery for the actual address, and send the renter back only to the configured app URL.
 - Exercise hold success, issuer challenge, decline, expiry, return, damage capture, cancellation, refund, and a renter closing the success page before webhook delivery.
 - Exercise hourly renewal with a short-lived test hold, issuer challenge in the renter account, decline, old-hold cancellation, and a renter who never responds. Check that the admin sees a failed or pending renewal before handover.
 - Exercise late return notice, dispute pause, hold-funded fee, fee larger than hold, saved-card decline, and 30-day expiry. Reconcile Stripe receipts to booking amounts.

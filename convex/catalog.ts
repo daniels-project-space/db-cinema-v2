@@ -27,7 +27,7 @@ export const repriceLines = internalQuery({
     const listings = await Promise.all(items.map((it) => ctx.db.get(it.listingId)));
     const cartTypes = new Set(listings.filter(Boolean).map((l: any) => l.itemType ?? ""));
 
-    const out: ({ total: number; deposit: number; dailyRate: number } | null)[] = [];
+    const out: ({ title: string; total: number; deposit: number; dailyRate: number } | null)[] = [];
     items.forEach((it, idx) => {
       const l: any = listings[idx];
       if (!l || !l.active) { out.push(null); return; }
@@ -54,7 +54,7 @@ export const repriceLines = internalQuery({
       }
       // automatic quiet-item discount (idle gear) — applied server-side so the charged price matches the badge
       if (l.quietDeal) total = Math.round(total * (1 - l.quietDeal / 100));
-      out.push({ total, deposit: l.depositAmount ?? 0, dailyRate: l.pricing.daily ?? 0 });
+      out.push({ title: l.title, total, deposit: l.depositAmount ?? 0, dailyRate: l.pricing.daily ?? 0 });
     });
     return out;
   },

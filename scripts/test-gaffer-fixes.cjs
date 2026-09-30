@@ -33,7 +33,9 @@ Object.assign(process.env, {
   BUSINESS_INVOICE_ADDRESS: 'Test address', RESEND_API_KEY: 'test',
 });
 class StripeStub {
+  static lastCheckout;
   paymentMethodConfigurations = { retrieve: async () => ({ active: true, card: { display_preference: { value: 'on' } }, apple_pay: { display_preference: { value: 'off' } }, google_pay: { display_preference: { value: 'off' } }, link: { display_preference: { value: 'off' } } }) };
+  checkout = { sessions: { create: async (params) => { StripeStub.lastCheckout=params; return {id:'cs_test_booking',url:'https://checkout.stripe.test/session'}; } } };
 }
 const serverMocks = { './_generated/server': registered, './_generated/api': { api: refs, internal: refs }, './adminAuth': {}, stripe: StripeStub };
 const { validate } = load('convex/promo.ts', serverMocks);
@@ -54,29 +56,71 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
 
   // Exercise the real checkout action up to createPending. Repricing is supplied by
   // the authoritative query boundary; reject before any booking/Stripe side effect.
-  async function checkout(prices, {code, submittedTotal=99999, deliveryFee=0} = {}) {
+  async function checkout(prices, {code, submittedTotal=99999, deliveryFee=0, quotedFee=0, fulfilment='pickup', address, deliveryPostcode, qty=1, submittedTitle, expectedError} = {}) {
     let pending;
     const stop = new Error('captured booking boundary');
     const ctx = {
       runQuery: async (ref,args) => {
         if(ref==='settings:get') return {acceptingOrders:true};
-        if(ref==='catalog:repriceLines') return prices.map(total=>({total,deposit:1000}));
+        if(ref==='catalog:repriceLines') return prices.map((total,i)=>({title:`Real item ${i}`,total,deposit:1000}));
         if(ref==='availability:forListing') return {available:10};
         if(ref==='promo:validate') return validate.handler({},args);
         throw Error(`Unexpected query ${ref}`);
       },
+      runAction: async (ref,args) => { assert.equal(ref,'delivery:quote'); assert.equal(args.postcode,deliveryPostcode.replace(/\s/g,'').toUpperCase()); assert.equal(args.listingIds.length,prices.length); return {ok:true,fee:quotedFee}; },
       runMutation: async (ref,args) => { assert.equal(ref,'bookings:createPending'); pending=args; throw stop; },
     };
-    const args={items:prices.map((_,i)=>({listingId:`listing${i}`,title:`Item ${i}`,start:0,end:0,qty:1,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment:'pickup',deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS},origin:'https://example.invalid'};
+    const args={items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}};
+    if (expectedError) {
+      await assert.rejects(start.handler(ctx,args),expectedError);
+      assert.equal(pending,undefined,'rejected before creating a booking');
+      return;
+    }
     await assert.rejects(start.handler(ctx,args),e=>e===stop);
     return pending;
   }
-  let order=await checkout([500,50]); assert.equal(order.discount,0,'never automatic');
+  let order=await checkout([500,50],{submittedTitle:'Forged title'}); assert.equal(order.discount,0,'never automatic'); assert.equal(order.lineItems[0].title,'Real item 0','booking title comes from catalog');
   order=await checkout([500,50],{code:'gaffer10',submittedTotal:1}); assert.equal(order.subtotal,550);assert.equal(order.discount,50);assert.equal(order.lineItems[1].lineTotal,50);
   order=await checkout([390,60],{code:'gaffer10'});assert.equal(order.discount,39,'offer counts toward threshold, not saving');
   order=await checkout([400],{code:'gaffer10',deliveryFee:200});assert.equal(order.discount,0,'delivery/deposit do not qualify order');
   order=await checkout([401],{code:'gaffer10'});assert.equal(order.discount,40.1);
   order=await checkout([350],{code:'gaffer10'});assert.equal(order.discount,0,'discount is removed after basket shrinks');
+  order=await checkout([400],{fulfilment:'delivery',address:'10 Downing Street, London SW1A 2AA',deliveryPostcode:'SW1A 2AA',deliveryFee:75,quotedFee:75});assert.equal(order.deliveryFee,75,'delivery fee comes from server quote');
+  await checkout([400],{fulfilment:'delivery',address:'10 Downing Street, London SW1A 2AA',deliveryPostcode:'SW1A 2AA',deliveryFee:0,quotedFee:75,expectedError:/delivery quote has changed/});
+  await checkout([400],{fulfilment:'delivery',address:'10 Downing Street, London SW1A 2AA',deliveryPostcode:'SW1A 1AA',deliveryFee:75,quotedFee:75,expectedError:/same postcode/});
+  await checkout([400],{qty:2,expectedError:/one item with valid dates/});
+
+  // Cross the real booking and Stripe boundaries with inert adapters: verify the
+  // payment amount and return URLs cannot be supplied by the browser.
+  let savedBooking;
+  const checkoutCtx = {
+    runQuery: async (ref) => {
+      if(ref==='settings:get') return {acceptingOrders:true};
+      if(ref==='catalog:repriceLines') return [{title:'Real camera',total:200,deposit:1000,dailyRate:40}];
+      if(ref==='availability:forListing') return {available:1};
+      throw Error(`Unexpected query ${ref}`);
+    },
+    runMutation: async (ref,args) => {
+      if(ref==='bookings:createPending'){savedBooking=args;return {bookingId:'booking-1',creditApplied:0};}
+      if(ref==='bookings:placeHolds'||ref==='bookings:bindCheckoutSession')return;
+      throw Error(`Unexpected mutation ${ref}`);
+    },
+  };
+  const checkoutResult=await start.handler(checkoutCtx,{
+    items:[{listingId:'camera-1',title:'Forged camera',start:0,end:0,qty:1,total:1,deposit:0}],
+    customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},
+    fulfilment:'pickup',deliveryFee:0,pickupTime:'10:00',returnTime:'18:00',
+    agreement:{name:'Test Renter',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS},
+    origin:'https://attacker.invalid',
+  });
+  assert.equal(checkoutResult.url,'https://checkout.stripe.test/session');
+  assert.equal(savedBooking.lineItems[0].title,'Real camera');
+  assert.equal(savedBooking.depositHoldAmount,50);
+  assert.equal(savedBooking.depositAmount,25);
+  assert.equal(StripeStub.lastCheckout.line_items[0].price_data.unit_amount,20000);
+  assert.equal(StripeStub.lastCheckout.line_items[1].price_data.unit_amount,2500);
+  assert.equal(StripeStub.lastCheckout.success_url,'https://example.invalid/checkout/success?session_id={CHECKOUT_SESSION_ID}');
+  assert.equal(StripeStub.lastCheckout.cancel_url,'https://example.invalid/cart');
 
   const memory=createCallMemory();
   memory.add('user','My name is Alex. I need the FX3 next Friday.');
