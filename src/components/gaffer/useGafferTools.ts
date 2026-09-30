@@ -341,7 +341,7 @@ export function useGafferTools() {
         const taken: string[] = [];
         for (const h of hits) {
           const a = await availabilityFor(h.id, w.startIso, w.endIso);
-          (a.available >= 1 || a.unknown ? free : taken).push(`${h.title} at £${h.daily} a day`);
+          (a.available >= 1 || a.unknown ? free : taken).push(`${h.title} at £${h.daily} a day. ${contentsText(h)}`);
         }
         if (!free.length) return `Nothing matching ${q} is free ${w.startIso} to ${w.endIso}. Booked: ${taken.join("; ")}.`;
         return (
@@ -366,7 +366,8 @@ export function useGafferTools() {
                 : `${h.title} — booked out for those dates`,
           );
         }
-        return `For ${w.startIso} to ${w.endIso}: ${lines.join("; ")}.`;
+        return `For ${w.startIso} to ${w.endIso}: ${lines.join("; ")}. ` +
+          hits.map(h=>`Contents for "${h.title}": ${contentsText(h)}`).join(' ');
       },
 
       /**
@@ -412,12 +413,7 @@ export function useGafferTools() {
         router.push(route, { scroll: false });
         const shown = await suggest(picks.map((p: any) => p.id), route);
 
-        const line = (p: any) =>
-          `${p.title} at £${p.daily} a day` +
-          (p.includes?.length ? ` (includes ${p.includes.join(", ")})` : "") +
-          (p.excludes?.length ? ` — ${p.excludes.join("; ")}` : "") +
-          (p.optional?.length ? `; only on request: ${p.optional.join("; ")}` : "") +
-          (p.contentsStatus === "unknown" ? "; included accessories are undocumented; do not guess" : "");
+        const line = (p: any) => `${p.title} at £${p.daily} a day. ${contentsText(p)}`;
 
         const parts: string[] = [];
         if (res.standalone?.length)

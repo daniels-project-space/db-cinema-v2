@@ -268,7 +268,7 @@ export async function POST(req: NextRequest) {
             `Good news — the ${shorten(top.title)} is free ${days > 1 ? `from ${speak(start.date)} to ${speak(endDate)}` : `on ${speak(start.date)}`}, ` +
             `at ${money(qt.perDay)} a day${days > 1 ? `, ${money(qt.total)} for the ${days} days` : ""}` +
             `${top.deposit ? `, plus a ${money(hold(top.deposit))} refundable holding deposit` : ""}. ` +
-            `We deliver across London. Shall I take your details and hold it?`,
+            `${contentsText(top)} We deliver across London. Shall I take your details and hold it?`,
             { items: hits, start: start.date, end: endDate, days },
           );
         }
