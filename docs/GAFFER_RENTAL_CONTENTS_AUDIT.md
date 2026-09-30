@@ -13,7 +13,7 @@ Seller-authored evidence is stored separately from specs and the availability BO
 ## Evidence
 
 - 405 storefront rows audited. Live account catalogue reads confirmed 400 DB Cinema and 369 Diogo products; their detail reads succeeded; cached products whose detail endpoint returned 404 were not invented.
-- 371 documented contents records; 34 lacking an unambiguous accessories list. 131 use Diogo as primary source.
+- 377 documented contents records; 28 lacking an unambiguous accessories list. 131 use Diogo as primary source.
 - Each extracted claim is checked against the stored seller excerpt. Exact configuration matches are pinned in data/rental-contents-matches.json.
 - Regression tests exercise real voice search, reject applying contents to a renamed configuration, and ensure catalog sync discards obsolete packing lists. They prevent inferred batteries/cards/stand exclusions. Full npm tests and Next.js build passed.
 - Staging has all 405 evidence records; all 405 exact deployed catalogue detail responses matched the manifest; deployed voice search returned documented cards and no blanket card exclusions.
@@ -23,6 +23,10 @@ Seller-authored evidence is stored separately from specs and the availability BO
 
 The main browser `find_gear` closure initially dropped contents despite the database search carrying them. It now returns the complete sourced contents for each exact matched listing; browse/recommend responses use the same formatter, including optional items and seller notes. An actual rendered local Next.js preview connected to isolated staging returned documented FX3 card facts and C-stand confirmed/unknown details. No voice call, basket write, booking, message or payment was performed.
 
+## Reviewed prose facts
+
+Six additional listings contain explicit partial contents in prose, rather than a packing list: the Venice starter, Venice/DZO set, Venice body, two-camera Blackmagic set, DZO/Blackmagic set and party package. Their exact seller fragments are now retained in `data/rental-contents-facts.json`. Reviews bind to the account, product ID, full source title and full description; any change invalidates the review. Unspecified brands, counts and remaining accessories stay unconfirmed. Regression checks reject stale titles/descriptions and wrong product IDs.
+
 ## Listings needing confirmation
 
 Unknown means accessory details are unconfirmed, not that the main advertised item is absent. Some sources are missing; others offer only general prose or a differently configured kit. Do not turn a different lens, quantity or mount into a match.
@@ -31,7 +35,6 @@ Unknown means accessory details are unconfirmed, not that the main advertised it
 | --- | --- | --- |
 | 1103108 | Chauvet Rotosphere Q3 Party Light / Rotating Mirror Ball Effect, LED Disco Lighting, Event Dancefloor Light (like ADJ Mirror Ball) | Hygglo detail unavailable |
 | 1103109 | 2x Chauvet Rotosphere Q3 Party Lights / Dual Rotating Mirror Ball Disco Effect, LED Dancefloor Lighting Set (like ADJ Mirror Ball) | Hygglo detail unavailable |
-| 947432 | Sony venice 6k Full frame Cinema Camera ( arri Alexa mini ) | [Seller listing](https://hygglo.com/uk/i/565-sony-venice-6k-full-frame-cinema-camera-arri-alexa-mini) — no unambiguous accessory list |
 | 1028856 | DZO ARLES Prime set 5 lenses t1.4 25,35,50,75,100mm DZOFILM PL mount (e,l,x,rf) | [Seller listing](https://hygglo.com/uk/i/a70-dzo-arles-prime-set-5-lenses-t14-25355075100mm-dzofilm-pl-mount-elxrf-digital-cinema-lens) — no unambiguous accessory list |
 | 1097702 | Pl to e mount adapter for cinema lenses | [Seller listing](https://hygglo.com/uk/i/5fb-pl-to-e-mount-adapter-for-cinema-lenses) — no unambiguous accessory list |
 | 1029180 | Atlas Mercury Anamorphic cinema lens set 1.5x 36,45,72mm Orion flare pl,ef,x,l,e | [Seller listing](https://hygglo.com/uk/i/82f-atlas-mercury-anamorphic-cinema-lens-set-15x-364572mm-orion-flare-plefxle-mount) — no unambiguous accessory list |
@@ -41,15 +44,12 @@ Unknown means accessory details are unconfirmed, not that the main advertised it
 | 997377 | 2x DJ Light party led event gigbar chauvet dekker, laser | [Seller listing](https://hygglo.com/uk/i/a07-2x-dj-light-party-led-event-gigbar-chauvet-dekker-laser) — no unambiguous accessory list |
 | 987339 | Sony a6600 camera 4k + zhiyun weebill 3 gimbal | Hygglo detail unavailable |
 | 800179 | Dop , mirrorless Camera for hire! Sony, cannon, Arri Gaffer, Focus puller | [Seller listing](https://hygglo.com/uk/i/e20-dop-mirrorless-camera-for-hire-sony-cannon-arri-gaffer-focus-puller-operator) — no unambiguous accessory list |
-| 947438 | Sony venice 6k Cinema ( arri Alexa mini ) + DZO Vespid set | [Seller listing](https://hygglo.com/uk/i/c2a-sony-venice-6k-cinema-arri-alexa-mini-dzo-vespid-set) — no unambiguous accessory list |
 | 947436 | Sony Venice 6k Cinema camera + Operator DP | [Seller listing](https://hygglo.com/uk/i/1da-sony-venice-6k-cinema-camera-operator-dp) — no unambiguous accessory list |
 | 947434 | Sony Venice 6k Cinema Camera Ultimate Set + DZOfilm Primes | [Seller listing](https://hygglo.com/uk/i/250-sony-venice-6k-cinema-camera-ultimate-set-dzofilm-primes) — no unambiguous accessory list |
-| 947433 | Sony venice 6k full frame cinema camera | [Seller listing](https://hygglo.com/uk/i/6be-sony-venice-6k-full-frame-cinema-camera-arri-alexa-mini) — no unambiguous accessory list |
 | 946796 | Arri Alexa Classic Kit + Operator Dp | [Seller listing](https://hygglo.com/uk/i/32c-arri-alexa-classic-kit-operator-dp) — no unambiguous accessory list |
 | 1116920 | C stand | [Seller listing](https://hygglo.com/uk/i/2fe-c-stand) — no unambiguous accessory list |
 | 947435 | Sony Venice 6k Cinema Camera Raw Set ( arri Alexa mini ) | Hygglo detail unavailable |
 | 987362 | Anamorphic Blazar Remus Full frame Lens | [Seller listing](https://hygglo.com/uk/i/9a4-anamorphic-blazar-remus-full-frame-lens-set-4565100mm-t2-neutral-flare-pl-mount-like-sirui-atlas-orion-or-atlas-mercury) — no unambiguous accessory list |
-| 1024185 | Blackmagic full frame 6k + BMPCC 6k pro cinema camera set | [Seller listing](https://hygglo.com/uk/i/73b-blackmagic-full-frame-6k-bmpcc-6k-pro-cinema-camera-set) — no unambiguous accessory list |
 | 946702 | Blackmagic 6k pro Bmpcc Cinema Camera set Run and gun | [Seller listing](https://hygglo.com/uk/i/0b7-blackmagic-6k-pro-bmpcc-cinema-camera-set-run-and-gun) — no unambiguous accessory list |
 | 1011885 | SD card v90 256gb capacity | [Seller listing](https://hygglo.com/uk/i/4db-sd-card-v90-256gb-capacity) — no unambiguous accessory list |
 | 971143 | Sony g-master 24-70mm f2.8 2x Zoom lens set | [Seller listing](https://hygglo.com/uk/i/0c9-sony-g-master-24-70mm-f28-2x-zoom-lens-set) — no unambiguous accessory list |
@@ -58,10 +58,8 @@ Unknown means accessory details are unconfirmed, not that the main advertised it
 | 958206 | DZO film Vespid Prime Cinema lens 125mm T2.1 Full Frame | [Seller listing](https://hygglo.com/uk/i/0a2-dzo-film-vespid-prime-cinema-lens-125mm-t21-full-frame) — no unambiguous accessory list |
 | 958197 | DZO film Vespid Prime Cinema lens 75mm T2.1 Full Frame | [Seller listing](https://hygglo.com/uk/i/252-dzo-film-vespid-prime-cinema-lens-75mm-t21-full-frame-pl) — no unambiguous accessory list |
 | 958201 | DZO film Vespid Prime Cinema lens 25mm T2.1 Full Frame ( arri, Zeiss, cannon, | [Seller listing](https://hygglo.com/uk/i/674-dzo-film-vespid-prime-cinema-lens-25mm-t21-full-frame) — no unambiguous accessory list |
-| 952049 | DZO Vespid Prime Cinema lens set + Bmpcc 6k pro camera | [Seller listing](https://hygglo.com/uk/i/303-dzo-vespid-prime-cinema-lens-set-bmpcc-6k-pro-camera) — no unambiguous accessory list |
 | 1045356 | 4x Godox tl 60 tube light like pavotube set with app control RGB Light | [Seller listing](https://hygglo.com/uk/i/584-4x-godox-tl-60-tube-light-like-pavotube-set-with-app-control-rgb-light) — no unambiguous accessory list |
 | 866785 | Nanlite 60c RGB Key light Kit LED Aputure 60c 60d light dome aputure 300d | [Seller listing](https://hygglo.com/uk/i/9e5-nanlite-60c-rgb-key-light-kit) — no unambiguous accessory list |
-| 997609 | Party DJ Speakers PA + Lights laser gigbar event | [Seller listing](https://hygglo.com/uk/i/9ca-party-dj-speakers-pa-lights-laser-gigbar-event-dj-pioneer-xdj-rx3-deck-controller-all-in-one) — no unambiguous accessory list |
 | 947051 | Sony a7siii (Fx3) + Camera Operator DP | [Seller listing](https://hygglo.com/uk/i/2eb-sony-a7siii-fx3-camera-operator-dp) — no unambiguous accessory list |
 
 ## Reproduce / publish after approval
