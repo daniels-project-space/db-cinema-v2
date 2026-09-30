@@ -124,9 +124,10 @@ export type Step = { label: string; state: "done" | "current" | "todo" };
 /** Four-stage lifecycle for the minimal progress bar above a tile. */
 export function bookingSteps(b: { status: string; idVerifyStatus: string; depositHoldAmount?: number; depositHoldStatus?: string | null }): { cancelled: boolean; steps: Step[] } {
   const verificationLabel = b.idVerifyStatus === "verified" ? "ID + address verified"
-    : b.idVerifyStatus === "processing" ? "Verification in review"
+    : b.idVerifyStatus === "processing" ? "Verification in progress"
+    : b.idVerifyStatus === "manual_review" ? "Human review needed"
     : b.idVerifyStatus === "requires_input" ? "Resubmission needed"
-    : b.idVerifyStatus === "rejected" ? "Human review needed"
+    : b.idVerifyStatus === "rejected" ? "Verification declined"
     : "Verify ID + address";
   const withHold = (b.depositHoldAmount ?? 0) > 0;
   const labels = withHold
