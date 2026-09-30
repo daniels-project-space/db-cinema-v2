@@ -1,7 +1,7 @@
 "use node";
 
 import Stripe from "stripe";
-import { internalAction } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { sendMail } from "./lib/mailer";
@@ -11,6 +11,101 @@ const gbp = (value: number) => `£${value.toFixed(2)}`;
 const londonTime = (ms: number) => new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/London", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 }).format(new Date(ms));
+
+function stripeClient() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) throw new Error("Card payment service is not configured.");
+  return new Stripe(key);
+}
+
+async function ownedLateCharge(ctx: any, token: string, bookingId: any) {
+  const account: any = await ctx.runQuery(internal.accounts._byToken, { token });
+  const booking: any = await ctx.runQuery(internal.bookings.lateFeeContext, { bookingId });
+  if (!account || !booking || booking.status !== "returned" ||
+      account.email.trim().toLowerCase() !== booking.guestEmail?.trim().toLowerCase())
+    throw new Error("Booking access denied.");
+  return booking;
+}
+
+/** Observe the existing charge after bank authentication or a closed browser. */
+async function reconcileExisting(ctx: any, bookingId: any, b: any, stripe: Stripe): Promise<{ status: string; clientSecret: string | null }> {
+  if (!b.lateFeeIntentId || !["requires_action", "processing"].includes(b.lateFeeStatus ?? ""))
+    return { status: b.lateFeeStatus ?? "none", clientSecret: null };
+  const intent = await stripe.paymentIntents.retrieve(b.lateFeeIntentId);
+  if (intent.metadata.bookingId !== String(bookingId) || intent.metadata.purpose !== "late_rental_time_separate_charge")
+    throw new Error("The late payment reference does not match this rental.");
+  const fromHold = b.lateFeePaidFromHold ?? 0;
+  const balance = Math.max(0, b.lateFeeAmount - fromHold);
+  if (intent.status === "succeeded") {
+    const paidFromCard = Math.min(balance, intent.amount_received / 100);
+    const status = paidFromCard >= balance ? "paid" : "partial";
+    await ctx.runMutation(internal.bookings.settleAuthenticatedLateCharge, {
+      bookingId, intentId: intent.id, status, paidFromCard,
+    });
+    return { status, clientSecret: null };
+  }
+  if (intent.status === "requires_action") {
+    if (b.actualReturnedAt && Date.now() > b.actualReturnedAt + 30 * 86400000) {
+      await stripe.paymentIntents.cancel(intent.id);
+      const status = fromHold > 0 ? "partial" : "expired";
+      await ctx.runMutation(internal.bookings.settleAuthenticatedLateCharge, {
+        bookingId, intentId: intent.id, status, paidFromCard: 0,
+        note: "Bank approval was not completed within the 30-day collection window",
+      });
+      return { status, clientSecret: null };
+    }
+    return { status: "requires_action", clientSecret: intent.client_secret };
+  }
+  if (intent.status === "processing") {
+    await ctx.runMutation(internal.bookings.settleAuthenticatedLateCharge, {
+      bookingId, intentId: intent.id, status: "processing", paidFromCard: 0,
+    });
+    return { status: "processing", clientSecret: null };
+  }
+  const status = fromHold > 0 ? "partial" : "failed";
+  await ctx.runMutation(internal.bookings.settleAuthenticatedLateCharge, {
+    bookingId, intentId: intent.id, status, paidFromCard: 0,
+    note: `Stripe payment ${intent.status}; no further charge attempted`,
+  });
+  return { status, clientSecret: null };
+}
+
+export const resume = action({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }): Promise<{ status: string; clientSecret: string | null }> => {
+    const b = await ownedLateCharge(ctx, token, bookingId);
+    if (process.env.LATE_FEE_AUTOCOLLECT_ENABLED !== "true")
+      return { status: "paused", clientSecret: null };
+    return reconcileExisting(ctx, bookingId, b, stripeClient());
+  },
+});
+
+export const sync = action({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }): Promise<{ status: string }> => {
+    const b = await ownedLateCharge(ctx, token, bookingId);
+    const result = await reconcileExisting(ctx, bookingId, b, stripeClient());
+    return { status: result.status };
+  },
+});
+
+export const reconcilePending = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) return;
+    const stripe = new Stripe(key);
+    const ids: any[] = await ctx.runQuery(internal.bookings.pendingLateAuthentications, {});
+    for (const bookingId of ids) {
+      try {
+        const b: any = await ctx.runQuery(internal.bookings.lateFeeContext, { bookingId });
+        if (b) await reconcileExisting(ctx, bookingId, b, stripe);
+      } catch (error) {
+        console.error("Late payment reconciliation failed", bookingId, error);
+      }
+    }
+  },
+});
 
 /** A separate notice for the late-time fee, regardless of funding source. */
 export const sendNotice = internalAction({
@@ -146,7 +241,7 @@ export const sendCollectionResult = internalAction({
       sent = await sendMail({
         to: b.guestEmail,
         subject: fullyPaid ? "Db Cinema late rental charge receipt" : "Action needed: Db Cinema late rental payment",
-        html: `<h2>Separate late rental time ${fullyPaid ? "receipt" : "update"}</h2><p>Itemised amount assessed: <b>${gbp(b.lateFeeAmount)}</b>.</p><ul>${rows}</ul><p>Paid from the unused authorised hold: ${gbp(paidHold)}. Paid by separate saved-card charge: ${gbp(paidCard)}. Remaining unpaid: ${gbp(Math.max(0, b.lateFeeAmount - paidHold - paidCard))}. No amount was collected twice.</p>${fullyPaid ? "<p>Db Cinema Rentals is not VAT registered, so no VAT was charged.</p>" : "<p>Your bank may require a new authentication or card. Reply to this email if the charge is disputed or you need help.</p>"}`,
+        html: `<h2>Separate late rental time ${fullyPaid ? "receipt" : "update"}</h2><p>Itemised amount assessed: <b>${gbp(b.lateFeeAmount)}</b>.</p><ul>${rows}</ul><p>Paid from the unused authorised hold: ${gbp(paidHold)}. Paid by separate saved-card charge: ${gbp(paidCard)}. Remaining unpaid: ${gbp(Math.max(0, b.lateFeeAmount - paidHold - paidCard))}. No amount was collected twice.</p>${fullyPaid ? "<p>Db Cinema Rentals is not VAT registered, so no VAT was charged.</p>" : b.lateFeeStatus === "requires_action" ? `<p>Your bank needs approval for the remaining charge. Sign in at <a href="${process.env.APP_URL ?? "https://dbcinemarentals.com"}/account">your rental account</a> to approve it. Reply if you dispute the amount.</p>` : "<p>Your bank may require a new authentication or card. Reply to this email if the charge is disputed or you need help.</p>"}`,
       });
     } catch (error) { console.error("Late charge result email failed", bookingId, error); }
     await ctx.runMutation(internal.bookings.markLateFeeReceiptEmail, { bookingId, sent });
@@ -163,5 +258,6 @@ export const processDue = internalAction({
     }
     const receipts: any[] = await ctx.runQuery(internal.bookings.dueLateFeeReceiptEmails, {});
     for (const bookingId of receipts) await ctx.runAction(internal.lateFees.sendCollectionResult, { bookingId });
+    await ctx.runAction(internal.lateFees.reconcilePending, {});
   },
 });

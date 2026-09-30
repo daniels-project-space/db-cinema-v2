@@ -13,6 +13,7 @@ import { CancelButton } from "@/components/account/CancelButton";
 import { ChangeRequest } from "@/components/account/ChangeRequest";
 import { BookingProgress } from "@/components/account/BookingProgress";
 import { HoldRenewal } from "@/components/account/HoldRenewal";
+import { LateFeeApproval } from "@/components/account/LateFeeApproval";
 import { type EnrichedBooking, groupOf, fmtRange, rentalDays, countdown } from "@/lib/bookingDisplay";
 
 export function BookingTile({
@@ -157,6 +158,7 @@ export function BookingTile({
         </div>
       )}
       {token && token !== "preview" && <HoldRenewal bookingId={booking._id} token={token} status={booking.depositHoldRenewalStatus} expiresAt={booking.depositHoldExpiresAt} />}
+      {token && token !== "preview" && <LateFeeApproval bookingId={booking._id} token={token} status={booking.lateFeeStatus} amount={booking.lateFeeAmount} />}
 
       {/* actions */}
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-white/[0.06] pt-2.5 text-xs">

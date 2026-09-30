@@ -57,7 +57,8 @@ export const _byToken = internalQuery({
       .query("sessions")
       .withIndex("by_token", (q) => q.eq("token", token))
       .first();
-    return s ? await ctx.db.get(s.accountId) : null;
+    if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
+    return ctx.db.get(s.accountId);
   },
 });
 
@@ -170,7 +171,7 @@ async function resolve(ctx: any, token: string) {
     .query("sessions")
     .withIndex("by_token", (q: any) => q.eq("token", token))
     .first();
-  if (!s) return null;
+  if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
   return await ctx.db.get(s.accountId);
 }
 

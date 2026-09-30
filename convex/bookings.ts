@@ -753,7 +753,46 @@ export const lateFeeContext = internalQuery({
       depositKept: b.depositKept ?? 0,
       lateFeePaidFromHold: b.lateFeePaidFromHold ?? 0,
       lateFeePaidFromCard: b.lateFeePaidFromCard ?? 0,
+      lateFeeIntentId: b.lateFeeIntentId ?? null,
     };
+  },
+});
+
+/** A bank challenge can finish after the renter closes the page. Reconcile its
+ * existing PaymentIntent only; never create a second charge. */
+export const pendingLateAuthentications = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "returned"))
+      .order("desc").take(1000);
+    return rows.filter((b) => b.lateFeeIntentId &&
+      ["requires_action", "processing"].includes(b.lateFeeStatus ?? ""))
+      .map((b) => b._id);
+  },
+});
+
+export const settleAuthenticatedLateCharge = internalMutation({
+  args: {
+    bookingId: v.id("bookings"), intentId: v.string(), status: v.string(),
+    paidFromCard: v.number(), note: v.optional(v.string()),
+  },
+  handler: async (ctx, { bookingId, intentId, status, paidFromCard, note }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.status !== "returned" || b.lateFeeIntentId !== intentId ||
+      !["requires_action", "processing"].includes(b.lateFeeStatus ?? "")) return false;
+    if (!Number.isFinite(paidFromCard) || paidFromCard < 0 ||
+      paidFromCard > Math.max(0, (b.lateFeeAmount ?? 0) - (b.lateFeePaidFromHold ?? 0)))
+      throw new Error("Late charge settlement amount is invalid.");
+    if (status === b.lateFeeStatus && paidFromCard === (b.lateFeePaidFromCard ?? 0)) return false;
+    await ctx.db.patch(bookingId, {
+      lateFeeStatus: status,
+      lateFeePaidFromCard: paidFromCard,
+      lateFeeNote: note?.slice(0, 400),
+      lateFeeReceiptEmailStatus: "pending",
+    });
+    await ctx.scheduler.runAfter(0, internal.lateFees.sendCollectionResult, { bookingId });
+    return true;
   },
 });
 
