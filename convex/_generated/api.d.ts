@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as reviewFollowUp from "../reviewFollowUp.js";
+import type * as reviewFollowUpState from "../reviewFollowUpState.js";
 import type * as accounts from "../accounts.js";
 import type * as adminAuth from "../adminAuth.js";
 import type * as admin_republish from "../admin_republish.js";
@@ -61,6 +63,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  reviewFollowUp: typeof reviewFollowUp;
+  reviewFollowUpState: typeof reviewFollowUpState;
   accounts: typeof accounts;
   adminAuth: typeof adminAuth;
   admin_republish: typeof admin_republish;

@@ -17,6 +17,7 @@ crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSes
 
 // Pickup-tomorrow / return-today reminders (email + Telegram).
 crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {});
+crons.interval("settled-rental-review-emails", { hours: 12 }, internal.reviewFollowUp.processDue, {});
 
 // Expire store credit past its 90-day window (Phase 3).
 crons.interval("expire-credits", { hours: 24 }, internal.credits.expire, {});
