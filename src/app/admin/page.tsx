@@ -152,9 +152,9 @@ export default function AdminPage() {
                       {b.agreementName ? "signed" : "unsigned"}
                     </span>
                     <span className={`rounded px-1.5 py-0.5 ${b.idVerifyStatus === "verified" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`} title={b.verificationNote ?? undefined}>
-                      {b.verificationProvider === "sumsub" ? "ID + address" : "ID"} {b.idVerifyStatus === "verified" ? "✓" : b.idVerifyStatus}
+                      {b.verificationProvider === "didit" ? "ID + address" : "ID"} {b.idVerifyStatus === "verified" ? "✓" : b.idVerifyStatus}
                     </span>
-                    {b.verificationProvider === "sumsub" && <span className="text-white/35">{b.verificationNote ?? "Automatic check pending"}</span>}
+                    {b.verificationProvider === "didit" && <span className="text-white/35">{b.verificationNote ?? "Automatic check pending"}</span>}
                     {!!b.lateFeeAmount && <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-200">Separate late charge {formatGbp(b.lateFeeAmount)} · {b.lateFeeStatus}</span>}
                     {!!b.lateFeeWaivedAmount && <span className="rounded bg-white/10 px-1.5 py-0.5 text-white/60">Late fee waived {formatGbp(b.lateFeeWaivedAmount)}</span>}
                     {b.returnStatementEmailStatus && <span className={`rounded px-1.5 py-0.5 ${b.returnStatementEmailStatus === "sent" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-200"}`}>Return statement email: {b.returnStatementEmailStatus}</span>}

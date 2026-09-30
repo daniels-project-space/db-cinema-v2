@@ -19,14 +19,14 @@ http.route({
 });
 
 http.route({
-  path: "/sumsub-webhook",
+  path: "/didit-webhook",
   method: "POST",
   handler: httpAction(async (ctx, req) => {
     const body = await req.text();
-    const ok: boolean = await ctx.runAction(internal.sumsub.webhook, {
+    const ok: boolean = await ctx.runAction(internal.didit.webhook, {
       body,
-      digest: req.headers.get("x-payload-digest") ?? "",
-      algorithm: req.headers.get("x-payload-digest-alg") ?? "",
+      signature: req.headers.get("x-signature-v2") ?? "",
+      timestamp: req.headers.get("x-timestamp") ?? "",
     });
     return new Response(ok ? "ok" : "invalid", { status: ok ? 200 : 400 });
   }),

@@ -76,8 +76,12 @@ export const start = action({
       throw new Error("Direct rental checkout is being prepared. Please contact us to arrange your rental.");
     if (process.env.BUSINESS_VAT_REGISTERED === "true")
       throw new Error("Rental receipt tax configuration needs updating before checkout can continue.");
-    if (!process.env.SUMSUB_APP_TOKEN || !process.env.SUMSUB_SECRET_KEY || !process.env.SUMSUB_LEVEL_NAME || !process.env.SUMSUB_WEBHOOK_SECRET)
+    if (!process.env.DIDIT_API_KEY || !process.env.DIDIT_WORKFLOW_ID || !process.env.DIDIT_WEBHOOK_SECRET ||
+        !process.env.DIDIT_APPLICATION_ID || !["sandbox", "live"].includes(process.env.DIDIT_ENVIRONMENT ?? ""))
       throw new Error("Automatic identity and address verification is being configured. Please contact us before paying.");
+    if ((process.env.STRIPE_SECRET_KEY?.startsWith("sk_live_") && process.env.DIDIT_ENVIRONMENT !== "live") ||
+        (process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_") && process.env.DIDIT_ENVIRONMENT !== "sandbox"))
+      throw new Error("Payment and identity verification environments do not match.");
     if (!process.env.STRIPE_WEBHOOK_SECRET || !process.env.INVOICE_SECRET || !process.env.APP_URL ||
         !process.env.BUSINESS_LEGAL_NAME || !process.env.BUSINESS_INVOICE_ADDRESS ||
         !((process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) || process.env.RESEND_API_KEY))
@@ -144,7 +148,7 @@ export const start = action({
       ? await ctx.runQuery(internal.accounts._byToken, { token: a.token })
       : null;
     // Existing Stripe Identity checks do not include proof of address. Require the
-    // complete Sumsub flow for every new booking, including deposit-category rentals.
+    // complete Didit flow for every new booking, including deposit-category rentals.
     const idVerifyStatus = "required";
 
     const member = acct?.membershipActive ? tierByKey(acct.membershipTier) : null;
@@ -268,7 +272,7 @@ export const start = action({
       agreementDocs: a.agreement?.documents,
       protection,
       idVerifyStatus,
-      verificationProvider: "sumsub",
+      verificationProvider: "didit",
       pickupTime: a.pickupTime,
       returnTime: a.returnTime,
     });

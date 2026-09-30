@@ -461,7 +461,7 @@ export const adminSetStatus = mutation({
       throw new Error("A closed booking cannot be reopened by changing its status.");
     if (booking.status === "pending_payment" && status === "confirmed")
       throw new Error("Payment must be confirmed by Stripe before this booking is confirmed.");
-    if (status === "active" && booking.verificationProvider === "sumsub" && booking.idVerifyStatus !== "verified")
+    if (status === "active" && booking.verificationProvider === "didit" && booking.idVerifyStatus !== "verified")
       throw new Error("Identity and address verification must be approved before handover.");
     if (status === "active" && booking.depositHoldAmount &&
         (booking.depositHoldStatus !== "held" || (booking.depositHoldExpiresAt ?? 0) <= Date.now()))
@@ -1023,7 +1023,7 @@ export const verificationAccess = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
-    return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider };
+    return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider, idVerifyStatus: b.idVerifyStatus };
   },
 });
 
@@ -1044,30 +1044,59 @@ export const setIdentity = internalMutation({
   },
 });
 
-/** Sumsub webhooks are verified in the node action. Never accept client-supplied results. */
-export const setSumsubResult = internalMutation({
+/** Bind a Didit session to the paid booking before any result can be accepted. */
+export const setDiditSession = internalMutation({
+  args: { bookingId: v.id("bookings"), sessionId: v.string() },
+  handler: async (ctx, { bookingId, sessionId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.verificationProvider !== "didit" || !["confirmed", "active"].includes(b.status) ||
+        b.idVerifyStatus === "verified") return false;
+    if (b.diditSessionId !== sessionId) {
+      await ctx.db.patch(bookingId, {
+        diditSessionId: sessionId,
+        diditEventId: undefined,
+        diditEventAt: undefined,
+        idVerifyStatus: "processing",
+        verificationUpdatedAt: Date.now(),
+      });
+    }
+    return true;
+  },
+});
+
+/** Didit webhooks are signed in the node action. Never accept browser results. */
+export const setDiditResult = internalMutation({
   args: {
     bookingId: v.id("bookings"),
-    applicantId: v.string(),
+    sessionId: v.string(),
+    eventId: v.string(),
     status: v.union(v.literal("processing"), v.literal("manual_review"), v.literal("verified"), v.literal("requires_input"), v.literal("rejected")),
     note: v.optional(v.string()),
+    poaPostcodes: v.array(v.string()),
     eventAt: v.number(),
   },
-  handler: async (ctx, { bookingId, applicantId, status, note, eventAt }) => {
+  handler: async (ctx, { bookingId, sessionId, eventId, status, note, poaPostcodes, eventAt }) => {
     const b = await ctx.db.get(bookingId);
-    if (!b || b.verificationProvider !== "sumsub") return false;
-    if (b.sumsubApplicantId && b.sumsubApplicantId !== applicantId) return false;
-    if ((b.sumsubEventAt ?? 0) >= eventAt) return true;
+    if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
+    if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt) return true;
+    // The provider checks the bill and its holder. Also require its UK postcode
+    // to match the address this renter supplied for the booking.
+    const postcode = (s: string) => s.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";
+    if (status === "verified" && (!postcode(b.billingAddress ?? "") || !poaPostcodes.length ||
+        !poaPostcodes.every((p) => postcode(p) === postcode(b.billingAddress ?? "")))) {
+      status = "manual_review";
+      note = "The verified address does not match the booking address. Please contact us.";
+    }
     if (b.idVerifyStatus === "verified" && status === "processing") {
-      await ctx.db.patch(bookingId, { sumsubEventAt: eventAt });
+      await ctx.db.patch(bookingId, { diditEventId: eventId, diditEventAt: eventAt });
       return true;
     }
     const previous = b.idVerifyStatus;
     await ctx.db.patch(bookingId, {
-      sumsubApplicantId: applicantId,
-      sumsubEventAt: eventAt,
+      diditEventId: eventId,
+      diditEventAt: eventAt,
       idVerifyStatus: status,
-      idVerificationSource: "sumsub",
+      idVerificationSource: "didit",
       idVerifiedAt: status === "verified" ? Date.now() : undefined,
       verificationNote: note?.slice(0, 400),
       verificationUpdatedAt: Date.now(),
@@ -1101,7 +1130,7 @@ export const adminSetIdStatus = mutation({
     await ctx.db.patch(bookingId, {
       idVerifyStatus: status,
       idVerificationSource: "manual",
-      sumsubEventAt: Date.now(),
+      diditEventAt: Date.now(),
       idVerifiedAt: status === "verified" ? Date.now() : undefined,
       verificationUpdatedAt: Date.now(),
       verificationNote: note.trim().slice(0, 400),

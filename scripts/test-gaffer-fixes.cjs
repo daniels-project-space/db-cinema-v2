@@ -27,7 +27,7 @@ const registered = { query: x => x, mutation: x => x, internalQuery: x => x, act
 const refs = new Proxy({}, { get: (_, group) => new Proxy({}, { get: (_, name) => `${String(group)}:${String(name)}` }) });
 // These values satisfy the checkout activation boundary; no provider call is made.
 Object.assign(process.env, {
-  RENTAL_CHECKOUT_ENABLED: 'true', SUMSUB_APP_TOKEN: 'test', SUMSUB_SECRET_KEY: 'test', SUMSUB_LEVEL_NAME: 'test', SUMSUB_WEBHOOK_SECRET: 'test',
+  RENTAL_CHECKOUT_ENABLED: 'true', DIDIT_API_KEY: 'test', DIDIT_WORKFLOW_ID: 'test', DIDIT_WEBHOOK_SECRET: 'test', DIDIT_APPLICATION_ID: 'test', DIDIT_ENVIRONMENT: 'sandbox',
   STRIPE_WEBHOOK_SECRET: 'test', STRIPE_SECRET_KEY: 'test', STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID: 'test',
   INVOICE_SECRET: 'test', APP_URL: 'https://example.invalid', BUSINESS_LEGAL_NAME: 'Test supplier',
   BUSINESS_INVOICE_ADDRESS: 'Test address', RESEND_API_KEY: 'test',
