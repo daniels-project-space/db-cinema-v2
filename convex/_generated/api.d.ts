@@ -34,6 +34,7 @@ import type * as identity from "../identity.js";
 import type * as invoice from "../invoice.js";
 import type * as lateFees from "../lateFees.js";
 import type * as lib_botModel from "../lib/botModel.js";
+import type * as lib_diditCapacity from "../lib/diditCapacity.js";
 import type * as lib_gafferDiscount from "../lib/gafferDiscount.js";
 import type * as lib_lateFee from "../lib/lateFee.js";
 import type * as lib_mailer from "../lib/mailer.js";
@@ -90,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   invoice: typeof invoice;
   lateFees: typeof lateFees;
   "lib/botModel": typeof lib_botModel;
+  "lib/diditCapacity": typeof lib_diditCapacity;
   "lib/gafferDiscount": typeof lib_gafferDiscount;
   "lib/lateFee": typeof lib_lateFee;
   "lib/mailer": typeof lib_mailer;

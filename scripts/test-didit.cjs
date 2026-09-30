@@ -28,6 +28,7 @@ Object.assign(process.env, {
 
 const { webhook } = load('convex/didit.ts');
 const { setDiditResult } = load('convex/bookings.ts');
+const { assertDiditCheckoutCapacity } = load('convex/lib/diditCapacity.ts');
 
 function signed(event) {
   const sort = value => Array.isArray(value) ? value.map(sort) :
@@ -84,5 +85,24 @@ function signed(event) {
     }), true);
     assert.equal(patch.idVerifyStatus, expected, billingAddress);
   }
+  const workflow = { workflow_id: 'workflow-1', status: 'published', version: 1,
+    features: 'OCR + LIVENESS + FACE_MATCH + PROOF_OF_ADDRESS', max_price: 0.5 };
+  const provider = (balance, override = {}) => async url => new Response(JSON.stringify(
+    url.includes('/workflows/') ? { results: [{ ...workflow, ...override }] } : { balance },
+  ), { status: 200 });
+  await assertDiditCheckoutCapacity('key', 'workflow-1', 'live', '0.50', provider('1.0000'));
+  await assert.rejects(
+    assertDiditCheckoutCapacity('key', 'workflow-1', 'live', '0.50', provider('0.0000')),
+    /Identity verification is temporarily unavailable/,
+  );
+  await assert.rejects(
+    assertDiditCheckoutCapacity('key', 'workflow-1', 'live', '0.50', provider('1.0000', { max_price: 0.75 })),
+    /Identity verification is temporarily unavailable/,
+  );
+  await assert.rejects(
+    assertDiditCheckoutCapacity('key', 'workflow-1', 'live', '0.50', provider('1.0000', { features: 'OCR + LIVENESS + FACE_MATCH' })),
+    /Identity verification is temporarily unavailable/,
+  );
+  await assertDiditCheckoutCapacity('key', 'workflow-1', 'sandbox', undefined, () => { throw new Error('Sandbox must not check live credits'); });
   process.stdout.write('Didit webhook and address gates passed\n');
 })().catch(error => { console.error(error); process.exitCode = 1; });

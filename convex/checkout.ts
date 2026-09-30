@@ -9,6 +9,7 @@ import { lateFeeQuote } from "./lib/lateFee";
 import { AGREEMENTS } from "../src/lib/legal";
 import { sendMail } from "./lib/mailer";
 import { tierByKey, FREE_ACCESSORY_TYPES } from "./lib/membership";
+import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 
@@ -99,6 +100,13 @@ export const start = action({
     if (!AGREEMENTS.every((expected) => a.agreement!.documents.some((accepted) =>
       accepted.kind === expected.kind && accepted.version === expected.version)))
       throw new Error("Please review and accept the current rental agreements before paying.");
+
+    await assertDiditCheckoutCapacity(
+      process.env.DIDIT_API_KEY!,
+      process.env.DIDIT_WORKFLOW_ID!,
+      process.env.DIDIT_ENVIRONMENT!,
+      process.env.DIDIT_MAX_WORKFLOW_PRICE_USD,
+    );
 
     // SERVER-AUTHORITATIVE pricing (anti-tamper): never trust client total/deposit — recompute
     // every line from the real listing (same quote() the storefront shows). A tampered cart
