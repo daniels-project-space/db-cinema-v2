@@ -271,7 +271,7 @@ const EVALUATION = [
   {
     name: "stated_exclusions",
     conversation_goal_prompt:
-      "If gear was recommended or added, did the agent say what is NOT included (no lens, no memory card, no camera with a gimbal)? Not applicable if no gear was discussed.",
+      "When discussing rental contents, did the agent use seller-documented facts for the exact listing, distinguish optional items and explicit exclusions, and leave undocumented accessories unconfirmed? Fail invented inclusions or exclusions, including category defaults. Not applicable if contents were not discussed.",
   },
   {
     name: "captured_follow_up",
