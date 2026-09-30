@@ -70,6 +70,18 @@ export const bookingSession = action({
       if (existing.status !== "Expired" && existing.status !== "Abandoned")
         throw new Error("This verification has a decision. Please refresh your rental status.");
     }
+    const nameParts = String(booking.renterName ?? "").trim().split(/\s+/).filter(Boolean);
+    const expectedDetails: Record<string, string> = {};
+    if (nameParts.length) {
+      expectedDetails.first_name = nameParts[0];
+      if (nameParts.length > 1) expectedDetails.last_name = nameParts.slice(1).join(" ");
+    }
+    // The UK billing address is the address this rental must verify. Set only
+    // PoA's country: renters can present an ID issued in a different country.
+    if (/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i.test(booking.billingAddress ?? "")) {
+      expectedDetails.address = booking.billingAddress;
+      expectedDetails.poa_country = "GBR";
+    }
     const res = await fetch(sessionApi, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": cfg.apiKey },
@@ -77,6 +89,8 @@ export const bookingSession = action({
         workflow_id: cfg.workflowId,
         vendor_data: `dbc-booking-${a.bookingId}`,
         language: "en",
+        expected_details: expectedDetails,
+        ...(process.env.APP_URL ? { callback: new URL("/account", process.env.APP_URL).toString(), callback_method: "both" } : {}),
         contact_details: { email: booking.guestEmail, send_notification_emails: false },
       }),
     });

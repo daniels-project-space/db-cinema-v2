@@ -1094,8 +1094,10 @@ export const verificationAccess = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
+    const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
     return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,
-      idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId };
+      idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId,
+      renterName: b.agreementName || customer?.name, billingAddress: b.billingAddress };
   },
 });
 

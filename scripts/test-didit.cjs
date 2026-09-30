@@ -139,6 +139,19 @@ function signed(event) {
   };
   const originalFetch = global.fetch;
   try {
+    let sentBody;
+    global.fetch = async (_url, options) => {
+      sentBody = JSON.parse(options.body);
+      return new Response(JSON.stringify({session_id:'new-session', workflow_id:'workflow-1',url:'https://verify.didit.me/session/new-session'}),{status:200});
+    };
+    const createCtx = {runQuery:async ref=>ref==='accounts:_byToken'
+      ? {email:'renter@example.invalid'} : {status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required',guestEmail:'renter@example.invalid',renterName:'Test Rental Customer',billingAddress:'25 Whitcomb Street, London WC2H 7ER'},
+      runMutation:async()=>true};
+    await bookingSession.handler(createCtx,{bookingId:'booking-1',accountToken:'account-token'});
+    assert.deepEqual(sentBody.expected_details,{first_name:'Test',last_name:'Rental Customer',address:'25 Whitcomb Street, London WC2H 7ER',poa_country:'GBR'});
+    assert.equal(sentBody.expected_details.id_country,undefined,'a UK address must not restrict the issuing country of the ID');
+  } finally { global.fetch = originalFetch; }
+  try {
     global.fetch = async (url, options = {}) => {
       calls.push({url,options});
       if (options.method === 'PATCH') return new Response(JSON.stringify({session_id:'session-1'}),{status:200});
