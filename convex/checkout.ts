@@ -4,18 +4,29 @@ import Stripe from "stripe";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
-import { depositFor } from "./lib/pricing";
 import { lateFeeQuote } from "./lib/lateFee";
 import { AGREEMENTS } from "../src/lib/legal";
 import { sendMail } from "./lib/mailer";
-import { tierByKey, FREE_ACCESSORY_TYPES } from "./lib/membership";
 import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
+import { tierByKey } from "./lib/membership";
 import { cancelKind, cancellationSettlement } from "../src/lib/cancellationPolicy";
+import { calculateRentalPrice } from "./lib/rentalPrice";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
-const postcodeFromAddress = (address: string) => address.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";
-
 const subActive = (status: string) => status === "active" || status === "trialing";
+
+type PriceQuoteResult = {
+  items: { title: string; total: number }[];
+  subtotal: number;
+  depositHoldAmount: number;
+  depositAmount: number;
+  quotedDeliveryFee: number;
+  deliveryFee: number;
+  reductionLabel?: string;
+  totalReduction: number;
+  creditApplied: number;
+  totalDue: number;
+};
 
 /** Map a Stripe subscription back to one of our tier keys: price lookup_key (dbc_member_<key>,
  *  set by ensurePrice) first, then subscription metadata, then the monthly amount as a fallback. */
@@ -34,6 +45,40 @@ function stripe() {
   if (!key) throw new Error("STRIPE_SECRET_KEY not set on the Convex deployment");
   return new Stripe(key);
 }
+
+/** Preview the same authoritative calculation used when creating the Stripe session. */
+export const priceQuote = action({
+  args: {
+    items: v.array(v.object({
+      listingId: v.id("listings"), title: v.string(), start: v.number(), end: v.number(),
+      qty: v.number(), total: v.number(), deposit: v.number(), offerType: v.optional(v.string()),
+    })),
+    token: v.optional(v.string()),
+    customerEmail: v.string(),
+    fulfilment: v.union(v.literal("pickup"), v.literal("delivery")),
+    address: v.optional(v.string()),
+    deliveryPostcode: v.optional(v.string()),
+    promoCode: v.optional(v.string()),
+    protection: v.optional(v.union(v.literal("verify"), v.literal("deposit"))),
+  },
+  handler: async (ctx, a): Promise<PriceQuoteResult> => {
+    const price = await calculateRentalPrice(ctx, {
+      ...a, customer: { email: a.customerEmail },
+    });
+    return {
+      items: price.items.map((item) => ({ title: item.title, total: item.total })),
+      subtotal: price.subtotal,
+      depositHoldAmount: price.depositHoldAmount,
+      depositAmount: price.depositAmount,
+      quotedDeliveryFee: price.quotedDeliveryFee,
+      deliveryFee: price.deliveryFee,
+      reductionLabel: price.reductionLabel,
+      totalReduction: price.totalReduction,
+      creditApplied: price.creditApplied,
+      totalDue: price.totalDue,
+    };
+  },
+});
 
 export const start = action({
   args: {
@@ -60,6 +105,7 @@ export const start = action({
     address: v.optional(v.string()),
     deliveryPostcode: v.optional(v.string()),
     deliveryFee: v.number(),
+    expectedTotalDue: v.number(),
     promoCode: v.optional(v.string()),
     protection: v.optional(v.union(v.literal("verify"), v.literal("deposit"))),
     pickupTime: v.optional(v.string()),
@@ -113,17 +159,9 @@ export const start = action({
       process.env.DIDIT_MAX_WORKFLOW_PRICE_USD,
     );
 
-    // SERVER-AUTHORITATIVE pricing (anti-tamper): never trust client total/deposit — recompute
-    // every line from the real listing (same quote() the storefront shows). A tampered cart
-    // (e.g. total:1, deposit:0) is corrected to the true price; legit carts are unchanged.
-    const repriced: any[] = await ctx.runQuery(internal.catalog.repriceLines, {
-      items: a.items.map((i) => ({ listingId: i.listingId, start: i.start, end: i.end, offerType: i.offerType })),
-    });
-    a.items = a.items.map((it, idx) => {
-      const r = repriced[idx];
-      if (!r) throw new Error(`"${it.title}" is no longer available.`);
-      return { ...it, title: r.title, total: r.total, deposit: r.deposit };
-    });
+    // Recompute exactly what the renter reviewed, using current listing and account data.
+    const price = await calculateRentalPrice(ctx, a);
+    a.items = price.items;
 
     // server-side availability re-check (quantity-aware, grouped by listing)
     const demand = new Map<string, { count: number; start: number; end: number; title: string }>();
@@ -148,118 +186,15 @@ export const start = action({
       }
     }
 
-    const subtotal = a.items.reduce((n, i) => n + i.total, 0);
-    const protection = a.protection ?? "verify";
-    const replacementSum = a.items.reduce((n, i) => n + i.deposit, 0);
-    const depositHoldAmount = depositFor(protection, replacementSum);
-    const depositAmount = Math.round(depositHoldAmount * 50) / 100;
-
-    // account perks (member discount, free accessories, saved ID/card, reminder 5%) require an
-    // AUTHENTICATED session token — never the typed email — so they can't be claimed by spoofing
-    // a member's address. Guest checkout (no token) gets no perks. (S6)
-    const acct: any = a.token
-      ? await ctx.runQuery(internal.accounts._byToken, { token: a.token })
-      : null;
-    if (acct && a.customer.email.trim().toLowerCase() !== acct.email.trim().toLowerCase())
-      throw new Error("Use your signed-in account email for this booking, or sign out to book as a guest.");
-    a.customer.email = a.customer.email.trim().toLowerCase();
-    // Existing Stripe Identity checks do not include proof of address. Require the
-    // complete Didit flow for every new booking, including deposit-category rentals.
+    const {
+      acct, month, freedCount, subtotal, protection, depositHoldAmount, depositAmount,
+      appliedCode, totalReduction, reductionLabel, deliveryFee, totalBeforeCredit: total,
+    } = price;
+    a.customer.email = price.customerEmail;
     const idVerifyStatus = "required";
-
-    const member = acct?.membershipActive ? tierByKey(acct.membershipTier) : null;
-
-    // Pro/Studio: 2 free accessories per month (tripod, gimbal, filters, batteries)
-    const month = new Date().toISOString().slice(0, 7);
-    const allowance = member?.freeAccessories ?? 0;
-    let creditsLeft = 0;
-    if (allowance > 0) {
-      const used = acct?.freeAccessoryMonth === month ? acct?.freeAccessoryUsed ?? 0 : 0;
-      creditsLeft = Math.max(0, allowance - used);
-    }
-    const freed = new Set<number>();
-    let freeAccessoryValue = 0;
-    if (creditsLeft > 0) {
-      const types: Record<string, string> = await ctx.runQuery(api.catalog.itemTypes, {
-        ids: a.items.map((i) => i.listingId),
-      });
-      const elig = a.items
-        .map((it, i) => ({ i, it }))
-        .filter((x) => !x.it.offerType && FREE_ACCESSORY_TYPES.includes(types[x.it.listingId] ?? ""))
-        .sort((x, y) => y.it.total - x.it.total)
-        .slice(0, creditsLeft);
-      for (const e of elig) {
-        freed.add(e.i);
-        freeAccessoryValue += e.it.total;
-      }
-    }
-    const freedCount = freed.size;
-
-    // % discounts apply to non-offer, non-freed lines, NON-STACKABLE (best of three)
-    const eligible = a.items
-      .filter((i, idx) => !i.offerType && !freed.has(idx))
-      .reduce((n, i) => n + i.total, 0);
-    let promoDiscount = 0;
-    let appliedCode: string | undefined;
-    if (a.promoCode) {
-      const res: any = await ctx.runQuery(api.promo.validate, {
-        code: a.promoCode,
-        eligibleSubtotal: eligible,
-        rentalSubtotal: subtotal,
-        tier: acct?.membershipTier ?? undefined,
-        membershipActive: !!acct?.membershipActive,
-        email: a.customer.email,
-      });
-      if (res?.valid) {
-        promoDiscount = res.discount;
-        appliedCode = res.code;
-      }
-    }
-    const reminderDiscount = acct?.marketingEmails ? Math.round(eligible * 0.05) : 0;
-    const memberDiscount = member ? Math.round(eligible * (member.pct / 100)) : 0;
-    let discount = promoDiscount;
-    let discountLabel = appliedCode?.toUpperCase();
-    if (reminderDiscount > discount) {
-      discount = reminderDiscount;
-      discountLabel = "Reminder member −5%";
-      appliedCode = undefined;
-    }
-    if (memberDiscount > discount) {
-      discount = memberDiscount;
-      discountLabel = `${member!.name} member −${member!.pct}%`;
-      appliedCode = undefined;
-    }
-
-    // free accessories are an ADDITIONAL perk on top of the best % discount
-    const totalReduction = discount + freeAccessoryValue;
-    const reductionLabel =
-      freeAccessoryValue > 0
-        ? discount > 0
-          ? "Member perks"
-          : `${freedCount} free accessor${freedCount > 1 ? "ies" : "y"}`
-        : discountLabel;
-
-    // Requote the actual destination and basket at payment time. The browser's fee is
-    // only a displayed estimate and can never set the amount charged.
-    let quotedDeliveryFee = 0;
-    if (a.fulfilment === "delivery") {
-      const quotedPostcode = postcodeFromAddress(a.deliveryPostcode ?? "");
-      const addressPostcode = postcodeFromAddress(a.address ?? "");
-      if (!quotedPostcode || quotedPostcode !== addressPostcode || (a.address ?? "").trim().length < 10)
-        throw new Error("Enter the full delivery address with the same postcode used for the quote.");
-      const quote: any = await ctx.runAction(api.delivery.quote, {
-        postcode: quotedPostcode,
-        listingIds: a.items.map((item) => item.listingId),
-      });
-      if (!quote?.ok || !Number.isSafeInteger(quote.fee) || quote.fee < 0)
-        throw new Error(quote?.reason ?? "Delivery is unavailable for this address.");
-      quotedDeliveryFee = quote.fee;
-      if (!Number.isFinite(a.deliveryFee) || pence(a.deliveryFee) !== pence(quotedDeliveryFee))
-        throw new Error("Your delivery quote has changed. Please refresh it before paying.");
-    }
-    // members on Pro/Studio get free local delivery
-    const deliveryFee = member?.freeDelivery && a.fulfilment === "delivery" ? 0 : quotedDeliveryFee;
-    const total = subtotal + deliveryFee + depositAmount - totalReduction;
+    if (!Number.isSafeInteger(Math.round(a.expectedTotalDue * 100)) ||
+        Math.round(a.expectedTotalDue * 100) !== Math.round(price.totalDue * 100))
+      throw new Error("Your rental total has changed. Review the updated order summary before paying.");
 
     const sb = stripe();
     const paymentConfigId = process.env.STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID;
@@ -290,7 +225,7 @@ export const start = action({
         end: i.end,
         qty: i.qty,
         lineTotal: i.total,
-        dailyRate: repriced[idx]?.dailyRate,
+        dailyRate: price.items[idx]?.dailyRate,
       })),
       subtotal,
       depositAmount,
@@ -298,6 +233,7 @@ export const start = action({
       promoCode: appliedCode,
       discount: totalReduction,
       total,
+      expectedTotalDue: a.expectedTotalDue,
       creditAccountId: acct?._id,
       currency: "GBP",
       agreementName: a.agreement?.name,

@@ -41,6 +41,7 @@ import type * as lib_mailer from "../lib/mailer.js";
 import type * as lib_membership from "../lib/membership.js";
 import type * as lib_mount from "../lib/mount.js";
 import type * as lib_pricing from "../lib/pricing.js";
+import type * as lib_rentalPrice from "../lib/rentalPrice.js";
 import type * as lib_taxonomy from "../lib/taxonomy.js";
 import type * as notify from "../notify.js";
 import type * as offers from "../offers.js";
@@ -98,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   "lib/membership": typeof lib_membership;
   "lib/mount": typeof lib_mount;
   "lib/pricing": typeof lib_pricing;
+  "lib/rentalPrice": typeof lib_rentalPrice;
   "lib/taxonomy": typeof lib_taxonomy;
   notify: typeof notify;
   offers: typeof offers;

@@ -20,6 +20,26 @@ const lineItem = v.object({
   dailyRate: v.optional(v.number()),
 });
 
+async function availableCreditFor(ctx: any, accountId: any): Promise<number> {
+  const acct = await ctx.db.get(accountId);
+  if (!acct) return 0;
+  const now = Date.now();
+  const credits = await ctx.db.query("credits")
+    .withIndex("by_account", (q: any) => q.eq("accountId", accountId)).collect();
+  const balance = credits.filter((c: any) => c.status === "active" && c.expiresAt > now)
+    .reduce((n: number, c: any) => n + c.remaining, 0);
+  const pending = await ctx.db.query("bookings")
+    .withIndex("by_guestEmail", (q: any) => q.eq("guestEmail", acct.email.trim().toLowerCase())).collect();
+  const reserved = pending.filter((b: any) => b.status === "pending_payment")
+    .reduce((n: number, b: any) => n + (b.creditApplied ?? 0), 0);
+  return Math.max(0, balance - reserved);
+}
+
+export const availableCheckoutCredit = internalQuery({
+  args: { accountId: v.id("accounts") },
+  handler: async (ctx, { accountId }) => availableCreditFor(ctx, accountId),
+});
+
 export const createPending = internalMutation({
   args: {
     customerEmail: v.string(),
@@ -36,6 +56,7 @@ export const createPending = internalMutation({
     promoCode: v.optional(v.string()),
     discount: v.optional(v.number()),
     total: v.number(),
+    expectedTotalDue: v.number(),
     creditAccountId: v.optional(v.id("accounts")),
     currency: v.string(),
     agreementName: v.optional(v.string()),
@@ -78,28 +99,14 @@ export const createPending = internalMutation({
     // reservation automatically; the actual decrement still happens on confirm.
     let creditApplied = 0;
     if (a.creditAccountId) {
-      const acct: any = await ctx.db.get(a.creditAccountId);
-      if (acct) {
-        const now = Date.now();
-        const credits = await ctx.db
-          .query("credits")
-          .withIndex("by_account", (q) => q.eq("accountId", a.creditAccountId!))
-          .collect();
-        const balance = credits
-          .filter((c) => c.status === "active" && c.expiresAt > now)
-          .reduce((n, c) => n + c.remaining, 0);
-        const pending = await ctx.db
-          .query("bookings")
-          .withIndex("by_guestEmail", (q) => q.eq("guestEmail", acct.email))
-          .collect();
-        const reserved = pending
-          .filter((b) => b.status === "pending_payment")
-          .reduce((n, b) => n + (b.creditApplied ?? 0), 0);
-        const available = Math.max(0, balance - reserved);
-        creditApplied = Math.min(available, Math.max(0, a.total - a.depositAmount));
-      }
+      const available = await availableCreditFor(ctx, a.creditAccountId);
+      creditApplied = Math.min(available, Math.max(0, a.total - a.depositAmount));
     }
     const chargedTotal = a.total - creditApplied;
+    // Credit can be spent in another checkout between the preview and this mutation.
+    // Reject atomically before a booking or Stripe session is created.
+    if (Math.round(chargedTotal * 100) !== Math.round(a.expectedTotalDue * 100))
+      throw new Error("Your available credit changed. Review the updated total before paying.");
 
     const bookingId = await ctx.db.insert("bookings", {
       customerId: customer!._id,

@@ -23,7 +23,7 @@ function load(file, mocks = {}, globals = {}) {
   new Function('require', 'module', 'exports', ...Object.keys(globals), source)(req, mod, mod.exports, ...Object.values(globals));
   return mod.exports;
 }
-const registered = { query: x => x, mutation: x => x, internalQuery: x => x, action: x => x, internalAction: x => x };
+const registered = { query: x => x, mutation: x => x, internalQuery: x => x, internalMutation: x => x, action: x => x, internalAction: x => x };
 const refs = new Proxy({}, { get: (_, group) => new Proxy({}, { get: (_, name) => `${String(group)}:${String(name)}` }) });
 // These values satisfy the checkout activation boundary; no provider call is made.
 Object.assign(process.env, {
@@ -37,9 +37,10 @@ class StripeStub {
   paymentMethodConfigurations = { retrieve: async () => ({ active: true, card: { display_preference: { value: 'on' } }, apple_pay: { display_preference: { value: 'off' } }, google_pay: { display_preference: { value: 'off' } }, link: { display_preference: { value: 'off' } } }) };
   checkout = { sessions: { create: async (params) => { StripeStub.lastCheckout=params; return {id:'cs_test_booking',url:'https://checkout.stripe.test/session'}; } } };
 }
-const serverMocks = { './_generated/server': registered, './_generated/api': { api: refs, internal: refs }, './adminAuth': {}, stripe: StripeStub };
+const serverMocks = { './_generated/server': registered, './_generated/api': { api: refs, internal: refs }, '../_generated/api': { api: refs, internal: refs }, './adminAuth': {}, stripe: StripeStub };
 const { validate } = load('convex/promo.ts', serverMocks);
-const { start } = load('convex/checkout.ts', serverMocks);
+const { start, priceQuote } = load('convex/checkout.ts', serverMocks);
+const { createPending } = load('convex/bookings.ts', serverMocks);
 const { AGREEMENTS } = load('src/lib/legal.ts');
 const { gafferDiscount } = load('convex/lib/gafferDiscount.ts');
 const { asksForBetterPrice } = load('src/components/gaffer/priceRequest.ts');
@@ -56,7 +57,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
 
   // Exercise the real checkout action up to createPending. Repricing is supplied by
   // the authoritative query boundary; reject before any booking/Stripe side effect.
-  async function checkout(prices, {code, submittedTotal=99999, deliveryFee=0, quotedFee=0, fulfilment='pickup', address, deliveryPostcode, qty=1, submittedTitle, token, customerEmail='test@example.invalid', expectedError} = {}) {
+  async function checkout(prices, {code, submittedTotal=99999, deliveryFee=0, quotedFee=0, fulfilment='pickup', address, deliveryPostcode, qty=1, submittedTitle, token, customerEmail='test@example.invalid', availableCredit=0, expectedTotalOverride, expectedError} = {}) {
     let pending;
     const stop = new Error('captured booking boundary');
     const ctx = {
@@ -64,7 +65,8 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
         if(ref==='settings:get') return {acceptingOrders:true};
         if(ref==='catalog:repriceLines') return prices.map((total,i)=>({title:`Real item ${i}`,total,deposit:1000}));
         if(ref==='availability:forListing') return {available:10};
-        if(ref==='accounts:_byToken') return {email:'owner@example.invalid',membershipActive:false};
+        if(ref==='accounts:_byToken') return {_id:'acct-1',email:'owner@example.invalid',membershipActive:false};
+        if(ref==='bookings:availableCheckoutCredit') return availableCredit;
         if(ref==='promo:validate') return validate.handler({},args);
         throw Error(`Unexpected query ${ref}`);
       },
@@ -72,6 +74,10 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
       runMutation: async (ref,args) => { assert.equal(ref,'bookings:createPending'); pending=args; throw stop; },
     };
     const args={items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),token,customer:{email:customerEmail,name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}};
+    if (!expectedError || expectedTotalOverride !== undefined) {
+      const quote = await priceQuote.handler(ctx,{items:args.items,token,customerEmail,fulfilment,address,deliveryPostcode,promoCode:code});
+      args.expectedTotalDue = expectedTotalOverride ?? quote.totalDue;
+    }
     if (expectedError) {
       await assert.rejects(start.handler(ctx,args),expectedError);
       assert.equal(pending,undefined,'rejected before creating a booking');
@@ -92,6 +98,29 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   await checkout([400],{qty:2,expectedError:/one item with valid dates/});
   await checkout([400],{token:'signed-in-session',customerEmail:'other@example.invalid',expectedError:/signed-in account email/});
   order=await checkout([400],{customerEmail:'TEST@EXAMPLE.INVALID'});assert.equal(order.customerEmail,'test@example.invalid');
+  order=await checkout([400],{token:'signed-in-session',customerEmail:'owner@example.invalid',availableCredit:30});
+  assert.equal(order.expectedTotalDue,395,'the quoted total includes account credit but keeps the £25 refundable payment');
+  await checkout([400],{expectedTotalOverride:1,expectedError:/rental total has changed/});
+
+  // A second checkout can reserve account credit after the preview. The booking
+  // transaction must reject the now-different card total before it inserts a row.
+  let inserted = false;
+  const raceDb = {
+    get: async id => id === 'acct-1' ? {email:'owner@example.invalid'} : null,
+    query: table => ({withIndex: () => ({
+      first: async () => table === 'customers' ? {_id:'customer-1',email:'owner@example.invalid'} : null,
+      collect: async () => table === 'credits'
+        ? [{status:'active',expiresAt:Date.now()+60000,remaining:20}]
+        : [],
+    })}),
+    insert: async () => { inserted=true; throw Error('should not insert'); },
+  };
+  await assert.rejects(createPending.handler({db:raceDb},{
+    customerEmail:'owner@example.invalid',fulfilment:'pickup',deliveryFee:0,
+    lineItems:[],subtotal:200,depositAmount:25,total:225,expectedTotalDue:225,
+    creditAccountId:'acct-1',currency:'GBP',
+  }),/available credit changed/);
+  assert.equal(inserted,false);
 
   // Cross the real booking and Stripe boundaries with inert adapters: verify the
   // payment amount and return URLs cannot be supplied by the browser.
@@ -112,7 +141,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   const checkoutResult=await start.handler(checkoutCtx,{
     items:[{listingId:'camera-1',title:'Forged camera',start:0,end:0,qty:1,total:1,deposit:0}],
     customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},
-    fulfilment:'pickup',deliveryFee:0,pickupTime:'10:00',returnTime:'18:00',
+    fulfilment:'pickup',deliveryFee:0,expectedTotalDue:225,pickupTime:'10:00',returnTime:'18:00',
     agreement:{name:'Test Renter',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS},
     origin:'https://attacker.invalid',
   });

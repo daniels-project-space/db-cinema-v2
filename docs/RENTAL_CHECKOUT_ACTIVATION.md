@@ -22,6 +22,8 @@ Create an account at [Didit Business Console](https://business.didit.me). As pub
 
 `checkout.start` refuses a new booking unless the activation flag, Didit, Stripe webhook, rental payment configuration, legal supplier identity, PDF secret/URL and email transport are configured. A booking cannot be marked active for handover without verified ID/address and an active hold. Stripe/issuer authorisation can still fail or require a bank challenge. A hold expires at the issuer's `capture_before`; the renewal job is an attempt, not a guarantee of uninterrupted cover. Customer bank approval happens in the rental account. A guest renter must create an account using the booking email to approve a later challenge.
 
+The checkout summary now requests a server-calculated quote for the selected equipment, protection category, delivery, authenticated member benefits, promo and currently available account credit. The renter must accept the quoted security payment and hold amounts before continuing. Checkout recalculates the same price and rejects a changed total, including credit reserved by another checkout, before creating a Stripe session. The customer should review the refreshed quote and consent again if the price changes.
+
 ## Late rental time
 
 The booking saves each item's daily rate at checkout. At physical return, the admin records the actual return time. The server calculates each commenced London-local rental day after the agreed return slot. It sends an itemised notice, allows seven days to dispute, and attempts collection no later than 30 days after return. It captures an unused active hold only when no damage deduction was made, then charges only the remaining amount on the saved card. An issuer can decline or ask for customer authentication.
