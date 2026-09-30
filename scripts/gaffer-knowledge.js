@@ -271,7 +271,7 @@ const EVALUATION = [
   {
     name: "stated_exclusions",
     conversation_goal_prompt:
-      "If gear was recommended or added, did the agent say what is NOT included (no lens, no memory card, no camera with a gimbal)? Not applicable if no gear was discussed.",
+      "When discussing rental contents, did the agent use seller-documented facts for the exact listing, distinguish optional items and explicit exclusions, and leave undocumented accessories unconfirmed? Fail invented inclusions or exclusions, including category defaults. Not applicable if contents were not discussed.",
   },
   {
     name: "captured_follow_up",
@@ -312,6 +312,7 @@ const NO_RECHECK =
   "reported as free — they check the same calendar.";
 
 const PINNED_TOOL_DESCRIPTIONS = {
+  recommend_gear: "THE tool for 'what do you have' questions. Filters the catalogue page on screen to what they asked for, highlights the shortlist and scrolls it into view, then tells you prices and seller-documented contents for each exact listing. Offer the bare item before sets unless they asked for a package. Distinguish included items, on-request items and explicit exclusions; anything else is unconfirmed, not excluded.",
   check_availability:
     ANNOUNCE + "Check if a piece of gear is free for given dates and its price." + NO_RECHECK,
   check_stock: ANNOUNCE + "Check whether the shop stocks a piece of gear." + NO_RECHECK,

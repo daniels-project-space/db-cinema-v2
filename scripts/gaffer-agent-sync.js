@@ -70,7 +70,7 @@ const NEW_TOOLS = [
   clientTool("request_better_price", "ONLY after the caller explicitly asks for a better price or discount. Applies 10% when the rental subtotal is strictly above £400, excluding already-discounted add-ons, deposits and delivery. Never offer it proactively; report the tool result."),
   clientTool(
     "recommend_gear",
-    "THE tool for 'what do you have' questions. Filters the catalogue page on screen to what they asked for, highlights the shortlist and scrolls it into view, then tells you the prices and exactly what is and isn't included. Offer the bare item before the sets unless they asked for a package, and always say what is not in the box.",
+    "THE tool for 'what do you have' questions. Filters the catalogue page on screen to what they asked for, highlights the shortlist and scrolls it into view, then tells you prices and seller-documented contents for each exact listing. Offer the bare item before sets unless they asked for a package. Distinguish included items, on-request items and explicit exclusions; anything else is unconfirmed, not excluded.",
     {
       item: str("What they asked for in their words, e.g. 'sony camera', 'gimbal', 'wide lens'."),
       category: str("Optional category to pin: Cameras, Lenses, Lighting, Audio, Monitors, Drones, Stabilizers, Grip, Power, Accessories, Packages."),
