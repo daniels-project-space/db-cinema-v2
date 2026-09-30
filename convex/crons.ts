@@ -6,8 +6,8 @@ const crons = cronJobs();
 // Release expired soft cart holds.
 crons.interval("release-holds", { minutes: 5 }, internal.bookings.releaseExpiredHolds, {});
 
-// Retire abandoned (never-paid) checkouts whose Stripe session has expired.
-crons.interval("expire-stale-pending", { minutes: 15 }, internal.bookings.expireStalePending, {});
+// Reconcile paid checkouts when webhooks are delayed; retire only Stripe-confirmed unpaid ones.
+crons.interval("reconcile-rental-checkouts", { minutes: 5 }, internal.checkout.reconcilePendingPayments, {});
 
 // Lapse membership perks with the real Stripe subscription (deactivates cancelled/unpaid members).
 crons.interval("reconcile-memberships", { hours: 6 }, internal.checkout.reconcileMemberships, {});

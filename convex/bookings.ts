@@ -51,13 +51,20 @@ export const createPending = internalMutation({
     returnTime: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
+    const customerEmail = a.customerEmail.trim().toLowerCase();
+    if (!customerEmail) throw new Error("Customer email is required.");
+    if (a.creditAccountId) {
+      const creditAccount = await ctx.db.get(a.creditAccountId);
+      if (!creditAccount || creditAccount.email.trim().toLowerCase() !== customerEmail)
+        throw new Error("Account credit belongs to a different customer.");
+    }
     let customer = await ctx.db
       .query("customers")
-      .withIndex("by_email", (q) => q.eq("email", a.customerEmail))
+      .withIndex("by_email", (q) => q.eq("email", customerEmail))
       .first();
     if (!customer) {
       const id = await ctx.db.insert("customers", {
-        email: a.customerEmail,
+        email: customerEmail,
         name: a.customerName,
         phone: a.phone,
       });
@@ -96,7 +103,7 @@ export const createPending = internalMutation({
 
     const bookingId = await ctx.db.insert("bookings", {
       customerId: customer!._id,
-      guestEmail: a.customerEmail,
+      guestEmail: customerEmail,
       status: "pending_payment",
       lineItems: a.lineItems,
       fulfilment: a.fulfilment,
@@ -164,15 +171,17 @@ export const placeHolds = internalMutation({
       const owned = unit?.quantityOwned ?? 1;
       const lo = Math.min(...d.ivs.map((i) => i.start));
       const hi = Math.max(...d.ivs.map((i) => i.end));
-      const existing: Iv[] = (
-        await ctx.db.query("reservations").withIndex("by_unit", (q) => q.eq("inventoryUnitId", uid as any)).collect()
-      )
-        .filter(
-          (r: any) =>
-            ACTIVE.has(r.status) && r.start <= hi && r.end >= lo && r.bookingId !== bookingId &&
-            !(r.status === "hold" && (r.holdExpiresAt ?? 0) < now),
-        )
-        .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty || 1 }));
+      const existing: Iv[] = [];
+      const rows = await ctx.db.query("reservations")
+        .withIndex("by_unit", (q) => q.eq("inventoryUnitId", uid as any)).collect();
+      for (const r of rows) {
+        if (!ACTIVE.has(r.status) || r.start > hi || r.end < lo || r.bookingId === bookingId) continue;
+        if (r.status === "hold" && (r.holdExpiresAt ?? 0) < now) {
+          const pendingBooking = r.bookingId ? await ctx.db.get(r.bookingId) : null;
+          if (pendingBooking?.status !== "pending_payment") continue;
+        }
+        existing.push({ start: r.start, end: r.end, qty: r.qty || 1 });
+      }
       if (peak([...existing, ...d.ivs]) > owned) {
         throw new Error(`"${d.title}" was just taken for those dates — please adjust your dates or remove it.`);
       }
@@ -206,6 +215,10 @@ export const releaseExpiredHolds = internalMutation({
     let n = 0;
     for (const h of holds)
       if ((h.holdExpiresAt ?? 0) < now) {
+        const booking = h.bookingId ? await ctx.db.get(h.bookingId) : null;
+        // A pending payment can already be paid at Stripe while its webhook is
+        // delayed. Only the Stripe reconciliation action may close that booking.
+        if (booking?.status === "pending_payment") continue;
         await ctx.db.delete(h._id);
         n++;
       }
@@ -213,28 +226,34 @@ export const releaseExpiredHolds = internalMutation({
   },
 });
 
-/** Retire abandoned checkouts: a pending_payment booking older than the Stripe session window
- *  (31 min) can never be paid, so mark it cancelled and release its holds. Cleans the admin view
- *  and frees any store-credit it was shadowing. Cancelled (not deleted) so the record survives. */
-export const expireStalePending = internalMutation({
+/** Provider reconciliation reads these without trusting a booking's age as payment evidence. */
+export const pendingCheckoutSessions = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const cutoff = Date.now() - 45 * 60 * 1000; // well past the 31-min session + any in-flight payment
-    // PERF: was a whole-`bookings` scan every 15 min (cron). by_status narrows to
-    // the handful of pending_payment rows; the status check below is now redundant.
-    const all = await ctx.db
-      .query("bookings")
+    const rows = await ctx.db.query("bookings")
       .withIndex("by_status", (q) => q.eq("status", "pending_payment"))
       .collect();
-    let n = 0;
-    for (const b of all) {
-      if (b._creationTime >= cutoff) continue;
-      const res = await ctx.db.query("reservations").withIndex("by_booking", (q) => q.eq("bookingId", b._id)).collect();
-      for (const h of res) if (h.status === "hold") await ctx.db.delete(h._id);
-      await ctx.db.patch(b._id, { status: "cancelled", cancelledAt: Date.now() });
-      n++;
-    }
-    return { expired: n };
+    return rows.map((b) => ({
+      bookingId: b._id,
+      sessionId: b.stripeCheckoutSessionId ?? null,
+      createdAt: b._creationTime,
+    }));
+  },
+});
+
+/** Called only after Stripe says the session is terminal and unpaid, or no
+ * session was ever bound and the checkout action never returned a URL. */
+export const expireUnpaidPending = internalMutation({
+  args: { bookingId: v.id("bookings"), sessionId: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, sessionId }) => {
+    const booking = await ctx.db.get(bookingId);
+    if (!booking || booking.status !== "pending_payment" ||
+        (booking.stripeCheckoutSessionId ?? undefined) !== sessionId) return false;
+    const res = await ctx.db.query("reservations")
+      .withIndex("by_booking", (q) => q.eq("bookingId", bookingId)).collect();
+    for (const hold of res) if (hold.status === "hold") await ctx.db.delete(hold._id);
+    await ctx.db.patch(bookingId, { status: "cancelled", cancelledAt: Date.now() });
+    return true;
   },
 });
 
@@ -294,7 +313,11 @@ export const confirm = internalMutation({
         const rows = (
           await ctx.db.query("credits").withIndex("by_account", (q) => q.eq("accountId", acct._id)).collect()
         )
-          .filter((c) => c.status === "active" && c.expiresAt > now && c.remaining > 0)
+          // Credit was reserved while valid at checkout. The provider webhook may
+          // arrive after its expiry, so consume that reservation rather than
+          // silently giving a discount without using the credit.
+          .filter((c) => c.status === "active" && c.createdAt <= booking._creationTime &&
+            c.expiresAt > booking._creationTime && c.remaining > 0)
           .sort((a, b) => a.expiresAt - b.expiresAt);
         let need = booking.creditApplied;
         for (const c of rows) {

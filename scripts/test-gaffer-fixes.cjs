@@ -56,7 +56,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
 
   // Exercise the real checkout action up to createPending. Repricing is supplied by
   // the authoritative query boundary; reject before any booking/Stripe side effect.
-  async function checkout(prices, {code, submittedTotal=99999, deliveryFee=0, quotedFee=0, fulfilment='pickup', address, deliveryPostcode, qty=1, submittedTitle, expectedError} = {}) {
+  async function checkout(prices, {code, submittedTotal=99999, deliveryFee=0, quotedFee=0, fulfilment='pickup', address, deliveryPostcode, qty=1, submittedTitle, token, customerEmail='test@example.invalid', expectedError} = {}) {
     let pending;
     const stop = new Error('captured booking boundary');
     const ctx = {
@@ -64,13 +64,14 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
         if(ref==='settings:get') return {acceptingOrders:true};
         if(ref==='catalog:repriceLines') return prices.map((total,i)=>({title:`Real item ${i}`,total,deposit:1000}));
         if(ref==='availability:forListing') return {available:10};
+        if(ref==='accounts:_byToken') return {email:'owner@example.invalid',membershipActive:false};
         if(ref==='promo:validate') return validate.handler({},args);
         throw Error(`Unexpected query ${ref}`);
       },
       runAction: async (ref,args) => { assert.equal(ref,'delivery:quote'); assert.equal(args.postcode,deliveryPostcode.replace(/\s/g,'').toUpperCase()); assert.equal(args.listingIds.length,prices.length); return {ok:true,fee:quotedFee}; },
       runMutation: async (ref,args) => { assert.equal(ref,'bookings:createPending'); pending=args; throw stop; },
     };
-    const args={items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}};
+    const args={items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),token,customer:{email:customerEmail,name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}};
     if (expectedError) {
       await assert.rejects(start.handler(ctx,args),expectedError);
       assert.equal(pending,undefined,'rejected before creating a booking');
@@ -89,6 +90,8 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   await checkout([400],{fulfilment:'delivery',address:'10 Downing Street, London SW1A 2AA',deliveryPostcode:'SW1A 2AA',deliveryFee:0,quotedFee:75,expectedError:/delivery quote has changed/});
   await checkout([400],{fulfilment:'delivery',address:'10 Downing Street, London SW1A 2AA',deliveryPostcode:'SW1A 1AA',deliveryFee:75,quotedFee:75,expectedError:/same postcode/});
   await checkout([400],{qty:2,expectedError:/one item with valid dates/});
+  await checkout([400],{token:'signed-in-session',customerEmail:'other@example.invalid',expectedError:/signed-in account email/});
+  order=await checkout([400],{customerEmail:'TEST@EXAMPLE.INVALID'});assert.equal(order.customerEmail,'test@example.invalid');
 
   // Cross the real booking and Stripe boundaries with inert adapters: verify the
   // payment amount and return URLs cannot be supplied by the browser.

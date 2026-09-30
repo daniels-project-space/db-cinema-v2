@@ -160,6 +160,9 @@ export const start = action({
     const acct: any = a.token
       ? await ctx.runQuery(internal.accounts._byToken, { token: a.token })
       : null;
+    if (acct && a.customer.email.trim().toLowerCase() !== acct.email.trim().toLowerCase())
+      throw new Error("Use your signed-in account email for this booking, or sign out to book as a guest.");
+    a.customer.email = a.customer.email.trim().toLowerCase();
     // Existing Stripe Identity checks do not include proof of address. Require the
     // complete Didit flow for every new booking, including deposit-category rentals.
     const idVerifyStatus = "required";
@@ -308,7 +311,9 @@ export const start = action({
       returnTime: a.returnTime,
     });
 
-    // soft-hold the units for 20 min so nobody else grabs them mid-checkout
+    // Reserve the units while Stripe resolves payment. The 35-minute marker is
+    // only for cleaning up orphaned rows after a terminal provider outcome;
+    // pending bookings keep their holds until reconciliation confirms or expires them.
     await ctx.runMutation(internal.bookings.placeHolds, {
       bookingId,
       ttlMs: 35 * 60 * 1000,
@@ -386,9 +391,8 @@ export const start = action({
 
     const session = await sb.checkout.sessions.create({
       mode: "payment",
-      // Align the payment window with the soft hold. Stripe defaults to a 24h session, but the
-      // hold only lasts ~35 min — so a late payment could confirm after the hold was released and
-      // the gear rebooked elsewhere (oversell). 31 min is just over Stripe's 30-min minimum.
+      // Stripe defaults to a 24h session. Limit this to 31 minutes, while
+      // the reservation stays protected until Stripe confirms its outcome.
       expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
       line_items,
       payment_method_configuration: paymentConfigId,
@@ -760,6 +764,62 @@ export const syncHold = action({
   },
 });
 
+/** Stripe is authoritative for abandoned checkouts. A delayed webhook must
+ * never cause a paid booking to be age-expired or its stock hold to be released. */
+export const reconcilePendingPayments = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; confirmed: number; expired: number; failures: number }> => {
+    if (!process.env.STRIPE_SECRET_KEY) return { checked: 0, confirmed: 0, expired: 0, failures: 0 };
+    const pending: { bookingId: any; sessionId: string | null; createdAt: number }[] =
+      await ctx.runQuery(internal.bookings.pendingCheckoutSessions, {});
+    const sb = stripe();
+    const now = Date.now();
+    let confirmed = 0, expired = 0, failures = 0;
+    for (const booking of pending) {
+      try {
+        if (!booking.sessionId) {
+          if (booking.createdAt < now - 45 * 60 * 1000 &&
+              await ctx.runMutation(internal.bookings.expireUnpaidPending, { bookingId: booking.bookingId })) expired++;
+          continue;
+        }
+        let session = await sb.checkout.sessions.retrieve(booking.sessionId);
+        if (session.metadata?.bookingId !== booking.bookingId) {
+          console.error("Checkout reconciliation found a booking/session mismatch", booking.bookingId);
+          failures++;
+          continue;
+        }
+        if (session.payment_status === "paid") {
+          const paymentIntentId = typeof session.payment_intent === "string"
+            ? session.payment_intent : session.payment_intent?.id;
+          const result = await ctx.runMutation(internal.bookings.confirm, {
+            bookingId: booking.bookingId, paymentIntentId,
+          });
+          if (result.closed) {
+            console.error("Paid checkout was already closed", booking.bookingId);
+            failures++;
+            continue;
+          }
+          confirmed++;
+          try { await authorizeHold(ctx, session); }
+          catch (error) { console.error("Card hold authorization failed during reconciliation", error); }
+          continue;
+        }
+        if (session.status === "open" && booking.createdAt < now - 45 * 60 * 1000)
+          session = await sb.checkout.sessions.expire(session.id);
+        if (session.status === "expired" && session.payment_status !== "paid" &&
+            await ctx.runMutation(internal.bookings.expireUnpaidPending, {
+              bookingId: booking.bookingId, sessionId: booking.sessionId,
+            })) expired++;
+        // A completed but unpaid session may still be processing; leave it pending.
+      } catch (error) {
+        console.error("Checkout reconciliation could not determine payment status", booking.bookingId, error);
+        failures++;
+      }
+    }
+    return { checked: pending.length, confirmed, expired, failures };
+  },
+});
+
 /** A disputed late charge must not keep an otherwise unused security hold. */
 export const releasePausedLateHold = internalAction({
   args: { bookingId: v.id("bookings") },
@@ -780,8 +840,9 @@ export const releasePausedLateHold = internalAction({
  * Confirms bookings server-side so a paid booking is never left unconfirmed if the
  * customer closes the tab before the success page runs finalize().
  * ACTIVATION (2 steps, both required):
- *   1. In the Stripe dashboard, add a webhook endpoint → https://veracious-wombat-196.convex.site/stripe-webhook
- *      for event `checkout.session.completed`; copy its signing secret.
+ *   1. In the Stripe dashboard, add a webhook endpoint for this deployment's
+ *      /stripe-webhook path, including `checkout.session.completed` and
+ *      `checkout.session.async_payment_succeeded`; copy its signing secret.
  *   2. `npx convex env set STRIPE_WEBHOOK_SECRET whsec_...`
  * Until the secret is set this returns false (no-op) and the success-page finalize() still
  * confirms bookings — so deploying this is safe and non-breaking.
@@ -797,7 +858,7 @@ export const stripeWebhook = internalAction({
     } catch {
       return false; // bad signature
     }
-    if (event.type === "checkout.session.completed") {
+    if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const s = event.data.object as Stripe.Checkout.Session;
       const m = s.metadata ?? {};
       const pi = typeof s.payment_intent === "string" ? s.payment_intent : undefined;
