@@ -1,4 +1,5 @@
 "use client";
+import { contentsText } from "../../../shared/rentalContents";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -340,7 +341,7 @@ export function useGafferTools() {
         const taken: string[] = [];
         for (const h of hits) {
           const a = await availabilityFor(h.id, w.startIso, w.endIso);
-          (a.available >= 1 || a.unknown ? free : taken).push(`${h.title} at £${h.daily} a day`);
+          (a.available >= 1 || a.unknown ? free : taken).push(`${h.title} at £${h.daily} a day. ${contentsText(h)}`);
         }
         if (!free.length) return `Nothing matching ${q} is free ${w.startIso} to ${w.endIso}. Booked: ${taken.join("; ")}.`;
         return (
@@ -365,7 +366,8 @@ export function useGafferTools() {
                 : `${h.title} — booked out for those dates`,
           );
         }
-        return `For ${w.startIso} to ${w.endIso}: ${lines.join("; ")}.`;
+        return `For ${w.startIso} to ${w.endIso}: ${lines.join("; ")}. ` +
+          hits.map(h=>`Contents for "${h.title}": ${contentsText(h)}`).join(' ');
       },
 
       /**
@@ -411,10 +413,7 @@ export function useGafferTools() {
         router.push(route, { scroll: false });
         const shown = await suggest(picks.map((p: any) => p.id), route);
 
-        const line = (p: any) =>
-          `${p.title} at £${p.daily} a day` +
-          (p.includes?.length ? ` (includes ${p.includes.join(", ")})` : "") +
-          (p.excludes?.length ? ` — ${p.excludes.join("; ")}` : "");
+        const line = (p: any) => `${p.title} at £${p.daily} a day. ${contentsText(p)}`;
 
         const parts: string[] = [];
         if (res.standalone?.length)
@@ -447,7 +446,8 @@ export function useGafferTools() {
         if (!hit) return `Couldn't find ${item} to show.`;
         instant();
         router.push(`/gear/${hit.slug}`);
-        return `Showing ${hit.title} on screen, £${hit.daily} a day.`;
+        const full = await convex.query(api.catalog.getListingBySlug,{slug:hit.slug});
+        return `Showing ${hit.title} on screen, £${hit.daily} a day. ${contentsText(full)}`;
       },
 
       /**

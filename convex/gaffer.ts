@@ -43,6 +43,7 @@ export const gafferReply = internalAction({
         ? `This customer's most relevant rental — STATUS: ${b.status}. Gear: ${b.summary}. Dates: ${b.dates}. Fulfilment: ${b.fulfilment === "delivery" ? "delivered to the address on their order (you do NOT have that address and must NOT recite or guess it)" : "the customer collects it themselves"}.${b.pickupTime ? ` Pickup time ${b.pickupTime}.` : ""}${b.returnTime ? ` Return time ${b.returnTime}.` : ""}`
         : `This customer has no rental on file right now.`,
       ``,
+      ...(b?.rentalContents ?? []).map((contents:string) => `RENTAL CONTENTS FACTS: ${contents}`),
       `STYLE: friendly, concise (under ~80 words), practical. Set handoff=true for a complaint, damage, a refund/cancellation/dispute, or an explicit request for a human — and briefly say you're connecting them with the team.`,
     ].join("\n");
 

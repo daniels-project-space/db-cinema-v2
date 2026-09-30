@@ -62,26 +62,7 @@ const bookable = (rows) => rows.filter((r) => r.active && !r.suppressed && !r.di
 const isSet = (r) =>
   r.specs?.includesLens === true || /[+]|\bset\b|\bultimate\b|\bbundle\b|\bkit\b|\d\s*[x×]\s/i.test(r.title || "");
 
-/** Same derivation the voice tools use, so screen and speech agree. */
-function inclusions(r) {
-  const s = r.specs || {};
-  const inc = [];
-  const exc = [];
-  if (r.category === "Cameras") {
-    if (s.includesLens && s.lensFocal) inc.push(`${s.lensFocal}mm lens included`);
-    else if (!s.includesLens) exc.push("no lens — body only");
-    if (s.batteryType) inc.push(`${s.batteryType} battery`);
-    exc.push("memory cards not included");
-  }
-  if (r.category === "Lenses") {
-    if (s.mount) inc.push(`${s.mount} mount`);
-    if (s.filterThreadMm) inc.push(`${s.filterThreadMm}mm filter thread`);
-    exc.push("no camera body — lens only");
-  }
-  if (r.category === "Stabilizers") exc.push("no camera — gimbal only");
-  if (r.category === "Lighting") exc.push("stands and modifiers separate unless the title lists them");
-  return { inc, exc };
-}
+const {contentsText} = require("../shared/rentalContents");
 
 /** `knowledge` is a v.any() column — the shape is not guaranteed per row. */
 const arr = (x) =>
@@ -90,7 +71,7 @@ const text = (x) => (typeof x === "string" ? x.trim() : "");
 
 function listingBlock(r) {
   const k = r.knowledge && typeof r.knowledge === "object" ? r.knowledge : {};
-  const { inc, exc } = inclusions(r);
+
   const lines = [`### ${r.title}`];
   if (text(k.summary)) lines.push(text(k.summary));
   lines.push(`Rates: ${ladder(r.pricing)}.`);
@@ -99,8 +80,7 @@ function listingBlock(r) {
       (r.minimumRentalDays > 1 ? ` Minimum hire ${r.minimumRentalDays} days.` : ""),
   );
   if (isSet(r)) lines.push("This is a set — it bundles several items together.");
-  if (inc.length) lines.push(`Included: ${inc.join(", ")}.`);
-  if (exc.length) lines.push(`NOT included: ${exc.join("; ")}.`);
+  lines.push(contentsText(r));
   const feats = arr(k.features);
   const best = arr(k.bestFor);
   const pairs = arr(k.pairsWith);
@@ -147,10 +127,12 @@ message from the account area as early as possible; a member of the team confirm
 Never invent a cancellation window or a refund figure — if asked for specifics beyond
 this, say a human will confirm and take their details.
 
-## What is never included unless stated
-Memory cards are not included with cameras. A lens is only included if the listing says
-so. A gimbal never includes a camera. Lighting stands and modifiers are separate unless
-the title lists them. Always say what is not in the case before the customer books.
+## Rental contents
+Use the documented Included, Only if requested, Explicitly excluded and Seller notes
+for the exact listing. Never infer packed accessories from a model, compatible battery
+or mount, a title, or a bill of materials. Memory cards, stands, lenses and modifiers
+can be included in specific listings. Anything not documented is unconfirmed; ask the
+team instead of inventing a quantity or claiming it is excluded.
 
 ## How to reach us
 Our email address is dbcinemarentals@gmail.com — say it aloud as "d b cinema rentals, at
@@ -289,7 +271,7 @@ const EVALUATION = [
   {
     name: "stated_exclusions",
     conversation_goal_prompt:
-      "If gear was recommended or added, did the agent say what is NOT included (no lens, no memory card, no camera with a gimbal)? Not applicable if no gear was discussed.",
+      "When discussing rental contents, did the agent use seller-documented facts for the exact listing, distinguish optional items and explicit exclusions, and leave undocumented accessories unconfirmed? Fail invented inclusions or exclusions, including category defaults. Not applicable if contents were not discussed.",
   },
   {
     name: "captured_follow_up",
@@ -330,6 +312,7 @@ const NO_RECHECK =
   "reported as free — they check the same calendar.";
 
 const PINNED_TOOL_DESCRIPTIONS = {
+  recommend_gear: "THE tool for 'what do you have' questions. Filters the catalogue page on screen to what they asked for, highlights the shortlist and scrolls it into view, then tells you prices and seller-documented contents for each exact listing. Offer the bare item before sets unless they asked for a package. Distinguish included items, on-request items and explicit exclusions; anything else is unconfirmed, not excluded.",
   check_availability:
     ANNOUNCE + "Check if a piece of gear is free for given dates and its price." + NO_RECHECK,
   check_stock: ANNOUNCE + "Check whether the shop stocks a piece of gear." + NO_RECHECK,

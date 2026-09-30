@@ -9,6 +9,7 @@ import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { coverageCompat } from "@/lib/compat";
 import { lensPriority, isCameraSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType } from "../../convex/lib/taxonomy";
+import { contentsText } from "../../shared/rentalContents";
 import { CONTACT_EMAIL } from "@/lib/site";
 
 /**
@@ -666,7 +667,7 @@ async function loadContext(body: any): Promise<Ctx> {
 // ── stage 1: understand ───────────────────────────────────────────────────────────
 const IntentSchema = z.object({
   intent: z.enum(["availability", "alternative", "recommend", "build_kit", "spec", "price", "compatibility", "support", "partner", "other"])
-    .describe("availability=do you have X; alternative=suggest a substitute for X; recommend=suggest gear of a type; build_kit=assemble a full kit; spec=specs/limits of X; price=cost of X; compatibility=will/can X work with/fit/mount on Y; support=complaint/damage/refund/cancellation/dispute; partner=they ask about FORM / SEVEN, about having an advert or promo made FOR them rather than hiring kit to shoot it themselves, or about the free sample ad; other=greeting/policy/chitchat"),
+    .describe("availability=do you have X; alternative=suggest a substitute for X; recommend=suggest gear of a type; build_kit=assemble a full kit; spec=specs/limits/what is included/accessories/contents of X; price=cost of X; compatibility=will/can X work with/fit/mount on Y; support=complaint/damage/refund/cancellation/dispute; partner=they ask about FORM / SEVEN, about having an advert or promo made FOR them rather than hiring kit to shoot it themselves, or about the free sample ad; other=greeting/policy/chitchat"),
   subject: z.string().describe("the SPECIFIC item the customer named (the LENS/gear for a compatibility question), verbatim-ish, or empty string"),
   itemTypes: z.array(z.string()).describe("gear types from [camera,lens,light,gimbal,mic,monitor,tripod,nd-filter,battery,drone,speaker]"),
   cameraModel: z.string().describe("the camera model OR mount in play (e.g. 'FX3', 'Sony E mount') — for a compatibility question this is the BODY they want to fit the subject onto; else empty"),
@@ -728,6 +729,8 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
 
   const pushCard = async (l: any, reason: string, checkAvail = true) => {
     if (cards.some((cd) => cd.item?.listingId === l._id)) return;
+    const full: any = await c.query(api.catalog.getListingBySlug, {slug:l.slug});
+    facts.push(`RENTAL CONTENTS for "${l.title}": ${contentsText(full)} Only apply these to this exact listing.`);
     cards.push(await buildCard(c, l, start, end, ctx, reason, checkAvail));
   };
   const titlePrice = (l: any) => `"${l.title}" (£${l.pricing?.daily}/day)`;
