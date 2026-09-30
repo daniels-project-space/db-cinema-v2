@@ -36,8 +36,8 @@ Object.assign(process.env, {
   DIDIT_APPLICATION_ID: 'application-1', DIDIT_ENVIRONMENT: 'sandbox',
 });
 
-const { webhook } = load('convex/didit.ts');
-const { setDiditResult } = load('convex/bookings.ts');
+const { webhook, bookingSession } = load('convex/didit.ts');
+const { setDiditResult, setDiditSession, adminSetIdStatus } = load('convex/bookings.ts');
 const { assertDiditCheckoutCapacity } = load('convex/lib/diditCapacity.ts');
 
 function signed(event) {
@@ -75,6 +75,22 @@ function signed(event) {
   assert.equal(result, null, 'forged callback must not change booking');
   assert.equal(await webhook.handler(ctx, signed({...event, environment: 'live'})), false);
   assert.equal(await webhook.handler(ctx, signed({...event, timestamp: now - 3600})), false);
+  assert.equal(await webhook.handler(ctx, signed({...event, event_id: 'event-expired', status: 'Expired'})), true);
+  assert.equal(result.status, 'requires_input');
+  assert.match(result.note, /link expired/);
+
+  for (const idVerifyStatus of ['manual_review', 'rejected']) {
+    let contactedProvider = false;
+    const originalFetch = global.fetch;
+    global.fetch = async () => { contactedProvider = true; throw Error('unexpected provider call'); };
+    try {
+      await assert.rejects(bookingSession.handler({runQuery:async()=>({status:'confirmed',verificationProvider:'didit',idVerifyStatus})},
+        {bookingId:'booking-1'}),/not ready for verification/);
+      assert.equal(contactedProvider,false);
+    } finally { global.fetch = originalFetch; }
+    assert.equal(await setDiditSession.handler({db:{get:async()=>({status:'confirmed',verificationProvider:'didit',idVerifyStatus})}},
+      {bookingId:'booking-1',sessionId:'another-session'}),false);
+  }
 
   for (const [billingAddress, expected] of [
     ['10 Downing Street, London SW1A 1AA', 'verified'],
@@ -95,6 +111,17 @@ function signed(event) {
     }), true);
     assert.equal(patch.idVerifyStatus, expected, billingAddress);
   }
+  const manuallyApproved = {status:'confirmed',verificationProvider:'didit',diditSessionId:'session-1',
+    billingAddress:'10 Downing Street SW1A 1AA',idVerifyStatus:'verified',idVerificationSource:'manual'};
+  let manualPatch;
+  const manualCtx = {db:{get:async()=>manuallyApproved,patch:async(_id,value)=>{manualPatch=value;}}};
+  assert.equal(await setDiditResult.handler(manualCtx,{
+    bookingId:'booking-1',sessionId:'session-1',eventId:'event-late',eventAt:now*1000,
+    status:'manual_review',providerStatus:'Approved',poaPostcodes:[],
+  }),true);
+  assert.equal(manualPatch.idVerifyStatus,undefined,'a feature-level review cannot undo explicit admin approval');
+  await assert.rejects(adminSetIdStatus.handler({db:{get:async()=>({status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required'})}},
+    {token:'admin',bookingId:'booking-1',status:'verified',note:'Reviewed evidence'}),/completed Didit case/);
   const workflow = { workflow_id: 'workflow-1', status: 'published', version: 1,
     features: 'OCR + LIVENESS + FACE_MATCH + PROOF_OF_ADDRESS', max_price: 0.5 };
   const provider = (balance, override = {}) => async url => new Response(JSON.stringify(

@@ -46,21 +46,23 @@ export function IdVerify({ bookingId, status, note, compact, autoStart = false, 
   }, [busy, sessionUrl, getSession, bookingId, account.token, checkoutSessionId]);
 
   useEffect(() => {
-    if (autoStart && status !== "verified" && status !== "rejected") void open();
+    if (autoStart && !["verified", "rejected", "manual_review"].includes(status)) void open();
   }, [autoStart, status, open]);
 
   if (status === "verified")
     return <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-300"><IconCheck className="h-3 w-3" /> Identity and address verified</span>;
 
+  const restart = status === "requires_input" && /expired|not completed/i.test(note ?? "");
+
   return (
     <div className={compact ? "" : "rounded-xl border border-accent-400/20 bg-accent-400/[0.06] p-4"}>
-      <div className="text-sm text-white/70">{LABEL[status] ?? LABEL.required}</div>
+      <div className="text-sm text-white/70">{restart ? "Verification needs restarting" : LABEL[status] ?? LABEL.required}</div>
       {note && (status === "requires_input" || status === "manual_review") && <p className="mt-1 text-xs text-amber-200">{note}</p>}
       {status === "processing" && <p className="mt-1 text-xs text-white/45">We will update this page when the provider completes its check. You can return later.</p>}
       {status === "manual_review" && <p className="mt-1 text-xs text-white/45">We will review this result and contact you if another document is needed.</p>}
       {status !== "rejected" && status !== "manual_review" && !sessionUrl && (
         <button onClick={() => void open()} disabled={busy} className="btn-primary mt-2 px-5 py-2 text-sm">
-          {busy ? "Opening…" : status === "requires_input" ? "Replace requested document" : status === "processing" ? "Continue check" : "Start automatic check"}
+          {busy ? "Opening…" : restart ? "Restart verification" : status === "requires_input" ? "Replace requested document" : status === "processing" ? "Continue check" : "Start automatic check"}
         </button>
       )}
       {sessionUrl && status !== "rejected" && status !== "manual_review" && (

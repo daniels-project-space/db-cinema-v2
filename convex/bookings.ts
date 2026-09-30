@@ -464,6 +464,7 @@ export const adminList = query({
       returnStatementEmailStatus: b.returnStatementEmailStatus ?? null,
       idVerifyStatus: b.idVerifyStatus ?? "required",
       verificationProvider: b.verificationProvider ?? "stripe",
+      diditSessionId: b.diditSessionId ?? null,
       verificationNote: b.verificationNote ?? null,
       verificationUpdatedAt: b.verificationUpdatedAt ?? null,
       agreementName: b.agreementName ?? null,
@@ -1120,7 +1121,7 @@ export const setDiditSession = internalMutation({
   handler: async (ctx, { bookingId, sessionId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || !["confirmed", "active"].includes(b.status) ||
-        b.idVerifyStatus === "verified") return false;
+        !["required", "processing", "requires_input"].includes(b.idVerifyStatus ?? "required")) return false;
     if (b.diditSessionId !== sessionId) {
       await ctx.db.patch(bookingId, {
         diditSessionId: sessionId,
@@ -1141,11 +1142,12 @@ export const setDiditResult = internalMutation({
     sessionId: v.string(),
     eventId: v.string(),
     status: v.union(v.literal("processing"), v.literal("manual_review"), v.literal("verified"), v.literal("requires_input"), v.literal("rejected")),
+    providerStatus: v.optional(v.string()),
     note: v.optional(v.string()),
     poaPostcodes: v.array(v.string()),
     eventAt: v.number(),
   },
-  handler: async (ctx, { bookingId, sessionId, eventId, status, note, poaPostcodes, eventAt }) => {
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
     if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt) return true;
@@ -1156,6 +1158,14 @@ export const setDiditResult = internalMutation({
         !poaPostcodes.every((p) => postcode(p) === postcode(b.billingAddress ?? "")))) {
       status = "manual_review";
       note = "The verified address does not match the booking address. Please contact us.";
+    }
+    // A deliberate admin approval can override a feature-level review. Didit
+    // still sends top-level Approved with the original feature decisions; keep
+    // that human decision, while allowing an actual later decline to revoke it.
+    if (b.idVerificationSource === "manual" && b.idVerifyStatus === "verified" &&
+        providerStatus === "Approved" && status === "manual_review") {
+      await ctx.db.patch(bookingId, { diditEventId: eventId, diditEventAt: eventAt });
+      return true;
     }
     if (b.idVerifyStatus === "verified" && status === "processing") {
       await ctx.db.patch(bookingId, { diditEventId: eventId, diditEventAt: eventAt });
@@ -1194,9 +1204,15 @@ export const adminSetIdStatus = mutation({
   args: { token: v.string(), bookingId: v.id("bookings"), status: v.string(), note: v.string() },
   handler: async (ctx, { token, bookingId, status, note }) => {
     await assertAdmin(ctx, token, "bookings.adminSetIdStatus");
-    const prev = (await ctx.db.get(bookingId))?.idVerifyStatus ?? "required";
+    const b = await ctx.db.get(bookingId);
+    if (!b || !["confirmed", "active"].includes(b.status))
+      throw new Error("Only a paid, open rental can receive a manual verification decision.");
+    const prev = b.idVerifyStatus ?? "required";
     if (!["verified", "requires_input", "rejected"].includes(status)) throw new Error("Invalid review decision");
     if (note.trim().length < 5) throw new Error("Record why the manual decision was made.");
+    if (b.verificationProvider === "didit" && status === "verified" &&
+        (!b.diditSessionId || !["manual_review", "rejected"].includes(prev)))
+      throw new Error("Review the completed Didit case before approving identity and address manually.");
     await ctx.db.patch(bookingId, {
       idVerifyStatus: status,
       idVerificationSource: "manual",

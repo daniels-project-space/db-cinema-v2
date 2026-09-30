@@ -155,6 +155,9 @@ export default function AdminPage() {
                       {b.verificationProvider === "didit" ? "ID + address" : "ID"} {b.idVerifyStatus === "verified" ? "✓" : b.idVerifyStatus}
                     </span>
                     {b.verificationProvider === "didit" && <span className="text-white/35">{b.verificationNote ?? "Automatic check pending"}</span>}
+                    {b.verificationProvider === "didit" && b.diditSessionId && (
+                      <span className="text-white/45">Didit case <code className="select-all font-mono text-white/65">{b.diditSessionId}</code></span>
+                    )}
                     {!!b.lateFeeAmount && <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-200">Separate late charge {formatGbp(b.lateFeeAmount)} · {b.lateFeeStatus}</span>}
                     {!!b.lateFeeWaivedAmount && <span className="rounded bg-white/10 px-1.5 py-0.5 text-white/60">Late fee waived {formatGbp(b.lateFeeWaivedAmount)}</span>}
                     {b.returnStatementEmailStatus && <span className={`rounded px-1.5 py-0.5 ${b.returnStatementEmailStatus === "sent" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-200"}`}>Return statement email: {b.returnStatementEmailStatus}</span>}
@@ -177,7 +180,8 @@ export default function AdminPage() {
                           .catch((error: any) => alert(error.message));
                       }} className="shrink-0 rounded-md bg-rose-500/15 px-2 py-1 text-[11px] text-rose-300">Cancel</button>
                     )}
-                    {b.idVerifyStatus !== "verified" && (
+                    {b.idVerifyStatus !== "verified" &&
+                      (b.verificationProvider !== "didit" || ["manual_review", "rejected"].includes(b.idVerifyStatus)) && (
                       <button
                         onClick={() => {
                           const note = prompt("Record the evidence and reason for manual identity and address approval:");
@@ -200,6 +204,11 @@ export default function AdminPage() {
                       }} className="shrink-0 rounded-md bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200">Pause late fee</button>
                     )}
                   </div>
+                  {b.verificationProvider === "didit" && ["manual_review", "rejected"].includes(b.idVerifyStatus) && (
+                    <p className="mt-2 text-[11px] text-amber-200/80">
+                      Review the case and warnings in <a className="underline" href="https://business.didit.me" target="_blank" rel="noreferrer">Didit Business Console</a> before approving here. Request a document resubmission there; its signed result will update this booking.
+                    </p>
+                  )}
                   {returningId === b._id && <ReturnRentalForm booking={b} token={token} onClose={() => setReturningId(null)} />}
                 </div>
               );

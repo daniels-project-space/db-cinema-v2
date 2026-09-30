@@ -30,7 +30,8 @@ export const bookingSession = action({
   handler: async (ctx, a): Promise<{ url: string }> => {
     const cfg = config();
     const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
-    if (!booking || booking.verificationProvider !== "didit" || !["confirmed", "active"].includes(booking.status) || booking.idVerifyStatus === "verified")
+    if (!booking || booking.verificationProvider !== "didit" || !["confirmed", "active"].includes(booking.status) ||
+        !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required"))
       throw new Error("This booking is not ready for verification.");
     let authorized = false;
     if (a.accountToken) {
@@ -113,12 +114,14 @@ export const webhook = internalAction({
       if (status === "verified") poaPostcodes = d.poa_verifications.map((poa: any) =>
         String(poa.poa_parsed_address?.postal_code ?? poa.poa_formatted_address ?? poa.poa_address ?? ""));
     } else if (rawStatus === "In Review") status = "manual_review";
-    else if (rawStatus === "Resubmitted" || rawStatus === "Abandoned") status = "requires_input";
+    else if (["Resubmitted", "Abandoned", "Expired"].includes(rawStatus)) status = "requires_input";
     else if (rawStatus === "Declined" || rawStatus === "Kyc Expired") status = "rejected";
     else if (rawStatus === "Not Started" || rawStatus === "In Progress") status = "processing";
     else return true;
     const note = status === "manual_review" && rawStatus === "Approved"
       ? "A required identity, selfie or address check did not pass. We will review it."
+      : rawStatus === "Expired" ? "The verification link expired. Start a new check before handover."
+      : rawStatus === "Abandoned" ? "The verification was not completed. Start a new check before handover."
       : status === "requires_input" ? "Please complete the requested document step." : undefined;
     try {
       return await ctx.runMutation(internal.bookings.setDiditResult, {
@@ -127,6 +130,7 @@ export const webhook = internalAction({
         eventId: event.event_id,
         eventAt: event.created_at * 1000,
         status,
+        providerStatus: rawStatus,
         note,
         poaPostcodes,
       });
