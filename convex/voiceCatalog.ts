@@ -1,5 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
+import { contentsFor } from "../shared/rentalContents";
 import { Doc } from "./_generated/dataModel";
 
 /**
@@ -171,6 +172,7 @@ function heroImage(r: Doc<"listings">): string | null {
 
 function shape(r: Doc<"listings">) {
   return {
+    ...contentsFor(r),
     id: String(r._id),
     title: r.title,
     slug: r.slug,
@@ -185,7 +187,7 @@ function shape(r: Doc<"listings">) {
     // 28-70 and an a7 III with a GM 24-70 are separate listings at different
     // prices. Without this the voice agent picks one on title match alone and
     // the customer finds out which lens they booked when it arrives.
-    includesLens: (r as any).specs?.includesLens ?? false,
+    includesLens: contentsFor(r).includes.some(x=>/\blens(?:es)?\b/i.test(x)) ? true : null,
     lensFocal: (r as any).specs?.lensFocal ?? null,
   };
 }
@@ -376,36 +378,8 @@ function isSet(r: Doc<"listings">): boolean {
   return (r as any).specs?.includesLens === true || isBundle(r.title);
 }
 
-/**
- * What the customer will and won't find in the case.
- *
- * Derived rather than stored: there is no inclusions field, but the specs carry
- * enough to answer the questions that actually cause problems on collection —
- * whether glass is in the box, what mount it is, what batteries it eats, what
- * filter thread it takes. Being explicit about what is *not* included is the
- * half that prevents a bad handover.
- */
-function inclusions(r: Doc<"listings">) {
-  const s = (r as any).specs ?? {};
-  const includes: string[] = [];
-  const excludes: string[] = [];
-
-  if (r.category === "Cameras") {
-    if (s.includesLens && s.lensFocal) includes.push(`${s.lensFocal}mm lens`);
-    else if (!s.includesLens) excludes.push("no lens — body only");
-    if (s.batteryType) includes.push(`${s.batteryType} battery`);
-    excludes.push("memory cards are not included");
-  }
-  if (r.category === "Lenses") {
-    if (s.mount) includes.push(`${s.mount} mount`);
-    if (s.filterThreadMm) includes.push(`${s.filterThreadMm}mm filter thread`);
-    excludes.push("no camera body — lens only");
-  }
-  if (r.category === "Stabilizers") excludes.push("no camera — gimbal only");
-  if (r.category === "Lighting") excludes.push("stands and modifiers are separate unless the title says otherwise");
-
-  return { includes, excludes };
-}
+/** Seller-authored packing facts, shared with text chat and voice knowledge. */
+function inclusions(r: Doc<"listings">) { return contentsFor(r); }
 
 /**
  * A shortlist to put on screen, split so the bare item can be offered before

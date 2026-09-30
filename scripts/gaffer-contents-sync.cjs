@@ -1,0 +1,22 @@
+/** Publish only sourced rental contents; preserve model, voice, tools and policy.
+ * Dry run writes the exact documents for review. --apply requires explicit approval. */
+const fs=require('fs');const {contentsText}=require('../shared/rentalContents');
+const prefix='Db Cinema rental contents — ';
+async function main(){const rows=JSON.parse(fs.readFileSync(process.env.LISTINGS_JSON||'/tmp/dbc-listing-rows.json'));const manifest=require('../data/rental-contents.json');const cats={};
+for(const r of rows.filter(x=>x.active&&!x.suppressed)){const m=manifest.find(x=>x.productId===r.hyggloProductId);const k=r.knowledge??{};const details=[k.summary,Array.isArray(k.features)?`Technical features: ${k.features.join('; ')}`:'',Array.isArray(k.limits)?`Technical limitations: ${k.limits.join('; ')}`:'',Array.isArray(k.pairsWith)?`Compatible separately rentable gear: ${k.pairsWith.join('; ')}`:''].filter(Boolean).join('\n');
+(cats[r.category]??=[]).push(`### ${r.title}\nListing: ${r.slug}\nDaily rental rate: £${r.pricing?.daily??'unconfirmed'}; check a tool for dates and the final quote.\n${details}\nPacked contents (technical features above do not establish inclusion): ${contentsText({rentalContents:m?.contents})}`);}
+const docs=Object.entries(cats).map(([cat,blocks])=>({name:prefix+cat,text:`# Seller-documented rental contents: ${cat}\nUse facts only for the exact listing. Items absent from a list are unconfirmed, not excluded. Optional items require an explicit request.\n\n${blocks.join('\n\n')}`}));
+fs.mkdirSync('/tmp/dbc-gaffer-contents-kb',{recursive:true});for(const [i,d] of docs.entries())fs.writeFileSync(`/tmp/dbc-gaffer-contents-kb/${i}.md`,d.text);console.log('Prepared',docs.length,'documents',rows.length,'listing records');
+if(!process.argv.includes('--apply'))return;
+if(!process.env.ELEVENLABS_API_KEY)throw Error('Missing ElevenLabs key');const id=process.env.GAFFER_AGENT_ID||'agent_4601kvk2pfznfrws6ah700jnxvfv';const api='https://api.elevenlabs.io/v1/convai';
+const request=async(p,init={})=>{const r=await fetch(api+p,{...init,headers:{'xi-api-key':process.env.ELEVENLABS_API_KEY,'content-type':'application/json'}});if(!r.ok)throw Error('ElevenLabs '+r.status+' at '+p);return r.json();};
+const before=await request('/agents/'+id);const prompt=before.conversation_config.agent.prompt;const attached=[];
+for(const d of docs){const result=await request('/knowledge-base/text',{method:'POST',body:JSON.stringify(d)});attached.push({type:'text',name:d.name,id:result.id,usage_mode:'auto'});}
+// Detach outdated category documents from this agent. Never delete shared workspace documents.
+const keep=(prompt.knowledge_base??[]).filter(d=>!d.name?.startsWith(prefix)&&!d.name?.startsWith('Db Cinema catalogue — '));
+const rule='RENTAL CONTENTS: Seller-documented rental contents and current tool results for the exact listing are authoritative. Category defaults in older policy/spec documents do not establish included or excluded accessories. Never infer packing contents from battery type, mount, title or general model knowledge. Memory cards, stands and lenses can be included in specific rentals. State optional items as on-request only. Anything not documented is unconfirmed; offer a team check instead of guessing.';
+const next={...prompt,prompt:prompt.prompt.includes(rule)?prompt.prompt:prompt.prompt+'\n\n'+rule,knowledge_base:[...keep,...attached]};delete next.tools;
+await request('/agents/'+id,{method:'PATCH',body:JSON.stringify({conversation_config:{agent:{prompt:next}}})});
+const after=await request('/agents/'+id);for(const d of attached)if(!after.conversation_config.agent.prompt.knowledge_base.some(x=>x.id===d.id))throw Error('Contents document was not attached');
+if(JSON.stringify(before.conversation_config.tts)!==JSON.stringify(after.conversation_config.tts)||before.conversation_config.agent.prompt.llm!==after.conversation_config.agent.prompt.llm)throw Error('Unexpected model or voice change');console.log('Verified',attached.length,'attached contents documents; model and voice preserved');}
+main().catch(e=>{console.error(e.message);process.exitCode=1});

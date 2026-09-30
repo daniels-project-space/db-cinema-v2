@@ -1,4 +1,5 @@
 "use client";
+import { contentsText } from "../../../shared/rentalContents";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -414,7 +415,9 @@ export function useGafferTools() {
         const line = (p: any) =>
           `${p.title} at £${p.daily} a day` +
           (p.includes?.length ? ` (includes ${p.includes.join(", ")})` : "") +
-          (p.excludes?.length ? ` — ${p.excludes.join("; ")}` : "");
+          (p.excludes?.length ? ` — ${p.excludes.join("; ")}` : "") +
+          (p.optional?.length ? `; only on request: ${p.optional.join("; ")}` : "") +
+          (p.contentsStatus === "unknown" ? "; included accessories are undocumented; do not guess" : "");
 
         const parts: string[] = [];
         if (res.standalone?.length)
@@ -447,7 +450,8 @@ export function useGafferTools() {
         if (!hit) return `Couldn't find ${item} to show.`;
         instant();
         router.push(`/gear/${hit.slug}`);
-        return `Showing ${hit.title} on screen, £${hit.daily} a day.`;
+        const full = await convex.query(api.catalog.getListingBySlug,{slug:hit.slug});
+        return `Showing ${hit.title} on screen, £${hit.daily} a day. ${contentsText(full)}`;
       },
 
       /**

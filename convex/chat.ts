@@ -1,3 +1,4 @@
+import { contentsText } from "../shared/rentalContents";
 import { query, mutation, internalQuery, internalMutation, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
@@ -116,7 +117,12 @@ export const _gafferContext = internalQuery({
       const end = Math.max(...pick.lineItems.map((li: any) => li.end));
       // NOTE: the customer's stored delivery/home address is deliberately NOT included here —
       // Gaffer must never be able to read it out. Only the depot pickup address (settings) is shareable.
+      const rentalContents = await Promise.all(pick.lineItems.map(async (li:any) => {
+        const listing = await ctx.db.get(li.listingId);
+        return `${li.title}: ${contentsText(listing)}`;
+      }));
       booking = {
+        rentalContents,
         summary: pick.lineItems.map((li: any) => li.title).join(", "),
         dates: `${iso(start)} → ${iso(end)}`,
         fulfilment: pick.fulfilment,
