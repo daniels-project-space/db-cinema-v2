@@ -175,11 +175,11 @@ export function AdminGafferCalls({ token }: { token: string }) {
         {calls.map((c) => {
           const open = openId === c.id;
           return (
-            <div key={c.id} className="rounded-xl glass">
+            <div key={c.id} className="rounded-2xl border border-white/[0.06] bg-[#141414]">
               <button
                 onClick={() => void openCall(c.id)}
                 aria-expanded={open}
-                className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left"
+                className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-4 text-left"
               >
                 <span
                   className={`rounded px-2 py-0.5 text-[10px] uppercase tracking-wide ${
@@ -205,7 +205,7 @@ export function AdminGafferCalls({ token }: { token: string }) {
                 <span className="ml-auto text-xs text-white/30">{open ? "Hide" : "Transcript"}</span>
 
                 {/* what the caller actually wanted — the bit worth scanning */}
-                <span className="w-full text-sm text-white/70">
+                <span className={`w-full text-sm leading-relaxed text-white/60 ${open?"":"line-clamp-2"}`}>
                   {c.title ? <b className="text-white/85">{c.title}. </b> : null}
                   {c.summary ?? <span className="text-white/25">No summary — call too short, or still processing.</span>}
                 </span>

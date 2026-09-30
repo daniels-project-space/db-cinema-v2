@@ -20,6 +20,11 @@ function ctxFor(b){const ctx={db:{get:async()=>b,patch:async(_,p)=>Object.assign
  hold={status:'succeeded',amount_received:100};assert.equal(await actions.providerReviewGate(base(),new Stripe()),'deposit_retained');hold={status:'canceled',amount_received:0};
  assert.equal(await actions.providerReviewGate({...base(),stripePaymentIntentId:undefined},new Stripe()),'refund_unverified');
  assert.equal(await actions.providerReviewGate({...base(),stripeDepositIntentId:undefined},new Stripe()),'hold_release_unverified');
+ const additionGate={...base(),unappliedSecurityPayments:['pi_proposal']};
+ const proposalProvider={paymentIntents:{retrieve:async id=>id==='pi_proposal'?{amount_received:12000,status:'succeeded'}:hold},refunds:{list:({payment_intent:id})=>({async *[Symbol.asyncIterator](){if(id==='pi_proposal')yield {amount:12000,currency:'gbp',status:'pending'};else yield {amount:10000,currency:'gbp',status:'succeeded'};}})}};
+ assert.equal(await actions.providerReviewGate(additionGate,proposalProvider),'addition_refund_pending_or_failed');
+ proposalProvider.refunds.list=()=>({async *[Symbol.asyncIterator](){yield {amount:12000,currency:'gbp',status:'succeeded'};}});
+ assert.equal(await actions.providerReviewGate(additionGate,proposalProvider),null,'withdrawn paid proposal waits for its entire successful refund');
  const b=base(),ctx=ctxFor(b);
  await actions.processDue.handler(ctx,{});assert.equal(emails,0);assert.equal(b.reviewFollowUpReason,'post_refund_wait');
  now+=2*86400000;refunds=[{amount:10000,currency:'gbp',status:'pending'}];await actions.processDue.handler(ctx,{});assert.equal(emails,0,'later cron still waits on provider');

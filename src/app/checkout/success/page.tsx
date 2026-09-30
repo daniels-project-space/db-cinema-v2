@@ -17,6 +17,8 @@ function SuccessInner() {
   const params = useSearchParams();
   const sessionId = params.get("session_id");
   const finalize = useAction(api.checkout.finalize);
+  const syncAddition=useAction(api.rentalAdditions.sync);
+  const [additionId,setAdditionId]=useState<string|null>(null);
   const syncHold = useAction(api.checkout.syncHold);
   const { clear } = useCart();
 
@@ -37,11 +39,12 @@ function SuccessInner() {
         if (r.paid) {
           if (r.closed) { setState("cancelled"); return; }
           setBookingId(r.bookingId);
+          setAdditionId(r.additionId??null);
           setMembership((r as any).membership ?? null);
           setHoldStatus(r.holdStatus ?? null);
           setHoldSecret(r.holdClientSecret ?? null);
           setState("paid");
-          if (!(r as any).membership) clear();
+          if (!(r as any).membership&&!r.additionId) clear();
         } else {
           setState("unpaid");
         }
@@ -59,11 +62,11 @@ function SuccessInner() {
       const result = await stripe.confirmCardPayment(holdSecret);
       if (!alive) return;
       if (result.error) { setHoldStatus("failed"); return; }
-      const updated = await syncHold({ sessionId });
+      const updated = additionId?await syncAddition({sessionId}):await syncHold({ sessionId });
       if (alive) { setHoldStatus(updated.status); setHoldSecret(null); }
     }).catch(() => { if (alive) setHoldStatus("failed"); });
     return () => { alive = false; };
-  }, [sessionId, holdSecret, holdStatus, syncHold]);
+  }, [sessionId, holdSecret, holdStatus, syncHold,additionId,syncAddition]);
 
   const booking = useQuery(
     api.bookings.get,
@@ -90,6 +93,11 @@ function SuccessInner() {
     return <Msg title="This booking is closed" body="This checkout belongs to a cancelled booking. Please contact us if your bank shows a charge so we can confirm its refund." cta />;
   if (state === "error")
     return <Msg title="Something went wrong" body="Please contact us." cta />;
+
+  if(additionId){
+    const ready=holdStatus==="held";
+    return <Msg title={ready?"Items added to your rental":"Payment received · approval pending"} body={ready?"Your order and rental conversation now include the extra items.":holdStatus==="requires_action"?"Complete the bank approval to add these items. You can resume it in your rental conversation.":"The extra items are waiting for a valid security hold. Open your rental conversation to check the status or ask the team for help."} cta />;
+  }
 
   // membership subscription confirmation
   if (membership) {

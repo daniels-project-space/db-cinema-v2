@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
+import { cancellationPaymentPlan,rentalRefundPlan,securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { lateFeeQuote } from "./lib/lateFee";
 import { AGREEMENTS } from "../src/lib/legal";
 import { sendMail } from "./lib/mailer";
@@ -374,7 +375,7 @@ async function authorizeHold(ctx: any, session: Stripe.Checkout.Session): Promis
     try {
       intent = await sb.paymentIntents.create({
         amount: pence(b.amount), currency: "gbp", customer: customerId,
-        payment_method: paymentMethod, payment_method_types: ["card"],
+        payment_method: paymentMethod, allowed_payment_method_types: ["card"],
         capture_method: "manual", confirm: true, off_session: true,
         ...(process.env.STRIPE_EXTENDED_AUTH_ENABLED === "true"
           ? { payment_method_options: { card: { request_extended_authorization: "if_available" as const } } }
@@ -417,54 +418,25 @@ export const startAddon = action({
     origin: v.string(),
   },
   handler: async (ctx, a): Promise<{ url: string }> => {
-    const me: any = await ctx.runQuery(api.accounts.me, { token: a.token });
-    const owner: any = await ctx.runQuery(internal.bookings.getForChat, { bookingId: a.bookingId });
-    if (!me || !owner || owner.accountId !== me._id) throw new Error("unauthorized");
-    if (Date.now() > a.start - 60 * 60 * 1000)
-      throw new Error("Too close to your rental start to add gear — add-ons close 1 hour before pickup.");
-    const av: any = await ctx.runQuery(api.availability.forListing, {
-      listingId: a.listingId,
-      start: a.start,
-      end: a.end,
-    });
-    if (!av || av.available < 1) throw new Error("That add-on isn't available for your dates.");
-
-    // anti-tamper: recompute the add-on price server-side, ignore the client total
-    const repriced: any[] = await ctx.runQuery(internal.catalog.repriceLines, {
-      items: [{ listingId: a.listingId, start: a.start, end: a.end }],
-    });
-    if (!repriced[0]) throw new Error("That add-on isn't available.");
-    a.total = repriced[0].total;
-
-    const session = await stripe().checkout.sessions.create({
-      mode: "payment",
-      expires_at: Math.floor(Date.now() / 1000) + 31 * 60, // don't let an add-on confirm long after pricing/availability was checked
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "gbp",
-            unit_amount: pence(a.total),
-            product_data: { name: `Add-on: ${a.title.slice(0, 110)}` },
-          },
-        },
-      ],
-      customer_email: me.email,
-      success_url: `${a.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${a.origin}/account`,
-      metadata: {
-        addonBookingId: a.bookingId,
-        addonListingId: a.listingId,
-        addonTitle: a.title.slice(0, 200),
-        addonStart: String(a.start),
-        addonEnd: String(a.end),
-        addonTotal: String(a.total),
-      },
-    });
-    if (!session.url) throw new Error("Stripe did not return a checkout URL");
-    return { url: session.url };
+    throw new Error("Ask the team in your rental conversation to add items. Only the rental owner can propose order changes.");
   },
 });
+
+/** Fulfil already-paid legacy sessions once, or refund when their rental/stock is closed. */
+async function refundDuplicateCheckout(session:Stripe.Checkout.Session){
+ const payment=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id;
+ if(session.payment_status!=="paid"||!payment)throw Error("Duplicate checkout payment is not confirmed");
+ await stripe().refunds.create({payment_intent:payment},{idempotencyKey:`dbc-duplicate-rental-checkout-${session.id}`});
+}
+
+async function fulfillLegacyAddon(ctx:any,session:Stripe.Checkout.Session){
+ const m=session.metadata??{};
+ const paymentIntentId=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id;
+ if(session.payment_status!=="paid"||!paymentIntentId||session.currency!=="gbp"||!session.amount_total)throw Error("Legacy addition payment is not confirmed");
+ const result=await ctx.runMutation(internal.bookings.attachAddon,{bookingId:m.addonBookingId as any,listingId:m.addonListingId as any,title:m.addonTitle??"Add-on",start:Number(m.addonStart),end:Number(m.addonEnd),total:session.amount_total/100,sessionId:session.id,paymentIntentId});
+ if(result.closed)await stripe().refunds.create({payment_intent:paymentIntentId},{idempotencyKey:`dbc-closed-legacy-addition-${session.id}`});
+ return result;
+}
 
 async function ensurePrice(sb: Stripe, tier: { key: string; name: string; monthlyGbp: number }) {
   const lookup = `dbc_member_${tier.key}`;
@@ -620,15 +592,14 @@ export const markReturned = action({
       }
     }
     const toRefund = Math.max(0, deposit - Math.max(0, kept - capturedFromHold));
-    if (toRefund > 0 && b.paymentIntentId) {
-      await stripe().refunds.create(
-        { payment_intent: b.paymentIntentId, amount: pence(toRefund) },
-        { idempotencyKey: `dbc-deposit-release-${bookingId}` },
-      );
-    }
-    await ctx.runMutation(internal.bookings.markDepositReleased, { bookingId, kept, refunded: b.paymentIntentId ? toRefund : 0, capturedFromHold, note: damageNote?.trim() });
+    const sources = b.paymentSources ?? (b.paymentIntentId ? [{paymentIntentId:b.paymentIntentId,securityPence:pence(deposit)}] : []);
+    const capturedSecurity = sources.reduce((sum:number,source:any)=>sum+source.securityPence,0);
+    const refundablePence = Math.min(pence(toRefund),capturedSecurity);
+    if(refundablePence>0){for(const allocation of securityReturnPlan(sources,refundablePence))await stripe().refunds.create({payment_intent:allocation.paymentIntentId,amount:allocation.amountPence},{idempotencyKey:allocation.paymentIntentId===b.paymentIntentId?`dbc-deposit-release-${bookingId}`:`dbc-deposit-release-${bookingId}-${allocation.paymentIntentId}`});}
+    const refunded = refundablePence / 100;
+    await ctx.runMutation(internal.bookings.markDepositReleased, { bookingId, kept, refunded, capturedFromHold, note: damageNote?.trim() });
     await ctx.runMutation(internal.bookings.recordLateFee, { bookingId, actualReturnedAt: returned, ...late, ...waiver });
-    return { ok: true, released: b.paymentIntentId ? toRefund : 0, kept, lateAmount: late.amount, alreadyReleased: false };
+    return { ok: true, released: refunded, kept, lateAmount: late.amount, alreadyReleased: false };
   },
 });
 
@@ -637,10 +608,13 @@ export const finalize = action({
   handler: async (
     ctx,
     { sessionId },
-  ): Promise<{ bookingId: string | null; paid: boolean; closed?: boolean; membership?: string; holdStatus?: string; holdClientSecret?: string }> => {
+  ): Promise<{ bookingId: string | null; paid: boolean; closed?: boolean; membership?: string; holdStatus?: string; holdClientSecret?: string;additionId?:string }> => {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
     const m = session.metadata ?? {};
     const paid = session.payment_status === "paid";
+
+    if(paid&&m.rentalAdditionId){const r=await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:m.rentalAdditionId as any,sessionId});return {bookingId:r.bookingId,paid,closed:r.closed,holdStatus:r.status,holdClientSecret:r.clientSecret,additionId:m.rentalAdditionId};}
+    if(paid&&m.pendingAdditionId){const r=await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:m.pendingAdditionId as any,sessionId});if(r.closed)return {bookingId:r.bookingId,paid,closed:true};}
 
     // membership subscription → activate the tier on the account
     if (paid && m.membershipTier) {
@@ -654,20 +628,14 @@ export const finalize = action({
 
     // add-on payment → attach to the existing booking
     if (paid && m.addonBookingId) {
-      await ctx.runMutation(internal.bookings.attachAddon, {
-        bookingId: m.addonBookingId as any,
-        listingId: m.addonListingId as any,
-        title: m.addonTitle ?? "Add-on",
-        start: Number(m.addonStart),
-        end: Number(m.addonEnd),
-        total: Number(m.addonTotal),
-      });
-      return { bookingId: m.addonBookingId as string, paid };
+      const result=await fulfillLegacyAddon(ctx,session);
+      return {bookingId:m.addonBookingId,paid,closed:result.closed};
     }
 
     // extend payment → apply the extra days to the targeted item(s)
     if (paid && m.changeRequestId) {
-      await ctx.runMutation(internal.changes._applyExtendPaid, { requestId: m.changeRequestId as any });
+      const result=await ctx.runMutation(internal.changes._applyExtendPaid, { requestId: m.changeRequestId as any });
+      if(result.closed&&session.payment_intent)await stripe().refunds.create({payment_intent:typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent.id},{idempotencyKey:`dbc-closed-change-${m.changeRequestId}`});
       return { bookingId: null, paid };
     }
 
@@ -680,7 +648,7 @@ export const finalize = action({
             ? session.payment_intent
             : undefined,
       });
-      if (confirmation.closed) return { bookingId, paid, closed: true };
+      if (confirmation.closed) {if(confirmation.duplicatePayment)await refundDuplicateCheckout(session);return { bookingId, paid, closed: true };}
       await ctx.runMutation(api.analytics.track, { type: "purchase" });
       const hold = await authorizeHold(ctx, session);
       return { bookingId, paid, holdStatus: hold.status, holdClientSecret: hold.clientSecret };
@@ -725,12 +693,14 @@ export const reconcilePendingPayments = internalAction({
           continue;
         }
         if (session.payment_status === "paid") {
+          if(session.metadata?.pendingAdditionId){const addition=await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:session.metadata.pendingAdditionId as any,sessionId:session.id});if(addition.closed){failures++;continue;}}
           const paymentIntentId = typeof session.payment_intent === "string"
             ? session.payment_intent : session.payment_intent?.id;
           const result = await ctx.runMutation(internal.bookings.confirm, {
             bookingId: booking.bookingId, paymentIntentId,
           });
           if (result.closed) {
+            if(result.duplicatePayment)await refundDuplicateCheckout(session);
             console.error("Paid checkout was already closed", booking.bookingId);
             failures++;
             continue;
@@ -740,7 +710,7 @@ export const reconcilePendingPayments = internalAction({
           catch (error) { console.error("Card hold authorization failed during reconciliation", error); }
           continue;
         }
-        if (session.status === "open" && booking.createdAt < now - 45 * 60 * 1000)
+        if (session.status === "open" && (session.created ? session.created * 1000 : booking.createdAt) < now - 45 * 60 * 1000)
           session = await sb.checkout.sessions.expire(session.id);
         if (session.status === "expired" && session.payment_status !== "paid" &&
             await ctx.runMutation(internal.bookings.expireUnpaidPending, {
@@ -799,25 +769,30 @@ export const stripeWebhook = internalAction({
       const m = s.metadata ?? {};
       const pi = typeof s.payment_intent === "string" ? s.payment_intent : undefined;
       if (s.payment_status === "paid") {
+        if(m.rentalAdditionId){await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:m.rentalAdditionId as any,sessionId:s.id});return true;}
+        if(m.pendingAdditionId){const r=await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:m.pendingAdditionId as any,sessionId:s.id});if(r.closed)return true;}
         if (m.bookingId) {
           const confirmation = await ctx.runMutation(internal.bookings.confirm, { bookingId: m.bookingId as any, paymentIntentId: pi });
-          if (confirmation.closed) return true;
+          if (confirmation.closed) {if(confirmation.duplicatePayment)await refundDuplicateCheckout(s);return true;}
           try { await authorizeHold(ctx, s); }
           catch (e) { console.error("Card hold authorization failed", e); }
         } else if (m.addonBookingId) {
-          await ctx.runMutation(internal.bookings.attachAddon, {
-            bookingId: m.addonBookingId as any, listingId: m.addonListingId as any,
-            title: m.addonTitle ?? "Add-on", start: Number(m.addonStart), end: Number(m.addonEnd), total: Number(m.addonTotal),
-          });
+          await fulfillLegacyAddon(ctx,s);
         } else if (m.membershipTier) {
           await ctx.runMutation(internal.accounts._setMembership, {
             email: m.accountEmail ?? "", tier: m.membershipTier,
             subscriptionId: typeof s.subscription === "string" ? s.subscription : undefined,
           });
         } else if (m.changeRequestId) {
-          await ctx.runMutation(internal.changes._applyExtendPaid, { requestId: m.changeRequestId as any });
+          const result=await ctx.runMutation(internal.changes._applyExtendPaid, { requestId: m.changeRequestId as any });
+          if(result.closed&&pi)await stripe().refunds.create({payment_intent:pi},{idempotencyKey:`dbc-closed-change-${m.changeRequestId}`});
         }
       }
+    }
+    if (["refund.created","refund.updated","refund.failed"].includes(event.type)) {
+      const refund=event.data.object as Stripe.Refund;
+      const id=refund.metadata?.rentalRefundId;
+      if(id)await ctx.runMutation(refund.metadata?.rentalPaymentIntent?internal.rentalOperations.recordRefundPart:internal.rentalOperations.recordRefund,{id:id as any,...(refund.metadata?.rentalPaymentIntent?{paymentIntentId:refund.metadata.rentalPaymentIntent}:{}),stripeRefundId:refund.id,status:refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending"});
     }
     // Subscription lifecycle → keep membership perks honest (perks everywhere gate on membershipActive).
     if (event.type === "customer.subscription.deleted") {
@@ -904,82 +879,86 @@ async function paymentBeforeCancellation(b: any): Promise<string | null> {
   throw new Error("Checkout payment is still processing. Contact support before cancelling.");
 }
 
+async function remainingCancellationPayment(payment: Stripe.PaymentIntent) {
+  let refunded = 0;
+  for await (const refund of stripe().refunds.list({payment_intent:payment.id,limit:100})) {
+    if(refund.status!=="failed"&&refund.status!=="canceled")refunded+=refund.amount;
+  }
+  return Math.max(0,payment.amount_received-refunded);
+}
+
+async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReason?:string){
+ const decision=await ctx.runMutation(internal.bookings.prepareCancellation,{bookingId});
+ let quote=decision.quote;
+ if(!quote){
+  const paidIntentId=await paymentBeforeCancellation(b);
+  let mode:"none"|"refund"|"credit"="none",refundAmount=0,creditAmount=0,allocations:any[]=[];
+  if(paidIntentId){
+   const sources=b.paymentSources?.length?b.paymentSources:[{paymentIntentId:paidIntentId,securityPence:pence(b.depositAmount)}];
+   const balances=await Promise.all(sources.map(async(source:any)=>({...source,availablePence:await remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId))})));
+   const settlement=cancellationPaymentPlan(decision.kind,balances,b.status==="confirmed"?pence(b.creditApplied??0):0);
+   allocations=settlement.allocations;
+   mode=decision.kind==="full_refund"?"refund":"credit";refundAmount=settlement.refundPence/100;creditAmount=settlement.creditPence/100;
+   if(creditAmount>0&&!accountId)throw Error("The renter needs an account with their booking email before account credit can be issued. Resume this cancellation after account creation.");
+  }
+  quote=await ctx.runMutation(internal.bookings.recordCancellationQuote,{bookingId,quote:{mode,refundAmount,creditAmount,paymentIntentId:paidIntentId??undefined,allocations}});
+ }
+ for(const allocation of quote.allocations??(quote.paymentIntentId&&quote.refundAmount>0?[{paymentIntentId:quote.paymentIntentId,amountPence:pence(quote.refundAmount)}]:[]))await stripe().refunds.create({payment_intent:allocation.paymentIntentId,amount:allocation.amountPence},{idempotencyKey:allocation.paymentIntentId===quote.paymentIntentId?`dbc-cancel-refund-${bookingId}`:`dbc-cancel-refund-${bookingId}-${allocation.paymentIntentId}`});
+ await releaseBookingHolds(ctx,bookingId,b);
+ await ctx.runMutation(internal.bookings._finalizeCancellation,{bookingId,accountId,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount,currency:b.currency,adminReason});
+ return {ok:true,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount};
+}
 export const cancelByAdmin = action({
-  args: { token: v.string(), bookingId: v.id("bookings"), reason: v.string() },
-  handler: async (ctx, { token, bookingId, reason }): Promise<{ refundAmount: number }> => {
-    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.cancelByAdmin" });
-    if (reason.trim().length < 5) throw new Error("Record the cancellation reason.");
-    const b: any = await ctx.runQuery(internal.bookings.getForCancel, { bookingId });
-    if (!b || !["confirmed", "pending_payment"].includes(b.status) || !b.siteOnly)
-      throw new Error("Only unstarted direct bookings can be cancelled here.");
-    const paidIntentId = await paymentBeforeCancellation(b);
-    let refundAmount = 0;
-    let creditAmount = 0;
-    if (paidIntentId) {
-      const payment = await stripe().paymentIntents.retrieve(paidIntentId);
-      const settlement = cancellationSettlement(
-        "full_refund", payment.amount_received, pence(b.depositAmount),
-        pence(b.creditApplied ?? 0), b.status === "confirmed",
-      );
-      refundAmount = settlement.refundPence / 100;
-      creditAmount = settlement.creditPence / 100;
-      if (settlement.refundPence > 0) await stripe().refunds.create(
-        { payment_intent: payment.id, amount: payment.amount_received },
-        { idempotencyKey: `dbc-admin-cancel-refund-${bookingId}` },
-      );
-    }
-    await releaseBookingHolds(ctx, bookingId, b);
-    await ctx.runMutation(internal.bookings._finalizeCancellation, {
-      bookingId, accountId: b.accountId ?? undefined, mode: paidIntentId ? "refund" : "none",
-      refundAmount, creditAmount, currency: b.currency, adminReason: reason.trim().slice(0, 400),
-    });
-    return { refundAmount };
-  },
+ args:{token:v.string(),bookingId:v.id("bookings"),reason:v.string()},
+ handler:async(ctx,{token,bookingId,reason}):Promise<{refundAmount:number;creditAmount:number;mode:string}>=>{
+  await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"checkout.cancelByAdmin"});
+  if(reason.trim().length<5)throw Error("Record the cancellation reason");
+  const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
+  if(!b||!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Only unstarted direct bookings can be cancelled here");
+  return cancelRental(ctx,bookingId,b,b.accountId??undefined,reason.trim().slice(0,400));
+ }
+});
+/** Abandoning an unpaid checkout remains available without enabling paid self-service actions. */
+export const cancelUnpaidByCustomer = action({
+ args:{token:v.string(),bookingId:v.id("bookings")},
+ handler:async(ctx,{token,bookingId}):Promise<{ok:boolean;mode:string;refundAmount:number;creditAmount:number}>=>{
+  const me:any=await ctx.runQuery(api.accounts.me,{token});if(!me)throw Error("Please sign in.");
+  const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
+  if(!b||(b.guestEmail??"").trim().toLowerCase()!==me.email.trim().toLowerCase())throw Error("unauthorized");
+  if(b.status!=="pending_payment"||!b.siteOnly)throw Error("Only unpaid direct checkouts can be abandoned here.");
+  return cancelRental(ctx,bookingId,b,me._id);
+ }
+});
+export const cancelByCustomer = action({
+ args:{token:v.string(),bookingId:v.id("bookings")},
+ handler:async(ctx,{token,bookingId}):Promise<{ok:boolean;mode:string;refundAmount:number;creditAmount:number}>=>{
+  if(process.env.CUSTOMER_BOOKING_ACTIONS!=="true")throw Error("Online cancellation isn't available yet — please contact us to cancel.");
+  const me:any=await ctx.runQuery(api.accounts.me,{token});if(!me)throw Error("Please sign in.");
+  const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
+  if(!b||b.guestEmail!==me.email)throw Error("unauthorized");
+  if(b.cancelledAt||b.status==="cancelled")throw Error("This booking is already cancelled.");
+  if(!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Please contact us to change this booking.");
+  return cancelRental(ctx,bookingId,b,me._id);
+ }
 });
 
-export const cancelByCustomer = action({
-  args: { token: v.string(), bookingId: v.id("bookings") },
-  handler: async (ctx, { token, bookingId }): Promise<{ ok: boolean; mode: string; refundAmount: number; creditAmount: number }> => {
-    if (process.env.CUSTOMER_BOOKING_ACTIONS !== "true")
-      throw new Error("Online cancellation isn't available yet — please contact us to cancel.");
-    const me: any = await ctx.runQuery(api.accounts.me, { token });
-    if (!me) throw new Error("Please sign in.");
-    const b: any = await ctx.runQuery(internal.bookings.getForCancel, { bookingId });
-    if (!b || b.guestEmail !== me.email) throw new Error("unauthorized");
-    if (b.cancelledAt || b.status === "cancelled") throw new Error("This booking is already cancelled.");
-    if (!["confirmed", "pending_payment"].includes(b.status))
-      throw new Error("This booking can no longer be cancelled online — please contact us.");
-    if (!b.siteOnly) throw new Error("Please contact us to change this booking.");
-
-    const paidIntentId = await paymentBeforeCancellation(b);
-
-    let mode: "none" | "refund" | "credit" = "none";
-    let refundAmount = 0;
-    let creditAmount = 0;
-    // only refund / issue store credit for a booking that was GENUINELY paid through Stripe —
-    // a confirmed booking with no payment intent (e.g. admin-confirmed, £0) yields no credit.
-    if (paidIntentId) {
-      const kind = b.earliestStart != null ? cancelKind(b.earliestStart, Date.now()) : "store_credit";
-      mode = kind === "full_refund" ? "refund" : "credit";
-      const payment = await stripe().paymentIntents.retrieve(paidIntentId);
-      const settlement = cancellationSettlement(
-        kind, payment.amount_received, pence(b.depositAmount),
-        pence(b.creditApplied ?? 0), b.status === "confirmed",
-      );
-      refundAmount = settlement.refundPence / 100;
-      creditAmount = settlement.creditPence / 100;
-      if (settlement.refundPence > 0) {
-        // idempotency key → Stripe dedupes a double-click so a cancellation can never double-refund
-        await stripe().refunds.create(
-          { payment_intent: paidIntentId, amount: settlement.refundPence },
-          { idempotencyKey: `dbc-cancel-refund-${bookingId}` },
-        );
-      }
-    }
-    await releaseBookingHolds(ctx, bookingId, b);
-    await ctx.runMutation(internal.bookings._finalizeCancellation, {
-      bookingId, accountId: me._id, mode, refundAmount, creditAmount, currency: b.currency,
-    });
-    return { ok: true, mode, refundAmount, creditAmount };
-  },
+/** Owner-only, durable and idempotent rental refund. Security is handled by return/cancel. */
+export const refundRental=action({
+ args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.optional(v.number()),reason:v.string()},
+ handler:async(ctx,args):Promise<{status:string;amount:number}>=>{
+  const job:any=await ctx.runMutation(internal.rentalOperations.prepareRefund,args);
+  if(job.status==="succeeded"||job.status==="failed")return {status:job.status,amount:job.amountPence/100};
+  // Resume receipts produced by the previous single-payment implementation without charging again.
+  if(job.stripeRefundId&&!job.allocations){
+   const refund=await stripe().refunds.retrieve(job.stripeRefundId);
+   const status=refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending";
+   await ctx.runMutation(internal.rentalOperations.recordRefund,{id:job._id,stripeRefundId:refund.id,status});
+   return {status,amount:job.amountPence/100};
+  }
+  let allocations=job.allocations;
+  if(!allocations){const sources=await ctx.runQuery(internal.rentalOperations.paymentSources,{bookingId:args.bookingId});const balances=await Promise.all(sources.map(async(source:any)=>({...source,availablePence:await remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId))})));allocations=await ctx.runMutation(internal.rentalOperations.bindRefundAllocations,{id:job._id,allocations:rentalRefundPlan(balances,job.amountPence)});}
+  let status="succeeded";
+  for(const allocation of allocations){const part=job.parts?.find((p:any)=>p.paymentIntentId===allocation.paymentIntentId);const refund=part?.stripeRefundId?await stripe().refunds.retrieve(part.stripeRefundId):await stripe().refunds.create({payment_intent:allocation.paymentIntentId,amount:allocation.amountPence,metadata:{rentalRefundId:job._id,rentalPaymentIntent:allocation.paymentIntentId,bookingId:args.bookingId}}, {idempotencyKey:allocation.paymentIntentId===allocations[0].paymentIntentId?`dbc-rental-refund-${job._id}`:`dbc-rental-refund-${job._id}-${allocation.paymentIntentId}`});const result=refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending";if(result!=="succeeded")status=result;await ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:job._id,paymentIntentId:allocation.paymentIntentId,stripeRefundId:refund.id,status:result});}
+  return {status,amount:job.amountPence/100};
+ }
 });

@@ -314,8 +314,11 @@ export const sendReminders = internalAction({
 
 /** Forward a renter chat message to the owner/bot via Telegram. */
 export const renterChat = internalAction({
-  args: { email: v.string(), text: v.string() },
-  handler: async (_ctx, { email, text }) => {
-    await telegram(`💬 <b>Renter message</b>\nFrom: ${email}\n\n${text}`);
+  args: { email: v.string(), text: v.string(),bookingId:v.optional(v.id("bookings")) },
+  handler: async (ctx, { email, text,bookingId }) => {
+    const booking=bookingId?await ctx.runQuery(api.bookings.get,{bookingId}):null;
+    const esc=(text:string)=>text.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]!);
+    const origin=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
+    await telegram(`💬 <b>Renter message</b>\nFrom: ${esc(email)}${booking?`\n${esc(booking.status)}`:""}\n\n${esc(text)}\n\n<a href="${origin}/admin${bookingId?`?rental=${bookingId}`:""}#messages">Open conversation</a>`);
   },
 });

@@ -1,3 +1,7 @@
+import { assertRentalInventory } from "./lib/rentalInventory";
+import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
+import { rentalPaymentSources } from "./lib/rentalPaymentSources";
+import { postRentalMessage } from "./lib/rentalChat";
 import {
   internalMutation,
   internalQuery,
@@ -8,7 +12,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { peak, type Iv } from "./availability";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
-import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
+import { cancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 
 const lineItem = v.object({
   listingId: v.id("listings"),
@@ -254,7 +258,7 @@ export const expireUnpaidPending = internalMutation({
   args: { bookingId: v.id("bookings"), sessionId: v.optional(v.string()) },
   handler: async (ctx, { bookingId, sessionId }) => {
     const booking = await ctx.db.get(bookingId);
-    if (!booking || booking.status !== "pending_payment" ||
+    if (!booking || booking.activeAdditionId || booking.status !== "pending_payment" ||
         (booking.stripeCheckoutSessionId ?? undefined) !== sessionId) return false;
     const res = await ctx.db.query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId)).collect();
@@ -269,9 +273,10 @@ export const confirm = internalMutation({
   handler: async (ctx, { bookingId, paymentIntentId }) => {
     const booking = await ctx.db.get(bookingId);
     if (!booking) throw new Error("booking not found");
-    if (booking.status === "cancelled" || booking.status === "returned")
-      return { closed: true };
+    if (booking.cancellationDecision || booking.status === "cancelled" || booking.status === "returned")
+      return { closed: true, duplicatePayment: false };
     if (booking.status === "confirmed" || booking.status === "active") {
+      if(paymentIntentId&&booking.stripePaymentIntentId&&paymentIntentId!==booking.stripePaymentIntentId)return {closed:true,duplicatePayment:true};
       return { already: true };
     }
     // clear this booking's soft holds before writing the real reservations
@@ -376,53 +381,27 @@ export const getForChat = internalQuery({
 });
 
 /** Attach a paid add-on to an existing booking (instant upsell checkout). */
+/** Backwards-compatible fulfilment for sessions created before owner-only proposals. */
 export const attachAddon = internalMutation({
-  args: {
-    bookingId: v.id("bookings"),
-    listingId: v.id("listings"),
-    title: v.string(),
-    start: v.number(),
-    end: v.number(),
-    total: v.number(),
-  },
-  handler: async (ctx, { bookingId, listingId, title, start, end, total }) => {
-    const b = await ctx.db.get(bookingId);
-    if (!b) return;
-    await ctx.db.patch(bookingId, {
-      lineItems: [...b.lineItems, { listingId, title, start, end, qty: 1, lineTotal: total }],
-      total: b.total + total,
-    });
-    const listing = await ctx.db.get(listingId);
-    if (listing)
-      for (const comp of listing.components) {
-        await ctx.db.insert("reservations", {
-          inventoryUnitId: comp.inventoryUnitId,
-          listingId,
-          bookingId,
-          start,
-          end,
-          qty: comp.qty,
-          source: "site",
-          status: "confirmed",
-        });
-      }
-    const acct = await ctx.db
-      .query("accounts")
-      .withIndex("by_email", (q) => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()))
-      .first();
-    if (acct)
-      await ctx.db.insert("messages", {
-        accountId: acct._id,
-        bookingId,
-        sender: "system",
-        text: `Added to your rental: ${title} ✓`,
-        at: Date.now(),
-        readByOwner: true,
-      });
-    // Status is unchanged, but lineItems/total moved — RMv2's availability and
-    // revenue both read those, so this still needs to sync.
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
-  },
+ args:{bookingId:v.id("bookings"),listingId:v.id("listings"),title:v.string(),start:v.number(),end:v.number(),total:v.number(),sessionId:v.string(),paymentIntentId:v.string()},
+ handler:async(ctx,a)=>{
+  const prior=await ctx.db.query("rental_additions").withIndex("by_session",q=>q.eq("sessionId",a.sessionId)).first();
+  if(prior)return {closed:prior.status!=="applied",already:true};
+  const b=await ctx.db.get(a.bookingId);
+  if(!b||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||b.activeAdditionId)return {closed:true};
+  const listing=await ctx.db.get(a.listingId);if(!listing)return {closed:true};
+  const line={listingId:a.listingId,title:listing.title,start:a.start,end:a.end,qty:1,lineTotal:a.total,dailyRate:listing.pricing.daily};
+  if(!Number.isFinite(a.total)||a.total<=0||a.start%86400000!==0||a.end%86400000!==0)return {closed:true};
+  try{await assertRentalInventory(ctx,[...b.lineItems,line],b._id);}catch{return {closed:true};}
+  const now=Date.now();
+  await ctx.db.insert("rental_additions",{...line,bookingId:b._id,requestId:`legacy-${a.sessionId}`,securityCharge:0,holdTotal:b.depositHoldAmount??0,status:"applied",reason:"Legacy paid item addition",createdAt:now,updatedAt:now,sessionId:a.sessionId,paymentIntentId:a.paymentIntentId});
+  await ctx.db.patch(b._id,{lineItems:[...b.lineItems,line],subtotal:b.subtotal+a.total,total:b.total+a.total});
+  for(const comp of listing.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:a.listingId,bookingId:b._id,start:a.start,end:a.end,qty:comp.qty,source:"site",status:b.status==="active"?"active":"confirmed"});
+  const account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",(b.guestEmail??"").trim().toLowerCase())).first();
+  if(account)await postRentalMessage(ctx,{accountId:account._id,bookingId:b._id,sender:"system",text:`Added to your rental: ${listing.title}. Rental charge £${a.total.toFixed(2)}.`});
+  await ctx.scheduler.runAfter(0,internal.rmv2_webhook.push,{bookingId:b._id});
+  return {closed:false};
+ }
 });
 
 export const adminList = query({
@@ -489,11 +468,14 @@ export const adminSetStatus = mutation({
     await assertAdmin(ctx, token, "bookings.adminSetStatus");
     const booking = await ctx.db.get(bookingId);
     if (!booking) throw new Error("Booking not found");
+    if(booking.returnDecision)throw Error("Return settlement is in progress; finish it before changing this rental.");
+    if(booking.activeAdditionId)throw Error("Finish or withdraw the item addition before handover.");
+    if(booking.cancellationDecision)throw Error("Cancellation is in progress; resume its settlement before changing this rental.");
     if (["cancelled", "returned"].includes(booking.status) && booking.status !== status)
       throw new Error("A closed booking cannot be reopened by changing its status.");
-    if (booking.status === "pending_payment" && status === "confirmed")
+    if (booking.status === "pending_payment")
       throw new Error("Payment must be confirmed by Stripe before this booking is confirmed.");
-    if (status === "active" && booking.verificationProvider === "didit" && booking.idVerifyStatus !== "verified")
+    if (status === "active" && booking.idVerifyStatus !== "verified")
       throw new Error("Identity and address verification must be approved before handover.");
     if (status === "active" && booking.depositHoldAmount &&
         (booking.depositHoldStatus !== "held" || (booking.depositHoldExpiresAt ?? 0) <= Date.now()))
@@ -509,6 +491,7 @@ export const getForRefund = internalQuery({
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     return {
+      paymentSources:await rentalPaymentSources(ctx,b),
       paymentIntentId: b.stripePaymentIntentId ?? null,
       depositAmount: b.depositAmount,
       depositHoldAmount: b.depositHoldAmount ?? 0,
@@ -532,6 +515,10 @@ export const beginReturnDecision = internalMutation({
   handler: async (ctx, { bookingId, actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active", "returned"].includes(b.status)) throw new Error("Booking is not available for return.");
+    if(b.activeAdditionId)throw Error("Finish or withdraw the item addition before returning this rental");
+    if(b.cancellationDecision)throw Error("Cancellation settlement is in progress; resume it first.");
+    const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+    if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("Wait for the rental refund to settle before recording the return.");
     const saved = b.returnDecision;
     if (saved) {
       if (saved.actualReturnedAt !== actualReturnedAt || saved.damageKept !== damageKept ||
@@ -624,7 +611,7 @@ export const claimRenewal = internalMutation({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     const now = Date.now();
-    if (!b || !["confirmed", "active"].includes(b.status) || !b.depositHoldAmount || b.depositHoldStatus !== "held" || !b.stripeDepositIntentId ||
+    if (!b || b.activeAdditionId || b.cancellationDecision || b.returnDecision || !["confirmed", "active"].includes(b.status) || !b.depositHoldAmount || b.depositHoldStatus !== "held" || !b.stripeDepositIntentId ||
       (b.depositHoldExpiresAt ?? 0) > now + 24 * 3600000 ||
       ["requires_action", "failed"].includes(b.depositHoldRenewalStatus ?? "") ||
       (b.depositHoldRenewalStatus === "starting" && (b.depositHoldRenewalAt ?? now) > now - 15 * 60000)) return false;
@@ -711,6 +698,7 @@ export const recordLateFee = internalMutation({
       lateFeeStatus: amount > 0 ? "notice_pending" : waivedAmount ? "waived" : "none",
     });
     const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
+    const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     const issuedAt = Date.now();
     await ctx.db.patch(bookingId, {
       returnStatement: {
@@ -723,7 +711,7 @@ export const recordLateFee = internalMutation({
         billingAddress: b.billingAddress ?? b.address,
         lineItems: b.lineItems.map((line) => ({ title: line.title, start: line.start, end: line.end, qty: line.qty, lineTotal: line.lineTotal })),
         subtotal: b.subtotal, discount: b.discount ?? 0, deliveryFee: b.deliveryFee ?? 0,
-        creditApplied: b.creditApplied ?? 0, checkoutPaid: b.total,
+        creditApplied: b.creditApplied ?? 0, checkoutPaid: b.total, rentalRefunded:confirmedRentalRefundPence(refundJobs)/100,
         securityPaid: b.depositAmount, securityRefunded: b.depositRefundAmount ?? 0,
         holdStatus: b.depositHoldStatus,
         damageTotal: b.depositKept ?? 0, damageFromHold: b.depositHoldCapturedForDamage ?? 0,
@@ -1013,7 +1001,11 @@ export const invoiceData = query({
     }
     if (!ok) return null;
     const customer: any = b.customerId ? await ctx.db.get(b.customerId) : null;
+    const rentalRefunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+    const issuedCredit=b.creditIssuedId?await ctx.db.get(b.creditIssuedId):null;
     return {
+      rentalRefunds:rentalRefunds.map(r=>({amount:r.amountPence/100,status:r.status,reason:r.reason})),
+      cancellationRefund:b.refundAmount??0,accountCreditIssued:issuedCredit?.amount??0,
       number: `DBC-${String(b._id).slice(-8).toUpperCase()}`,
       issuedAt: b._creationTime,
       supplierName: process.env.BUSINESS_LEGAL_NAME || "Db Cinema Rentals",
@@ -1032,7 +1024,7 @@ export const invoiceData = query({
       depositAmount: b.depositAmount,
       total: b.total,
       promoCode: b.promoCode ?? null,
-      returnStatement: b.returnStatement ?? null,
+      returnStatement: b.returnStatement ? {...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(rentalRefunds)/100} : null,
     };
   },
 });
@@ -1041,7 +1033,9 @@ export const returnStatementContext = internalQuery({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
-    return b?.returnStatement ? { statement: b.returnStatement, status: b.returnStatementEmailStatus ?? "pending" } : null;
+    if(!b?.returnStatement)return null;
+    const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+    return {statement:{...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(refundJobs)/100},status:b.returnStatementEmailStatus??"pending"};
   },
 });
 
@@ -1304,7 +1298,11 @@ export const getForCancel = internalQuery({
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
       .collect();
+    const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+    if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("A rental refund is still processing. Wait for settlement before cancellation.");
     return {
+      paymentSources:await rentalPaymentSources(ctx,b),
+      cancellationDecision:b.cancellationDecision??null,
       accountId: acct?._id ?? null,
       guestEmail: (b.guestEmail ?? "").trim().toLowerCase(),
       status: b.status,
@@ -1312,6 +1310,7 @@ export const getForCancel = internalQuery({
       total: b.total,
       creditApplied: b.creditApplied ?? 0,
       depositAmount: b.depositAmount,
+      depositRefundAmount:b.depositRefundAmount??0,
       currency: b.currency ?? "GBP",
       stripePaymentIntentId: b.stripePaymentIntentId ?? null,
       stripeDepositIntentId: b.stripeDepositIntentId ?? null,
@@ -1323,6 +1322,21 @@ export const getForCancel = internalQuery({
     };
   },
 });
+
+/** Freeze cancellation policy and order edits before any external payment call. */
+export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
+ const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if(b?.activeAdditionId)throw Error("Finish or withdraw the item addition before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
+ if(b.cancellationDecision)return b.cancellationDecision;
+ const jobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+ if(jobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("A refund is still processing");
+ const kind=cancelKind(Math.min(...b.lineItems.map(li=>li.start)),Date.now());
+ const decision={kind,createdAt:Date.now()};await ctx.db.patch(bookingId,{cancellationDecision:decision});return decision;
+}});
+export const recordCancellationQuote=internalMutation({args:{bookingId:v.id("bookings"),quote:v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})},handler:async(ctx,{bookingId,quote})=>{
+ const b=await ctx.db.get(bookingId);if(!b?.cancellationDecision)throw Error("Cancellation has not been prepared");
+ if(b.cancellationDecision.quote)return b.cancellationDecision.quote;
+ await ctx.db.patch(bookingId,{cancellationDecision:{...b.cancellationDecision,quote}});return quote;
+}});
 
 /** Atomically finalise a cancellation: flip status, free the ledger, issue store credit if late,
  *  post a chat note, schedule the email. Idempotent (no-op if already cancelled). The Stripe
@@ -1379,7 +1393,7 @@ export const _finalizeCancellation = internalMutation({
           : mode === "refund"
             ? `Your booking was cancelled. £${refundAmount} is being returned to your card.${creditAmount > 0 ? ` £${creditAmount} of previously used credit has been restored to your account for ${CANCELLATION_CREDIT_DAYS} days.` : ""}`
             : `Your booking was cancelled.`;
-      await ctx.db.insert("messages", { accountId, bookingId, sender: "system", text: note, at: Date.now(), readByOwner: true });
+      await postRentalMessage(ctx,{accountId,bookingId,sender:"system",text:note});
     }
     await ctx.scheduler.runAfter(0, internal.notify.cancellationEmail, { bookingId, mode, refundAmount, creditAmount });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });

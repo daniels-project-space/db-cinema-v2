@@ -84,7 +84,7 @@ export const renewOne = internalAction({
       try {
         next = await sb.paymentIntents.create({
           amount: Math.round(b.amount * 100), currency: "gbp", customer,
-          payment_method: method, payment_method_types: ["card"],
+          payment_method: method, allowed_payment_method_types: ["card"],
           capture_method: "manual", confirm: true, off_session: true,
           ...(process.env.STRIPE_EXTENDED_AUTH_ENABLED === "true"
             ? { payment_method_options: { card: { request_extended_authorization: "if_available" as const } } }

@@ -192,7 +192,7 @@ export const collectOne = internalAction({
         if (!customer || !method) throw new Error("Saved card unavailable");
         const intent = await stripe.paymentIntents.create({
           amount: Math.round(remainder * 100), currency: "gbp", customer,
-          payment_method: method, payment_method_types: ["card"],
+          payment_method: method, allowed_payment_method_types: ["card"],
           confirm: true, off_session: true,
           metadata: { bookingId, purpose: "late_rental_time_separate_charge", holdApplied: String(paidFromHold) },
           description: `Late rental time for booking ${bookingId}`,

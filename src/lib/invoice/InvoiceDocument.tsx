@@ -20,6 +20,8 @@ export type InvoiceData = {
   total: number;
   promoCode: string | null;
   returnStatement?: ReturnStatementData | null;
+  rentalRefunds?:{amount:number;status:string;reason:string}[];
+  cancellationRefund?:number;accountCreditIssued?:number;
 };
 
 export type ReturnStatementData = {
@@ -29,7 +31,7 @@ export type ReturnStatementData = {
   customerName?: string; customerEmail: string; billingAddress?: string;
   lineItems: { title: string; start: number; end: number; qty: number; lineTotal: number }[];
   subtotal: number; discount: number; deliveryFee: number; creditApplied: number;
-  checkoutPaid: number; securityPaid: number; securityRefunded: number;
+  checkoutPaid: number; rentalRefunded?:number; securityPaid: number; securityRefunded: number;
   holdStatus?: string; damageTotal: number; damageFromHold: number; damageNote?: string;
   lateAssessed: number; lateWaived: number;
   lateBreakdown: { title: string; days: number; dailyRate: number; amount: number }[];
@@ -135,6 +137,9 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
           {data.depositAmount > 0 ? (
             <Text style={s.note}>Includes {gbp(data.depositAmount)} refundable deposit, returned after the gear is back in good condition.</Text>
           ) : null}
+          {data.rentalRefunds?.map((r,i)=><View key={i} style={s.totRow}><Text>Rental refund ({r.status})</Text><Text>{gbp(r.amount)}</Text></View>)}
+          {(data.cancellationRefund??0)>0&&<View style={s.totRow}><Text>Cancellation card refund</Text><Text>{gbp(data.cancellationRefund!)}</Text></View>}
+          {(data.accountCreditIssued??0)>0&&<View style={s.totRow}><Text>Account credit issued · 90 days</Text><Text>{gbp(data.accountCreditIssued!)}</Text></View>}
           <Text style={s.note}>Db Cinema Rentals is not VAT registered. No VAT is charged. This receipt is not a VAT invoice.</Text>
         </View>
 
@@ -150,7 +155,7 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
 export function ReturnStatementDocument({ data }: { data: ReturnStatementData }) {
   const rentalGross = data.subtotal - data.discount + data.deliveryFee;
   const damageFromPayment = Math.max(0, data.damageTotal - data.damageFromHold);
-  const netCardPaid = data.checkoutPaid - data.securityRefunded + data.damageFromHold;
+  const netCardPaid = data.checkoutPaid - data.securityRefunded - (data.rentalRefunded??0) + data.damageFromHold;
   return <Document title={`Db Cinema Return Statement ${data.number}`}>
     <Page size="A4" style={s.page}>
       <View style={s.topbar} />
@@ -183,11 +188,12 @@ export function ReturnStatementDocument({ data }: { data: ReturnStatementData })
         {data.creditApplied > 0 ? <View style={s.totRow}><Text>Store credit used</Text><Text>−{gbp(data.creditApplied)}</Text></View> : null}
         <View style={s.totRow}><Text>Refundable security payment taken</Text><Text>{gbp(data.securityPaid)}</Text></View>
         <View style={s.totRow}><Text>Card charged at checkout</Text><Text>{gbp(data.checkoutPaid)}</Text></View>
+        {(data.rentalRefunded??0)>0&&<View style={s.totRow}><Text>Rental payment already refunded</Text><Text>−{gbp(data.rentalRefunded!)}</Text></View>}
         <View style={s.totRow}><Text>Security payment refunded at return</Text><Text>−{gbp(data.securityRefunded)}</Text></View>
         {data.damageTotal > 0 ? <View style={s.totRow}><Text>Documented damage/loss retained</Text><Text>{gbp(data.damageTotal)}</Text></View> : null}
         {data.damageTotal > 0 ? <Text style={s.note}>Damage paid from authorised hold: {gbp(data.damageFromHold)}. From refundable security payment: {gbp(damageFromPayment)}. These are parts of the same deduction.</Text> : null}
         <View style={s.grand}><Text style={s.grandTxt}>Net card paid after return</Text><Text style={s.grandTxt}>{gbp(netCardPaid)}</Text></View>
-        <Text style={s.note}>Checkout card charge, less the security refund, plus any hold captured for damage. Store credit used: {gbp(data.creditApplied)}. Separate late time is excluded and may be collected later.</Text>
+        <Text style={s.note}>All rental card charges, less confirmed rental and security refunds, plus any hold captured for damage. Store credit used: {gbp(data.creditApplied)}. Separate late time is excluded and may be collected later.</Text>
         {data.damageNote ? <Text style={s.note}>Damage/loss detail: {data.damageNote}</Text> : null}
         {data.lateAssessed > 0 ? <Text style={s.note}>Separate late rental time assessed: {gbp(data.lateAssessed)}. Pending itemised notice, seven-day dispute period and later collection; it is not included in the checkout payment or damage deduction.</Text> : null}
         {data.agreedReturnTime ? <Text style={s.note}>Agreed item return slot: {data.agreedReturnTime} London time on each booked end date. Actual return: {dateTime(data.actualReturnedAt)} London time.</Text> : null}

@@ -16,7 +16,7 @@ function dayRange(startMs: number, endMs: number): string[] {
   return out;
 }
 
-function blockedSet(raw: string[]): Set<string> {
+export function blockedSet(raw: string[]): Set<string> {
   const set = new Set<string>();
   for (const entry of raw) {
     if (/^\d{4}-\d{2}-\d{2}/.test(entry)) {

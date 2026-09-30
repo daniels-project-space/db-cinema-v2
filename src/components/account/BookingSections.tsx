@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo,useState } from "react";
 import Link from "next/link";
 import { BookingTile } from "@/components/account/BookingTile";
 import {
@@ -20,6 +20,7 @@ export function BookingSections({
   token: string;
   onOpenChat?: (bookingId?: string) => void;
 }) {
+  const [selected,setSelected]=useState<BookingGroup|null>(null);
   const grouped = useMemo(() => {
     const g: Record<BookingGroup, EnrichedBooking[]> = { pending: [], active: [], upcoming: [], past: [] };
     for (const b of bookings ?? []) g[groupOf(b)].push(b);
@@ -42,9 +43,12 @@ export function BookingSections({
       </div>
     );
 
+  const stage=selected??(["active","upcoming","pending","past"] as BookingGroup[]).find(key=>grouped[key].length)??"upcoming";
   return (
-    <div className="flex flex-col gap-8">
-      {GROUP_ORDER.map((key) => {
+    <div className="flex flex-col gap-5">
+      <div className="flex gap-2 overflow-x-auto pb-1">{GROUP_ORDER.map(key=><button key={key} onClick={()=>setSelected(key)} className={`whitespace-nowrap rounded-full px-4 py-2 text-xs ${stage===key?"bg-white text-black":"border border-white/10 text-white/45"}`}>{GROUP_META[key].label}<span className="ml-2 opacity-50">{grouped[key].length}</span></button>)}</div>
+      {!grouped[stage].length&&<p className="py-8 text-center text-sm text-white/40">No rentals in this stage.</p>}
+      {GROUP_ORDER.filter(key=>key===stage).map((key) => {
         const list = grouped[key];
         if (!list.length) return null;
         const meta = GROUP_META[key];

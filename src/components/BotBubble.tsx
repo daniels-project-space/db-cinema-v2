@@ -1,10 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
-import { IconSliders, IconX, IconSend, IconTrash, IconCheck, IconArrowRight } from "@/components/icons";
-import { useAction } from "convex/react";
-import { api } from "@cvx/_generated/api";
+import {
+  IconSliders,
+  IconX,
+  IconSend,
+  IconTrash,
+  IconCheck,
+  IconArrowRight,
+} from "@/components/icons";
 import { useAccount } from "@/components/account/AccountProvider";
 import { useCart } from "@/components/cart/CartProvider";
 import { BotAvatar, BotAvatarBadge } from "@/components/chat/BotAvatar";
@@ -14,10 +20,22 @@ import { GafferCall } from "@/components/GafferCall";
 import { useGafferSession } from "@/components/gaffer/GafferSession";
 
 type Card = any;
-type Msg = { role: "user" | "assistant"; content: string; cards?: Card[]; suggestions?: string[] };
+type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  cards?: Card[];
+  suggestions?: string[];
+};
 const GREETING =
   "Hi! I'm **Gaffer**, the Db Cinema kit assistant. Tell me what you're shooting and your dates and I'll build your kit — or ask me anything about gear, prices and availability.";
-const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding"];
+const SHOOTS = [
+  "Interview",
+  "Music video",
+  "Documentary",
+  "Event",
+  "Product",
+  "Wedding",
+];
 const SIZES = ["Solo", "Small crew", "Large production"];
 const IDLE_CHIPS = [
   "Build me a kit",
@@ -27,10 +45,17 @@ const IDLE_CHIPS = [
 ];
 
 export function BotBubble() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   // While a voice call is running this launcher stops being a chat button and
   // becomes the call's handle — see the launcher markup below.
-  const { state: callState, speaking: gafferSpeaking, secs, dockOpen, setDockOpen } = useGafferSession();
+  const {
+    state: callState,
+    speaking: gafferSpeaking,
+    secs,
+    dockOpen,
+    setDockOpen,
+  } = useGafferSession();
   const onCall = callState === "live" || callState === "connecting";
 
   // The call panel and the chat panel both sit at bottom-24 right-5, so they'd
@@ -45,33 +70,21 @@ export function BotBubble() {
   const [talkingIdx, setTalkingIdx] = useState<number | null>(null);
   const [done, setDone] = useState<Record<string, "added" | "declined">>({});
   const [onb, setOnb] = useState(0); // conversational onboarding step (4 = done/dismissed)
-  const [brief, setBrief] = useState({ shoot: "", size: "", start: "", end: "", budget: 600 });
+  const [brief, setBrief] = useState({
+    shoot: "",
+    size: "",
+    start: "",
+    end: "",
+    budget: 600,
+  });
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const account = useAccount();
   const cart = useCart();
-  const startAddon = useAction(api.checkout.startAddon);
-  const [addonBusy, setAddonBusy] = useState<string | null>(null);
-
-  async function addToBooking(item: any) {
+  const addonBusy = null;
+  function addToBooking(item: any) {
     if (!account.token || !item?.addonBookingId) return;
-    setAddonBusy(item.listingId);
-    try {
-      const { url } = await startAddon({
-        token: account.token,
-        bookingId: item.addonBookingId,
-        listingId: item.listingId,
-        title: item.title,
-        start: item.addonStart,
-        end: item.addonEnd,
-        total: item.addonTotal,
-        origin: window.location.origin,
-      });
-      window.location.href = url;
-    } catch (e: any) {
-      setMsgs((m) => [...m, { role: "assistant", content: e?.message ?? "Couldn't add that to your booking." }]);
-      setAddonBusy(null);
-    }
+    window.location.href = `/account?rental=${encodeURIComponent(item.addonBookingId)}#chat`;
   }
 
   useEffect(() => {
@@ -89,7 +102,11 @@ export function BotBubble() {
       } catch {}
   }, []);
   useEffect(() => {
-    if (msgs.length) { try { localStorage.setItem("dbc_bot", JSON.stringify(msgs.slice(-24))); } catch {} }
+    if (msgs.length) {
+      try {
+        localStorage.setItem("dbc_bot", JSON.stringify(msgs.slice(-24)));
+      } catch {}
+    }
     // Scroll only the inner message list — NOT scrollIntoView, which scrolls the whole
     // document and yanks the fixed chat panel out of view (then back) when you send a message.
     const el = scrollRef.current;
@@ -100,7 +117,10 @@ export function BotBubble() {
   useEffect(() => {
     if (talkingIdx == null) return;
     const len = msgs[talkingIdx]?.content?.length ?? 0;
-    const t = setTimeout(() => setTalkingIdx(null), Math.min(6000, len * 9 + 500));
+    const t = setTimeout(
+      () => setTalkingIdx(null),
+      Math.min(6000, len * 9 + 500),
+    );
     return () => clearTimeout(t);
   }, [talkingIdx, msgs]);
 
@@ -108,7 +128,9 @@ export function BotBubble() {
     setMsgs([]);
     setDone({});
     setOnb(0);
-    try { localStorage.removeItem("dbc_bot"); } catch {}
+    try {
+      localStorage.removeItem("dbc_bot");
+    } catch {}
   }
 
   function startBuild() {
@@ -134,16 +156,33 @@ export function BotBubble() {
         body: JSON.stringify({
           messages: next.map((m) => ({ role: m.role, content: m.content })),
           token: account.token ?? undefined,
-          cart: cart.items.map((i) => ({ listingId: i.listingId, title: i.title, start: i.start, end: i.end, slug: i.slug })),
+          cart: cart.items.map((i) => ({
+            listingId: i.listingId,
+            title: i.title,
+            start: i.start,
+            end: i.end,
+            slug: i.slug,
+          })),
         }),
       });
       const d = await r.json();
       setMsgs((m) => {
         setTalkingIdx(m.length);
-        return [...m, { role: "assistant", content: d.reply || "…", cards: d.cards || [], suggestions: d.suggestions || [] }];
+        return [
+          ...m,
+          {
+            role: "assistant",
+            content: d.reply || "…",
+            cards: d.cards || [],
+            suggestions: d.suggestions || [],
+          },
+        ];
       });
     } catch {
-      setMsgs((m) => [...m, { role: "assistant", content: "Connection hiccup — please try again." }]);
+      setMsgs((m) => [
+        ...m,
+        { role: "assistant", content: "Connection hiccup — please try again." },
+      ]);
     } finally {
       setBusy(false);
     }
@@ -168,8 +207,14 @@ export function BotBubble() {
     if (hit) cart.remove(hit.key);
   }
 
-  const lastAssistant = [...msgs].map((m, i) => ({ m, i })).reverse().find((x) => x.m.role === "assistant");
-  const liveSuggestions = !busy && lastAssistant?.m.suggestions?.length ? lastAssistant.m.suggestions : null;
+  const lastAssistant = [...msgs]
+    .map((m, i) => ({ m, i }))
+    .reverse()
+    .find((x) => x.m.role === "assistant");
+  const liveSuggestions =
+    !busy && lastAssistant?.m.suggestions?.length
+      ? lastAssistant.m.suggestions
+      : null;
 
   // Only the most recent reply that carries cards owns the live recommendation
   // slot. Cards from earlier turns are superseded the instant a newer reply
@@ -179,10 +224,14 @@ export function BotBubble() {
   // cart (so those actions aren't lost) and hide the rest.
   const liveCardsIdx = (() => {
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === "assistant" && (msgs[i].cards?.length ?? 0) > 0) return i;
+      if (msgs[i].role === "assistant" && (msgs[i].cards?.length ?? 0) > 0)
+        return i;
     }
     return -1;
   })();
+
+  if ((pathname === "/account" || pathname === "/admin") && !onCall)
+    return null;
 
   return (
     <>
@@ -194,8 +243,12 @@ export function BotBubble() {
         onClick={() => (onCall ? setDockOpen(!dockOpen) : setOpen((o) => !o))}
         aria-label={
           onCall
-            ? dockOpen ? "Hide call controls" : "Show call controls — you're on a call with Gaffer"
-            : open ? "Close chat" : "Chat with Gaffer, the kit assistant"
+            ? dockOpen
+              ? "Hide call controls"
+              : "Show call controls — you're on a call with Gaffer"
+            : open
+              ? "Close chat"
+              : "Chat with Gaffer, the kit assistant"
         }
         data-on-call={onCall ? "true" : undefined}
         data-speaking={onCall && gafferSpeaking ? "true" : undefined}
@@ -206,9 +259,15 @@ export function BotBubble() {
         {(!open || onCall) && <span className="launcher-ring" aria-hidden />}
         {onCall ? (
           // the equaliser dances while Gaffer talks, so the button reads as live
-          <span className="flex h-5 items-end gap-[3px] text-rose-300" aria-hidden>
+          <span
+            className="flex h-5 items-end gap-[3px] text-rose-300"
+            aria-hidden
+          >
             {[0, 1, 2, 3].map((i) => (
-              <span key={i} className="gd-bar w-[3px] rounded-full bg-current" />
+              <span
+                key={i}
+                className="gd-bar w-[3px] rounded-full bg-current"
+              />
             ))}
           </span>
         ) : open ? (
@@ -218,7 +277,8 @@ export function BotBubble() {
         )}
         {onCall ? (
           <span className="pointer-events-none absolute right-full mr-3 hidden whitespace-nowrap rounded-full border border-rose-400/30 bg-rose-950/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-rose-200/90 sm:block">
-            On call · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
+            On call · {Math.floor(secs / 60)}:
+            {String(secs % 60).padStart(2, "0")}
           </span>
         ) : !open ? (
           <span className="pointer-events-none absolute right-full mr-3 hidden whitespace-nowrap rounded-full border border-white/10 bg-charcoal-900/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-white/60 opacity-0 transition-opacity duration-300 group-hover:opacity-100 sm:block">
@@ -234,10 +294,15 @@ export function BotBubble() {
 
           {/* header */}
           <header className="relative z-10 flex items-center gap-3 border-b border-white/[0.07] bg-white/[0.03] px-4 py-3">
-            <BotAvatarBadge mood={busy ? "thinking" : talkingIdx != null ? "talking" : "idle"} size={40} />
+            <BotAvatarBadge
+              mood={busy ? "thinking" : talkingIdx != null ? "talking" : "idle"}
+              size={40}
+            />
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
-                <span className="font-display text-sm font-bold tracking-wide text-white">GAFFER</span>
+                <span className="font-display text-sm font-bold tracking-wide text-white">
+                  GAFFER
+                </span>
                 <span className="hud-label !text-[8px]">kit assistant</span>
               </div>
               <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-emerald-400">
@@ -245,7 +310,11 @@ export function BotBubble() {
                 {busy ? "on it…" : "online · builds kits live"}
               </div>
             </div>
-            <GafferCall className="!px-3 !py-1.5 !text-xs" label="Voice" compact />
+            <GafferCall
+              className="!px-3 !py-1.5 !text-xs"
+              label="Voice"
+              compact
+            />
             {msgs.length > 0 && (
               <button
                 onClick={clearChat}
@@ -258,51 +327,128 @@ export function BotBubble() {
           </header>
 
           {/* thread */}
-          <div ref={scrollRef} className="relative z-10 flex-1 space-y-3 overflow-y-auto p-4">
+          <div
+            ref={scrollRef}
+            className="relative z-10 flex-1 space-y-3 overflow-y-auto p-4"
+          >
             {msgs.length === 0 && onb >= 4 && (
               <>
                 <ChatBubble role="assistant" text={GREETING} />
-                <Chips opts={IDLE_CHIPS} onPick={(v) => send(v)} className="pl-10" />
+                <Chips
+                  opts={IDLE_CHIPS}
+                  onPick={(v) => send(v)}
+                  className="pl-10"
+                />
               </>
             )}
             {msgs.length === 0 && onb < 4 && (
               <div className="space-y-2.5">
-                <ChatBubble role="assistant" text="Hi! I'm **Gaffer**. Let's build your kit — what are you shooting?" />
+                <ChatBubble
+                  role="assistant"
+                  text="Hi! I'm **Gaffer**. Let's build your kit — what are you shooting?"
+                />
                 {onb >= 1 && <ChatBubble role="user" text={brief.shoot} />}
                 {onb === 0 && (
-                  <Chips opts={SHOOTS} onPick={(v) => { setBrief((b) => ({ ...b, shoot: v })); setOnb(1); }} className="pl-10" />
+                  <Chips
+                    opts={SHOOTS}
+                    onPick={(v) => {
+                      setBrief((b) => ({ ...b, shoot: v }));
+                      setOnb(1);
+                    }}
+                    className="pl-10"
+                  />
                 )}
 
-                {onb >= 1 && <ChatBubble role="assistant" text="Nice — how big is the crew?" />}
+                {onb >= 1 && (
+                  <ChatBubble
+                    role="assistant"
+                    text="Nice — how big is the crew?"
+                  />
+                )}
                 {onb >= 2 && <ChatBubble role="user" text={brief.size} />}
                 {onb === 1 && (
-                  <Chips opts={SIZES} onPick={(v) => { setBrief((b) => ({ ...b, size: v })); setOnb(2); }} className="pl-10" />
+                  <Chips
+                    opts={SIZES}
+                    onPick={(v) => {
+                      setBrief((b) => ({ ...b, size: v }));
+                      setOnb(2);
+                    }}
+                    className="pl-10"
+                  />
                 )}
 
-                {onb >= 2 && <ChatBubble role="assistant" text="When do you need the gear?" />}
-                {onb >= 3 && <ChatBubble role="user" text={`${brief.start} → ${brief.end}`} />}
+                {onb >= 2 && (
+                  <ChatBubble
+                    role="assistant"
+                    text="When do you need the gear?"
+                  />
+                )}
+                {onb >= 3 && (
+                  <ChatBubble
+                    role="user"
+                    text={`${brief.start} → ${brief.end}`}
+                  />
+                )}
                 {onb === 2 && (
                   <div className="chip-in flex flex-wrap items-end gap-2 pl-10">
-                    <input type="date" value={brief.start} onChange={(e) => setBrief((b) => ({ ...b, start: e.target.value }))} className="input !px-2.5 !py-1.5 !text-xs [color-scheme:dark]" aria-label="Start date" />
-                    <input type="date" value={brief.end} onChange={(e) => setBrief((b) => ({ ...b, end: e.target.value }))} className="input !px-2.5 !py-1.5 !text-xs [color-scheme:dark]" aria-label="End date" />
-                    <button onClick={() => brief.start && brief.end && setOnb(3)} disabled={!brief.start || !brief.end} className="btn-primary px-3.5 py-1.5 text-xs">
+                    <input
+                      type="date"
+                      value={brief.start}
+                      onChange={(e) =>
+                        setBrief((b) => ({ ...b, start: e.target.value }))
+                      }
+                      className="input !px-2.5 !py-1.5 !text-xs [color-scheme:dark]"
+                      aria-label="Start date"
+                    />
+                    <input
+                      type="date"
+                      value={brief.end}
+                      onChange={(e) =>
+                        setBrief((b) => ({ ...b, end: e.target.value }))
+                      }
+                      className="input !px-2.5 !py-1.5 !text-xs [color-scheme:dark]"
+                      aria-label="End date"
+                    />
+                    <button
+                      onClick={() => brief.start && brief.end && setOnb(3)}
+                      disabled={!brief.start || !brief.end}
+                      className="btn-primary px-3.5 py-1.5 text-xs"
+                    >
                       Next <IconArrowRight className="h-3 w-3" />
                     </button>
                   </div>
                 )}
 
-                {onb >= 3 && <ChatBubble role="assistant" text="Last thing — your budget, then I'll build it." />}
+                {onb >= 3 && (
+                  <ChatBubble
+                    role="assistant"
+                    text="Last thing — your budget, then I'll build it."
+                  />
+                )}
                 {onb === 3 && (
                   <div className="chip-in space-y-2.5 pl-10">
                     <div className="flex items-center gap-2 text-xs text-white/60">
-                      <span className="w-14 font-mono text-sm font-semibold text-accent-300">£{brief.budget}</span>
-                      <GlowSlider value={brief.budget} onChange={(v) => setBrief((b) => ({ ...b, budget: v }))} className="flex-1" aria-label="Budget" />
+                      <span className="w-14 font-mono text-sm font-semibold text-accent-300">
+                        £{brief.budget}
+                      </span>
+                      <GlowSlider
+                        value={brief.budget}
+                        onChange={(v) => setBrief((b) => ({ ...b, budget: v }))}
+                        className="flex-1"
+                        aria-label="Budget"
+                      />
                     </div>
                     <div className="flex items-center gap-2">
-                      <button onClick={startBuild} className="btn-primary px-4 py-2 text-xs">
+                      <button
+                        onClick={startBuild}
+                        className="btn-primary px-4 py-2 text-xs"
+                      >
                         <IconSliders className="h-3.5 w-3.5" /> Build my kit
                       </button>
-                      <button onClick={() => setOnb(4)} className="text-xs text-white/35 transition-colors hover:text-white/60">
+                      <button
+                        onClick={() => setOnb(4)}
+                        className="text-xs text-white/35 transition-colors hover:text-white/60"
+                      >
                         or just chat →
                       </button>
                     </div>
@@ -316,65 +462,88 @@ export function BotBubble() {
                 <ChatBubble
                   role={m.role}
                   text={m.content}
-                  stream={m.role === "assistant" && mi === msgs.length - 1 && !busy}
+                  stream={
+                    m.role === "assistant" && mi === msgs.length - 1 && !busy
+                  }
                   mood={talkingIdx === mi ? "talking" : "idle"}
                 />
-                {m.cards && m.cards.length > 0 && (() => {
-                  const isLiveTurn = mi === liveCardsIdx;
-                  // Superseded turn: surface only the items the user actually
-                  // added to their kit (read-only), and drop the rest so an old
-                  // recommendation can't keep posing as the current answer.
-                  const visible = isLiveTurn
-                    ? m.cards.map((card: Card, ci: number) => ({ card, ci }))
-                    : m.cards
-                        .map((card: Card, ci: number) => ({ card, ci }))
-                        .filter(({ ci }) => done[`${mi}:${ci}`] === "added");
-                  if (visible.length === 0) return null;
-                  return (
-                    <div className="space-y-2 pl-10">
-                      {visible.map(({ card, ci }) => {
-                        const id = `${mi}:${ci}`;
-                        if (!isLiveTurn) {
-                          const it = card.kind === "swap" ? card.added : card.item;
+                {m.cards &&
+                  m.cards.length > 0 &&
+                  (() => {
+                    const isLiveTurn = mi === liveCardsIdx;
+                    // Superseded turn: surface only the items the user actually
+                    // added to their kit (read-only), and drop the rest so an old
+                    // recommendation can't keep posing as the current answer.
+                    const visible = isLiveTurn
+                      ? m.cards.map((card: Card, ci: number) => ({ card, ci }))
+                      : m.cards
+                          .map((card: Card, ci: number) => ({ card, ci }))
+                          .filter(({ ci }) => done[`${mi}:${ci}`] === "added");
+                    if (visible.length === 0) return null;
+                    return (
+                      <div className="space-y-2 pl-10">
+                        {visible.map(({ card, ci }) => {
+                          const id = `${mi}:${ci}`;
+                          if (!isLiveTurn) {
+                            const it =
+                              card.kind === "swap" ? card.added : card.item;
+                            return (
+                              <div
+                                key={ci}
+                                className="flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/[0.08] px-3 py-1.5 text-[11px] text-emerald-300"
+                              >
+                                <IconCheck className="h-3 w-3 shrink-0" />
+                                <span className="truncate">
+                                  Added to kit · {it?.title}
+                                </span>
+                              </div>
+                            );
+                          }
                           return (
-                            <div
+                            <CardView
                               key={ci}
-                              className="flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/[0.08] px-3 py-1.5 text-[11px] text-emerald-300"
-                            >
-                              <IconCheck className="h-3 w-3 shrink-0" />
-                              <span className="truncate">Added to kit · {it?.title}</span>
-                            </div>
+                              card={card}
+                              state={done[id]}
+                              delay={ci * 90}
+                              onAdd={() => {
+                                if (card.kind === "swap") {
+                                  if (card.removed)
+                                    removeByListing(card.removed.listingId);
+                                  addItem(card.added);
+                                } else addItem(card.item);
+                                setDone((d) => ({ ...d, [id]: "added" }));
+                              }}
+                              onDecline={() =>
+                                setDone((d) => ({ ...d, [id]: "declined" }))
+                              }
+                              onAddBooking={() =>
+                                addToBooking(
+                                  card.kind === "swap" ? card.added : card.item,
+                                )
+                              }
+                              addonBusy={addonBusy}
+                              onAlt={() => {
+                                const t =
+                                  card.kind === "swap"
+                                    ? card.added?.title
+                                    : card.item?.title;
+                                send(`Can you suggest an alternative to ${t}?`);
+                              }}
+                            />
                           );
-                        }
-                        return (
-                          <CardView
-                            key={ci}
-                            card={card}
-                            state={done[id]}
-                            delay={ci * 90}
-                            onAdd={() => {
-                              if (card.kind === "swap") {
-                                if (card.removed) removeByListing(card.removed.listingId);
-                                addItem(card.added);
-                              } else addItem(card.item);
-                              setDone((d) => ({ ...d, [id]: "added" }));
-                            }}
-                            onDecline={() => setDone((d) => ({ ...d, [id]: "declined" }))}
-                            onAddBooking={() => addToBooking(card.kind === "swap" ? card.added : card.item)}
-                            addonBusy={addonBusy}
-                            onAlt={() => {
-                              const t = card.kind === "swap" ? card.added?.title : card.item?.title;
-                              send(`Can you suggest an alternative to ${t}?`);
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
+                        })}
+                      </div>
+                    );
+                  })()}
               </div>
             ))}
-            {liveSuggestions && <Chips opts={liveSuggestions} onPick={(v) => send(v)} className="pl-10" />}
+            {liveSuggestions && (
+              <Chips
+                opts={liveSuggestions}
+                onPick={(v) => send(v)}
+                className="pl-10"
+              />
+            )}
             {busy && <TypingIndicator />}
             <div ref={endRef} />
           </div>
@@ -400,7 +569,9 @@ export function BotBubble() {
               </button>
             </div>
             <div className="mt-2 text-center font-mono text-[9px] uppercase tracking-[0.18em] text-white/20">
-              Gaffer checks live stock <span className="text-accent-400/60">/</span> prices include your dates
+              Gaffer checks live stock{" "}
+              <span className="text-accent-400/60">/</span> prices include your
+              dates
             </div>
           </div>
         </div>
@@ -420,21 +591,38 @@ function Tile({ item, tone }: { item: any; tone: "green" | "red" | "plain" }) {
     <div className={`flex items-center gap-2 rounded-lg border p-1.5 ${ring}`}>
       {item?.image ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.image} alt="" className={`h-10 w-10 rounded object-cover ${tone === "red" ? "opacity-60" : ""}`} />
+        <img
+          src={item.image}
+          alt=""
+          className={`h-10 w-10 rounded object-cover ${tone === "red" ? "opacity-60" : ""}`}
+        />
       ) : null}
       <div className="min-w-0">
-        <div className={`truncate text-[11px] font-medium ${tone === "red" ? "text-white/45 line-through" : "text-white/85"}`}>
+        <div
+          className={`truncate text-[11px] font-medium ${tone === "red" ? "text-white/45 line-through" : "text-white/85"}`}
+        >
           {item?.title}
         </div>
         {tone !== "red" && item?.total != null && (
-          <div className="font-mono text-[10px] text-white/45">£{item.total} · {item.days}d</div>
+          <div className="font-mono text-[10px] text-white/45">
+            £{item.total} · {item.days}d
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function CardView({ card, state, onAdd, onDecline, onAlt, onAddBooking, addonBusy, delay = 0 }: any) {
+function CardView({
+  card,
+  state,
+  onAdd,
+  onDecline,
+  onAlt,
+  onAddBooking,
+  addonBusy,
+  delay = 0,
+}: any) {
   if (state === "declined") return null;
   const added = state === "added";
   const swap = card.kind === "swap";
@@ -447,7 +635,9 @@ function CardView({ card, state, onAdd, onDecline, onAlt, onAddBooking, addonBus
     >
       {swap ? (
         <>
-          <div className="mb-2 text-[11px] leading-relaxed text-white/50">{card.reason}</div>
+          <div className="mb-2 text-[11px] leading-relaxed text-white/50">
+            {card.reason}
+          </div>
           <div className="flex items-center gap-2">
             {card.removed && <Tile item={card.removed} tone="red" />}
             <IconArrowRight className="h-3.5 w-3.5 shrink-0 text-white/30" />
@@ -457,9 +647,16 @@ function CardView({ card, state, onAdd, onDecline, onAlt, onAddBooking, addonBus
       ) : (
         <div className="flex gap-3">
           {card.item.image && (
-            <Link href={`/gear/${card.item.slug}`} className="block h-16 w-16 shrink-0 overflow-hidden rounded-lg">
+            <Link
+              href={`/gear/${card.item.slug}`}
+              className="block h-16 w-16 shrink-0 overflow-hidden rounded-lg"
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={card.item.image} alt={card.item.title} className="h-full w-full object-cover transition-transform duration-500 hover:scale-110" />
+              <img
+                src={card.item.image}
+                alt={card.item.title}
+                className="h-full w-full object-cover transition-transform duration-500 hover:scale-110"
+              />
             </Link>
           )}
           <div className="min-w-0 flex-1">
@@ -473,13 +670,19 @@ function CardView({ card, state, onAdd, onDecline, onAlt, onAddBooking, addonBus
               {card.item.estimated ? (
                 <>£{card.item.perDay}/day · </>
               ) : (
-                <>{card.item.start} → {card.item.end} · </>
+                <>
+                  {card.item.start} → {card.item.end} ·{" "}
+                </>
               )}
               {card.item.memberTotal != null ? (
                 <>
                   <span className="line-through">£{card.item.total}</span>{" "}
-                  <span className="text-emerald-300">£{card.item.memberTotal}</span>{" "}
-                  <span className="text-emerald-400/70">member −{card.item.memberPct}%</span>
+                  <span className="text-emerald-300">
+                    £{card.item.memberTotal}
+                  </span>{" "}
+                  <span className="text-emerald-400/70">
+                    member −{card.item.memberPct}%
+                  </span>
                 </>
               ) : (
                 <>£{card.item.total}</>
@@ -488,7 +691,9 @@ function CardView({ card, state, onAdd, onDecline, onAlt, onAddBooking, addonBus
                 ({card.item.days}d{card.item.estimated ? " est." : ""})
               </span>
             </div>
-            <div className="mt-0.5 text-[11px] leading-relaxed text-white/40">{card.reason}</div>
+            <div className="mt-0.5 text-[11px] leading-relaxed text-white/40">
+              {card.reason}
+            </div>
           </div>
         </div>
       )}
@@ -511,15 +716,23 @@ function CardView({ card, state, onAdd, onDecline, onAlt, onAddBooking, addonBus
             disabled={addonBusy === addonItem.listingId}
             className="press rounded-full bg-emerald-500 px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-emerald-600 disabled:opacity-50"
           >
-            {addonBusy === addonItem.listingId ? "…" : `Add to booking · £${addonItem.addonTotal}`}
+            {addonBusy === addonItem.listingId
+              ? "…"
+              : "Request item in rental chat"}
           </button>
         )}
         {!added && (
           <>
-            <button onClick={onAlt} className="glass rounded-full px-3 py-1.5 text-[11px] text-white/60 transition-colors hover:text-white">
+            <button
+              onClick={onAlt}
+              className="glass rounded-full px-3 py-1.5 text-[11px] text-white/60 transition-colors hover:text-white"
+            >
               Find alternative
             </button>
-            <button onClick={onDecline} className="rounded-full px-3 py-1.5 text-[11px] text-white/35 transition-colors hover:text-white/60">
+            <button
+              onClick={onDecline}
+              className="rounded-full px-3 py-1.5 text-[11px] text-white/35 transition-colors hover:text-white/60"
+            >
               {swap ? "Keep original" : "Decline"}
             </button>
           </>

@@ -1,35 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { AdminGafferCalls } from "@/components/admin/GafferCalls";
-import { ReturnRentalForm } from "@/components/admin/ReturnRentalForm";
+import { RentalInbox } from "@/components/admin/RentalInbox";
+import { AdminRentalCards } from "@/components/admin/RentalCards";
+import { RentalWorkspace } from "@/components/admin/RentalWorkspace";
 import { formatGbp } from "@/lib/pricing";
-
-const day = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-// Financial transitions use actions that reconcile Stripe before changing status.
-const STATUSES = ["confirmed", "active"] as const;
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
-  const [tab, setTab] = useState<"overview" | "bookings" | "inbox" | "calls" | "settings">("overview");
-  const [returningId, setReturningId] = useState<string | null>(null);
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [tab, setTab] = useState<
+    "overview" | "bookings" | "inbox" | "enquiries" | "calls" | "settings"
+  >("overview");
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   useEffect(() => {
     setToken(localStorage.getItem("dbc_admin"));
+    const rental = new URLSearchParams(window.location.search).get("rental");
+    if (rental) {
+      setConversationId(rental);
+      setTab("inbox");
+    } else if (window.location.hash === "#messages") setTab("inbox");
   }, []);
 
   const bookings = useQuery(api.bookings.adminList, token ? { token } : "skip");
+  const rentalUnread =
+    useQuery(
+      api.rentalChat.unreadTotals,
+      token ? { token, admin: true } : "skip",
+    ) ?? 0;
   const contacts = useQuery(api.contact.adminList, token ? { token } : "skip");
-  const setStatus = useMutation(api.bookings.adminSetStatus);
-  const setId = useMutation(api.bookings.adminSetIdStatus);
-  const reviewDidit = useAction(api.didit.adminReview);
-  const pauseLateFee = useMutation(api.bookings.adminPauseLateFee);
-  const cancelBooking = useAction(api.checkout.cancelByAdmin);
   const markHandled = useMutation(api.contact.adminMarkHandled);
 
   const authed = bookings?.authorized;
@@ -44,28 +49,17 @@ export default function AdminPage() {
     setInput("");
   }
 
-  async function decideDidit(bookingId: string, decision: "approve" | "resubmit" | "decline") {
-    if (!token || reviewingId) return;
-    const label = decision === "approve" ? "approval" : decision === "resubmit" ? "document resubmission" : "decline";
-    const note = prompt(`Record the evidence and reason for this ${label}. Review the Didit case first:`);
-    if (!note) return;
-    setReviewingId(bookingId);
-    try {
-      await reviewDidit({ token, bookingId: bookingId as any, decision, note });
-    } catch (e: any) {
-      alert(e?.message ?? "The verification review could not be saved.");
-    } finally {
-      setReviewingId(null);
-    }
-  }
-
   if (!token || authed === false) {
     return (
       <>
         <SiteHeader />
         <main className="mx-auto max-w-sm px-6 py-24">
-          <h1 className="font-display text-2xl font-bold text-white/90">Admin</h1>
-          <p className="mt-2 text-sm text-white/40">Enter the admin passcode.</p>
+          <h1 className="font-display text-2xl font-bold text-white/90">
+            Admin
+          </h1>
+          <p className="mt-2 text-sm text-white/40">
+            Enter the admin passcode.
+          </p>
           <input
             type="password"
             value={input}
@@ -80,7 +74,9 @@ export default function AdminPage() {
             Enter
           </button>
           {authed === false && (
-            <p className="mt-3 text-center text-xs text-red-300">Wrong passcode.</p>
+            <p className="mt-3 text-center text-xs text-red-300">
+              Wrong passcode.
+            </p>
           )}
         </main>
       </>
@@ -90,11 +86,14 @@ export default function AdminPage() {
   return (
     <>
       <SiteHeader />
-      <main className="section-window mx-auto max-w-6xl px-6 py-10">
+      <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="font-display text-2xl font-bold text-white/90 lg:text-3xl">
-            Admin <span className="gradient-text">dashboard</span>
-          </h1>
+          <div>
+            <p className="text-xs text-white/35">DB Cinema Rentals</p>
+            <h1 className="mt-2 font-display text-2xl font-semibold text-white lg:text-3xl">
+              Owner workspace
+            </h1>
+          </div>
           <button
             onClick={lock}
             className="rounded-full border border-white/10 px-3.5 py-1.5 text-xs font-medium text-white/55 transition hover:border-rose-400/40 hover:text-rose-300"
@@ -103,12 +102,16 @@ export default function AdminPage() {
           </button>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-1 border-b border-white/5">
+        <div className="mt-6 flex gap-2 overflow-x-auto rounded-2xl bg-white/[0.025] p-2">
           {(
             [
               ["overview", "Overview"],
-              ["bookings", `Bookings${bookings?.items.length ? ` (${bookings.items.length})` : ""}`],
-              ["inbox", `Inbox${contacts?.items.filter((m: any) => !m.handled).length ? ` (${contacts.items.filter((m: any) => !m.handled).length})` : ""}`],
+              ["bookings", "Rentals"],
+              ["inbox", `Messages${rentalUnread ? ` (${rentalUnread})` : ""}`],
+              [
+                "enquiries",
+                `Enquiries${contacts?.items.filter((m: any) => !m.handled).length ? ` (${contacts.items.filter((m: any) => !m.handled).length})` : ""}`,
+              ],
               ["calls", "Gaffer calls"],
               ["settings", "Settings"],
             ] as const
@@ -116,8 +119,10 @@ export default function AdminPage() {
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`-mb-px border-b-2 px-3.5 py-2 text-sm font-medium transition ${
-                tab === key ? "border-accent-400 text-white" : "border-transparent text-white/45 hover:text-white/75"
+              className={`shrink-0 whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+                tab === key
+                  ? "bg-white text-black"
+                  : "text-white/45 hover:text-white/75"
               }`}
             >
               {label}
@@ -128,138 +133,64 @@ export default function AdminPage() {
         {tab === "overview" && (
           <div className="mt-6">
             <AdminAnalytics token={token} />
-            <AdminCartDemand token={token} />
-          </div>
-        )}
-
-        {tab === "bookings" && (
-          <div className="mt-6 grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
-            {bookings?.items.map((b: any) => {
-              const dot =
-                b.status === "confirmed" ? "bg-accent-400"
-                : b.status === "active" ? "bg-emerald-400"
-                : b.status === "returned" ? "bg-white/40"
-                : b.status === "cancelled" ? "bg-rose-400"
-                : "bg-amber-400";
-              const start = Math.min(...b.lineItems.map((li: any) => li.start));
-              const end = Math.max(...b.lineItems.map((li: any) => li.end));
-              const first = b.lineItems[0];
-              const extra = b.lineItems.length - 1;
-              return (
-                <div key={b._id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-xs transition hover:border-white/15">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-                      <span className="truncate text-[13px] text-white/80">{b.guestEmail}</span>
-                    </div>
-                    <span className="shrink-0 font-display text-sm font-bold text-white/90">£{b.total}</span>
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-white/40">
-                    <span className="text-white/55">{(first?.title ?? "—").slice(0, 28)}{extra > 0 ? ` +${extra}` : ""}</span>
-                    <span className="text-white/15">·</span>
-                    <span>{day(start)}–{day(end)}</span>
-                    <span className="text-white/15">·</span>
-                    <span>{b.fulfilment}</span>
-                    <span className="text-white/15">·</span>
-                    <span>paid security {formatGbp(b.depositAmount)}{b.depositRefunded ? (b.depositKept > 0 ? ` · retained ${formatGbp(b.depositKept)}` : " · refunded ↩") : ""}</span>
-                    <span>card hold {formatGbp(b.depositHoldAmount ?? 0)} · {b.depositHoldStatus ?? "legacy"}</span>
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
-                    <span className={`rounded px-1.5 py-0.5 ${b.agreementName ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}`}>
-                      {b.agreementName ? "signed" : "unsigned"}
-                    </span>
-                    <span className={`rounded px-1.5 py-0.5 ${b.idVerifyStatus === "verified" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`} title={b.verificationNote ?? undefined}>
-                      {b.verificationProvider === "didit" ? "ID + address" : "ID"} {b.idVerifyStatus === "verified" ? "✓" : b.idVerifyStatus}
-                    </span>
-                    {b.verificationProvider === "didit" && <span className="text-white/35">{b.verificationNote ?? "Automatic check pending"}</span>}
-                    {b.verificationProvider === "didit" && b.diditSessionId && (
-                      <span className="text-white/45">Didit case <code className="select-all font-mono text-white/65">{b.diditSessionId}</code></span>
-                    )}
-                    {!!b.lateFeeAmount && <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-200">Separate late charge {formatGbp(b.lateFeeAmount)} · {b.lateFeeStatus}</span>}
-                    {!!b.lateFeeWaivedAmount && <span className="rounded bg-white/10 px-1.5 py-0.5 text-white/60">Late fee waived {formatGbp(b.lateFeeWaivedAmount)}</span>}
-                    {b.returnStatementEmailStatus && <span className={`rounded px-1.5 py-0.5 ${b.returnStatementEmailStatus === "sent" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-200"}`}>Return statement email: {b.returnStatementEmailStatus}</span>}
-                  </div>
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <select
-                      value={b.status}
-                      onChange={(e) => setStatus({ token, bookingId: b._id, status: e.target.value as any }).catch((err: any) => alert(err.message))}
-                      className="flex-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none"
-                    >
-                      {[...new Set([b.status, ...STATUSES])].map((st) => (
-                        <option key={st} value={st} className="bg-charcoal-800">{st}</option>
-                      ))}
-                    </select>
-                    {["pending_payment", "confirmed"].includes(b.status) && (
-                      <button onClick={() => {
-                        const reason = prompt("Cancel this direct booking with a full refund? Record the reason:");
-                        if (reason) cancelBooking({ token, bookingId: b._id, reason })
-                          .then((result) => alert(`Cancelled. Refunded £${result.refundAmount}.`))
-                          .catch((error: any) => alert(error.message));
-                      }} className="shrink-0 rounded-md bg-rose-500/15 px-2 py-1 text-[11px] text-rose-300">Cancel</button>
-                    )}
-                    {b.idVerifyStatus !== "verified" && b.verificationProvider !== "didit" && (
-                      <button
-                        onClick={() => {
-                          const note = prompt("Record the evidence and reason for manual identity and address approval:");
-                          if (note) setId({ token, bookingId: b._id, status: "verified", note }).catch((e: any) => alert(e.message));
-                        }}
-                        title="Manually approve identity and address with reason"
-                        className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/25"
-                      >
-                        Review ✓
-                      </button>
-                    )}
-                    {b.verificationProvider === "didit" && ["manual_review", "rejected"].includes(b.idVerifyStatus) && (
-                      <>
-                        <button disabled={!!reviewingId} onClick={() => void decideDidit(b._id, "approve")}
-                          className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300 disabled:opacity-40">Approve ID + address</button>
-                        <button disabled={!!reviewingId} onClick={() => void decideDidit(b._id, "resubmit")}
-                          className="shrink-0 rounded-md bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200 disabled:opacity-40">Request resubmission</button>
-                        <button disabled={!!reviewingId} onClick={() => void decideDidit(b._id, "decline")}
-                          className="shrink-0 rounded-md bg-rose-500/15 px-2 py-1 text-[11px] text-rose-300 disabled:opacity-40">Decline</button>
-                      </>
-                    )}
-                    {(["confirmed", "active"].includes(b.status) || (b.status === "returned" && b.returnDecision && !b.actualReturnedAt)) && (
-                      <button onClick={() => setReturningId(returningId === b._id ? null : b._id)}
-                        className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/25">{b.status === "returned" ? "Resume return" : "Return"}</button>
-                    )}
-                    {["notice_pending", "notice_failed", "notice_sent"].includes(b.lateFeeStatus) && (
-                      <button onClick={() => {
-                        const reason = prompt("Pause the separate late charge. Record the dispute or waiver reason:");
-                        if (reason) pauseLateFee({ token, bookingId: b._id, reason }).catch((e: any) => alert(e.message));
-                      }} className="shrink-0 rounded-md bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200">Pause late fee</button>
-                    )}
-                  </div>
-                  {b.verificationProvider === "didit" && ["manual_review", "rejected"].includes(b.idVerifyStatus) && (
-                    <p className="mt-2 text-[11px] text-amber-200/80">
-                      Review the case and warnings in <a className="underline" href="https://business.didit.me" target="_blank" rel="noreferrer">Didit Business Console</a> before deciding. These actions update the Didit case and this rental; a resubmission reopens only the affected steps.
-                    </p>
-                  )}
-                  {returningId === b._id && <ReturnRentalForm booking={b} token={token} onClose={() => setReturningId(null)} />}
-                </div>
-              );
-            })}
-            {bookings && bookings.items.length === 0 && (
-              <div className="text-sm text-white/30">No bookings yet.</div>
-            )}
+            <details className="mt-6 rounded-3xl border border-white/[0.06] p-5">
+              <summary className="cursor-pointer text-sm text-white/70">
+                Gear demand
+              </summary>
+              <AdminCartDemand token={token} />
+            </details>
           </div>
         )}
 
         {tab === "inbox" && (
+          <RentalInbox token={token} focusBookingId={conversationId} />
+        )}
+        {tab === "bookings" && !detailId && (
+          <AdminRentalCards
+            token={token}
+            onChat={(id) => {
+              setConversationId(id);
+              setTab("inbox");
+            }}
+            onDetails={setDetailId}
+          />
+        )}
+        {tab === "bookings" && detailId && (
+          <RentalWorkspace
+            key={detailId}
+            token={token}
+            bookingId={detailId}
+            onClose={() => setDetailId(null)}
+            onChat={() => {
+              setConversationId(detailId);
+              setTab("inbox");
+            }}
+          />
+        )}
+
+        {tab === "enquiries" && (
           <div className="mt-6 grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
             {contacts?.items.map((m: any) => (
-              <div key={m._id} className={`rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-xs ${m.handled ? "opacity-45" : ""}`}>
+              <div
+                key={m._id}
+                className={`rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-xs ${m.handled ? "opacity-45" : ""}`}
+              >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-[13px] text-white/80">
                     {m.name} <span className="text-white/35">· {m.email}</span>
                   </span>
                   {!m.handled && (
-                    <button onClick={() => markHandled({ token, id: m._id })} className="shrink-0 text-[11px] text-accent-400 hover:underline">
+                    <button
+                      onClick={() => markHandled({ token, id: m._id })}
+                      className="shrink-0 text-[11px] text-accent-400 hover:underline"
+                    >
                       handled
                     </button>
                   )}
                 </div>
-                <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-white/45">{m.message}</p>
+                <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-white/45">
+                  {m.message}
+                </p>
               </div>
             ))}
             {contacts && contacts.items.length === 0 && (
@@ -271,11 +202,26 @@ export default function AdminPage() {
         {tab === "calls" && <AdminGafferCalls token={token} />}
 
         {tab === "settings" && (
-          <div className="mt-2">
-            <AdminCollective token={token} />
+          <div className="mt-6 space-y-4">
             <AdminSettings token={token} />
-            <AdminPromos token={token} />
-            <AdminMemberOffers token={token} />
+            {[
+              ["Community", <AdminCollective key="collective" token={token} />],
+              ["Promotions", <AdminPromos key="promos" token={token} />],
+              [
+                "Member offers",
+                <AdminMemberOffers key="offers" token={token} />,
+              ],
+            ].map(([label, content]) => (
+              <details
+                key={String(label)}
+                className="rounded-3xl border border-white/[0.07] bg-[#141414] p-5"
+              >
+                <summary className="cursor-pointer text-sm text-white/75">
+                  {label}
+                </summary>
+                {content}
+              </details>
+            ))}
           </div>
         )}
       </main>
@@ -288,60 +234,116 @@ function AdminSettings({ token }: { token: string }) {
   const update = useMutation(api.settings.adminUpdate);
   const [f, setF] = useState<any>(null);
   const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (res && (res as any).authorized) setF((res as any).config);
   }, [res]);
   if (!res || !(res as any).authorized || !f) return null;
 
-  const field = "rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none w-28";
+  const field =
+    "w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white/80 outline-none";
   async function save() {
-    await update({
-      token,
-      deliveryMarginPct: Number(f.deliveryMarginPct),
-      deliveryMaxKm: Number(f.deliveryMaxKm),
-      openingHours: f.openingHours,
-      acceptingOrders: f.acceptingOrders,
-      googleReviewUrl: f.googleReviewUrl ?? "",
-      businessAddress: f.businessAddress ?? "",
-      businessPhone: f.businessPhone ?? "",
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setBusy(true);
+    setError(null);
+    try {
+      await update({
+        token,
+        deliveryMarginPct: Number(f.deliveryMarginPct),
+        deliveryMaxKm: Number(f.deliveryMaxKm),
+        openingHours: f.openingHours,
+        acceptingOrders: f.acceptingOrders,
+        googleReviewUrl: f.googleReviewUrl ?? "",
+        businessAddress: f.businessAddress ?? "",
+        businessPhone: f.businessPhone ?? "",
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      setError(e.message ?? "Settings could not be saved.");
+    } finally {
+      setBusy(false);
+    }
   }
   return (
-    <section className="mt-10">
-      <h2 className="font-display text-lg font-semibold text-white/80">Settings</h2>
-      <div className="mt-3 rounded-2xl glass gradient-border p-5 flex flex-col gap-3 text-sm">
-        <label className="flex items-center justify-between text-white/60">
+    <section className="mt-2">
+      <h2 className="font-display text-lg font-semibold text-white/80">
+        Settings
+      </h2>
+      <div className="mt-4 grid gap-5 rounded-3xl border border-white/[0.07] bg-[#141414] p-6 sm:grid-cols-2 text-sm">
+        <label className="flex flex-col gap-2 text-xs text-white/50">
           Delivery margin %
-          <input className={field} type="number" value={f.deliveryMarginPct} onChange={(e) => setF({ ...f, deliveryMarginPct: e.target.value })} />
+          <input
+            className={field}
+            type="number"
+            value={f.deliveryMarginPct}
+            onChange={(e) => setF({ ...f, deliveryMarginPct: e.target.value })}
+          />
         </label>
-        <label className="flex items-center justify-between text-white/60">
+        <label className="flex flex-col gap-2 text-xs text-white/50">
           Max delivery distance (km)
-          <input className={field} type="number" value={f.deliveryMaxKm} onChange={(e) => setF({ ...f, deliveryMaxKm: e.target.value })} />
+          <input
+            className={field}
+            type="number"
+            value={f.deliveryMaxKm}
+            onChange={(e) => setF({ ...f, deliveryMaxKm: e.target.value })}
+          />
         </label>
-        <label className="flex items-center justify-between gap-3 text-white/60">
+        <label className="flex flex-col gap-2 text-xs text-white/50">
           Opening hours
-          <input className="flex-1 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none" value={f.openingHours} onChange={(e) => setF({ ...f, openingHours: e.target.value })} />
+          <input
+            className={field}
+            value={f.openingHours}
+            onChange={(e) => setF({ ...f, openingHours: e.target.value })}
+          />
         </label>
-        <label className="flex items-center justify-between text-white/60">
+        <label className="flex flex-col gap-2 text-xs text-white/50">
           Accepting orders
-          <input type="checkbox" className="accent-accent-500 h-4 w-4" checked={f.acceptingOrders} onChange={(e) => setF({ ...f, acceptingOrders: e.target.checked })} />
+          <input
+            type="checkbox"
+            className="accent-accent-500 h-4 w-4"
+            checked={f.acceptingOrders}
+            onChange={(e) => setF({ ...f, acceptingOrders: e.target.checked })}
+          />
         </label>
-        <label className="flex items-center justify-between gap-3 text-white/60">
+        <label className="flex flex-col gap-2 text-xs text-white/50">
           Google review link
-          <input className="flex-1 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none" placeholder="https://g.page/r/…/review" value={f.googleReviewUrl ?? ""} onChange={(e) => setF({ ...f, googleReviewUrl: e.target.value })} />
+          <input
+            className={field}
+            placeholder="https://g.page/r/…/review"
+            value={f.googleReviewUrl ?? ""}
+            onChange={(e) => setF({ ...f, googleReviewUrl: e.target.value })}
+          />
         </label>
-        <label className="flex items-center justify-between gap-3 text-white/60">
+        <label className="flex flex-col gap-2 text-xs text-white/50">
           Business address
-          <input className="flex-1 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none" placeholder="123 Example St, London" value={f.businessAddress ?? ""} onChange={(e) => setF({ ...f, businessAddress: e.target.value })} />
+          <input
+            className={field}
+            placeholder="123 Example St, London"
+            value={f.businessAddress ?? ""}
+            onChange={(e) => setF({ ...f, businessAddress: e.target.value })}
+          />
         </label>
-        <label className="flex items-center justify-between gap-3 text-white/60">
+        <label className="flex flex-col gap-2 text-xs text-white/50">
           Business phone
-          <input className="flex-1 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none" placeholder="+44 20 …" value={f.businessPhone ?? ""} onChange={(e) => setF({ ...f, businessPhone: e.target.value })} />
+          <input
+            className={field}
+            placeholder="+44 20 …"
+            value={f.businessPhone ?? ""}
+            onChange={(e) => setF({ ...f, businessPhone: e.target.value })}
+          />
         </label>
-        <button onClick={save} className="w-fit rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white hover:bg-accent-600">
-          {saved ? "Saved ✓" : "Save settings"}
+        {error && (
+          <p role="alert" className="text-xs text-rose-300 sm:col-span-2">
+            {error}
+          </p>
+        )}
+        <button
+          disabled={busy}
+          onClick={save}
+          className="w-fit rounded-full bg-accent-500 px-5 py-2 text-sm font-medium text-white hover:bg-accent-600"
+        >
+          {busy ? "Saving…" : saved ? "Saved" : "Save settings"}
         </button>
       </div>
     </section>
@@ -369,37 +371,81 @@ function AdminPromos({ token }: { token: string }) {
   }
   return (
     <section className="mt-10">
-      <h2 className="font-display text-lg font-semibold text-white/80">Promo codes</h2>
+      <h2 className="font-display text-lg font-semibold text-white/80">
+        Promo codes
+      </h2>
       <div className="mt-3 flex flex-col gap-2">
         {(res as any).items.map((p: any) => (
-          <div key={p._id} className="flex items-center justify-between rounded-xl glass px-4 py-2 text-sm">
+          <div
+            key={p._id}
+            className="flex items-center justify-between rounded-xl glass px-4 py-2 text-sm"
+          >
             <span className="font-mono uppercase text-white/80">{p.code}</span>
-            <span className="text-white/50">{p.type === "percent" ? `${p.value}%` : `£${p.value}`} · used {p.usedCount}</span>
-            <button onClick={() => toggle({ token, id: p._id })} className={`rounded-full px-3 py-1 text-xs ${p.active ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/40"}`}>
+            <span className="text-white/50">
+              {p.type === "percent" ? `${p.value}%` : `£${p.value}`} · used{" "}
+              {p.usedCount}
+            </span>
+            <button
+              onClick={() => toggle({ token, id: p._id })}
+              className={`rounded-full px-3 py-1 text-xs ${p.active ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/40"}`}
+            >
               {p.active ? "active" : "inactive"}
             </button>
           </div>
         ))}
       </div>
       <div className="mt-3 flex flex-wrap items-end gap-2 rounded-2xl glass p-4">
-        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="CODE" className="rounded-lg bg-white/[0.04] px-3 py-2 text-sm uppercase text-white/80 outline-none" />
-        <select value={type} onChange={(e) => setType(e.target.value as any)} className="rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none [color-scheme:dark]">
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="CODE"
+          className="rounded-lg bg-white/[0.04] px-3 py-2 text-sm uppercase text-white/80 outline-none"
+        />
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value as any)}
+          className="rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none [color-scheme:dark]"
+        >
           <option value="percent">%</option>
           <option value="fixed">£</option>
         </select>
-        <input value={value} onChange={(e) => setValue(e.target.value)} type="number" className="w-20 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none" />
-        <button onClick={add} className="rounded-full bg-accent-500 px-4 py-2 text-sm font-medium text-white hover:bg-accent-600">Add code</button>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          type="number"
+          className="w-20 rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none"
+        />
+        <button
+          onClick={add}
+          className="rounded-full bg-accent-500 px-4 py-2 text-sm font-medium text-white hover:bg-accent-600"
+        >
+          Add code
+        </button>
         {err && <span className="text-xs text-red-300">{err}</span>}
       </div>
     </section>
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: number | string; accent?: boolean }) {
+function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number | string;
+  accent?: boolean;
+}) {
   return (
     <div className="rounded-2xl glass p-4">
-      <div className={`font-display text-2xl font-bold ${accent ? "gradient-text" : "text-white/90"}`}>{value}</div>
-      <div className="mt-1 text-[11px] uppercase tracking-wide text-white/40">{label}</div>
+      <div
+        className={`font-display text-2xl font-bold ${accent ? "gradient-text" : "text-white/90"}`}
+      >
+        {value}
+      </div>
+      <div className="mt-1 text-[11px] uppercase tracking-wide text-white/40">
+        {label}
+      </div>
     </div>
   );
 }
@@ -435,23 +481,37 @@ function AdminAnalytics({ token }: { token: string }) {
         Ongoing rentals ({a.ongoing.length})
       </h2>
       <div className="mt-3 flex flex-col gap-2">
-        {a.ongoing.length === 0 && <div className="text-sm text-white/30">Nothing out right now.</div>}
+        {a.ongoing.length === 0 && (
+          <div className="text-sm text-white/30">Nothing out right now.</div>
+        )}
         {a.ongoing.map((b: any) => (
-          <div key={b._id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl glass px-4 py-2 text-sm">
+          <div
+            key={b._id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-xl glass px-4 py-2 text-sm"
+          >
             <span className="text-white/80">{b.guestEmail}</span>
             <span className="text-white/45">{b.items.slice(0, 50)}</span>
-            <span className="text-white/50">{fmtDay(b.start)} → {fmtDay(b.end)} · {b.fulfilment}</span>
-            <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase text-emerald-300">{b.status}</span>
+            <span className="text-white/50">
+              {fmtDay(b.start)} → {fmtDay(b.end)} · {b.fulfilment}
+            </span>
+            <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase text-emerald-300">
+              {b.status}
+            </span>
           </div>
         ))}
       </div>
 
       {a.topMisses.length > 0 && (
         <div className="mt-6">
-          <h3 className="font-display text-sm font-semibold text-white/70">Searches with no results (7d)</h3>
+          <h3 className="font-display text-sm font-semibold text-white/70">
+            Searches with no results (7d)
+          </h3>
           <div className="mt-2 flex flex-wrap gap-2">
             {a.topMisses.map(([term, n]: [string, number]) => (
-              <span key={term} className="rounded-full glass px-3 py-1 text-xs text-white/60">
+              <span
+                key={term}
+                className="rounded-full glass px-3 py-1 text-xs text-white/60"
+              >
                 {term} <span className="text-white/30">×{n}</span>
               </span>
             ))}
@@ -480,11 +540,18 @@ function AdminCartDemand({ token }: { token: string }) {
     <section className="mt-10">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-display text-lg font-semibold text-white/80">
-          Add-to-cart demand <span className="text-white/40">({data.total} adds · {days}d)</span>
+          Add-to-cart demand{" "}
+          <span className="text-white/40">
+            ({data.total} adds · {days}d)
+          </span>
         </h2>
         <div className="flex gap-1">
           {[7, 30, 90].map((n) => (
-            <button key={n} onClick={() => setDays(n)} className={`rounded-full px-3 py-1 text-xs ${days === n ? "bg-accent-500 text-white" : "glass text-white/50 hover:text-white"}`}>
+            <button
+              key={n}
+              onClick={() => setDays(n)}
+              className={`rounded-full px-3 py-1 text-xs ${days === n ? "bg-accent-500 text-white" : "glass text-white/50 hover:text-white"}`}
+            >
               {n}d
             </button>
           ))}
@@ -495,35 +562,57 @@ function AdminCartDemand({ token }: { token: string }) {
       <div className="mt-3 rounded-2xl glass p-4">
         <div className="flex h-40 items-end gap-px">
           {data.series.map((s: any, i: number) => (
-            <div key={i} className="group relative flex-1" title={`${s.date}: ${s.count} adds · ${s.units} units`}>
+            <div
+              key={i}
+              className="group relative flex-1"
+              title={`${s.date}: ${s.count} adds · ${s.units} units`}
+            >
               <div
                 className="w-full rounded-t bg-accent-500/70 transition-colors group-hover:bg-accent-400"
-                style={{ height: `${Math.max(s.count > 0 ? 4 : 0, (s.count / maxC) * 100)}%` }}
+                style={{
+                  height: `${Math.max(s.count > 0 ? 4 : 0, (s.count / maxC) * 100)}%`,
+                }}
               />
             </div>
           ))}
         </div>
         <div className="mt-2 flex justify-between font-mono text-[10px] text-white/30">
           <span>{mmdd(data.series[0]?.date)}</span>
-          <span>{mmdd(data.series[Math.floor(data.series.length / 2)]?.date)}</span>
+          <span>
+            {mmdd(data.series[Math.floor(data.series.length / 2)]?.date)}
+          </span>
           <span>{mmdd(data.series[data.series.length - 1]?.date)}</span>
         </div>
       </div>
 
       {/* most-added items (incl. marketing-only) */}
-      <h3 className="mt-6 font-display text-sm font-semibold text-white/70">Most-added items</h3>
+      <h3 className="mt-6 font-display text-sm font-semibold text-white/70">
+        Most-added items
+      </h3>
       <div className="mt-3 space-y-2">
-        {data.top.length === 0 && <div className="text-sm text-white/30">No add-to-cart events yet in this window.</div>}
+        {data.top.length === 0 && (
+          <div className="text-sm text-white/30">
+            No add-to-cart events yet in this window.
+          </div>
+        )}
         {data.top.map((t: any, i: number) => (
           <div key={i} className="flex items-center gap-3 text-sm">
-            <span className="w-5 shrink-0 text-right font-mono text-xs text-white/30">{i + 1}</span>
+            <span className="w-5 shrink-0 text-right font-mono text-xs text-white/30">
+              {i + 1}
+            </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-white/75">{t.title}</span>
-                <span className="shrink-0 font-mono text-xs text-white/45">{t.adds}{t.units !== t.adds ? ` · ${t.units}u` : ""}</span>
+                <span className="shrink-0 font-mono text-xs text-white/45">
+                  {t.adds}
+                  {t.units !== t.adds ? ` · ${t.units}u` : ""}
+                </span>
               </div>
               <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-                <div className="h-full rounded-full bg-accent-500" style={{ width: `${(t.adds / maxA) * 100}%` }} />
+                <div
+                  className="h-full rounded-full bg-accent-500"
+                  style={{ width: `${(t.adds / maxA) * 100}%` }}
+                />
               </div>
             </div>
           </div>
@@ -572,7 +661,12 @@ function AdminCollective({ token }: { token: string }) {
               years: numOpt(edit.years),
               age: numOpt(edit.age),
               tagline: edit.tagline || undefined,
-              skills: edit.skills ? edit.skills.split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
+              skills: edit.skills
+                ? edit.skills
+                    .split(",")
+                    .map((s: string) => s.trim())
+                    .filter(Boolean)
+                : undefined,
               rateHourly: numOpt(edit.rateHourly),
               rateHalfDay: numOpt(edit.rateHalfDay),
               rateDay: numOpt(edit.rateDay),
@@ -601,25 +695,36 @@ function AdminCollective({ token }: { token: string }) {
     }
   }
 
-  const ei = "rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-xs text-white/80 outline-none";
+  const ei =
+    "rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-xs text-white/80 outline-none";
 
   return (
     <section className="mt-10">
       <h2 className="font-display text-lg font-semibold text-white/80">
-        Creative Collective <span className="text-white/40">({pending} pending)</span>
+        Creative Collective{" "}
+        <span className="text-white/40">({pending} pending)</span>
       </h2>
       <div className="mt-3 flex flex-col gap-3">
-        {items.length === 0 && <div className="text-sm text-white/30">No applications yet.</div>}
+        {items.length === 0 && (
+          <div className="text-sm text-white/30">No applications yet.</div>
+        )}
         {items.map((a) => (
-          <div key={a._id} className={`rounded-2xl glass p-4 ${a.status !== "pending" ? "opacity-60" : ""}`}>
+          <div
+            key={a._id}
+            className={`rounded-2xl glass p-4 ${a.status !== "pending" ? "opacity-60" : ""}`}
+          >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <span
                   className={`rounded px-2 py-0.5 text-[10px] uppercase tracking-wide ${
-                    a.kind === "gear-provider" ? "bg-amber-500/20 text-amber-300" : "bg-accent-500/20 text-accent-300"
+                    a.kind === "gear-provider"
+                      ? "bg-amber-500/20 text-amber-300"
+                      : "bg-accent-500/20 text-accent-300"
                   }`}
                 >
-                  {a.kind === "gear-provider" ? "Gear provider" : "Professional"}
+                  {a.kind === "gear-provider"
+                    ? "Gear provider"
+                    : "Professional"}
                 </span>
                 <span className="ml-2 text-sm text-white/80">{a.fullName}</span>
                 <span className="ml-2 text-xs text-white/40">
@@ -644,38 +749,86 @@ function AdminCollective({ token }: { token: string }) {
               {a.kind === "professional" ? (
                 <>
                   <div>
-                    <b className="text-white/70">{a.roleLabel || a.role}</b> · {a.firstName} · {a.age ? `${a.age} · ` : ""}{a.years ?? "?"}y
+                    <b className="text-white/70">{a.roleLabel || a.role}</b> ·{" "}
+                    {a.firstName} · {a.age ? `${a.age} · ` : ""}
+                    {a.years ?? "?"}y
                   </div>
                   {a.tagline && <div className="mt-1">{a.tagline}</div>}
-                  {a.skills?.length > 0 && <div className="mt-1">Skills: {a.skills.join(", ")}</div>}
+                  {a.skills?.length > 0 && (
+                    <div className="mt-1">Skills: {a.skills.join(", ")}</div>
+                  )}
                   <div className="mt-1">
-                    Rates: hr {a.rateHourly ?? "—"} / half {a.rateHalfDay ?? "—"} / day {a.rateDay ?? "—"}
+                    Rates: hr {a.rateHourly ?? "—"} / half{" "}
+                    {a.rateHalfDay ?? "—"} / day {a.rateDay ?? "—"}
                   </div>
-                  {a.portfolio && <div className="mt-1">Portfolio: {a.portfolio}</div>}
+                  {a.portfolio && (
+                    <div className="mt-1">Portfolio: {a.portfolio}</div>
+                  )}
                 </>
               ) : (
                 <>
                   <div>Gear: {a.gearList}</div>
-                  {a.gearValue && <div className="mt-1">Approx value: {a.gearValue}</div>}
-                  <div className="mt-1">Terms: {a.agreementAccepted ? "✓ 60/40 + custody accepted" : "✗ not accepted"}</div>
+                  {a.gearValue && (
+                    <div className="mt-1">Approx value: {a.gearValue}</div>
+                  )}
+                  <div className="mt-1">
+                    Terms:{" "}
+                    {a.agreementAccepted
+                      ? "✓ 60/40 + custody accepted"
+                      : "✗ not accepted"}
+                  </div>
                 </>
               )}
-              {a.notes && <div className="mt-1 text-white/40">Notes: {a.notes}</div>}
+              {a.notes && (
+                <div className="mt-1 text-white/40">Notes: {a.notes}</div>
+              )}
               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className={a.termsAgreed ? "text-emerald-300" : "text-red-300"}>{a.termsAgreed ? "✓ terms agreed" : "✗ terms"}</span>
-                <span className="text-white/20">·</span>
-                <span className={a.bankProvided ? "text-emerald-300" : "text-amber-300"}>
-                  {a.bankProvided ? `bank ${a.bankSortCode ?? ""} ••${(a.bankAccountNumber ?? "").slice(-4)}` : "no bank yet"}
+                <span
+                  className={
+                    a.termsAgreed ? "text-emerald-300" : "text-red-300"
+                  }
+                >
+                  {a.termsAgreed ? "✓ terms agreed" : "✗ terms"}
                 </span>
                 <span className="text-white/20">·</span>
-                <span className={a.idStatus === "verified" ? "text-emerald-300" : a.idStatus === "submitted" ? "text-amber-300" : "text-white/40"}>
+                <span
+                  className={
+                    a.bankProvided ? "text-emerald-300" : "text-amber-300"
+                  }
+                >
+                  {a.bankProvided
+                    ? `bank ${a.bankSortCode ?? ""} ••${(a.bankAccountNumber ?? "").slice(-4)}`
+                    : "no bank yet"}
+                </span>
+                <span className="text-white/20">·</span>
+                <span
+                  className={
+                    a.idStatus === "verified"
+                      ? "text-emerald-300"
+                      : a.idStatus === "submitted"
+                        ? "text-amber-300"
+                        : "text-white/40"
+                  }
+                >
                   ID: {a.idStatus ?? "none"}
                 </span>
                 {a.idUrl && (
-                  <a href={a.idUrl} target="_blank" rel="noopener noreferrer" className="text-accent-300 hover:underline">view ID</a>
+                  <a
+                    href={a.idUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent-300 hover:underline"
+                  >
+                    view ID
+                  </a>
                 )}
                 {a.idStatus === "submitted" && (
-                  <button onClick={() => setIdVerified({ token, id: a._id, verified: true })} className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-300 hover:bg-emerald-500/30">
+                  <button
+                    onClick={() =>
+                      setIdVerified({ token, id: a._id, verified: true })
+                    }
+                    className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-300 hover:bg-emerald-500/30"
+                  >
                     mark ID verified
                   </button>
                 )}
@@ -685,16 +838,78 @@ function AdminCollective({ token }: { token: string }) {
             {/* inline edit (professionals) */}
             {editId === a._id && a.kind === "professional" && (
               <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-3 sm:grid-cols-2">
-                <input className={ei} value={edit.roleLabel} onChange={(e) => setEdit({ ...edit, roleLabel: e.target.value })} placeholder="Role label" />
-                <input className={ei} value={edit.firstName} onChange={(e) => setEdit({ ...edit, firstName: e.target.value })} placeholder="Display name" />
-                <input className={`${ei} sm:col-span-2`} value={edit.tagline} onChange={(e) => setEdit({ ...edit, tagline: e.target.value })} placeholder="Tagline" />
-                <input className={`${ei} sm:col-span-2`} value={edit.skills} onChange={(e) => setEdit({ ...edit, skills: e.target.value })} placeholder="Skills (comma separated)" />
-                <input className={ei} type="number" value={edit.years} onChange={(e) => setEdit({ ...edit, years: e.target.value })} placeholder="Years" />
-                <input className={ei} type="number" value={edit.age} onChange={(e) => setEdit({ ...edit, age: e.target.value })} placeholder="Age" />
+                <input
+                  className={ei}
+                  value={edit.roleLabel}
+                  onChange={(e) =>
+                    setEdit({ ...edit, roleLabel: e.target.value })
+                  }
+                  placeholder="Role label"
+                />
+                <input
+                  className={ei}
+                  value={edit.firstName}
+                  onChange={(e) =>
+                    setEdit({ ...edit, firstName: e.target.value })
+                  }
+                  placeholder="Display name"
+                />
+                <input
+                  className={`${ei} sm:col-span-2`}
+                  value={edit.tagline}
+                  onChange={(e) =>
+                    setEdit({ ...edit, tagline: e.target.value })
+                  }
+                  placeholder="Tagline"
+                />
+                <input
+                  className={`${ei} sm:col-span-2`}
+                  value={edit.skills}
+                  onChange={(e) => setEdit({ ...edit, skills: e.target.value })}
+                  placeholder="Skills (comma separated)"
+                />
+                <input
+                  className={ei}
+                  type="number"
+                  value={edit.years}
+                  onChange={(e) => setEdit({ ...edit, years: e.target.value })}
+                  placeholder="Years"
+                />
+                <input
+                  className={ei}
+                  type="number"
+                  value={edit.age}
+                  onChange={(e) => setEdit({ ...edit, age: e.target.value })}
+                  placeholder="Age"
+                />
                 <div className="grid grid-cols-3 gap-2 sm:col-span-2">
-                  <input className={ei} type="number" value={edit.rateHourly} onChange={(e) => setEdit({ ...edit, rateHourly: e.target.value })} placeholder="Hourly" />
-                  <input className={ei} type="number" value={edit.rateHalfDay} onChange={(e) => setEdit({ ...edit, rateHalfDay: e.target.value })} placeholder="Half" />
-                  <input className={ei} type="number" value={edit.rateDay} onChange={(e) => setEdit({ ...edit, rateDay: e.target.value })} placeholder="Day" />
+                  <input
+                    className={ei}
+                    type="number"
+                    value={edit.rateHourly}
+                    onChange={(e) =>
+                      setEdit({ ...edit, rateHourly: e.target.value })
+                    }
+                    placeholder="Hourly"
+                  />
+                  <input
+                    className={ei}
+                    type="number"
+                    value={edit.rateHalfDay}
+                    onChange={(e) =>
+                      setEdit({ ...edit, rateHalfDay: e.target.value })
+                    }
+                    placeholder="Half"
+                  />
+                  <input
+                    className={ei}
+                    type="number"
+                    value={edit.rateDay}
+                    onChange={(e) =>
+                      setEdit({ ...edit, rateDay: e.target.value })
+                    }
+                    placeholder="Day"
+                  />
                 </div>
               </div>
             )}
@@ -710,7 +925,13 @@ function AdminCollective({ token }: { token: string }) {
                     >
                       Save edits &amp; publish
                     </button>
-                    <button onClick={() => { setEditId(null); setEdit(null); }} className="rounded-full glass px-4 py-1.5 text-xs text-white/60 hover:text-white">
+                    <button
+                      onClick={() => {
+                        setEditId(null);
+                        setEdit(null);
+                      }}
+                      className="rounded-full glass px-4 py-1.5 text-xs text-white/60 hover:text-white"
+                    >
                       Cancel
                     </button>
                   </>
@@ -721,10 +942,15 @@ function AdminCollective({ token }: { token: string }) {
                       disabled={busy === a._id + "approve"}
                       className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-40"
                     >
-                      {a.kind === "professional" ? "Approve & publish" : "Approve"}
+                      {a.kind === "professional"
+                        ? "Approve & publish"
+                        : "Approve"}
                     </button>
                     {a.kind === "professional" && (
-                      <button onClick={() => startEdit(a)} className="rounded-full glass px-4 py-1.5 text-xs text-white/70 hover:text-white">
+                      <button
+                        onClick={() => startEdit(a)}
+                        className="rounded-full glass px-4 py-1.5 text-xs text-white/70 hover:text-white"
+                      >
                         Edit & publish
                       </button>
                     )}
@@ -751,11 +977,14 @@ function AdminCollective({ token }: { token: string }) {
                       : "bg-red-500/15 text-red-300 hover:bg-red-500/25"
                   }`}
                 >
-                  {a.grantActive !== false ? "Active — deactivate" : "Inactive — reactivate"}
+                  {a.grantActive !== false
+                    ? "Active — deactivate"
+                    : "Inactive — reactivate"}
                 </button>
                 {a.kind === "gear-provider" && (
                   <span className="text-[11px] text-white/30">
-                    Only affects their free membership perk — not linked to any live listings.
+                    Only affects their free membership perk — not linked to any
+                    live listings.
                   </span>
                 )}
               </div>
@@ -764,8 +993,9 @@ function AdminCollective({ token }: { token: string }) {
         ))}
       </div>
       <p className="mt-2 text-[11px] text-white/30">
-        Approving a professional publishes a first-name-only crew card on /gear. Gear-provider approvals are marked
-        approved — onboard the items into the catalogue separately.
+        Approving a professional publishes a first-name-only crew card on /gear.
+        Gear-provider approvals are marked approved — onboard the items into the
+        catalogue separately.
       </p>
     </section>
   );
@@ -775,7 +1005,16 @@ function AdminMemberOffers({ token }: { token: string }) {
   const res = useQuery(api.promo.adminListMemberOffers, { token });
   const create = useMutation(api.promo.adminCreateMemberOffer);
   const toggle = useMutation(api.promo.adminToggleMemberOffer);
-  const [f, setF] = useState({ title: "", blurb: "", badge: "", code: "", type: "percent", value: "20", limit: "monthly", expiryDays: "" });
+  const [f, setF] = useState({
+    title: "",
+    blurb: "",
+    badge: "",
+    code: "",
+    type: "percent",
+    value: "20",
+    limit: "monthly",
+    expiryDays: "",
+  });
   const [err, setErr] = useState<string | null>(null);
   if (!res || !(res as any).authorized) return null;
 
@@ -793,51 +1032,120 @@ function AdminMemberOffers({ token }: { token: string }) {
         limit: f.limit as any,
         expiryDays: f.expiryDays ? Number(f.expiryDays) : undefined,
       });
-      setF({ title: "", blurb: "", badge: "", code: "", type: "percent", value: "20", limit: "monthly", expiryDays: "" });
+      setF({
+        title: "",
+        blurb: "",
+        badge: "",
+        code: "",
+        type: "percent",
+        value: "20",
+        limit: "monthly",
+        expiryDays: "",
+      });
     } catch (e: any) {
       setErr(e?.message ?? "Failed");
     }
   }
-  const inp = "rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none";
+  const inp =
+    "rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none";
   return (
     <section className="mt-10">
-      <h2 className="font-display text-lg font-semibold text-amber-200">Member-only offers</h2>
+      <h2 className="font-display text-lg font-semibold text-amber-200">
+        Member-only offers
+      </h2>
       <div className="mt-3 flex flex-col gap-2">
         {(res as any).items.map((o: any) => (
-          <div key={o._id} className="flex items-center justify-between gap-3 rounded-xl border border-amber-400/30 bg-amber-500/[0.06] px-4 py-2 text-sm">
+          <div
+            key={o._id}
+            className="flex items-center justify-between gap-3 rounded-xl border border-amber-400/30 bg-amber-500/[0.06] px-4 py-2 text-sm"
+          >
             <div className="min-w-0">
               <span className="font-medium text-white/85">{o.title}</span>{" "}
-              <span className="font-mono text-amber-300">{String(o.code).toUpperCase()}</span>{" "}
+              <span className="font-mono text-amber-300">
+                {String(o.code).toUpperCase()}
+              </span>{" "}
               <span className="text-white/40">· {o.badge}</span>
             </div>
-            <button onClick={() => toggle({ token, id: o._id })} className={`shrink-0 rounded-full px-3 py-1 text-xs ${o.active ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/40"}`}>
+            <button
+              onClick={() => toggle({ token, id: o._id })}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs ${o.active ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/40"}`}
+            >
               {o.active ? "active" : "inactive"}
             </button>
           </div>
         ))}
       </div>
       <div className="mt-3 grid gap-2 rounded-2xl glass p-4 sm:grid-cols-2">
-        <input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Title (e.g. Free ND filter)" className={inp} />
-        <input value={f.badge} onChange={(e) => setF({ ...f, badge: e.target.value })} placeholder="Badge (e.g. −40% or FREE)" className={inp} />
-        <input value={f.blurb} onChange={(e) => setF({ ...f, blurb: e.target.value })} placeholder="Short description" className={`${inp} sm:col-span-2`} />
-        <input value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="CODE" className={`${inp} uppercase`} />
+        <input
+          value={f.title}
+          onChange={(e) => setF({ ...f, title: e.target.value })}
+          placeholder="Title (e.g. Free ND filter)"
+          className={inp}
+        />
+        <input
+          value={f.badge}
+          onChange={(e) => setF({ ...f, badge: e.target.value })}
+          placeholder="Badge (e.g. −40% or FREE)"
+          className={inp}
+        />
+        <input
+          value={f.blurb}
+          onChange={(e) => setF({ ...f, blurb: e.target.value })}
+          placeholder="Short description"
+          className={`${inp} sm:col-span-2`}
+        />
+        <input
+          value={f.code}
+          onChange={(e) => setF({ ...f, code: e.target.value })}
+          placeholder="CODE"
+          className={`${inp} uppercase`}
+        />
         <div className="flex gap-2">
-          <select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })} className={`${inp} [color-scheme:dark]`}>
+          <select
+            value={f.type}
+            onChange={(e) => setF({ ...f, type: e.target.value })}
+            className={`${inp} [color-scheme:dark]`}
+          >
             <option value="percent">%</option>
             <option value="fixed">£</option>
           </select>
-          <input value={f.value} onChange={(e) => setF({ ...f, value: e.target.value })} type="number" className={`${inp} w-20`} />
+          <input
+            value={f.value}
+            onChange={(e) => setF({ ...f, value: e.target.value })}
+            type="number"
+            className={`${inp} w-20`}
+          />
         </div>
         <div className="flex items-center gap-2 sm:col-span-2">
-          <select value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value })} className={`${inp} [color-scheme:dark]`}>
+          <select
+            value={f.limit}
+            onChange={(e) => setF({ ...f, limit: e.target.value })}
+            className={`${inp} [color-scheme:dark]`}
+          >
             <option value="monthly">once a month</option>
             <option value="once">one-time only</option>
           </select>
-          <input value={f.expiryDays} onChange={(e) => setF({ ...f, expiryDays: e.target.value })} type="number" placeholder="expires in N days (optional)" className={`${inp} flex-1`} />
-          <button onClick={add} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-medium text-black hover:bg-amber-300">Add offer</button>
+          <input
+            value={f.expiryDays}
+            onChange={(e) => setF({ ...f, expiryDays: e.target.value })}
+            type="number"
+            placeholder="expires in N days (optional)"
+            className={`${inp} flex-1`}
+          />
+          <button
+            onClick={add}
+            className="rounded-full bg-amber-400 px-4 py-2 text-sm font-medium text-black hover:bg-amber-300"
+          >
+            Add offer
+          </button>
         </div>
-        <p className="text-[11px] text-white/30 sm:col-span-2">Pro &amp; Studio only · non-stacking · {f.limit === "once" ? "one-time use" : "once a month"}.</p>
-        {err && <span className="text-xs text-red-300 sm:col-span-2">{err}</span>}
+        <p className="text-[11px] text-white/30 sm:col-span-2">
+          Pro &amp; Studio only · non-stacking ·{" "}
+          {f.limit === "once" ? "one-time use" : "once a month"}.
+        </p>
+        {err && (
+          <span className="text-xs text-red-300 sm:col-span-2">{err}</span>
+        )}
       </div>
     </section>
   );

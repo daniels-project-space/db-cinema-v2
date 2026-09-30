@@ -9,13 +9,18 @@ import { reviewFingerprint, reviewGate } from "./lib/reviewEligibility";
 /** Provider reads only: creating a refund does not mean it succeeded. */
 export async function providerReviewGate(b: any, stripe: Stripe): Promise<string | null> {
   if (b.depositAmount > 0) {
-    if (!b.stripePaymentIntentId) return "refund_unverified";
-    let refunded = 0;
-    for await (const r of stripe.refunds.list({ payment_intent: b.stripePaymentIntentId, limit: 100 })) {
-      if (r.status !== "succeeded") return "refund_pending_or_failed";
-      if (r.currency === "gbp") refunded += r.amount;
+    const sources=b.paymentSources??(b.stripePaymentIntentId?[{paymentIntentId:b.stripePaymentIntentId,securityPence:Math.round(b.depositAmount*100)}]:[]);
+    if(!sources.length||sources.reduce((sum:number,p:any)=>sum+p.securityPence,0)!==Math.round(b.depositAmount*100))return "refund_unverified";
+    for(const source of sources){if(!source.securityPence)continue;let refunded=0;
+      for await(const r of stripe.refunds.list({payment_intent:source.paymentIntentId,limit:100})){if(r.status!=="succeeded")return "refund_pending_or_failed";if(r.currency==="gbp")refunded+=r.amount;}
+      if(refunded<source.securityPence)return "refund_pending_or_failed";
     }
-    if (refunded < Math.round(b.depositAmount * 100)) return "refund_pending_or_failed";
+  }
+  for(const id of b.unappliedSecurityPayments??[]){
+    const payment=await stripe.paymentIntents.retrieve(id);
+    let refunded=0;
+    for await(const r of stripe.refunds.list({payment_intent:id,limit:100})){if(r.status!=="succeeded")return "addition_refund_pending_or_failed";refunded+=r.amount;}
+    if(payment.amount_received>refunded)return "addition_refund_pending_or_failed";
   }
   const holds = [...new Set([b.stripeDepositIntentId, b.depositHoldRenewalIntentId,
     ...(b.depositHoldPreviousIntentIds ?? [])].filter(Boolean))] as string[];
