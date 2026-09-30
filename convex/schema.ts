@@ -174,6 +174,12 @@ export default defineSchema({
     remindedPickup: v.optional(v.boolean()),
     remindedReturn: v.optional(v.boolean()),
     remindedReview: v.optional(v.boolean()),
+    reviewFollowUpStatus: v.optional(v.string()),
+    reviewFollowUpReason: v.optional(v.string()),
+    reviewFollowUpCheckedAt: v.optional(v.number()),
+    reviewRefundConfirmedAt: v.optional(v.number()),
+    reviewFollowUpDueAt: v.optional(v.number()),
+    reviewFollowUpSentAt: v.optional(v.number()),
     protection: v.optional(v.string()),
     pickupTime: v.optional(v.string()),
     returnTime: v.optional(v.string()),
@@ -188,7 +194,8 @@ export default defineSchema({
     .index("by_customer", ["customerId"])
     .index("by_status", ["status"])
     .index("by_stripePaymentIntentId", ["stripePaymentIntentId"])
-    .index("by_guestEmail", ["guestEmail"]),
+    .index("by_guestEmail", ["guestEmail"])
+    .index("by_review_check", ["status", "reviewFollowUpCheckedAt"]),
 
   customers: defineTable({
     email: v.string(),
