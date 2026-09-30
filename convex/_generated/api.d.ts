@@ -43,6 +43,7 @@ import type * as operators from "../operators.js";
 import type * as promo from "../promo.js";
 import type * as rateLimit from "../rateLimit.js";
 import type * as recommendations from "../recommendations.js";
+import type * as rentalContents from "../rentalContents.js";
 import type * as reviews from "../reviews.js";
 import type * as rmv2_sync from "../rmv2_sync.js";
 import type * as rmv2_webhook from "../rmv2_webhook.js";
@@ -95,6 +96,7 @@ declare const fullApi: ApiFromModules<{
   promo: typeof promo;
   rateLimit: typeof rateLimit;
   recommendations: typeof recommendations;
+  rentalContents: typeof rentalContents;
   reviews: typeof reviews;
   rmv2_sync: typeof rmv2_sync;
   rmv2_webhook: typeof rmv2_webhook;

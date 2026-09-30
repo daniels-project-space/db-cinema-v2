@@ -40,6 +40,11 @@ export default defineSchema({
     itemType: v.optional(v.string()),
     isPackage: v.optional(v.boolean()),
     knowledge: v.optional(v.any()),
+    rentalContents: v.optional(v.object({
+      included:v.array(v.string()), optional:v.array(v.string()), excluded:v.array(v.string()), notes:v.array(v.string()),
+      status:v.union(v.literal("documented"),v.literal("unknown")),
+      sources:v.array(v.object({account:v.string(),productId:v.number(),url:v.string(),checkedAt:v.number(),excerpt:v.string()})),
+    })),
     specs: v.optional(v.object({ mount: v.optional(v.string()), filterThreadMm: v.optional(v.number()), batteryType: v.optional(v.string()), includesLens: v.optional(v.boolean()), lensFocal: v.optional(v.string()), tier: v.optional(v.string()), lensClass: v.optional(v.string()), hasAutofocus: v.optional(v.boolean()), coverage: v.optional(v.string()) })),
     sizeScore: v.optional(v.number()),
     weightKg: v.optional(v.number()),

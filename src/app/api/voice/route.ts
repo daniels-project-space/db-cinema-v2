@@ -1,3 +1,4 @@
+import { contentsText } from "../../../../shared/rentalContents";
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
@@ -196,6 +197,8 @@ export async function POST(req: NextRequest) {
         }
 
         const top = hits[0];
+        const full = await c.query(api.catalog.getListingBySlug,{slug:top.slug});
+        const packed = contentsText(full);
         const days = Math.max(1, Number(args.days) || 1);
         const qt: any = quote({ daily: top.daily ?? 0 } as any, days);
 
@@ -216,13 +219,13 @@ export async function POST(req: NextRequest) {
             `The ${shorten(top.title)} is ${money(qt.perDay)} a day` +
             (days > 1 ? `, ${money(qt.total)} for ${days} days` : "") +
             `${top.deposit ? `, plus a ${money(hold(top.deposit))} refundable holding deposit` : ""}. ` +
-            `Shall I check it's free for your dates?${alt}`,
+            `${packed} Shall I check it's free for your dates?${alt}`,
             { items: hits },
           );
         }
         return say(
           `Yes — we've got the ${shorten(top.title)}, ${money(top.daily)} a day.${alt} ` +
-          `Want me to check your dates?`,
+          `${packed} Want me to check your dates?`,
           { items: hits },
         );
       }
