@@ -154,6 +154,46 @@ export const adminReview = action({
   },
 });
 
+/** Webhook delivery is normally immediate. Re-read a bounded set of open
+ * rentals hourly so a missed callback cannot leave verification stuck. */
+export const reconcileOpenSessions = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const candidates = await ctx.runQuery(internal.bookings.diditReconcileCandidates, {});
+    if (!candidates.length) return;
+    const cfg = config();
+    let failures = 0;
+    for (let i = 0; i < candidates.length; i += 5) {
+      await Promise.all(candidates.slice(i, i + 5).map(async (candidate) => {
+        try {
+          const report = await retrieveSession(cfg.apiKey, candidate.sessionId,
+            String(candidate.bookingId), candidate.email);
+          if (report.workflow_id !== cfg.workflowId)
+            throw new Error("Verification workflow does not match this rental.");
+          const mapped = mapDecision(report.status, report);
+          if (!mapped) throw new Error("Unknown verification status.");
+          const saved = await ctx.runMutation(internal.bookings.setDiditResult, {
+            bookingId: candidate.bookingId,
+            sessionId: candidate.sessionId,
+            eventId: `reconcile-${candidate.sessionId}-${Date.now()}`,
+            eventAt: Date.now(),
+            providerStatus: report.status,
+            ...mapped,
+          });
+          if (!saved) throw new Error("Verification session changed during reconciliation.");
+        } catch {
+          failures++;
+        } finally {
+          await ctx.runMutation(internal.bookings.markDiditReconciled, {
+            bookingId: candidate.bookingId, sessionId: candidate.sessionId, attemptedAt: Date.now(),
+          });
+        }
+      }));
+    }
+    if (failures) throw new Error(`${failures} rental verification case(s) could not be reconciled.`);
+  },
+});
+
 function canonical(value: any): any {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === "object")
@@ -163,6 +203,32 @@ function canonical(value: any): any {
 
 function allApproved(items: unknown): boolean {
   return Array.isArray(items) && items.length > 0 && items.every((item) => item?.status === "Approved");
+}
+
+function mapDecision(rawStatus: unknown, decision: any): {
+  status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
+  note?: string;
+  poaPostcodes: string[];
+} | null {
+  let status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
+  let poaPostcodes: string[] = [];
+  if (rawStatus === "Approved") {
+    status = decision?.status === "Approved" && allApproved(decision.id_verifications) &&
+      allApproved(decision.liveness_checks) && allApproved(decision.face_matches) &&
+      allApproved(decision.poa_verifications) ? "verified" : "manual_review";
+    if (status === "verified") poaPostcodes = decision.poa_verifications.map((poa: any) =>
+      String(poa.poa_parsed_address?.postal_code ?? poa.poa_formatted_address ?? poa.poa_address ?? ""));
+  } else if (rawStatus === "In Review") status = "manual_review";
+  else if (["Resubmitted", "Abandoned", "Expired", "Awaiting User"].includes(String(rawStatus))) status = "requires_input";
+  else if (rawStatus === "Declined" || rawStatus === "Kyc Expired") status = "rejected";
+  else if (rawStatus === "Not Started" || rawStatus === "In Progress") status = "processing";
+  else return null;
+  const note = status === "manual_review" && rawStatus === "Approved"
+    ? "A required identity, selfie or address check did not pass. We will review it."
+    : rawStatus === "Expired" ? "The verification link expired. Start a new check before handover."
+    : rawStatus === "Abandoned" ? "The verification was not completed. Start a new check before handover."
+    : status === "requires_input" ? "Please complete the requested document step." : undefined;
+  return { status, note, poaPostcodes };
 }
 
 /** Didit v3 webhooks sign the complete canonical JSON with X-Signature-V2.
@@ -188,36 +254,16 @@ export const webhook = internalAction({
         typeof event.session_id !== "string" || typeof event.event_id !== "string" ||
         !Number.isSafeInteger(event.created_at)) return false;
     const bookingId = event.vendor_data.slice("dbc-booking-".length);
-    const rawStatus = event.status;
-    let status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
-    let poaPostcodes: string[] = [];
-    if (rawStatus === "Approved") {
-      const d = event.decision;
-      status = d?.status === "Approved" && allApproved(d.id_verifications) &&
-        allApproved(d.liveness_checks) && allApproved(d.face_matches) && allApproved(d.poa_verifications)
-        ? "verified" : "manual_review";
-      if (status === "verified") poaPostcodes = d.poa_verifications.map((poa: any) =>
-        String(poa.poa_parsed_address?.postal_code ?? poa.poa_formatted_address ?? poa.poa_address ?? ""));
-    } else if (rawStatus === "In Review") status = "manual_review";
-    else if (["Resubmitted", "Abandoned", "Expired"].includes(rawStatus)) status = "requires_input";
-    else if (rawStatus === "Declined" || rawStatus === "Kyc Expired") status = "rejected";
-    else if (rawStatus === "Not Started" || rawStatus === "In Progress") status = "processing";
-    else return true;
-    const note = status === "manual_review" && rawStatus === "Approved"
-      ? "A required identity, selfie or address check did not pass. We will review it."
-      : rawStatus === "Expired" ? "The verification link expired. Start a new check before handover."
-      : rawStatus === "Abandoned" ? "The verification was not completed. Start a new check before handover."
-      : status === "requires_input" ? "Please complete the requested document step." : undefined;
+    const mapped = mapDecision(event.status, event.decision);
+    if (!mapped) return true;
     try {
       return await ctx.runMutation(internal.bookings.setDiditResult, {
         bookingId: bookingId as any,
         sessionId: event.session_id,
         eventId: event.event_id,
         eventAt: event.created_at * 1000,
-        status,
-        providerStatus: rawStatus,
-        note,
-        poaPostcodes,
+        providerStatus: event.status,
+        ...mapped,
       });
     } catch { return false; }
   },

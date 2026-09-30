@@ -170,6 +170,7 @@ export default defineSchema({
     diditEventId: v.optional(v.string()),
     diditEventAt: v.optional(v.number()),
     diditManualDecisionAt: v.optional(v.number()),
+    diditReconciledAt: v.optional(v.number()),
     verificationProvider: v.optional(v.string()),
     verificationNote: v.optional(v.string()),
     verificationUpdatedAt: v.optional(v.number()),
@@ -243,6 +244,7 @@ export default defineSchema({
   })
     .index("by_customer", ["customerId"])
     .index("by_status", ["status"])
+    .index("by_verificationProvider_status", ["verificationProvider", "status"])
     .index("by_stripePaymentIntentId", ["stripePaymentIntentId"])
     .index("by_guestEmail", ["guestEmail"]),
 

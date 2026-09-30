@@ -1099,6 +1099,31 @@ export const verificationAccess = internalQuery({
   },
 });
 
+/** Oldest checked first so a failed provider request cannot starve other rentals. */
+export const diditReconcileCandidates = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const confirmed = await ctx.db.query("bookings")
+      .withIndex("by_verificationProvider_status", (q) => q.eq("verificationProvider", "didit").eq("status", "confirmed")).collect();
+    const active = await ctx.db.query("bookings")
+      .withIndex("by_verificationProvider_status", (q) => q.eq("verificationProvider", "didit").eq("status", "active")).collect();
+    return [...confirmed, ...active]
+      .filter((b) => !!b.diditSessionId && !!b.guestEmail)
+      .sort((a, b) => (a.diditReconciledAt ?? 0) - (b.diditReconciledAt ?? 0))
+      .slice(0, 50)
+      .map((b) => ({ bookingId: b._id, sessionId: b.diditSessionId!, email: b.guestEmail! }));
+  },
+});
+
+export const markDiditReconciled = internalMutation({
+  args: { bookingId: v.id("bookings"), sessionId: v.string(), attemptedAt: v.number() },
+  handler: async (ctx, { bookingId, sessionId, attemptedAt }) => {
+    const b = await ctx.db.get(bookingId);
+    if (b?.diditSessionId === sessionId)
+      await ctx.db.patch(bookingId, { diditReconciledAt: attemptedAt });
+  },
+});
+
 export const setIdentity = internalMutation({
   args: {
     bookingId: v.id("bookings"),
@@ -1129,6 +1154,7 @@ export const setDiditSession = internalMutation({
         diditEventId: undefined,
         diditEventAt: undefined,
         diditManualDecisionAt: undefined,
+        diditReconciledAt: undefined,
         idVerifyStatus: "processing",
         verificationUpdatedAt: Date.now(),
       });

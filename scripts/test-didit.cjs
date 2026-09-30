@@ -36,7 +36,7 @@ Object.assign(process.env, {
   DIDIT_APPLICATION_ID: 'application-1', DIDIT_ENVIRONMENT: 'sandbox',
 });
 
-const { webhook, bookingSession, adminReview } = load('convex/didit.ts');
+const { webhook, bookingSession, adminReview, reconcileOpenSessions } = load('convex/didit.ts');
 const { setDiditResult, setDiditSession, adminSetIdStatus, setDiditManualReview } = load('convex/bookings.ts');
 const { assertDiditCheckoutCapacity } = load('convex/lib/diditCapacity.ts');
 
@@ -195,6 +195,23 @@ function signed(event) {
     {bookingId:'booking-1',sessionId:'session-1',eventId:'stale',eventAt:now*1000,
       status:'rejected',poaPostcodes:[]});
   assert.equal(stalePatch,false,'an older webhook cannot undo a newer human decision');
+  const reconciled = [];
+  const savedFetch = global.fetch;
+  try {
+    report.status = 'Approved';
+    report.id_verifications[0].status = 'Approved';
+    report.poa_verifications[0].poa_parsed_address = {postal_code:'SW1A 1AA'};
+    global.fetch = async () => new Response(JSON.stringify(report),{status:200});
+    await reconcileOpenSessions.handler({
+      runQuery: async ref => ref === 'bookings:diditReconcileCandidates'
+        ? [{bookingId:'booking-1',sessionId:'session-1',email:'renter@example.invalid'}] : [],
+      runMutation: async (ref,args) => { reconciled.push({ref,args}); return true; },
+    },{});
+    const recovered = reconciled.find(x=>x.ref==='bookings:setDiditResult');
+    assert.equal(recovered.args.status,'verified','missed webhooks are recovered from the provider decision');
+    assert.deepEqual(recovered.args.poaPostcodes,['SW1A 1AA']);
+    assert.ok(reconciled.some(x=>x.ref==='bookings:markDiditReconciled'));
+  } finally { global.fetch = savedFetch; }
   const workflow = { workflow_id: 'workflow-1', status: 'published', version: 1,
     features: 'OCR + LIVENESS + FACE_MATCH + PROOF_OF_ADDRESS', max_price: 0.5 };
   const provider = (balance, override = {}) => async url => new Response(JSON.stringify(
