@@ -36,8 +36,8 @@ Object.assign(process.env, {
   DIDIT_APPLICATION_ID: 'application-1', DIDIT_ENVIRONMENT: 'sandbox',
 });
 
-const { webhook, bookingSession } = load('convex/didit.ts');
-const { setDiditResult, setDiditSession, adminSetIdStatus } = load('convex/bookings.ts');
+const { webhook, bookingSession, adminReview } = load('convex/didit.ts');
+const { setDiditResult, setDiditSession, adminSetIdStatus, setDiditManualReview } = load('convex/bookings.ts');
 const { assertDiditCheckoutCapacity } = load('convex/lib/diditCapacity.ts');
 
 function signed(event) {
@@ -121,7 +121,80 @@ function signed(event) {
   }),true);
   assert.equal(manualPatch.idVerifyStatus,undefined,'a feature-level review cannot undo explicit admin approval');
   await assert.rejects(adminSetIdStatus.handler({db:{get:async()=>({status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required'})}},
-    {token:'admin',bookingId:'booking-1',status:'verified',note:'Reviewed evidence'}),/completed Didit case/);
+    {token:'admin',bookingId:'booking-1',status:'verified',note:'Reviewed evidence'}),/Didit review action/);
+  const sessionUrl = 'https://verify.didit.me/session/session-1';
+  const report = {session_id:'session-1',session_kind:'user',workflow_id:'workflow-1',
+    vendor_data:'dbc-booking-booking-1',contact_details:{email:'renter@example.invalid'},
+    session_url:sessionUrl,status:'In Review',
+    id_verifications:[{status:'Declined',node_id:'feature_ocr'}],
+    liveness_checks:[{status:'Approved',node_id:'feature_liveness'}],
+    face_matches:[{status:'Approved',node_id:'feature_face'}],
+    poa_verifications:[{status:'Approved',node_id:'feature_poa'}]};
+  const reviewBooking = {status:'confirmed',verificationProvider:'didit',idVerifyStatus:'manual_review',
+    diditSessionId:'session-1',guestEmail:'renter@example.invalid'};
+  const calls = [];
+  const reviewCtx = {
+    runQuery: async () => reviewBooking,
+    runMutation: async (ref, args) => { calls.push({ref,args}); return true; },
+  };
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (url, options = {}) => {
+      calls.push({url,options});
+      if (options.method === 'PATCH') return new Response(JSON.stringify({session_id:'session-1'}),{status:200});
+      return new Response(JSON.stringify(report),{status:200});
+    };
+    await adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'resubmit',note:'Please replace the ID'});
+    const patchCall = calls.find(x=>x.options?.method === 'PATCH');
+    assert.deepEqual(JSON.parse(patchCall.options.body).nodes_to_resubmit,[{node_id:'feature_ocr',feature:'OCR'}]);
+    assert.equal(calls.find(x=>x.ref === 'bookings:setDiditManualReview').args.decision,'resubmit');
+    calls.length = 0;
+    report.status = 'Approved';
+    await adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Address evidence reviewed'});
+    assert.equal(calls.some(x=>x.options?.method === 'PATCH'),false,'already approved provider case must not be patched twice');
+    calls.length = 0;
+    await adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'resubmit',note:'Postcode does not match booking'});
+    assert.deepEqual(JSON.parse(calls.find(x=>x.options?.method === 'PATCH').options.body).nodes_to_resubmit,
+      [{node_id:'feature_ocr',feature:'OCR'}],'failed steps take priority over an address-only redo');
+    report.id_verifications[0].status = 'Approved';
+    calls.length = 0;
+    await adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'resubmit',note:'Postcode does not match booking'});
+    assert.deepEqual(JSON.parse(calls.find(x=>x.options?.method === 'PATCH').options.body).nodes_to_resubmit,
+      [{node_id:'feature_poa',feature:'PROOF_OF_ADDRESS'}],'an address mismatch reopens PoA when all features passed');
+    calls.length = 0;
+    report.vendor_data = 'dbc-booking-another';
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Address evidence reviewed'}),/does not match/);
+    assert.equal(calls.some(x=>x.ref === 'bookings:setDiditManualReview'),false);
+    report.vendor_data = 'dbc-booking-booking-1';
+    report.status = 'Resubmitted';
+    await assert.rejects(bookingSession.handler({runQuery:async()=>({...reviewBooking,idVerifyStatus:'requires_input'})},
+      {bookingId:'booking-1',accountToken:'account-token'}),/sign in/);
+    assert.deepEqual(await bookingSession.handler({runQuery:async ref=>ref==='accounts:_byToken'
+      ? {email:'renter@example.invalid'} : {...reviewBooking,idVerifyStatus:'requires_input'}},
+      {bookingId:'booking-1',accountToken:'account-token'}),{url:sessionUrl},'resubmission resumes the same case URL');
+    assert.equal(calls.some(x=>x.url==='https://verification.didit.me/v3/session/' && x.options?.method==='POST'),false);
+    calls.length = 0;
+    report.status = 'Declined';
+    global.fetch = async (url, options = {}) => {
+      calls.push({url,options});
+      return new Response(JSON.stringify(options.method === 'PATCH' ? {detail:'denied'} : report),
+        {status:options.method === 'PATCH' ? 403 : 200});
+    };
+    await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Reviewed identity evidence'}),/did not accept/);
+    assert.equal(calls.some(x=>x.ref === 'bookings:setDiditManualReview'),false,'failed provider writes must not approve the rental');
+  } finally { global.fetch = originalFetch; }
+  let reviewPatch;
+  assert.equal(await setDiditManualReview.handler({
+    db:{get:async()=>reviewBooking,patch:async(_id,value)=>{reviewPatch=value;}},
+    scheduler:{runAfter:async()=>{}},
+  },{bookingId:'booking-1',sessionId:'session-1',decision:'resubmit',note:'Replace ID'}),true);
+  assert.equal(reviewPatch.idVerifyStatus,'requires_input');
+  assert.ok(reviewPatch.diditManualDecisionAt > 0);
+  let stalePatch = false;
+  await setDiditResult.handler({db:{get:async()=>({...reviewBooking,diditManualDecisionAt:now*1000+1000}),patch:async()=>{stalePatch=true;}}},
+    {bookingId:'booking-1',sessionId:'session-1',eventId:'stale',eventAt:now*1000,
+      status:'rejected',poaPostcodes:[]});
+  assert.equal(stalePatch,false,'an older webhook cannot undo a newer human decision');
   const workflow = { workflow_id: 'workflow-1', status: 'published', version: 1,
     features: 'OCR + LIVENESS + FACE_MATCH + PROOF_OF_ADDRESS', max_price: 0.5 };
   const provider = (balance, override = {}) => async url => new Response(JSON.stringify(

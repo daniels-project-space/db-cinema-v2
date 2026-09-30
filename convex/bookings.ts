@@ -1094,7 +1094,8 @@ export const verificationAccess = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
-    return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider, idVerifyStatus: b.idVerifyStatus };
+    return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,
+      idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId };
   },
 });
 
@@ -1127,6 +1128,7 @@ export const setDiditSession = internalMutation({
         diditSessionId: sessionId,
         diditEventId: undefined,
         diditEventAt: undefined,
+        diditManualDecisionAt: undefined,
         idVerifyStatus: "processing",
         verificationUpdatedAt: Date.now(),
       });
@@ -1150,7 +1152,8 @@ export const setDiditResult = internalMutation({
   handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
-    if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt) return true;
+    if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
+        (b.diditManualDecisionAt ?? 0) >= eventAt) return true;
     // The provider checks the bill and its holder. Also require its UK postcode
     // to match the address this renter supplied for the booking.
     const postcode = (s: string) => s.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";
@@ -1207,16 +1210,14 @@ export const adminSetIdStatus = mutation({
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active"].includes(b.status))
       throw new Error("Only a paid, open rental can receive a manual verification decision.");
+    if (b.verificationProvider === "didit")
+      throw new Error("Use the Didit review action so the provider and booking stay in sync.");
     const prev = b.idVerifyStatus ?? "required";
     if (!["verified", "requires_input", "rejected"].includes(status)) throw new Error("Invalid review decision");
     if (note.trim().length < 5) throw new Error("Record why the manual decision was made.");
-    if (b.verificationProvider === "didit" && status === "verified" &&
-        (!b.diditSessionId || !["manual_review", "rejected"].includes(prev)))
-      throw new Error("Review the completed Didit case before approving identity and address manually.");
     await ctx.db.patch(bookingId, {
       idVerifyStatus: status,
       idVerificationSource: "manual",
-      diditEventAt: Date.now(),
       idVerifiedAt: status === "verified" ? Date.now() : undefined,
       verificationUpdatedAt: Date.now(),
       verificationNote: note.trim().slice(0, 400),
@@ -1224,6 +1225,39 @@ export const adminSetIdStatus = mutation({
     if (status === "verified") await markAccountVerified(ctx, bookingId);
     if (status !== prev && ["verified", "requires_input", "canceled"].includes(status))
       await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
+  },
+});
+
+/** Called only after the authenticated admin action has read and, when needed,
+ * updated this exact Didit session. A signed webhook may arrive first. */
+export const setDiditManualReview = internalMutation({
+  args: {
+    bookingId: v.id("bookings"), sessionId: v.string(),
+    decision: v.union(v.literal("approve"), v.literal("resubmit"), v.literal("decline")),
+    note: v.string(),
+  },
+  handler: async (ctx, { bookingId, sessionId, decision, note }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId ||
+        !["confirmed", "active"].includes(b.status)) return false;
+    const previous = b.idVerifyStatus ?? "required";
+    if (decision === "approve" && !["manual_review", "rejected", "verified"].includes(previous)) return false;
+    if (decision !== "approve" && !["manual_review", "rejected", "requires_input"].includes(previous)) return false;
+    const status = decision === "approve" ? "verified" : decision === "resubmit" ? "requires_input" : "rejected";
+    await ctx.db.patch(bookingId, {
+      idVerifyStatus: status,
+      idVerificationSource: "manual",
+      diditManualDecisionAt: Date.now(),
+      idVerifiedAt: status === "verified" ? Date.now() : undefined,
+      verificationUpdatedAt: Date.now(),
+      verificationNote: decision === "resubmit" ? "Please replace the requested verification document."
+        : decision === "decline" ? "Identity and address verification was declined. Please contact us."
+        : note.trim().slice(0, 400),
+    });
+    if (status === "verified") await markAccountVerified(ctx, bookingId);
+    if (status !== previous)
+      await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
+    return true;
   },
 });
 

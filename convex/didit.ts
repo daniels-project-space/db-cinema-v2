@@ -7,6 +7,19 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 const sessionApi = "https://verification.didit.me/v3/session/";
+const hostedSessionUrl = /^https:\/\/verify\.didit\.me\/(?:[a-z-]+\/)?session\/[A-Za-z0-9_-]+$/;
+
+async function retrieveSession(apiKey: string, sessionId: string, bookingId: string, email: string): Promise<any> {
+  if (!/^[A-Za-z0-9_-]{8,100}$/.test(sessionId)) throw new Error("Invalid verification case ID.");
+  const res = await fetch(`${sessionApi}${sessionId}/decision/`, { headers: { "x-api-key": apiKey } });
+  if (!res.ok) throw new Error("Could not check the current verification decision. Please try again.");
+  const session: any = await res.json();
+  if (session.session_id !== sessionId || session.session_kind !== "user" ||
+      session.vendor_data !== `dbc-booking-${bookingId}` ||
+      session.contact_details?.email?.trim().toLowerCase() !== email.trim().toLowerCase())
+    throw new Error("Verification case does not match this rental.");
+  return session;
+}
 
 function config() {
   const apiKey = process.env.DIDIT_API_KEY;
@@ -46,6 +59,17 @@ export const bookingSession = action({
     }
     if (!authorized) throw new Error("Please sign in to verify this booking.");
 
+    if (booking.diditSessionId) {
+      const existing = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
+      if (existing.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
+      if (["Not Started", "In Progress", "Awaiting User", "Resubmitted"].includes(existing.status)) {
+        if (typeof existing.session_url !== "string" || !hostedSessionUrl.test(existing.session_url))
+          throw new Error("Verification provider returned an invalid link.");
+        return { url: existing.session_url };
+      }
+      if (existing.status !== "Expired" && existing.status !== "Abandoned")
+        throw new Error("This verification has a decision. Please refresh your rental status.");
+    }
     const res = await fetch(sessionApi, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": cfg.apiKey },
@@ -58,14 +82,75 @@ export const bookingSession = action({
     });
     if (!res.ok) throw new Error("Verification could not start. Please try again.");
     const result: { session_id?: string; url?: string; workflow_id?: string } = await res.json();
-    if (!result.session_id || result.workflow_id !== cfg.workflowId || !result.url ||
-        !/^https:\/\/verify\.didit\.me\/(?:[a-z-]+\/)?session\/[A-Za-z0-9_-]+$/.test(result.url))
+    if (!result.session_id || result.session_id === booking.diditSessionId ||
+        result.workflow_id !== cfg.workflowId || !result.url ||
+        !hostedSessionUrl.test(result.url))
       throw new Error("Verification provider returned an invalid session.");
     const saved: boolean = await ctx.runMutation(internal.bookings.setDiditSession, {
       bookingId: a.bookingId, sessionId: result.session_id,
     });
     if (!saved) throw new Error("Verification session could not be attached to the booking.");
     return { url: result.url };
+  },
+});
+
+/** A human review changes the Didit case before updating the rental. The
+ * provider records the review in its audit timeline and emits a signed webhook. */
+export const adminReview = action({
+  args: {
+    token: v.string(), bookingId: v.id("bookings"),
+    decision: v.union(v.literal("approve"), v.literal("resubmit"), v.literal("decline")),
+    note: v.string(),
+  },
+  handler: async (ctx, { token, bookingId, decision, note }): Promise<void> => {
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "didit.adminReview" });
+    const reason = note.trim();
+    if (reason.length < 5 || reason.length > 400) throw new Error("Record a 5–400 character review reason.");
+    const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId });
+    if (!booking || booking.verificationProvider !== "didit" || !booking.diditSessionId ||
+        !["confirmed", "active"].includes(booking.status) ||
+        !["manual_review", "rejected"].includes(booking.idVerifyStatus))
+      throw new Error("Only a paid rental with a completed Didit case can be reviewed here.");
+    const cfg = config();
+    const session = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.guestEmail);
+    if (session.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
+    if (!["Approved", "Declined", "In Review", "Kyc Expired", "Abandoned", "Resubmitted"].includes(session.status))
+      throw new Error("This verification is still in progress or expired; it cannot be manually decided.");
+    if (decision === "approve" && !["Approved", "Declined", "In Review"].includes(session.status))
+      throw new Error("Review a completed identity, selfie and address case before approving it.");
+
+    const next = decision === "approve" ? "Approved" : decision === "decline" ? "Declined" : "Resubmitted";
+    if (session.status !== next) {
+      const body: Record<string, unknown> = { new_status: next, comment: `Db Cinema Rentals review: ${reason}` };
+      if (decision === "resubmit") {
+        const features = [
+          ["id_verifications", "OCR"], ["liveness_checks", "LIVENESS"],
+          ["face_matches", "FACE_MATCH"], ["poa_verifications", "PROOF_OF_ADDRESS"],
+        ] as const;
+        const needsRedo = features.flatMap(([field, feature]) =>
+          (Array.isArray(session[field]) ? session[field] : [])
+            .filter((item: any) => item?.status !== "Approved" && typeof item?.node_id === "string")
+            .map((item: any) => ({ node_id: item.node_id, feature })));
+        const addressOnly = (Array.isArray(session.poa_verifications) ? session.poa_verifications : [])
+          .filter((item: any) => typeof item?.node_id === "string")
+          .map((item: any) => ({ node_id: item.node_id, feature: "PROOF_OF_ADDRESS" }));
+        body.nodes_to_resubmit = needsRedo.length ? needsRedo : addressOnly;
+        if (!(body.nodes_to_resubmit as unknown[]).length)
+          throw new Error("No document step is available to resubmit. Review the case in Didit Business Console.");
+      }
+      const res = await fetch(`${sessionApi}${booking.diditSessionId}/update-status/`, {
+        method: "PATCH", headers: { "content-type": "application/json", "x-api-key": cfg.apiKey },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Didit did not accept the review decision. Refresh the case and try again.");
+      const updated: { session_id?: string } = await res.json();
+      if (updated.session_id !== booking.diditSessionId)
+        throw new Error("Didit returned a different case. Check the provider decision before continuing.");
+    }
+    const saved: boolean = await ctx.runMutation(internal.bookings.setDiditManualReview, {
+      bookingId, sessionId: booking.diditSessionId, decision, note: reason,
+    });
+    if (!saved) throw new Error("The rental changed during review. Check its current status and the Didit case.");
   },
 });
 

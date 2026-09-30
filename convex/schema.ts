@@ -169,6 +169,7 @@ export default defineSchema({
     diditSessionId: v.optional(v.string()),
     diditEventId: v.optional(v.string()),
     diditEventAt: v.optional(v.number()),
+    diditManualDecisionAt: v.optional(v.number()),
     verificationProvider: v.optional(v.string()),
     verificationNote: v.optional(v.string()),
     verificationUpdatedAt: v.optional(v.number()),

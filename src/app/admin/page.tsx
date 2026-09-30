@@ -17,6 +17,7 @@ export default function AdminPage() {
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<"overview" | "bookings" | "inbox" | "calls" | "settings">("overview");
   const [returningId, setReturningId] = useState<string | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   useEffect(() => {
     setToken(localStorage.getItem("dbc_admin"));
@@ -26,6 +27,7 @@ export default function AdminPage() {
   const contacts = useQuery(api.contact.adminList, token ? { token } : "skip");
   const setStatus = useMutation(api.bookings.adminSetStatus);
   const setId = useMutation(api.bookings.adminSetIdStatus);
+  const reviewDidit = useAction(api.didit.adminReview);
   const pauseLateFee = useMutation(api.bookings.adminPauseLateFee);
   const cancelBooking = useAction(api.checkout.cancelByAdmin);
   const markHandled = useMutation(api.contact.adminMarkHandled);
@@ -40,6 +42,21 @@ export default function AdminPage() {
     localStorage.removeItem("dbc_admin");
     setToken(null);
     setInput("");
+  }
+
+  async function decideDidit(bookingId: string, decision: "approve" | "resubmit" | "decline") {
+    if (!token || reviewingId) return;
+    const label = decision === "approve" ? "approval" : decision === "resubmit" ? "document resubmission" : "decline";
+    const note = prompt(`Record the evidence and reason for this ${label}. Review the Didit case first:`);
+    if (!note) return;
+    setReviewingId(bookingId);
+    try {
+      await reviewDidit({ token, bookingId: bookingId as any, decision, note });
+    } catch (e: any) {
+      alert(e?.message ?? "The verification review could not be saved.");
+    } finally {
+      setReviewingId(null);
+    }
   }
 
   if (!token || authed === false) {
@@ -180,8 +197,7 @@ export default function AdminPage() {
                           .catch((error: any) => alert(error.message));
                       }} className="shrink-0 rounded-md bg-rose-500/15 px-2 py-1 text-[11px] text-rose-300">Cancel</button>
                     )}
-                    {b.idVerifyStatus !== "verified" &&
-                      (b.verificationProvider !== "didit" || ["manual_review", "rejected"].includes(b.idVerifyStatus)) && (
+                    {b.idVerifyStatus !== "verified" && b.verificationProvider !== "didit" && (
                       <button
                         onClick={() => {
                           const note = prompt("Record the evidence and reason for manual identity and address approval:");
@@ -192,6 +208,16 @@ export default function AdminPage() {
                       >
                         Review ✓
                       </button>
+                    )}
+                    {b.verificationProvider === "didit" && ["manual_review", "rejected"].includes(b.idVerifyStatus) && (
+                      <>
+                        <button disabled={!!reviewingId} onClick={() => void decideDidit(b._id, "approve")}
+                          className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300 disabled:opacity-40">Approve ID + address</button>
+                        <button disabled={!!reviewingId} onClick={() => void decideDidit(b._id, "resubmit")}
+                          className="shrink-0 rounded-md bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200 disabled:opacity-40">Request resubmission</button>
+                        <button disabled={!!reviewingId} onClick={() => void decideDidit(b._id, "decline")}
+                          className="shrink-0 rounded-md bg-rose-500/15 px-2 py-1 text-[11px] text-rose-300 disabled:opacity-40">Decline</button>
+                      </>
                     )}
                     {(["confirmed", "active"].includes(b.status) || (b.status === "returned" && b.returnDecision && !b.actualReturnedAt)) && (
                       <button onClick={() => setReturningId(returningId === b._id ? null : b._id)}
@@ -206,7 +232,7 @@ export default function AdminPage() {
                   </div>
                   {b.verificationProvider === "didit" && ["manual_review", "rejected"].includes(b.idVerifyStatus) && (
                     <p className="mt-2 text-[11px] text-amber-200/80">
-                      Review the case and warnings in <a className="underline" href="https://business.didit.me" target="_blank" rel="noreferrer">Didit Business Console</a> before approving here. Request a document resubmission there; its signed result will update this booking.
+                      Review the case and warnings in <a className="underline" href="https://business.didit.me" target="_blank" rel="noreferrer">Didit Business Console</a> before deciding. These actions update the Didit case and this rental; a resubmission reopens only the affected steps.
                     </p>
                   )}
                   {returningId === b._id && <ReturnRentalForm booking={b} token={token} onClose={() => setReturningId(null)} />}
