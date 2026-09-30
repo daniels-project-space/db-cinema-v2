@@ -18,6 +18,20 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/sumsub-webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const body = await req.text();
+    const ok: boolean = await ctx.runAction(internal.sumsub.webhook, {
+      body,
+      digest: req.headers.get("x-payload-digest") ?? "",
+      algorithm: req.headers.get("x-payload-digest-alg") ?? "",
+    });
+    return new Response(ok ? "ok" : "invalid", { status: ok ? 200 : 400 });
+  }),
+});
+
 // Telegram inbound — Approve/Decline inline-button callbacks for booking change requests.
 // Set the bot webhook to https://<deployment>.convex.site/telegram with secret_token = TELEGRAM_WEBHOOK_SECRET.
 http.route({

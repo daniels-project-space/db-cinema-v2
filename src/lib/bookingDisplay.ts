@@ -24,13 +24,21 @@ export type EnrichedBooking = {
   deliveryFee?: number;
   creditApplied?: number;
   depositAmount: number;
+  depositHoldAmount?: number;
+  depositHoldStatus?: string | null;
+  depositHoldExpiresAt?: number | null;
+  depositHoldRenewalStatus?: string | null;
   depositRefunded?: boolean;
+  hasReturnStatement?: boolean;
+  lateFeeAmount?: number;
+  lateFeeStatus?: string | null;
   currency: string;
   fulfilment: "pickup" | "delivery";
   address: string | null;
   pickupTime: string | null;
   returnTime: string | null;
   idVerifyStatus: string;
+  verificationNote?: string | null;
   reviewed: boolean;
   firstSlug: string | null;
   start: number | null;
@@ -126,8 +134,16 @@ export function cancelKind(start: number, now: number): "full_refund" | "store_c
 export type Step = { label: string; state: "done" | "current" | "todo" };
 
 /** Four-stage lifecycle for the minimal progress bar above a tile. */
-export function bookingSteps(b: { status: string; idVerifyStatus: string }): { cancelled: boolean; steps: Step[] } {
-  const labels = ["Confirmed", "ID verified", "Pickup", "Return"];
+export function bookingSteps(b: { status: string; idVerifyStatus: string; depositHoldAmount?: number; depositHoldStatus?: string | null }): { cancelled: boolean; steps: Step[] } {
+  const verificationLabel = b.idVerifyStatus === "verified" ? "ID + address verified"
+    : b.idVerifyStatus === "processing" ? "Verification in review"
+    : b.idVerifyStatus === "requires_input" ? "Resubmission needed"
+    : b.idVerifyStatus === "rejected" ? "Human review needed"
+    : "Verify ID + address";
+  const withHold = (b.depositHoldAmount ?? 0) > 0;
+  const labels = withHold
+    ? ["Payment", "Card hold", verificationLabel, "Pickup", "Return"]
+    : ["Confirmed", verificationLabel, "Pickup", "Return"];
   if (b.status === "cancelled") {
     return { cancelled: true, steps: labels.map((label) => ({ label, state: "todo" as const })) };
   }
@@ -136,10 +152,11 @@ export function bookingSteps(b: { status: string; idVerifyStatus: string }): { c
   const out = ["active", "returned"].includes(b.status);
   const back = b.status === "returned";
   let reached = 0; // index of the CURRENT step (earlier steps are done)
-  if (back) reached = 4;
-  else if (out) reached = 3;
-  else if (booked && verified) reached = 2;
-  else if (booked) reached = 1;
+  if (back) reached = labels.length;
+  else if (out) reached = labels.length - 1;
+  else if (booked && withHold && b.depositHoldStatus !== "held") reached = 1;
+  else if (booked && verified) reached = labels.length - 2;
+  else if (booked) reached = withHold ? 2 : 1;
   else reached = 0; // pending_payment → "Confirmed" is in progress
   const steps: Step[] = labels.map((label, i) => ({
     label,

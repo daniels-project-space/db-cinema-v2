@@ -3,7 +3,7 @@
 import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
-import { sendMail } from "./lib/mailer";
+import { OWNER_EMAIL, sendMail } from "./lib/mailer";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -48,7 +48,7 @@ export const bookingAlert = internalAction({
       )
       .join("\n");
     await telegram(
-      `🎬 <b>New booking</b>\n${b.guestEmail}\n${b.fulfilment}\n${lines}\n<b>£${b.total}</b> (incl £${b.depositAmount} deposit)`,
+      `🎬 <b>New booking</b>\n${b.guestEmail}\n${b.fulfilment}\n${lines}\n<b>£${b.total}</b> (incl £${b.depositAmount} refundable security payment; £${b.depositHoldAmount ?? 0} separate card hold)`,
     );
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const secret = process.env.INVOICE_SECRET;
@@ -60,7 +60,7 @@ export const bookingAlert = internalAction({
       "Your Db Cinema booking is confirmed",
       `<h2>Booking confirmed 🎬</h2><p>Thanks for renting with Db Cinema.</p>
        <pre>${lines}</pre>
-       <p>Total paid: <b>£${b.total}</b> (incl. £${b.depositAmount} refundable deposit)</p>
+       <p>Total paid: <b>£${b.total}</b> (incl. £${b.depositAmount} refundable security payment; £${b.depositHoldAmount ?? 0} separate card hold)</p>
        <p>Fulfilment: ${b.fulfilment}</p>
        <p>📅 Your pickup &amp; return dates are attached — add them to your calendar.</p>`,
       cal,
@@ -93,9 +93,15 @@ export const verificationEmail = internalAction({
     if (status === "verified") {
       await email(
         b.guestEmail,
-        "Your ID is verified ✓ — you're all set",
-        `<h2>ID verified ✓</h2><p>Thanks — your identity check passed${items ? ` for <b>${items}</b>` : ""}. You're all set; we'll be in touch about handover.</p><p>View your booking any time in <a href="${app}/account">your account</a>.</p>`,
+        "Your identity and address check passed ✓",
+        `<h2>Identity and address verified ✓</h2><p>Thanks — your identity check passed${items ? ` for <b>${items}</b>` : ""}. You're all set; we'll be in touch about handover.</p><p>View your booking any time in <a href="${app}/account">your account</a>.</p>`,
       );
+    } else if (status === "manual_review") {
+      await email(b.guestEmail, "Your Db Cinema verification is being reviewed",
+        `<h2>Verification review</h2><p>Your identity and address documents have been referred for a human review. We will contact you if anything else is needed. You can follow progress in <a href="${app}/account">your account</a>.</p>`);
+    } else if (status === "rejected") {
+      await email(b.guestEmail, "Your Db Cinema verification needs support",
+        `<h2>Verification needs support</h2><p>The automated check could not approve your documents. Please reply to this email so we can review the result before handover.</p>`);
     } else {
       const label: Record<string, string> = {
         requires_input: "needs another try",
@@ -104,10 +110,20 @@ export const verificationEmail = internalAction({
       };
       await email(
         b.guestEmail,
-        "Action needed: verify your ID for your Db Cinema rental",
-        `<h2>ID verification ${label[status] ?? "update"}</h2><p>Your identity check ${label[status] ?? "needs attention"}. Please complete it so we can hand over your gear:</p><p><a href="${app}/account">Verify your ID →</a></p>${items ? `<p style="color:#888">Booking: ${items}</p>` : ""}`,
+        "Action needed: complete your Db Cinema verification",
+        `<h2>Identity and address verification ${label[status] ?? "update"}</h2><p>Your check ${label[status] ?? "needs attention"}. The provider will explain which document to replace before handover:</p><p><a href="${app}/account">Verify your ID →</a></p>${items ? `<p style="color:#888">Booking: ${items}</p>` : ""}`,
       );
     }
+  },
+});
+
+export const verificationReviewAlert = internalAction({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const b: any = await ctx.runQuery(api.bookings.get, { bookingId });
+    if (!b) return;
+    await sendMail({ to: OWNER_EMAIL(), subject: "Db Cinema verification needs human review",
+      html: `<p>Booking ${bookingId} for ${String(b.guestEmail ?? "unknown").replace(/[&<>]/g, "")} is awaiting a human identity and address review. Open the admin bookings panel to review it; do not hand over equipment until approved.</p>` });
   },
 });
 

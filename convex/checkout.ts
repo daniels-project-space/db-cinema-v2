@@ -5,6 +5,9 @@ import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 import { depositFor } from "./lib/pricing";
+import { lateFeeQuote } from "./lib/lateFee";
+import { AGREEMENTS } from "../src/lib/legal";
+import { sendMail } from "./lib/mailer";
 import { tierByKey, FREE_ACCESSORY_TYPES } from "./lib/membership";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
@@ -48,6 +51,7 @@ export const start = action({
       email: v.string(),
       name: v.optional(v.string()),
       phone: v.optional(v.string()),
+      billingAddress: v.string(),
     }),
     fulfilment: v.union(v.literal("pickup"), v.literal("delivery")),
     address: v.optional(v.string()),
@@ -59,6 +63,8 @@ export const start = action({
     agreement: v.optional(
       v.object({
         name: v.string(),
+        securityHoldConsent: v.boolean(),
+        laterChargeConsent: v.boolean(),
         documents: v.array(v.object({ kind: v.string(), version: v.string() })),
       }),
     ),
@@ -66,11 +72,29 @@ export const start = action({
   },
   handler: async (ctx, a): Promise<{ url: string }> => {
     if (a.items.length === 0) throw new Error("empty cart");
+    if (process.env.RENTAL_CHECKOUT_ENABLED !== "true")
+      throw new Error("Direct rental checkout is being prepared. Please contact us to arrange your rental.");
+    if (process.env.BUSINESS_VAT_REGISTERED === "true")
+      throw new Error("Rental receipt tax configuration needs updating before checkout can continue.");
+    if (!process.env.SUMSUB_APP_TOKEN || !process.env.SUMSUB_SECRET_KEY || !process.env.SUMSUB_LEVEL_NAME || !process.env.SUMSUB_WEBHOOK_SECRET)
+      throw new Error("Automatic identity and address verification is being configured. Please contact us before paying.");
+    if (!process.env.STRIPE_WEBHOOK_SECRET || !process.env.INVOICE_SECRET || !process.env.APP_URL ||
+        !process.env.BUSINESS_LEGAL_NAME || !process.env.BUSINESS_INVOICE_ADDRESS ||
+        !((process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) || process.env.RESEND_API_KEY))
+      throw new Error("Rental receipts and payment notifications are being configured. Please contact us before paying.");
     const cfg: any = await ctx.runQuery(api.settings.get, {});
     if (!cfg.acceptingOrders)
       throw new Error("We're not accepting new bookings right now — please check back soon.");
-    if (!a.agreement || !a.agreement.name.trim())
+    if (!a.agreement || !a.agreement.name.trim() || !a.agreement.securityHoldConsent || !a.agreement.laterChargeConsent)
       throw new Error("Please sign the rental agreement to continue.");
+    if (a.customer.billingAddress.trim().length < 10 || (a.customer.name ?? "").trim().length < 3)
+      throw new Error("Enter your full name and billing address for the rental statement.");
+    const slot = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (!a.pickupTime || !slot.test(a.pickupTime) || !a.returnTime || !slot.test(a.returnTime))
+      throw new Error("Choose the agreed pickup and return times before paying.");
+    if (!AGREEMENTS.every((expected) => a.agreement!.documents.some((accepted) =>
+      accepted.kind === expected.kind && accepted.version === expected.version)))
+      throw new Error("Please review and accept the current rental agreements before paying.");
 
     // SERVER-AUTHORITATIVE pricing (anti-tamper): never trust client total/deposit — recompute
     // every line from the real listing (same quote() the storefront shows). A tampered cart
@@ -110,7 +134,8 @@ export const start = action({
     const subtotal = a.items.reduce((n, i) => n + i.total, 0);
     const protection = a.protection ?? "verify";
     const replacementSum = a.items.reduce((n, i) => n + i.deposit, 0);
-    const depositAmount = depositFor(protection, replacementSum);
+    const depositHoldAmount = depositFor(protection, replacementSum);
+    const depositAmount = Math.round(depositHoldAmount * 50) / 100;
 
     // account perks (member discount, free accessories, saved ID/card, reminder 5%) require an
     // AUTHENTICATED session token — never the typed email — so they can't be claimed by spoofing
@@ -118,8 +143,9 @@ export const start = action({
     const acct: any = a.token
       ? await ctx.runQuery(internal.accounts._byToken, { token: a.token })
       : null;
-    let idVerifyStatus = protection === "verify" ? "required" : "not_required";
-    if (protection === "verify" && acct?.idVerified) idVerifyStatus = "verified";
+    // Existing Stripe Identity checks do not include proof of address. Require the
+    // complete Sumsub flow for every new booking, including deposit-category rentals.
+    const idVerifyStatus = "required";
 
     const member = acct?.membershipActive ? tierByKey(acct.membershipTier) : null;
 
@@ -197,6 +223,16 @@ export const start = action({
     const deliveryFee = member?.freeDelivery && a.fulfilment === "delivery" ? 0 : a.deliveryFee;
     const total = subtotal + deliveryFee + depositAmount - totalReduction;
 
+    const sb = stripe();
+    const paymentConfigId = process.env.STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID;
+    if (!paymentConfigId) throw new Error("Rental card payment setup is incomplete. Please contact us before paying.");
+    const paymentConfig = await sb.paymentMethodConfigurations.retrieve(paymentConfigId);
+    if (!paymentConfig.active || paymentConfig.card?.display_preference?.value !== "on" ||
+        paymentConfig.apple_pay?.display_preference?.value !== "off" ||
+        paymentConfig.google_pay?.display_preference?.value !== "off" ||
+        paymentConfig.link?.display_preference?.value !== "off")
+      throw new Error("Rental payment configuration must use a reusable card. Please contact us before paying.");
+
     // store credit redemption — applies to the rental spend only (never the refundable deposit).
     // Reserved transactionally inside createPending (double-spend-safe): it caps to the account's
     // available balance minus credit already reserved by its other pending checkouts, and returns
@@ -204,29 +240,35 @@ export const start = action({
     const { bookingId, creditApplied } = await ctx.runMutation(internal.bookings.createPending, {
       customerEmail: a.customer.email,
       customerName: a.customer.name,
+      billingAddress: a.customer.billingAddress.trim(),
       phone: a.customer.phone,
       fulfilment: a.fulfilment,
       address: a.address,
       deliveryFee,
-      lineItems: a.items.map((i) => ({
+      lineItems: a.items.map((i, idx) => ({
         listingId: i.listingId,
         title: i.title,
         start: i.start,
         end: i.end,
         qty: i.qty,
         lineTotal: i.total,
+        dailyRate: repriced[idx]?.dailyRate,
       })),
       subtotal,
       depositAmount,
+      depositHoldAmount,
       promoCode: appliedCode,
       discount: totalReduction,
       total,
       creditAccountId: acct?._id,
       currency: "GBP",
       agreementName: a.agreement?.name,
+      securityHoldConsent: a.agreement?.securityHoldConsent,
+      laterChargeConsent: a.agreement?.laterChargeConsent,
       agreementDocs: a.agreement?.documents,
       protection,
       idVerifyStatus,
+      verificationProvider: "sumsub",
       pickupTime: a.pickupTime,
       returnTime: a.returnTime,
     });
@@ -265,15 +307,12 @@ export const start = action({
           unit_amount: pence(depositAmount),
           product_data: {
             name:
-              protection === "deposit"
-                ? "Refundable security deposit (released on safe return)"
-                : "Refundable damage hold (covers minor damage, refunded on return)",
+              "Refundable security payment (50% of card hold; refunded after safe return)",
           },
         },
       });
     }
 
-    const sb = stripe();
     let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
     const couponAmount = totalReduction + creditApplied;
     if (couponAmount > 0) {
@@ -317,23 +356,77 @@ export const start = action({
       // the gear rebooked elsewhere (oversell). 31 min is just over Stripe's 30-min minimum.
       expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
       line_items,
+      payment_method_configuration: paymentConfigId,
       discounts,
       ...(stripeCustomerId
         ? { customer: stripeCustomerId }
-        : { customer_email: a.customer.email }),
+        : { customer_email: a.customer.email, customer_creation: "always" as const }),
       success_url: `${a.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${a.origin}/cart`,
       metadata: { bookingId },
       payment_intent_data: {
         metadata: { bookingId },
-        setup_future_usage: "on_session", // save the card to the customer
+        setup_future_usage: "off_session", // separately disclosed later charges need a saved card
       },
     });
 
     if (!session.url) throw new Error("Stripe did not return a checkout URL");
+    await ctx.runMutation(internal.bookings.bindCheckoutSession, { bookingId, sessionId: session.id });
     return { url: session.url };
   },
 });
+
+/** A separate manual-capture PaymentIntent is required for an actual card hold.
+ * Checkout saves the card for off-session use, then this attempts the hold immediately.
+ * Issuer authentication is still possible; the success page handles that in the same flow. */
+async function authorizeHold(ctx: any, session: Stripe.Checkout.Session): Promise<{ status: string; clientSecret?: string }> {
+  const bookingId = session.metadata?.bookingId;
+  if (!bookingId || session.payment_status !== "paid") return { status: "not_applicable" };
+  const b: any = await ctx.runQuery(internal.bookings.holdContext, { bookingId: bookingId as any });
+  if (!b || !b.amount || !["confirmed", "active"].includes(b.status)) return { status: "not_applicable" };
+  const sb = stripe();
+  let intent: Stripe.PaymentIntent;
+  if (b.intentId) {
+    intent = await sb.paymentIntents.retrieve(b.intentId, { expand: ["latest_charge"] });
+  } else {
+    const paymentId = typeof session.payment_intent === "string" ? session.payment_intent : null;
+    const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+    if (!paymentId || !customerId) return { status: "failed" };
+    const paidIntent = await sb.paymentIntents.retrieve(paymentId);
+    const paymentMethod = typeof paidIntent.payment_method === "string"
+      ? paidIntent.payment_method : paidIntent.payment_method?.id;
+    if (!paymentMethod) return { status: "failed" };
+    try {
+      intent = await sb.paymentIntents.create({
+        amount: pence(b.amount), currency: "gbp", customer: customerId,
+        payment_method: paymentMethod, payment_method_types: ["card"],
+        capture_method: "manual", confirm: true, off_session: true,
+        ...(process.env.STRIPE_EXTENDED_AUTH_ENABLED === "true"
+          ? { payment_method_options: { card: { request_extended_authorization: "if_available" as const } } }
+          : {}),
+        metadata: { bookingId, purpose: "refundable_security_hold" },
+        expand: ["latest_charge"],
+      }, { idempotencyKey: `dbc-security-hold-${bookingId}` });
+    } catch (e: any) {
+      const failedIntentId = e?.raw?.payment_intent?.id ?? e?.payment_intent?.id;
+      if (!failedIntentId) {
+        await ctx.runMutation(internal.bookings.setHold, { bookingId: bookingId as any, status: "failed" });
+        return { status: "failed" };
+      }
+      intent = await sb.paymentIntents.retrieve(failedIntentId, { expand: ["latest_charge"] });
+    }
+  }
+  const charge: any = intent.latest_charge;
+  const expiresAt = typeof charge === "object"
+    ? charge?.payment_method_details?.card?.capture_before * 1000 || undefined : undefined;
+  const status = intent.status === "requires_capture" ? "held"
+    : intent.status === "requires_action" ? "requires_action"
+    : intent.status === "canceled" ? "released" : "failed";
+  await ctx.runMutation(internal.bookings.setHold, {
+    bookingId: bookingId as any, intentId: intent.id, status, expiresAt,
+  });
+  return { status, clientSecret: status === "requires_action" ? intent.client_secret ?? undefined : undefined };
+}
 
 /** Instant add-on checkout: pay for one extra item attached to an existing
  *  booking. Blocked within 1 hour of the rental start. */
@@ -465,32 +558,102 @@ export const billingPortal = action({
  *  retain part of the deposit for damage (that portion stays captured; the rest is refunded to the
  *  card). Idempotent — the depositRefunded flag plus a Stripe idempotency key prevent a double refund. */
 export const markReturned = action({
-  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()) },
+  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()) },
   handler: async (
     ctx,
-    { token, bookingId, damageKept },
-  ): Promise<{ ok: boolean; released: number; kept: number; alreadyReleased: boolean }> => {
+    { token, bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason },
+  ): Promise<{ ok: boolean; released: number; kept: number; lateAmount: number; alreadyReleased: boolean }> => {
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.markReturned" });
     const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId });
     if (!b) throw new Error("Booking not found.");
-
-    // always mark returned + free the inventory ledger (idempotent), even with no deposit
-    await ctx.runMutation(internal.bookings.markReturnedStatus, { bookingId });
+    const returned = actualReturnedAt ?? Date.now();
+    if (!Number.isFinite(returned) || returned > Date.now() + 60000 || returned < Date.now() - 45 * 86400000)
+      throw new Error("Actual return time must be within the last 45 days.");
+    const quotedLate = lateFeeQuote(b.lineItems, b.returnTime, returned);
+    if (!chargeLate && quotedLate.amount > 0 && (lateWaiverReason ?? "").trim().length < 5)
+      throw new Error("Record why the calculated late rental time is being waived.");
+    const late = chargeLate ? quotedLate : { amount: 0, breakdown: [] };
+    const waiver = !chargeLate && quotedLate.amount > 0
+      ? { waivedAmount: quotedLate.amount, waiverReason: lateWaiverReason?.trim() } : {};
+    if ((damageKept ?? 0) > 0 && (!damageNote || damageNote.trim().length < 10))
+      throw new Error("Record the evidence and reason for a damage deduction.");
+    for (const oldId of b.depositHoldPreviousIntentIds ?? []) {
+      try {
+        const old = await stripe().paymentIntents.retrieve(oldId);
+        if (old.status === "requires_capture") await stripe().paymentIntents.cancel(oldId);
+        await ctx.runMutation(internal.bookings.clearPreviousHold, { bookingId, intentId: oldId });
+      } catch (error) { console.error("Could not release superseded hold at return", oldId, error); }
+    }
 
     const deposit = b.depositAmount ?? 0;
-    if (b.depositRefunded || deposit <= 0) {
-      return { ok: true, released: 0, kept: 0, alreadyReleased: !!b.depositRefunded };
+    if (!Number.isFinite(damageKept ?? 0) || (damageKept ?? 0) < 0 ||
+        (damageKept ?? 0) > deposit + (b.depositHoldAmount ?? 0))
+      throw new Error("The damage amount must be within the paid security payment and full authorised hold.");
+    const kept = Math.max(0, Math.min(Math.round((damageKept ?? 0) * 100) / 100, deposit + (b.depositHoldAmount ?? 0)));
+    if (b.depositRefunded && kept > 0 && !b.returnDecision)
+      throw new Error("This security payment was already settled; a new damage deduction cannot be added here.");
+    if (kept > 0 && !b.depositRefunded) {
+      let holdAvailable = 0;
+      if (b.depositHoldIntentId) {
+        const observed = await stripe().paymentIntents.retrieve(b.depositHoldIntentId);
+        if (observed.status === "requires_capture") holdAvailable = b.depositHoldAmount ?? 0;
+        else if (observed.status === "succeeded") holdAvailable = observed.amount_received / 100;
+      }
+      if (kept > deposit + holdAvailable)
+        throw new Error("The active card hold cannot cover this deduction. Record only the amount currently available and handle any further claim separately.");
+      if (!b.guestEmail) throw new Error("Customer email is required for an itemised damage notice.");
     }
-    const kept = Math.max(0, Math.min(Math.round(damageKept ?? 0), deposit));
-    const toRefund = deposit - kept;
+    await ctx.runMutation(internal.bookings.beginReturnDecision, {
+      bookingId, actualReturnedAt: returned, damageKept: kept, damageNote: kept ? damageNote?.trim() : undefined,
+      chargeLate, lateWaiverReason: !chargeLate && quotedLate.amount > 0 ? lateWaiverReason?.trim() : undefined,
+    });
+    if (kept > 0 && !b.depositRefunded && !b.damageNoticeSentAt) {
+      const detail = (damageNote ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+      const sent = await sendMail({
+        to: b.guestEmail,
+        subject: `Db Cinema rental: itemised £${kept} damage or loss deduction`,
+        html: `<h2>Rental return and security deduction</h2><p>We recorded a £${kept} deduction for the following documented reason:</p><p>${detail}</p><p>We will apply the available authorised hold first and use the refundable security payment only for any remaining amount. Reply to this email if the evidence or amount is wrong. We will not collect the same amount twice.</p>`,
+      });
+      if (!sent) throw new Error("The itemised deduction notice could not be delivered. No damage amount was captured; please retry after fixing email delivery.");
+      await ctx.runMutation(internal.bookings.markDamageNoticeSent, { bookingId });
+    }
+
+    // Mark returned and free the inventory ledger after the deduction preflight.
+    await ctx.runMutation(internal.bookings.markReturnedStatus, { bookingId });
+
+    if (b.depositRefunded || (deposit <= 0 && !b.depositHoldIntentId)) {
+      await ctx.runMutation(internal.bookings.recordLateFee, { bookingId, actualReturnedAt: returned, ...late, ...waiver });
+      return { ok: true, released: b.depositRefundAmount ?? 0, kept: b.depositKept ?? 0, lateAmount: late.amount, alreadyReleased: !!b.depositRefunded };
+    }
+    let capturedFromHold = 0;
+    if (b.depositHoldIntentId) {
+      const sb = stripe();
+      const hold = await sb.paymentIntents.retrieve(b.depositHoldIntentId);
+      if (hold.status === "requires_capture") {
+        capturedFromHold = Math.min(kept, b.depositHoldAmount ?? 0);
+        if (capturedFromHold > 0) {
+          await sb.paymentIntents.capture(hold.id, { amount_to_capture: pence(capturedFromHold) }, { idempotencyKey: `dbc-hold-capture-${bookingId}` });
+        } else if (late.amount === 0) {
+          await sb.paymentIntents.cancel(hold.id, {}, { idempotencyKey: `dbc-hold-release-${bookingId}` });
+        }
+        if (capturedFromHold > 0 || late.amount === 0)
+          await ctx.runMutation(internal.bookings.setHold, {
+            bookingId, intentId: hold.id, status: capturedFromHold ? "captured" : "released",
+          });
+      } else if (hold.status === "succeeded") {
+        capturedFromHold = Math.min(kept, hold.amount_received / 100);
+      }
+    }
+    const toRefund = Math.max(0, deposit - Math.max(0, kept - capturedFromHold));
     if (toRefund > 0 && b.paymentIntentId) {
       await stripe().refunds.create(
         { payment_intent: b.paymentIntentId, amount: pence(toRefund) },
         { idempotencyKey: `dbc-deposit-release-${bookingId}` },
       );
     }
-    await ctx.runMutation(internal.bookings.markDepositReleased, { bookingId, kept });
-    return { ok: true, released: b.paymentIntentId ? toRefund : 0, kept, alreadyReleased: false };
+    await ctx.runMutation(internal.bookings.markDepositReleased, { bookingId, kept, refunded: b.paymentIntentId ? toRefund : 0, capturedFromHold, note: damageNote?.trim() });
+    await ctx.runMutation(internal.bookings.recordLateFee, { bookingId, actualReturnedAt: returned, ...late, ...waiver });
+    return { ok: true, released: b.paymentIntentId ? toRefund : 0, kept, lateAmount: late.amount, alreadyReleased: false };
   },
 });
 
@@ -499,7 +662,7 @@ export const finalize = action({
   handler: async (
     ctx,
     { sessionId },
-  ): Promise<{ bookingId: string | null; paid: boolean; membership?: string }> => {
+  ): Promise<{ bookingId: string | null; paid: boolean; closed?: boolean; membership?: string; holdStatus?: string; holdClientSecret?: string }> => {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
     const m = session.metadata ?? {};
     const paid = session.payment_status === "paid";
@@ -535,16 +698,45 @@ export const finalize = action({
 
     const bookingId = (m.bookingId as string) ?? null;
     if (paid && bookingId) {
-      await ctx.runMutation(internal.bookings.confirm, {
+      const confirmation = await ctx.runMutation(internal.bookings.confirm, {
         bookingId: bookingId as any,
         paymentIntentId:
           typeof session.payment_intent === "string"
             ? session.payment_intent
             : undefined,
       });
+      if (confirmation.closed) return { bookingId, paid, closed: true };
       await ctx.runMutation(api.analytics.track, { type: "purchase" });
+      const hold = await authorizeHold(ctx, session);
+      return { bookingId, paid, holdStatus: hold.status, holdClientSecret: hold.clientSecret };
     }
     return { bookingId, paid };
+  },
+});
+
+/** Reconcile the separate hold after issuer authentication in the success page. */
+export const syncHold = action({
+  args: { sessionId: v.string() },
+  handler: async (ctx, { sessionId }): Promise<{ status: string; clientSecret?: string }> => {
+    const session = await stripe().checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== "paid" || !session.metadata?.bookingId)
+      throw new Error("Payment has not completed");
+    return authorizeHold(ctx, session);
+  },
+});
+
+/** A disputed late charge must not keep an otherwise unused security hold. */
+export const releasePausedLateHold = internalAction({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const late: any = await ctx.runQuery(internal.bookings.lateFeeContext, { bookingId });
+    if (!late || late.lateFeeStatus !== "paused" || late.depositKept > 0 || !late.stripeDepositIntentId) return;
+    const sb = stripe();
+    const hold = await sb.paymentIntents.retrieve(late.stripeDepositIntentId);
+    if (hold.status === "requires_capture") {
+      await sb.paymentIntents.cancel(hold.id, {}, { idempotencyKey: `dbc-disputed-late-release-${bookingId}` });
+      await ctx.runMutation(internal.bookings.setHold, { bookingId, intentId: hold.id, status: "released" });
+    }
   },
 });
 
@@ -576,7 +768,10 @@ export const stripeWebhook = internalAction({
       const pi = typeof s.payment_intent === "string" ? s.payment_intent : undefined;
       if (s.payment_status === "paid") {
         if (m.bookingId) {
-          await ctx.runMutation(internal.bookings.confirm, { bookingId: m.bookingId as any, paymentIntentId: pi });
+          const confirmation = await ctx.runMutation(internal.bookings.confirm, { bookingId: m.bookingId as any, paymentIntentId: pi });
+          if (confirmation.closed) return true;
+          try { await authorizeHold(ctx, s); }
+          catch (e) { console.error("Card hold authorization failed", e); }
         } else if (m.addonBookingId) {
           await ctx.runMutation(internal.bookings.attachAddon, {
             bookingId: m.addonBookingId as any, listingId: m.addonListingId as any,
@@ -652,6 +847,66 @@ const londonStartOfDay = (ms: number) => {
  *  - pending_payment (nothing charged) → just cancel + release holds.
  * Only site-sourced bookings; never touches Hygglo-mirrored reservations.
  */
+async function releaseBookingHolds(ctx: any, bookingId: any, b: any) {
+  const sb = stripe();
+  const ids = [...new Set([
+    b.stripeDepositIntentId,
+    b.depositHoldRenewalIntentId,
+    ...(b.depositHoldPreviousIntentIds ?? []),
+  ].filter((id): id is string => !!id))];
+  for (const id of ids) {
+    const hold = await sb.paymentIntents.retrieve(id);
+    if (["requires_capture", "requires_action", "requires_confirmation", "requires_payment_method"].includes(hold.status)) {
+      await sb.paymentIntents.cancel(id, {}, { idempotencyKey: `dbc-cancel-hold-${bookingId}-${id}` });
+      if (id === b.stripeDepositIntentId)
+        await ctx.runMutation(internal.bookings.setHold, { bookingId, intentId: id, status: "released" });
+    }
+  }
+}
+
+async function paymentBeforeCancellation(b: any): Promise<string | null> {
+  if (b.stripePaymentIntentId) return b.stripePaymentIntentId;
+  if (b.status !== "pending_payment") return null;
+  if (!b.stripeCheckoutSessionId) throw new Error("Checkout is still being prepared. Try again shortly.");
+  const sb = stripe();
+  const session = await sb.checkout.sessions.retrieve(b.stripeCheckoutSessionId);
+  if (session.status === "open") {
+    await sb.checkout.sessions.expire(session.id);
+    return null;
+  }
+  if (session.status === "complete" && session.payment_status === "paid")
+    return typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null;
+  if (session.status === "expired") return null;
+  throw new Error("Checkout payment is still processing. Contact support before cancelling.");
+}
+
+export const cancelByAdmin = action({
+  args: { token: v.string(), bookingId: v.id("bookings"), reason: v.string() },
+  handler: async (ctx, { token, bookingId, reason }): Promise<{ refundAmount: number }> => {
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.cancelByAdmin" });
+    if (reason.trim().length < 5) throw new Error("Record the cancellation reason.");
+    const b: any = await ctx.runQuery(internal.bookings.getForCancel, { bookingId });
+    if (!b || !["confirmed", "pending_payment"].includes(b.status) || !b.siteOnly)
+      throw new Error("Only unstarted direct bookings can be cancelled here.");
+    const paidIntentId = await paymentBeforeCancellation(b);
+    let refundAmount = 0;
+    if (paidIntentId) {
+      const payment = await stripe().paymentIntents.retrieve(paidIntentId);
+      refundAmount = payment.amount_received / 100;
+      if (refundAmount > 0) await stripe().refunds.create(
+        { payment_intent: payment.id, amount: payment.amount_received },
+        { idempotencyKey: `dbc-admin-cancel-refund-${bookingId}` },
+      );
+    }
+    await releaseBookingHolds(ctx, bookingId, b);
+    await ctx.runMutation(internal.bookings._finalizeCancellation, {
+      bookingId, accountId: b.accountId ?? undefined, mode: refundAmount > 0 ? "refund" : "none",
+      refundAmount, creditAmount: 0, currency: b.currency, adminReason: reason.trim().slice(0, 400),
+    });
+    return { refundAmount };
+  },
+});
+
 export const cancelByCustomer = action({
   args: { token: v.string(), bookingId: v.id("bookings") },
   handler: async (ctx, { token, bookingId }): Promise<{ ok: boolean; mode: string; refundAmount: number; creditAmount: number }> => {
@@ -666,12 +921,14 @@ export const cancelByCustomer = action({
       throw new Error("This booking can no longer be cancelled online — please contact us.");
     if (!b.siteOnly) throw new Error("Please contact us to change this booking.");
 
+    const paidIntentId = await paymentBeforeCancellation(b);
+
     let mode: "none" | "refund" | "credit" = "none";
     let refundAmount = 0;
     let creditAmount = 0;
     // only refund / issue store credit for a booking that was GENUINELY paid through Stripe —
     // a confirmed booking with no payment intent (e.g. admin-confirmed, £0) yields no credit.
-    if (b.status === "confirmed" && b.stripePaymentIntentId) {
+    if (paidIntentId) {
       const days = b.earliestStart != null
         ? Math.round((londonStartOfDay(b.earliestStart) - londonStartOfDay(Date.now())) / 86400000)
         : 0;
@@ -686,11 +943,12 @@ export const cancelByCustomer = action({
       if (refundAmount > 0) {
         // idempotency key → Stripe dedupes a double-click so a cancellation can never double-refund
         await stripe().refunds.create(
-          { payment_intent: b.stripePaymentIntentId, amount: pence(refundAmount) },
+          { payment_intent: paidIntentId, amount: pence(refundAmount) },
           { idempotencyKey: `dbc-cancel-refund-${bookingId}` },
         );
       }
     }
+    await releaseBookingHolds(ctx, bookingId, b);
     await ctx.runMutation(internal.bookings._finalizeCancellation, {
       bookingId, accountId: me._id, mode, refundAmount, creditAmount, currency: b.currency,
     });

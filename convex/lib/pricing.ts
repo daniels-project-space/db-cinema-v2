@@ -143,6 +143,10 @@ export function depositFor(protection: Protection, replacementSum: number): numb
   return protection === "deposit" ? replacementSum : smallDamageHold(replacementSum);
 }
 
+export function depositChargeFor(protection: Protection, replacementSum: number): number {
+  return Math.round(depositFor(protection, replacementSum) * 50) / 100;
+}
+
 export const PROTECTION_LABEL: Record<Protection, string> = {
   verify: "Refundable damage hold (covers minor damage)",
   deposit: "Refundable security deposit",

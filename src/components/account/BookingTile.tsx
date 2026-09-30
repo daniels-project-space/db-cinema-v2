@@ -6,12 +6,13 @@ import { useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SmartImage } from "@/components/SmartImage";
 import { IdVerify } from "@/components/IdVerify";
-import { money } from "@/lib/pricing";
+import { formatGbp } from "@/lib/pricing";
 import { BookingReview } from "@/components/account/BookingReview";
 import { StatusPill } from "@/components/account/StatusPill";
 import { CancelButton } from "@/components/account/CancelButton";
 import { ChangeRequest } from "@/components/account/ChangeRequest";
 import { BookingProgress } from "@/components/account/BookingProgress";
+import { HoldRenewal } from "@/components/account/HoldRenewal";
 import { type EnrichedBooking, groupOf, fmtRange, rentalDays, countdown } from "@/lib/bookingDisplay";
 
 export function BookingTile({
@@ -77,7 +78,7 @@ export function BookingTile({
               {extra > 0 && <span className="font-normal text-white/40"> +{extra}</span>}
             </h3>
             <div className="flex shrink-0 items-center gap-2">
-              <span className="font-display text-sm font-bold text-white/90">£{money(booking.total)}</span>
+              <span className="font-display text-sm font-bold text-white/90">{formatGbp(booking.total)}</span>
               {isPending && (
                 <button
                   onClick={abort}
@@ -117,24 +118,26 @@ export function BookingTile({
               {li.qty > 1 ? `${li.qty}× ` : ""}
               {li.title}
             </span>
-            <span className="shrink-0 text-white/40">£{money(li.lineTotal)}</span>
+            <span className="shrink-0 text-white/40">{formatGbp(li.lineTotal)}</span>
           </li>
         ))}
       </ul>
 
       {/* price breakdown */}
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-white/40">
-        {booking.subtotal != null && <span>Subtotal £{money(booking.subtotal)}</span>}
-        {(booking.discount ?? 0) > 0 && <span className="text-emerald-300/70">−£{money(booking.discount!)}</span>}
-        {(booking.creditApplied ?? 0) > 0 && <span className="text-amber-300/70">Credit −£{money(booking.creditApplied!)}</span>}
-        {(booking.deliveryFee ?? 0) > 0 && <span>Delivery £{money(booking.deliveryFee!)}</span>}
+        {booking.subtotal != null && <span>Subtotal {formatGbp(booking.subtotal)}</span>}
+        {(booking.discount ?? 0) > 0 && <span className="text-emerald-300/70">−{formatGbp(booking.discount!)}</span>}
+        {(booking.creditApplied ?? 0) > 0 && <span className="text-amber-300/70">Credit −{formatGbp(booking.creditApplied!)}</span>}
+        {(booking.deliveryFee ?? 0) > 0 && <span>Delivery {formatGbp(booking.deliveryFee!)}</span>}
         {booking.depositAmount > 0 && (
           <span>
-            Deposit £{money(booking.depositAmount)}
+            Refundable security payment {formatGbp(booking.depositAmount)}
             {booking.depositRefunded ? " ↩" : ""}
           </span>
         )}
-        <span className="font-semibold text-white/70">Total £{money(booking.total)}</span>
+        {(booking.depositHoldAmount ?? 0) > 0 && <span>Separate card hold {formatGbp(booking.depositHoldAmount!)} · {booking.depositHoldStatus ?? "pending"}</span>}
+        {(booking.lateFeeAmount ?? 0) > 0 && <span className="text-amber-200">Separate late charge {formatGbp(booking.lateFeeAmount!)} · {booking.lateFeeStatus}</span>}
+        <span className="font-semibold text-white/70">Total {formatGbp(booking.total)}</span>
       </div>
 
       {/* logistics */}
@@ -150,9 +153,10 @@ export function BookingTile({
 
       {showVerify && (
         <div className="mt-2">
-          <IdVerify bookingId={booking._id} status={booking.idVerifyStatus} compact />
+          <IdVerify bookingId={booking._id} status={booking.idVerifyStatus} note={booking.verificationNote} compact />
         </div>
       )}
+      {token && token !== "preview" && <HoldRenewal bookingId={booking._id} token={token} status={booking.depositHoldRenewalStatus} expiresAt={booking.depositHoldExpiresAt} />}
 
       {/* actions */}
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-white/[0.06] pt-2.5 text-xs">
@@ -175,6 +179,10 @@ export function BookingTile({
           >
             Invoice
           </a>
+        )}
+        {booking.hasReturnStatement && token && token !== "preview" && (
+          <a href={`/api/invoice/${booking._id}?phase=return&token=${encodeURIComponent(token)}`}
+            target="_blank" rel="noopener noreferrer" className="font-medium text-white/55 hover:text-white">Return statement</a>
         )}
         {["confirmed", "active"].includes(booking.status) && token && token !== "preview" && (
           <a

@@ -5,15 +5,18 @@ import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { AdminGafferCalls } from "@/components/admin/GafferCalls";
+import { ReturnRentalForm } from "@/components/admin/ReturnRentalForm";
+import { formatGbp } from "@/lib/pricing";
 
 const day = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-// "returned" is reached only via the Return button (which also releases the deposit), never a bare status set
-const STATUSES = ["confirmed", "active", "cancelled"] as const;
+// Financial transitions use actions that reconcile Stripe before changing status.
+const STATUSES = ["confirmed", "active"] as const;
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<"overview" | "bookings" | "inbox" | "calls" | "settings">("overview");
+  const [returningId, setReturningId] = useState<string | null>(null);
 
   useEffect(() => {
     setToken(localStorage.getItem("dbc_admin"));
@@ -23,7 +26,8 @@ export default function AdminPage() {
   const contacts = useQuery(api.contact.adminList, token ? { token } : "skip");
   const setStatus = useMutation(api.bookings.adminSetStatus);
   const setId = useMutation(api.bookings.adminSetIdStatus);
-  const markReturned = useAction(api.checkout.markReturned);
+  const pauseLateFee = useMutation(api.bookings.adminPauseLateFee);
+  const cancelBooking = useAction(api.checkout.cancelByAdmin);
   const markHandled = useMutation(api.contact.adminMarkHandled);
 
   const authed = bookings?.authorized;
@@ -140,61 +144,63 @@ export default function AdminPage() {
                     <span className="text-white/15">·</span>
                     <span>{b.fulfilment}</span>
                     <span className="text-white/15">·</span>
-                    <span>dep £{b.depositAmount}{b.depositRefunded ? (b.depositKept > 0 ? ` · kept £${b.depositKept}` : " · released ↩") : ""}</span>
+                    <span>paid security {formatGbp(b.depositAmount)}{b.depositRefunded ? (b.depositKept > 0 ? ` · retained ${formatGbp(b.depositKept)}` : " · refunded ↩") : ""}</span>
+                    <span>card hold {formatGbp(b.depositHoldAmount ?? 0)} · {b.depositHoldStatus ?? "legacy"}</span>
                   </div>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
                     <span className={`rounded px-1.5 py-0.5 ${b.agreementName ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}`}>
                       {b.agreementName ? "signed" : "unsigned"}
                     </span>
-                    <span className={`rounded px-1.5 py-0.5 ${b.idVerifyStatus === "verified" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
-                      ID {b.idVerifyStatus === "verified" ? "✓" : b.idVerifyStatus}
+                    <span className={`rounded px-1.5 py-0.5 ${b.idVerifyStatus === "verified" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`} title={b.verificationNote ?? undefined}>
+                      {b.verificationProvider === "sumsub" ? "ID + address" : "ID"} {b.idVerifyStatus === "verified" ? "✓" : b.idVerifyStatus}
                     </span>
+                    {b.verificationProvider === "sumsub" && <span className="text-white/35">{b.verificationNote ?? "Automatic check pending"}</span>}
+                    {!!b.lateFeeAmount && <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-200">Separate late charge {formatGbp(b.lateFeeAmount)} · {b.lateFeeStatus}</span>}
+                    {!!b.lateFeeWaivedAmount && <span className="rounded bg-white/10 px-1.5 py-0.5 text-white/60">Late fee waived {formatGbp(b.lateFeeWaivedAmount)}</span>}
+                    {b.returnStatementEmailStatus && <span className={`rounded px-1.5 py-0.5 ${b.returnStatementEmailStatus === "sent" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-200"}`}>Return statement email: {b.returnStatementEmailStatus}</span>}
                   </div>
                   <div className="mt-2 flex items-center gap-1.5">
                     <select
                       value={b.status}
-                      onChange={(e) => setStatus({ token, bookingId: b._id, status: e.target.value as any })}
+                      onChange={(e) => setStatus({ token, bookingId: b._id, status: e.target.value as any }).catch((err: any) => alert(err.message))}
                       className="flex-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none"
                     >
                       {[...new Set([b.status, ...STATUSES])].map((st) => (
                         <option key={st} value={st} className="bg-charcoal-800">{st}</option>
                       ))}
                     </select>
+                    {["pending_payment", "confirmed"].includes(b.status) && (
+                      <button onClick={() => {
+                        const reason = prompt("Cancel this direct booking with a full refund? Record the reason:");
+                        if (reason) cancelBooking({ token, bookingId: b._id, reason })
+                          .then((result) => alert(`Cancelled. Refunded £${result.refundAmount}.`))
+                          .catch((error: any) => alert(error.message));
+                      }} className="shrink-0 rounded-md bg-rose-500/15 px-2 py-1 text-[11px] text-rose-300">Cancel</button>
+                    )}
                     {b.idVerifyStatus !== "verified" && (
                       <button
-                        onClick={() => setId({ token, bookingId: b._id, status: "verified" })}
-                        title="Mark ID verified"
+                        onClick={() => {
+                          const note = prompt("Record the evidence and reason for manual identity and address approval:");
+                          if (note) setId({ token, bookingId: b._id, status: "verified", note }).catch((e: any) => alert(e.message));
+                        }}
+                        title="Manually approve identity and address with reason"
                         className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/25"
                       >
-                        ID ✓
+                        Review ✓
                       </button>
                     )}
-                    {!b.depositRefunded && b.depositAmount > 0 && ["confirmed", "active", "returned"].includes(b.status) && (
-                      <button
-                        onClick={() => {
-                          const ans = prompt(
-                            `Mark returned + release the £${b.depositAmount} deposit.\nDamage to keep? (0 = release the full deposit)`,
-                            "0",
-                          );
-                          if (ans === null) return;
-                          const kept = Math.max(0, Math.min(Math.round(Number(ans) || 0), b.depositAmount));
-                          markReturned({ token, bookingId: b._id, damageKept: kept })
-                            .then((r: any) =>
-                              alert(
-                                r.kept > 0
-                                  ? `Returned. Kept £${r.kept} for damage, released £${r.released}.`
-                                  : `Returned. Released £${r.released} deposit.`,
-                              ),
-                            )
-                            .catch((e: any) => alert(e.message));
-                        }}
-                        title="Mark returned + release deposit"
-                        className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/25"
-                      >
-                        Return
-                      </button>
+                    {(["confirmed", "active"].includes(b.status) || (b.status === "returned" && b.returnDecision && !b.actualReturnedAt)) && (
+                      <button onClick={() => setReturningId(returningId === b._id ? null : b._id)}
+                        className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/25">{b.status === "returned" ? "Resume return" : "Return"}</button>
+                    )}
+                    {["notice_pending", "notice_failed", "notice_sent"].includes(b.lateFeeStatus) && (
+                      <button onClick={() => {
+                        const reason = prompt("Pause the separate late charge. Record the dispute or waiver reason:");
+                        if (reason) pauseLateFee({ token, bookingId: b._id, reason }).catch((e: any) => alert(e.message));
+                      }} className="shrink-0 rounded-md bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200">Pause late fee</button>
                     )}
                   </div>
+                  {returningId === b._id && <ReturnRentalForm booking={b} token={token} onClose={() => setReturningId(null)} />}
                 </div>
               );
             })}
