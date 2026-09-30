@@ -1,5 +1,14 @@
 const assert=require('node:assert/strict'),fs=require('fs'),ts=require('typescript');
 const {extractContents,contentsFor,contentsText}=require('../shared/rentalContents');
+const {sourceContents}=require('./lib/source-contents.cjs');
+const reviewed=require('../data/rental-contents-facts.json');
+for (const r of reviewed) {
+ const source={account:r.account,productId:r.productId,name:r.sourceTitle,description:r.sourceDescription};
+ assert.deepEqual(sourceContents(source).included,r.included);
+ assert.equal(sourceContents({...source,name:source.name+' changed'}).status,'unknown');
+ assert.equal(sourceContents({...source,description:source.description+' Changed package.'}).status,'unknown');
+ assert.equal(sourceContents({...source,productId:-1}).status,'unknown');
+}
 const c=extractContents('In this kit:\n- 1x FX3\n- 1x 256GB SD card\n- 3x NP-FZ100 batteries\n- 1x XLR cable (optional)\n\nAdd-ons:\nAdd a tripod for £15/day');
 assert.deepEqual(c.included,['1x FX3','1x 256GB SD card','3x NP-FZ100 batteries']);assert.equal(c.optional.length,1);assert.ok(!JSON.stringify(c.included).includes('tripod'));
 assert.equal(extractContents('Battery type NP-FZ100. Compatible with SDXC cards.').status,'unknown');

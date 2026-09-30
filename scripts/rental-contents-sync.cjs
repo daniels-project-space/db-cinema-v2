@@ -2,7 +2,7 @@
  * Never fuzzy-match bundles automatically: a different lens/count is a different rental.
  * Run with --source-dir=/tmp --out=data/rental-contents.json; --apply uses ADMIN_TOKEN
  * and CONVEX_URL explicitly, so it cannot select another project's default deployment. */
-const fs=require('fs'),path=require('path');const {extractContents}=require('../shared/rentalContents');
+const fs=require('fs'),path=require('path');const {sourceContents}=require('./lib/source-contents.cjs');
 const norm=s=>String(s).toLowerCase().replace(/[^a-z0-9]/g,'');
 async function main(){
  const dir=(process.argv.find(x=>x.startsWith('--source-dir='))??'--source-dir=/tmp').split('=')[1];
@@ -15,8 +15,8 @@ async function main(){
   const pinned=matches[listing.hyggloProductId];
   const candidate=pinned?diogo.find(x=>x.productId===pinned.productId):null;
   const primary=pinned&&candidate&&norm(pinned.storefrontTitle)===norm(listing.title)&&norm(pinned.sourceTitle)===norm(candidate.name)?candidate:same.length===1?same[0]:null;
-  const usable=primary&&extractContents(primary.description).status==='documented'?primary:original;
-  const extracted=extractContents(usable?.description??'');const {excerpt,...contents}=extracted;
+  const usable=primary&&sourceContents(primary).status==='documented'?primary:original;
+  const extracted=sourceContents(usable);const {excerpt,...contents}=extracted;
   manifest.push({productId:listing.hyggloProductId,title:listing.title,contents:{...contents,sources:usable?[{account:usable.account,productId:usable.productId,url:usable.url,checkedAt:usable.fetchedAt,excerpt:usable.description}]:[]}});
  }
  const out=(process.argv.find(x=>x.startsWith('--out='))??'--out=data/rental-contents.json').split('=')[1];

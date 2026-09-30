@@ -1108,11 +1108,13 @@
     "productId": 947432,
     "title": "Sony venice 6k Full frame Cinema Camera ( arri Alexa mini )",
     "contents": {
-      "included": [],
+      "included": [
+        "4x 256gb SXS cards"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
           "account": "dbcinema",
@@ -4455,11 +4457,17 @@
     "productId": 947438,
     "title": "Sony venice 6k Cinema ( arri Alexa mini ) + DZO Vespid set",
     "contents": {
-      "included": [],
+      "included": [
+        "raw storage",
+        "recorder",
+        "tripod",
+        "media",
+        "6 lenses going 16,25,50,75,100,125mm DZO VESPID PRIME lenses"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
           "account": "dbcinema",
@@ -4515,11 +4523,17 @@
     "productId": 947433,
     "title": "Sony venice 6k full frame cinema camera",
     "contents": {
-      "included": [],
+      "included": [
+        "camera body",
+        "pl and ef mount",
+        "all lisences",
+        "power cable",
+        "d-box power distribution"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
           "account": "dbcinema",
@@ -8317,11 +8331,16 @@
     "productId": 1024185,
     "title": "Blackmagic full frame 6k + BMPCC 6k pro cinema camera set",
     "contents": {
-      "included": [],
+      "included": [
+        "a second Blackmagic camera",
+        "storage",
+        "batteries",
+        "cages"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
           "account": "dbcinema",
@@ -9695,11 +9714,15 @@
     "productId": 952049,
     "title": "DZO Vespid Prime Cinema lens set + Bmpcc 6k pro camera",
     "contents": {
-      "included": [],
+      "included": [
+        "one terabyte storage",
+        "Five batteries",
+        "all needed boxes and adapters"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
           "account": "dbcinema",
@@ -10562,11 +10585,14 @@
     "productId": 997609,
     "title": "Party DJ Speakers PA + Lights laser gigbar event",
     "contents": {
-      "included": [],
+      "included": [
+        "cables",
+        "bags"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
           "account": "dbcinema",
