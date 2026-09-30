@@ -39,7 +39,10 @@ function extractContents(description) {
   return { included:[...new Set(included)], optional:[...new Set(optional)], excluded:[...new Set(excluded)], notes:[...new Set(notes)], excerpt, status:included.length||optional.length ? 'documented' : 'unknown' };
 }
 function contentsFor(listing) {
-  const c=listing?.rentalContents;
+  const c=listing?.rentalContents ?? (listing?.contentsSources ? {
+    included:listing.includes,optional:listing.optional,excluded:listing.excludes,
+    notes:listing.notes,status:listing.contentsStatus,sources:listing.contentsSources,
+  } : null);
   if (!c || !Array.isArray(c.sources) || !c.sources.length) return {includes:[],optional:[],excludes:[],notes:[],contentsStatus:'unknown',contentsSources:[]};
   const strings=x=>Array.isArray(x)?x.filter(v=>typeof v==='string'&&v.trim()):[];
   return {includes:strings(c.included),optional:strings(c.optional),excludes:strings(c.excluded),notes:strings(c.notes),contentsStatus:c.status==='documented'?'documented':'unknown',contentsSources:c.sources.map(s=>({account:s.account,productId:s.productId,url:s.url,checkedAt:s.checkedAt}))};

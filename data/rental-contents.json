@@ -3293,18 +3293,25 @@
     "productId": 1025975,
     "title": "Sony g master lens set prime 14,35,50,85,105mm",
     "contents": {
-      "included": [],
+      "included": [
+        "Sony G Master 14mm Prime Lens",
+        "Sony G Master 35mm Prime Lens",
+        "Sony G Master 50mm Prime Lens",
+        "Sony G Master 85mm Prime Lens",
+        "Sony G Master 105mm Prime Lens",
+        "A protective carry bag"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
-          "account": "dbcinema",
-          "productId": 1025975,
-          "url": "https://hygglo.com/uk/i/b1a-sony-g-master-lens-set-prime-14355085105mm",
-          "checkedAt": 1790792280549,
-          "excerpt": "A full set of fast prime lenses for Sony cameras at g master standard"
+          "account": "diogo",
+          "productId": 1173657,
+          "url": "https://hygglo.com/uk/i/8d4-sony-g-master-prime-lens-set-14mm-35mm-50mm-85mm-105mm",
+          "checkedAt": 1790792274450,
+          "excerpt": "Elevate your cinematography with my comprehensive set of high-performance Sony G Master prime lenses. This is a full set of fast, professional-grade prime lenses designed for Sony cameras, all meeting the exceptional G Master standard.\n\nIn this kit:\n* Sony G Master 14mm Prime Lens\n* Sony G Master 35mm Prime Lens\n* Sony G Master 50mm Prime Lens\n* Sony G Master 85mm Prime Lens\n* Sony G Master 105mm Prime Lens\n* A protective carry bag\n\nusually available 9 am to 10 pm\n\nthat is general timeframe im there for , that doesnt mean return and pickup anytime in those times, please be there at the in chat agreed time"
         }
       ]
     }
@@ -5636,21 +5643,24 @@
     "productId": 885074,
     "title": "2x Sony np 970 batteries",
     "contents": {
-      "included": [],
+      "included": [
+        "2x Sony NP-970 high-capacity batteries",
+        "1x SmallRig dual NP-F charger",
+        "1x Carry bag"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [
-        "We always provide chargers with the equipment but only supply the needed cable if it is proprietary, any other charger that uses normal usb c and usb2.0 does NOT come with the cable included.",
-        "Some items in the kit are labelled as “optional” in the kit and will only be included if explicitly requested so please make sure to let us know you would like those included at no extra cost."
+        "A quick note on power: chargers are included with the kit. I only supply proprietary charging cables — anything that charges over a standard USB-C or USB 2.0 lead isn't included, so please bring your own. I do my best to have everything charged for pickup, but with tight turnarounds between rentals I can't always promise a full battery; if it's a time-sensitive shoot, collect the day before or leave an hour or two to top up."
       ],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
-          "account": "dbcinema",
-          "productId": 885074,
-          "url": "https://hygglo.com/uk/i/6a2-2x-sony-np-970-batteries",
-          "checkedAt": 1790792283298,
-          "excerpt": "Sony np 970 are Sonys high capacity compact top of the line battery solutions the enable all day operation for their devices! \nPerfect as an add on for Monitors, Transmission Systems and sliders as well as LED Light panels.\n\nOperation times: 9am-10pm \nDelivery is always available! 🚚📍\nLocated 3 min away from Kings Cross Station 🚉 🌍 \nWe are a London based Commercial, lighting and equipment rental company since 2019 🎥\nWeekend hires are available as well! \n\nWe also offer:\nSony and Blackmagic cameras\nDrones\nGimbals\nLights\nLEDS\nWireless mics\nImage Transmitters\nFollow focus\nMonitor\nSliders (motorized as well)\nMobile power generators\nLenses\nAnamorphic lenses\nTripods and stands\nsmoke machines\nfilters (vnd, mist, uv)\n\nPlease kindly note:\nWe always provide chargers with the equipment but only supply the needed cable if it is proprietary, any other charger that uses normal usb c and usb2.0 does NOT come with the cable included.\nWe try our best to ensure the items are charged when picked up but are unable to guarantee this due to partially very short times between rentals. If you have an important project please book and pickup equipment the day before your shoot or ensure you have a few hours to charge the batteries if necessary.\nSome items in the kit are labelled as “optional” in the kit and will only be included if explicitly requested so please make sure to let us know you would like those included at no extra cost."
+          "account": "diogo",
+          "productId": 1173829,
+          "url": "https://hygglo.com/uk/i/947-sony-np-970-batteries-pair-high-capacity-f970-power",
+          "checkedAt": 1790792276211,
+          "excerpt": "Ensure your gear stays powered all day with this pair of high-capacity Sony NP-970 batteries.\n\nIn this kit:\n- 2x Sony NP-970 high-capacity batteries\n- 1x SmallRig dual NP-F charger\n- 1x Carry bag\n\nThese are top-of-the-line, high-capacity batteries designed for all-day use with compatible Sony devices. They're ideal for powering monitors, transmission systems, sliders, and LED light panels.\n\nWeekend hires are absolutely welcome.\n\nI also offer a wide range of other gear, including:\n- Sony and Blackmagic cameras\n- Drones\n- Gimbals\n- Lights (including LEDs)\n- Wireless mics\n- Image Transmitters\n- Follow focus systems\n- Monitors\n- Sliders (motorized options too)\n- Mobile power generators\n- Lenses (including anamorphic)\n- Tripods and stands\n- Smoke machines\n- Filters (VND, mist, UV)\n\nA quick note on power: chargers are included with the kit. I only supply proprietary charging cables — anything that charges over a standard USB-C or USB 2.0 lead isn't included, so please bring your own. I do my best to have everything charged for pickup, but with tight turnarounds between rentals I can't always promise a full battery; if it's a time-sensitive shoot, collect the day before or leave an hour or two to top up.\n\nusually available 9 am to 10 pm\n\nthat is general timeframe im there for , that doesnt mean return and pickup anytime in those times, please be there at the in chat agreed time"
         }
       ]
     }
@@ -6388,18 +6398,24 @@
     "productId": 987322,
     "title": "Sony a7 iv 4k mirrorless full frame camera + Zoom lens Sony a7iv a7 4",
     "contents": {
-      "included": [],
+      "included": [
+        "Sony a7 IV 33MP Mirrorless Full-Frame Camera Body",
+        "Sony FE 28-70mm f/3.5-5.6 OSS Zoom Lens",
+        "1x 128GB Angelbird AV PRO SD V90 SD card",
+        "3x batteries",
+        "A protective camera bag"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
-          "account": "dbcinema",
-          "productId": 987322,
-          "url": "https://hygglo.com/uk/i/68b-sony-a7-iv-4k-mirrorless-full-frame-camera-zoom-lens",
-          "checkedAt": 1790792282406,
-          "excerpt": "A powerful 33 mpx camera with fantastic autofocus and great bundle with everything needed to get started."
+          "account": "diogo",
+          "productId": 1173774,
+          "url": "https://hygglo.com/uk/i/3c4-sony-a7-iv-mirrorless-full-frame-camera-4k-a7iv-a7-4-zoom-lens",
+          "checkedAt": 1790792275666,
+          "excerpt": "My Sony a7 IV kit is perfectly equipped for your next project, offering a powerful 33MP full-frame camera with fantastic autofocus capabilities, ready to help you capture stunning 4K footage and high-resolution stills.\n\nIn this kit, I've included:\n*   Sony a7 IV 33MP Mirrorless Full-Frame Camera Body\n*   Sony FE 28-70mm f/3.5-5.6 OSS Zoom Lens\n*   1x 128GB Angelbird AV PRO SD V90 SD card\n*   3x batteries\n*   A protective camera bag\n\nusually available 9 am to 10 pm\n\nthat is general timeframe im there for , that doesnt mean return and pickup anytime in those times, please be there at the in chat agreed time"
         }
       ]
     }
@@ -8448,18 +8464,23 @@
     "productId": 881042,
     "title": "Lightdome Softbox 85cm Bowens mount 3x set",
     "contents": {
-      "included": [],
+      "included": [
+        "3x SmallRig Lightdome LA-D85 85cm Softboxes",
+        "3x Honeycomb Grids",
+        "3x Bowens Mount Speed Rings",
+        "1x Carry Bag"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
-          "account": "dbcinema",
-          "productId": 881042,
-          "url": "https://hygglo.com/uk/i/aa8-lightdome-softbox-85cm-bowens-mount-3x-set",
-          "checkedAt": 1790792279899,
-          "excerpt": "A softbox kit deal meant as an addon to my lights, but also available separately here."
+          "account": "diogo",
+          "productId": 1173636,
+          "url": "https://hygglo.com/uk/i/58d-smallrig-lightdome-la-d85-softbox-85cm-bowens-mount-3-piece-set",
+          "checkedAt": 1790792274099,
+          "excerpt": "Enhance your lighting setup with this versatile three-piece softbox kit, perfect for a wide range of shoots. While primarily intended as an add-on to my other lighting rentals, I also offer this kit for separate hire.\n\nIn this kit:\n- 3x SmallRig Lightdome LA-D85 85cm Softboxes\n- 3x Honeycomb Grids\n- 3x Bowens Mount Speed Rings\n- 1x Carry Bag\n\nusually available 9 am to 10 pm\n\nthat is general timeframe im there for , that doesnt mean return and pickup anytime in those times, please be there at the in chat agreed time"
         }
       ]
     }
@@ -8498,18 +8519,22 @@
     "productId": 892636,
     "title": "Mist filter Cinebloom Moment 20% Strengh 82 and 77 mm",
     "contents": {
-      "included": [],
+      "included": [
+        "One Moment Cinebloom 20% Mist Filter (82mm)",
+        "One 82mm to 77mm step-down ring",
+        "A protective carrying pouch"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
-          "account": "dbcinema",
-          "productId": 892636,
-          "url": "https://hygglo.com/uk/i/002-mist-filter-cinebloom-moment-20-strengh-82-and-77-mm",
-          "checkedAt": 1790792279850,
-          "excerpt": "This gorgeous Mist filter offers sharpness and controlled filmic blooming with cinema style lenses giving skin tones a flattering soft quality. It was imported from the USA"
+          "account": "diogo",
+          "productId": 1173329,
+          "url": "https://hygglo.com/uk/i/e76-moment-cinebloom-mist-filter-20-82mm-77mm",
+          "checkedAt": 1790792271855,
+          "excerpt": "Add a beautiful, cinematic glow to your footage with this Moment Cinebloom filter.\n\nIn this kit:\n- One Moment Cinebloom 20% Mist Filter (82mm)\n- One 82mm to 77mm step-down ring\n- A protective carrying pouch\n\nThis filter is designed to work with both 82mm and 77mm lenses, offering excellent sharpness combined with a controlled, filmic blooming effect. It's perfect for achieving flattering, soft skin tones and a classic cinema aesthetic. I imported this particular filter from the USA.\n\nusually available 9 am to 10 pm\n\nthat is general timeframe im there for , that doesnt mean return and pickup anytime in those times, please be there at the in chat agreed time"
         }
       ]
     }
@@ -8664,18 +8689,22 @@
     "productId": 892605,
     "title": "Variable ND filter VND 82 and 77mm 2-400ND Addon",
     "contents": {
-      "included": [],
+      "included": [
+        "K&F Concept Variable ND Filter (VND) (82mm, covers 77mm)",
+        "K&F Concept filter box",
+        "A protective bag"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
-          "account": "dbcinema",
-          "productId": 892605,
-          "url": "https://hygglo.com/uk/i/956-variable-nd-filter-vnd-82-and-77mm-2-400nd-addon",
-          "checkedAt": 1790792279586,
-          "excerpt": "THis VND filter features seamless 7.5 stop ND Adjustment making sure the entire range of filtration is covered for cinema lenses and smaller style glass."
+          "account": "diogo",
+          "productId": 1173626,
+          "url": "https://hygglo.com/uk/i/408-kf-concept-variable-nd-filter-vnd-82mm-77mm-2-400nd-cinema-lenses-add-on",
+          "checkedAt": 1790792272198,
+          "excerpt": "Get precise exposure control for your video and photo shoots with my K&F Concept Variable ND filter. It's perfect for adapting to various lighting conditions on the fly.\n\nIn this kit:\n*   K&F Concept Variable ND Filter (VND) (82mm, covers 77mm)\n*   K&F Concept filter box\n*   A protective bag\n\nThis VND filter offers a seamless 7.5-stop ND adjustment, providing a versatile range from ND2 to ND400. This ensures the full spectrum of filtration is available for both cinema lenses and smaller glass.\n\nusually available 9 am to 10 pm\n\nthat is general timeframe im there for , that doesnt mean return and pickup anytime in those times, please be there at the in chat agreed time"
         }
       ]
     }
@@ -8720,18 +8749,24 @@
     "productId": 997665,
     "title": "Sony fx 6 cinema camera + 24-70mm g master",
     "contents": {
-      "included": [],
+      "included": [
+        "Sony FX6 4K Cinema Camera",
+        "Sony 24-70mm G Master lens",
+        "4x Angelbird 128GB AV PRO SD V90 cards",
+        "4x FXLION Nano Three batteries",
+        "A protective carry bag"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
-          "account": "dbcinema",
-          "productId": 997665,
-          "url": "https://hygglo.com/uk/i/91f-sony-fx-6-cinema-camera-24-70mm-g-master-media-v-mounts-rig",
-          "checkedAt": 1790792279527,
-          "excerpt": "A full set for run and gun cinematographers offering a full and comprehensive set with everything needed for all day operation of the 4k cinema fx 6"
+          "account": "diogo",
+          "productId": 1173320,
+          "url": "https://hygglo.com/uk/i/9cc-sony-fx6-cinema-camera-24-70mm-g-master-lens-4k-run-gun-kit",
+          "checkedAt": 1790792271736,
+          "excerpt": "My Sony FX6 4K cinema camera kit is perfectly set up for your next demanding run-and-gun shoot. This comprehensive setup is designed to provide everything you need for all-day operation, making it an ideal choice for fast-paced productions.\n\nIn this kit:\n*   Sony FX6 4K Cinema Camera\n*   Sony 24-70mm G Master lens\n*   4x Angelbird 128GB AV PRO SD V90 cards\n*   4x FXLION Nano Three batteries\n*   A protective carry bag\n\nusually available 9 am to 10 pm\n\nthat is general timeframe im there for , that doesnt mean return and pickup anytime in those times, please be there at the in chat agreed time"
         }
       ]
     }
@@ -8886,18 +8921,29 @@
     "productId": 811244,
     "title": "Boom Mic Kit - Senheiser MKE600 like Rode NTG 5 Microphone",
     "contents": {
-      "included": [],
+      "included": [
+        "Sennheiser MKE 600 shotgun microphone",
+        "Zoom H5 audio recorder with X/Y microphone capsule",
+        "3.5-metre boom pole",
+        "Boom pole carrying bag",
+        "Shock mount with camera shoe adapter",
+        "Sennheiser carrying pouch (for mic accessories)",
+        "Foam windscreen",
+        "Furry windjammer",
+        "32GB SanDisk Extreme PRO SD card",
+        "XLR cable"
+      ],
       "optional": [],
       "excluded": [],
       "notes": [],
-      "status": "unknown",
+      "status": "documented",
       "sources": [
         {
-          "account": "dbcinema",
-          "productId": 811244,
-          "url": "https://hygglo.com/uk/i/4a8-boom-mic-kit-senheiser-mke600-like-rode-ntg-5-microphone",
-          "checkedAt": 1790792279306,
-          "excerpt": "This is a fully loaded Boom mic kit including:    - Senheiser mke 600 shotgun mic - a 3,5metre boom pole - carrying pouch and various accessories like shock mount or camera adapter , and the zoom h5 audio recorder with batteries and a 32gb sd card giving you everything you need for a full day of high quality audio capture \n\nPlease be aware that AAbatteries are required to have the recorder work and are usually supplied 2x but we always reccomend having more at hand and can’t guarantee the batteries supplied ! \n\nRentals THE DAY OF are available as well for an extra charge of 15£ on whatever item you would like."
+          "account": "diogo",
+          "productId": 1173612,
+          "url": "https://hygglo.com/uk/i/bdd-sennheiser-mke-600-boom-mic-kit-shotgun-microphone-rode-ntg-5-alternative",
+          "checkedAt": 1790792273824,
+          "excerpt": "Capture crystal-clear audio for your next film or video project with my comprehensive boom mic kit.\n\nIn this kit:\n- Sennheiser MKE 600 shotgun microphone\n- Zoom H5 audio recorder with X/Y microphone capsule\n- 3.5-metre boom pole\n- Boom pole carrying bag\n- Shock mount with camera shoe adapter\n- Sennheiser carrying pouch (for mic accessories)\n- Foam windscreen\n- Furry windjammer\n- 32GB SanDisk Extreme PRO SD card\n- XLR cable\n\nThis kit provides everything you need for a full day of high-quality audio capture.\n\nPlease be aware that the Zoom H5 recorder requires AA batteries to operate. I usually supply 2x AA batteries, but I strongly recommend having additional batteries on hand as I cannot guarantee the supplied batteries' charge level or longevity.\n\nSame-day rentals are possible, but please note there is an additional £15 charge for this service.\n\nusually available 9 am to 10 pm\n\nthat is general timeframe im there for , that doesnt mean return and pickup anytime in those times, please be there at the in chat agreed time"
         }
       ]
     }

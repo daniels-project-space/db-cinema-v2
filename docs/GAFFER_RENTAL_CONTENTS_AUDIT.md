@@ -1,6 +1,6 @@
 # Gaffer rental contents audit
 
-Source: authenticated read-only Hygglo v4 product details, 30 September 2026. Diogo is preferred for reviewed equivalent configurations; DB Cinema Rentals is the fallback. No title-only or fuzzy match is applied automatically.
+Source: authenticated read-only Hygglo v4 product details, 30 September 2026. Diogo is preferred for reviewed equivalent configurations; DB Cinema Rentals is the fallback. An exact unique title or reviewed configuration link is required; fuzzy matches are not applied automatically.
 
 ## Cause
 
@@ -8,16 +8,20 @@ The Hygglo marketing mirror and storefront sync omitted descriptions. The stored
 
 ## Changes
 
-Seller-authored evidence is stored separately from specs and the availability BOM. Contents preserve quantities, on-request items, explicit exclusions and seller notes, with account, product ID, source URL and acquisition date. Catalogue detail, voice search/recommendations, web/phone tool responses, text chat and booking chat read it. Voice KB documents are prepared from the same facts. Catalogue sync leaves these records intact. Refresh scripts can be rerun when listings change. Reviewed cross-account links are invalidated when either title changes; incomplete acquisition prevents an apply from overwriting existing records.
+Seller-authored evidence is stored separately from specs and the availability BOM. Contents preserve quantities, on-request items, explicit exclusions and seller notes, with account, product ID, source URL and acquisition date. Catalogue detail, voice search/recommendations, web/phone tool responses, text chat and booking chat read it. Voice KB documents are prepared from the same facts. Catalogue sync preserves these records for unchanged configurations and removes them when the product/title changes. The apply boundary also rejects an acquisition made for an old title. Refresh scripts can be rerun when listings change. Reviewed cross-account links are invalidated when either title changes; incomplete acquisition prevents an apply from overwriting existing records.
 
 ## Evidence
 
-- 405 storefront rows audited. 400 DB Cinema and 369 Diogo detail reads succeeded; cached products whose detail endpoint returned 404 were not invented.
-- 363 documented contents records; 42 lacking an unambiguous accessories list. 123 use Diogo as primary source.
+- 405 storefront rows audited. Live account catalogue reads confirmed 400 DB Cinema and 369 Diogo products; their detail reads succeeded; cached products whose detail endpoint returned 404 were not invented.
+- 371 documented contents records; 34 lacking an unambiguous accessories list. 131 use Diogo as primary source.
 - Each extracted claim is checked against the stored seller excerpt. Exact configuration matches are pinned in data/rental-contents-matches.json.
-- Regression tests exercise real voice search and prevent inferred batteries/cards/stand exclusions. Full npm tests and Next.js build passed.
+- Regression tests exercise real voice search, reject applying contents to a renamed configuration, and ensure catalog sync discards obsolete packing lists. They prevent inferred batteries/cards/stand exclusions. Full npm tests and Next.js build passed.
 - Staging has all 405 evidence records; all 405 exact deployed catalogue detail responses matched the manifest; deployed voice search returned documented cards and no blanket card exclusions.
 - No customer message, booking or live financial operation was performed. Live publishing remains gated by workspace AGENTS.md.
+
+## Rendered web lookup follow-up
+
+The main browser `find_gear` closure initially dropped contents despite the database search carrying them. It now returns the complete sourced contents for each exact matched listing; browse/recommend responses use the same formatter, including optional items and seller notes. An actual rendered local Next.js preview connected to isolated staging returned documented FX3 card facts and C-stand confirmed/unknown details. No voice call, basket write, booking, message or payment was performed.
 
 ## Listings needing confirmation
 
@@ -32,7 +36,6 @@ Unknown means accessory details are unconfirmed, not that the main advertised it
 | 1097702 | Pl to e mount adapter for cinema lenses | [Seller listing](https://hygglo.com/uk/i/5fb-pl-to-e-mount-adapter-for-cinema-lenses) — no unambiguous accessory list |
 | 1029180 | Atlas Mercury Anamorphic cinema lens set 1.5x 36,45,72mm Orion flare pl,ef,x,l,e | [Seller listing](https://hygglo.com/uk/i/82f-atlas-mercury-anamorphic-cinema-lens-set-15x-364572mm-orion-flare-plefxle-mount) — no unambiguous accessory list |
 | 1025989 | Fujifilm x-t5 mirrorless 4k camera Film + 18-55 f2.8-4 x mount lens | [Seller listing](https://hygglo.com/uk/i/d9f-fujifilm-x-t5-mirrorless-4k-camera-film-18-55-f28-4-x-mount-lens) — no unambiguous accessory list |
-| 1025975 | Sony g master lens set prime 14,35,50,85,105mm | [Seller listing](https://hygglo.com/uk/i/b1a-sony-g-master-lens-set-prime-14355085105mm) — no unambiguous accessory list |
 | 1025967 | Blackmagic 6k Full Frame Bmpcc cinema camera + 2x cannon zoom lens 16-35mm f2.8 | [Seller listing](https://hygglo.com/uk/i/b4d-blackmagic-6k-full-frame-bmpcc-cinema-camera-2x-cannon-zoom-lens-16-35mm-f28-24-105mm-f4) — no unambiguous accessory list |
 | 1025966 | Blackmagic 6k pro Bmpcc cinema camera + 2x cannon zoom lenses set 16-35mm and | [Seller listing](https://hygglo.com/uk/i/a5b-blackmagic-6k-pro-bmpcc-cinema-camera-2x-cannon-zoom-lenses-set-16-35mm-and-24-105mm) — no unambiguous accessory list |
 | 997377 | 2x DJ Light party led event gigbar chauvet dekker, laser | [Seller listing](https://hygglo.com/uk/i/a07-2x-dj-light-party-led-event-gigbar-chauvet-dekker-laser) — no unambiguous accessory list |
@@ -45,17 +48,10 @@ Unknown means accessory details are unconfirmed, not that the main advertised it
 | 946796 | Arri Alexa Classic Kit + Operator Dp | [Seller listing](https://hygglo.com/uk/i/32c-arri-alexa-classic-kit-operator-dp) — no unambiguous accessory list |
 | 1116920 | C stand | [Seller listing](https://hygglo.com/uk/i/2fe-c-stand) — no unambiguous accessory list |
 | 947435 | Sony Venice 6k Cinema Camera Raw Set ( arri Alexa mini ) | Hygglo detail unavailable |
-| 885074 | 2x Sony np 970 batteries | [Seller listing](https://hygglo.com/uk/i/6a2-2x-sony-np-970-batteries) — no unambiguous accessory list |
-| 987322 | Sony a7 iv 4k mirrorless full frame camera + Zoom lens Sony a7iv a7 4 | [Seller listing](https://hygglo.com/uk/i/68b-sony-a7-iv-4k-mirrorless-full-frame-camera-zoom-lens) — no unambiguous accessory list |
 | 987362 | Anamorphic Blazar Remus Full frame Lens | [Seller listing](https://hygglo.com/uk/i/9a4-anamorphic-blazar-remus-full-frame-lens-set-4565100mm-t2-neutral-flare-pl-mount-like-sirui-atlas-orion-or-atlas-mercury) — no unambiguous accessory list |
 | 1024185 | Blackmagic full frame 6k + BMPCC 6k pro cinema camera set | [Seller listing](https://hygglo.com/uk/i/73b-blackmagic-full-frame-6k-bmpcc-6k-pro-cinema-camera-set) — no unambiguous accessory list |
-| 881042 | Lightdome Softbox 85cm Bowens mount 3x set | [Seller listing](https://hygglo.com/uk/i/aa8-lightdome-softbox-85cm-bowens-mount-3x-set) — no unambiguous accessory list |
-| 892636 | Mist filter Cinebloom Moment 20% Strengh 82 and 77 mm | [Seller listing](https://hygglo.com/uk/i/002-mist-filter-cinebloom-moment-20-strengh-82-and-77-mm) — no unambiguous accessory list |
 | 946702 | Blackmagic 6k pro Bmpcc Cinema Camera set Run and gun | [Seller listing](https://hygglo.com/uk/i/0b7-blackmagic-6k-pro-bmpcc-cinema-camera-set-run-and-gun) — no unambiguous accessory list |
 | 1011885 | SD card v90 256gb capacity | [Seller listing](https://hygglo.com/uk/i/4db-sd-card-v90-256gb-capacity) — no unambiguous accessory list |
-| 892605 | Variable ND filter VND 82 and 77mm 2-400ND Addon | [Seller listing](https://hygglo.com/uk/i/956-variable-nd-filter-vnd-82-and-77mm-2-400nd-addon) — no unambiguous accessory list |
-| 997665 | Sony fx 6 cinema camera + 24-70mm g master | [Seller listing](https://hygglo.com/uk/i/91f-sony-fx-6-cinema-camera-24-70mm-g-master-media-v-mounts-rig) — no unambiguous accessory list |
-| 811244 | Boom Mic Kit - Senheiser MKE600 like Rode NTG 5 Microphone | [Seller listing](https://hygglo.com/uk/i/4a8-boom-mic-kit-senheiser-mke600-like-rode-ntg-5-microphone) — no unambiguous accessory list |
 | 971143 | Sony g-master 24-70mm f2.8 2x Zoom lens set | [Seller listing](https://hygglo.com/uk/i/0c9-sony-g-master-24-70mm-f28-2x-zoom-lens-set) — no unambiguous accessory list |
 | 958208 | DZO film Vespid Prime Cinema lens 100mm T2.1 Full Frame | [Seller listing](https://hygglo.com/uk/i/b57-dzo-film-vespid-prime-cinema-lens-100mm-t21-full-frame) — no unambiguous accessory list |
 | 953367 | Blackmagic BMPCC 6k pro Kit and Operator DP | [Seller listing](https://hygglo.com/uk/i/272-blackmagic-bmpcc-6k-pro-kit-and-operator-dp) — no unambiguous accessory list |

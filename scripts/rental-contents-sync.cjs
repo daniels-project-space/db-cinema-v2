@@ -26,7 +26,7 @@ async function main(){
   for(const account of ['diogo','dbcinema']) {const receipt=JSON.parse(fs.readFileSync(path.join(dir,'dbc-details-'+account+'.audit.json')));if(!receipt.complete)throw Error('Incomplete source acquisition; existing contents will not be overwritten');}
   if(!process.env.CONVEX_URL||!process.env.ADMIN_TOKEN)throw Error('Explicit CONVEX_URL and ADMIN_TOKEN required');
   const {ConvexHttpClient}=require('convex/browser');const c=new ConvexHttpClient(process.env.CONVEX_URL);
-  for(let i=0;i<manifest.length;i+=50){const result=await c.mutation('rentalContents:apply',{token:process.env.ADMIN_TOKEN,items:manifest.slice(i,i+50).map(({productId,contents})=>({productId,contents}))});console.log('Applied',i,result.updated);}
+  for(let i=0;i<manifest.length;i+=50){const result=await c.mutation('rentalContents:apply',{token:process.env.ADMIN_TOKEN,items:manifest.slice(i,i+50).map(({productId,title,contents})=>({productId,listingTitle:title,contents}))});console.log('Applied',i,result.updated);}
  }
 }
 main().catch(e=>{console.error(e.message);process.exitCode=1});

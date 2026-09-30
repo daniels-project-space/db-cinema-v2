@@ -330,7 +330,11 @@ export const applyCatalog = internalMutation({
         // (the 12 MANUAL mounts must survive every sync); only NEW listings get derived specs.
         // A locally-suppressed listing (marketing-only override) stays INACTIVE even though it's
         // in the live set — so the bot/assemble/storefront never show it.
-        await ctx.db.patch(existing._id, (existing as any).suppressed ? { ...synced, active: false } : synced);
+        const patch: any = (existing as any).suppressed ? { ...synced, active: false } : synced;
+        // A retitled/replaced configuration must not inherit the old package's packing list.
+        if (existing.title !== it.title || existing.hyggloProductId !== it.hyggloProductId)
+          patch.rentalContents = undefined;
+        await ctx.db.patch(existing._id, patch);
       } else {
         await ctx.db.insert("listings", { ...synced, specs: it.specs ?? {} });
         listingCount++;
