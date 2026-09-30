@@ -25,9 +25,20 @@ function load(file, mocks = {}, globals = {}) {
 }
 const registered = { query: x => x, mutation: x => x, internalQuery: x => x, action: x => x, internalAction: x => x };
 const refs = new Proxy({}, { get: (_, group) => new Proxy({}, { get: (_, name) => `${String(group)}:${String(name)}` }) });
-const serverMocks = { './_generated/server': registered, './_generated/api': { api: refs, internal: refs }, './adminAuth': {} };
+// These values satisfy the checkout activation boundary; no provider call is made.
+Object.assign(process.env, {
+  RENTAL_CHECKOUT_ENABLED: 'true', SUMSUB_APP_TOKEN: 'test', SUMSUB_SECRET_KEY: 'test', SUMSUB_LEVEL_NAME: 'test', SUMSUB_WEBHOOK_SECRET: 'test',
+  STRIPE_WEBHOOK_SECRET: 'test', STRIPE_SECRET_KEY: 'test', STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID: 'test',
+  INVOICE_SECRET: 'test', APP_URL: 'https://example.invalid', BUSINESS_LEGAL_NAME: 'Test supplier',
+  BUSINESS_INVOICE_ADDRESS: 'Test address', RESEND_API_KEY: 'test',
+});
+class StripeStub {
+  paymentMethodConfigurations = { retrieve: async () => ({ active: true, card: { display_preference: { value: 'on' } }, apple_pay: { display_preference: { value: 'off' } }, google_pay: { display_preference: { value: 'off' } }, link: { display_preference: { value: 'off' } } }) };
+}
+const serverMocks = { './_generated/server': registered, './_generated/api': { api: refs, internal: refs }, './adminAuth': {}, stripe: StripeStub };
 const { validate } = load('convex/promo.ts', serverMocks);
 const { start } = load('convex/checkout.ts', serverMocks);
+const { AGREEMENTS } = load('src/lib/legal.ts');
 const { gafferDiscount } = load('convex/lib/gafferDiscount.ts');
 const { asksForBetterPrice } = load('src/components/gaffer/priceRequest.ts');
 const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
@@ -56,7 +67,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
       },
       runMutation: async (ref,args) => { assert.equal(ref,'bookings:createPending'); pending=args; throw stop; },
     };
-    const args={items:prices.map((_,i)=>({listingId:`listing${i}`,title:`Item ${i}`,start:0,end:0,qty:1,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),customer:{email:'test@example.invalid'},fulfilment:'pickup',deliveryFee,promoCode:code,agreement:{name:'Test',documents:[]},origin:'https://example.invalid'};
+    const args={items:prices.map((_,i)=>({listingId:`listing${i}`,title:`Item ${i}`,start:0,end:0,qty:1,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment:'pickup',deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS},origin:'https://example.invalid'};
     await assert.rejects(start.handler(ctx,args),e=>e===stop);
     return pending;
   }
