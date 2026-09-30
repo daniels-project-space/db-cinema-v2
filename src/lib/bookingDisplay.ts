@@ -1,6 +1,9 @@
 // Booking presentation helpers — London timezone, inclusive rental days (Hygglo convention).
 // Pure/display only; no money is moved here.
 
+import { londonStartOfDay, cancelKind } from "./cancellationPolicy";
+export { londonStartOfDay, cancelKind };
+
 export type EnrichedLine = {
   listingId: string;
   title: string;
@@ -101,15 +104,6 @@ export function rentalDays(start: number, end: number) {
   return Math.max(1, Math.round((end - start) / 86400000) + 1);
 }
 
-// London "start of civil day" in ms — for countdown + cancellation-window math
-export function londonStartOfDay(ms: number): number {
-  const p = new Intl.DateTimeFormat("en-CA", { timeZone: LDN, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(ms));
-  const y = +p.find((x) => x.type === "year")!.value;
-  const m = +p.find((x) => x.type === "month")!.value;
-  const d = +p.find((x) => x.type === "day")!.value;
-  return Date.UTC(y, m - 1, d);
-}
-
 function dayDelta(target: number, now: number) {
   return Math.round((londonStartOfDay(target) - londonStartOfDay(now)) / 86400000);
 }
@@ -122,12 +116,6 @@ export function countdown(start: number, now: number): string {
   if (d < 7) return `in ${d} days`;
   if (d < 14) return "in 1 week";
   return `in ${Math.round(d / 7)} weeks`;
-}
-
-// cancellation window (locked decision): ≥3 London-days before start → full cash refund,
-// otherwise a 90-day store credit. Cancel is never disabled — it converts.
-export function cancelKind(start: number, now: number): "full_refund" | "store_credit" {
-  return dayDelta(start, now) >= 3 ? "full_refund" : "store_credit";
 }
 
 // ── Rental progress stepper ───────────────────────────────────────

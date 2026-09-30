@@ -6,7 +6,8 @@ const path = require('node:path');
 const ts = require('typescript');
 
 function load(file) {
-  const source = ts.transpileModule(fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8'), {
+  const filename = path.resolve(__dirname, '..', file);
+  const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
   }).outputText;
   const mod = { exports: {} };
@@ -17,7 +18,16 @@ function load(file) {
     './adminAuth': { assertAdmin: () => {} },
     './availability': { peak: () => 0 },
   };
-  new Function('require', 'module', 'exports', source)((name) => mock[name] ?? require(name), mod, mod.exports);
+  new Function('require', 'module', 'exports', source)((name) => {
+    if (name in mock) return mock[name];
+    if (name.startsWith('.')) {
+      let target = path.resolve(path.dirname(filename), name);
+      if (!path.extname(target) && fs.existsSync(`${target}.ts`)) target += '.ts';
+      if (target.endsWith('.ts')) return load(path.relative(path.resolve(__dirname, '..'), target));
+      return require(target);
+    }
+    return require(name);
+  }, mod, mod.exports);
   return mod.exports;
 }
 

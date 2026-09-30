@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node scripts/test-gaffer-fixes.cjs && node scripts/test-didit.cjs"
+    "test": "node scripts/test-gaffer-fixes.cjs && node scripts/test-didit.cjs && node scripts/test-cancellation-policy.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1062.0",

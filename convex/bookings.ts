@@ -8,6 +8,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { peak, type Iv } from "./availability";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
+import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 
 const lineItem = v.object({
   listingId: v.id("listings"),
@@ -1162,6 +1163,7 @@ export const getForCancel = internalQuery({
       status: b.status,
       stripeCheckoutSessionId: b.stripeCheckoutSessionId ?? null,
       total: b.total,
+      creditApplied: b.creditApplied ?? 0,
       depositAmount: b.depositAmount,
       currency: b.currency ?? "GBP",
       stripePaymentIntentId: b.stripePaymentIntentId ?? null,
@@ -1200,10 +1202,10 @@ export const _finalizeCancellation = internalMutation({
         amount: creditAmount,
         remaining: creditAmount,
         currency,
-        reason: `late_cancellation:${bookingId}`,
+        reason: `${mode === "refund" ? "restored_credit" : "late_cancellation"}:${bookingId}`,
         bookingId,
         createdAt: Date.now(),
-        expiresAt: Date.now() + 90 * 86400000,
+        expiresAt: Date.now() + CANCELLATION_CREDIT_DAYS * 86400000,
         status: "active",
       });
     }
@@ -1226,9 +1228,9 @@ export const _finalizeCancellation = internalMutation({
     if (accountId) {
       const note =
         mode === "credit"
-          ? `Your booking was cancelled. Your deposit is refunded to your card, and £${creditAmount} store credit (valid 90 days) has been added to your account.`
+          ? `Your booking was cancelled. £${refundAmount} is being returned to your card, and £${creditAmount} account credit (valid ${CANCELLATION_CREDIT_DAYS} days) has been added to your account.`
           : mode === "refund"
-            ? `Your booking was cancelled and £${refundAmount} has been refunded to your card.`
+            ? `Your booking was cancelled. £${refundAmount} is being returned to your card.${creditAmount > 0 ? ` £${creditAmount} of previously used credit has been restored to your account for ${CANCELLATION_CREDIT_DAYS} days.` : ""}`
             : `Your booking was cancelled.`;
       await ctx.db.insert("messages", { accountId, bookingId, sender: "system", text: note, at: Date.now(), readByOwner: true });
     }

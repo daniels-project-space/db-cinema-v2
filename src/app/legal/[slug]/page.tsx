@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
+import { CANCELLATION_CREDIT_DAYS, CANCELLATION_FULL_REFUND_DAYS } from "@/lib/cancellationPolicy";
+import { LEGAL_VERSION } from "@/lib/legal";
 
 type Doc = { title: string; updated: string; sections: { h: string; p: string }[] };
 
@@ -46,17 +48,17 @@ const DOCS: Record<string, Doc> = {
     title: "Cancellation & Refund Policy",
     updated: "September 2026",
     sections: [
-      { h: "Free cancellation", p: "Cancel more than 7 days before the rental start date for a full refund of the rental fee." },
-      { h: "Partial refund", p: "Cancel between 2 and 7 days before the start date for a 50% refund of the rental fee." },
-      { h: "No refund", p: "Cancellations within 48 hours of the rental start date are non-refundable." },
-      { h: "Security payment and hold", p: "The refundable security payment is refunded in full on cancellation. An uncaptured card hold is cancelled; the issuer decides when available funds are restored." },
-      { h: "How to cancel", p: "Contact us with your booking email to request a cancellation." },
+      { h: "Full card refund", p: `If you cancel at least ${CANCELLATION_FULL_REFUND_DAYS} London calendar days before the earliest item starts, we refund the amount paid for the booking, including the refundable security payment, to the original card. Any account credit redeemed for that booking is restored for ${CANCELLATION_CREDIT_DAYS} days.` },
+      { h: "Closer to pickup", p: `If you cancel less than ${CANCELLATION_FULL_REFUND_DAYS} London calendar days before the earliest item starts, we refund the refundable security payment to the original card and issue the remaining amount paid as account credit valid for ${CANCELLATION_CREDIT_DAYS} days. Any account credit redeemed for that booking is also restored for ${CANCELLATION_CREDIT_DAYS} days. The account credit cannot be withdrawn as cash under this commercial policy.` },
+      { h: "Card hold", p: "An uncaptured security card hold is cancelled on either path; your issuer decides when available funds are restored. If checkout payment has not completed, no refund or credit is due." },
+      { h: "How to cancel", p: "Use the cancellation control in your rental account when available, or contact us with your booking email. If we cancel an unstarted direct booking, we refund the amount paid to the original card." },
+      { h: "Your legal rights", p: "This commercial cancellation schedule does not limit any statutory right to cancel or receive a refund. Contact us if you believe a statutory right applies; we will assess it separately." },
       { h: "Draft notice", p: "This is a review-ready draft and must be checked by a qualified solicitor before go-live." },
     ],
   },
   "rental-agreement": {
     title: "Rental Agreement",
-    updated: "September 2026 (v2)",
+    updated: "September 2026",
     sections: [
       { h: "1. Parties & equipment", p: "This agreement is between Db Cinema Rentals (\"Owner\") and the person named at checkout (\"Renter\") for the equipment listed in the booking, for the dates booked." },
       { h: "2. Possession & care", p: "The Renter takes possession of the equipment for the rental period and agrees to keep it secure, use it only for its intended purpose, and not sub-hire, sell, or take it outside the UK without written consent." },
@@ -71,7 +73,7 @@ const DOCS: Record<string, Doc> = {
   },
   "deposit-agreement": {
     title: "Card Hold & Refundable Security Payment Agreement",
-    updated: "September 2026 (v2)",
+    updated: "September 2026",
     sections: [
       { h: "1. Two separate amounts", p: "At checkout you pay a refundable security amount equal to 50% of the displayed hold category. Separately, your card is authorised for 100% of that category's displayed amount. The hold is not a charge. Both amounts appear separately in the checkout summary." },
       { h: "2. Safe return", p: "After the equipment is returned and inspected, we refund the security payment in full and cancel any uncaptured hold. Card networks and issuers control how quickly a released hold disappears from your available balance." },
@@ -84,7 +86,7 @@ const DOCS: Record<string, Doc> = {
   },
   insurance: {
     title: "Equipment Protection & Liability Policy",
-    updated: "September 2026 (v2)",
+    updated: "September 2026",
     sections: [
       { h: "1. Scope", p: "This policy sets out the Renter's responsibility for the equipment and the protection that applies during the rental period. It supplements, and does not replace, any insurance the Renter holds." },
       { h: "2. Renter responsibility", p: "While in the Renter's possession the equipment is at the Renter's risk. The Renter must take reasonable care, never leave equipment unattended in a public place or visible in a vehicle, and follow manufacturer guidance." },
@@ -96,7 +98,7 @@ const DOCS: Record<string, Doc> = {
   },
   "data-processing": {
     title: "Data Processing Terms",
-    updated: "September 2026 (v2)",
+    updated: "September 2026",
     sections: [
       { h: "1. Controller", p: "Db Cinema Rentals is the data controller for personal data collected to provide the rental service." },
       { h: "2. What we process", p: "Contact and booking details; delivery address; Stripe payment and card-authorisation references; and Didit's verification result, review status and resubmission explanation. We do not store raw identity documents or full card details in our application database." },
@@ -130,7 +132,7 @@ export default async function LegalPage({
           <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
             {doc.title}
           </h1>
-          <p className="mt-2 font-mono text-xs text-white/30">Last updated {doc.updated}</p>
+          <p className="mt-2 font-mono text-xs text-white/30">Last updated {doc.updated} · Agreement version {LEGAL_VERSION}</p>
         </div>
         <div className="mt-10 flex flex-col gap-7">
           {doc.sections.map((s, i) => (

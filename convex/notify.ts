@@ -4,6 +4,7 @@ import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { OWNER_EMAIL, sendMail } from "./lib/mailer";
+import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -136,9 +137,9 @@ export const cancellationEmail = internalAction({
     const items = (b.lineItems ?? []).map((li: any) => li.title).join(", ");
     const detail =
       mode === "credit"
-        ? `<p>Your deposit has been refunded to your card, and <b>£${creditAmount} store credit</b> (valid 90 days) has been added to your account.</p>`
+        ? `<p><b>£${refundAmount}</b> is being returned to your card and <b>£${creditAmount} account credit</b> (valid ${CANCELLATION_CREDIT_DAYS} days) has been added to your account. Any account credit used for this booking is included in that amount.</p>`
         : mode === "refund"
-          ? `<p><b>£${refundAmount}</b> has been refunded to your card.</p>`
+          ? `<p><b>£${refundAmount}</b> is being returned to your card.</p>${creditAmount > 0 ? `<p><b>£${creditAmount}</b> of account credit used for this booking has been restored for ${CANCELLATION_CREDIT_DAYS} days.</p>` : ""}`
           : `<p>No payment had been taken, so there's nothing to refund.</p>`;
     await email(
       b.guestEmail,

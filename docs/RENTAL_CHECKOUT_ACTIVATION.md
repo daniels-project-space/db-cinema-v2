@@ -42,6 +42,7 @@ The original checkout receipt and return statement are **not VAT invoices**. UK 
 - Exercise hourly renewal with a short-lived test hold, issuer challenge in the renter account, decline, old-hold cancellation, and a renter who never responds. Check that the admin sees a failed or pending renewal before handover.
 - Exercise late return notice, dispute pause, hold-funded fee, fee larger than hold, saved-card decline, and 30-day expiry. Reconcile Stripe receipts to booking amounts.
 - Exercise an admin damage deduction notice, a requested deduction larger than the live hold, and admin/customer cancellation while Stripe Checkout is still open or newly paid.
+- Confirm the signed cancellation page and account controls match the server's London-calendar-day policy: at least three days gives a full card refund; closer gives the security payment back plus 90-day account credit. Test a booking paid partly with redeemed account credit and confirm that credit is restored once, while the card refund never exceeds the captured payment. Test both customer and admin cancellation, including the London daylight-saving boundary.
 - Exercise safe return, damage only, late only, both damage and late, waived late time, a failed refund followed by saved-decision retry, emailed itemised PDF, PDF failure/retry, and later separate late-charge result email. Check pence values and that no VAT appears.
 - Verify the exact production Vercel alias and production Convex deployment independently. No successful build or dev deployment proves the live site is updated.
 

@@ -10,6 +10,7 @@ import { AGREEMENTS } from "../src/lib/legal";
 import { sendMail } from "./lib/mailer";
 import { tierByKey, FREE_ACCESSORY_TYPES } from "./lib/membership";
 import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
+import { cancelKind, cancellationSettlement } from "../src/lib/cancellationPolicy";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 
@@ -844,18 +845,10 @@ export const reconcileMemberships = internalAction({
   },
 });
 
-const londonStartOfDay = (ms: number) => {
-  const p = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(ms));
-  const y = +p.find((x) => x.type === "year")!.value;
-  const mo = +p.find((x) => x.type === "month")!.value;
-  const d = +p.find((x) => x.type === "day")!.value;
-  return Date.UTC(y, mo - 1, d);
-};
-
 /**
  * Customer self-service cancellation (Phase 3). Gated behind CUSTOMER_BOOKING_ACTIONS=true.
- *  - ≥3 London-days before start → full cash refund (rental + deposit) to the card.
- *  - <3 days → deposit refunded to the card + 90-day store credit for the rental portion.
+ *  - At least CANCELLATION_FULL_REFUND_DAYS London days before start → full cash refund.
+ *  - Closer to start → security payment refunded + CANCELLATION_CREDIT_DAYS-day store credit.
  *  - pending_payment (nothing charged) → just cancel + release holds.
  * Only site-sourced bookings; never touches Hygglo-mirrored reservations.
  */
@@ -902,18 +895,24 @@ export const cancelByAdmin = action({
       throw new Error("Only unstarted direct bookings can be cancelled here.");
     const paidIntentId = await paymentBeforeCancellation(b);
     let refundAmount = 0;
+    let creditAmount = 0;
     if (paidIntentId) {
       const payment = await stripe().paymentIntents.retrieve(paidIntentId);
-      refundAmount = payment.amount_received / 100;
-      if (refundAmount > 0) await stripe().refunds.create(
+      const settlement = cancellationSettlement(
+        "full_refund", payment.amount_received, pence(b.depositAmount),
+        pence(b.creditApplied ?? 0), b.status === "confirmed",
+      );
+      refundAmount = settlement.refundPence / 100;
+      creditAmount = settlement.creditPence / 100;
+      if (settlement.refundPence > 0) await stripe().refunds.create(
         { payment_intent: payment.id, amount: payment.amount_received },
         { idempotencyKey: `dbc-admin-cancel-refund-${bookingId}` },
       );
     }
     await releaseBookingHolds(ctx, bookingId, b);
     await ctx.runMutation(internal.bookings._finalizeCancellation, {
-      bookingId, accountId: b.accountId ?? undefined, mode: refundAmount > 0 ? "refund" : "none",
-      refundAmount, creditAmount: 0, currency: b.currency, adminReason: reason.trim().slice(0, 400),
+      bookingId, accountId: b.accountId ?? undefined, mode: paidIntentId ? "refund" : "none",
+      refundAmount, creditAmount, currency: b.currency, adminReason: reason.trim().slice(0, 400),
     });
     return { refundAmount };
   },
@@ -941,21 +940,19 @@ export const cancelByCustomer = action({
     // only refund / issue store credit for a booking that was GENUINELY paid through Stripe —
     // a confirmed booking with no payment intent (e.g. admin-confirmed, £0) yields no credit.
     if (paidIntentId) {
-      const days = b.earliestStart != null
-        ? Math.round((londonStartOfDay(b.earliestStart) - londonStartOfDay(Date.now())) / 86400000)
-        : 0;
-      if (days >= 3) {
-        mode = "refund";
-        refundAmount = b.total;
-      } else {
-        mode = "credit";
-        refundAmount = b.depositAmount;
-        creditAmount = Math.max(0, b.total - b.depositAmount);
-      }
-      if (refundAmount > 0) {
+      const kind = b.earliestStart != null ? cancelKind(b.earliestStart, Date.now()) : "store_credit";
+      mode = kind === "full_refund" ? "refund" : "credit";
+      const payment = await stripe().paymentIntents.retrieve(paidIntentId);
+      const settlement = cancellationSettlement(
+        kind, payment.amount_received, pence(b.depositAmount),
+        pence(b.creditApplied ?? 0), b.status === "confirmed",
+      );
+      refundAmount = settlement.refundPence / 100;
+      creditAmount = settlement.creditPence / 100;
+      if (settlement.refundPence > 0) {
         // idempotency key → Stripe dedupes a double-click so a cancellation can never double-refund
         await stripe().refunds.create(
-          { payment_intent: paidIntentId, amount: pence(refundAmount) },
+          { payment_intent: paidIntentId, amount: settlement.refundPence },
           { idempotencyKey: `dbc-cancel-refund-${bookingId}` },
         );
       }
