@@ -1,0 +1,29 @@
+# Membership offers in rental checkout — 2 October 2026
+
+## Agreed contract
+
+- Starter (legacy key plus): £19/month, £20.90 credit. Recommended from £100 of eligible charges, with a one-time £10 rental discount when starting paid membership.
+- Pro: £49/month, £58.80 credit. Recommended from £200.
+- Studio: £99/month, £128.70 credit. Recommended from £300.
+- Thresholds use rental plus delivery charges after existing discounts, before VAT and credit payments. Refundable security, holds and membership fees never count. The business remains not VAT registered; no invented VAT deduction or collection.
+- First paid month credit pays this order's rental charge after existing account credit. It cannot pay delivery, security or the subscription fee. Unused credit is issued after successful payment; subsequent monthly credit stacks and lasts one year.
+- A higher eligible tier is recommended when it genuinely saves money. If that tier would not save, the next eligible saving tier can be recommended. No unsolicited offer at or below zero net saving. The net comparison includes the first subscription fee, ignores refundable security, and counts no unused future credit.
+- The free week remains available but earns no first-month credit or £10 discount. Paid plans waive the upfront security payment; full hold remains. Weekend rules and £100 cap stay intact. Credit is tender, not a second promotional discount.
+- Paid Starter offer is recorded per account when the initial paid invoice settles. Cancellation, refund and rejoining never reset it. Old accepted £20 welcome-credit checkouts remain legacy; no new £20 bonus is offered.
+
+Examples without delivery, other discounts or existing credit: £100 Starter → £88.10 combined charge/save £11.90; £200 Pro → £190.20/save £9.80; £300 Studio → £270.30/save £29.70. Security/hold is separate.
+
+## Wiring and safety
+
+Authoritative rentalPrice computes fees, discounts and tender. priceQuote compares genuine payable amounts and chooses an eligible paid/trial offer. createPending recomputes credit and promo eligibility atomically, reserves the first invoice allocation on the membership checkout and excludes it from existing-credit reservations. Stripe reduces only one-time rental lines, keeping the recurring price intact. The first paid invoice marks its allocation spent once; renewal invoices grant the full monthly amount. Booking confirmation requires the settled receipt and spends only pre-existing credit through FIFO.
+
+Cancellation restores the immediate credit linked to its originating membership grant. Membership refunds revoke linked restored balances too. If membership was reversed first, rental cancellation clears the future-credit offset rather than manufacturing credit. A later debt cannot steal an allocation promised to an open checkout. Late payment of an already-closed rental leaves its purchased monthly credit unspent.
+
+Receipt email uses an internal full receipt query; public status queries are unchanged. Customer-authorised PDF includes first-month credit used within total store credit. Stripe separately itemises the subscription fee/renewal. Membership terms version 2026-10-membership-v3 requires fresh acceptance.
+
+## Acceptance evidence
+
+- Full tests, Convex typecheck/deploy and production build passed. Regression exercises exact £99/100/199/200/299/300 thresholds despite a much larger deposit; net fee maths, unpaid/retry/double-spend guards, capped/unused credit, renewal, reversal/cancellation ordering and receipt email caller.
+- Real staging catalogue/browser: large weekday Studio offer shows £29.70 net saving; desktop/mobile cart, drawer and checkout one-click carry, precise API totals, reload consent reset, unclipped modal, checkout first viewport CTA, small/no-saving offer suppression and homepage Fund placement passed. Screenshots inspected.
+- Actual Stripe sandbox hosted subscription checkout: £300 rental, £10 discount, £20.90 first-month credit, £19 recurring fee; £288.10 provider charge with separate £200 hold. Successful payment confirmed rental, spent credit once, retained no unspent balance; repeated finalize retained the same grant. Actual customer-authorised receipt PDF checked.
+- Sandbox cleanup refunded £269.10 rental and £19 membership, cancelled subscription, released the uncaptured hold, reconciled credit to zero, and proved the one-time £10 offer is unavailable on rejoin. Staging checkout gate restored. No live transaction or launch activation.

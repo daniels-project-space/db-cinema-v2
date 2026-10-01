@@ -17,7 +17,7 @@ const esc = (value: string) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;",
 export const invoiceEmail = internalAction({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
-    const b: any = await ctx.runQuery(api.bookings.get, { bookingId });
+    const b: any = await ctx.runQuery(internal.bookings.receiptContext, { bookingId });
     if (!b || !b.guestEmail) return;
 
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
@@ -43,7 +43,7 @@ export const invoiceEmail = internalAction({
     await sendMail({
       to: b.guestEmail,
       subject: "Your Db Cinema receipt 🎬",
-      html: `<h2>Receipt</h2><p>Thanks for renting with Db Cinema. Your receipt${attachment ? " is attached as a PDF" : " is below"}.</p><p>${items}</p><p>Total paid: <b>${amount(b.total)}</b> (including ${amount(b.depositAmount)} refundable security payment). A separate card hold is an authorisation, not a payment.</p><p>Db Cinema Rentals is not VAT registered. No VAT was charged; this is not a VAT invoice.</p>`,
+      html: `<h2>Receipt</h2><p>Thanks for renting with Db Cinema. Your receipt${attachment ? " is attached as a PDF" : " is below"}.</p><p>${items}</p>${b.membershipCreditApplied ? `<p>First-month membership credit used on this rental: ${amount(b.membershipCreditApplied)} (included in the ${amount(b.creditApplied)} total store credit used). Your subscription fee and renewal are itemised separately by Stripe.</p>` : ""}<p>Total paid for this rental: <b>${amount(b.total)}</b> (including ${amount(b.depositAmount)} refundable security payment). A separate card hold is an authorisation, not a payment.</p><p>Db Cinema Rentals is not VAT registered. No VAT was charged; this is not a VAT invoice.</p>`,
       attachments: attachment ? [attachment] : undefined,
     });
   },

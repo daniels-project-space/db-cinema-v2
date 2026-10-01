@@ -3,6 +3,7 @@
 import Stripe from "stripe";
 import { providerRepeatGate } from "./repeatRentalProvider";
 import { membershipActiveNow } from "../../shared/membership";
+import { checkoutMembershipCredit, starterRentalOffer } from "../../shared/checkoutMembershipCredit";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
@@ -51,6 +52,8 @@ export type RentalPrice = {
   deliveryFee: number;
   totalBeforeCredit: number;
   creditApplied: number;
+  membershipCreditApplied: number;
+  starterOfferSaving: number;
   totalDue: number;
   deliveryBenefitMonth?: string;
   deliveryReduction: number;
@@ -126,8 +129,9 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const weekendSaving = weekendCandidate>0 && rawSubtotal-weekendCandidate < ordinarySubtotal-promoDiscount ? weekendCandidate : 0;
   const rentalSaving = weekendSaving ? ordinarySubtotal-promoDiscount-(rawSubtotal-weekendSaving) : 0;
   if(weekendSaving){items=items.map((item,idx)=>({...item,total:raw[idx].total}));subtotal=rawSubtotal;appliedCode=undefined;}
-  const totalReduction = weekendSaving || promoDiscount;
-  const reductionLabel = weekendSaving > 0 ? "Member weekend deal · £100 cap" : appliedCode?.toUpperCase();
+  let starterOfferSaving = 0;
+  let totalReduction = weekendSaving || promoDiscount;
+  let reductionLabel = weekendSaving > 0 ? "Member weekend deal · £100 cap" : appliedCode?.toUpperCase();
 
   let quotedDeliveryFee = 0;
   let isLondon = false;
@@ -150,14 +154,21 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const deliveryBenefitMonth = studioAvailable ? month : undefined;
   const deliveryFee = studioAvailable ? 0 : Math.round(quotedDeliveryFee * (100 - (member?.deliveryPct ?? 0))) / 100;
   const deliveryReduction = quotedDeliveryFee - deliveryFee;
+  starterOfferSaving = starterRentalOffer(selected?.key,a.selectedMembership?.intro,ordinarySubtotal-promoDiscount+quotedDeliveryFee,acct?.starterRentalOfferUsed);
+  totalReduction += starterOfferSaving;
+  if (starterOfferSaving) reductionLabel = `Starter welcome · £10 off${appliedCode ? ` + ${appliedCode.toUpperCase()}` : ""}`;
   const totalBeforeCredit = subtotal + deliveryFee + depositAmount - totalReduction;
   const availableCredit = acct
     ? await ctx.runQuery(internal.bookings.availableCheckoutCredit, { accountId: acct._id }) : 0;
-  const creditApplied = Math.min(availableCredit, Math.max(0, totalBeforeCredit - depositAmount));
+  const existingCredit = Math.min(availableCredit, Math.max(0, totalBeforeCredit - depositAmount));
+  const immediate = checkoutMembershipCredit(selected?.key, a.selectedMembership?.intro,
+    Math.round(Math.max(0, subtotal - totalReduction - existingCredit) * 100), acct?.membershipCreditDebtPence);
+  const membershipCreditApplied = immediate.appliedPence / 100;
+  const creditApplied = Math.round((existingCredit + membershipCreditApplied) * 100) / 100;
 
   return {
     items, customerEmail, acct, month, freedCount, subtotal, replacementSum, protection,
     depositHoldAmount, depositAmount, appliedCode, totalReduction, reductionLabel,
-    quotedDeliveryFee, deliveryFee, deliveryBenefitMonth, deliveryReduction, securityWaiverReason, weekendSaving, rentalSaving, repeatSourceBookingId, repeatSourceFingerprint, membershipFee, combinedTotalDue: totalBeforeCredit - creditApplied + membershipFee, totalBeforeCredit, creditApplied, totalDue: totalBeforeCredit - creditApplied,
+    quotedDeliveryFee, deliveryFee, deliveryBenefitMonth, deliveryReduction, securityWaiverReason, weekendSaving, rentalSaving, starterOfferSaving, repeatSourceBookingId, repeatSourceFingerprint, membershipFee, membershipCreditApplied, combinedTotalDue: totalBeforeCredit - creditApplied + membershipFee, totalBeforeCredit, creditApplied, totalDue: totalBeforeCredit - creditApplied,
   };
 }

@@ -16,6 +16,7 @@ export type InvoiceData = {
   discount: number;
   deliveryFee: number;
   creditApplied: number;
+  membershipCreditApplied?: number;
   depositAmount: number;
   total: number;
   promoCode: string | null;
@@ -133,6 +134,7 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
           {data.deliveryFee > 0 ? (
             <View style={s.totRow}><Text style={{ color: C.muted }}>Delivery</Text><Text>{gbp(data.deliveryFee)}</Text></View>
           ) : null}
+          {!!data.membershipCreditApplied && <Text style={s.note}>Store credit above includes {gbp(data.membershipCreditApplied)} from the first paid membership month. The subscription fee is itemised separately by Stripe.</Text>}
           <View style={s.grand}><Text style={s.grandTxt}>Total paid</Text><Text style={s.grandTxt}>{gbp(data.total)}</Text></View>
           {data.depositAmount > 0 ? (
             <Text style={s.note}>Includes {gbp(data.depositAmount)} refundable deposit, returned after the gear is back in good condition.</Text>

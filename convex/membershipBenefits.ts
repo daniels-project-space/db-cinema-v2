@@ -78,7 +78,7 @@ export const syncSubscription = internalMutation({
 
 /** Exactly one grant per paid invoice. Receipts containing rentals grant credit ONLY on the recurring membership line. */
 export const grantPaidInvoice = internalMutation({
-  args: { accountId: v.id("accounts"), subscriptionId: v.string(), invoiceId: v.string(), paidMembershipPence: v.number(), periodEnd: v.number() },
+  args: { accountId: v.id("accounts"), subscriptionId: v.string(), invoiceId: v.string(), paidMembershipPence: v.number(), periodEnd: v.number(), checkoutId:v.optional(v.id("membership_checkouts")) },
   handler: async (ctx, a) => {
     if (!Number.isSafeInteger(a.paidMembershipPence) || a.paidMembershipPence <= 0 || !Number.isSafeInteger(a.periodEnd)) throw Error("Invalid paid membership invoice.");
     const existing = await ctx.db.query("membership_credit_grants").withIndex("by_invoice", q => q.eq("invoiceId", a.invoiceId)).unique();
@@ -91,18 +91,39 @@ export const grantPaidInvoice = internalMutation({
     const previous = await ctx.db.query("membership_credit_grants").withIndex("by_account", q => q.eq("accountId", a.accountId)).collect();
     const bonusPence = account.membershipIntroChoice === "credit" && !previous.some(r => r.bonusPence > 0) ? 2000 : 0;
     const earned = monthlyCreditPence(a.paidMembershipPence,account.membershipTier);
-    const debtUsed = Math.min(earned, account.membershipCreditDebtPence ?? 0);
+    const checkout = a.checkoutId ? await ctx.db.get(a.checkoutId) : null;
+    if (a.checkoutId && (!checkout || checkout.accountId !== a.accountId || checkout.subscriptionId !== a.subscriptionId))
+      throw Error("First-month credit checkout ownership mismatch.");
+    if (checkout?.initialCreditInvoiceId && checkout.initialCreditInvoiceId !== a.invoiceId)
+      throw Error("First-month credit is already settled by another invoice.");
+    const reservedCredit = checkout?.initialCreditAppliedPence ?? 0;
+    const booking = checkout?.bookingId ? await ctx.db.get(checkout.bookingId) : null;
+    if (reservedCredit > 0 && (checkout?.intro !== "none" || !booking || booking.membershipCheckoutId !== checkout?._id ||
+      Math.round((booking.membershipCreditApplied ?? 0)*100) !== reservedCredit || reservedCredit > earned))
+      throw Error("First-month credit does not match the agreed rental payment.");
+    const initialCreditAppliedPence = booking?.status === "cancelled" ? 0 : reservedCredit;
+    // Preserve the credit promised in an open checkout if a refund creates a
+    // debt meanwhile. Only unreserved credit can clear that future-credit offset.
+    const debtUsed = Math.min(earned-initialCreditAppliedPence, account.membershipCreditDebtPence ?? 0);
     const creditPence = earned - debtUsed;
+    if ((checkout?.starterOfferSaving ?? 0) > 0) {
+      if (checkout?.tier !== "plus" || checkout.intro !== "none" || checkout.starterOfferSaving !== 10 || account.starterRentalOfferUsed)
+        throw Error("Starter welcome offer has already been used or does not match this checkout.");
+      await ctx.db.patch(account._id,{starterRentalOfferUsed:true});
+    }
     if (debtUsed) await ctx.db.patch(account._id, {membershipCreditDebtPence: (account.membershipCreditDebtPence ?? 0) - debtUsed});
-    const id = await ctx.db.insert("membership_credit_grants", { ...a, creditPence, earnedCreditPence:earned, bonusPence, revokedPence: 0, createdAt: Date.now() });
-    const issue = (amount: number, reason: string) => ctx.db.insert("credits", {
-      accountId: a.accountId, amount: amount / 100, remaining: amount / 100, currency: "GBP", reason,
-      createdAt: Date.now(), expiresAt: Date.now() + 365 * 86400000, status: "active",
+    const {checkoutId: _checkoutId, ...invoiceReceipt} = a;
+    const id = await ctx.db.insert("membership_credit_grants", { ...invoiceReceipt, creditPence, earnedCreditPence:earned, initialCreditAppliedPence, bonusPence, revokedPence: 0, createdAt: Date.now() });
+    const issue = (amount: number, reason: string, spent = 0) => ctx.db.insert("credits", {
+      accountId: a.accountId, amount: amount / 100, remaining: (amount-spent) / 100, currency: "GBP", reason,
+      createdAt: Date.now(), expiresAt: Date.now() + 365 * 86400000, status: amount === spent ? "spent" : "active",
       membershipInvoiceId: a.invoiceId, membershipGrantId: id,
     });
-    const creditId = await issue(creditPence, "Paid membership · plan rental credit");
+    const creditId = await issue(creditPence, "Paid membership · plan rental credit", initialCreditAppliedPence);
     const bonusCreditId = bonusPence ? await issue(bonusPence, "One-time membership welcome credit") : undefined;
     await ctx.db.patch(id, { creditId, bonusCreditId });
+    if (checkout) await ctx.db.patch(checkout._id,{initialCreditInvoiceId:a.invoiceId});
+    if (initialCreditAppliedPence > 0 && booking) await ctx.db.patch(booking._id,{membershipCreditGrantId:id});
     if (a.periodEnd > (account.membershipPaidThrough ?? 0)) await ctx.db.patch(a.accountId, { membershipPaidThrough: a.periodEnd });
     return id;
   },
@@ -145,8 +166,11 @@ export const revokeRefundedInvoice = internalMutation({
   const accountForReservation=await ctx.db.get(grant.accountId);
   const pending=accountForReservation?await ctx.db.query("bookings").withIndex("by_guestEmail",q=>q.eq("guestEmail",accountForReservation.email)).collect():[];
   const credits=await ctx.db.query("credits").withIndex("by_account",q=>q.eq("accountId",grant.accountId)).collect();
-  let reserved=Math.max(0,pending.filter(b=>b.status==="pending_payment").reduce((n,b)=>n+Math.round((b.creditApplied??0)*100),0)-credits.filter(c=>c.status==="active").reduce((n,c)=>n+(c.revokedPendingPence??0),0));
-  for(const id of [grant.creditId,grant.bonusCreditId]){
+  let reserved=Math.max(0,pending.filter(b=>b.status==="pending_payment").reduce((n,b)=>n+Math.round(((b.creditApplied??0)-(b.membershipCreditApplied??0))*100),0)-credits.filter(c=>c.status==="active").reduce((n,c)=>n+(c.revokedPendingPence??0),0));
+  // Cancellation can restore first-month credit into a new linked credit row.
+  // Revoke that balance too; a returned rental must not turn it into free money.
+  const grantCreditIds = new Set([grant.creditId,grant.bonusCreditId,...credits.filter(c=>c.membershipGrantId===grant._id).map(c=>c._id)]);
+  for(const id of grantCreditIds){
     const c=id?await ctx.db.get(id):null;if(!c||!need)continue;
     const remaining=Math.round(c.remaining*100),alreadyFrozen=c.revokedPendingPence??0;
     const protect=Math.min(Math.max(0,remaining-alreadyFrozen),reserved);
