@@ -18,7 +18,7 @@ Account-wide chat blends multiple rentals. Focus falls back to one of only ten r
 
 ## Implementation and acceptance
 
-Implemented on `feat/rental-workspace`. Staging acceptance passed; live release remains pending.
+Implemented on `feat/rental-workspace`. Staging acceptance passed and PR #5 published to the exact live domain.
 
 - [x] Persistent rental and general threads, ownership/session checks, cursor history and per-message read visibility.
 - [x] Exact rental/stage Gaffer facts, verified seller contents, duplicate/stale reply protection and per-thread owner handoff.
@@ -30,7 +30,7 @@ Implemented on `feat/rental-workspace`. Staging acceptance passed; live release 
 - [x] Reviewed desktop/mobile screenshots in repeated passes. All account/admin navigation sections rendered, no document overflow. Owner conversation/detail panels and return form inspected.
 - [x] Relevant handler tests and actual Stripe sandbox/staging acceptance.
 - [x] Updated production-build PDF endpoint: prior rental refunds deducted, net card paid £0 for the fully refunded two-payment fixture, unauthorized account denied and non-VAT wording verified. Final build and all-section desktop/mobile pass 4 pass. Pass 5 verifies bounded chat scrolling, latest messages and reachable composer after the final visual fix.
-- [ ] Reviewable PR and approved live release, followed by exact production alias/provider acceptance.
+- [x] Reviewable PR #5 merged and approved live release verified against the exact production alias/provider.
 
 ## Evidence — 30 September 2026
 
@@ -55,3 +55,11 @@ Return statements now subtract confirmed prior rental refunds from net card paid
 All financial acceptance uses Stripe sandbox and `.invalid` test accounts. No real customer messages or live card charges were sent. Search filters loaded pages; the UI names this limit and cursor buttons expose all older rental/conversation history.
 
 Graph outputs are excluded from Git and Vercel uploads. The preexisting `.serena/project.yml` change belongs to the workspace and is excluded from the feature commit.
+
+## Live release receipt
+
+PR #5 merged as `4ae79778eadbf6d1e61b81396a10214facc4980f`. Vercel deployment `dpl_7GvSD9iJqzwkULhjFYyHsozwrFrX` reached READY in the dedicated DB Cinema project and was verified as the deployment behind `https://dbcinemarentals.com`. Production frontend configuration points to `veracious-wombat-196`, where the new functions/indexes were deployed and the unread migration completed with nine legacy messages migrated.
+
+Live read-only acceptance verified authenticated owner pagination/unread queries, invalid owner and renter rejection, the rental cards, stage inbox and settings at desktop/mobile widths, and Google login initialisation. Screenshots were inspected. Customer messages and financial writes were not used for live acceptance; unread marking was disabled in the acceptance browser to preserve owner notifications. Public checkout and automatic late collection remain disabled as before.
+
+This documentation receipt follows the runtime release; it changes no application code.

@@ -12,6 +12,8 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { peak, type Iv } from "./availability";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
+import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
+import { assertCreditOffer } from "./lib/rentalCreditPolicy";
 import { cancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 
 const lineItem = v.object({
@@ -344,6 +346,7 @@ export const confirm = internalMutation({
     await ctx.scheduler.runAfter(0, internal.notify.bookingAlert, { bookingId });
     await ctx.scheduler.runAfter(0, internal.invoice.invoiceEmail, { bookingId });
     await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
+    await ctx.scheduler.runAfter(0, internal.didit.reuseVerification, { bookingId });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
     return { already: false };
   },
@@ -475,7 +478,7 @@ export const adminSetStatus = mutation({
       throw new Error("A closed booking cannot be reopened by changing its status.");
     if (booking.status === "pending_payment")
       throw new Error("Payment must be confirmed by Stripe before this booking is confirmed.");
-    if (status === "active" && booking.idVerifyStatus !== "verified")
+    if (status === "active" && (booking.idVerifyStatus !== "verified" || (Math.min(booking.verificationExpiresAt ?? ((booking.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * 86400000), booking.documentExpiresAt ?? Infinity) <= Date.now())))
       throw new Error("Identity and address verification must be approved before handover.");
     if (status === "active" && booking.depositHoldAmount &&
         (booking.depositHoldStatus !== "held" || (booking.depositHoldExpiresAt ?? 0) <= Date.now()))
@@ -633,7 +636,7 @@ export const replaceHold = internalMutation({
   args: { bookingId: v.id("bookings"), oldIntentId: v.string(), newIntentId: v.string(), expiresAt: v.number() },
   handler: async (ctx, { bookingId, oldIntentId, newIntentId, expiresAt }) => {
     const b = await ctx.db.get(bookingId);
-    if (!b || b.stripeDepositIntentId !== oldIntentId || !["confirmed", "active"].includes(b.status)) return false;
+    if (!b || b.cancellationDecision || b.returnDecision || b.stripeDepositIntentId !== oldIntentId || !["confirmed", "active"].includes(b.status)) return false;
     await ctx.db.patch(bookingId, {
       stripeDepositIntentId: newIntentId,
       depositHoldStatus: "held",
@@ -1128,10 +1131,12 @@ export const setIdentity = internalMutation({
   },
   handler: async (ctx, { bookingId, sessionId, status }) => {
     const prev = (await ctx.db.get(bookingId))?.idVerifyStatus ?? "required";
-    const patch: any = { idVerifyStatus: status };
+    const patch: any = { idVerifyStatus: status, idVerifiedAt: status === "verified" ? Date.now() : undefined, verificationExpiresAt: status === "verified" ? Date.now() + VERIFICATION_REUSE_DAYS * 86400000 : undefined };
     if (sessionId) patch.stripeIdentitySessionId = sessionId;
     await ctx.db.patch(bookingId, patch);
     if (status === "verified") await markAccountVerified(ctx, bookingId);
+    else await revokeReuse(ctx, bookingId);
+    await verificationUpdateMessage(ctx, bookingId, prev, status);
     if (status !== prev && ["verified", "requires_input", "canceled"].includes(status))
       await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
   },
@@ -1170,8 +1175,9 @@ export const setDiditResult = internalMutation({
     note: v.optional(v.string()),
     poaPostcodes: v.array(v.string()),
     eventAt: v.number(),
+    documentExpiresAt: v.optional(v.number()),
   },
-  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt }) => {
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
     if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
@@ -1197,19 +1203,24 @@ export const setDiditResult = internalMutation({
       return true;
     }
     const previous = b.idVerifyStatus;
+    const verifiedAt = status === "verified" ? (b.idVerifiedAt ?? Date.now()) : undefined;
     await ctx.db.patch(bookingId, {
       diditEventId: eventId,
       diditEventAt: eventAt,
       idVerifyStatus: status,
       idVerificationSource: "didit",
-      idVerifiedAt: status === "verified" ? Date.now() : undefined,
+      documentExpiresAt,
+      verificationExpiresAt: status === "verified" ? Math.min(verifiedAt! + VERIFICATION_REUSE_DAYS * 86400000, documentExpiresAt ?? Infinity) : undefined,
+      idVerifiedAt: verifiedAt,
       verificationNote: note?.slice(0, 400),
       verificationUpdatedAt: Date.now(),
     });
     if (status === "verified") await markAccountVerified(ctx, bookingId);
-    if (previous !== status && ["verified", "manual_review", "requires_input", "rejected"].includes(status))
+    else if (["rejected", "requires_input", "manual_review"].includes(status)) await revokeReuse(ctx, bookingId);
+    await verificationUpdateMessage(ctx, bookingId, previous, status);
+    if (["confirmed", "active"].includes(b.status) && previous !== status && ["verified", "manual_review", "requires_input", "rejected"].includes(status))
       await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
-    if (previous !== status && status === "manual_review")
+    if (["confirmed", "active"].includes(b.status) && previous !== status && status === "manual_review")
       await ctx.scheduler.runAfter(0, internal.notify.verificationReviewAlert, { bookingId });
     return true;
   },
@@ -1240,11 +1251,14 @@ export const adminSetIdStatus = mutation({
     await ctx.db.patch(bookingId, {
       idVerifyStatus: status,
       idVerificationSource: "manual",
+      verificationExpiresAt: status === "verified" ? Date.now() + VERIFICATION_REUSE_DAYS * 86400000 : undefined,
       idVerifiedAt: status === "verified" ? Date.now() : undefined,
       verificationUpdatedAt: Date.now(),
       verificationNote: note.trim().slice(0, 400),
     });
     if (status === "verified") await markAccountVerified(ctx, bookingId);
+    else await revokeReuse(ctx, bookingId);
+    await verificationUpdateMessage(ctx, bookingId, prev, status);
     if (status !== prev && ["verified", "requires_input", "canceled"].includes(status))
       await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
   },
@@ -1270,6 +1284,7 @@ export const setDiditManualReview = internalMutation({
       idVerifyStatus: status,
       idVerificationSource: "manual",
       diditManualDecisionAt: Date.now(),
+      verificationExpiresAt: status === "verified" ? Date.now() + VERIFICATION_REUSE_DAYS * 86400000 : undefined,
       idVerifiedAt: status === "verified" ? Date.now() : undefined,
       verificationUpdatedAt: Date.now(),
       verificationNote: decision === "resubmit" ? "Please replace the requested verification document."
@@ -1277,6 +1292,8 @@ export const setDiditManualReview = internalMutation({
         : note.trim().slice(0, 400),
     });
     if (status === "verified") await markAccountVerified(ctx, bookingId);
+    else await revokeReuse(ctx, bookingId);
+    await verificationUpdateMessage(ctx, bookingId, previous, status);
     if (status !== previous)
       await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
     return true;
@@ -1324,13 +1341,19 @@ export const getForCancel = internalQuery({
 });
 
 /** Freeze cancellation policy and order edits before any external payment call. */
-export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
+export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers"))},handler:async(ctx,{bookingId,fullCreditOfferId})=>{
  const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if(b?.activeAdditionId)throw Error("Finish or withdraw the item addition before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
- if(b.cancellationDecision)return b.cancellationDecision;
+ if(!b.cancellationDecision && (["starting","processing"].includes(b.depositHoldRenewalStatus ?? "") ||
+  (b.status === "confirmed" && b.depositHoldAmount && b.depositHoldStatus === "awaiting_payment"))) throw Error("Security hold setup or renewal is still processing. Please retry once it is resolved.");
+ if(b.cancellationDecision){
+  if(b.cancellationDecision.fullCreditOfferId !== fullCreditOfferId)throw Error("Another cancellation choice is already processing. Contact the team.");
+  return b.cancellationDecision;
+ }
+ if(fullCreditOfferId){const offer=await ctx.db.get(fullCreditOfferId);assertCreditOffer(offer,b);if(offer?.status!=="offered")throw Error("Credit offer already settled");}
  const jobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
  if(jobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("A refund is still processing");
  const kind=cancelKind(Math.min(...b.lineItems.map(li=>li.start)),Date.now());
- const decision={kind,createdAt:Date.now()};await ctx.db.patch(bookingId,{cancellationDecision:decision});return decision;
+ const decision={kind,createdAt:Date.now(),...(fullCreditOfferId?{fullCreditOfferId}:{})};await ctx.db.patch(bookingId,{cancellationDecision:decision});return decision;
 }});
 export const recordCancellationQuote=internalMutation({args:{bookingId:v.id("bookings"),quote:v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})},handler:async(ctx,{bookingId,quote})=>{
  const b=await ctx.db.get(bookingId);if(!b?.cancellationDecision)throw Error("Cancellation has not been prepared");
@@ -1363,7 +1386,7 @@ export const _finalizeCancellation = internalMutation({
         amount: creditAmount,
         remaining: creditAmount,
         currency,
-        reason: `${mode === "refund" ? "restored_credit" : "late_cancellation"}:${bookingId}`,
+        reason: `${b.cancellationDecision?.fullCreditOfferId ? "consented_full_credit" : mode === "refund" ? "restored_credit" : "late_cancellation"}:${bookingId}`,
         bookingId,
         createdAt: Date.now(),
         expiresAt: Date.now() + CANCELLATION_CREDIT_DAYS * 86400000,
@@ -1376,7 +1399,7 @@ export const _finalizeCancellation = internalMutation({
       adminCancellationReason: adminReason,
       refundAmount,
       creditIssuedId: creditId,
-      depositRefunded: mode !== "none" ? true : (b.depositRefunded ?? false),
+      depositRefunded: b.cancellationDecision?.fullCreditOfferId ? (b.depositRefunded ?? false) : mode !== "none" ? true : (b.depositRefunded ?? false),
     });
     const res = await ctx.db
       .query("reservations")
@@ -1398,5 +1421,69 @@ export const _finalizeCancellation = internalMutation({
     await ctx.scheduler.runAfter(0, internal.notify.cancellationEmail, { bookingId, mode, refundAmount, creditAmount });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
     return { ok: true as const, creditId };
+  },
+});
+
+async function revokeReuse(ctx: any, sourceBookingId: any) {
+  const source = await ctx.db.get(sourceBookingId);
+  if (!source) return;
+  const account = await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", (source.guestEmail ?? "").trim().toLowerCase())).first();
+  if (account?.rentalVerification?.sourceBookingId === sourceBookingId) await ctx.db.patch(account._id, { rentalVerification: undefined, idVerified: false });
+  const reused = await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", sourceBookingId)).collect();
+  for (const b of reused) if (["confirmed", "active"].includes(b.status) && b.idVerifyStatus === "verified") {
+    await ctx.db.patch(b._id, { idVerifyStatus: "requires_input", verificationExpiresAt: undefined, verificationReusedFrom: undefined, verificationNote: "Your previous verification changed. Please complete a new check before handover." });
+    await verificationUpdateMessage(ctx, b._id, "verified", "requires_input");
+  }
+}
+export const revokeVerificationReuse = internalMutation({ args: { sourceBookingId: v.id("bookings") }, handler: async (ctx, args) => revokeReuse(ctx, args.sourceBookingId) });
+export const reuseVerificationCandidate = internalQuery({
+  args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => {
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.idVerifyStatus !== "required" || b.diditSessionId) return null;
+    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    if (!validReuse(account?.rentalVerification, b)) return null;
+    const source = await ctx.db.get(account!.rentalVerification!.sourceBookingId);
+    if (!source?.diditSessionId || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit") return null;
+    return { source };
+  },
+});
+export const applyVerificationReuse = internalMutation({
+  args: { bookingId: v.id("bookings"), sourceBookingId: v.id("bookings"), documentExpiresAt: v.number() },
+  handler: async (ctx, { bookingId, sourceBookingId, documentExpiresAt }) => {
+    const b = await ctx.db.get(bookingId), source = await ctx.db.get(sourceBookingId);
+    if (!b || !source || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit") return false;
+    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    const record = account?.rentalVerification;
+    if (!record || record.sourceBookingId !== sourceBookingId || !validReuse(record, b) || documentExpiresAt <= Date.now() || documentExpiresAt <= Math.min(...b.lineItems.map(li => li.start))) return false;
+    await ctx.db.patch(bookingId, { idVerifyStatus: "verified", idVerificationSource: "reused_didit", idVerifiedAt: record.verifiedAt,
+      verificationExpiresAt: Math.min(record.expiresAt, documentExpiresAt), verificationReusedFrom: sourceBookingId,
+      verificationNote: "Your recent identity and address verification was checked again and reused for this rental.", verificationUpdatedAt: Date.now() });
+    await verificationUpdateMessage(ctx, bookingId, "required", "verified");
+    return true;
+  },
+});
+export const expireRentalVerifications = internalMutation({
+  args: {}, handler: async (ctx) => {
+    const rows = await ctx.db.query("bookings").withIndex("by_status", q => q.eq("status", "confirmed")).collect();
+    for (const b of rows) if (b.idVerifyStatus === "verified" && b.verificationExpiresAt != null && b.verificationExpiresAt <= Date.now()) {
+      await revokeReuse(ctx, b._id);
+      await ctx.db.patch(b._id, { idVerifyStatus: "requires_input", diditSessionId: undefined, verificationReusedFrom: undefined,
+        verificationExpiresAt: undefined, verificationNote: "Your verification expired. Complete a new check before handover." });
+      await verificationUpdateMessage(ctx, b._id, "verified", "requires_input");
+    }
+  },
+});
+
+export const adminRequireReverification = mutation({
+  args: { token: v.string(), bookingId: v.id("bookings"), note: v.string() },
+  handler: async (ctx, { token, bookingId, note }) => {
+    await assertAdmin(ctx, token, "bookings.adminRequireReverification");
+    const b = await ctx.db.get(bookingId);
+    if (!b || b.status !== "confirmed" || b.cancellationDecision || note.trim().length < 10) throw Error("An upcoming rental and a recorded reason are required.");
+    if (b.verificationReusedFrom) await revokeReuse(ctx, b.verificationReusedFrom);
+    await revokeReuse(ctx, bookingId);
+    await ctx.db.patch(bookingId, { idVerifyStatus: "requires_input", verificationReusedFrom: undefined, verificationExpiresAt: undefined,
+      diditSessionId: undefined, verificationNote: `A new check is required before handover: ${note.trim().slice(0, 300)}`, verificationUpdatedAt: Date.now() });
+    await verificationUpdateMessage(ctx, bookingId, b.idVerifyStatus, "requires_input");
   },
 });

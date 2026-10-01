@@ -1,8 +1,11 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
+import { listingImages } from "./lib/catalogImages";
+import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
+import { acknowledgeOwnerNotifications } from "./lib/adminPush";
 import {
   accountForToken,
   ownedBooking,
@@ -30,12 +33,8 @@ async function bookingView(ctx: any, b: any, account: any) {
       const l = await ctx.db.get(li.listingId);
       return {
         ...li,
-        heroImage:
-          (l?.r2Images?.length
-            ? l.r2Images
-            : l?.sourceImages?.length
-              ? l.sourceImages
-              : (l?.gallery ?? []))[0] ?? null,
+        heroImage: listingImages(l)[0] ?? null,
+        imageSources: listingImages(l),
         slug: l?.slug ?? null,
       };
     }),
@@ -124,7 +123,20 @@ export const messages = query({
         numItems: Math.min(50, paginationOpts.numItems),
       });
     const thread = await rentalThread(ctx, a._id, bookingId);
-    return { ...page, escalated: !!thread?.escalated };
+    return { ...page, escalated: !!thread?.escalated,
+      quickReplies: admin ? rentalReplyTemplates(bookingId ? await ctx.db.get(bookingId) : null, await ctx.db.query("settings").first()) : [],
+      renter: { name: a.name?.split(/\s+/)[0] ?? "Renter",
+        photo: (a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : null) ?? a.googleAvatarUrl ?? null },
+    };
+  },
+});
+export const ownerDraftContext = internalQuery({
+  args: { token: v.string(), bookingId: v.optional(v.id("bookings")), accountId: v.optional(v.id("accounts")) },
+  handler: async (ctx, { token, bookingId, accountId }) => {
+    if (!checkAdminToken(token)) throw Error("unauthorized");
+    const account = await ownerAccount(ctx, bookingId, accountId);
+    if (!account) throw Error("No renter account yet.");
+    return { accountId: account._id, bookingId };
   },
 });
 export const sendOwner = mutation({
@@ -151,6 +163,7 @@ export const sendOwner = mutation({
     });
     const t = await rentalThread(ctx, a._id, bookingId);
     if (t) await ctx.db.patch(t._id, { escalated: true });
+    await acknowledgeOwnerNotifications(ctx, a._id, bookingId);
     return { ok: true };
   },
 });
@@ -179,6 +192,7 @@ export const markRead = mutation({
       throw Error("Invalid read marker");
     const previous = admin ? t.ownerReadAt : t.renterReadAt;
     if (previous != null && previous > seen.at) return;
+    if (admin) await acknowledgeOwnerNotifications(ctx, a._id, bookingId, seen.at);
     // at is monotonic for new messages; creation time disambiguates historical ties.
     const newer = await ctx.db
       .query("messages")
@@ -217,6 +231,7 @@ export const setHandler = mutation({
     const a = await ownerAccount(ctx, bookingId, accountId);
     if (!a) throw Error("No renter account yet");
     const t = await rentalThread(ctx, a._id, bookingId);
+    await acknowledgeOwnerNotifications(ctx, a._id, bookingId);
     if (t)
       await ctx.db.patch(t._id, { escalated: !gaffer, updatedAt: Date.now() });
     else

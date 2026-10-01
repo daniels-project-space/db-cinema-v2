@@ -4,11 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
-import { SmartImage } from "@/components/SmartImage";
+import { RentalKit } from "@/components/rentals/RentalKit";
 import { IdVerify } from "@/components/IdVerify";
 import { formatGbp } from "@/lib/pricing";
 import { BookingReview } from "@/components/account/BookingReview";
-import { rentalTitle } from "@/lib/rentalPresentation";
 import { StatusPill } from "@/components/account/StatusPill";
 import { CancelButton } from "@/components/account/CancelButton";
 import { BookingProgress } from "@/components/account/BookingProgress";
@@ -29,7 +28,7 @@ export function BookingTile({
   const now = Date.now();
   const group = groupOf(booking);
   const first = booking.lineItems[0];
-  const extra = booking.lineItems.length - 1;
+  const isHistory = group === "past";
   const start = booking.start ?? first?.start ?? null;
   const end = booking.end ?? first?.end ?? null;
   const days = start != null && end != null ? rentalDays(start, end) : null;
@@ -59,58 +58,30 @@ export function BookingTile({
   const logistics =
     (booking.fulfilment === "delivery"
       ? `Delivery${booking.address ? ` · ${booking.address}` : ""}`
-      : "Collection · Central London") +
+      : "Collection") +
     (booking.pickupTime || booking.returnTime
       ? ` · ${booking.pickupTime ? `pickup ${booking.pickupTime}` : ""}${booking.pickupTime && booking.returnTime ? " / " : ""}${booking.returnTime ? `return ${booking.returnTime}` : ""}`
       : "");
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313] p-5">
+    <article className="overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313] p-5 sm:p-6">
 
       <RentalAdditionApproval token={token} bookingId={booking._id}/>
 
-      {/* header */}
-      <div className="mt-3 flex items-start gap-3">
-        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl sm:h-24 sm:w-24">
-          <SmartImage src={first?.heroImage ?? null} alt={first?.title ?? "Rental"} className="h-full w-full" />
+      <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+        <div>
+          <StatusPill status={booking.status} />
+          {start != null && end != null && <h3 className="mt-3 font-display text-sm font-semibold text-white/90">{fmtRange(start, end)}</h3>}
+          <p className="mt-1 text-xs text-white/40">{isHistory && start != null ? new Date(start).getUTCFullYear() : days != null ? `${days} ${days === 1 ? "day" : "days"}` : "Dates to be confirmed"}
+            {!isHistory && !isPending && start != null && <span className="ml-2 text-accent-300">{group === "active" && end != null ? `Return ${countdown(end, now)}` : countdown(start, now)}</span>}
+          </p>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="min-w-0 truncate font-display text-sm font-semibold text-white/90">
-              {rentalTitle(first?.title ?? "Rental")}
-              {extra > 0 && <span className="font-normal text-white/40"> +{extra}</span>}
-            </h3>
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="font-display text-sm font-bold text-white/90">{formatGbp(booking.total)}</span>
-              {isPending && (
-                <button
-                  onClick={abort}
-                  disabled={busy}
-                  aria-label="Cancel unpaid booking"
-                  title="Cancel checkout"
-                  className="flex h-5 w-5 items-center justify-center rounded-full bg-white/[0.06] text-xs text-white/50 hover:bg-rose-500/20 hover:text-rose-300"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-white/45">
-            <StatusPill status={booking.status} />
-            {(group === "upcoming" || group === "active") && start != null && (
-              <span className="text-white/50">
-                {group === "active" && end != null ? `back ${countdown(end, now)}` : countdown(start, now)}
-              </span>
-            )}
-            {start != null && end != null && (
-              <span>
-                {fmtRange(start, end)}
-                {days != null ? ` · ${days}d` : ""}
-              </span>
-            )}
-          </div>
+        <div className="text-right">
+          <p className="font-display text-lg font-semibold text-white/90">{formatGbp(booking.total)}</p>
+          <p className="mt-1 text-[10px] text-white/35">{isPending ? "Awaiting payment" : "Rental total"}</p>
         </div>
-      </div>
+      </header>
+      <div className="mt-5"><RentalKit items={booking.lineItems} compact={isHistory} prices /></div>
       {err && <div className="mt-1 text-[11px] text-rose-300">{err}</div>}
 
       {showVerify && (
@@ -121,26 +92,14 @@ export function BookingTile({
       {token && token !== "preview" && <HoldRenewal bookingId={booking._id} token={token} status={booking.depositHoldRenewalStatus} expiresAt={booking.depositHoldExpiresAt} />}
       {token && token !== "preview" && <LateFeeApproval bookingId={booking._id} token={token} status={booking.lateFeeStatus} amount={booking.lateFeeAmount} />}
 
-      <div className="mt-5 flex items-center gap-3">
-        <button onClick={chat} className="rounded-full bg-accent-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-accent-400">Open conversation</button>
-        <span className="text-xs text-white/35">Gaffer &amp; the team</span>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
+        <button onClick={chat} className={`${isHistory ? "text-white/65 hover:text-white" : "rounded-full bg-accent-500 px-5 py-2.5 text-white hover:bg-accent-400"} text-xs font-medium`}>{isHistory ? "Conversation ↗" : "Open conversation"}</button>
+        {isHistory && booking.firstSlug && <Link href={`/gear/${booking.firstSlug}`} className="rounded-full bg-white/[0.06] px-4 py-2 text-xs text-white/75 hover:bg-white/10">Rent again ↗</Link>}
+        {isPending && <button onClick={abort} disabled={busy} className="text-xs text-white/40 hover:text-rose-300 disabled:opacity-30">{busy ? "Removing…" : "Remove draft"}</button>}
       </div>
       <details className="mt-4 border-t border-white/[0.06] pt-3">
         <summary className="cursor-pointer text-xs font-medium text-white/55 hover:text-white">Rental details &amp; actions</summary>
         <div className="mt-4"><BookingProgress booking={booking}/></div>
-      {/* slim item list */}
-      <ul className="mt-2.5 divide-y divide-white/[0.04] overflow-hidden rounded-lg bg-white/[0.02] text-xs">
-        {booking.lineItems.map((li, i) => (
-          <li key={i} className="flex items-center justify-between gap-3 px-2.5 py-1.5">
-            <span className="min-w-0 truncate text-white/65">
-              {li.qty > 1 ? `${li.qty}× ` : ""}
-              {li.title}
-            </span>
-            <span className="shrink-0 text-white/40">{formatGbp(li.lineTotal)}</span>
-          </li>
-        ))}
-      </ul>
-
       {/* price breakdown */}
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-white/40">
         {booking.subtotal != null && <span>Subtotal {formatGbp(booking.subtotal)}</span>}
@@ -159,7 +118,7 @@ export function BookingTile({
       </div>
 
       {/* logistics */}
-      <div className="mt-1 truncate text-[11px] text-white/35">{logistics}</div>
+      {!isPending && <div className="mt-3 text-xs leading-5 text-white/45">{logistics}</div>}
 
       {/* useful tip for this listing */}
       {tip && (
@@ -208,6 +167,6 @@ export function BookingTile({
         )}
       </div>
       </details>
-    </div>
+    </article>
   );
 }

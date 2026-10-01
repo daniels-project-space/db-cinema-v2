@@ -13,7 +13,7 @@ new Function('module', 'exports', compiled)(policy, policy.exports);
 const { cancelKind, cancellationSettlement, CANCELLATION_FULL_REFUND_DAYS, CANCELLATION_CREDIT_DAYS } = policy.exports;
 
 assert.equal(CANCELLATION_FULL_REFUND_DAYS, 3);
-assert.equal(CANCELLATION_CREDIT_DAYS, 90);
+assert.equal(CANCELLATION_CREDIT_DAYS, 365);
 const at = (year, month, day, hour = 12) => Date.UTC(year, month - 1, day, hour);
 
 // Local-calendar policy must remain stable across both UK daylight-saving changes.

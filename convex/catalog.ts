@@ -2,6 +2,7 @@ import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { quote } from "./lib/pricing";
 import { OFFER_PCT_BY_TYPE, OFFER_NEEDS_BY_TYPE } from "./offers";
+import { listingImages } from "./lib/catalogImages";
 
 /**
  * SERVER-AUTHORITATIVE line pricing for checkout (anti-tamper). Recomputes each line's
@@ -62,11 +63,7 @@ export const repriceLines = internalQuery({
 
 /** Public catalog reads. heroImage/gallery prefer migrated R2 over source. */
 
-function images(l: any): string[] {
-  const r2 = l.r2Images ?? [];
-  if (r2.length) return r2;
-  return l.sourceImages ?? (l.gallery ?? []);
-}
+const images = listingImages;
 
 const card = (l: any) => ({
   _id: l._id,
@@ -77,6 +74,7 @@ const card = (l: any) => ({
   specs: l.specs ?? null,
   tip: l.knowledge?.summary ?? null,
   heroImage: images(l)[0] ?? null,
+  imageSources: images(l),
   pricing: l.pricing,
   depositAmount: l.depositAmount,
   minimumRentalDays: l.minimumRentalDays ?? 1,

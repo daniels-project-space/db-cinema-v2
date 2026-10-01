@@ -148,6 +148,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
               <SmartImage
                 key={hero ?? "none"}
                 src={hero}
+                fallbackSources={gallery}
                 alt={listing.title}
                 className="aspect-[4/3]"
                 imgClassName="transition-transform duration-700 ease-out group-hover:scale-[1.04]"

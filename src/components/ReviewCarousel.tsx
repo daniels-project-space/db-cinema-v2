@@ -1,5 +1,6 @@
 "use client";
 
+import { ChatAvatar } from "./rentals/ChatIdentity";
 import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -32,7 +33,7 @@ export function ReviewCarousel() {
 
   useEffect(() => {
     if (reviews.length <= perPage) return;
-    const t = setInterval(() => change((p) => (p + 1) % pages), 7000);
+    const t = setInterval(() => { if (document.visibilityState === "visible") change((p) => (p + 1) % pages); }, 12000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviews.length, perPage, pages]);
@@ -68,18 +69,7 @@ export function ReviewCarousel() {
               {r.text}
             </blockquote>
             <figcaption className="flex items-center gap-3 pt-2">
-              {r.authorImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={r.authorImage}
-                  alt={r.author}
-                  className="h-9 w-9 rounded-full object-cover ring-1 ring-white/10"
-                />
-              ) : (
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-500/20 font-display text-sm text-accent-300">
-                  {r.author.charAt(0)}
-                </div>
-              )}
+              <ChatAvatar sender="renter" photo={r.authorImage} name={r.author} className="!h-9 !w-9 ring-1 ring-white/10" />
               <div className="min-w-0">
                 <div className="text-sm text-white/80">{r.author}</div>
                 {r.product && (

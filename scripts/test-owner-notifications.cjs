@@ -1,0 +1,25 @@
+const assert=require('node:assert/strict'),crypto=require('node:crypto');
+const{load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
+let sent=0,fail=0;
+setMock('web-push',{default:{sendNotification:async()=>{sent++;if(fail)throw Object.assign(Error('transport'),{statusCode:fail});}}});
+const notification=load('convex/adminNotifications.ts'),delivery=load('convex/adminPushDelivery.ts'),chat=load('convex/chat.ts');
+const {queueOwnerNotification,validatePushSubscription}=load('convex/lib/adminPush.ts');
+let mutationQueue=Promise.resolve();
+const scheduled=[],ctx={db,scheduler:{runAfter:async(...args)=>scheduled.push(args)},runQuery:async(ref,args)=>notification.due.handler(ctx,args),runMutation:(ref,args)=>{const result=mutationQueue.then(()=>ref==='adminNotifications.claim'?notification.claim.handler(ctx,args):notification.finish.handler(ctx,args));mutationQueue=result.catch(()=>{});return result;}};
+const prior={admin:process.env.ADMIN_TOKEN,pub:process.env.ADMIN_PUSH_PUBLIC_KEY,priv:process.env.ADMIN_PUSH_PRIVATE_KEY};process.env.ADMIN_TOKEN='admin';process.env.ADMIN_PUSH_PUBLIC_KEY='public';process.env.ADMIN_PUSH_PRIVATE_KEY='private';
+const sub={deviceId:'device-test',endpoint:'https://fcm.googleapis.com/fcm/send/test',p256dh:crypto.randomBytes(65).toString('base64url'),auth:crypto.randomBytes(16).toString('base64url')};
+const account=put('accounts',{email:'push@test.invalid'});put('sessions',{token:'renter',accountId:account._id,expiresAt:Date.now()+100000});const booking=put('bookings',{guestEmail:account.email,status:'pending_payment'});
+(async()=>{
+ for(const url of ['http://fcm.googleapis.com/x','https://127.0.0.1/x','https://evil.example/x','https://fcm.googleapis.com.evil.example/x','https://fcm.googleapis.com:8080/x'])assert.throws(()=>validatePushSubscription(url,sub.p256dh,sub.auth));
+ await assert.rejects(notification.subscribe.handler(ctx,{token:'invalid',...sub}));
+ await notification.subscribe.handler(ctx,{token:'admin',...sub});await notification.subscribe.handler(ctx,{token:'admin',...sub});assert.equal(tables.get('admin_push_subscriptions').length,1);
+ await chat.requestHuman.handler(ctx,{token:'renter',bookingId:booking._id});await chat.requestHuman.handler(ctx,{token:'renter',bookingId:booking._id});assert.equal(tables.get('admin_notifications').length,1);assert.equal(tables.get('admin_push_deliveries').length,1);
+ const first=tables.get('admin_push_deliveries')[0];await Promise.all([delivery.deliver.handler(ctx,{deliveryId:first._id}),delivery.deliver.handler(ctx,{deliveryId:first._id})]);assert.equal(sent,1);assert.equal(first.status,'sent');await delivery.deliver.handler(ctx,{deliveryId:first._id});assert.equal(sent,1);
+ const args={eventKey:'next',kind:'renter_message',accountId:account._id,bookingId:booking._id,title:'New message',body:'A renter replied'};await queueOwnerNotification(ctx,args);await queueOwnerNotification(ctx,args);assert.equal(tables.get('admin_notifications').length,2);
+ const next=tables.get('admin_push_deliveries')[1];fail=503;await delivery.deliver.handler(ctx,{deliveryId:next._id});assert.equal(next.status,'retry');
+ const stale=next.claimId;await db.patch(next._id,{nextAttemptAt:0});fail=0;await delivery.deliver.handler(ctx,{deliveryId:next._id});assert.equal(next.status,'sent');await notification.finish.handler(ctx,{deliveryId:next._id,claimId:stale,sent:false,expired:true});assert.equal(next.status,'sent');
+ await queueOwnerNotification(ctx,{...args,eventKey:'expired'});const expired=tables.get('admin_push_deliveries')[2];fail=410;await delivery.deliver.handler(ctx,{deliveryId:expired._id});assert.equal(expired.status,'permanent_failure');assert.equal(tables.get('admin_push_subscriptions')[0].enabled,false);
+ await notification.subscribe.handler(ctx,{token:'admin',...sub});await queueOwnerNotification(ctx,{...args,eventKey:'disabled'});const disabled=tables.get('admin_push_deliveries')[3];await notification.disable.handler(ctx,{token:'admin',deviceId:sub.deviceId});const before=sent;await delivery.deliver.handler(ctx,{deliveryId:disabled._id});assert.equal(sent,before);assert.equal(disabled.status,'skipped');
+ assert.equal((await notification.latest.handler(ctx,{token:'admin'}))[0].rentalStage,'pending_payment');await notification.acknowledge.handler(ctx,{token:'admin',id:tables.get('admin_notifications')[0]._id});assert.equal(tables.get('admin_notifications')[0].read,true);
+ console.log('PASS owner phone notifications: authenticated subscription/durable bell; endpoint restrictions; human request once; claim concurrency; retry/stale result; expired/disabled device suppression; stage-aware attention queue.');
+})().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{for(const[n,key]of[['admin','ADMIN_TOKEN'],['pub','ADMIN_PUSH_PUBLIC_KEY'],['priv','ADMIN_PUSH_PRIVATE_KEY']])if(prior[n]===undefined)delete process.env[key];else process.env[key]=prior[n]});

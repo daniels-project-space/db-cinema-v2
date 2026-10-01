@@ -10,6 +10,7 @@ crons.interval("release-holds", { minutes: 5 }, internal.bookings.releaseExpired
 crons.interval("reconcile-rental-checkouts", { minutes: 5 }, internal.checkout.reconcilePendingPayments, {});
 
 crons.interval("reconcile-rental-additions",{minutes:5},internal.rentalAdditions.reconcile,{});
+crons.interval("retry-owner-phone-alerts", { minutes: 5 }, internal.adminPushDelivery.retryDue, {});
 
 // Lapse membership perks with the real Stripe subscription (deactivates cancelled/unpaid members).
 crons.interval("reconcile-memberships", { hours: 6 }, internal.checkout.reconcileMemberships, {});
@@ -25,7 +26,9 @@ crons.interval("send-return-statements", { hours: 1 }, internal.invoice.retryRet
 crons.interval("renew-rental-security-holds", { hours: 1 }, internal.holdRenewal.renewDue, {});
 crons.interval("reconcile-rental-verifications", { hours: 1 }, internal.didit.reconcileOpenSessions, {});
 
-// Expire store credit past its 90-day window (Phase 3).
+crons.interval("expire-rental-verifications", { hours: 1 }, internal.bookings.expireRentalVerifications, {});
+
+// Expire store credit past its one-year window (Phase 3).
 crons.interval("expire-credits", { hours: 24 }, internal.credits.expire, {});
 
 // Keep the storefront catalog fresh from RMv2 (listings, pricing, images-source).

@@ -1,9 +1,11 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
+import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
+
 const DAY = 86400000;
 
-/** Issue store credit to an account (90-day expiry). Returns the new credit id (or null). */
+/** Issue store credit to an account (one-year expiry). Returns the new credit id (or null). */
 export const _issue = internalMutation({
   args: {
     accountId: v.id("accounts"),
@@ -23,13 +25,13 @@ export const _issue = internalMutation({
       reason: a.reason,
       bookingId: a.bookingId,
       createdAt: now,
-      expiresAt: now + 90 * DAY,
+      expiresAt: now + CANCELLATION_CREDIT_DAYS * DAY,
       status: "active",
     });
   },
 });
 
-/** Daily cron: flip credits past their 90-day window to expired. */
+/** Daily cron: flip credits past their one-year window to expired. */
 export const expire = internalMutation({
   args: {},
   handler: async (ctx) => {

@@ -1,6 +1,6 @@
 /** One policy for the cancellation action, account UI, and signed agreement. */
 export const CANCELLATION_FULL_REFUND_DAYS = 3;
-export const CANCELLATION_CREDIT_DAYS = 90;
+export const CANCELLATION_CREDIT_DAYS = 365;
 
 export function londonStartOfDay(ms: number): number {
   const parts = new Intl.DateTimeFormat("en-CA", {

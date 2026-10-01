@@ -13,6 +13,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { useAccount } from "@/components/account/AccountProvider";
 import { GoogleSignIn } from "@/components/account/GoogleSignIn";
 import { GearCard } from "@/components/GearCard";
+import { ChatAvatar } from "@/components/rentals/ChatIdentity";
 import { RenterChat } from "@/components/RenterChat";
 import { tierByKey, TIERS } from "@/lib/membership";
 import { MemberOffers } from "@/components/MemberOffers";
@@ -200,18 +201,7 @@ function Dashboard() {
     <div className="page-in">
       {/* account bar — identity + key info, always on top */}
       <header className="flex flex-wrap items-center gap-4 rounded-3xl border border-white/[0.07] bg-[#141414] p-5 sm:p-7">
-        {(me as any).avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={(me as any).avatarUrl}
-            alt=""
-            className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-white/10"
-          />
-        ) : (
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent-500/20 font-display text-base font-bold text-accent-200 ring-2 ring-white/10">
-            {(me.name || me.email || "?").trim().charAt(0).toUpperCase()}
-          </span>
-        )}
+        <ChatAvatar sender="renter" photo={me.avatarUrl} name={me.name || me.email} className="!h-12 !w-12 ring-2 ring-white/10" />
         <div className="min-w-0 flex-1">
           <div className="hud-label !text-accent-400/90">
             Your rental workspace
@@ -311,7 +301,7 @@ function Dashboard() {
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-white/40">
                   Applied automatically to your next rental. Each issued credit
-                  expires after 90 days.
+                  expires after one year.
                 </p>
               </div>
               <RentalCalendar bookings={bookings as any} />

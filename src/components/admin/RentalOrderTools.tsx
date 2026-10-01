@@ -335,7 +335,7 @@ export function RentalOrderTools({
             {mode === "cancel"
               ? b.cancellationKind === "full_refund"
                 ? "Within the refund window: remaining card payment is refunded and previously used account credit is restored."
-                : "Outside the refund window: rental cash refund is 0%. Remaining rental payment becomes 90-day account credit. Refundable security is returned separately."
+                : "Outside the refund window: rental cash refund is 0%. Remaining rental payment becomes one-year account credit. Refundable security is returned separately."
               : mode === "add"
                 ? "Choose real catalogue items. We check stock and calculate the rental charge and any security increase, then send a secure checkout link in this conversation. Items are confirmed after payment and bank approval."
                 : mode === "reschedule"

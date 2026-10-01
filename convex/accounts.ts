@@ -1,3 +1,4 @@
+import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import {
   action,
   query,
@@ -8,6 +9,7 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
+import { listingImages } from "./lib/catalogImages";
 
 // ── crypto helpers (Web Crypto, available in Convex actions) ──────
 const toHex = (b: Uint8Array) =>
@@ -198,7 +200,8 @@ export const me = query({
       marketingEmails: a.marketingEmails ?? false,
       favorites: (a.favorites ?? []) as string[],
       avatarUrl: a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : (a.googleAvatarUrl ?? null),
-      idVerified: a.idVerified ?? false,
+      idVerified: a.rentalVerification ? a.rentalVerification.expiresAt > now : (a.idVerified ?? false),
+      verificationValidUntil: a.rentalVerification?.expiresAt ?? null,
       membershipTier: a.membershipTier ?? null,
       membershipActive: a.membershipActive ?? false,
       freeAccessoryMonth: a.freeAccessoryMonth ?? null,
@@ -324,7 +327,16 @@ export const updateProfile = mutation({
   handler: async (ctx, { token, ...patch }) => {
     const a: any = await resolve(ctx, token);
     if (!a) throw new Error("unauthorized");
-    await ctx.db.patch(a._id, patch);
+    const changed = (patch.name != null && verificationDetail(patch.name) !== verificationDetail(a.name)) ||
+      (patch.address != null && verificationDetail(patch.address) !== verificationDetail(a.address));
+    await ctx.db.patch(a._id, { ...patch, ...(changed ? { rentalVerification: undefined, idVerified: false } : {}) });
+    if (changed) {
+      const bookings = await ctx.db.query("bookings").withIndex("by_guestEmail", q => q.eq("guestEmail", a.email)).collect();
+      for (const b of bookings) if (b.status === "confirmed" && b.verificationReusedFrom) { await ctx.db.patch(b._id, {
+        idVerifyStatus: "requires_input", verificationReusedFrom: undefined, verificationExpiresAt: undefined,
+        verificationNote: "Your account details changed. Complete a new identity and address check before handover.",
+      }); await verificationUpdateMessage(ctx, b._id, b.idVerifyStatus, "requires_input"); }
+    }
     return { ok: true };
   },
 });
@@ -399,7 +411,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
     };
     const heroOf = (l: any): string | null => {
       if (!l) return null;
-      const imgs = (l.r2Images?.length ? l.r2Images : (l.sourceImages ?? l.gallery ?? [])) as string[];
+      const imgs = listingImages(l);
       return imgs?.[0] ?? null;
     };
 
@@ -417,6 +429,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
           lineTotal: li.lineTotal,
           slug: (l as any)?.slug ?? null,
           heroImage: heroOf(l),
+          imageSources: listingImages(l),
           category: (l as any)?.category ?? null,
           tip: (l as any)?.knowledge?.summary ?? null,
         });

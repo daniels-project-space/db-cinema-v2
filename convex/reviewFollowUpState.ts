@@ -1,4 +1,4 @@
-import { rentalPaymentSources } from "./lib/rentalPaymentSources";
+import { reviewContext } from "./lib/reviewContext";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { reviewFingerprint, reviewGate, reviewSuppressed } from "./lib/reviewEligibility";
@@ -11,7 +11,7 @@ export const candidates = internalQuery({
     .filter(q => q.and(q.neq(q.field("remindedReview"), true),
       q.neq(q.field("reviewFollowUpStatus"), "sent"),
       q.neq(q.field("reviewFollowUpStatus"), "sending")))
-    .take(50);return Promise.all(rows.map(async b=>({...b,paymentSources:await rentalPaymentSources(ctx,b),unappliedSecurityPayments:(await ctx.db.query("rental_additions").withIndex("by_booking",q=>q.eq("bookingId",b._id)).collect()).filter(r=>r.paymentIntentId&&!["applied","applied_draft"].includes(r.status)&&(r.securityCharge>0||r.draftReplacement&&(r.baseSecurity??0)>0)).map(r=>r.paymentIntentId)})));},
+    .take(50);return Promise.all(rows.map(b => reviewContext(ctx, b)));},
 });
 export const context = internalQuery({
   args: { bookingId: v.id("bookings") },

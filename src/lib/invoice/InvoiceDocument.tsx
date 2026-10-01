@@ -139,7 +139,7 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
           ) : null}
           {data.rentalRefunds?.map((r,i)=><View key={i} style={s.totRow}><Text>Rental refund ({r.status})</Text><Text>{gbp(r.amount)}</Text></View>)}
           {(data.cancellationRefund??0)>0&&<View style={s.totRow}><Text>Cancellation card refund</Text><Text>{gbp(data.cancellationRefund!)}</Text></View>}
-          {(data.accountCreditIssued??0)>0&&<View style={s.totRow}><Text>Account credit issued · 90 days</Text><Text>{gbp(data.accountCreditIssued!)}</Text></View>}
+          {(data.accountCreditIssued??0)>0&&<View style={s.totRow}><Text>Account credit issued · one year</Text><Text>{gbp(data.accountCreditIssued!)}</Text></View>}
           <Text style={s.note}>Db Cinema Rentals is not VAT registered. No VAT is charged. This receipt is not a VAT invoice.</Text>
         </View>
 

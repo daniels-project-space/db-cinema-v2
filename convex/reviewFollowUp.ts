@@ -4,7 +4,7 @@ import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { sendMail } from "./lib/mailer";
-import { reviewFingerprint, reviewGate } from "./lib/reviewEligibility";
+import { reviewFingerprint, reviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
 
 /** Provider reads only: creating a refund does not mean it succeeded. */
 export async function providerReviewGate(b: any, stripe: Stripe): Promise<string | null> {
@@ -12,7 +12,7 @@ export async function providerReviewGate(b: any, stripe: Stripe): Promise<string
     const sources=b.paymentSources??(b.stripePaymentIntentId?[{paymentIntentId:b.stripePaymentIntentId,securityPence:Math.round(b.depositAmount*100)}]:[]);
     if(!sources.length||sources.reduce((sum:number,p:any)=>sum+p.securityPence,0)!==Math.round(b.depositAmount*100))return "refund_unverified";
     for(const source of sources){if(!source.securityPence)continue;let refunded=0;
-      for await(const r of stripe.refunds.list({payment_intent:source.paymentIntentId,limit:100})){if(r.status!=="succeeded")return "refund_pending_or_failed";if(r.currency==="gbp")refunded+=r.amount;}
+      for await(const r of stripe.refunds.list({payment_intent:source.paymentIntentId,limit:100})){if(r.status!=="succeeded")return "refund_pending_or_failed";if(r.currency==="gbp" && !(b.rentalRefundIds??[]).includes(r.id))refunded+=r.amount;}
       if(refunded<source.securityPence)return "refund_pending_or_failed";
     }
   }
@@ -50,6 +50,9 @@ export const processDue = internalAction({
       }
       result.reasons[reason ?? "fully_settled"] = (result.reasons[reason ?? "fully_settled"] ?? 0) + 1;
       if (dryRun) continue;
+      await ctx.runMutation(internal.reviewInvitations.recordEligibility, {
+        bookingId: b._id, fingerprint: reviewSettlementFingerprint(b), eligible: !reason,
+      });
       const claimed = await ctx.runMutation(internal.reviewFollowUpState.recordCheck, {
         bookingId: b._id, fingerprint: reviewFingerprint(b), reason: reason ?? undefined,
         claim: !!cfg.googleReviewUrl,

@@ -2,9 +2,8 @@
 import { useState } from "react";
 import { usePaginatedQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
-import { SmartImage } from "@/components/SmartImage";
+import { RentalKit } from "@/components/rentals/RentalKit";
 import {
-  rentalTitle,
   rentalDate,
   RENTAL_STAGES,
   RENTAL_STAGE_LABELS,
@@ -72,40 +71,16 @@ export function AdminRentalCards({
             key={r._id}
             className="overflow-hidden rounded-3xl border border-white/[0.07] bg-[#151515]"
           >
-            <div className="relative h-40 bg-gradient-to-br from-white/[0.04] to-transparent p-5">
-              <SmartImage
-                src={r.items[0]?.heroImage}
-                alt={r.items[0]?.title ?? "Rental"}
-                className="h-full w-full"
-                imgClassName="!object-contain"
-              />
-              <span className="absolute left-4 top-4 rounded-full border border-white/10 bg-black/70 px-2.5 py-1 text-[10px] text-white/75">
-                {RENTAL_STAGE_LABELS[r.status]}
-              </span>
-            </div>
             <div className="p-5">
               <div className="flex items-start justify-between gap-3">
-                <h3
-                  title={r.items[0]?.title}
-                  className="min-w-0 font-display text-sm font-semibold leading-relaxed text-white/90"
-                >
-                  {rentalTitle(r.items[0]?.title ?? "Rental")}
-                  {r.items.length > 1 && (
-                    <span className="ml-1 font-normal text-white/40">
-                      +{r.items.length - 1}
-                    </span>
-                  )}
-                </h3>
-                <span className="shrink-0 text-sm font-semibold text-white/80">
-                  {formatGbp(r.total)}
-                </span>
+                <div className="min-w-0">
+                  <p className="truncate font-display text-base font-semibold text-white/90">{r.name || r.guestEmail}</p>
+                  <p className="mt-1 text-xs text-white/45">{rentalDate(r.start, r.end)}</p>
+                </div>
+                <span className="shrink-0 rounded-full bg-white/[0.05] px-2.5 py-1 text-[10px] text-white/65">{RENTAL_STAGE_LABELS[r.status]}</span>
               </div>
-              <p className="mt-2 truncate text-xs text-white/45">
-                {r.name || r.guestEmail}
-              </p>
-              <p className="mt-1 text-xs text-white/35">
-                {rentalDate(r.start, r.end)}
-              </p>
+              <div className="mt-4"><RentalKit items={r.items} /></div>
+              <div className="mt-3 flex items-baseline justify-between text-xs text-white/35"><span>Rental total</span><span className="text-sm font-semibold text-white/85">{formatGbp(r.total)}</span></div>
               <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
                 <button
                   onClick={() => onChat(r._id)}

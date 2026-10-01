@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "./account/AccountProvider";
+import { RentalKit } from "./rentals/RentalKit";
 import { RentalConversation } from "./rentals/RentalConversation";
 import { SmartImage } from "./SmartImage";
 import {
@@ -111,6 +112,7 @@ export function RenterChat({
             <div className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-white/[0.04]">
               <SmartImage
                 src={r.items[0]?.heroImage}
+                fallbackSources={r.items[0]?.imageSources}
                 alt=""
                 className="h-full w-full"
               />
@@ -150,6 +152,7 @@ export function RenterChat({
         }
         stage={focus?.status ?? "Support"}
         escalated={focus?.escalated}
+        tools={focus ? <details><summary className="cursor-pointer text-xs text-white/55">Your kit · {focus.items.length} listings</summary><div className="mt-3"><RentalKit items={focus.items} compact /></div></details> : undefined}
       />
     </div>
   );

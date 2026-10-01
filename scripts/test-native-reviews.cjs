@@ -1,0 +1,33 @@
+const assert=require('node:assert/strict');
+const {load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
+let refunded=2000,holdStatus='canceled';
+class Stripe { constructor(){this.refunds={list:()=>({async *[Symbol.asyncIterator](){yield {id:'re_security',amount:refunded,currency:'gbp',status:'succeeded'}}})};this.paymentIntents={retrieve:async()=>({status:holdStatus,amount_received:0})};} }
+setMock('stripe',{default:Stripe});
+const reviews=load('convex/reviews.ts'),invitations=load('convex/reviewInvitations.ts'),actions=load('convex/reviewActions.ts');
+const account=put('accounts',{email:'review@test.invalid',name:'Reviewer',avatarStorageId:'avatar'});
+put('sessions',{token:'owner',accountId:account._id,expiresAt:Date.now()+100000});
+put('sessions',{token:'expired',accountId:account._id,expiresAt:Date.now()-1});
+const foreign=put('accounts',{email:'other@test.invalid'});put('sessions',{token:'foreign',accountId:foreign._id,expiresAt:Date.now()+100000});
+const booking=put('bookings',{status:'returned',guestEmail:account.email,total:120,depositAmount:20,depositRefundAmount:20,depositRefunded:true,stripePaymentIntentId:'pi_card',stripeDepositIntentId:'pi_hold',depositHoldAmount:40,depositHoldStatus:'released',lineItems:[{title:'Camera',listingId:'gear',start:0,end:0}]});
+const ctx={db,storage:{getUrl:async id=>'https://storage.test/'+id},runQuery:async(ref,args)=>invitations.ownedContext.handler(ctx,args),runMutation:async(ref,args)=>invitations.recordEligibility.handler(ctx,args)};
+const args={token:'owner',bookingId:booking._id,rating:5,text:'Excellent camera rental and helpful team.'};
+const old=process.env.STRIPE_SECRET_KEY;process.env.STRIPE_SECRET_KEY='fixture';
+(async()=>{
+ for(const token of ['expired','foreign'])await assert.rejects(reviews.submitNative.handler(ctx,{...args,token}));
+ await assert.rejects(reviews.submitNative.handler(ctx,args),/fully settled/);
+ refunded=1999;assert.equal((await actions.checkEligibility.handler(ctx,args)).eligible,false);assert.equal((tables.get('messages')??[]).length,0);
+ refunded=2000;holdStatus='requires_capture';assert.equal((await actions.checkEligibility.handler(ctx,args)).eligible,false);
+ holdStatus='canceled';assert.equal((await actions.checkEligibility.handler(ctx,args)).eligible,true);assert.equal(tables.get('messages').length,1);
+ await actions.checkEligibility.handler(ctx,args);assert.equal(tables.get('messages').length,1,'one invitation on retries');
+ await assert.rejects(reviews.submitNative.handler(ctx,{...args,rating:4.5}),/1-5/);
+ await assert.rejects(reviews.submitNative.handler(ctx,{...args,text:'Short'}),/10/);
+ await db.patch(booking._id,{depositKept:1});await assert.rejects(reviews.submitNative.handler(ctx,args),/fully settled/);
+ await db.patch(booking._id,{depositKept:0});
+ const pending=put('rental_additions',{bookingId:booking._id,status:'withdrawn',paymentIntentId:'pi_unapplied',securityCharge:10});
+ await assert.rejects(reviews.submitNative.handler(ctx,args),/fully settled/,'changed payment sources invalidate prior receipt');await db.delete(pending._id);await actions.checkEligibility.handler(ctx,args);
+ await reviews.submitNative.handler(ctx,args);await assert.rejects(reviews.submitNative.handler(ctx,args),/already/);
+ const carousel=await reviews.listPublished.handler(ctx,{});assert.equal(carousel[0].authorImage,'https://storage.test/avatar');assert.equal(carousel[0].rating,5);
+ assert.equal((await reviews.stats.handler(ctx,{})).average,5);
+ await assert.rejects(reviews.clearHygglo.handler(ctx,{token:'invalid'}));await assert.rejects(reviews.insertChunk.handler(ctx,{token:'invalid',items:[]}));
+ console.log('PASS native reviews: expired/foreign/pending/retained/partial/active-hold blocked; provider-attested invitation once; stale receipts denied; rating/text validation; avatar/carousel/score; duplicate and unauthorized imports denied.');
+})().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{if(old===undefined)delete process.env.STRIPE_SECRET_KEY;else process.env.STRIPE_SECRET_KEY=old});

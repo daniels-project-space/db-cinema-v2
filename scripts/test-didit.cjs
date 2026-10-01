@@ -102,7 +102,7 @@ function signed(event) {
     const db = {
       get: async () => booking,
       patch: async (_, value) => { patch = value; },
-      query: () => ({ withIndex: () => ({ first: async () => null }) }),
+      query: () => ({ withIndex: () => ({ first: async () => null, collect: async () => [] }) }),
     };
     const mutationCtx = { db, scheduler: { runAfter: async () => {} } };
     assert.equal(await setDiditResult.handler(mutationCtx, {
@@ -198,7 +198,7 @@ function signed(event) {
   } finally { global.fetch = originalFetch; }
   let reviewPatch;
   assert.equal(await setDiditManualReview.handler({
-    db:{get:async()=>reviewBooking,patch:async(_id,value)=>{reviewPatch=value;}},
+    db:{get:async()=>reviewBooking,patch:async(_id,value)=>{reviewPatch=value;},query:()=>({withIndex:()=>({first:async()=>null,collect:async()=>[]})})},
     scheduler:{runAfter:async()=>{}},
   },{bookingId:'booking-1',sessionId:'session-1',decision:'resubmit',note:'Replace ID'}),true);
   assert.equal(reviewPatch.idVerifyStatus,'requires_input');

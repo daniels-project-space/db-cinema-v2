@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
+import { assertCreditOffer, creditOfferFingerprint } from "./lib/rentalCreditPolicy";
 import { cancellationPaymentPlan,rentalRefundPlan,securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { lateFeeQuote } from "./lib/lateFee";
 import { AGREEMENTS } from "../src/lib/legal";
@@ -887,8 +888,8 @@ async function remainingCancellationPayment(payment: Stripe.PaymentIntent) {
   return Math.max(0,payment.amount_received-refunded);
 }
 
-async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReason?:string){
- const decision=await ctx.runMutation(internal.bookings.prepareCancellation,{bookingId});
+async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReason?:string,fullCreditOfferId?:any){
+ const decision=await ctx.runMutation(internal.bookings.prepareCancellation,{bookingId,fullCreditOfferId});
  let quote=decision.quote;
  if(!quote){
   const paidIntentId=await paymentBeforeCancellation(b);
@@ -896,9 +897,15 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
   if(paidIntentId){
    const sources=b.paymentSources?.length?b.paymentSources:[{paymentIntentId:paidIntentId,securityPence:pence(b.depositAmount)}];
    const balances=await Promise.all(sources.map(async(source:any)=>({...source,availablePence:await remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId))})));
-   const settlement=cancellationPaymentPlan(decision.kind,balances,b.status==="confirmed"?pence(b.creditApplied??0):0);
+   const settlement = decision.fullCreditOfferId
+    ? { allocations: [], refundPence: 0, creditPence: balances.reduce((sum:number, source:any) => sum + source.availablePence, 0) + pence(b.creditApplied ?? 0) }
+    : cancellationPaymentPlan(decision.kind,balances,b.status==="confirmed"?pence(b.creditApplied??0):0);
+   if(decision.fullCreditOfferId){
+    const offer:any=await ctx.runQuery(internal.rentalCreditOffers.byId,{offerId:decision.fullCreditOfferId});
+    if(!offer||settlement.creditPence!==offer.amountPence)throw Error("The payment balance changed. The team must review the credit quote before cancellation.");
+   }
    allocations=settlement.allocations;
-   mode=decision.kind==="full_refund"?"refund":"credit";refundAmount=settlement.refundPence/100;creditAmount=settlement.creditPence/100;
+   mode=decision.fullCreditOfferId?"credit":decision.kind==="full_refund"?"refund":"credit";refundAmount=settlement.refundPence/100;creditAmount=settlement.creditPence/100;
    if(creditAmount>0&&!accountId)throw Error("The renter needs an account with their booking email before account credit can be issued. Resume this cancellation after account creation.");
   }
   quote=await ctx.runMutation(internal.bookings.recordCancellationQuote,{bookingId,quote:{mode,refundAmount,creditAmount,paymentIntentId:paidIntentId??undefined,allocations}});
@@ -908,6 +915,40 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
  await ctx.runMutation(internal.bookings._finalizeCancellation,{bookingId,accountId,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount,currency:b.currency,adminReason});
  return {ok:true,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount};
 }
+/** Read-only provider quote. Gaffer can offer, but only the renter can accept. */
+export const offerFullCredit = internalAction({
+ args:{accountId:v.id("accounts"),bookingId:v.id("bookings")},
+ handler:async(ctx,args):Promise<any>=>{
+  if(process.env.CUSTOMER_BOOKING_ACTIONS!=="true")return null;
+  const booking:any=await ctx.runQuery(internal.rentalCreditOffers.context,{bookingId:args.bookingId});
+  if(!booking)return null;
+  try{assertCreditOffer({...args,fingerprint:creditOfferFingerprint(booking),expiresAt:Date.now()+1000},booking);}catch{return null;}
+  const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId:args.bookingId});
+  if(!b?.siteOnly||b.accountId!==args.accountId||b.cancellationDecision)return null;
+  const holds = [...new Set([b.stripeDepositIntentId,b.depositHoldRenewalIntentId,...(b.depositHoldPreviousIntentIds??[])].filter(Boolean))];
+  for(const id of holds){const hold=await stripe().paymentIntents.retrieve(id as string);if(hold.amount_received>0||hold.status==="processing")return null;}
+  const sources=b.paymentSources??[];
+  const amountPence=(await Promise.all(sources.map(async(source:any)=>remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId))))).reduce((sum:number,amount:number)=>sum+amount,0)+pence(b.creditApplied??0);
+  return ctx.runMutation(internal.rentalCreditOffers.create,{...args,amountPence,fingerprint:creditOfferFingerprint(booking)});
+ }
+});
+export const acceptFullCredit = action({
+ args:{token:v.string(),offerId:v.id("rental_credit_offers"),consent:v.boolean()},
+ handler:async(ctx,{token,offerId,consent}):Promise<any>=>{
+  if(process.env.CUSTOMER_BOOKING_ACTIONS!=="true")throw Error("Please ask the team to arrange cancellation.");
+  if(!consent)throw Error("Confirm that you choose account credit instead of a card refund.");
+  const me:any=await ctx.runQuery(api.accounts.me,{token});if(!me)throw Error("Please sign in.");
+  const offer:any=await ctx.runQuery(internal.rentalCreditOffers.byId,{offerId});
+  if(!offer||offer.accountId!==me._id)throw Error("Credit offer unavailable.");
+  const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId:offer.bookingId});
+  if(!b?.siteOnly||b.accountId!==me._id)throw Error("Credit offer unavailable.");
+  if(b.status==="cancelled"&&b.cancellationDecision?.fullCreditOfferId===offerId){await ctx.runMutation(internal.rentalCreditOffers.accepted,{offerId});return {ok:true};}
+  const booking:any=await ctx.runQuery(internal.rentalCreditOffers.context,{bookingId:offer.bookingId});
+  if(b.cancellationDecision?.fullCreditOfferId !== offerId) assertCreditOffer(offer,booking);
+  const result=await cancelRental(ctx,offer.bookingId,b,me._id,undefined,offerId);
+  await ctx.runMutation(internal.rentalCreditOffers.accepted,{offerId});return result;
+ }
+});
 export const cancelByAdmin = action({
  args:{token:v.string(),bookingId:v.id("bookings"),reason:v.string()},
  handler:async(ctx,{token,bookingId,reason}):Promise<{refundAmount:number;creditAmount:number;mode:string}>=>{

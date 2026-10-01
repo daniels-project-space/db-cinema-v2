@@ -1,7 +1,8 @@
 "use client";
+import { RentalKit } from "@/components/rentals/RentalKit";
 import { RentalOrderTools } from "./RentalOrderTools";
 import { useEffect, useRef, useState } from "react";
-import { useQuery, usePaginatedQuery } from "convex/react";
+import { useQuery, usePaginatedQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalConversation } from "@/components/rentals/RentalConversation";
 import { SmartImage } from "@/components/SmartImage";
@@ -44,6 +45,9 @@ export function RentalInbox({
     token,
     admin: true,
   });
+  const notifications = useQuery(api.adminNotifications.latest, { token }) ?? [];
+  const acknowledge = useMutation(api.adminNotifications.acknowledge);
+  const [showAttention, setShowAttention] = useState(false);
   const [ping, setPing] = useState(false);
   const previous = useRef<number | null>(null);
   const audio = useRef<AudioContext | null>(null);
@@ -129,6 +133,7 @@ export function RentalInbox({
             {unread ? `${unread} unread messages` : "You're up to date"}
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => {
             const enabled = !ping;
@@ -143,7 +148,16 @@ export function RentalInbox({
         >
           {ping ? "Pings on" : "Enable pings"}
         </button>
+        </div>
       </div>
+      {!!notifications.length && <div className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-300/[0.04] p-3">
+        <button type="button" onClick={() => setShowAttention(v => !v)} aria-expanded={showAttention} className="flex w-full items-center justify-between text-xs text-amber-200"><span>Needs your attention</span><span className="rounded-full bg-amber-300/15 px-2 py-1">{notifications.length}</span></button>
+        {showAttention && <div className="mt-3 grid gap-2 sm:grid-cols-2">{notifications.map(n => <button key={n._id} type="button" onClick={() => {
+          void acknowledge({ token, id: n._id }); setStage(n.bookingId ? "all" : "general"); setSelected(n.bookingId ?? n.accountId);
+        }} className="rounded-xl bg-white/[0.03] p-3 text-left">
+          <span className="text-xs font-medium text-white/85">{n.title} · {n.renterName}</span><span className="mt-1 block text-[10px] text-amber-200/70">{RENTAL_STAGE_LABELS[n.rentalStage] ?? "General support"}</span>
+        </button>)}</div>}
+      </div>}
       <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
         {[
           ["all", "All rentals"],
@@ -192,6 +206,7 @@ export function RentalInbox({
                   <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/[0.04]">
                     <SmartImage
                       src={r.items[0]?.heroImage}
+                      fallbackSources={r.items[0]?.imageSources}
                       alt=""
                       className="h-full w-full"
                     />
@@ -258,11 +273,7 @@ export function RentalInbox({
               escalated={focus.escalated}
               tools={
                 focus.status !== "support" ? (
-                  <RentalOrderTools
-                    key={focus._id}
-                    token={token}
-                    bookingId={focus._id}
-                  />
+                  <><details><summary className="cursor-pointer text-xs text-white/55">Kit · {focus.items.length} listings</summary><div className="mt-3"><RentalKit items={focus.items} compact /></div></details><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /></>
                 ) : undefined
               }
             />

@@ -1,9 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalAdditionApproval } from "./RentalAdditionApproval";
 import { RENTAL_STAGE_LABELS } from "@/lib/rentalPresentation";
+import { ChatAvatar, GafferIcon } from "./ChatIdentity";
+import { RentalCreditOffer } from "./RentalCreditOffer";
+import { BookingReview } from "@/components/account/BookingReview";
 
 export function RentalConversation({
   token,
@@ -48,6 +51,11 @@ export function RentalConversation({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const draftReplies = useAction(api.gaffer.ownerDrafts);
+  const [drafting, setDrafting] = useState(false);
+  const [drafts, setDrafts] = useState<{ messageId: string | null; drafts: { label: string; text: string }[] } | null>(null);
+  const scope = useRef("");
+  scope.current = `${bookingId ?? ""}:${accountId ?? ""}`;
   const sendRenter = useMutation(api.chat.send),
     sendOwner = useMutation(api.rentalChat.sendOwner),
     read = useMutation(api.rentalChat.markRead);
@@ -89,8 +97,9 @@ export function RentalConversation({
     setBefore(undefined);
     setText("");
     setError(null);
+    setDrafts(null);
     lastRead.current = "";
-  }, [bookingId]);
+  }, [bookingId, accountId]);
   useEffect(() => {
     if (older?.page)
       setHistory((h) =>
@@ -155,20 +164,32 @@ export function RentalConversation({
       setError(e.message);
     }
   }
+  async function suggest() {
+    const requestedScope = scope.current;
+    setDrafting(true);
+    setError(null);
+    try {
+      const result = await draftReplies({ token, bookingId: bookingId as any, accountId: accountId as any });
+      if (scope.current === requestedScope) setDrafts(result);
+    } catch (e: any) {
+      if (scope.current === requestedScope) setError(e.message ?? "Drafts unavailable.");
+    } finally { setDrafting(false); }
+  }
   const messages = [
     ...new Map(
       [...history, ...(thread?.page ?? [])].map((m) => [m._id, m]),
     ).values(),
   ].sort((a, b) => a.at - b.at);
+  const teamHandling = thread?.escalated ?? escalated;
   return (
     <section
       ref={container}
       className="flex min-h-[450px] sm:min-h-[540px] flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313]"
     >
-      <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] p-5">
+      <header className={`flex items-center justify-between gap-3 border-b p-5 ${teamHandling ? "border-amber-300/20 bg-amber-300/[0.07]" : "border-emerald-300/20 bg-emerald-300/[0.05]"}`}>
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-accent-500/15 font-display font-bold text-accent-300">
-            G
+          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl font-display font-bold ${teamHandling ? "bg-amber-300/15 text-amber-200" : "bg-emerald-300/15 text-emerald-200"}`}>
+            {teamHandling ? <ChatAvatar sender="owner" /> : <GafferIcon className="h-7 w-7" />}
           </span>
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-white">
@@ -176,21 +197,20 @@ export function RentalConversation({
             </h3>
             <p className="mt-1 text-xs text-white/40">
               {RENTAL_STAGE_LABELS[stage] ?? stage} ·{" "}
-              {(thread?.escalated ?? escalated)
-                ? "Team conversation"
-                : "Gaffer is here"}
+              {teamHandling ? "Human support · team notified" : "Gaffer · automatic assistant"}
             </p>
           </div>
         </div>
         <button
           onClick={handoff}
-          className="shrink-0 rounded-full border border-white/10 px-3 py-2 text-xs text-white/60 hover:text-white"
+          disabled={!admin && teamHandling}
+          className={`shrink-0 rounded-full border px-3 py-2 text-xs font-medium disabled:opacity-60 ${teamHandling ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200" : "border-amber-300/30 bg-amber-300/10 text-amber-200"}`}
         >
           {admin
             ? (thread?.escalated ?? escalated)
               ? "Hand to Gaffer"
               : "Take over"
-            : "Ask the team"}
+            : teamHandling ? "Team notified" : "Request a human"}
         </button>
       </header>
       {!admin && bookingId && (
@@ -236,7 +256,7 @@ export function RentalConversation({
                 : m.sender === "owner"
                   ? "DB Cinema team"
                   : m.sender === "system"
-                    ? "Rental update"
+                  ? "Automatic rental update"
                     : admin
                       ? "Renter"
                       : "You";
@@ -244,12 +264,18 @@ export function RentalConversation({
               <div
                 key={m._id}
                 data-message-id={m._id}
+                data-sender={m.sender}
                 className={`flex flex-col ${mine ? "items-end" : "items-start"}`}
               >
+                <div className={`flex max-w-full items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}>
+                <ChatAvatar key={`${m.sender}-${thread && "renter" in thread ? thread.renter?.photo : ""}`} sender={m.sender} name={thread && "renter" in thread ? thread.renter?.name : null} photo={thread && "renter" in thread ? thread.renter?.photo : null} />
                 <div
-                  className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-relaxed sm:max-w-[80%] ${mine ? "bg-accent-500 text-white" : m.sender === "system" ? "border border-white/[0.06] bg-white/[0.025] text-white/55" : "bg-white/[0.065] text-white/85"}`}
+                  className={`min-w-0 max-w-[calc(100%-2.5rem)] rounded-2xl border px-4 py-3 text-sm leading-relaxed ${m.sender === "bot" ? "border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-50" : m.sender === "owner" ? "border-accent-300/25 bg-accent-500/15 text-orange-50" : m.sender === "system" ? "border-dashed border-sky-200/20 bg-sky-300/[0.04] text-sky-100/70" : "border-violet-300/20 bg-violet-300/10 text-violet-50"}`}
                 >
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
                   <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                  {m.meta?.kind === "full_credit_offer" && !admin && <RentalCreditOffer token={token} offerId={m.meta.offerId} />}
+                  {m.meta?.kind === "review_invitation" && !admin && bookingId && <BookingReview key={bookingId} bookingId={bookingId} token={token} inline />}
                   {m.meta?.kind === "paylink" && (
                     <a
                       href={m.meta.url}
@@ -258,6 +284,7 @@ export function RentalConversation({
                       Review payment · £{m.meta.amount}
                     </a>
                   )}
+                </div>
                 </div>
                 <span className="mt-1.5 px-1 text-[10px] text-white/30">
                   {label} ·{" "}
@@ -272,6 +299,17 @@ export function RentalConversation({
         )}
       </div>
       <footer className="border-t border-white/[0.07] p-4">
+        {admin && <div className="mb-3 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={suggest} disabled={drafting} className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"><GafferIcon className="h-4 w-4" />{drafting ? "Drafting…" : "Suggest replies"}</button>
+            {thread && "quickReplies" in thread && thread.quickReplies?.map((reply) => <button key={reply.label} type="button" onClick={() => setText(reply.text)} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60">{reply.label}</button>)}
+          </div>
+          {drafts && drafts.messageId === (thread?.page[0]?._id ?? null) && <div className="flex snap-x gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible" aria-label="Suggested replies">
+            {drafts.drafts.map((draft, index) => <button key={index} type="button" onClick={() => setText(draft.text)} className="w-[85%] shrink-0 snap-start rounded-xl border border-emerald-300/15 bg-emerald-300/[0.04] p-3 text-left sm:w-auto">
+              <span className="text-xs font-medium text-emerald-200">{draft.label}</span><p className="mt-1 line-clamp-4 text-xs leading-relaxed text-white/60">{draft.text}</p><span className="mt-2 block text-[10px] text-white/30">Use draft · review before sending</span>
+            </button>)}
+          </div>}
+        </div>}
         {error && (
           <p role="alert" className="mb-3 text-xs text-rose-300">
             {error}

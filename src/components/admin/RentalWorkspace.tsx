@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { RentalKit } from "@/components/rentals/RentalKit";
 import { ReturnRentalForm } from "./ReturnRentalForm";
 import { RentalOrderTools } from "./RentalOrderTools";
 import {
@@ -28,7 +29,8 @@ export function RentalWorkspace({
   const setStatus = useMutation(api.bookings.adminSetStatus),
     setIdentity = useMutation(api.bookings.adminSetIdStatus),
     review = useAction(api.didit.adminReview),
-    pause = useMutation(api.bookings.adminPauseLateFee);
+    pause = useMutation(api.bookings.adminPauseLateFee),
+    reverify = useMutation(api.bookings.adminRequireReverification);
   const [section, setSection] = useState("order"),
     [note, setNote] = useState(""),
     [busy, setBusy] = useState(false),
@@ -124,26 +126,7 @@ export function RentalWorkspace({
       {section === "order" && (
         <div className="mt-5 grid gap-6 lg:grid-cols-[1fr_1fr]">
           <div>
-            <div className="divide-y divide-white/[0.06]">
-              {b.lineItems.map((li, i) => (
-                <div
-                  key={i}
-                  className="flex items-start justify-between gap-4 py-3 text-sm"
-                >
-                  <div className="min-w-0">
-                    <p className="text-white/80">
-                      {li.qty}× {rentalTitle(li.title)}
-                    </p>
-                    <p className="mt-1 text-xs text-white/35">
-                      {rentalDate(li.start, li.end)}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-white/60">
-                    {formatGbp(li.lineTotal)}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <RentalKit items={b.lineItems} prices />
             <dl className="mt-5 grid grid-cols-2 gap-4 rounded-2xl bg-white/[0.025] p-4 text-xs">
               <div>
                 <dt className="text-white/35">Refundable security</dt>
@@ -215,6 +198,11 @@ export function RentalWorkspace({
               </span>
             </a>
           )}
+          {b.status === "confirmed" && b.idVerifyStatus === "verified" && <div className="mt-4">
+            <p className="text-xs text-white/45">{b.verificationExpiresAt ? `Valid until ${new Date(b.verificationExpiresAt).toLocaleDateString("en-GB")}` : "Booking-specific approval"}{b.verificationReusedFrom ? " · reused automatic check" : ""}</p>
+            <label className="mt-3 block text-xs text-white/50">Reason for a new check<textarea value={note} onChange={e=>setNote(e.target.value)} rows={2} className="input mt-2 w-full" /></label>
+            <button disabled={busy || note.trim().length < 10} onClick={()=>void execute(()=>reverify({token,bookingId:b._id,note}))} className="mt-3 rounded-full border border-amber-300/20 px-4 py-2 text-xs text-amber-200 disabled:opacity-30">Require fresh verification</button>
+          </div>}
           {b.idVerifyStatus !== "verified" && (
             <>
               <label className="mt-5 block text-xs text-white/50">
