@@ -24,6 +24,8 @@ type Me = {
   idVerified: boolean;
   hasPassword: boolean;
   storeCredit: number;
+  earnedCredit:number;refundCredit:number;referralCode:string|null;
+  loyaltyLevel:number;loyaltyPercent:number;loyaltyCelebratedLevel:number;
   membershipTier: string | null;
   membershipActive: boolean;
   membershipPerksPending: boolean;
@@ -76,6 +78,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const signOutM = useMutation(api.accounts.signOut);
   const updateM = useMutation(api.accounts.updateProfile);
   const favM = useMutation(api.accounts.toggleFavorite);
+  const ensureReferral = useMutation(api.referrals.ensureMine);
+  useEffect(()=>{if(token&&meRes?.email&&!meRes.referralCode)void ensureReferral({token}).catch(()=>{});},[token,meRes?.email,meRes?.referralCode,ensureReferral]);
   const acknowledgeLoyalty = useMutation(api.accounts.acknowledgeLoyalty);
   const claimFollowUpsM = useMutation(api.followUp.claimForAccount);
   useEffect(() => {
@@ -159,7 +163,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-      {token && meRes?.loyaltyEligible && !meRes.loyaltyCelebrated && <LoyaltyCelebration subscriptionActive={meRes.membershipActive} onAcknowledge={()=>acknowledgeLoyalty({token})}/> }
+      {token && meRes?.loyaltyEligible && !meRes.loyaltyCelebrated && <LoyaltyCelebration level={meRes.loyaltyLevel} subscriptionActive={meRes.membershipActive} onAcknowledge={()=>acknowledgeLoyalty({token,level:meRes.loyaltyLevel})}/> }
     </Ctx.Provider>
   );
 }

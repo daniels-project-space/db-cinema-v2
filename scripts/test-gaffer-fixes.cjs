@@ -66,7 +66,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
         if(ref==='catalog:repriceLines') return prices.map((total,i)=>({title:`Real item ${i}`,total,deposit:1000}));
         if(ref==='availability:forListing') return {available:10};
         if(ref==='accounts:_byToken') return {_id:'acct-1',email:'owner@example.invalid',membershipActive:false};
-        if(ref==='bookings:availableCheckoutCredit') return availableCredit;
+        if(ref==='bookings:availableCheckoutCredit') return args.kind==='refund'?0:availableCredit;
         if(ref==='repeatRentals:candidate') return null;
         if(ref==='promo:validate') return validate.handler({},args);
         throw Error(`Unexpected query ${ref}`);
@@ -154,6 +154,13 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   assert.equal(StripeStub.lastCheckout.line_items[1].price_data.unit_amount,2500);
   assert.equal(StripeStub.lastCheckout.success_url,'https://example.invalid/checkout/success?session_id={CHECKOUT_SESSION_ID}');
   assert.equal(StripeStub.lastCheckout.cancel_url,'https://example.invalid/cart');
+  const ordinaryQuery=checkoutCtx.runQuery;
+  checkoutCtx.runQuery=async(ref,args)=>ref==='promo:validate'?{valid:true,discount:10,code:'TEN'}:ordinaryQuery(ref,args);
+  await start.handler(checkoutCtx,{items:[{listingId:'camera-1',title:'Camera',start:0,end:0,qty:1,total:1,deposit:0}],customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment:'pickup',deliveryFee:0,expectedTotalDue:215,promoCode:'TEN',pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}});
+  assert.equal(StripeStub.lastCheckout.line_items[0].price_data.unit_amount,19000,'nonmember discount reduces rental only');
+  assert.equal(StripeStub.lastCheckout.line_items[1].price_data.unit_amount,2500,'nonmember/referral checkout protects the full upfront security line');
+  assert.equal(StripeStub.lastCheckout.discounts,undefined,'no global coupon may discount security');
+
 
   const memory=createCallMemory();
   memory.add('user','My name is Alex. I need the FX3 next Friday.');

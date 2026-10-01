@@ -59,4 +59,7 @@ crons.interval("refresh-quiet-deals", { hours: 12 }, api.catalog.refreshQuietDea
 crons.interval("consented-checkout-reminders", { minutes: 15 }, internal.checkoutRecoveryMail.processDue, {});
 crons.interval("consented-film-fund-opening", { minutes: 15 }, internal.filmFundNotifications.processOpeningAnnouncements, {});
 
+crons.interval("expire-referral-vouchers",{hours:1},internal.referrals.expire,{});
+crons.interval("reconcile-completed-referrals",{hours:1},internal.referrals.reconcile,{});
+crons.interval("referral-campaign-delivery",{minutes:5},internal.referralMail.sendCampaign,{});
 export default crons;

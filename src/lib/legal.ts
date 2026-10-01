@@ -4,9 +4,10 @@
  * the binding consent record (used for the deposit, liability and insurance).
  * Bump LEGAL_VERSION whenever any agreement text changes.
  */
-export const LEGAL_VERSION = "2026-10-v5";
+export const LEGAL_VERSION = "2026-10-v6";
 
 export const AGREEMENTS = [
+  { kind:"referrals",title:"Price Benefits & Referral Terms",version:LEGAL_VERSION },
   { kind: "terms", title: "Terms & Conditions", version: LEGAL_VERSION },
   { kind: "rental-agreement", title: "Rental Agreement", version: LEGAL_VERSION },
   { kind: "deposit-agreement", title: "Card Hold & Refundable Security Payment Agreement", version: LEGAL_VERSION },

@@ -173,7 +173,7 @@ export default function CartPage() {
                     <input
                       value={promo.draft}
                       onChange={(e) => promo.setDraft(e.target.value)}
-                      placeholder="Promo code"
+                      placeholder="Promo or referral code"
                       className="input min-w-0 flex-1 font-mono uppercase placeholder:normal-case placeholder:font-sans"
                     />
                     {promo.applied ? (
@@ -186,7 +186,7 @@ export default function CartPage() {
                     ) : (
                       <button
                         onClick={promo.apply}
-                        disabled={!quote || quote.weekendSaving > 0}
+                        disabled={!quote}
                         className="btn-primary px-4 text-sm"
                       >
                         apply
@@ -199,13 +199,14 @@ export default function CartPage() {
                     </div>
                   )}
                   {quote &&
-                    quote.weekendSaving === 0 &&
+                    ["promo","referral_friend"].includes(quote.benefitKind) &&
                     quote.totalReduction > 0 && (
                       <div className="mt-1.5 text-xs text-emerald-300">
                         Code {promo.applied?.toUpperCase()} applied — −
                         {formatGbp(quote.totalReduction)}
                       </div>
                     )}
+                  {!!promo.applied&&promo.status?.valid&&quote&&!["promo","referral_friend"].includes(quote.benefitKind)&&<p className="mt-2 text-xs text-white/45">A larger saving is selected instead. This code has not been used.</p>}
                   {!!quote?.weekendSaving && (
                     <p className="mt-2 text-xs text-accent-200">
                       Weekend deal applied. Rental promo discounts cannot stack.

@@ -1,6 +1,7 @@
 "use node";
 
 import Stripe from "stripe";
+import { bestBenefit, SINGLE_BENEFIT_VERSION, type BenefitKind, loyaltyPercent } from "../../shared/rentalBenefits";
 import { providerRepeatGate } from "./repeatRentalProvider";
 import { membershipActiveNow } from "../../shared/membership";
 import { checkoutMembershipCredit, membershipSignupOffer } from "../../shared/checkoutMembershipCredit";
@@ -35,6 +36,12 @@ export type RentalPriceInput = {
 
 type PricedItem = RentalPriceInput["items"][number] & { dailyRate: number };
 export type RentalPrice = {
+  pricingVersion: string;
+  benefitKind: BenefitKind;
+  refundCreditApplied: number;
+  earnedCreditApplied: number;
+  referralCode?: string;
+  referralRewardId?: Id<"referral_rewards">;
   items: PricedItem[];
   customerEmail: string;
   acct: any;
@@ -91,9 +98,9 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     items: a.items.map(i => ({ listingId: i.listingId, start: i.start, end: i.end, offerType: i.offerType })), undiscounted: true,
   });
   const weekendCandidate = member?.weekend ? Math.min(100,raw.reduce((n,r)=>n+(r?.weekendSaving??0),0)) : 0;
-  let items: PricedItem[] = a.items.map((it,idx)=>{const r=raw[idx];if(!r)throw Error(`"${it.title}" is no longer available.`);return {...it,title:r.title,total:r.ordinaryTotal??r.total,deposit:r.deposit,dailyRate:r.dailyRate};});
-  let subtotal=items.reduce((n,i)=>n+i.total,0);
-  const ordinarySubtotal=subtotal;
+  const items: PricedItem[] = a.items.map((it,idx)=>{const r=raw[idx];if(!r)throw Error(`"${it.title}" is no longer available.`);return {...it,title:r.title,total:r.total,deposit:r.deposit,dailyRate:r.dailyRate};});
+  const subtotal=items.reduce((n,i)=>n+i.total,0);
+
   const protection = a.protection ?? "verify";
   const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
   const depositHoldAmount = depositFor(protection, replacementSum);
@@ -106,37 +113,24 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
       catch { /* A provider outage retains the normal security payment, never an unproved waiver. */ }
     }
   }
-  const securityWaiverReason = !selected && paidDepositExempt(acct) ? "paid_membership" : repeatSourceBookingId ? "safe_repeat_kit" : undefined;
-  const depositAmount = securityWaiverReason ? 0 : Math.round(depositHoldAmount * 50) / 100;
+  let securityWaiverReason = !selected && paidDepositExempt(acct) ? "paid_membership" : repeatSourceBookingId ? "safe_repeat_kit" : undefined;
+  let depositAmount = securityWaiverReason ? 0 : Math.round(depositHoldAmount * 50) / 100;
   const month = londonMonth();
   const freedCount = 0;
   const discountable = items.filter(i => !i.offerType).reduce((n, i) => n + i.total, 0);
-  let promoDiscount = 0;
-  let appliedCode: string | undefined;
-  if (a.promoCode) {
+  let promoDiscount = 0, promoCode: string | undefined;
+  let referral: any = null;
+  if (a.promoCode?.trim().toUpperCase().startsWith("DBC-") || acct?.referralRewardGrantedAt)
+    referral = await ctx.runQuery(internal.referrals.offers, {accountId:acct?._id, code:a.promoCode?.trim().toUpperCase().startsWith("DBC-") ? a.promoCode : undefined});
+  if (a.promoCode?.trim().toUpperCase().startsWith("DBC-") && !referral?.friend?.valid)
+    throw Error(referral?.friend?.reason ?? "Sign in or create an account to use a referral code.");
+  if (a.promoCode && !a.promoCode.trim().toUpperCase().startsWith("DBC-")) {
     const res: any = await ctx.runQuery(api.promo.validate, {
-      code: a.promoCode,
-      eligibleSubtotal: discountable,
-      rentalSubtotal: subtotal,
-      tier: acct?.membershipTier ?? undefined,
-      membershipActive: membershipActiveNow(acct),
-      email: customerEmail,
+      code:a.promoCode,eligibleSubtotal:discountable,rentalSubtotal:subtotal,
+      tier:acct?.membershipTier ?? undefined,membershipActive:membershipActiveNow(acct),email:customerEmail,token:a.token,
     });
-    if (res?.valid) {
-      promoDiscount = res.discount;
-      appliedCode = res.code;
-    }
+    if (res?.valid) {promoDiscount=res.discount;promoCode=res.code;}
   }
-  const rawSubtotal=raw.reduce((n,r)=>n+r.total,0);
-  const weekendSaving = weekendCandidate>0 && rawSubtotal-weekendCandidate < ordinarySubtotal-promoDiscount ? weekendCandidate : 0;
-  let rentalSaving = weekendSaving ? ordinarySubtotal-promoDiscount-(rawSubtotal-weekendSaving) : 0;
-  if(weekendSaving){items=items.map((item,idx)=>({...item,total:raw[idx].total}));subtotal=rawSubtotal;appliedCode=undefined;}
-  const loyaltySaving = !selected && !membershipActiveNow(acct) && acct?.loyaltyEligible ? Math.round((ordinarySubtotal-promoDiscount)*10)/100 : 0;
-  rentalSaving += loyaltySaving;
-  let membershipSignupOfferSaving = 0;
-  let totalReduction = (weekendSaving || promoDiscount) + loyaltySaving;
-  let reductionLabel = loyaltySaving > 0 ? "Encore member · 10% rental saving" : weekendSaving > 0 ? "Member weekend deal · £100 cap" : appliedCode?.toUpperCase();
-
   let quotedDeliveryFee = 0;
   let isLondon = false;
   if (a.fulfilment === "delivery") {
@@ -155,24 +149,54 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   }
   const studioAvailable = member?.key === "studio" && isLondon && quotedDeliveryFee > 0 && acct
     ? await ctx.runQuery(internal.membershipBenefits.deliveryAvailable, { accountId: acct._id, month, prospective: selected?.key === "studio" }) : false;
-  const deliveryBenefitMonth = studioAvailable ? month : undefined;
-  const deliveryFee = studioAvailable ? 0 : Math.round(quotedDeliveryFee * (100 - (member?.deliveryPct ?? 0))) / 100;
-  const deliveryReduction = quotedDeliveryFee - deliveryFee;
-  membershipSignupOfferSaving = weekendSaving > 0 ? 0 : membershipSignupOffer(selected?.key,a.selectedMembership?.intro,ordinarySubtotal-promoDiscount+quotedDeliveryFee,!!(acct?.membershipSignupOfferUsed || acct?.starterRentalOfferUsed));
-  totalReduction += membershipSignupOfferSaving;
-  if (membershipSignupOfferSaving) reductionLabel = `Membership welcome · £${membershipSignupOfferSaving} off${appliedCode ? ` + ${appliedCode.toUpperCase()}` : ""}`;
-  const totalBeforeCredit = subtotal + deliveryFee + depositAmount - totalReduction;
-  const availableCredit = acct
-    ? await ctx.runQuery(internal.bookings.availableCheckoutCredit, { accountId: acct._id }) : 0;
-  const existingCredit = Math.min(availableCredit, Math.max(0, totalBeforeCredit - depositAmount));
-  const immediate = checkoutMembershipCredit(selected?.key, a.selectedMembership?.intro,
-    Math.round(Math.max(0, subtotal - totalReduction - existingCredit) * 100), acct?.membershipCreditDebtPence);
-  const membershipCreditApplied = immediate.appliedPence / 100;
-  const creditApplied = Math.round((existingCredit + membershipCreditApplied) * 100) / 100;
-
+  const deliveryCandidate = studioAvailable ? quotedDeliveryFee : Math.round(quotedDeliveryFee * (member?.deliveryPct ?? 0)) / 100;
+  const joiningCandidate = membershipSignupOffer(selected?.key,a.selectedMembership?.intro,subtotal+quotedDeliveryFee,!!(acct?.membershipSignupOfferUsed || acct?.starterRentalOfferUsed));
+  const refundBalance = acct ? await ctx.runQuery(internal.bookings.availableCheckoutCredit,{accountId:acct._id,kind:"refund"}) : 0;
+  const earnedBalance = acct ? await ctx.runQuery(internal.bookings.availableCheckoutCredit,{accountId:acct._id,kind:"earned"}) : 0;
+  const refundBefore = Math.min(refundBalance,subtotal+quotedDeliveryFee);
+  const existingBefore = Math.min(earnedBalance,Math.max(0,subtotal+quotedDeliveryFee-refundBefore));
+  const immediate = checkoutMembershipCredit(selected?.key,a.selectedMembership?.intro,
+    Math.round(Math.max(0,subtotal-refundBefore-existingBefore)*100),acct?.membershipCreditDebtPence);
+  const pence = (n:number)=>Math.max(0,Math.round(n*100));
+  const chosen = bestBenefit([
+    {kind:"catalog_offer",savingPence:pence(subtotal-raw.reduce((n,r)=>n+(r.offerTotal??r.ordinaryTotal??r.total),0)),label:"Gear offer"},
+    {kind:"quiet",savingPence:pence(subtotal-raw.reduce((n,r)=>n+(r.quietTotal??r.total),0)),label:"Quiet gear saving"},
+    {kind:"promo",savingPence:pence(promoDiscount),label:promoCode?.toUpperCase()??"Promo saving"},
+    {kind:"weekend",savingPence:pence(weekendCandidate),label:"Member weekend deal · £100 cap"},
+    {kind:"delivery",savingPence:pence(deliveryCandidate),label:"Member delivery saving"},
+    {kind:"loyalty",savingPence:!selected&&!membershipActiveNow(acct)?pence(subtotal*(acct?.loyaltyPercent??(acct?.loyaltyEligible?loyaltyPercent(3):0))/100):0,label:`Encore · ${acct?.loyaltyPercent??10}% rental saving`},
+    {kind:"joining",savingPence:pence(joiningCandidate),label:`Membership welcome · £${joiningCandidate} off`},
+    {kind:"earned_credit",savingPence:pence(existingBefore)+immediate.appliedPence,label:"Earned store credit"},
+    {kind:"referral_friend",savingPence:referral?.friend?.valid?pence(Math.min(10,subtotal)):0,label:"Friend referral · £10 off your first rental"},
+    {kind:"referral_reward",savingPence:referral?.reward?pence(subtotal*.4):0,label:"Referral reward · 40% off rentals"},
+  ]);
+  const benefitKind=chosen.kind;
+  if(benefitKind==="referral_friend"||benefitKind==="referral_reward"){
+    securityWaiverReason=undefined;repeatSourceBookingId=undefined;repeatSourceFingerprint=undefined;
+    depositAmount=Math.round(depositHoldAmount*50)/100;
+  }
+  const deliveryReduction=benefitKind==="delivery"?chosen.savingPence/100:0;
+  const deliveryFee=quotedDeliveryFee-deliveryReduction;
+  const deliveryBenefitMonth=benefitKind==="delivery"&&studioAvailable?month:undefined;
+  const totalReduction=["none","delivery","earned_credit"].includes(benefitKind)?0:chosen.savingPence/100;
+  const appliedCode=benefitKind==="promo"?promoCode:undefined;
+  const weekendSaving=benefitKind==="weekend"?totalReduction:0;
+  const loyaltySaving=benefitKind==="loyalty"?totalReduction:0;
+  const membershipSignupOfferSaving=benefitKind==="joining"?totalReduction:0;
+  const totalBeforeCredit=Math.round((subtotal+deliveryFee+depositAmount-totalReduction)*100)/100;
+  const refundCreditApplied=Math.min(refundBalance,Math.max(0,totalBeforeCredit-depositAmount));
+  const earnedCreditApplied=benefitKind==="earned_credit"?existingBefore:0;
+  const membershipCreditApplied=benefitKind==="earned_credit"?immediate.appliedPence/100:0;
+  const creditApplied=Math.round((refundCreditApplied+earnedCreditApplied+membershipCreditApplied)*100)/100;
+  const totalDue=Math.round((totalBeforeCredit-creditApplied)*100)/100;
   return {
-    items, customerEmail, acct, month, freedCount, subtotal, replacementSum, protection,
-    depositHoldAmount, depositAmount, appliedCode, totalReduction, reductionLabel,
-    quotedDeliveryFee, deliveryFee, deliveryBenefitMonth, deliveryReduction, securityWaiverReason, weekendSaving, rentalSaving, loyaltySaving, membershipSignupOfferSaving, repeatSourceBookingId, repeatSourceFingerprint, membershipFee, membershipCreditApplied, combinedTotalDue: totalBeforeCredit - creditApplied + membershipFee, totalBeforeCredit, creditApplied, totalDue: totalBeforeCredit - creditApplied,
+    pricingVersion:SINGLE_BENEFIT_VERSION,benefitKind,refundCreditApplied,earnedCreditApplied,
+    referralCode:benefitKind==="referral_friend"?referral.friend.code:undefined,
+    referralRewardId:benefitKind==="referral_reward"?referral.reward.id:undefined,
+    items,customerEmail,acct,month,freedCount,subtotal,replacementSum,protection,
+    depositHoldAmount,depositAmount,appliedCode,totalReduction,reductionLabel:chosen.kind==="none"?undefined:chosen.label,
+    quotedDeliveryFee,deliveryFee,deliveryBenefitMonth,deliveryReduction,securityWaiverReason,weekendSaving,
+    rentalSaving:totalReduction,loyaltySaving,membershipSignupOfferSaving,repeatSourceBookingId,repeatSourceFingerprint,
+    membershipFee,membershipCreditApplied,combinedTotalDue:Math.round((totalDue+membershipFee)*100)/100,totalBeforeCredit,creditApplied,totalDue,
   };
 }

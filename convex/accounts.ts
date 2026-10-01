@@ -1,3 +1,5 @@
+import { ensureReferralCode } from "./lib/referrals";
+import { creditKind } from "./lib/checkoutCredit";
 import { loyaltyProgress } from "./lib/loyalty";
 import { membershipActiveNow } from "../shared/membership";
 import { usableCredit } from "./lib/creditLedger";
@@ -66,7 +68,8 @@ export const _byToken = internalQuery({
     if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
     const account=await ctx.db.get(s.accountId);
     if (!account || (account.emailVerificationRequired && !account.emailVerifiedAt)) return null;
-    return {...account,loyaltyEligible:(await loyaltyProgress(ctx,account)).eligible};
+    const loyalty=await loyaltyProgress(ctx,account);
+    return {...account,loyaltyEligible:loyalty.eligible,loyaltyLevel:loyalty.level,loyaltyPercent:loyalty.percent};
   },
 });
 
@@ -89,6 +92,7 @@ export const _create = internalMutation({
       name: a.name,
       createdAt: Date.now(),
     });
+    await ensureReferralCode(ctx,accountId);
     await _applyPendingCollectiveGrant(ctx, accountId, a.email);
     const now = Date.now();
     if(!a.pendingEmailVerification)await ctx.db.insert("sessions", { token: a.token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
@@ -203,9 +207,13 @@ export const me = query({
       .filter((c) => c.status === "active" && c.expiresAt > now)
       .reduce((n, c) => n + usableCredit(c), 0);
     return {
+      referralCode:a.referralCode??null,
+      refundCredit:credits.filter(c=>c.status==="active"&&c.expiresAt>now&&creditKind(c)==="refund").reduce((n,c)=>n+usableCredit(c),0),
+      earnedCredit:credits.filter(c=>c.status==="active"&&c.expiresAt>now&&creditKind(c)==="earned").reduce((n,c)=>n+usableCredit(c),0),
+      loyaltyLevel:loyalty.level,loyaltyPercent:loyalty.percent,loyaltyCelebratedLevel:a.loyaltyCelebratedLevel??(a.loyaltyCelebratedAt?3:0),
       loyaltyEligible: loyalty.eligible,
       loyaltyCompleted: loyalty.completed,
-      loyaltyCelebrated: !!a.loyaltyCelebratedAt,
+      loyaltyCelebrated: (a.loyaltyCelebratedLevel??(a.loyaltyCelebratedAt?3:0))>=loyalty.level,
       membershipPerksPending: !!a.membershipPerksPendingBookingId,
       _id: a._id,
       email: a.email,
@@ -602,12 +610,14 @@ export const _setStripeCustomer = internalMutation({
 
 /** Acknowledgement is authenticated and persisted across devices. */
 export const acknowledgeLoyalty = mutation({
-  args:{token:v.string()},
-  handler:async(ctx,{token})=>{
+  args:{token:v.string(),level:v.optional(v.number())},
+  handler:async(ctx,{token,level})=>{
     const account=await resolve(ctx,token);
     if(!account)throw Error("Sign in to your account.");
-    if(!(await loyaltyProgress(ctx,account)).eligible)throw Error("Complete three separate rentals first.");
-    if(!account.loyaltyCelebratedAt)await ctx.db.patch(account._id,{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()});
+    const progress=await loyaltyProgress(ctx,account),earned=level??progress.level;
+    if(!Number.isInteger(earned)||earned<1||earned>progress.level)throw Error("Complete the qualifying rental before claiming this Encore level.");
+    const celebrated=account.loyaltyCelebratedLevel??(account.loyaltyCelebratedAt?3:0);
+    if(earned>celebrated)await ctx.db.patch(account._id,{loyaltyLevel:progress.level,loyaltyCelebratedLevel:earned,...(earned===3?{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()}:{})});
     return true;
   },
 });

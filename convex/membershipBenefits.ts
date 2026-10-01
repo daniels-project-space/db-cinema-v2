@@ -1,3 +1,4 @@
+import { ensureReferralCode } from "./lib/referrals";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { studioDeliveryAvailable } from "./lib/memberDelivery";
@@ -151,7 +152,7 @@ export const bootstrapCheckoutAccount = internalMutation({
   const email=a.email.trim().toLowerCase();
   const existing=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",email)).unique();
   if(existing){if(existing.checkoutSeedHash===a.seedHash&&!existing.hash&&!existing.googleId&&!existing.stripeSubscriptionId)return existing;throw Error("Sign in to your existing account before adding a membership.");}
-  const id=await ctx.db.insert("accounts",{email,name:a.name,checkoutSeedHash:a.seedHash,emailVerificationRequired:true,createdAt:Date.now()});return (await ctx.db.get(id))!;
+  const id=await ctx.db.insert("accounts",{email,name:a.name,checkoutSeedHash:a.seedHash,emailVerificationRequired:true,createdAt:Date.now()});await ensureReferralCode(ctx,id);return (await ctx.db.get(id))!;
  }
 });
 
@@ -176,16 +177,19 @@ export const revokeRefundedInvoice = internalMutation({
   const accountForReservation=await ctx.db.get(grant.accountId);
   const pending=accountForReservation?await ctx.db.query("bookings").withIndex("by_guestEmail",q=>q.eq("guestEmail",accountForReservation.email)).collect():[];
   const credits=await ctx.db.query("credits").withIndex("by_account",q=>q.eq("accountId",grant.accountId)).collect();
-  let reserved=Math.max(0,pending.filter(b=>b.status==="pending_payment").reduce((n,b)=>n+Math.round(((b.creditApplied??0)-(b.membershipCreditApplied??0))*100),0)-credits.filter(c=>c.status==="active").reduce((n,c)=>n+(c.revokedPendingPence??0),0));
+  const reservedBySource=new Map<string,number>();
+  for(const b of pending.filter(b=>b.status==="pending_payment"&&b.creditAllocations))for(const allocation of b.creditAllocations!)reservedBySource.set(allocation.creditId,(reservedBySource.get(allocation.creditId)??0)+Math.round(allocation.amount*100));
+  let reserved=Math.max(0,pending.filter(b=>b.status==="pending_payment"&&!b.creditAllocations).reduce((n,b)=>n+Math.round(((b.creditApplied??0)-(b.membershipCreditApplied??0))*100),0)-credits.filter(c=>c.status==="active").reduce((n,c)=>n+(c.revokedPendingPence??0),0));
   // Cancellation can restore first-month credit into a new linked credit row.
   // Revoke that balance too; a returned rental must not turn it into free money.
   const grantCreditIds = new Set([grant.creditId,grant.bonusCreditId,...credits.filter(c=>c.membershipGrantId===grant._id).map(c=>c._id)]);
   for(const id of grantCreditIds){
     const c=id?await ctx.db.get(id):null;if(!c||!need)continue;
     const remaining=Math.round(c.remaining*100),alreadyFrozen=c.revokedPendingPence??0;
-    const protect=Math.min(Math.max(0,remaining-alreadyFrozen),reserved);
+    const exact=Math.max(0,(reservedBySource.get(c._id)??0)-alreadyFrozen);
+    const protect=Math.min(Math.max(0,remaining-alreadyFrozen),exact+reserved);
     const take=Math.min(Math.max(0,remaining-alreadyFrozen-protect),need);need-=take;
-    const freeze=Math.min(protect,need);need-=freeze;reserved-=freeze;
+    const freeze=Math.min(protect,need);need-=freeze;reserved=Math.max(0,reserved-Math.max(0,freeze-exact));
     await ctx.db.patch(c._id,{remaining:(remaining-take)/100,revokedPendingPence:alreadyFrozen+freeze,revokedAmount:(c.revokedAmount??0)+(take+freeze)/100,...(remaining===take&&c.status==="active"?{status:"spent"}:{})});
   }
   const account=await ctx.db.get(grant.accountId);

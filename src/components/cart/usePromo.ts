@@ -16,6 +16,7 @@ export function usePromo(eligibleSubtotal: number) {
     promo
       ? {
           code: promo,
+          token:account.token??undefined,
           eligibleSubtotal,
           rentalSubtotal: subtotal,
           tier: account.me?.membershipTier ?? undefined,

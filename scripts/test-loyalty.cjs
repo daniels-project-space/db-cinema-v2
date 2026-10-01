@@ -18,7 +18,7 @@ assert.equal(qualifyingRentalCount([row('a',DAY,'cs-a'),row('a2',DAY*4,'cs-a'),r
  const account=put('accounts',{email:'encore@example.invalid'}),foreign=put('accounts',{email:'other@example.invalid'});
  put('sessions',{accountId:account._id,token:'owned',expiresAt:now+DAY});put('sessions',{accountId:foreign._id,token:'other',expiresAt:now+DAY});put('sessions',{accountId:account._id,token:'expired',expiresAt:now-1});
  const ctx={db,scheduler:{runAfter:async()=>{}},storage:{getUrl:async()=>null}};
- await assert.rejects(accounts.acknowledgeLoyalty.handler(ctx,{token:'owned'}),/three separate/);
+ await assert.rejects(accounts.acknowledgeLoyalty.handler(ctx,{token:'owned'}),/qualifying rental/);
  for(const [i,date] of [DAY,DAY*4,DAY*7].entries())put('bookings',{...row('x'+i,date),guestEmail:account.email,status:i===2?'active':'returned'});
  const third=(await db.query('bookings').collect()).find(b=>b.status==='active');
  await bookings.markReturnedStatus.handler(ctx,{bookingId:third._id});
@@ -27,7 +27,7 @@ assert.equal(qualifyingRentalCount([row('a',DAY,'cs-a'),row('a2',DAY*4,'cs-a'),r
  assert.equal((await accounts._byToken.handler(ctx,{token:'owned'})).loyaltyEligible,true,'pricing uses authenticated history');
  assert.equal((await accounts._byToken.handler(ctx,{token:'other'})).loyaltyEligible,false);
  await assert.rejects(accounts.acknowledgeLoyalty.handler(ctx,{token:'expired'}),/Sign in/);
- await assert.rejects(accounts.acknowledgeLoyalty.handler(ctx,{token:'other'}),/three separate/);
+ await assert.rejects(accounts.acknowledgeLoyalty.handler(ctx,{token:'other'}),/qualifying rental/);
  await accounts.acknowledgeLoyalty.handler(ctx,{token:'owned'});const first=account.loyaltyCelebratedAt;await accounts.acknowledgeLoyalty.handler(ctx,{token:'owned'});assert.equal(account.loyaltyCelebratedAt,first,'one saved celebration across devices');
  assert.equal((await accounts.me.handler(ctx,{token:'owned'})).loyaltyCelebrated,true);
  const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:2000,components:[]});
@@ -42,7 +42,7 @@ assert.equal(qualifyingRentalCount([row('a',DAY,'cs-a'),row('a2',DAY*4,'cs-a'),r
  const pendingArgs={customerEmail:account.email,fulfilment:'pickup',deliveryFee:quote.deliveryFee,lineItems:quote.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:1,lineTotal:i.total})),subtotal:quote.subtotal,depositAmount:quote.depositAmount,discount:quote.totalReduction,total:quote.totalBeforeCredit,expectedTotalDue:quote.totalDue,creditAccountId:account._id,loyaltySaving:quote.loyaltySaving,currency:'GBP'};
  const pending=await bookings.createPending.handler(pricingCtx,pendingArgs);assert.equal((await db.get(pending.bookingId)).discount,30);
  await assert.rejects(bookings.createPending.handler(pricingCtx,{...pendingArgs,loyaltySaving:31}),/saving changed/);
- quote=await calculateRentalPrice(pricingCtx,{...input,selectedMembership:{tier:'pro',intro:'none'}});assert.equal(quote.loyaltySaving,0,'checkout-added subscription cannot stack');assert.equal(quote.membershipSignupOfferSaving,10);assert(quote.depositAmount>0);
+ quote=await calculateRentalPrice(pricingCtx,{...input,selectedMembership:{tier:'pro',intro:'none'}});assert.equal(quote.loyaltySaving,0,'checkout-added subscription cannot stack');assert.equal(quote.membershipSignupOfferSaving,0);assert(quote.depositAmount>0);
  account.membershipActive=true;account.membershipTier='pro';account.membershipStatus='active';account.membershipPaidThrough=now+DAY;
  await assert.rejects(bookings.createPending.handler(pricingCtx,pendingArgs),/Encore benefit changed/);
  quote=await calculateRentalPrice(pricingCtx,input);assert.equal(quote.loyaltySaving,0,'existing subscription cannot stack');assert.equal(quote.depositAmount,0);
