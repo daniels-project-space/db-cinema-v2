@@ -347,6 +347,23 @@ export const unreadTotals = query({
   },
 });
 
+async function generalConversationView(ctx: any, t: any) {
+  const a = await ctx.db.get(t.accountId);
+  return { _id: t.accountId, accountId: t.accountId, status: "support" as const,
+    name: a?.name ?? null, guestEmail: a?.email ?? "", start: 0, end: 0, total: 0, items: [],
+    escalated: t.escalated, unreadOwner: t.unreadOwner ?? 0, unreadRenter: t.unreadRenter ?? 0,
+    lastMessage: t.lastMessage ?? null, lastSender: t.lastSender ?? null, updatedAt: t.updatedAt };
+}
+export const getGeneralConversation = query({
+  args: { token: v.string(), accountId: v.id("accounts") },
+  handler: async (ctx, { token, accountId }) => {
+    if (!checkAdminToken(token)) return null;
+    const account = await ctx.db.get(accountId);
+    if (!account) return null;
+    const thread = await rentalThread(ctx, accountId);
+    return thread ? generalConversationView(ctx, thread) : null;
+  },
+});
 export const generalOwnerPage = query({
   args: { token: v.string(), paginationOpts: paginationOptsValidator },
   handler: async (ctx, { token, paginationOpts }) => {
@@ -362,26 +379,7 @@ export const generalOwnerPage = query({
         numItems: Math.min(50, paginationOpts.numItems),
       });
     const entries = await Promise.all(
-      page.page.map(async (t) => {
-        const a = await ctx.db.get(t.accountId);
-        return {
-          _id: t.accountId,
-          accountId: t.accountId,
-          status: "support",
-          name: a?.name ?? null,
-          guestEmail: a?.email ?? "",
-          start: 0,
-          end: 0,
-          total: 0,
-          items: [],
-          escalated: t.escalated,
-          unreadOwner: t.unreadOwner ?? 0,
-          unreadRenter: t.unreadRenter ?? 0,
-          lastMessage: t.lastMessage ?? null,
-          lastSender: t.lastSender ?? null,
-          updatedAt: t.updatedAt,
-        };
-      }),
+      page.page.map(t => generalConversationView(ctx, t)),
     );
     return { ...page, page: entries };
   },

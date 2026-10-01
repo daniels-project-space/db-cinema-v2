@@ -15,13 +15,17 @@ import {
 export function RentalInbox({
   token,
   focusBookingId,
+  focusAccountId,
+  focusRevision = 0,
 }: {
   token: string;
   focusBookingId?: string | null;
+  focusAccountId?: string | null;
+  focusRevision?: number;
 }) {
-  const [stage, setStage] = useState("all"),
+  const [stage, setStage] = useState(focusAccountId ? "general" : "all"),
     [search, setSearch] = useState(""),
-    [selected, setSelected] = useState<string | null>(focusBookingId ?? null);
+    [selected, setSelected] = useState<string | null>(focusBookingId ?? focusAccountId ?? null);
   const rentals = usePaginatedQuery(
     api.rentalChat.adminPage,
     stage === "general"
@@ -58,8 +62,13 @@ export function RentalInbox({
     if (focusBookingId) {
       setSelected(focusBookingId);
       setStage("all");
+      setSearch("");
+    } else if (focusAccountId) {
+      setSelected(focusAccountId);
+      setStage("general");
+      setSearch("");
     }
-  }, [focusBookingId]);
+  }, [focusBookingId, focusAccountId, focusRevision]);
   useEffect(() => {
     if (!ping) return;
     const unlock = () => {
@@ -102,6 +111,8 @@ export function RentalInbox({
       ? { token, bookingId: selected as any, admin: true }
       : "skip",
   );
+  const generalDirect = useQuery(api.rentalChat.getGeneralConversation,
+    selected && stage === "general" ? { token, accountId: selected as any } : "skip");
   const visible = rows
     .filter(
       (r) =>
@@ -120,10 +131,10 @@ export function RentalInbox({
         b.updatedAt - a.updatedAt,
     );
   const focus = selected
-    ? (rows.find((r) => r._id === selected) ?? direct)
+    ? (rows.find((r) => r._id === selected) ?? (stage === "general" ? generalDirect : direct))
     : visible[0];
   return (
-    <section className="mt-6">
+    <section id="messages" className="mt-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-xl font-semibold text-white">
@@ -266,6 +277,7 @@ export function RentalInbox({
               key={focus._id}
               token={token}
               admin
+              openRevision={focusRevision}
               bookingId={focus.status === "support" ? undefined : focus._id}
               accountId={focus.accountId ?? undefined}
               title={rentalTitle(focus.items[0]?.title ?? "General support")}
@@ -280,7 +292,7 @@ export function RentalInbox({
           </div>
         ) : (
           <div className="flex min-h-[450px] items-center justify-center rounded-3xl border border-white/[0.06] text-sm text-white/30">
-            Choose a rental to start.
+            {selected ? (stage === "general" ? generalDirect : direct) === undefined ? "Opening conversation…" : "This conversation is unavailable. Choose another conversation." : "Choose a rental to start."}
           </div>
         )}
       </div>

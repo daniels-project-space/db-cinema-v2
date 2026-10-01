@@ -14,6 +14,12 @@ export function OwnerNotificationBell({ token }: { token: string }) {
     setDeviceId(id);
     setSupported("serviceWorker" in navigator && "PushManager" in window && "Notification" in window);
   }, []);
+  useEffect(() => {
+    if (!device?.enabled || !("serviceWorker" in navigator)) return;
+    // Refresh an existing installation without changing its subscription or permission.
+    void navigator.serviceWorker.register("/admin-notifications-sw.js", { scope: "/admin", updateViaCache: "none" })
+      .then(registration => registration.update()).catch(() => {});
+  }, [device?.enabled]);
   async function toggle() {
     if (!deviceId || busy) return;
     setBusy(true); setError(null);
@@ -28,7 +34,7 @@ export function OwnerNotificationBell({ token }: { token: string }) {
       if (!device?.configured || !device.publicKey) throw Error("Phone notifications are not configured yet.");
       const permission = await Notification.requestPermission();
       if (permission !== "granted") throw Error("Allow notifications in your browser settings to enable phone alerts.");
-      const registration = await navigator.serviceWorker.register("/admin-notifications-sw.js", { scope: "/admin" });
+      const registration = await navigator.serviceWorker.register("/admin-notifications-sw.js", { scope: "/admin", updateViaCache: "none" });
       // This scoped worker must be active before it can subscribe; /admin is its scope.
       await new Promise<void>((resolve, reject) => {
         const worker = registration.installing ?? registration.waiting ?? registration.active;
