@@ -59,7 +59,7 @@ jobs:
         run: |
           npm run start -- --hostname 127.0.0.1 --port 41795 > "$RUNNER_TEMP/dbc-next.log" 2>&1 &
           NEXT_PID=$!
-          google-chrome --headless --no-sandbox --disable-dev-shm-usage --remote-debugging-port=9224 --user-data-dir="$RUNNER_TEMP/dbc-membership-browser" about:blank > "$RUNNER_TEMP/dbc-chrome.log" 2>&1 &
+          google-chrome --headless --no-sandbox --disable-dev-shm-usage --disable-gpu --disable-extensions --no-first-run --no-default-browser-check --disable-background-networking --remote-debugging-port=9224 --user-data-dir="$RUNNER_TEMP/dbc-membership-browser" about:blank > "$RUNNER_TEMP/dbc-chrome.log" 2>&1 &
           CHROME_PID=$!
           cleanup() {
             RESULT=$?
@@ -71,7 +71,7 @@ jobs:
           }
           trap cleanup EXIT
           READY=false
-          for attempt in $(seq 1 30); do
+          for attempt in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:41795/cart >/dev/null && curl -fsS http://127.0.0.1:9224/json/version >/dev/null; then READY=true; break; fi
             sleep 1
           done

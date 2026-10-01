@@ -264,12 +264,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     ),
     false,
   );
-  await wait(1000);
-  assert.equal(
-    await c.evaluate(
-      `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('£0 upfront security')`,
-    ),
-    true,
+  await until(
+    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('£0 upfront security')`,
   );
   await shot("selected-checkout-mobile");
   await reload();
