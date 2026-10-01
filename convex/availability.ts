@@ -61,7 +61,7 @@ async function unitReservations(ctx: any, unitId: any, lo: number, hi: number): 
     .withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", unitId))
     .collect();
   return res
-    .filter((r: any) => ACTIVE.has(r.status) && r.start <= hi && r.end >= lo)
+    .filter((r: any) => ACTIVE.has(r.status) && (r.status !== "hold" || (r.holdExpiresAt ?? Infinity) > Date.now()) && r.start <= hi && r.end >= lo)
     .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty || 1 }));
 }
 
@@ -70,7 +70,7 @@ export const forListing = query({
   args: { listingId: v.id("listings"), start: v.number(), end: v.number() },
   handler: async (ctx, { listingId, start, end }) => {
     const l = await ctx.db.get(listingId);
-    if (!l || !l.active) return { available: 0, owned: 0 };
+    if (!l || !l.active || l.suppressed) return { available: 0, owned: 0 };
     const requested = dayRange(start, end);
     if (requested.some((d) => blockedSet(l.unavailableDates ?? []).has(d)))
       return { available: 0, owned: 0, blocked: true };
@@ -79,7 +79,7 @@ export const forListing = query({
     let owned = 0;
     for (const comp of l.components) {
       const unit: any = await ctx.db.get(comp.inventoryUnitId);
-      const ownedQ = unit?.quantityOwned ?? 1;
+      const ownedQ = unit?.quantityOwned ?? 0;
       owned = ownedQ;
       const ivs = (await unitReservations(ctx, comp.inventoryUnitId, start, end)).map((r) => ({
         start: Math.max(r.start, start),
@@ -124,7 +124,7 @@ export const forCart = query({
     const resIvs: Record<string, Iv[]> = {};
     for (const uid of unitIds) {
       const unit: any = await ctx.db.get(uid as any);
-      owned[uid] = unit?.quantityOwned ?? 1;
+      owned[uid] = unit?.quantityOwned ?? 0;
       resIvs[uid] = await unitReservations(ctx, uid, lo, hi);
     }
 

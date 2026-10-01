@@ -51,9 +51,11 @@ crons.interval("refresh-rental-demand", { hours: 24 }, api.sync.refreshDemandFro
 crons.interval("sweep-rate-limits", { hours: 24 }, internal.rateLimit.sweep, {});
 
 // Notify "tell me when it's free" waiters whose item has opened up for their dates.
-crons.interval("waitlist-check", { hours: 2 }, internal.waitlist.checkAndNotify, {});
+crons.interval("waitlist-check", { minutes: 15 }, internal.waitlist.checkAndNotify, {});
 
 // Keep "quiet deals" only on genuinely-owned, idle stock (re-checks ownership + demand).
 crons.interval("refresh-quiet-deals", { hours: 12 }, api.catalog.refreshQuietDeals, {});
+
+crons.interval("consented-checkout-reminders", { minutes: 15 }, internal.checkoutRecoveryMail.processDue, {});
 
 export default crons;

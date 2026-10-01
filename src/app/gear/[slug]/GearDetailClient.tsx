@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
@@ -42,7 +42,10 @@ function ShareButton({ title }: { title: string }) {
     const url = typeof window !== "undefined" ? window.location.href : "";
     const nav = navigator as any;
     if (nav.share) {
-      try { await nav.share({ title, url }); return; } catch {}
+      try {
+        await nav.share({ title, url });
+        return;
+      } catch {}
     }
     try {
       await navigator.clipboard.writeText(url);
@@ -66,6 +69,28 @@ export default function GearDetailClient({ slug }: { slug: string }) {
 
   const [start, setStart] = useState<string | null>(null);
   const [end, setEnd] = useState<string | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search),
+      s = q.get("start"),
+      e = q.get("end");
+    const valid = (d: string | null) =>
+      !!d &&
+      /^\d{4}-\d{2}-\d{2}$/.test(d) &&
+      Number.isFinite(Date.parse(`${d}T00:00:00Z`)) &&
+      new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
+    if (
+      valid(s) &&
+      valid(e) &&
+      e! >= s! &&
+      Date.parse(e!) - Date.parse(s!) <= 365 * 86400000 &&
+      Date.parse(s!) <= Date.now() + 730 * 86400000
+    ) {
+      setStart(s);
+      setEnd(e);
+      const [y, m] = s!.split("-").map(Number);
+      setMonth(new Date(y, m - 1, 1));
+    }
+  }, []);
   const [imgIdx, setImgIdx] = useState(0);
   const [month, setMonth] = useState(() => {
     const t = new Date();
@@ -115,7 +140,9 @@ export default function GearDetailClient({ slug }: { slug: string }) {
         <SiteHeader />
         <main className="mx-auto max-w-7xl px-6 py-24 text-center">
           <div className="hud-label">404 · Reel not found</div>
-          <p className="mt-4 text-white/40">That listing doesn&apos;t exist (anymore).</p>
+          <p className="mt-4 text-white/40">
+            That listing doesn&apos;t exist (anymore).
+          </p>
           <Link href="/gear" className="btn-ghost mt-6 px-6 py-2.5 text-sm">
             Back to gear
           </Link>
@@ -153,9 +180,14 @@ export default function GearDetailClient({ slug }: { slug: string }) {
                 className="aspect-[4/3]"
                 imgClassName="transition-transform duration-700 ease-out group-hover:scale-[1.04]"
               />
-              <div className="pointer-events-none absolute left-3 top-3 hidden sm:block" aria-hidden>
+              <div
+                className="pointer-events-none absolute left-3 top-3 hidden sm:block"
+                aria-hidden
+              >
                 <span className="hud-label rounded bg-black/45 px-2 py-1">
-                  {listing.category} <span className="tick">/</span> {String(imgIdx + 1).padStart(2, "0")}—{String(gallery.length).padStart(2, "0")}
+                  {listing.category} <span className="tick">/</span>{" "}
+                  {String(imgIdx + 1).padStart(2, "0")}—
+                  {String(gallery.length).padStart(2, "0")}
                 </span>
               </div>
             </div>
@@ -178,15 +210,21 @@ export default function GearDetailClient({ slug }: { slug: string }) {
               </div>
             )}
 
-            <span className="hud-label mt-7 block !text-accent-400/90">{listing.category}</span>
+            <span className="hud-label mt-7 block !text-accent-400/90">
+              {listing.category}
+            </span>
             <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-white lg:text-4xl">
               {listing.title}
             </h1>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
               {reviewStats && reviewStats.count > 0 && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2.5 py-1 text-white/70">
-                  <span className="text-amber-300">★</span> {reviewStats.average}
-                  <span className="text-white/40"> · {reviewStats.count} verified hires</span>
+                  <span className="text-amber-300">★</span>{" "}
+                  {reviewStats.average}
+                  <span className="text-white/40">
+                    {" "}
+                    · {reviewStats.count} verified hires
+                  </span>
                 </span>
               )}
               {((listing as any).demandScore ?? 0) >= 120 ? (
@@ -208,7 +246,10 @@ export default function GearDetailClient({ slug }: { slug: string }) {
             {Array.isArray(k.features) && k.features.length > 0 && (
               <ul className="mt-6 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 {k.features.slice(0, 6).map((f: string, i: number) => (
-                  <li key={i} className="flex items-start gap-2.5 text-sm text-white/65">
+                  <li
+                    key={i}
+                    className="flex items-start gap-2.5 text-sm text-white/65"
+                  >
                     <span className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-accent-500/15 text-accent-400">
                       <IconCheck className="h-3 w-3" />
                     </span>
@@ -223,7 +264,9 @@ export default function GearDetailClient({ slug }: { slug: string }) {
                 {k.bestFor?.length > 0 && (
                   <div>
                     <div className="hud-label">Best for</div>
-                    <div className="mt-1.5 capitalize text-white/70">{k.bestFor.join("  ·  ")}</div>
+                    <div className="mt-1.5 capitalize text-white/70">
+                      {k.bestFor.join("  ·  ")}
+                    </div>
                   </div>
                 )}
                 {k.tips?.length > 0 && (
@@ -257,23 +300,45 @@ export default function GearDetailClient({ slug }: { slug: string }) {
           </div>
 
           {/* booking — or, for display-only items, register interest */}
-          <div className="page-in lg:sticky lg:top-24 lg:self-start" style={{ animationDelay: "0.15s" }}>
+          <div
+            className="page-in lg:sticky lg:top-24 lg:self-start"
+            style={{ animationDelay: "0.15s" }}
+          >
             {(listing as any).displayOnly ? (
               <div className="spot gradient-border rounded-2xl p-6">
-                <span className="rounded-full bg-sky-500/20 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-sky-300">Display only</span>
-                <h2 className="mt-3 font-display text-lg font-semibold text-white/90">Not available to book directly</h2>
+                <span className="rounded-full bg-sky-500/20 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-sky-300">
+                  Display only
+                </span>
+                <h2 className="mt-3 font-display text-lg font-semibold text-white/90">
+                  Not available to book directly
+                </h2>
                 <p className="mt-2 text-sm leading-relaxed text-white/55">
-                  This item is shown for reference. Register your interest and we&apos;ll let you know if it comes into the hire range — it also tells us what crews want us to stock.
+                  This item is shown for reference. Register your interest and
+                  we&apos;ll let you know if it comes into the hire range — it
+                  also tells us what crews want us to stock.
                 </p>
                 <button
                   onClick={() => {
                     setRegistered(true);
-                    track({ type: "register_interest", path: listing.slug, listingId: listing._id, title: listing.title, qty: 1, sessionId: getSessionId() }).catch(() => {});
+                    track({
+                      type: "register_interest",
+                      path: listing.slug,
+                      listingId: listing._id,
+                      title: listing.title,
+                      qty: 1,
+                      sessionId: getSessionId(),
+                    }).catch(() => {});
                   }}
                   disabled={registered}
                   className={`mt-5 flex w-full items-center justify-center gap-2 rounded-full py-3 text-sm font-semibold transition ${registered ? "bg-emerald-500/85 text-white" : "btn-primary"}`}
                 >
-                  {registered ? <><IconCheck className="h-4 w-4" /> Interest registered</> : "Register interest"}
+                  {registered ? (
+                    <>
+                      <IconCheck className="h-4 w-4" /> Interest registered
+                    </>
+                  ) : (
+                    "Register interest"
+                  )}
                 </button>
               </div>
             ) : (
@@ -291,7 +356,12 @@ export default function GearDetailClient({ slug }: { slug: string }) {
           </div>
         </div>
 
-        <Recommendations slug={listing.slug} start={start} end={end} days={days} />
+        <Recommendations
+          slug={listing.slug}
+          start={start}
+          end={end}
+          days={days}
+        />
       </main>
     </>
   );

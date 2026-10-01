@@ -8,6 +8,7 @@ import { getSessionId } from "@/lib/session";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { CheckoutLoopBanner } from "@/components/CheckoutLoopBanner";
+import { CheckoutReminder } from "@/components/plans/CartPlanning";
 import { useCart } from "@/components/cart/CartProvider";
 import { usePromo } from "@/components/cart/usePromo";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -223,6 +224,7 @@ export default function CheckoutPage() {
       <SiteHeader />
       <CheckoutLoopBanner />
       <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
+        <div className="mb-5 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
           <span className="inline-flex items-center gap-1.5">
             <IconLock className="h-3.5 w-3.5 text-accent-400" />

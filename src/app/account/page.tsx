@@ -21,6 +21,7 @@ import { AccentPicker } from "@/components/AccentPicker";
 import { CollectiveProfile } from "@/components/account/CollectiveProfile";
 import { BookingSections } from "@/components/account/BookingSections";
 import { RentalCalendar } from "@/components/account/RentalCalendar";
+import { ShootLists } from "@/components/plans/ShootLists";
 import { AvatarUpload } from "@/components/account/AvatarUpload";
 
 export default function AccountPage() {
@@ -149,7 +150,7 @@ function Dashboard() {
   const [saving, setSaving] = useState(false),
     [saveError, setSaveError] = useState<string | null>(null);
   const [tab, setTab] = useState<
-    "rentals" | "chat" | "profile" | "membership" | "security"
+    "rentals" | "chat" | "plans" | "profile" | "membership" | "security"
   >("rentals");
   const [chatBooking, setChatBooking] = useState<string | null>(null);
 
@@ -165,6 +166,7 @@ function Dashboard() {
   // on Rentals wondering where the conversation went.
   useEffect(() => {
     const openFromHash = () => {
+      if(window.location.hash === "#plans") setTab("plans");
       if (window.location.hash.replace("#", "").toLowerCase() === "chat") {
         setTab("chat");
         const rental = new URLSearchParams(window.location.search).get(
@@ -251,6 +253,7 @@ function Dashboard() {
               "chat",
               unreadMessages ? `Messages (${unreadMessages})` : "Messages",
             ],
+            ["plans", "Shoot lists"],
             ["profile", "Profile"],
             ["membership", "Membership"],
             ["security", "Security"],
@@ -269,6 +272,8 @@ function Dashboard() {
           </button>
         ))}
       </nav>
+
+      {tab === "plans" && <ShootLists />}
 
       {/* RENTALS */}
       {tab === "rentals" && (

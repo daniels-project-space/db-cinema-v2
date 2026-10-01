@@ -91,6 +91,7 @@ const db = {
             rows = rows.filter((r) => r[k] === v);
             return q;
           },
+          lte(k,v) { rows=rows.filter(r=>r[k]<=v); return q; },
           gte(k, v) {
             rows = rows.filter((r) => r[k] >= v);
             return q;
@@ -110,6 +111,7 @@ const db = {
       },
       collect: async () => rows,
       first: async () => rows[0] ?? null,
+      unique: async () => { if(rows.length>1)throw Error("not unique"); return rows[0]??null; },
       take: async (n) =>
         rows
           .sort(

@@ -23,7 +23,7 @@ function WaitlistForm({ listingId, start, end }: { listingId: string; start: num
     setBusy(true);
     setErr(null);
     try {
-      await addWait({ email: email.trim(), listingId: listingId as any, start, end });
+      await addWait({ email: email.trim(), token: account.token ?? undefined, listingId: listingId as any, start, end });
       setDone(true);
     } catch (e: any) {
       const m = String(e?.message || "").match(/Uncaught Error:\s*(.+?)(?:\n|$)/);

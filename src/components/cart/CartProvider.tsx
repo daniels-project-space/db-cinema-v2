@@ -5,11 +5,14 @@ import {
   useContext,
   useEffect,
   useState,
+  useRef,
   useCallback,
   ReactNode,
 } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { useAccount } from "@/components/account/AccountProvider";
+import { dayMs } from "@/lib/dates";
 import { getSessionId } from "@/lib/session";
 
 export type CartItem = {
@@ -30,6 +33,10 @@ export type CartItem = {
 type CartCtx = {
   items: CartItem[];
   add: (item: Omit<CartItem, "key">) => void;
+  replace: (items: CartItem[]) => void;
+  reminderEnabled: boolean;
+  setReminderEnabled: (enabled: boolean) => void;
+  reminderError: string | null;
   remove: (key: string) => void;
   clear: () => void;
   has: (listingId: string) => boolean;
@@ -57,6 +64,73 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const track = useMutation(api.analytics.track);
+  const account = useAccount();
+  const recovery = useQuery(
+    api.checkoutRecovery.mine,
+    account.token && account.me ? { token: account.token } : "skip",
+  );
+  const syncRecovery = useMutation(api.checkoutRecovery.sync);
+  const [reminderChoice, setReminderChoice] = useState<{
+    token: string;
+    value: boolean;
+  } | null>(null);
+  const [reminderError, setReminderError] = useState<string | null>(null);
+  const reminderEnabled =
+    !!account.token &&
+    (reminderChoice?.token === account.token
+      ? reminderChoice.value
+      : !!recovery);
+  const setReminderEnabled = (value: boolean) => {
+    if (account.token) setReminderChoice({ token: account.token, value });
+  };
+  const hadBasket = useRef({ token: "", value: false });
+  const recoveryLines = JSON.stringify(
+    items.map((i) => ({
+      listingId: i.listingId,
+      start: dayMs(i.start),
+      end: dayMs(i.end),
+      qty: 1,
+    })),
+  );
+  useEffect(() => {
+    if (!hydrated || !account.token || !account.me || recovery === undefined)
+      return;
+    if (hadBasket.current.token !== account.token)
+      hadBasket.current = { token: account.token, value: false };
+    const explicitlyOff =
+      reminderChoice?.token === account.token && !reminderChoice.value;
+    if (!items.length && !hadBasket.current.value && !explicitlyOff) return;
+    if (items.length) hadBasket.current.value = true;
+    const timer = setTimeout(() => {
+      syncRecovery({
+        token: account.token!,
+        enabled: reminderEnabled,
+        lines: JSON.parse(recoveryLines),
+      })
+        .then(() => setReminderError(null))
+        .catch(() =>
+          setReminderError(
+            "Could not save your reminder preference. Please try again.",
+          ),
+        );
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [
+    hydrated,
+    account.token,
+    account.me,
+    recoveryLines,
+    reminderEnabled,
+    recovery === undefined,
+    syncRecovery,
+    reminderChoice,
+  ]);
+  const replace = useCallback((next: CartItem[]) => {
+    setItems(next);
+    setPromoState(null);
+    localStorage.removeItem(PKEY);
+    setToast("Your whole kit is ready to review");
+  }, []);
 
   useEffect(() => {
     try {
@@ -77,12 +151,24 @@ export function CartProvider({ children }: { children: ReactNode }) {
     else localStorage.removeItem(PKEY);
   }, []);
 
-  const add = useCallback((item: Omit<CartItem, "key">) => {
-    const key = `${item.listingId}|${item.start}|${item.days}|${item.offerType ?? ""}`;
-    setItems((prev) => (prev.some((p) => p.key === key) ? prev : [...prev, { ...item, key }]));
-    setToast(`${item.title.slice(0, 40)} added to your kit`);
-    track({ type: "add_to_cart", path: item.slug, listingId: item.listingId, title: item.title, qty: 1, sessionId: getSessionId() }).catch(() => {});
-  }, [track]);
+  const add = useCallback(
+    (item: Omit<CartItem, "key">) => {
+      const key = `${item.listingId}|${item.start}|${item.days}|${item.offerType ?? ""}`;
+      setItems((prev) =>
+        prev.some((p) => p.key === key) ? prev : [...prev, { ...item, key }],
+      );
+      setToast(`${item.title.slice(0, 40)} added to your kit`);
+      track({
+        type: "add_to_cart",
+        path: item.slug,
+        listingId: item.listingId,
+        title: item.title,
+        qty: 1,
+        sessionId: getSessionId(),
+      }).catch(() => {});
+    },
+    [track],
+  );
 
   const remove = useCallback(
     (key: string) => setItems((prev) => prev.filter((p) => p.key !== key)),
@@ -98,7 +184,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   );
 
   const subtotal = items.reduce((n, i) => n + i.total, 0);
-  const eligibleSubtotal = items.filter((i) => !i.offerType).reduce((n, i) => n + i.total, 0);
+  const eligibleSubtotal = items
+    .filter((i) => !i.offerType)
+    .reduce((n, i) => n + i.total, 0);
   const depositTotal = items.reduce((n, i) => n + i.deposit, 0);
 
   return (
@@ -106,6 +194,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
       value={{
         items,
         add,
+        replace,
+        reminderEnabled,
+        setReminderEnabled,
+        reminderError,
         remove,
         clear,
         has,
