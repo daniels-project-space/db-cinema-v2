@@ -1,3 +1,4 @@
+import { loyaltyProgress } from "./lib/loyalty";
 import { membershipActiveNow } from "../shared/membership";
 import { usableCredit } from "./lib/creditLedger";
 import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
@@ -63,7 +64,9 @@ export const _byToken = internalQuery({
       .withIndex("by_token", (q) => q.eq("token", token))
       .first();
     if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
-    const account=await ctx.db.get(s.accountId);return account?.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
+    const account=await ctx.db.get(s.accountId);
+    if (!account || (account.emailVerificationRequired && !account.emailVerifiedAt)) return null;
+    return {...account,loyaltyEligible:(await loyaltyProgress(ctx,account)).eligible};
   },
 });
 
@@ -190,6 +193,7 @@ export const me = query({
   handler: async (ctx, { token }) => {
     const a: any = await resolve(ctx, token);
     if (!a) return null;
+    const loyalty = await loyaltyProgress(ctx,a);
     const now = Date.now();
     const credits = await ctx.db
       .query("credits")
@@ -199,6 +203,10 @@ export const me = query({
       .filter((c) => c.status === "active" && c.expiresAt > now)
       .reduce((n, c) => n + usableCredit(c), 0);
     return {
+      loyaltyEligible: loyalty.eligible,
+      loyaltyCompleted: loyalty.completed,
+      loyaltyCelebrated: !!a.loyaltyCelebratedAt,
+      membershipPerksPending: !!a.membershipPerksPendingBookingId,
       _id: a._id,
       email: a.email,
       name: a.name ?? null,
@@ -589,5 +597,17 @@ export const _setStripeCustomer = internalMutation({
       .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
       .first();
     if (a) await ctx.db.patch(a._id, { stripeCustomerId: customerId });
+  },
+});
+
+/** Acknowledgement is authenticated and persisted across devices. */
+export const acknowledgeLoyalty = mutation({
+  args:{token:v.string()},
+  handler:async(ctx,{token})=>{
+    const account=await resolve(ctx,token);
+    if(!account)throw Error("Sign in to your account.");
+    if(!(await loyaltyProgress(ctx,account)).eligible)throw Error("Complete three separate rentals first.");
+    if(!account.loyaltyCelebratedAt)await ctx.db.patch(account._id,{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()});
+    return true;
   },
 });

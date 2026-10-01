@@ -35,6 +35,9 @@ export const bindCheckout = internalMutation({
     const row = await ctx.db.get(a.id);
     if (!row || row.state === "expired") throw Error("Membership checkout expired.");
     if (row.sessionId && row.sessionId !== a.sessionId) throw Error("Membership checkout already bound.");
+    const initialBookingId = a.bookingId ?? row.bookingId;
+    const initialBooking = initialBookingId ? await ctx.db.get(initialBookingId) : null;
+    await ctx.db.patch(row.accountId,{membershipPerksPendingBookingId:initialBooking?.status === "pending_payment" ? initialBookingId : undefined});
     await ctx.db.patch(row._id, { sessionId: a.sessionId, state: row.state === "complete" ? "complete" : "open", ...(a.bookingId ? { bookingId: a.bookingId } : {}) });
   },
 });
@@ -106,6 +109,10 @@ export const grantPaidInvoice = internalMutation({
     // debt meanwhile. Only unreserved credit can clear that future-credit offset.
     const debtUsed = Math.min(earned-initialCreditAppliedPence, account.membershipCreditDebtPence ?? 0);
     const creditPence = earned - debtUsed;
+    if (checkout?.bookingId) {
+      const initialBooking = await ctx.db.get(checkout.bookingId);
+      await ctx.db.patch(account._id,{membershipPerksPendingBookingId:initialBooking?.status === "pending_payment" ? checkout.bookingId : undefined});
+    }
     const signupOffer = checkout?.membershipSignupOfferSaving ?? checkout?.starterOfferSaving ?? 0;
     if (signupOffer > 0) {
       const expectedSignup = checkout?.tier === "plus" ? (checkout.starterOfferSaving === 10 ? 10 : 5) : 10;

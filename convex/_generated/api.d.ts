@@ -55,6 +55,7 @@ import type * as lib_diditCapacity from "../lib/diditCapacity.js";
 import type * as lib_gafferDiscount from "../lib/gafferDiscount.js";
 import type * as lib_kitPlanning from "../lib/kitPlanning.js";
 import type * as lib_lateFee from "../lib/lateFee.js";
+import type * as lib_loyalty from "../lib/loyalty.js";
 import type * as lib_mailer from "../lib/mailer.js";
 import type * as lib_memberDelivery from "../lib/memberDelivery.js";
 import type * as lib_membership from "../lib/membership.js";
@@ -160,6 +161,7 @@ declare const fullApi: ApiFromModules<{
   "lib/gafferDiscount": typeof lib_gafferDiscount;
   "lib/kitPlanning": typeof lib_kitPlanning;
   "lib/lateFee": typeof lib_lateFee;
+  "lib/loyalty": typeof lib_loyalty;
   "lib/mailer": typeof lib_mailer;
   "lib/memberDelivery": typeof lib_memberDelivery;
   "lib/membership": typeof lib_membership;

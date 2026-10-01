@@ -1,8 +1,9 @@
+import { unlockLoyalty, loyaltyProgress } from "./lib/loyalty";
 import { creditDebit,usableCredit } from "./lib/creditLedger";
 import { safeRepeatRental,repeatRentalFingerprint } from "./lib/repeatRental";
 import { reviewContext } from "./lib/reviewContext";
 import { studioDeliveryAvailable, londonMonth } from "./lib/memberDelivery";
-import { paidDepositExempt } from "../shared/membership";
+import { paidDepositExempt, membershipActiveNow } from "../shared/membership";
 import { checkoutMembershipCredit, membershipSignupOffer } from "../shared/checkoutMembershipCredit";
 import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
@@ -86,6 +87,7 @@ export const createPending = internalMutation({
     membershipCreditApplied: v.optional(v.number()),
     membershipSignupOfferSaving: v.optional(v.number()),
     weekendSaving: v.optional(v.number()),
+    loyaltySaving: v.optional(v.number()),
     quotedDeliveryFee: v.optional(v.number()),
     creditAccountId: v.optional(v.id("accounts")),
     deliveryBenefitMonth: v.optional(v.string()),
@@ -123,7 +125,7 @@ export const createPending = internalMutation({
     if (a.membershipCheckoutId) {
       const checkout = await ctx.db.get(a.membershipCheckoutId);
       if (!checkout || checkout.accountId !== a.creditAccountId || checkout.state !== "creating" || checkout.expiresAt <= Date.now()) throw Error("Membership checkout reservation expired.");
-      if (a.securityWaiverReason === "new_paid_membership" && checkout.intro === "trial") throw Error("Free trials cannot waive the upfront security payment.");
+      if (a.securityWaiverReason === "new_paid_membership") throw Error("Membership added at checkout cannot waive this rental’s security payment.");
     } else if (a.securityWaiverReason === "new_paid_membership") throw Error("A paid membership checkout is required for this security benefit.");
     if (a.securityWaiverReason === "safe_repeat_kit") {
       const source=a.repeatSourceBookingId?await ctx.db.get(a.repeatSourceBookingId):null;
@@ -145,6 +147,13 @@ export const createPending = internalMutation({
       customer = await ctx.db.get(id);
     }
 
+    if ((a.loyaltySaving ?? 0) > 0) {
+      const loyaltyAccount = a.creditAccountId ? await ctx.db.get(a.creditAccountId) : null;
+      if (!loyaltyAccount || a.membershipCheckoutId || membershipActiveNow(loyaltyAccount) || !(await loyaltyProgress(ctx,loyaltyAccount)).eligible)
+        throw Error("Your Encore benefit changed. Review the updated rental total.");
+      const expectedLoyalty = Math.round((a.subtotal-(a.discount??0)+a.loyaltySaving!)*10)/100;
+      if (Math.round(expectedLoyalty*100) !== Math.round(a.loyaltySaving!*100)) throw Error("Your Encore rental saving changed.");
+    }
     // ── store-credit reservation (transactional, double-spend-safe) ──
     // Cap to the account's available balance MINUS credit already reserved by its other pending
     // checkouts, so two concurrent checkouts can't both spend the same credit (each serializable
@@ -378,6 +387,9 @@ export const confirm = internalMutation({
       status: "confirmed",
       stripePaymentIntentId: paymentIntentId,
     });
+    const membershipAccount = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", booking.guestEmail ?? "")).first();
+    if (membershipAccount?.membershipPerksPendingBookingId === bookingId)
+      await ctx.db.patch(membershipAccount._id,{membershipPerksPendingBookingId:undefined});
     // write the reservation ledger (source:site) per BOM component
     for (const li of booking.lineItems) {
       const listing = await ctx.db.get(li.listingId);
@@ -759,6 +771,7 @@ export const markReturnedStatus = internalMutation({
     const b = await ctx.db.get(bookingId);
     if (!b) return;
     if (b.status !== "returned") await ctx.db.patch(bookingId, { status: "returned" });
+    if (b.guestEmail) await unlockLoyalty(ctx,b.guestEmail);
     const res = await ctx.db
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
@@ -1477,6 +1490,9 @@ export const _finalizeCancellation = internalMutation({
     const b = await ctx.db.get(bookingId);
     if (!b) return { ok: false as const };
     await stopMatchingRecovery(ctx,b.guestEmail??"",b.lineItems,bookingId);
+    const membershipAccount = accountId ? await ctx.db.get(accountId) : await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",b.guestEmail??"")).first();
+    if (membershipAccount?.membershipPerksPendingBookingId === bookingId)
+      await ctx.db.patch(membershipAccount._id,{membershipPerksPendingBookingId:undefined});
     if (b.status === "cancelled") return { ok: true as const, already: true };
 
     let creditId: any = undefined;

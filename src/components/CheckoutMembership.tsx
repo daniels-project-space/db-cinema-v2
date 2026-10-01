@@ -133,9 +133,9 @@ export function CheckoutMembership({
             <div className="space-y-2 text-[11px] text-white/60">
               {appliedSavings.membershipCreditApplied > 0 && <p>First-month credit used · £{appliedSavings.membershipCreditApplied.toFixed(2)}</p>}
 
-              {tier.weekend && appliedSavings.rentalSaving > 0 && (
+              {tier.weekend && appliedSavings.weekendSaving > 0 && (
                 <p>
-                  Weekend savings · £{appliedSavings.rentalSaving.toFixed(2)}
+                  Weekend savings · £{appliedSavings.weekendSaving.toFixed(2)}
                 </p>
               )}
               {appliedSavings.deliveryReduction > 0 && (
@@ -247,7 +247,7 @@ export function CheckoutMembership({
                 <p className="text-[11px] leading-5 text-white/45">
                   {selected.intro === "trial"
                     ? "The free week alone does not waive the upfront security payment."
-                    : "No upfront security payment on this rental once checkout completes."}{" "}
+                    : "This first rental still requires verification and the upfront refundable security payment."}{" "}
                   Full card hold still applies. {selected.intro === "trial"
                     ? "The free week earns no monthly credit."
                     : `£${(appliedSavings?.membershipCreditApplied ?? 0).toFixed(2)} of your first-month credit is used on this rental. Any unused balance is issued after successful payment, lasts one year and stacks with future monthly credit.`}
@@ -276,6 +276,16 @@ export function CheckoutMembership({
             )}
           </>
         )}
+        {!current && <>
+          <ul className="mt-3 grid gap-1.5 text-[11px] text-white/55" aria-label="Future membership benefits">
+            <li>✦ Monthly rental credit · stacks for one year</li>
+            <li>✦ Future paid-member rentals · no upfront security payment</li>
+            <li>✦ {(chosen ?? recommendedTier).key === "studio" ? "One London delivery each month" : `${(chosen ?? recommendedTier).deliveryPct}% off future delivery`}</li>
+            {(chosen ?? recommendedTier).weekend && <li>✦ Future weekend deals · save up to £100</li>}
+            {(chosen ?? recommendedTier).filmFund && <li>✦ Film Fund entry included · coming soon</li>}
+          </ul>
+          <p className="mt-3 text-[10px] leading-5 text-white/40">This checkout uses credit and the joining offer only. Verification, the upfront refundable security payment and the full card hold still apply. Other perks start after this booking is confirmed, for future rentals.</p>
+        </>}
         <button
           onClick={() => setOpen(true)}
           className="mt-3 text-[11px] text-white/55 underline underline-offset-4"

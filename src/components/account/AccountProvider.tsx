@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useQuery, useAction, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { LoyaltyCelebration } from "./LoyaltyCelebration";
 
 type Me = {
   _id: string;
@@ -25,6 +26,10 @@ type Me = {
   storeCredit: number;
   membershipTier: string | null;
   membershipActive: boolean;
+  membershipPerksPending: boolean;
+  loyaltyEligible: boolean;
+  loyaltyCompleted: number;
+  loyaltyCelebrated: boolean;
   membershipStatus: string | null;
   membershipPaidThrough: number | null;
   membershipTrialEnd: number | null;
@@ -71,6 +76,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const signOutM = useMutation(api.accounts.signOut);
   const updateM = useMutation(api.accounts.updateProfile);
   const favM = useMutation(api.accounts.toggleFavorite);
+  const acknowledgeLoyalty = useMutation(api.accounts.acknowledgeLoyalty);
   const claimFollowUpsM = useMutation(api.followUp.claimForAccount);
   useEffect(() => {
     // Email-link account creation completes after signup has returned. Claim
@@ -153,6 +159,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      {token && meRes?.loyaltyEligible && !meRes.loyaltyCelebrated && <LoyaltyCelebration subscriptionActive={meRes.membershipActive} onAcknowledge={()=>acknowledgeLoyalty({token})}/> }
     </Ctx.Provider>
   );
 }

@@ -325,6 +325,11 @@ function Dashboard() {
                   expires after one year.
                 </p>
               </div>
+              <div className="mb-4 rounded-3xl border border-amber-200/20 bg-gradient-to-br from-amber-200/[.07] to-transparent p-5">
+                <p className="font-mono text-[10px] uppercase tracking-[.25em] text-amber-200/65">Encore · returning filmmakers</p>
+                <p className="mt-2 font-display text-2xl text-white">{me.loyaltyEligible ? "10% off your next story" : `${me.loyaltyCompleted} / 3 completed rentals`}</p>
+                <p className="mt-2 text-xs leading-6 text-white/45">{me.loyaltyEligible ? me.membershipActive ? "Unlocked and saved. Your subscription perks take priority; Encore applies when renting without a subscription." : "Automatically applied to rental charges. Delivery and security are excluded. No subscription needed." : "Complete three rentals with separate dates and checkout payments to unlock 10% off future rental charges."}</p>
+              </div>
               <RentalCalendar bookings={bookings as any} />
             </div>
           </div>
