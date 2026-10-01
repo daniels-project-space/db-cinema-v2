@@ -3,7 +3,7 @@ import { safeRepeatRental,repeatRentalFingerprint } from "./lib/repeatRental";
 import { reviewContext } from "./lib/reviewContext";
 import { studioDeliveryAvailable, londonMonth } from "./lib/memberDelivery";
 import { paidDepositExempt } from "../shared/membership";
-import { checkoutMembershipCredit, starterRentalOffer } from "../shared/checkoutMembershipCredit";
+import { checkoutMembershipCredit, membershipSignupOffer } from "../shared/checkoutMembershipCredit";
 import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRentalInventory } from "./lib/rentalInventory";
@@ -84,7 +84,8 @@ export const createPending = internalMutation({
     total: v.number(),
     expectedTotalDue: v.number(),
     membershipCreditApplied: v.optional(v.number()),
-    starterOfferSaving: v.optional(v.number()),
+    membershipSignupOfferSaving: v.optional(v.number()),
+    weekendSaving: v.optional(v.number()),
     quotedDeliveryFee: v.optional(v.number()),
     creditAccountId: v.optional(v.id("accounts")),
     deliveryBenefitMonth: v.optional(v.string()),
@@ -159,8 +160,8 @@ export const createPending = internalMutation({
       const checkout = (await ctx.db.get(a.membershipCheckoutId))!;
       if (checkout.bookingId) throw Error("Membership credit is already reserved for another rental.");
       const account = await ctx.db.get(checkout.accountId);
-      const expectedOffer = starterRentalOffer(checkout.tier,checkout.intro,a.subtotal-(a.discount??0)+(a.starterOfferSaving??0)+(a.quotedDeliveryFee??a.deliveryFee),account?.starterRentalOfferUsed);
-      if ((a.starterOfferSaving ?? 0) !== expectedOffer) throw Error("Your Starter welcome offer changed. Review the updated total before paying.");
+      const expectedOffer = (a.weekendSaving ?? 0) > 0 ? 0 : membershipSignupOffer(checkout.tier,checkout.intro,a.subtotal-(a.discount??0)+(a.membershipSignupOfferSaving??0)+(a.quotedDeliveryFee??a.deliveryFee),!!(account?.membershipSignupOfferUsed || account?.starterRentalOfferUsed));
+      if ((a.membershipSignupOfferSaving ?? 0) !== expectedOffer) throw Error("Your Membership welcome offer changed. Review the updated total before paying.");
       const immediate = checkoutMembershipCredit(checkout.tier, checkout.intro,
         Math.round(Math.max(0, a.subtotal - (a.discount ?? 0) - creditApplied) * 100), account?.membershipCreditDebtPence);
       membershipCreditApplied = immediate.appliedPence / 100;
@@ -168,7 +169,7 @@ export const createPending = internalMutation({
     if (Math.round((a.membershipCreditApplied ?? 0) * 100) !== Math.round(membershipCreditApplied * 100))
       throw Error("Your first-month credit changed. Review the updated total before paying.");
     creditApplied = Math.round((creditApplied + membershipCreditApplied) * 100) / 100;
-    if (!a.membershipCheckoutId && (a.starterOfferSaving ?? 0) > 0) throw Error("A paid Starter checkout is required for this offer.");
+    if (!a.membershipCheckoutId && (a.membershipSignupOfferSaving ?? 0) > 0) throw Error("A paid membership checkout is required for this offer.");
     const chargedTotal = a.total - creditApplied;
     // Credit can be spent in another checkout between the preview and this mutation.
     // Reject atomically before a booking or Stripe session is created.
@@ -193,7 +194,7 @@ export const createPending = internalMutation({
       total: chargedTotal,
       creditApplied,
       membershipCreditApplied,
-      starterOfferSaving: a.starterOfferSaving,
+      membershipSignupOfferSaving: a.membershipSignupOfferSaving,
       deliveryBenefitMonth: a.deliveryBenefitMonth,
       deliveryBenefitAccountId: a.deliveryBenefitMonth ? a.creditAccountId : undefined,
       securityWaiverReason: a.securityWaiverReason,
@@ -215,7 +216,7 @@ export const createPending = internalMutation({
       pickupTime: a.pickupTime,
       returnTime: a.returnTime,
     });
-    if (a.membershipCheckoutId) await ctx.db.patch(a.membershipCheckoutId, {bookingId, starterOfferSaving:a.starterOfferSaving, initialCreditAppliedPence:Math.round(membershipCreditApplied * 100)});
+    if (a.membershipCheckoutId) await ctx.db.patch(a.membershipCheckoutId, {bookingId, membershipSignupOfferSaving:a.membershipSignupOfferSaving, initialCreditAppliedPence:Math.round(membershipCreditApplied * 100)});
     await linkMatchingRecovery(ctx,customerEmail,a.lineItems,bookingId);
     return { bookingId, creditApplied };
   },

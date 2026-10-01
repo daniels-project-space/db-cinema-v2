@@ -245,7 +245,8 @@ export default defineSchema({
     creditApplied: v.optional(v.number()), // store credit redeemed at checkout (decremented on confirm)
     membershipCreditApplied: v.optional(v.number()), // first paid invoice credit spent in this checkout
     membershipCreditGrantId: v.optional(v.id("membership_credit_grants")),
-    starterOfferSaving: v.optional(v.number()),
+    membershipSignupOfferSaving: v.optional(v.number()),
+    starterOfferSaving: v.optional(v.number()), // accepted legacy receipts
     depositKept: v.optional(v.number()), // portion of the deposit retained for damage on return
     depositRefundAmount: v.optional(v.number()),
     depositHoldCapturedForDamage: v.optional(v.number()),
@@ -474,7 +475,8 @@ export default defineSchema({
 
   // ── RMv2 availability bridge state ────────────────────────────
   accounts: defineTable({
-    starterRentalOfferUsed: v.optional(v.boolean()),
+    membershipSignupOfferUsed: v.optional(v.boolean()),
+    starterRentalOfferUsed: v.optional(v.boolean()), // accepted legacy receipts
     email: v.string(),
     salt: v.optional(v.string()), // optional: Google-only accounts have no password
     emailVerificationRequired: v.optional(v.boolean()),
@@ -794,7 +796,7 @@ export default defineSchema({
     state:v.union(v.literal("creating"),v.literal("open"),v.literal("complete"),v.literal("expired")),
     sessionId:v.optional(v.string()),subscriptionId:v.optional(v.string()),bookingId:v.optional(v.id("bookings")),
     termsVersion:v.string(),consentAt:v.number(),sessionParams:v.optional(v.string()),
-    starterOfferSaving:v.optional(v.number()),initialCreditAppliedPence:v.optional(v.number()),initialCreditInvoiceId:v.optional(v.string()),
+    starterOfferSaving:v.optional(v.number()),membershipSignupOfferSaving:v.optional(v.number()),initialCreditAppliedPence:v.optional(v.number()),initialCreditInvoiceId:v.optional(v.string()),
   }).index("by_account",["accountId"]).index("by_session",["sessionId"]).index("by_request",["requestId"]),
   membership_credit_grants: defineTable({
     accountId:v.id("accounts"),subscriptionId:v.string(),invoiceId:v.string(),paidMembershipPence:v.number(),creditPence:v.number(),earnedCreditPence:v.optional(v.number()),

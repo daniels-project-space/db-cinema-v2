@@ -34,7 +34,7 @@ type PriceQuoteResult = {
   creditApplied: number;
   membershipCreditApplied: number;
   membershipNetSaving: number;
-  starterOfferSaving: number;
+  membershipSignupOfferSaving: number;
   totalDue: number;
   deliveryReduction: number;
   securityWaiverReason?: string;
@@ -42,7 +42,7 @@ type PriceQuoteResult = {
   rentalSaving: number;
   membershipFee: number;
   combinedTotalDue: number;
-  recommendations: {starterOfferSaving:number;intro:"trial"|"none";membershipCreditApplied:number;tier:string;name:string;monthlyFee:number;monthlyCredit:number;rentalSaving:number;deliverySaving:number;initialFee:number;netSaving:number;depositWaived:boolean}[];
+  recommendations: {membershipSignupOfferSaving:number;intro:"trial"|"none";membershipCreditApplied:number;tier:string;name:string;monthlyFee:number;monthlyCredit:number;rentalSaving:number;deliverySaving:number;initialFee:number;netSaving:number;depositWaived:boolean}[];
 };
 
 /** Map a Stripe subscription back to one of our tier keys: price lookup_key (dbc_member_<key>,
@@ -92,7 +92,7 @@ export const priceQuote = action({
         const preview = await calculateRentalPrice(ctx, {...a, customer:{email:a.customerEmail}, selectedMembership:{tier:tier.key,intro}});
         const rentalSaving = Math.round((base.subtotal-base.totalReduction-preview.subtotal+preview.totalReduction)*100)/100;
         const deliverySaving = base.deliveryFee-preview.deliveryFee;
-        return {tier:tier.key,intro,starterOfferSaving:preview.starterOfferSaving,name:tier.name,monthlyFee:tier.monthlyGbp,monthlyCredit:tier.monthlyCredit,rentalSaving,deliverySaving,initialFee:preview.membershipFee,membershipCreditApplied:preview.membershipCreditApplied,netSaving:netSaving(preview),depositWaived:preview.depositAmount===0};
+        return {tier:tier.key,intro,membershipSignupOfferSaving:preview.membershipSignupOfferSaving,name:tier.name,monthlyFee:tier.monthlyGbp,monthlyCredit:tier.monthlyCredit,rentalSaving,deliverySaving,initialFee:preview.membershipFee,membershipCreditApplied:preview.membershipCreditApplied,netSaving:netSaving(preview),depositWaived:preview.depositAmount===0};
       }));
       return offers.sort((x,y)=>y.netSaving-x.netSaving)[0];
     }));
@@ -101,7 +101,7 @@ export const priceQuote = action({
       recommendations,
       membershipNetSaving: a.selectedMembership ? netSaving(price) : price.rentalSaving + price.deliveryReduction,
       membershipCreditApplied: price.membershipCreditApplied,
-      starterOfferSaving: price.starterOfferSaving,
+      membershipSignupOfferSaving: price.membershipSignupOfferSaving,
       items: price.items.map((item) => ({ title: item.title, total: item.total })),
       subtotal: price.subtotal,
       depositHoldAmount: price.depositHoldAmount,
@@ -306,7 +306,8 @@ export const start = action({
       total,
       expectedTotalDue: price.totalDue,
       membershipCreditApplied: price.membershipCreditApplied,
-      starterOfferSaving: price.starterOfferSaving,
+      membershipSignupOfferSaving: price.membershipSignupOfferSaving,
+      weekendSaving: price.weekendSaving,
       quotedDeliveryFee: price.quotedDeliveryFee,
       membershipCheckoutId: membershipCheckout?._id,
       accountAccessRequired: !pricedAccount,

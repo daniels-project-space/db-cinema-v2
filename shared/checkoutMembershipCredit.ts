@@ -1,8 +1,8 @@
 import { monthlyCreditPence, tierByKey } from "./membership";
 
 export const MEMBERSHIP_BASKET_MINIMUM: Record<string, number> = {plus:100, pro:200, studio:300};
-export function starterRentalOffer(tier: string | undefined, intro: string | undefined, rentalSpend: number, used = false) {
-  return tier === "plus" && intro === "none" && !used && Math.round(rentalSpend * 100) >= 10000 ? 10 : 0;
+export function membershipSignupOffer(tier: string | undefined, intro: string | undefined, rentalSpend: number, used = false) {
+  return tier && tier in MEMBERSHIP_BASKET_MINIMUM && intro === "none" && !used && Math.round(rentalSpend * 100) >= MEMBERSHIP_BASKET_MINIMUM[tier] * 100 ? (tier === "plus" ? 5 : 10) : 0;
 }
 
 /** First paid month's credit is tender for this rental, never the fee or security. */

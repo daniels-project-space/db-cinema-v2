@@ -106,10 +106,13 @@ export const grantPaidInvoice = internalMutation({
     // debt meanwhile. Only unreserved credit can clear that future-credit offset.
     const debtUsed = Math.min(earned-initialCreditAppliedPence, account.membershipCreditDebtPence ?? 0);
     const creditPence = earned - debtUsed;
-    if ((checkout?.starterOfferSaving ?? 0) > 0) {
-      if (checkout?.tier !== "plus" || checkout.intro !== "none" || checkout.starterOfferSaving !== 10 || account.starterRentalOfferUsed)
-        throw Error("Starter welcome offer has already been used or does not match this checkout.");
-      await ctx.db.patch(account._id,{starterRentalOfferUsed:true});
+    const signupOffer = checkout?.membershipSignupOfferSaving ?? checkout?.starterOfferSaving ?? 0;
+    if (signupOffer > 0) {
+      const expectedSignup = checkout?.tier === "plus" ? (checkout.starterOfferSaving === 10 ? 10 : 5) : 10;
+      const eligible = checkout?.tier === "plus" || checkout?.tier === "pro" || checkout?.tier === "studio";
+      if (!eligible || checkout?.intro !== "none" || signupOffer !== expectedSignup || account.membershipSignupOfferUsed || account.starterRentalOfferUsed)
+        throw Error("Membership welcome offer has already been used or does not match this checkout.");
+      await ctx.db.patch(account._id,{membershipSignupOfferUsed:true});
     }
     if (debtUsed) await ctx.db.patch(account._id, {membershipCreditDebtPence: (account.membershipCreditDebtPence ?? 0) - debtUsed});
     const {checkoutId: _checkoutId, ...invoiceReceipt} = a;

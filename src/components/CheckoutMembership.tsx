@@ -7,7 +7,7 @@ import { useAccount } from "./account/AccountProvider";
 type Suggestion = {
   intro: "trial" | "none";
   membershipCreditApplied: number;
-  starterOfferSaving: number;
+  membershipSignupOfferSaving: number;
   tier: string;
   name: string;
   monthlyFee: number;
@@ -178,7 +178,7 @@ export function CheckoutMembership({
             </div>
           </div>
         )}
-        {!tier && !!recommend?.starterOfferSaving && <p className="mt-3 text-xs text-accent-200">Includes a one-time £10 Starter welcome discount.</p>}
+        {!tier && !!recommend?.membershipSignupOfferSaving && <p className="mt-3 text-xs text-accent-200">Includes a one-time £{recommend.membershipSignupOfferSaving} {recommend.name} welcome discount.</p>}
         {current ? (
           <p className="mt-2 text-xs leading-6 text-white/55">
             Your membership perks are included in the confirmed price below.
