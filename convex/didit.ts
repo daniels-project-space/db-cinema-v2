@@ -108,6 +108,25 @@ export const bookingSession = action({
   },
 });
 
+/** Re-read the original decision; missing/changed results always fall back to a fresh check. */
+export const reuseVerification = internalAction({
+ args: { bookingId: v.id("bookings") },
+ handler: async (ctx, { bookingId }) => {
+  const candidate: any = await ctx.runQuery(internal.bookings.reuseVerificationCandidate, { bookingId });
+  if (!candidate) return;
+  try {
+    const cfg = config();
+    const report = await retrieveSession(cfg.apiKey, candidate.source.diditSessionId, String(candidate.source._id), candidate.source.guestEmail);
+    if (report.workflow_id !== cfg.workflowId) return;
+    const mapped = mapDecision(report.status, report);
+    if (!mapped || mapped.status !== "verified" || !mapped.documentExpiresAt || mapped.documentExpiresAt <= Date.now()) {
+      await ctx.runMutation(internal.bookings.revokeVerificationReuse, { sourceBookingId: candidate.source._id }); return;
+    }
+    await ctx.runMutation(internal.bookings.applyVerificationReuse, { bookingId, sourceBookingId: candidate.source._id, documentExpiresAt: mapped.documentExpiresAt });
+  } catch { /* Outage or mismatched case requires the normal verification flow. */ }
+ }
+});
+
 /** A human review changes the Didit case before updating the rental. The
  * provider records the review in its audit timeline and emits a signed webhook. */
 export const adminReview = action({
@@ -223,6 +242,7 @@ function mapDecision(rawStatus: unknown, decision: any): {
   status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
   note?: string;
   poaPostcodes: string[];
+  documentExpiresAt?: number;
 } | null {
   let status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
   let poaPostcodes: string[] = [];
@@ -242,7 +262,10 @@ function mapDecision(rawStatus: unknown, decision: any): {
     : rawStatus === "Expired" ? "The verification link expired. Start a new check before handover."
     : rawStatus === "Abandoned" ? "The verification was not completed. Start a new check before handover."
     : status === "requires_input" ? "Please complete the requested document step." : undefined;
-  return { status, note, poaPostcodes };
+  const expiries = (Array.isArray(decision?.id_verifications) ? decision.id_verifications : [])
+    .map((item: any) => /^\d{4}-\d{2}-\d{2}$/.test(item.expiration_date ?? "") ? Date.parse(`${item.expiration_date}T00:00:00Z`) : NaN);
+  const documentExpiresAt = expiries.length && expiries.every(Number.isFinite) ? Math.min(...expiries) : undefined;
+  return { status, note, poaPostcodes, ...(documentExpiresAt ? { documentExpiresAt } : {}) };
 }
 
 /** Didit v3 webhooks sign the complete canonical JSON with X-Signature-V2.

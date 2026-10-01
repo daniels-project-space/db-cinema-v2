@@ -9,7 +9,9 @@ export function rentalReplyTemplates(booking: any, settings: any): { label: stri
     const end = Math.max(...booking.lineItems.map((line: any) => line.end));
     const dates = `Collection: ${day(start)}${booking.pickupTime ? ` at ${booking.pickupTime} (London time)` : "; time to be confirmed"}. Return: ${day(end)}${booking.returnTime ? ` at ${booking.returnTime} (London time)` : "; time to be confirmed"}.`;
     replies.push({ label: "Rental details", text: `${booking.status === "confirmed" ? "Your rental is confirmed." : "Your rental is on hire."} ${dates}${booking.fulfilment === "pickup" && settings?.businessAddress ? ` Collection location: ${settings.businessAddress}.` : booking.fulfilment === "delivery" ? " This order is for delivery to the address on your booking." : " We will confirm the collection location here."}` });
-    if (["requires_input", "manual_review", "rejected"].includes(booking.idVerifyStatus)) replies.push({ label: "Verification needed", text: "Your identity and address verification needs attention before we can hand over your rental. Please open verification in your account and follow the provider's instructions for the documents or resubmission required. Message us here if you need help." });
+    if (booking.idVerifyStatus === "requires_input") replies.push({ label: "Resubmit documents", text: "Please open verification in your account and follow the provider's instructions to resubmit the requested documents. Verification must be approved before handover." });
+    if (booking.idVerifyStatus === "manual_review") replies.push({ label: "Verification review", text: "Your verification is awaiting a team review. We will update you here once a decision is recorded. Handover requires approved verification." });
+    if (booking.idVerifyStatus === "rejected") replies.push({ label: "Verification declined", text: "Your verification has not been approved. Please contact the team here to discuss the next step before handover." });
   }
   replies.push({ label: "Thanks", text: "Thanks for your message. The DB Cinema team is here to help." });
   return replies;

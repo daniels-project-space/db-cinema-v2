@@ -4,6 +4,7 @@ import { contentsText } from "../shared/rentalContents";
 import { query, mutation, internalQuery, internalMutation, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
+import { queueOwnerNotification } from "./lib/adminPush";
 import type { Id } from "./_generated/dataModel";
 
 const ADDON_CUTOFF_MS = 60 * 60 * 1000; // no add-ons within 1h of rental start
@@ -156,8 +157,13 @@ export const _setEscalated = internalMutation({
   args: { accountId: v.id("accounts"), bookingId:v.optional(v.id("bookings")), escalated: v.boolean(), tgMessageId: v.optional(v.number()) },
   handler: async (ctx, { accountId, bookingId, escalated, tgMessageId }) => {
     const t = await rentalThread(ctx,accountId,bookingId);
+    const wasEscalated = !!t?.escalated;
     if (t) await ctx.db.patch(t._id, { escalated, ...(tgMessageId != null ? { tgMessageId } : {}), updatedAt: Date.now() });
     else await ctx.db.insert("chat_threads", { accountId, bookingId, escalated, tgMessageId, updatedAt: Date.now() });
+    if (escalated && !wasEscalated) await queueOwnerNotification(ctx, {
+      eventKey: `human-handoff:${accountId}:${bookingId ?? "general"}:${Date.now()}`, kind: "human_request", accountId, bookingId,
+      title: "Gaffer needs your help", body: "A rental conversation has been passed to your team.",
+    });
   },
 });
 
@@ -169,9 +175,12 @@ export const requestHuman = mutation({
     if (!a) throw new Error("unauthorized");
     if(bookingId)await ownedBooking(ctx,a,bookingId);
     const t = await rentalThread(ctx,a._id,bookingId);
+    if (t?.escalated) return { ok: true };
     if (t) await ctx.db.patch(t._id, { escalated: true, updatedAt: Date.now() });
     else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, updatedAt: Date.now() });
-    await postRentalMessage(ctx,{accountId:a._id,bookingId,sender:"system",text:"The team has been notified. Your conversation stays here."});
+    const messageId = await postRentalMessage(ctx,{accountId:a._id,bookingId,sender:"system",text:"The team has been notified. Your conversation stays here."});
+    await queueOwnerNotification(ctx, { eventKey: `human-request:${messageId}`, kind: "human_request", accountId: a._id, bookingId,
+      title: "Renter requested a human", body: "A renter is waiting for your team in the rental inbox." });
     await ctx.scheduler.runAfter(0, internal.chat._escalationAlert, { accountId: a._id, bookingId });
     return { ok: true };
   },
@@ -221,45 +230,25 @@ export const _adminReply = internalMutation({
   },
 });
 
-/** After a booking confirms: post a welcome + summary, then contextual upsells. */
-export const postBookingMessages = internalAction({
+/** Stage and receipt are checked in the same transaction as the message. */
+export const postBookingMessages = internalMutation({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
-    const b: any = await ctx.runQuery(internal.bookings.getForChat, { bookingId });
-    if (!b || !b.accountId) return; // guest checkout → no account thread
-
-    const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-    const start = Math.min(...b.lineItems.map((li: any) => li.start));
-    const end = Math.max(...b.lineItems.map((li: any) => li.end));
-    const where =
-      b.fulfilment === "delivery"
-        ? `Delivery to ${b.address ?? "your address"}${b.pickupTime ? " around " + b.pickupTime : ""}`
-        : `Pickup in central London${b.pickupTime ? " at " + b.pickupTime : ""}`;
-    const items = b.lineItems.map((li: any) => `• ${li.title}`).join("\n");
-
-    await ctx.runMutation(internal.chat.postSystem, {
-      accountId: b.accountId,
-      bookingId,
-      text: `Booking confirmed 🎬\n${items}\n\n${day(start)} → ${day(end)}\n${where}\n\nReply here any time — we're happy to help.`,
-    });
-
-    // contextual upsells (reuse the offers engine), gated client-side by the 1h rule
-    const offers: any[] = await ctx.runQuery(api.offers.forCart, {
-      items: b.lineItems.map((li: any) => ({
-        listingId: li.listingId,
-        start: li.start,
-        end: li.end,
-        total: li.lineTotal,
-      })),
-    });
-    if (offers && offers.length) {
-      await ctx.runMutation(internal.chat.postSystem, {
-        accountId: b.accountId,
-        bookingId,
-        text: "Want to round out your kit? A few add-ons that pair well — tap to add to this rental:",
-        meta: { kind: "upsell", bookingId, start, end, offers },
-      });
-    }
+    const b = await ctx.db.get(bookingId);
+    if (!b || !["confirmed", "active"].includes(b.status) || b.chatConfirmationMessageId) return;
+    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    if (!account) return;
+    const settings = await ctx.db.query("settings").first();
+    const day = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" });
+    const start = Math.min(...b.lineItems.map(li => li.start));
+    const end = Math.max(...b.lineItems.map(li => li.end));
+    const collection = b.fulfilment === "pickup"
+      ? `Collection: ${day(start)}${b.pickupTime ? ` at ${b.pickupTime} (London time)` : "; time to be confirmed"}.${settings?.businessAddress ? ` Location: ${settings.businessAddress}.` : " We will confirm the collection location here."}`
+      : `Delivery: ${day(start)}${b.pickupTime ? ` at ${b.pickupTime} (London time)` : "; time to be confirmed"}, to the address on your booking.`;
+    const id = await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system",
+      text: `${b.status === "active" ? "Your rental is on hire." : "Your rental is confirmed."}\n${collection}\nReturn: ${day(end)}${b.returnTime ? ` at ${b.returnTime} (London time)` : "; time to be confirmed"}.\nYour kit and any updates are in this conversation.`,
+      meta: { kind: "booking_confirmation", bookingId, stage: b.status } });
+    await ctx.db.patch(bookingId, { chatConfirmationMessageId: id });
   },
 });
 

@@ -5,6 +5,7 @@ import { paginationOptsValidator } from "convex/server";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { listingImages } from "./lib/catalogImages";
 import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
+import { acknowledgeOwnerNotifications } from "./lib/adminPush";
 import {
   accountForToken,
   ownedBooking,
@@ -162,6 +163,7 @@ export const sendOwner = mutation({
     });
     const t = await rentalThread(ctx, a._id, bookingId);
     if (t) await ctx.db.patch(t._id, { escalated: true });
+    await acknowledgeOwnerNotifications(ctx, a._id, bookingId);
     return { ok: true };
   },
 });
@@ -190,6 +192,7 @@ export const markRead = mutation({
       throw Error("Invalid read marker");
     const previous = admin ? t.ownerReadAt : t.renterReadAt;
     if (previous != null && previous > seen.at) return;
+    if (admin) await acknowledgeOwnerNotifications(ctx, a._id, bookingId, seen.at);
     // at is monotonic for new messages; creation time disambiguates historical ties.
     const newer = await ctx.db
       .query("messages")
@@ -228,6 +231,7 @@ export const setHandler = mutation({
     const a = await ownerAccount(ctx, bookingId, accountId);
     if (!a) throw Error("No renter account yet");
     const t = await rentalThread(ctx, a._id, bookingId);
+    await acknowledgeOwnerNotifications(ctx, a._id, bookingId);
     if (t)
       await ctx.db.patch(t._id, { escalated: !gaffer, updatedAt: Date.now() });
     else

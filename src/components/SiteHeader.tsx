@@ -1,5 +1,6 @@
 "use client";
 
+import { ChatAvatar } from "./rentals/ChatIdentity";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -103,7 +104,7 @@ export function SiteHeader() {
     };
   }, [mobile]);
 
-  const avatar = me ? (me.avatarUrl ?? `https://i.pravatar.cc/80?u=${encodeURIComponent(me.email)}`) : "";
+  const avatar = me?.avatarUrl ?? null;
 
   const gearClick = (e: React.MouseEvent, href: string) => {
     if (href === "/gear" && pathname === "/" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -231,22 +232,23 @@ export function SiteHeader() {
                 anti-reflow guarantee survives where it actually applies. */}
             <div className="hidden h-9 items-center justify-end md:flex">
               {me ? (
-                <div className="relative">
+                <div className="relative flex items-center">
+                  {(me.storeCredit ?? 0) > 0 && <Link href="/account" className="mr-2 rounded-full bg-emerald-300/10 px-3 py-2 text-xs text-emerald-200">£{me.storeCredit.toFixed(2)} credit</Link>}
                   <button
                     onClick={() => setMenu((m) => !m)}
                     className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] py-1 pl-1 pr-3 transition hover:border-accent-400/40 hover:bg-white/[0.07]"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={avatar} alt="" className="h-7 w-7 rounded-full object-cover ring-1 ring-accent-400/50" />
+                    <ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-7 !w-7 ring-1 ring-accent-400/50" />
                     <span className="max-w-[90px] truncate text-sm text-white/80" title={me.name || me.email}>
                       {me.name || me.email.split("@")[0]}
                     </span>
                   </button>
                   {menu && (
-                    <div className="absolute right-0 mt-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900 shadow-2xl shadow-black/60">
+                    <div className="absolute right-0 top-full mt-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900 shadow-2xl shadow-black/60">
                       <div className="flex items-center gap-3 border-b border-white/5 p-4">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={avatar} alt="" className="h-10 w-10 rounded-full object-cover ring-1 ring-accent-400/50" />
+                        <ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-10 !w-10 ring-1 ring-accent-400/50" />
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-white/90">{me.name || "Account"}</div>
                           <div className="truncate text-xs text-white/40">{me.email}</div>
@@ -302,7 +304,7 @@ export function SiteHeader() {
                   <span className="h-3 w-16 animate-pulse rounded bg-white/10" />
                 </div>
               ) : (
-                <div className="relative">
+                <div className="relative flex items-center">
                   <button
                     onClick={() => setMenu((m) => !m)}
                     className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-accent-400/40 hover:bg-white/[0.07] hover:text-white"

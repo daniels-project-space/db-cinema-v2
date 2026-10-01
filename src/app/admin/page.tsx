@@ -8,6 +8,8 @@ import { AdminGafferCalls } from "@/components/admin/GafferCalls";
 import { RentalInbox } from "@/components/admin/RentalInbox";
 import { AdminRentalCards } from "@/components/admin/RentalCards";
 import { RentalWorkspace } from "@/components/admin/RentalWorkspace";
+import { OwnerNotificationBell } from "@/components/admin/OwnerNotificationBell";
+import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
 
 export default function AdminPage() {
@@ -35,6 +37,7 @@ export default function AdminPage() {
       token ? { token, admin: true } : "skip",
     ) ?? 0;
   const contacts = useQuery(api.contact.adminList, token ? { token } : "skip");
+  const attention = useQuery(api.adminNotifications.latest, token ? { token } : "skip") ?? [];
   const markHandled = useMutation(api.contact.adminMarkHandled);
 
   const authed = bookings?.authorized;
@@ -94,12 +97,15 @@ export default function AdminPage() {
               Owner workspace
             </h1>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+          <OwnerNotificationBell token={token} />
           <button
             onClick={lock}
             className="rounded-full border border-white/10 px-3.5 py-1.5 text-xs font-medium text-white/55 transition hover:border-rose-400/40 hover:text-rose-300"
           >
             Lock panel
           </button>
+          </div>
         </div>
 
         <div className="mt-6 flex gap-2 overflow-x-auto rounded-2xl bg-white/[0.025] p-2">
@@ -126,6 +132,7 @@ export default function AdminPage() {
               }`}
             >
               {label}
+              {key === "inbox" && attention.length > 0 && <span aria-label={`${attention.length} owner alerts`} className="ml-2 inline-block h-2 w-2 rounded-full bg-amber-400" />}
             </button>
           ))}
         </div>
@@ -188,9 +195,11 @@ export default function AdminPage() {
                     </button>
                   )}
                 </div>
-                <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-white/45">
-                  {m.message}
-                </p>
+                <details className="mt-3">
+                  <summary className="cursor-pointer list-none text-xs leading-6 text-white/60"><span className="line-clamp-2">{m.message}</span><span className="mt-2 block text-[10px] text-accent-300">Open enquiry ↗</span></summary>
+                  <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-white/75">{m.message}</p>
+                  <a href={`mailto:${m.email}`} className="mt-3 inline-block rounded-full bg-white/[0.06] px-4 py-2 text-xs text-white/75">Reply by email ↗</a>
+                </details>
               </div>
             ))}
             {contacts && contacts.items.length === 0 && (
@@ -589,26 +598,24 @@ function AdminCartDemand({ token }: { token: string }) {
       <h3 className="mt-6 font-display text-sm font-semibold text-white/70">
         Most-added items
       </h3>
-      <div className="mt-3 space-y-2">
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
         {data.top.length === 0 && (
           <div className="text-sm text-white/30">
             No add-to-cart events yet in this window.
           </div>
         )}
         {data.top.map((t: any, i: number) => (
-          <div key={i} className="flex items-center gap-3 text-sm">
-            <span className="w-5 shrink-0 text-right font-mono text-xs text-white/30">
-              {i + 1}
-            </span>
+          <div key={i} className="flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 text-sm">
+            <SmartImage src={t.heroImage} fallbackSources={t.imageSources} alt={t.title} className="h-16 w-16 shrink-0 rounded-xl" imgClassName="!object-contain" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-white/75">{t.title}</span>
                 <span className="shrink-0 font-mono text-xs text-white/45">
-                  {t.adds}
-                  {t.units !== t.adds ? ` · ${t.units}u` : ""}
+                  {t.adds} total
                 </span>
               </div>
-              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+              <p className="mt-1 text-[10px] text-white/35">{t.cartAdds ? `${t.cartAdds} cart adds` : ""}{t.cartAdds && t.interestRequests ? " · " : ""}{t.interestRequests ? `${t.interestRequests} requests` : ""}</p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
                 <div
                   className="h-full rounded-full bg-accent-500"
                   style={{ width: `${(t.adds / maxA) * 100}%` }}

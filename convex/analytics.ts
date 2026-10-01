@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { listingImages } from "./lib/catalogImages";
 import { checkAdminToken } from "./adminAuth";
 
 /** Record a first-party event (views, funnel steps, zero-result searches). */
@@ -53,21 +54,31 @@ export const cartDemand = query({
     const idx = new Map(series.map((s, i) => [s.date, i]));
 
     // per-item rollup (group by listingId, fall back to slug/title for legacy rows)
-    const byItem = new Map<string, { listingId: string | null; title: string; adds: number; units: number; displayOnly: boolean }>();
+    const byItem = new Map<string, { listingId: string | null; title: string; adds: number; units: number; displayOnly: boolean; cartAdds: number; interestRequests: number }>();
     for (const e of adds) {
       const day = new Date(e.at).toISOString().slice(0, 10);
       const si = idx.get(day);
       const u = (e as any).qty ?? 1;
       if (si != null) { series[si].count += 1; series[si].units += u; }
       const id = (e as any).listingId || e.path || (e as any).title || "unknown";
-      const cur = byItem.get(id) ?? { listingId: (e as any).listingId ?? null, title: (e as any).title || e.path || "(unknown item)", adds: 0, units: 0, displayOnly: false };
+      const cur = byItem.get(id) ?? { listingId: (e as any).listingId ?? null, title: (e as any).title || e.path || "(unknown item)", adds: 0, units: 0, displayOnly: false, cartAdds: 0, interestRequests: 0 };
       cur.adds += 1; cur.units += u;
+      if(e.type === "register_interest") cur.interestRequests += 1; else cur.cartAdds += 1;
       if (e.type === "register_interest") cur.displayOnly = true;
       if ((e as any).title && (cur.title === "(unknown item)" || cur.title === e.path)) cur.title = (e as any).title;
       byItem.set(id, cur);
     }
     const top = [...byItem.values()].sort((a, b) => b.adds - a.adds).slice(0, 25);
-    return { authorized: true as const, days: D, total: adds.length, series, top };
+    const pictured = await Promise.all(top.map(async item => {
+      let listing = null;
+      if (item.listingId) {
+        const id = ctx.db.normalizeId("listings", item.listingId);
+        if (id) listing = await ctx.db.get(id);
+      }
+      const imageSources = listingImages(listing);
+      return { ...item, heroImage: imageSources[0] ?? null, imageSources };
+    }));
+    return { authorized: true as const, days: D, total: adds.length, series, top: pictured };
   },
 });
 

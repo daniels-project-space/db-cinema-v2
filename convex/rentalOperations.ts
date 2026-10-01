@@ -1,3 +1,4 @@
+import { listingImages } from "./lib/catalogImages";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
 import {
   mutation,
@@ -24,6 +25,11 @@ export const details = query({
       .collect();
     return {
       ...b,
+      lineItems: await Promise.all(b.lineItems.map(async (line) => {
+        const listing = await ctx.db.get(line.listingId);
+        const imageSources = listingImages(listing);
+        return { ...line, heroImage: imageSources[0] ?? null, imageSources };
+      })),
       rentalRefunds: refunds,
       cancellationKind: cancelKind(
         Math.min(...b.lineItems.map((li) => li.start)),

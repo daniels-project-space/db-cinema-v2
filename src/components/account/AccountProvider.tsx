@@ -21,6 +21,7 @@ type Me = {
   favorites: string[];
   avatarUrl: string | null;
   idVerified: boolean;
+  storeCredit: number;
   membershipTier: string | null;
   membershipActive: boolean;
   freeAccessoryMonth: string | null;

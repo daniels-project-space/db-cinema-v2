@@ -132,9 +132,11 @@ export default defineSchema({
 
   bookings: defineTable({
     activeAdditionId:v.optional(v.id("rental_additions")),
+    chatConfirmationMessageId: v.optional(v.id("messages")),
     chatUpdatedAt:v.optional(v.number()),chatUnreadOwner:v.optional(v.number()),chatUnreadRenter:v.optional(v.number()),
     cancellationDecision:v.optional(v.object({
       kind:v.union(v.literal("full_refund"),v.literal("store_credit")),createdAt:v.number(),
+      fullCreditOfferId: v.optional(v.id("rental_credit_offers")),
       quote:v.optional(v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})),
     })),
     customerId: v.optional(v.id("customers")),
@@ -188,6 +190,9 @@ export default defineSchema({
     idVerifyStatus: v.optional(v.string()),
     idVerificationSource: v.optional(v.string()),
     idVerifiedAt: v.optional(v.number()),
+    verificationExpiresAt: v.optional(v.number()),
+    documentExpiresAt: v.optional(v.number()),
+    verificationReusedFrom: v.optional(v.id("bookings")),
     depositRefunded: v.optional(v.boolean()),
     agreementSignedAt: v.optional(v.number()),
     securityHoldConsentAt: v.optional(v.number()),
@@ -204,6 +209,9 @@ export default defineSchema({
     reviewFollowUpReason: v.optional(v.string()),
     reviewFollowUpCheckedAt: v.optional(v.number()),
     reviewRefundConfirmedAt: v.optional(v.number()),
+    reviewEligibilityFingerprint: v.optional(v.string()),
+    reviewEligibilityCheckedAt: v.optional(v.number()),
+    reviewInvitationMessageId: v.optional(v.id("messages")),
     reviewFollowUpDueAt: v.optional(v.number()),
     reviewFollowUpSentAt: v.optional(v.number()),
     protection: v.optional(v.string()),
@@ -266,6 +274,7 @@ export default defineSchema({
     .index("by_owner_unread_updated",["chatUnreadOwner","chatUpdatedAt"])
     .index("by_status", ["status"])
     .index("by_verificationProvider_status", ["verificationProvider", "status"])
+    .index("by_verification_reused", ["verificationReusedFrom"])
     .index("by_stripePaymentIntentId", ["stripePaymentIntentId"])
     .index("by_guestEmail", ["guestEmail"])
     .index("by_review_check", ["status", "reviewFollowUpCheckedAt"]),
@@ -285,6 +294,7 @@ export default defineSchema({
     source: v.union(v.literal("hygglo"), v.literal("native")),
     author: v.string(),
     authorImage: v.optional(v.string()),
+    authorAccountId: v.optional(v.id("accounts")),
     product: v.optional(v.string()),
     hyggloReviewId: v.optional(v.number()),
     listingSlug: v.optional(v.string()),
@@ -295,6 +305,7 @@ export default defineSchema({
     published: v.boolean(),
   })
     .index("by_listing", ["listingId"])
+    .index("by_booking", ["verifiedBookingId"])
     .index("by_published", ["published"]),
 
   // ── Crew for hire (booked THROUGH us — first name only, keep the middleman) ──
@@ -452,6 +463,7 @@ export default defineSchema({
     favorites: v.optional(v.array(v.string())),
     avatarStorageId: v.optional(v.id("_storage")), // profile photo (Convex storage)
     idVerified: v.optional(v.boolean()),
+    rentalVerification: v.optional(v.object({ sourceBookingId: v.id("bookings"), name: v.string(), address: v.string(), verifiedAt: v.number(), expiresAt: v.number() })),
     idSessionId: v.optional(v.string()), // Stripe Identity session (account-level verification)
     stripeCustomerId: v.optional(v.string()),
     membershipTier: v.optional(v.string()),
@@ -484,6 +496,22 @@ export default defineSchema({
     .index("by_unread", ["sender", "readByOwner"])
     .index("by_booking_at", ["bookingId", "at"])
     .index("by_account_at", ["accountId", "at"]),
+
+  admin_push_subscriptions: defineTable({
+    deviceId: v.string(), endpoint: v.string(), p256dh: v.string(), auth: v.string(),
+    enabled: v.boolean(), createdAt: v.number(), updatedAt: v.number(), lastError: v.optional(v.string()),
+  }).index("by_device", ["deviceId"]).index("by_enabled", ["enabled"]),
+  admin_notifications: defineTable({
+    eventKey: v.string(), kind: v.string(), accountId: v.id("accounts"), bookingId: v.optional(v.id("bookings")),
+    title: v.string(), body: v.string(), createdAt: v.number(), read: v.boolean(),
+  }).index("by_event", ["eventKey"]).index("by_read_created", ["read", "createdAt"])
+    .index("by_account_booking_read", ["accountId", "bookingId", "read"]),
+  admin_push_deliveries: defineTable({
+    notificationId: v.id("admin_notifications"), subscriptionId: v.id("admin_push_subscriptions"),
+    status: v.string(), attempts: v.number(), nextAttemptAt: v.number(), updatedAt: v.number(),
+    claimId: v.optional(v.string()), claimedAt: v.optional(v.number()), lastError: v.optional(v.string()),
+    subscriptionUpdatedAt: v.optional(v.number()),
+  }).index("by_status_due", ["status", "nextAttemptAt"]),
 
   promo_redemptions: defineTable({
     email: v.string(),
@@ -527,7 +555,13 @@ export default defineSchema({
     note: v.optional(v.string()),
   }).index("by_key", ["key"]),
 
-  // ── Store credit (Phase 3) — issued on late cancellation, 90-day expiry ──
+  // ── Store credit (Phase 3) — issued on late cancellation, one-year expiry ──
+  rental_credit_offers: defineTable({
+    accountId: v.id("accounts"), bookingId: v.id("bookings"),
+    amountPence: v.number(), fingerprint: v.string(), createdAt: v.number(), expiresAt: v.number(),
+    status: v.union(v.literal("offered"), v.literal("accepted")),
+    acceptedAt: v.optional(v.number()),
+  }).index("by_booking", ["bookingId"]),
   credits: defineTable({
     accountId: v.id("accounts"),
     amount: v.number(), // original issued (GBP)
@@ -536,7 +570,7 @@ export default defineSchema({
     reason: v.string(), // e.g. "late_cancellation:<bookingId>"
     bookingId: v.optional(v.id("bookings")),
     createdAt: v.number(),
-    expiresAt: v.number(), // createdAt + 90d
+    expiresAt: v.number(), // createdAt + 365d
     status: v.union(v.literal("active"), v.literal("spent"), v.literal("expired")),
   })
     .index("by_account", ["accountId"])

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function GafferIcon({ className = "h-5 w-5" }: { className?: string }) {
   return <svg role="img" aria-label="Gaffer" viewBox="0 0 32 32" className={className} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -9,9 +9,10 @@ export function GafferIcon({ className = "h-5 w-5" }: { className?: string }) {
   </svg>;
 }
 
-export function ChatAvatar({ sender, name, photo }: { sender: string; name?: string | null; photo?: string | null }) {
+export function ChatAvatar({ sender, name, photo, className = "" }: { sender: string; name?: string | null; photo?: string | null; className?: string }) {
   const [failed, setFailed] = useState(false);
-  const base = "flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl";
+  useEffect(() => setFailed(false), [photo]);
+  const base = `flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl ${className}`;
   if (sender === "bot") return <span className={`${base} bg-emerald-300/15 text-emerald-200`}><GafferIcon /></span>;
   if (sender === "owner") return <span className={`${base} bg-white/10`}>
     {/* eslint-disable-next-line @next/next/no-img-element */}

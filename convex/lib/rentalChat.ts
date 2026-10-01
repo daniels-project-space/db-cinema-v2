@@ -1,3 +1,4 @@
+import { queueOwnerNotification } from "./adminPush";
 /** Shared boundaries for customer and owner rental conversations. */
 export async function accountForToken(ctx: any, token: string) {
   const s = await ctx.db
@@ -67,5 +68,9 @@ export async function postRentalMessage(
       chatUnreadOwner: patch.unreadOwner,
       chatUnreadRenter: patch.unreadRenter,
     });
+  if (a.sender === "renter" && thread?.escalated) await queueOwnerNotification(ctx, {
+    eventKey: `renter-message:${id}`, kind: "renter_message", accountId: a.accountId, bookingId: a.bookingId,
+    title: "New rental message", body: "A renter has replied in a conversation handled by your team.",
+  });
   return id;
 }

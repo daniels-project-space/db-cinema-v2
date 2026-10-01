@@ -4,6 +4,8 @@ const RMV2 = "https://hearty-oyster-600.convex.cloud";
 const STORE = "https://veracious-wombat-196.convex.cloud";
 const HYGGLO = "https://api.hygglo.com/api";
 const CONCURRENCY = 10;
+const ADMIN_TOKEN = process.env.DBC_ADMIN_TOKEN;
+if (!ADMIN_TOKEN) throw Error("DBC_ADMIN_TOKEN is required for review imports.");
 
 async function post(base, kind, path, args) {
   const r = await fetch(`${base}/api/${kind}`, {
@@ -71,10 +73,10 @@ const all = [...byId.values()];
 const withText = all.filter((r) => r.text && r.text.trim().length > 8).length;
 console.log(`unique reviews: ${all.length} (with text: ${withText})`);
 
-await post(STORE, "mutation", "reviews:clearHygglo", {});
+await post(STORE, "mutation", "reviews:clearHygglo", { token: ADMIN_TOKEN });
 for (let i = 0; i < all.length; i += 200) {
   const chunk = all.slice(i, i + 200);
-  await post(STORE, "mutation", "reviews:insertChunk", { items: chunk });
+  await post(STORE, "mutation", "reviews:insertChunk", { token: ADMIN_TOKEN, items: chunk });
   console.log(`  inserted ${Math.min(i + 200, all.length)}/${all.length}`);
 }
 console.log("done");

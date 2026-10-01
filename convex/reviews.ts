@@ -1,5 +1,9 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { accountForToken, ownedBooking } from "./lib/rentalChat";
+import { customerReviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
+import { reviewContext } from "./lib/reviewContext";
+import { assertAdmin } from "./adminAuth";
 
 export const listPublished = query({
   args: { limit: v.optional(v.number()) },
@@ -11,14 +15,17 @@ export const listPublished = query({
     // carousel shows only reviews that actually have text
     const withText = rows.filter((r) => r.text && r.text.trim().length > 8);
     withText.sort((a, b) => b.date - a.date);
-    return withText.slice(0, limit ?? 30).map((r) => ({
+    return Promise.all(withText.slice(0, Math.min(50, Math.max(1, limit ?? 30))).map(async (r) => {
+      const account = r.authorAccountId ? await ctx.db.get(r.authorAccountId) : null;
+      const photo = account?.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
+      return ({
       _id: r._id,
       author: r.author,
-      authorImage: r.authorImage ?? null,
+      authorImage: photo ?? account?.googleAvatarUrl ?? r.authorImage ?? null,
       rating: r.rating,
       text: r.text,
       product: r.product ?? null,
-    }));
+    }); }));
   },
 });
 
@@ -40,8 +47,9 @@ export const stats = query({
 });
 
 export const clearHygglo = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await assertAdmin(ctx, token, "reviews.clearHygglo");
     const rows = await ctx.db.query("reviews").collect();
     let n = 0;
     for (const r of rows)
@@ -55,6 +63,7 @@ export const clearHygglo = mutation({
 
 export const insertChunk = mutation({
   args: {
+    token: v.string(),
     items: v.array(
       v.object({
         hyggloReviewId: v.optional(v.number()),
@@ -68,8 +77,10 @@ export const insertChunk = mutation({
       }),
     ),
   },
-  handler: async (ctx, { items }) => {
+  handler: async (ctx, { token, items }) => {
+    await assertAdmin(ctx, token, "reviews.insertChunk");
     for (const it of items) {
+      if (!Number.isInteger(it.rating) || it.rating < 1 || it.rating > 5) throw Error("Rating must be 1–5.");
       await ctx.db.insert("reviews", {
         source: "hygglo",
         hyggloReviewId: it.hyggloReviewId,
@@ -91,22 +102,20 @@ export const insertChunk = mutation({
 export const submitNative = mutation({
   args: { token: v.string(), bookingId: v.id("bookings"), rating: v.number(), text: v.string() },
   handler: async (ctx, { token, bookingId, rating, text }) => {
-    const s = await ctx.db
-      .query("sessions")
-      .withIndex("by_token", (q) => q.eq("token", token))
-      .first();
-    const acct: any = s ? await ctx.db.get(s.accountId) : null;
+    const acct = await accountForToken(ctx, token);
     if (!acct) throw new Error("Please sign in to review.");
-    const b = await ctx.db.get(bookingId);
-    if (!b || b.guestEmail !== acct.email) throw new Error("Not your booking.");
-    if (rating < 1 || rating > 5) throw new Error("Rating must be 1-5.");
-    const dupe = (await ctx.db.query("reviews").collect()).some(
-      (r) => r.verifiedBookingId === bookingId,
-    );
+    const b = await ownedBooking(ctx, acct, bookingId);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error("Rating must be 1-5.");
+    if (text.trim().length < 10 || text.trim().length > 2000) throw Error("Write a review between 10 and 2,000 characters.");
+    if (customerReviewGate(b) || b.reviewEligibilityFingerprint !== reviewSettlementFingerprint(await reviewContext(ctx, b)))
+      throw Error("A review is available after the rental is returned and its refundable security is fully settled.");
+    const dupe = await ctx.db.query("reviews").withIndex("by_booking", q => q.eq("verifiedBookingId", bookingId)).first();
     if (dupe) throw new Error("You've already reviewed this booking.");
     await ctx.db.insert("reviews", {
       source: "native",
       author: acct.name ?? acct.email.split("@")[0],
+      authorAccountId: acct._id,
+      authorImage: (acct.avatarStorageId ? await ctx.storage.getUrl(acct.avatarStorageId) : null) ?? acct.googleAvatarUrl ?? undefined,
       rating,
       text: text.trim(),
       product: b.lineItems[0]?.title,

@@ -1,3 +1,4 @@
+import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import {
   action,
   query,
@@ -199,7 +200,8 @@ export const me = query({
       marketingEmails: a.marketingEmails ?? false,
       favorites: (a.favorites ?? []) as string[],
       avatarUrl: a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : (a.googleAvatarUrl ?? null),
-      idVerified: a.idVerified ?? false,
+      idVerified: a.rentalVerification ? a.rentalVerification.expiresAt > now : (a.idVerified ?? false),
+      verificationValidUntil: a.rentalVerification?.expiresAt ?? null,
       membershipTier: a.membershipTier ?? null,
       membershipActive: a.membershipActive ?? false,
       freeAccessoryMonth: a.freeAccessoryMonth ?? null,
@@ -325,7 +327,16 @@ export const updateProfile = mutation({
   handler: async (ctx, { token, ...patch }) => {
     const a: any = await resolve(ctx, token);
     if (!a) throw new Error("unauthorized");
-    await ctx.db.patch(a._id, patch);
+    const changed = (patch.name != null && verificationDetail(patch.name) !== verificationDetail(a.name)) ||
+      (patch.address != null && verificationDetail(patch.address) !== verificationDetail(a.address));
+    await ctx.db.patch(a._id, { ...patch, ...(changed ? { rentalVerification: undefined, idVerified: false } : {}) });
+    if (changed) {
+      const bookings = await ctx.db.query("bookings").withIndex("by_guestEmail", q => q.eq("guestEmail", a.email)).collect();
+      for (const b of bookings) if (b.status === "confirmed" && b.verificationReusedFrom) { await ctx.db.patch(b._id, {
+        idVerifyStatus: "requires_input", verificationReusedFrom: undefined, verificationExpiresAt: undefined,
+        verificationNote: "Your account details changed. Complete a new identity and address check before handover.",
+      }); await verificationUpdateMessage(ctx, b._id, b.idVerifyStatus, "requires_input"); }
+    }
     return { ok: true };
   },
 });

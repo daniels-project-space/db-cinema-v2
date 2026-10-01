@@ -5,6 +5,8 @@ import { api } from "@cvx/_generated/api";
 import { RentalAdditionApproval } from "./RentalAdditionApproval";
 import { RENTAL_STAGE_LABELS } from "@/lib/rentalPresentation";
 import { ChatAvatar, GafferIcon } from "./ChatIdentity";
+import { RentalCreditOffer } from "./RentalCreditOffer";
+import { BookingReview } from "@/components/account/BookingReview";
 
 export function RentalConversation({
   token,
@@ -272,6 +274,8 @@ export function RentalConversation({
                 >
                   <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
                   <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                  {m.meta?.kind === "full_credit_offer" && !admin && <RentalCreditOffer token={token} offerId={m.meta.offerId} />}
+                  {m.meta?.kind === "review_invitation" && !admin && bookingId && <BookingReview key={bookingId} bookingId={bookingId} token={token} inline />}
                   {m.meta?.kind === "paylink" && (
                     <a
                       href={m.meta.url}

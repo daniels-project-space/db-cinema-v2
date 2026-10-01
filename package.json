@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node scripts/test-rental-experience.cjs && node scripts/test-rental-payment-plan.cjs && node scripts/test-rental-additions.cjs && node scripts/test-rental-chat.cjs && node scripts/test-rental-operations.cjs && node scripts/test-cancellation-retry.cjs && node scripts/test-review-follow-up.cjs && node scripts/test-rental-contents.cjs && node scripts/test-gaffer-fixes.cjs && node scripts/test-didit.cjs && node scripts/test-cancellation-policy.cjs && node scripts/test-stripe-reconcile.cjs && node scripts/test-late-fee-auth.cjs"
+    "test": "node scripts/test-verification-reuse.cjs && node scripts/test-rental-credit-offers.cjs && node scripts/test-owner-notifications.cjs && node scripts/test-native-reviews.cjs && node scripts/test-rental-experience.cjs && node scripts/test-rental-payment-plan.cjs && node scripts/test-rental-additions.cjs && node scripts/test-rental-chat.cjs && node scripts/test-rental-operations.cjs && node scripts/test-cancellation-retry.cjs && node scripts/test-review-follow-up.cjs && node scripts/test-rental-contents.cjs && node scripts/test-gaffer-fixes.cjs && node scripts/test-didit.cjs && node scripts/test-cancellation-policy.cjs && node scripts/test-stripe-reconcile.cjs && node scripts/test-late-fee-auth.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1062.0",
@@ -24,6 +24,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "stripe": "^22.6.2",
+    "web-push": "^3.6.7",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -32,6 +33,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

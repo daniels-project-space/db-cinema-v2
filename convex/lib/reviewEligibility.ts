@@ -1,6 +1,10 @@
 /** Review requests require settled security, not merely the scheduled end date. */
 export function reviewGate(b: any): string | null {
   if (b.remindedReview || b.reviewFollowUpStatus === "sent") return "already_sent";
+  return customerReviewGate(b);
+}
+/** An email already sent does not stop its recipient writing the review. */
+export function customerReviewGate(b: any): string | null {
   if (b.status !== "returned") return "not_returned";
   if ((b.depositKept ?? 0) > 0 || (b.depositHoldCapturedForDamage ?? 0) > 0 ||
       (b.returnDecision?.damageKept ?? 0) > 0 || (b.lateFeePaidFromHold ?? 0) > 0)
@@ -12,6 +16,11 @@ export function reviewGate(b: any): string | null {
   if ((b.lateFeeAmount ?? 0) > 0 && !["paid", "waived", "none"].includes(b.lateFeeStatus ?? ""))
     return "late_settlement_pending";
   return null;
+}
+export function reviewSettlementFingerprint(b: any): string {
+  return JSON.stringify([reviewFingerprint(b),
+    [...(b.paymentSources ?? [])].sort((a, c) => a.paymentIntentId.localeCompare(c.paymentIntentId)),
+    [...(b.unappliedSecurityPayments ?? [])].sort(), [...(b.rentalRefundIds ?? [])].sort()]);
 }
 export function reviewFingerprint(b: any): string {
   return JSON.stringify([b.status,b.depositAmount,b.depositRefunded,b.depositRefundAmount,

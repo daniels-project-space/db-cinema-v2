@@ -68,6 +68,7 @@ export const gafferReply = internalAction({
       ``,
       ...(b?.rentalContents ?? []).map((contents:string) => `RENTAL CONTENTS FACTS: ${contents}`),
       b?.payment?`CUSTOMER SETTLEMENT FACTS: ${JSON.stringify({items:b.items,payment:b.payment,cancellation:b.cancellation,pendingItemAddition:b.pendingItemAddition})}. These describe the current recorded state, not a promise that a bank refund has arrived. Changes, additions, rescheduling and refunds require the team; never say you applied them.`:"",
+      `CANCELLATION CREDIT OPTION: When the customer asks to cancel, set offerCredit=true if they may want account credit. The server separately checks eligibility (at least three London calendar days before rental start), quotes the remaining paid value and displays a consent button. Never claim a quote, refund, credit or cancellation has happened in your reply. The offer includes the remaining paid security payment, replaces a card refund, expires in one year, and releases unused holds. The customer must explicitly accept the displayed offer. Keep handoff=true for cancellation requests so the team can assist with cash refunds or ineligible offers. Otherwise set offerCredit=false.`,
       `STYLE: friendly, concise (under ~80 words), practical. Set handoff=true for a complaint, damage, a refund/cancellation/dispute, or an explicit request for a human — and briefly say you're connecting them with the team.`,
     ].join("\n");
 
@@ -77,15 +78,17 @@ export const gafferReply = internalAction({
 
     let reply = "";
     let handoff = false;
+    let offerCredit = false;
     try {
       const out = await generateObject({
         model,
-        schema: z.object({ reply: z.string(), handoff: z.boolean() }),
+        schema: z.object({ reply: z.string(), handoff: z.boolean(), offerCredit: z.boolean() }),
         system,
         prompt: `Conversation so far:\n${convo}\n\nWrite Gaffer's next reply.`,
       });
       reply = (out.object.reply ?? "").trim();
       handoff = !!out.object.handoff;
+      offerCredit = !!out.object.offerCredit;
     } catch {
       await fallback();return;
     }
@@ -93,6 +96,9 @@ export const gafferReply = internalAction({
 
     const posted=await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, replyTo:messageId??cx.latestRenterId??undefined, text: reply });
     if(!posted)return;
+    if (offerCredit && bookingId) {
+      try { await ctx.runAction(internal.checkout.offerFullCredit, { accountId, bookingId }); } catch { handoff = true; }
+    }
     if (handoff) {
       await ctx.runMutation(internal.chat._setEscalated, { accountId, bookingId, escalated: true });
       await ctx.scheduler.runAfter(0, internal.chat._escalationAlert, { accountId, bookingId });
