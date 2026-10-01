@@ -152,6 +152,14 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(
     `document.querySelector('[data-testid="basket-due"]')?.textContent.includes('£')`,
   );
+  const potential = base.recommendations[0]?.netSaving ?? 0;
+  assert.equal(
+    await c.evaluate(
+      `!!document.querySelector('[data-testid="potential-membership-savings"]')`,
+    ),
+    Math.round(potential * 100) > 0,
+    "Potential savings display must reflect positive net savings",
+  );
   for (const width of [1440, 390]) {
     await c.cmd("Emulation.setDeviceMetricsOverride", {
       width,
@@ -219,6 +227,22 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     selectedMembership: { tier: preferred.tier, intro: "none" },
   });
   assert.equal(paid.depositAmount, 0);
+  const paidDue = new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(paid.combinedTotalDue);
+  await until(
+    `document.querySelector('[data-testid="basket-due"]').textContent===${JSON.stringify(paidDue)}`,
+  );
+  assert.equal(
+    await c.evaluate(
+      `!!document.querySelector('[data-testid="applied-membership-savings"]')`,
+    ),
+    Math.round(
+      (paid.rentalSaving + paid.deliveryReduction - paid.membershipFee) * 100,
+    ) > 0,
+    "Applied card requires positive net savings after the first fee",
+  );
   assert.equal(
     await c.evaluate(
       `document.querySelector('[data-testid="basket-due"]').textContent`,
@@ -315,12 +339,102 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     true,
     "Film Fund must remain directly after the gear catalogue",
   );
+  // A weekday pickup has no weekend/delivery saving: neither an introductory
+  // offer nor a paid plan should invent a discount panel.
+  const weekdayStart = start + 3 * 86400000,
+    weekdayEnd = weekdayStart + 2 * 86400000;
+  const weekdayArgs = {
+    ...args,
+    items: args.items.map((i) => ({
+      ...i,
+      start: weekdayStart,
+      end: weekdayEnd,
+    })),
+  };
+  const weekdayQuote = await cv.action(api.checkout.priceQuote, weekdayArgs);
+  assert(
+    weekdayQuote.recommendations.every((r) => r.netSaving <= 0),
+    "Fixture must have no net saving",
+  );
+  const weekdayItem = {
+    ...item,
+    key: l._id + ":weekday",
+    start: new Date(weekdayStart).toISOString().slice(0, 10),
+    end: new Date(weekdayEnd).toISOString().slice(0, 10),
+    total: weekdayQuote.items[0].total,
+    perDay: weekdayQuote.items[0].total / 3,
+  };
+  await c.evaluate(
+    `localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([weekdayItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`,
+  );
+  await c.cmd("Page.navigate", { url: root + "/cart" });
+  await until(
+    `!!document.querySelector('[data-testid="basket-due"]')&&document.querySelector('[data-testid="basket-due"]').textContent.includes('£')`,
+  );
+  assert.equal(
+    await c.evaluate(
+      `!!document.querySelector('[data-testid="potential-membership-savings"]')`,
+    ),
+    false,
+    "Zero saving must hide the discount panel",
+  );
+  await c.evaluate(
+    `document.querySelector('[data-testid="add-membership"]').click()`,
+  );
+  await until(
+    `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Start paid membership now')`,
+  );
+  await c.evaluate(
+    `[...document.querySelectorAll('button')].find(b=>b.innerText==='Start paid membership now').click()`,
+  );
+  await c.evaluate(
+    `[...document.querySelectorAll('button')].find(b=>b.innerText==='See the membership benefits').click()`,
+  );
+  await until(
+    `!!document.querySelector('[role="dialog"][aria-label="Membership benefits"]')`,
+  );
+  await c.evaluate(
+    `[...document.querySelectorAll('[role="dialog"] button')].find(b=>b.innerText==='Choose Pro').click()`,
+  );
+  const noSavingPaid = await cv.action(api.checkout.priceQuote, {
+    ...weekdayArgs,
+    selectedMembership: { tier: "pro", intro: "none" },
+  });
+  assert(
+    noSavingPaid.rentalSaving +
+      noSavingPaid.deliveryReduction -
+      noSavingPaid.membershipFee <
+      0,
+  );
+  const noSavingDue = new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(noSavingPaid.combinedTotalDue);
+  await until(
+    `document.querySelector('[data-testid="basket-due"]').textContent===${JSON.stringify(noSavingDue)}`,
+  );
+  assert.equal(
+    await c.evaluate(
+      `!!document.querySelector('[data-testid="applied-membership-savings"]')`,
+    ),
+    false,
+    "Fee exceeding savings must hide the discount panel",
+  );
+  assert.equal(
+    await c.evaluate(
+      `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`,
+    ),
+    true,
+    "Selected plan remains manageable",
+  );
+  await shot("no-savings-mobile");
   console.log({
     root,
     guestOfferVisibleBeforeContact: true,
     oneClickCarry: true,
     reloadConsentReset: true,
     paidBasketMatchesAPI: true,
+    zeroAndNegativeSavingsHidden: true,
     modal,
     placement,
     screenshots: "/tmp/dbc-basket-*.png",
