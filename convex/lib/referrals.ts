@@ -15,7 +15,7 @@ export async function referralEligibility(ctx:any,account:any,code:string,exclud
   if(owner._id===account._id||owner.email.trim().toLowerCase()===account.email.trim().toLowerCase())return {valid:false,reason:"You cannot refer yourself."};
   if(account.referralFirstUsedAt||account.firstRentalPaidAt)return {valid:false,reason:"Referral savings are for your first rental only."};
   const bookings=await ctx.db.query("bookings").withIndex("by_guestEmail",(q:any)=>q.eq("guestEmail",account.email.trim().toLowerCase())).collect();
-  if(bookings.some((b:any)=>b._id!==excludeBookingId&&(b.stripePaymentIntentId||["confirmed","active","returned","pending_payment"].includes(b.status))))return {valid:false,reason:"Referral savings are for your first rental only. Finish or cancel any existing unpaid checkout."};
+  if(bookings.some((b:any)=>b._id!==excludeBookingId&&(b.stripePaymentIntentId||b.accountCreatedAtCheckout||["confirmed","active","returned","pending_payment"].includes(b.status))))return {valid:false,reason:"Referral savings are for your first rental only. Finish or cancel any existing unpaid checkout."};
   const claims=await ctx.db.query("referral_redemptions").withIndex("by_friend",(q:any)=>q.eq("friendAccountId",account._id)).collect();
   if(claims.some((r:any)=>r.bookingId!==excludeBookingId&&r.state!=="void"))return {valid:false,reason:"Your first-rental referral has already been claimed."};
   return {valid:true,code:norm,referrerAccountId:owner._id};

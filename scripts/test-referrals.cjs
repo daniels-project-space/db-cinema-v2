@@ -27,6 +27,7 @@ const pendingArgs=(p,a)=>({pricingVersion:p.pricingVersion,benefitKind:p.benefit
  assert.equal(await referral.ensureMine.handler(ctx,{token:owner.email}),owner.referralCode,'code stable across devices');
  await assert.rejects(referral.ensureMine.handler(ctx,{token:'bad'}),/Sign in/);
  assert.equal((await ledger.referralEligibility(ctx,owner,owner.referralCode)).valid,false);
+ const freeHistory=await account('prior-free@example.invalid','prior-free@example.invalid');put('bookings',{guestEmail:freeHistory.email,status:'cancelled',accountCreatedAtCheckout:true});assert.equal((await ledger.referralEligibility(ctx,freeHistory,owner.referralCode)).valid,false,'a previously settled free/setup rental still counts as the first rental');
  await assert.rejects(calculateRentalPrice(pricing,{...input(friend),token:undefined,promoCode:owner.referralCode}),/Sign in/);
  let p=await calculateRentalPrice(pricing,{...input(friend),promoCode:owner.referralCode});assert.equal(p.benefitKind,'referral_friend');assert.equal(p.totalReduction,10);assert(p.depositAmount>0);
  const args=pendingArgs(p,friend),created=await bookings.createPending.handler(ctx,args),b=await db.get(created.bookingId);
