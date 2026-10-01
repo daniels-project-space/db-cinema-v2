@@ -1502,7 +1502,7 @@ export const _finalizeCancellation = internalMutation({
       });
       const ordinary = Math.round(creditAmount * 100)-restoredMembership;
       if (ordinary > 0) creditId = await issue(ordinary,false);
-      if (restoredMembership > offset) creditId = await issue(restoredMembership-offset,!grant?.revokedPence);
+      if (restoredMembership > offset) creditId = await issue(restoredMembership-offset,!!grant && (grant.membershipRefundedPence ?? 0) < grant.paidMembershipPence);
     }
     if (b.membershipCheckoutId) {
       const member=await ctx.db.get(b.membershipCheckoutId);

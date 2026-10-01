@@ -64,6 +64,12 @@ async function pay(fixture,fee=1900) {
  assert.equal(account.membershipCreditDebtPence,0);assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),0,'restoration clears the reversal offset without gifting new credit');
  account.membershipActive=false;account.membershipStatus='canceled';const rejoin=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},selectedMembership:{tier:'plus',intro:'none'}});assert.equal(rejoin.starterOfferSaving,0,'cancel/rejoin never repeats the £10 offer');
  account=put('accounts',{email:'unused-credit@example.invalid'});camera.pricing.daily=50;const partial=await prepare('pro');const partialReceipt=await pay(partial,4900);assert.equal(partial.price.membershipCreditApplied,50);assert.equal(partialReceipt.credit.remaining,8.8,'unused first-month credit survives');
+ await bookings.confirm.handler(ctx,{bookingId:partial.booking._id});
+ await billing.revokeRefundedInvoice.handler(ctx,{invoiceId:partialReceipt.args.invoiceId,membershipRefundedPence:2450});
+ await bookings._finalizeCancellation.handler(ctx,{bookingId:partial.booking._id,accountId:account._id,mode:'refund',refundAmount:0,creditAmount:partial.booking.creditApplied,currency:'GBP'});
+ assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),29.4);
+ await billing.revokeRefundedInvoice.handler(ctx,{invoiceId:partialReceipt.args.invoiceId,membershipRefundedPence:4900});
+ assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),0,'remaining restored credit stays linked after a partial membership reversal');assert.equal(account.membershipCreditDebtPence,0);
  account=put('accounts',{email:'existing-credit@example.invalid'});camera.pricing.daily=300;put('credits',{accountId:account._id,amount:300,remaining:300,createdAt:now-1000,expiresAt:now+86400000,status:'active'});
  const covered=await checkout.priceQuote.handler(ctx,input());assert(covered.recommendations.every(r=>r.netSaving<=0),'already-credit-covered order does not claim a new saving');
  const trial=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},selectedMembership:{tier:'plus',intro:'trial'}});assert.equal(trial.membershipCreditApplied,0);assert.equal(trial.starterOfferSaving,0);assert(trial.depositAmount>0);
