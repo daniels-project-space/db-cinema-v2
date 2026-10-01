@@ -126,7 +126,6 @@ export default async function Home() {
       {/* ──────────── the instrument — scroll-scrubbed deconstruction ──────────── */}
       <div className="h-8 lg:h-0" aria-hidden />
       <CameraDeconstruct />
-      <FilmFundInvite />
 
       <div className="h-8 lg:h-0" aria-hidden />
       <div className="film-strip" aria-hidden />
@@ -218,6 +217,8 @@ export default async function Home() {
           </div>
         </section>
       )}
+
+      <FilmFundInvite />
 
       {/* ───────────────── how it works teaser ───────────────── */}
       <section className="section-window px-6 py-20">

@@ -47,3 +47,19 @@ jobs:
           else
             echo "no test script — skipping"
           fi
+      - name: Membership basket and checkout browser regression
+        env:
+          NEXT_PUBLIC_CONVEX_URL: https://veracious-wombat-196.convex.cloud
+          DBC_BROWSER_ROOT: http://127.0.0.1:41795
+          DBC_CDP_URL: http://127.0.0.1:9224
+        run: |
+          npm run dev -- --hostname 127.0.0.1 --port 41795 > "$RUNNER_TEMP/dbc-next.log" 2>&1 &
+          NEXT_PID=$!
+          google-chrome --headless --no-sandbox --disable-dev-shm-usage --remote-debugging-port=9224 --user-data-dir="$RUNNER_TEMP/dbc-membership-browser" about:blank > "$RUNNER_TEMP/dbc-chrome.log" 2>&1 &
+          CHROME_PID=$!
+          trap 'kill "$NEXT_PID" "$CHROME_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:41795/cart >/dev/null && curl -fsS http://127.0.0.1:9224/json/version >/dev/null; then break; fi
+            sleep 1
+          done
+          npm run test:membership-browser

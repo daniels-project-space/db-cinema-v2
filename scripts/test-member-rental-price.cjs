@@ -44,5 +44,14 @@ const {londonMonth}=load('convex/lib/memberDelivery.ts');
  acct.membershipStatus='trialing';price=await calculateRentalPrice(ctx,input);assert.ok(price.depositAmount>0,'free week keeps security payment');
  await assert.rejects(calculateRentalPrice(ctx,{...input,customer:{email:'somebodyelse@example.invalid'}}),/signed-in account email/);
  price=await calculateRentalPrice(ctx,{...input,token:'forged'});assert.ok(price.depositAmount>0);assert.equal(price.totalReduction,50);assert.equal(price.deliveryFee,100);
+ // Public recommendation endpoint uses the same clock-based entitlement as its prices.
+ const checkout=load('convex/checkout.ts');
+ acct.stripeSubscriptionId='sub_expired';acct.membershipStatus='active';acct.membershipTier='pro';acct.membershipPaidThrough=Date.now()-1000;
+ const quoteArgs={...input,customer:undefined,customerEmail:acct.email};delete quoteArgs.customer;
+ const expired=await checkout.priceQuote.handler(ctx,quoteArgs);
+ assert.equal(expired.recommendations.length,3,'expired membership must not hide the subscription offer');
+ acct.membershipPaidThrough=Date.now()+86400000;
+ const active=await checkout.priceQuote.handler(ctx,quoteArgs);
+ assert.equal(active.recommendations.length,0,'current members do not get a duplicate subscription upsell');
  console.log('Member rental pricing: real catalog repricing, weekend cap/nonstack, trial hold, delivery tiers and atomic monthly quota passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

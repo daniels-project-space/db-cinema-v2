@@ -8,7 +8,7 @@ import { getSessionId } from "@/lib/session";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { CheckoutAccountBenefits } from "@/components/CheckoutAccountBenefits";
-import { CheckoutMembership, type MembershipSelection } from "@/components/CheckoutMembership";
+import { CheckoutMembership } from "@/components/CheckoutMembership";
 import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
 import { CheckoutLoopBanner } from "@/components/CheckoutLoopBanner";
 import { CheckoutReminder } from "@/components/plans/CartPlanning";
@@ -65,16 +65,16 @@ function StepCard({
 }
 
 export default function CheckoutPage() {
-  const { items, subtotal, eligibleSubtotal } = useCart();
+  const { items, subtotal, eligibleSubtotal, membership, setMembership } = useCart();
   const account = useAccount();
   const promo = usePromo(eligibleSubtotal);
   const start = useAction(api.checkout.start);
   const getPriceQuote = useAction(api.checkout.priceQuote);
   const getQuote = useAction(api.delivery.quote);
   const track = useMutation(api.analytics.track);
-  const [membership,setMembership] = useState<MembershipSelection|null>(null);
   const membershipRequest = useRef<string|null>(null);
 
+  useEffect(() => { membershipRequest.current = null; }, [membership?.tier, membership?.intro]);
   const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
   const acctPostcode = account.me?.address?.match(PC_RE)?.[1] ?? "";
 
@@ -103,6 +103,16 @@ export default function CheckoutPage() {
     value: Awaited<ReturnType<typeof getPriceQuote>>;
   } | null>(null);
 
+  useEffect(() => {
+    const profile = account.me;
+    if (!profile) return;
+    setEmail(v => v || profile.email);
+    setName(v => v || profile.name || "");
+    setPhone(v => v || profile.phone || "");
+    setBillingAddress(v => v || profile.address || "");
+    setAddress(v => v || profile.address || "");
+    setPostcode(v => v || profile.address?.match(PC_RE)?.[1] || "");
+  }, [account.me?.email]);
   const deliveryFee = fulfilment === "delivery" && dq?.ok ? dq.fee : 0;
 
   const detailsDone = /\S+@\S+\.\S+/.test(email) && name.trim().length >= 3 && billingAddress.trim().length >= 10;
@@ -116,9 +126,9 @@ export default function CheckoutPage() {
       listingId: i.listingId as any, title: i.title, start: ms(i.start), end: ms(i.end),
       qty: 1, total: i.total, deposit: i.deposit, offerType: i.offerType,
     })),
-    token: account.token ?? undefined,
+    token: account.token && account.me ? account.token : undefined,
     selectedMembership: membership ? {tier:membership.tier,intro:membership.intro} : undefined,
-    customerEmail: email,
+    customerEmail: email || account.me?.email || "",
     fulfilment,
     address: fulfilment === "delivery" ? address : undefined,
     deliveryPostcode: fulfilment === "delivery" ? postcode : undefined,
@@ -134,7 +144,7 @@ export default function CheckoutPage() {
     setHoldAgreed(false);
     setLaterChargeAgreed(false);
     setQuoteError(null);
-    if (!detailsDone || !fulfilmentDone || !priceArgs.items.length) return;
+    if (!priceArgs.items.length || (fulfilment === "delivery" && (!dq?.ok || !quotedPostcode))) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       getPriceQuote(priceArgs).then((value) => {
@@ -149,11 +159,11 @@ export default function CheckoutPage() {
       });
     }, 250);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [quoteKey, detailsDone, fulfilmentDone, getPriceQuote]);
+  }, [quoteKey, getPriceQuote]);
 
   const signDone = agreed && holdAgreed && laterChargeAgreed && signature.trim().length > 2;
 
-  const valid = (!membership || membership.termsAccepted) && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
+  const valid = (!account.token || !!account.me) && (!membership || membership.termsAccepted) && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
 
   async function quoteDelivery() {
     if (!postcode.trim()) return;
@@ -188,7 +198,7 @@ export default function CheckoutPage() {
           deposit: i.deposit,
           offerType: i.offerType,
         })),
-        token: account.token ?? undefined, // authenticated member perks (discount, free accessories) require this
+        token: account.token ?? undefined, // Server verifies account ownership and current member benefits.
         customer: { email, name: name || undefined, phone: phone || undefined, billingAddress },
         fulfilment,
         address: fulfilment === "delivery" ? address : undefined,
@@ -231,6 +241,7 @@ export default function CheckoutPage() {
       <SiteHeader />
       <CheckoutLoopBanner />
       <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
+        <CheckoutMembership appliedSavings={currentQuote ? {rentalSaving:currentQuote.rentalSaving,weekendSaving:currentQuote.weekendSaving,deliveryReduction:currentQuote.deliveryReduction,securityWaiverReason:currentQuote.securityWaiverReason} : undefined} suggestions={currentQuote?.recommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <div className="mb-5 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
           <span className="inline-flex items-center gap-1.5">
@@ -360,7 +371,7 @@ export default function CheckoutPage() {
             </StepCard>
 
             {/* 03 — protection */}
-            <CheckoutMembership appliedSavings={currentQuote ? {rentalSaving:currentQuote.rentalSaving,weekendSaving:currentQuote.weekendSaving,deliveryReduction:currentQuote.deliveryReduction,securityWaiverReason:currentQuote.securityWaiverReason} : undefined} suggestions={currentQuote?.recommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
+
 
             <StepCard n="03" title="Protection" sub="Choose how you cover the gear." done delay={140}>
               <div className="flex flex-col gap-2.5">
