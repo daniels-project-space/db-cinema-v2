@@ -112,7 +112,18 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   });
   async function until(expr) {
     for (let i = 0; i < 100; i++) {
-      if (await c.evaluate(expr)) return;
+      try {
+        if (await c.evaluate(expr)) return;
+      } catch (e) {
+        // A reload replaces Chrome's execution context. Retry only read-only
+        // readiness checks; never suppress a failed assertion or browser action.
+        if (
+          !/Inspected target navigated|Execution context was destroyed|Cannot find context/.test(
+            e.message,
+          )
+        )
+          throw e;
+      }
       await wait(150);
     }
     throw Error("Browser condition timed out: " + expr);
@@ -239,7 +250,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   // Real client navigation carries the one-click selection without a fresh consent claim.
   await c.evaluate(
-    `[...document.querySelectorAll('a')].find(a=>a.textContent.includes('Secure checkout')).click()`,
+    `setTimeout(()=>[...document.querySelectorAll('a')].find(a=>a.textContent.includes('Secure checkout')).click(),0);true`,
   );
   await until(
     `location.pathname==='/checkout'&&!!document.querySelector('#co-email')&&!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,
@@ -253,12 +264,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     ),
     false,
   );
-  await wait(1000);
-  assert.equal(
-    await c.evaluate(
-      `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('£0 upfront security')`,
-    ),
-    true,
+  await until(
+    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('£0 upfront security')`,
   );
   await shot("selected-checkout-mobile");
   await reload();
