@@ -3077,3 +3077,134 @@ html[data-gaffer-nav="1"] .tile-in {
 @media (prefers-reduced-motion: reduce) {
   .f7-reveal { transition: opacity 0.2s ease; }
 }
+
+/* Film Fund: warm editorial typography, set photography and hand-drawn love. */
+.fund-shell { position:relative; border:1px solid #f4bfa321; border-radius:32px; background:radial-gradient(ellipse at 0 0,#be704e15,transparent 60%),#121512; box-shadow:0 30px 100px #0003; }
+.fund-hero-grid { display:grid; grid-template-columns:minmax(0,.94fr) minmax(0,1.06fr); gap:44px; padding:48px; align-items:center; }
+.fund-hero-copy { min-width:0; }
+.fund-eyebrow { display:flex; align-items:center; flex-wrap:wrap; gap:9px; font-family:var(--font-jbmono),monospace; font-size:10px; letter-spacing:.17em; text-transform:uppercase; color:#e8bc9a; }
+.fund-status { border:1px solid #efd3b828; padding:5px 8px; border-radius:20px; font-size:8px; color:#e7d5c0; letter-spacing:.08em; }
+.fund-status-dot { width:5px; height:5px; border-radius:50%; background:#dfaa89; box-shadow:0 0 14px #f3a07c; }
+.fund-title { position:relative; font-family:var(--font-instrument),Georgia,serif; font-weight:400; font-size:clamp(48px,5.8vw,82px); line-height:.98; letter-spacing:-.035em; color:#fff3e4; margin-top:25px; }
+.fund-title em,.fund-section-title em { color:#efb28c; font-weight:400; }
+.fund-title-heart { position:absolute; width:45px; height:45px; right:5%; top:-5px; color:#de8e82; transform:rotate(12deg); animation:fund-heart-sway 6s ease-in-out infinite; }
+.fund-intro { margin-top:28px; color:#eee3d3; font-size:17px; line-height:1.65; }
+.fund-body { margin-top:14px; max-width:440px; color:#adafa4; font-size:14px; line-height:1.85; }
+.fund-quick-perks { margin-top:26px; display:grid; gap:13px; }
+.fund-quick-perks li { display:grid; grid-template-columns:23px 1fr; gap:2px 10px; }
+.fund-quick-perks li>span { grid-row:span 2; color:#e7ac8f; font-family:var(--font-jbmono),monospace; font-size:11px; padding-top:3px; }
+.fund-quick-perks strong { color:#e8e7dd; font-size:13px; font-weight:500; }
+.fund-quick-perks small { color:#999e93; font-size:11px; line-height:1.6; }
+.fund-hero-actions { display:flex; flex-wrap:wrap; align-items:center; gap:19px; margin-top:28px; }
+.fund-button { display:inline-flex; align-items:center; justify-content:center; gap:20px; padding:14px 20px; border:1px solid #efbe9e70; border-radius:100px; color:#241b15; background:#efbb96; font-size:12px; font-weight:600; transition:transform .25s,box-shadow .25s,background .25s; }
+.fund-button:hover:not(:disabled) { transform:translateY(-3px); box-shadow:0 8px 30px #f1ab8520; background:#ffd4b1; }
+.fund-button:focus-visible,.fund-rules-link:focus-visible { outline:2px solid #fbd7ba; outline-offset:5px; }
+.fund-small-note { font-family:var(--font-instrument),Georgia,serif; font-size:18px; font-style:italic; line-height:1.2; color:#b7b9aa; transform:rotate(-4deg); }
+.fund-crew-frame { position:relative; min-width:0; margin:12px 0; transform:rotate(1.5deg); transition:transform .7s ease; }
+.fund-crew-frame:hover { transform:rotate(0); }
+.fund-photo-wrap { position:relative; aspect-ratio:1.03; overflow:hidden; border-radius:4px; background:#372b20; border:8px solid #eee0ca; box-shadow:0 15px 40px #0006; }
+.fund-crew-image { object-fit:cover; object-position:50% 45%; transition:transform 1.5s ease; }
+.fund-crew-frame:hover .fund-crew-image { transform:scale(1.03); }
+.fund-photo-shade { position:absolute; inset:0; background:linear-gradient(transparent 50%,#0f160940); pointer-events:none; }
+.fund-photo-tape { position:absolute; top:-17px; left:42%; width:80px; height:30px; background:#dfcfa66e; transform:rotate(-6deg); border:1px solid #e4d4ab24; backdrop-filter:blur(2px); }
+.fund-photo-note { position:absolute; left:-22px; bottom:32px; padding:18px 22px; display:flex; align-items:center; gap:12px; background:#ede4cf; color:#303a2a; box-shadow:0 6px 25px #0004; transform:rotate(-5deg); font-family:var(--font-instrument),Georgia,serif; font-size:25px; line-height:1.15; }
+.fund-note-heart { width:34px; height:34px; color:#b8685c; animation:fund-heart-beat 5s ease-in-out infinite; }
+.fund-crew-frame figcaption { padding-top:12px; font-size:9px; font-family:var(--font-jbmono),monospace; letter-spacing:.04em; color:#989b90; text-align:right; }
+.fund-frame-corner { position:absolute; right:23px; top:23px; display:flex; align-items:center; gap:6px; font-family:var(--font-jbmono),monospace; color:#fff5dc; font-size:9px; letter-spacing:.1em; }
+.fund-frame-corner i { width:5px; height:5px; border-radius:50%; background:#e6a494; }
+.fund-signup-strip { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.1fr); align-items:start; gap:30px; padding:30px 48px 20px; border-top:1px solid #e4bd9926; background:#ffffff02; border-radius:0 0 32px 32px; }
+.fund-signup-heading { display:flex; align-items:center; gap:15px; }
+.fund-signup-heading h3 { font-family:var(--font-instrument),Georgia,serif; color:#f5e4cf; font-size:27px; line-height:1.2; }
+.fund-signup-heading p { color:#a6aa9d; font-size:11px; line-height:1.8; margin-top:6px; max-width:320px; }
+.fund-signup-heart { color:#db9882; flex-shrink:0; height:35px; width:35px; animation:fund-heart-sway 7s ease-in-out infinite; }
+.fund-email-row { display:flex; gap:9px; }
+.fund-email-row input { font-size:13px; border-radius:100px; padding-left:18px; }
+.fund-notify-button { padding:12px 16px; gap:10px; white-space:nowrap; font-size:11px; }
+.fund-consent { display:flex; align-items:flex-start; gap:8px; color:#a2a699; font-size:10px; line-height:1.8; margin-top:12px; }
+.fund-consent input { margin-top:3px; accent-color:#efbb96; }
+.fund-form-result { color:#ecd3b7; font-size:11px; line-height:1.7; margin-top:8px; min-height:18px; }
+.fund-section { margin-top:90px; scroll-margin-top:110px; }
+.fund-section-heading { display:flex; justify-content:space-between; align-items:end; gap:32px; margin-bottom:30px; }
+.fund-section-heading>p { max-width:330px; color:#999e92; font-size:13px; line-height:1.9; }
+.fund-section-title { font-family:var(--font-instrument),Georgia,serif; font-weight:400; color:#eee8d8; font-size:clamp(36px,4vw,54px); line-height:1.05; letter-spacing:-.015em; margin-top:14px; }
+.fund-prize-grid,.fund-dates-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; }
+.fund-prize-card { padding:34px; border:1px solid #d5c4a32e; background:radial-gradient(ellipse at 100% 0,#df946816,transparent 70%),#131612; border-radius:24px; }
+.fund-prize-first { background:radial-gradient(ellipse at 100% 0,#d5b27925,transparent 70%),#192016; border-color:#c9bd863b; }
+.fund-prize-top { display:flex; justify-content:space-between; align-items:center; }
+.fund-prize-heart { width:29px; height:29px; color:#d6937e; }
+.fund-prize-number { display:flex; align-items:end; gap:15px; margin-top:12px; color:#efd4ad; font-family:var(--font-instrument),Georgia,serif; font-size:112px; line-height:1; }
+.fund-prize-number span { font-family:var(--font-jbmono),monospace; color:#b7b6a3; text-transform:uppercase; letter-spacing:.15em; font-size:10px; padding-bottom:14px; }
+.fund-prize-card h3 { font-size:21px; font-weight:500; color:#ece8dc; margin-top:14px; }
+.fund-prize-note { font-family:var(--font-instrument),Georgia,serif; color:#c6b8a0; font-style:italic; font-size:22px; margin-top:5px; }
+.fund-check-list { display:grid; gap:12px; margin-top:26px; }
+.fund-check-list li { display:flex; align-items:baseline; gap:11px; color:#b4b8a8; font-size:13px; line-height:1.65; }
+.fund-check-list li>span { color:#e6b89a; flex-shrink:0; }
+.fund-prize-fineprint { color:#8d9385; font-size:10px; line-height:1.8; margin-top:17px; max-width:800px; }
+.fund-why { position:relative; text-align:center; padding:60px 24px; border-top:1px solid #d9ba9522; border-bottom:1px solid #d9ba9522; background:radial-gradient(ellipse at center,#8f755010,transparent 70%); }
+.fund-why .fund-eyebrow { justify-content:center; }
+.fund-why>p:not(.fund-eyebrow) { max-width:570px; margin:25px auto 0; font-size:14px; line-height:2; color:#afb3a6; }
+.fund-why-heart { height:45px; width:45px; color:#d78c79; margin:0 auto 20px; animation:fund-heart-beat 5s ease-in-out infinite; }
+.fund-signature { display:block; margin-top:25px; font-family:var(--font-instrument),Georgia,serif; font-style:italic; color:#e2be9c; font-size:28px; transform:rotate(-3deg); }
+.fund-date-card { min-width:0; border:1px solid #d4c2a025; border-radius:20px; padding:26px; background:#ffffff02; }
+.fund-date-top { display:flex; justify-content:space-between; gap:12px; }
+.fund-round-badge { color:#c1c5b5; background:#c3c5a60c; border:1px solid #c3c5a622; border-radius:20px; padding:3px 10px; font-size:10px; text-transform:capitalize; }
+.fund-date-card h3 { font-family:var(--font-instrument),Georgia,serif; font-size:32px; color:#eee3d0; margin:18px 0; }
+.fund-date-card dl { display:grid; gap:13px; }
+.fund-date-card dl>div { display:flex; justify-content:space-between; flex-wrap:wrap; gap:5px 16px; font-size:12px; }
+.fund-date-card dt { color:#939b89; }
+.fund-date-card dd { color:#d3d8c6; }
+.fund-application-guide { display:grid; grid-template-columns:1fr 1fr; gap:32px; padding:32px; border:1px solid #d4c2a025; background:#ffffff02; border-radius:24px; }
+.fund-application-guide h3 { color:#eee6d5; font-size:19px; font-weight:500; }
+.fund-entry-note { border-left:1px solid #dfc29b25; padding-left:32px; }
+.fund-entry-note h3 { margin-top:16px; }
+.fund-entry-note p:not(.fund-eyebrow) { margin-top:14px; font-size:12px; line-height:1.9; color:#aab09e; }
+.fund-entry-note strong { color:#dce0ce; font-weight:500; }
+.fund-rules-link { display:inline-block; color:#e8b694; margin-top:17px; font-size:12px; }
+@keyframes fund-heart-sway { 0%,100% { transform:rotate(10deg) translateY(0); } 50% { transform:rotate(-5deg) translateY(-5px); } }
+@keyframes fund-heart-beat { 0%,40%,100% { transform:scale(1); } 46% { transform:scale(1.12); } 52% { transform:scale(1); } 58% { transform:scale(1.07); } }
+@media(max-width:1050px) { .fund-hero-grid { gap:30px; padding:32px; } .fund-signup-strip { padding:25px 32px 18px; } .fund-photo-note { font-size:21px; padding:15px; left:-15px; } .fund-title-heart { right:0; width:30px; } }
+@media(max-width:767px) { .fund-hero-grid { grid-template-columns:1fr; padding:27px 23px; gap:38px; } .fund-title { font-size:clamp(48px,10vw,68px); } .fund-title-heart { right:8%; top:0; } .fund-intro { font-size:15px; } .fund-body { font-size:13px; } .fund-photo-wrap { aspect-ratio:1.3; } .fund-photo-note { bottom:28px; left:-8px; font-size:23px; } .fund-signup-strip { grid-template-columns:1fr; gap:20px; padding:26px 23px 18px; } .fund-section { margin-top:60px; } .fund-section-heading { flex-direction:column; align-items:start; gap:20px; } .fund-section-heading>p { max-width:100%; } .fund-prize-grid,.fund-dates-grid { grid-template-columns:1fr; gap:16px; } .fund-prize-card { padding:26px; } .fund-application-guide { grid-template-columns:1fr; padding:24px; gap:26px; } .fund-entry-note { border-left:0; border-top:1px solid #dfc29b25; padding:24px 0 0; } }
+@media(max-width:420px) { .fund-email-row { flex-direction:column; } .fund-notify-button { justify-content:space-between; } .fund-title { font-size:48px; } .fund-hero-actions { gap:16px; } .fund-photo-note { font-size:20px; } .fund-status { font-size:7px; } }
+@media(prefers-reduced-motion:reduce) { .fund-invite *, .fund-page * { animation:none !important; scroll-behavior:auto; } .fund-crew-frame,.fund-crew-image,.fund-button { transition:none; } .fund-button:hover:not(:disabled) { transform:none; } }
+
+/* Membership's bespoke sketchbook hero, with real plan credit previews. */
+.member-love-hero { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:55px; align-items:center; padding:20px 0 45px; }
+.member-love-title { position:relative; font-family:var(--font-instrument),Georgia,serif; font-size:clamp(52px,5.7vw,80px); line-height:1.02; letter-spacing:-.035em; font-weight:400; color:#f4ead9; margin-top:26px; }
+.member-love-title em { color:#ebb991; }
+.member-love-heart { position:absolute; top:-10px; right:4%; height:42px; width:42px; color:#d59786; animation:fund-heart-sway 7s ease-in-out infinite; }
+.member-love-intro { font-size:19px; line-height:1.65; color:#ddd8c9; margin-top:28px; }
+.member-love-body { font-size:14px; line-height:1.9; color:#a5aa9b; margin-top:16px; max-width:400px; }
+.member-love-anchor { display:inline-flex; align-items:center; gap:30px; border-bottom:1px solid #d3b59340; padding:10px 0; font-size:12px; color:#efc3a2; margin-top:20px; }
+.member-love-anchor span { transition:transform .3s; }
+.member-love-anchor:hover span { transform:translateY(4px); }
+.member-love-signature { font-family:var(--font-instrument),Georgia,serif; font-style:italic; font-size:24px; color:#b7baa9; margin-top:25px; transform:rotate(-3deg); }
+.member-credit-art { position:relative; min-width:0; padding:25px; border:1px solid #d4ba8a4d; border-radius:12px 32px 16px 32px; background:radial-gradient(ellipse at 100% 0,#b1894e25,transparent 70%),#1b2118; box-shadow:0 20px 80px #0005; transform:rotate(2deg); }
+.member-credit-art::before { content:''; position:absolute; width:70px; height:27px; left:40%; top:-14px; background:#d5c29466; border:1px solid #ead8b523; transform:rotate(-7deg); }
+.member-art-heading { display:flex; align-items:start; flex-wrap:wrap; gap:8px; justify-content:space-between; }
+.member-art-heading .fund-eyebrow { font-size:8px; }
+.member-art-edition { font-family:var(--font-instrument),Georgia,serif; font-style:italic; font-size:14px; color:#bfc1ab; }
+.member-camera-drawing { position:relative; width:210px; max-width:70%; color:#d7cca9; margin:16px auto 8px; animation:member-camera-breathe 8s ease-in-out infinite; }
+.member-camera-drawing>svg:first-child { width:100%; }
+.member-camera-heart { position:absolute; height:25px; width:25px; right:-12px; top:10px; color:#c88b7c; animation:fund-heart-sway 5s ease-in-out infinite; }
+.member-plan-picker { display:flex; justify-content:center; flex-wrap:wrap; gap:6px; }
+.member-plan-picker button { padding:7px 13px; border-radius:30px; border:1px solid #cfbe9129; font-size:10px; color:#aeb89f; transition:background .2s,border-color .2s; }
+.member-plan-picker button.is-selected { background:#e3d5ae12; border-color:#d4be8b70; color:#f1dfb9; }
+.member-plan-picker button:focus-visible { outline:2px solid #dfc394; outline-offset:3px; }
+.member-credit-equation { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:22px; border-top:1px solid #c9b79326; padding-top:20px; }
+.member-credit-equation>div { min-width:0; }
+.member-credit-equation>div>span { display:block; font-size:9px; color:#a5ae96; }
+.member-credit-equation strong { font-family:var(--font-instrument),Georgia,serif; font-size:clamp(37px,4vw,52px); font-weight:400; color:#f4dfb7; white-space:nowrap; line-height:1.25; }
+.member-credit-equation>div:last-child strong { color:#bfdb97; }
+.member-credit-arrow { color:#bbce91; font-size:30px; transform:rotate(-6deg); }
+.member-credit-arrow small { display:block; font-family:var(--font-jbmono),monospace; font-size:10px; }
+.member-film-strip { display:flex; justify-content:space-between; gap:8px; padding:12px 0; margin-top:8px; border-top:1px solid #d3c19620; border-bottom:1px solid #d3c19620; }
+.member-film-strip span { height:8px; width:15px; border:1px solid #cabc9350; border-radius:2px; }
+.member-art-foot { display:flex; align-items:center; gap:12px; margin-top:18px; }
+.member-art-heart { color:#cf9284; width:30px; height:30px; flex-shrink:0; animation:fund-heart-beat 6s ease-in-out infinite; }
+.member-art-foot p { font-size:12px; color:#d4d9c3; line-height:1.8; }
+.member-art-foot p span { font-size:10px; color:#9fa98e; }
+.member-art-fineprint { font-size:9px; color:#a6ab98; line-height:1.8; margin-top:14px; }
+@keyframes member-camera-breathe { 0%,100% { transform:translateY(0) rotate(-2deg); } 50% { transform:translateY(-5px) rotate(1deg); } }
+@media(max-width:767px) { .member-love-hero { grid-template-columns:1fr; gap:40px; padding:10px 0 30px; } .member-love-title { font-size:60px; } .member-love-heart { right:15%; } .member-credit-art { transform:rotate(1deg); padding:22px; margin:0 4px; } .member-credit-equation strong { font-size:44px; } .member-art-heading .fund-eyebrow { font-size:7px; } }
+@media(max-width:370px) { .member-love-title { font-size:52px; } .member-credit-equation strong { font-size:36px; } .member-credit-art { padding:17px; } }
+@media(prefers-reduced-motion:reduce) { .member-love-hero * { animation:none !important; transition:none !important; } }

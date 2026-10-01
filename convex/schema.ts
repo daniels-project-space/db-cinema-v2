@@ -780,7 +780,7 @@ export default defineSchema({
     reviewStatus:v.optional(v.string()),reviewNote:v.optional(v.string()),
   }).index("by_account",["accountId"]).index("by_project",["accountId","projectKey"]).index("by_round",["roundSlug"]),
   film_fund_entries: defineTable({
-    projectId:v.id("film_fund_projects"),accountId:v.id("accounts"),roundSlug:v.string(),termsVersion:v.string(),consentAt:v.number(),
+    projectId:v.id("film_fund_projects"),accountId:v.id("accounts"),roundSlug:v.string(),termsVersion:v.string(),consentAt:v.number(),amountPence:v.optional(v.number()),
     state:v.union(v.literal("creating"),v.literal("open"),v.literal("paid"),v.literal("expired"),v.literal("refunded")),
     createdAt:v.number(),expiresAt:v.number(),sessionId:v.optional(v.string()),paymentIntentId:v.optional(v.string()),sessionParams:v.optional(v.string()),
   }).index("by_project",["projectId"]).index("by_session",["sessionId"]),
@@ -792,7 +792,7 @@ export default defineSchema({
     termsVersion:v.string(),consentAt:v.number(),sessionParams:v.optional(v.string()),
   }).index("by_account",["accountId"]).index("by_session",["sessionId"]).index("by_request",["requestId"]),
   membership_credit_grants: defineTable({
-    accountId:v.id("accounts"),subscriptionId:v.string(),invoiceId:v.string(),paidMembershipPence:v.number(),creditPence:v.number(),
+    accountId:v.id("accounts"),subscriptionId:v.string(),invoiceId:v.string(),paidMembershipPence:v.number(),creditPence:v.number(),earnedCreditPence:v.optional(v.number()),
     bonusPence:v.number(),revokedPence:v.number(),membershipRefundedPence:v.optional(v.number()),periodEnd:v.number(),createdAt:v.number(),creditId:v.optional(v.id("credits")),bonusCreditId:v.optional(v.id("credits")),
   }).index("by_invoice",["invoiceId"]).index("by_account",["accountId"]),
 

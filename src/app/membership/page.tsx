@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { PageHero } from "@/components/PageHero";
+import { MembershipHero } from "@/components/MembershipHero";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -48,27 +48,14 @@ export default function MembershipPage() {
     <>
       <SiteHeader />
       <main className="section-window mx-auto max-w-5xl px-6 py-14">
-        <PageHero
-          center
-          eyebrow="Membership"
-          lead="Keep creating."
-          accent="We’ll back you."
-          sub="Turn every paid month into 30% more rental credit. Build your next kit, keep your momentum, and make the films you’ve been waiting to make."
-        />
-
-        <div className="relative mx-auto mt-8 max-w-2xl overflow-hidden rounded-3xl border border-accent-300/20 bg-gradient-to-r from-accent-300/[.07] via-white/[.03] to-transparent px-6 py-5">
-          <div aria-hidden className="absolute -right-8 -top-12 h-40 w-40 rounded-full bg-accent-300/10 blur-3xl" />
-          <p className="font-mono text-[10px] uppercase tracking-[.2em] text-accent-300">More than a membership</p>
-          <p className="mt-2 text-lg font-medium text-white">Your monthly fee stays in your creative toolkit.</p>
-          <p className="mt-2 text-sm leading-relaxed text-white/55">£19 becomes £24.70. £49 becomes £63.70. £99 becomes £128.70. Credits arrive after each paid invoice, stack each month and last a year. A separate card hold protects the gear.</p>
-        </div>
+        <MembershipHero />
         {!current && <section className="mx-auto mt-8 max-w-2xl" aria-label="Choose your welcome offer">
           {!account.me?.membershipIntroUsed && <><p className="mb-3 text-center text-sm text-white/60">Choose your first chapter</p><div className="grid gap-3 sm:grid-cols-2">
-            {[{ key: "trial" as const, title: "Your first week, on us", detail: "£0 membership fee for 7 days, then your plan renews monthly. The upfront security payment still applies during the free week." }, { key: "credit" as const, title: "£20 to your next production", detail: "Pay your first month today. Get a one-time £20 rental credit bonus, plus your normal 130% monthly credit." }].map(o => <button key={o.key} onClick={() => setIntro(o.key)} aria-pressed={intro === o.key} className={`rounded-2xl border p-4 text-left transition ${intro === o.key ? "border-accent-300/50 bg-accent-300/[.07] shadow-[0_0_35px_#acd17c0b]" : "border-white/10 bg-white/[.02]"}`}><span className="block text-sm font-medium text-white">{o.title}</span><span className="mt-2 block text-xs leading-relaxed text-white/45">{o.detail}</span></button>)}
+            {[{ key: "trial" as const, title: "Your first week, on us", detail: "£0 membership fee for 7 days, then your plan renews monthly. The upfront security payment still applies during the free week." }, { key: "none" as const, title: "Start with your next shoot", detail: "Pay the first month today. Receive your plan’s monthly rental credit and paid membership benefits after checkout." }].map(o => <button key={o.key} onClick={() => setIntro(o.key)} aria-pressed={intro === o.key} className={`rounded-2xl border p-4 text-left transition ${intro === o.key ? "border-accent-300/50 bg-accent-300/[.07] shadow-[0_0_35px_#acd17c0b]" : "border-white/10 bg-white/[.02]"}`}><span className="block text-sm font-medium text-white">{o.title}</span><span className="mt-2 block text-xs leading-relaxed text-white/45">{o.detail}</span></button>)}
           </div></>}
           <label className="mt-5 flex items-start justify-center gap-2 text-xs text-white/55"><input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} className="mt-0.5 accent-[#acd17c]"/><span>I agree to the <Link href="/legal/membership" className="text-accent-300 underline">membership terms</Link>, monthly renewal and selected welcome offer. Cancel in account settings.</span></label>
         </section>}
-        <div className="mt-8 grid gap-5 md:grid-cols-3">
+        <div id="membership-plans" className="mt-8 scroll-mt-28 grid gap-5 md:grid-cols-3">
           {TIERS.map((t, i) => {
             const isCurrent = current === t.key;
             const featured = t.key === "pro";
@@ -167,7 +154,7 @@ export default function MembershipPage() {
           </div>
         </Reveal>
 
-        <div className="mt-12 rounded-3xl border border-white/10 bg-white/[.02] p-6 text-center"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-white/40">DB Cinema Film Fund · coming soon</p><h2 className="mt-2 font-display text-2xl text-white">Your story deserves a set.</h2><p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-white/50">Two judged rounds a year. Seven days of gear for the selected project, two for the runner-up. Pro and Studio include application entry; other entries are £15, once per project. No purchases or applications are open yet.</p><Link href="/film-fund" className="mt-4 inline-block text-sm text-accent-300">Meet the Film Fund →</Link></div>
+        <div className="mt-12 rounded-3xl border border-white/10 bg-white/[.02] p-6 text-center"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-white/40">DB Cinema Film Fund · coming soon</p><h2 className="mt-2 font-display text-2xl text-white">Your story deserves a set.</h2><p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-white/50">Two judged rounds a year. Seven days of gear for the selected project, two for the runner-up. Pro and Studio include application entry; Starter entry is £15; nonmembers pay £30, once per project. No purchases or applications are open yet.</p><Link href="/film-fund" className="mt-4 inline-block text-sm text-accent-300">Meet the Film Fund →</Link></div>
         {current && <p className="mt-6 text-center text-sm text-white/60">Your membership is active. <Link href="/account?tab=membership" className="text-accent-300 underline">Manage or cancel in account settings</Link>.</p>}
 
         <p className="mt-8 text-center font-mono text-[11px] uppercase tracking-[0.15em] text-white/30">

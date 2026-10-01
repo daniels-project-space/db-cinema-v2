@@ -19,6 +19,7 @@ export const reserveCheckout = internalMutation({
       if (existing.requestId === a.requestId && existing.tier === a.tier && existing.intro === a.intro) return existing;
       throw Error("You already have a membership checkout open. Complete it or wait for it to expire.");
     }
+    if (a.intro === "credit") throw Error("The welcome credit offer is no longer available. Choose the free first week or start a paid membership.");
     if (account.membershipActive || account.stripeSubscriptionId && !["canceled", "incomplete_expired"].includes(account.membershipStatus ?? ""))
       throw Error("Manage your existing membership in account settings.");
     if (a.intro !== "none" && account.membershipIntroUsed) throw Error("The introductory offer is available once per customer.");
@@ -89,17 +90,17 @@ export const grantPaidInvoice = internalMutation({
     if (!account || account.stripeSubscriptionId !== a.subscriptionId) throw Error("Paid invoice subscription does not match the account.");
     const previous = await ctx.db.query("membership_credit_grants").withIndex("by_account", q => q.eq("accountId", a.accountId)).collect();
     const bonusPence = account.membershipIntroChoice === "credit" && !previous.some(r => r.bonusPence > 0) ? 2000 : 0;
-    const earned = monthlyCreditPence(a.paidMembershipPence);
+    const earned = monthlyCreditPence(a.paidMembershipPence,account.membershipTier);
     const debtUsed = Math.min(earned, account.membershipCreditDebtPence ?? 0);
     const creditPence = earned - debtUsed;
     if (debtUsed) await ctx.db.patch(account._id, {membershipCreditDebtPence: (account.membershipCreditDebtPence ?? 0) - debtUsed});
-    const id = await ctx.db.insert("membership_credit_grants", { ...a, creditPence, bonusPence, revokedPence: 0, createdAt: Date.now() });
+    const id = await ctx.db.insert("membership_credit_grants", { ...a, creditPence, earnedCreditPence:earned, bonusPence, revokedPence: 0, createdAt: Date.now() });
     const issue = (amount: number, reason: string) => ctx.db.insert("credits", {
       accountId: a.accountId, amount: amount / 100, remaining: amount / 100, currency: "GBP", reason,
       createdAt: Date.now(), expiresAt: Date.now() + 365 * 86400000, status: "active",
       membershipInvoiceId: a.invoiceId, membershipGrantId: id,
     });
-    const creditId = await issue(creditPence, "Paid membership · 130% rental credit");
+    const creditId = await issue(creditPence, "Paid membership · plan rental credit");
     const bonusCreditId = bonusPence ? await issue(bonusPence, "One-time membership welcome credit") : undefined;
     await ctx.db.patch(id, { creditId, bonusCreditId });
     if (a.periodEnd > (account.membershipPaidThrough ?? 0)) await ctx.db.patch(a.accountId, { membershipPaidThrough: a.periodEnd });
@@ -139,7 +140,7 @@ export const revokeRefundedInvoice = internalMutation({
   if(!Number.isSafeInteger(a.membershipRefundedPence)||a.membershipRefundedPence<0)throw Error("Invalid membership refund.");
   const refunded=Math.min(grant.paidMembershipPence,a.membershipRefundedPence);
   if(refunded<=(grant.membershipRefundedPence??0))return;
-  const target=Math.round(monthlyCreditPence(grant.paidMembershipPence)*refunded/grant.paidMembershipPence)+(refunded===grant.paidMembershipPence?grant.bonusPence:0);
+  const target=Math.round((grant.earnedCreditPence??monthlyCreditPence(grant.paidMembershipPence))*refunded/grant.paidMembershipPence)+(refunded===grant.paidMembershipPence?grant.bonusPence:0);
   let need=Math.max(0,target-grant.revokedPence);
   const accountForReservation=await ctx.db.get(grant.accountId);
   const pending=accountForReservation?await ctx.db.query("bookings").withIndex("by_guestEmail",q=>q.eq("guestEmail",accountForReservation.email)).collect():[];

@@ -8,7 +8,7 @@ import { FUND_ROUNDS, FILM_FUND_TERMS_VERSION, fundProjectKey, fundSubmissionErr
 import { isProPlus,membershipActiveNow } from "../shared/membership";
 
 export async function rounds(ctx:any){ const rows=await ctx.db.query("film_fund_rounds").collect(); return FUND_ROUNDS.map(f=>rows.find((r:any)=>r.slug===f.slug)??f); }
-export const schedule=query({args:{},handler:async(ctx)=>({rounds:await rounds(ctx),entryPence:1500,termsVersion:FILM_FUND_TERMS_VERSION})});
+export const schedule=query({args:{},handler:async(ctx)=>({rounds:await rounds(ctx),entryPence:3000,starterEntryPence:1500,termsVersion:FILM_FUND_TERMS_VERSION})});
 export const notify=mutation({args:{email:v.string(),consent:v.boolean()},handler:async(ctx,a)=>{
  const email=a.email.trim().toLowerCase();if(!a.consent||email.length>254||!/^\S+@\S+\.\S+$/.test(email))throw Error("Enter a valid email and consent to Film Fund launch updates.");
  if(!(await bump(ctx,`fund-signup:${email}`,3,3600000)).allowed)throw Error("Please try again later.");
@@ -65,7 +65,7 @@ export const submit=mutation({args:{token:v.string(),projectId:v.id("film_fund_p
  if(a.termsVersion!==FILM_FUND_TERMS_VERSION)throw Error("Accept the current Film Fund terms.");
  const errors=fundSubmissionErrors(p);if(errors.length)throw Error(errors.join(" "));
  for(const id of [p.scriptId,p.moodboardId,p.videoId,...p.documentIds]){const upload=id?await ctx.db.get(id):null;if(!upload||upload.projectId!==p._id||upload.accountId!==account._id)throw Error("Re-upload missing application files.");if(upload.kind==="video"&&(!upload.durationSeconds||upload.durationSeconds<55||upload.durationSeconds>65))throw Error("Verify the one-minute pitch video.");}
- const included=isProPlus(account.membershipTier,membershipActiveNow(account));if(!included&&(!p.entryPaid||p.entryRoundSlug!==a.roundSlug))throw Error("A single £15 project entry payment is required for this round.");
+ const included=isProPlus(account.membershipTier,membershipActiveNow(account));if(!included&&(!p.entryPaid||p.entryRoundSlug!==a.roundSlug))throw Error("A single project entry payment is required for this round.");
  await ctx.db.patch(p._id,{state:"submitted",roundSlug:a.roundSlug,submittedAt:Date.now(),termsVersion:a.termsVersion,entryIncluded:included,reviewStatus:"new",updatedAt:Date.now()});return {submitted:true};
 }});
 export const adminOverview=query({args:{token:v.string()},handler:async(ctx,{token})=>{if(!checkAdminToken(token))return null;const signups=await ctx.db.query("film_fund_signups").collect();const projects=await ctx.db.query("film_fund_projects").collect();return{signupCount:signups.filter(s=>s.active).length,rounds:await rounds(ctx),projects:projects.filter(p=>p.state==="submitted")};}});

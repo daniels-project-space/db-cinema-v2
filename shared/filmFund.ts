@@ -1,5 +1,6 @@
-export const FILM_FUND_TERMS_VERSION = "2026-10-film-fund-v1";
-export const FILM_FUND_ENTRY_PENCE = 1500;
+import { membershipActiveNow } from "./membership";
+export const FILM_FUND_TERMS_VERSION = "2026-10-film-fund-v2";
+export const FILM_FUND_ENTRY_PENCE = 3000;
 export const FUND_ROUNDS = [
   { slug: "spring-2027", name: "Spring 2027", state: "coming_soon" as const, opensAt: Date.UTC(2027,0,15,9), deadline: Date.UTC(2027,2,31,22,59), announcementAt: Date.UTC(2027,3,15,11) },
   { slug: "autumn-2027", name: "Autumn 2027", state: "coming_soon" as const, opensAt: Date.UTC(2027,6,15,8), deadline: Date.UTC(2027,8,30,22,59), announcementAt: Date.UTC(2027,9,15,11) },
@@ -18,3 +19,5 @@ export function fundSubmissionErrors(p: {title:string;synopsis:string;letter:str
  if(!p.videoId)errors.push("Upload your one-minute pitch video.");
  return errors;
 }
+
+export function fundEntryPence(account:any){return account?.membershipTier==="plus"&&membershipActiveNow(account)?1500:FILM_FUND_ENTRY_PENCE;}
