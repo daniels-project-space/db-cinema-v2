@@ -226,7 +226,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     ...args,
     selectedMembership: { tier: preferred.tier, intro: "none" },
   });
-  assert.equal(paid.depositAmount, 0);
+  assert(paid.depositAmount > 0, "first checkout retains upfront security");
+  assert.equal(paid.deliveryReduction,0);
+  assert.equal(paid.weekendSaving,0);
   const paidDue = new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency: "GBP",
@@ -289,7 +291,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     false,
   );
   await until(
-    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('£0 upfront security')`,
+    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('This first rental still requires verification')`,
   );
   await shot("selected-checkout-mobile");
   await reload();

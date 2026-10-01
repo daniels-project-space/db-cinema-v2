@@ -476,6 +476,9 @@ export default defineSchema({
   // ── RMv2 availability bridge state ────────────────────────────
   accounts: defineTable({
     membershipSignupOfferUsed: v.optional(v.boolean()),
+    membershipPerksPendingBookingId: v.optional(v.id("bookings")),
+    loyaltyUnlockedAt: v.optional(v.number()),
+    loyaltyCelebratedAt: v.optional(v.number()),
     starterRentalOfferUsed: v.optional(v.boolean()), // accepted legacy receipts
     email: v.string(),
     salt: v.optional(v.string()), // optional: Google-only accounts have no password

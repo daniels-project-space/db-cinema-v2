@@ -1,0 +1,19 @@
+.veil{position:fixed;inset:0;z-index:220;display:grid;place-items:center;padding:20px;background:rgba(4,7,10,.88);backdrop-filter:blur(18px);animation:veil .5s ease both}
+.card{position:relative;isolation:isolate;width:min(100%,540px);max-height:calc(100dvh - 40px);overflow-x:hidden;overflow-y:auto;border:1px solid #efc88950;border-radius:28px;padding:36px 28px;background:radial-gradient(ellipse at 50% 20%,#b17b3230,transparent 55%),linear-gradient(145deg,#151b21,#090c10);box-shadow:0 0 100px #e1ac4025,0 30px 100px #0008;text-align:center;animation:card .8s cubic-bezier(.16,1,.3,1) both}
+.card::before{content:"";position:absolute;inset:0;z-index:-1;background:repeating-conic-gradient(from 0deg at 50% 27%,transparent 0deg 11deg,#f5bf5808 12deg 13deg,transparent 14deg 30deg);mask-image:linear-gradient(#000,transparent 75%);animation:rays 5s ease-in-out infinite alternate}
+.crest{width:180px;height:180px;margin:0 auto;color:#efd39c;filter:drop-shadow(0 0 22px #edb14755);animation:crest 1.35s cubic-bezier(.16,1,.3,1) both}
+.draw{stroke-dasharray:750;stroke-dashoffset:750;animation:draw 1.65s .15s ease forwards}
+.iris{transform-origin:100px 100px;animation:iris 1.65s .3s cubic-bezier(.16,1,.3,1) both}
+.label{font-size:10px;letter-spacing:.32em;text-transform:uppercase;color:#dfc496;animation:rise .6s .9s ease both}
+.title{margin:10px 0 0;font-size:clamp(48px,12vw,76px);line-height:1;color:#fff2d7;animation:rise .8s 1.05s cubic-bezier(.16,1,.3,1) both}
+.rule{height:1px;margin:22px auto;width:65%;background:linear-gradient(90deg,transparent,#efc889,transparent);animation:rise .7s 1.25s both}
+.copy{font-size:14px;line-height:1.7;color:#b9b8b3;animation:rise .8s 1.4s both}
+.saving{font-size:52px;line-height:1;font-weight:800;color:#efd39c;font-variant-numeric:tabular-nums;animation:rise .8s 1.6s both}
+.button{display:block;margin:26px auto 0;width:100%;min-height:48px;border-radius:999px;border:1px solid #f5d79e70;background:linear-gradient(100deg,#e8c98c,#f8e5b9,#e6be79);color:#222018;font-size:13px;font-weight:700;box-shadow:0 0 30px #dca74422;animation:rise .7s 1.9s both;cursor:pointer}
+.button:focus-visible{outline:2px solid white;outline-offset:5px}.button:disabled{opacity:.7}
+.spark{position:absolute;left:50%;top:25%;height:2px;width:5px;background:#f1d29a;border-radius:50%;pointer-events:none;animation:spark 2s .75s ease-out both;box-shadow:0 0 8px #e8c989}
+@keyframes veil{from{opacity:0}to{opacity:1}}@keyframes card{from{opacity:0;transform:translateY(30px) scale(.94)}to{opacity:1;transform:none}}
+@keyframes draw{to{stroke-dashoffset:0}}@keyframes crest{from{opacity:0;transform:scale(.72)}to{opacity:1;transform:scale(1)}}@keyframes iris{from{transform:rotate(-95deg) scale(.6);opacity:0}to{transform:rotate(0) scale(1);opacity:1}}
+@keyframes rise{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:none}}@keyframes rays{from{opacity:.35}to{opacity:1}}@keyframes spark{0%{opacity:0;transform:rotate(var(--angle)) translateX(50px)}25%{opacity:1}100%{opacity:0;transform:rotate(var(--angle)) translateX(230px)}}
+@media(max-height:700px){.card{padding:22px}.crest{width:125px;height:125px}.title{font-size:48px}.rule{margin:14px auto}.saving{font-size:42px}.button{margin-top:16px}}
+@media(prefers-reduced-motion:reduce){.veil,.card,.crest,.draw,.iris,.label,.title,.rule,.copy,.saving,.button,.card::before{animation:none;opacity:1;transform:none}.draw{stroke-dashoffset:0}.spark{display:none}}

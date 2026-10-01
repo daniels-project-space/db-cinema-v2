@@ -40,6 +40,7 @@ type PriceQuoteResult = {
   securityWaiverReason?: string;
   weekendSaving: number;
   rentalSaving: number;
+  loyaltySaving: number;
   membershipFee: number;
   combinedTotalDue: number;
   recommendations: {membershipSignupOfferSaving:number;intro:"trial"|"none";membershipCreditApplied:number;tier:string;name:string;monthlyFee:number;monthlyCredit:number;rentalSaving:number;deliverySaving:number;initialFee:number;netSaving:number;depositWaived:boolean}[];
@@ -116,6 +117,7 @@ export const priceQuote = action({
       securityWaiverReason: price.securityWaiverReason,
       weekendSaving: price.weekendSaving,
       rentalSaving: price.rentalSaving,
+      loyaltySaving: price.loyaltySaving,
       membershipFee: price.membershipFee,
       combinedTotalDue: price.combinedTotalDue,
     };
@@ -308,6 +310,7 @@ export const start = action({
       membershipCreditApplied: price.membershipCreditApplied,
       membershipSignupOfferSaving: price.membershipSignupOfferSaving,
       weekendSaving: price.weekendSaving,
+      loyaltySaving: price.loyaltySaving,
       quotedDeliveryFee: price.quotedDeliveryFee,
       membershipCheckoutId: membershipCheckout?._id,
       accountAccessRequired: !pricedAccount,
