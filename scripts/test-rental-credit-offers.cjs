@@ -1,5 +1,9 @@
 const assert=require('node:assert/strict');
 const {load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
+// Keep offer fingerprints and exact expiry assertions on one deterministic clock.
+// Convex mutations use a fixed clock; this handler harness runs in ordinary Node.
+const realDateNow=Date.now,fixtureNow=realDateNow();
+Date.now=()=>fixtureNow;
 let refunds=0,releases=0,failFinalize=true;
 class Stripe {
  constructor(){this.paymentIntents={retrieve:async id=>id==='hold'?{id,status:'requires_capture'}:{id,status:'succeeded',amount_received:12000},cancel:async()=>{releases++;return {status:'canceled'}}};this.refunds={list:()=>({async *[Symbol.asyncIterator](){}}),create:async()=>{refunds++;throw Error('Credit path must not refund cash')}}}
@@ -38,4 +42,4 @@ const ctx={db,storage:{getUrl:async()=>null},scheduler:{runAfter:async()=>{}},ru
  assert.throws(()=>assertCreditOffer(offer,{...open,total:121}),/no longer/);
  assert.throws(()=>assertCreditOffer({...offer,fingerprint:creditOfferFingerprint({...open,lineItems:[{...open.lineItems[0],start:Date.now()+86400000}]})},{...open,lineItems:[{...open.lineItems[0],start:Date.now()+86400000}]}),/no longer/);
  console.log('PASS full credit: ownership/consent, accurate quote, once-only invitation, cash/credit exclusion, hold release, outage retry, one-year expiry, stale/changed/late offers rejected.');
-})().catch(e=>{console.error(e);process.exitCode=1});
+})().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{Date.now=realDateNow});
