@@ -1,3 +1,4 @@
+import { creditDebit,usableCredit } from "./lib/creditLedger";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
@@ -72,7 +73,7 @@ export const _balance = internalQuery({
       .collect();
     return rows
       .filter((c) => c.status === "active" && c.expiresAt > now)
-      .reduce((n, c) => n + c.remaining, 0);
+      .reduce((n, c) => n + usableCredit(c), 0);
   },
 });
 
@@ -92,9 +93,9 @@ export const redeem = internalMutation({
     let used = 0;
     for (const c of rows) {
       if (need <= 0) break;
-      const take = Math.min(c.remaining, need);
-      const rem = c.remaining - take;
-      await ctx.db.patch(c._id, { remaining: rem, status: rem <= 0 ? "spent" : "active" });
+      const take = Math.min(usableCredit(c), need);
+      const debit = creditDebit(c,take);
+      await ctx.db.patch(c._id, debit.patch);
       need -= take;
       used += take;
     }

@@ -1,0 +1,26 @@
+const assert=require('node:assert/strict'),{load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
+const membership=load('convex/membershipBenefits.ts'),{creditDebit,usableCredit}=load('convex/lib/creditLedger.ts'),{rentalRefundBalance}=load('convex/lib/rentalRefundBalance.ts');
+(async()=>{
+ const r=(id,amount,status='succeeded')=>({id,amount,status});
+ assert.equal(rentalRefundBalance(7200,5300,[r('fee',1900)],new Map([['fee',1900]])),5300,'membership refund preserves rental balance');
+ assert.equal(rentalRefundBalance(7200,5300,[r('fee',1900),r('rental',1000)],new Map([['fee',1900]])),4300);
+ assert.equal(rentalRefundBalance(7200,5300,[r('unknown',1900)],new Map()),3400,'unclassified provider refund cannot manufacture rental cash');
+ assert.equal(rentalRefundBalance(7200,5300,[r('full',7200)],new Map([['full',1900]])),0);
+ assert.equal(rentalRefundBalance(7200,5300,[r('pending',5300,'pending')],new Map()),0,'pending provider refund reserves cash');
+ assert.equal(rentalRefundBalance(7200,5300,[r('failed',5300,'failed')],new Map()),5300);
+ const ctx={db},account=put('accounts',{email:'refund@example.invalid',stripeSubscriptionId:'sub_refund',membershipIntroChoice:'credit'});
+ const args={accountId:account._id,subscriptionId:'sub_refund',invoiceId:'in_refund',paidMembershipPence:1900,periodEnd:Date.now()+30*86400000};
+ const id=await membership.grantPaidInvoice.handler(ctx,args),grant=await db.get(id),credit=await db.get(grant.creditId);
+ await db.patch(credit._id,creditDebit(credit,20).patch);
+ await membership.revokeRefundedInvoice.handler(ctx,{invoiceId:args.invoiceId,membershipRefundedPence:1900});
+ assert.equal(account.membershipCreditDebtPence,2000,'already used credit becomes future-credit offset');
+ const balance=()=>tables.get('credits').filter(c=>c.accountId===account._id).reduce((n,c)=>n+usableCredit(c),0);assert.equal(balance(),0);
+ await membership.revokeRefundedInvoice.handler(ctx,{invoiceId:args.invoiceId,membershipRefundedPence:1900});assert.equal(account.membershipCreditDebtPence,2000,'duplicate refund does not duplicate offset');
+ await membership.grantPaidInvoice.handler(ctx,{...args,invoiceId:'in_next'});assert.equal(balance(),4.7);assert.equal(account.membershipCreditDebtPence,0);
+ const reserved=put('accounts',{email:'reserved@example.invalid',stripeSubscriptionId:'sub_reserved'}),rid=await membership.grantPaidInvoice.handler(ctx,{...args,accountId:reserved._id,subscriptionId:'sub_reserved',invoiceId:'in_reserved'}),rg=await db.get(rid),rc=await db.get(rg.creditId);
+ put('bookings',{guestEmail:reserved.email,status:'pending_payment',creditApplied:10});
+ await membership.revokeRefundedInvoice.handler(ctx,{invoiceId:'in_reserved',membershipRefundedPence:1900});
+ assert.equal(usableCredit(rc),0,'reserved refunded credit is unavailable to a second checkout');assert.equal(rc.remaining,10);assert.equal(rc.revokedPendingPence,1000);assert.equal(reserved.membershipCreditDebtPence,0);
+ const debit=creditDebit(rc,10);assert.equal(debit.debtPence,1000,'only spending the reserved credit creates an offset');assert.equal(debit.patch.remaining,0);
+ console.log('Membership refunds: mixed payment scopes, cash caps, pending/failed refunds, revocation retries, reserved credits and future-credit offsets passed.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

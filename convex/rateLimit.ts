@@ -21,7 +21,13 @@ export async function bump(ctx: MutationCtx, key: string, limit: number, windowM
 /** Public limiter used by the API routes (bot / assemble / compat / voice), keyed by client IP. */
 export const hit = mutation({
   args: { key: v.string(), limit: v.number(), windowMs: v.number() },
-  handler: async (ctx, { key, limit, windowMs }) => bump(ctx, key, limit, windowMs),
+  handler: async (ctx, { key, limit, windowMs }) => {
+    // These counters belong to server-owned account/application workflows. A
+    // caller must not reset their windows through the public API-route limiter.
+    if (/^(account-signin:|account-signup:|fund-signup:|fund-upload:)/.test(key))
+      throw new Error("Reserved rate-limit key.");
+    return bump(ctx, key, limit, windowMs);
+  },
 });
 
 /** Daily sweep: drop rate-limit rows whose window is long past. */

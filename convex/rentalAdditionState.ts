@@ -1,3 +1,4 @@
+import { tierByKey } from "../shared/membership";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -163,10 +164,15 @@ export const prepare = internalMutation({
       b.depositHoldAmount ?? 0,
       depositFor(b.protection === "deposit" ? "deposit" : "verify", value),
     );
-    const securityCharge = Math.max(
+    const securityCharge = ["paid_membership","new_paid_membership"].includes(b.securityWaiverReason??"") ? 0 : Math.max(
       0,
       Math.round(holdTotal * 50) / 100 - b.depositAmount,
     );
+    const membership=b.status==="pending_payment"&&b.membershipCheckoutId?await ctx.db.get(b.membershipCheckoutId):null;
+    if(membership&&(!membership.sessionParams||!["creating","open"].includes(membership.state)||membership.bookingId!==b._id))throw Error("Refresh the initial membership checkout before changing its order.");
+    const membershipParams=membership?.sessionParams?JSON.parse(membership.sessionParams):null;
+    const membershipFee=membership?membershipParams?.metadata?.membershipFeePence?Number(membershipParams.metadata.membershipFeePence)/100:membership.intro==="trial"?0:tierByKey(membership.tier)?.monthlyGbp:undefined;
+    if(membership&&membershipFee===undefined)throw Error("Membership price snapshot is unavailable.");
     const id = await ctx.db.insert("rental_additions", {
       ...line,
       bookingId: b._id,
@@ -180,6 +186,7 @@ export const prepare = internalMutation({
       baseTotal: b.total,
       baseSecurity: b.depositAmount,
       baseSessionId: b.stripeCheckoutSessionId,
+      ...(membership?{membershipCheckoutId:membership._id,membershipFee,membershipSessionParams:membership.sessionParams}:{}),
       status: "prepared",
       reason: a.reason.trim().slice(0, 400),
       createdAt: Date.now(),
@@ -223,19 +230,28 @@ export const bindSession = internalMutation({
       status: "awaiting_payment",
       updatedAt: Date.now(),
     });
-    if (r.draftReplacement)
+    if (r.draftReplacement){
+      await assertRentalInventory(ctx,[...b.lineItems,{listingId:r.listingId,qty:r.qty,start:r.start,end:r.end}],b._id);
+      const deadline=r.createdAt+24*3600000;
       await ctx.db.patch(b._id, { stripeCheckoutSessionId: sessionId });
+      const held=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",b._id)).collect();
+      for(const row of held)if(row.status==="hold")await ctx.db.patch(row._id,{holdExpiresAt:deadline});
+    }
+    if(r.membershipCheckoutId){
+      const member=await ctx.db.get(r.membershipCheckoutId);if(!member||member.state==="complete"||member.bookingId!==b._id||member.sessionId!==r.baseSessionId)throw Error("The membership checkout changed before this edit was bound.");
+      await ctx.db.patch(member._id,{sessionId,state:"open",expiresAt:r.createdAt+24*3600000});
+    }
     await note(
       ctx,
       b,
       r.draftReplacement
-        ? `The team proposed adding ${r.qty}× ${r.title}. Review the updated rental and complete its checkout.`
+        ? `The team proposed adding ${r.qty}× ${r.title}. Review the updated rental and complete its checkout.${r.membershipCheckoutId ? ` Your membership is preserved: £${(r.membershipFee??0).toFixed(2)} membership fee in this checkout${r.membershipFee===0?" (free-week trial)":""}; renewal remains as agreed.`:""}`
         : `The team proposed adding ${r.qty}× ${r.title}: £${r.lineTotal.toFixed(2)} rental${r.securityCharge ? ` + £${r.securityCharge.toFixed(2)} refundable security` : ""}. The updated card hold is £${r.holdTotal.toFixed(2)}. Items are confirmed after payment and any bank approval.`,
       {
         kind: "paylink",
         url,
         amount: r.draftReplacement
-          ? (r.baseTotal ?? 0) + r.lineTotal + r.securityCharge
+          ? (r.baseTotal ?? 0) + r.lineTotal + r.securityCharge + (r.membershipFee??0)
           : r.lineTotal + r.securityCharge,
       },
     );
@@ -343,6 +359,8 @@ export const apply = internalMutation({
       ];
     }
     if (r.draftReplacement) patch.stripeCheckoutSessionId = r.sessionId;
+    if(b.securityWaiverReason==="safe_repeat_kit"&&r.securityCharge>0)patch.securityWaiverReason=undefined;
+    if(r.membershipCheckoutId)patch.rentalPaidPence=Math.round((b.total+r.lineTotal+r.securityCharge)*100);
     await ctx.db.patch(b._id, patch);
     await ctx.db.patch(id, {
       status: r.draftReplacement ? "applied_draft" : "applied",
@@ -391,6 +409,7 @@ export const close = internalMutation({
       status: refunded ? "refunded" : "expired",
       updatedAt: Date.now(),
     });
+    if(r.draftReplacement&&!preserveBooking&&b?.status==="pending_payment"&&r.membershipCheckoutId){const member=await ctx.db.get(r.membershipCheckoutId);if(member&&["creating","open"].includes(member.state))await ctx.db.patch(member._id,{state:"expired"});}
     if (b?.activeAdditionId === id)
       await ctx.db.patch(
         b._id,

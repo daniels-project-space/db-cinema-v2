@@ -21,9 +21,15 @@ type Me = {
   favorites: string[];
   avatarUrl: string | null;
   idVerified: boolean;
+  hasPassword: boolean;
   storeCredit: number;
   membershipTier: string | null;
   membershipActive: boolean;
+  membershipStatus: string | null;
+  membershipPaidThrough: number | null;
+  membershipTrialEnd: number | null;
+  membershipCancelAtPeriodEnd: boolean;
+  membershipIntroUsed: boolean;
   freeAccessoryMonth: string | null;
   freeAccessoryUsed: number;
 } | null;
@@ -36,6 +42,7 @@ type AccountCtx = {
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: (credential: string) => Promise<void>;
   signOut: () => Promise<void>;
+  acceptSession: (token: string) => void;
   updateProfile: (patch: {
     name?: string;
     phone?: string;
@@ -65,6 +72,12 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const updateM = useMutation(api.accounts.updateProfile);
   const favM = useMutation(api.accounts.toggleFavorite);
   const claimFollowUpsM = useMutation(api.followUp.claimForAccount);
+  useEffect(() => {
+    // Email-link account creation completes after signup has returned. Claim
+    // the renter's earlier Gaffer history only once ownership is authenticated.
+    if (token && meRes?.email)
+      void claimFollowUpsM({ token, email: meRes.email }).catch(() => {});
+  }, [token, meRes?.email, claimFollowUpsM]);
 
   const persist = (t: string | null) => {
     setToken(t);
@@ -75,6 +88,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const signUp = useCallback(
     async (email: string, password: string, name?: string) => {
       const { token } = await signUpA({ email, password, name });
+      if(!token)return;
       persist(token);
       // Someone who took a Gaffer call, got an email follow-up and only then
       // signed up is the same person — attach that history to the new account so
@@ -133,6 +147,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         signIn,
         signInWithGoogle,
         signOut,
+        acceptSession: persist,
         updateProfile,
         toggleFavorite,
       }}

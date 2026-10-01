@@ -1,5 +1,6 @@
 "use client";
 
+import { tierByKey } from "@/lib/membership";
 import { ChatAvatar } from "./rentals/ChatIdentity";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -37,6 +38,8 @@ export function SiteHeader() {
   const me = account.me;
   const messages = useQuery(api.rentalChat.unreadBreakdown, account.token && me ? { token: account.token } : "skip");
   const unread = (messages?.rentals ?? 0) + (messages?.general ?? 0);
+  const memberTier = me?.membershipActive ? tierByKey(me.membershipTier) : undefined;
+  const memberMark = memberTier ? <span title={`${memberTier.name} ${me?.membershipStatus === "trialing" ? "trial" : "member"}`} aria-label={`${memberTier.name} member`} className="absolute -bottom-1 -left-1 grid h-4 w-4 place-items-center rounded-full border border-accent-200/70 bg-[#1c291d] text-accent-200 shadow-[0_0_12px_#acd17c55]"><svg viewBox="0 0 16 16" fill="none" className="h-3 w-3" aria-hidden><path d="m8 1 1.8 4.8L15 8l-5.2 2.2L8 15l-1.8-4.8L1 8l5.2-2.2L8 1Z" fill="currentColor"/></svg></span> : null;
   const messageBadge = unread > 0 ? <span data-testid="account-unread" aria-hidden className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-500 px-1 text-[10px] font-semibold text-white ring-2 ring-[#060608]">{unread > 99 ? "99+" : unread}</span> : null;
   const pathname = usePathname();
   const [menu, setMenu] = useState(false);
@@ -247,7 +250,7 @@ export function SiteHeader() {
                   >
                     {messageBadge}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-7 !w-7 ring-1 ring-accent-400/50" />
+                    <span className="relative"><ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className={`!h-7 !w-7 ring-1 ${memberTier ? "ring-accent-200/80 shadow-[0_0_18px_#acd17c35]" : "ring-accent-400/50"}`} />{memberMark}</span>
                     <span className="max-w-[90px] truncate text-sm text-white/80" title={me.name || me.email}>
                       {me.name || me.email.split("@")[0]}
                     </span>
@@ -256,7 +259,7 @@ export function SiteHeader() {
                     <div className="absolute right-0 top-full mt-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900 shadow-2xl shadow-black/60">
                       <div className="flex items-center gap-3 border-b border-white/5 p-4">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-10 !w-10 ring-1 ring-accent-400/50" />
+                        <span className="relative"><ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-10 !w-10 ring-1 ring-accent-400/50" />{memberMark}</span>
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-white/90">{me.name || "Account"}</div>
                           <div className="truncate text-xs text-white/40">{me.email}</div>
@@ -364,7 +367,7 @@ export function SiteHeader() {
             </div>
 
             <Link href={me ? "/account#chat" : "/account"} onClick={() => { if (me) window.dispatchEvent(new CustomEvent("dbc:open-rental-chat")); }} aria-label={unread ? `Account, ${unread} unread messages` : "Account"} className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] md:hidden">
-              {me ? <ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-7 !w-7" /> : <IconUser className="h-4 w-4 text-white/70" />}
+              {me ? <span className="relative"><ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-7 !w-7" />{memberMark}</span> : <IconUser className="h-4 w-4 text-white/70" />}
               {messageBadge}
             </Link>
 

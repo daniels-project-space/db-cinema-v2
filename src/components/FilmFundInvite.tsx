@@ -1,0 +1,16 @@
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import { useMutation } from "convex/react";
+import { api } from "@cvx/_generated/api";
+export function FilmFundInvite({compact=false}:{compact?:boolean}) {
+ const Heading=compact?"h1":"h2";
+ const notify=useMutation(api.filmFund.notify);const[email,setEmail]=useState(""),[consent,setConsent]=useState(false),[busy,setBusy]=useState(false),[result,setResult]=useState("");
+ return <section className={`${compact?"":"section-window px-6 py-20"}`} aria-labelledby="film-fund-title"><div className="relative mx-auto max-w-6xl overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#1c2420] via-[#141816] to-[#101211] p-7 sm:p-12">
+  <div aria-hidden className="pointer-events-none absolute -right-24 -top-32 h-96 w-96 rounded-full bg-accent-300/[.08] blur-3xl"/>
+  <div className="relative grid gap-10 md:grid-cols-[1.1fr_1fr]">
+   <div><p className="font-mono text-[10px] uppercase tracking-[.24em] text-accent-300/75">DB Cinema Film Fund · coming soon</p><Heading id="film-fund-title" className="mt-4 font-display text-4xl leading-tight text-white sm:text-5xl">A story worth telling.<br/><span className="serif-accent text-accent-200">A community behind it.</span></Heading><p className="mt-5 max-w-lg text-sm leading-7 text-white/55">Some films begin with a favour. We want yours to begin with the right gear. Twice a year, we’ll back a passion project with seven days of equipment, and a runner-up with two. Your vision. Our kit. A shared credit.</p>{!compact&&<Link href="/film-fund" className="mt-6 inline-block text-sm text-accent-300">Explore the fund →</Link>}</div>
+   <div className="flex flex-col justify-center rounded-2xl border border-white/[.08] bg-black/15 p-6"><p className="text-xl font-medium text-white">Be here for the first take.</p><p className="mt-2 text-sm leading-6 text-white/45">Get the opening announcement and application dates. No tickets or submissions are open yet.</p><form className="mt-5" onSubmit={async e=>{e.preventDefault();if(busy)return;setBusy(true);setResult("");try{await notify({email,consent});setResult("You’re on the list. We’ll email when the fund opens.");setEmail("");}catch(e:any){setResult(e.message??"Please try again.");}finally{setBusy(false);}}}><label htmlFor={compact?"fund-email-page":"fund-email-home"} className="sr-only">Email address</label><div className="flex gap-2"><input id={compact?"fund-email-page":"fund-email-home"} type="email" required maxLength={254} value={email} onChange={e=>setEmail(e.target.value)} placeholder="Your email" className="input min-w-0 flex-1"/><button disabled={busy||!consent} className="btn-primary shrink-0 px-4 text-sm disabled:opacity-40">{busy?"Saving…":"Notify me"}</button></div><label className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-white/40"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} className="mt-1 accent-[#acd17c]"/><span>Email me about the DB Cinema Film Fund. I can opt out of these updates.</span></label><p role="status" className="mt-3 text-xs text-accent-200">{result}</p></form></div>
+  </div>
+ </div></section>;
+}

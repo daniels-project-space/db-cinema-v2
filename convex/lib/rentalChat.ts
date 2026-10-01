@@ -6,7 +6,7 @@ export async function accountForToken(ctx: any, token: string) {
     .withIndex("by_token", (q: any) => q.eq("token", token))
     .first();
   if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
-  return ctx.db.get(s.accountId);
+  const account=await ctx.db.get(s.accountId);return account?.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
 }
 export async function ownedBooking(ctx: any, account: any, bookingId: any) {
   const b = await ctx.db.get(bookingId);

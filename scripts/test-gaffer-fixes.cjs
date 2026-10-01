@@ -67,6 +67,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
         if(ref==='availability:forListing') return {available:10};
         if(ref==='accounts:_byToken') return {_id:'acct-1',email:'owner@example.invalid',membershipActive:false};
         if(ref==='bookings:availableCheckoutCredit') return availableCredit;
+        if(ref==='repeatRentals:candidate') return null;
         if(ref==='promo:validate') return validate.handler({},args);
         throw Error(`Unexpected query ${ref}`);
       },

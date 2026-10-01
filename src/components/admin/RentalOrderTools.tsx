@@ -2,6 +2,7 @@
 import { useRef, useState, useEffect } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { ReturnRentalForm } from "./ReturnRentalForm";
 import { SmartImage } from "@/components/SmartImage";
 import { rentalTitle } from "@/lib/rentalPresentation";
 import { formatGbp } from "@/lib/pricing";
@@ -28,6 +29,8 @@ export function RentalOrderTools({
     [complimentary, setComplimentary] = useState(false);
   const add = useAction(api.rentalAdditions.start),
     withdraw = useAction(api.rentalAdditions.withdrawByOwner);
+  const setStatus = useMutation(api.bookings.adminSetStatus);
+  const [returnOpen, setReturnOpen] = useState(false);
   const reschedule = useMutation(api.rentalOperations.reschedule),
     remove = useMutation(api.rentalOperations.removeItem),
     cancel = useAction(api.checkout.cancelByAdmin),
@@ -189,6 +192,14 @@ export function RentalOrderTools({
     <div data-testid="owner-rental-tools">
       <p className="mb-2 text-[10px] uppercase tracking-[.16em] text-white/35">Manage rental · owner only</p>
       <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Owner rental controls">
+        {b.status === "confirmed" && <button disabled={busy || !!processing || !!b.activeAdditionId || !!b.cancellationDecision || !!b.returnDecision} onClick={async () => {
+          setBusy(true); setError(""); setResult("");
+          try { await setStatus({ token, bookingId: bookingId as any, status: "active" }); setResult("Pickup recorded. Rental is now out."); }
+          catch (e: any) { setError(e.message ?? "Pickup could not be recorded."); }
+          finally { setBusy(false); }
+        }} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">Mark picked up</button>}
+        {(b.status === "active" || !!b.returnDecision && b.status !== "returned") && <button disabled={busy || !!processing || !!b.activeAdditionId || !!b.cancellationDecision} onClick={() => setReturnOpen(v => !v)} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">{b.returnDecision ? "Resume return settlement" : "Record return"}</button>}
+
         {b.status === "confirmed" && <button disabled={busy || !!processing || !!b.activeAdditionId || !!b.cancellationDecision} onClick={() => { setMode("remove"); setRemoveIndex(null); removeSelection.current = null; request.current = null; setError(""); }} className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35">Remove items</button>}
         {["pending_payment", "confirmed", "active"].includes(b.status) && (
           <button
@@ -262,6 +273,7 @@ export function RentalOrderTools({
             </button>
           )}
       </div>
+      {returnOpen && <ReturnRentalForm booking={b} token={token} onClose={() => setReturnOpen(false)} />}
       {additions
         .filter(
           (r) =>

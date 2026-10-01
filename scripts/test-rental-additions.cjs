@@ -230,6 +230,13 @@ const request = (b) => ({
     status: "pending",
   });
   assert.equal(job.status, "succeeded");
+  const memberUnit=put("inventory_units",{name:"Member kit",quantityOwned:4}),memberListing=put("listings",{title:"Member lens",active:true,pricing:{daily:30},depositAmount:100,components:[{inventoryUnitId:memberUnit._id,qty:1}]});
+  const memberBooking=booking("pending_payment");Object.assign(memberBooking,{subtotal:60,total:60,depositAmount:0,securityWaiverReason:"new_paid_membership",lineItems:[{listingId:memberListing._id,title:"Member lens",qty:1,start,end,lineTotal:60}]});
+  const membership=put("membership_checkouts",{accountId:account._id,tier:"plus",intro:"credit",state:"open",bookingId:memberBooking._id,sessionId:"cs_original",sessionParams:JSON.stringify({mode:"subscription",customer:"cus_member",line_items:[{price_data:{unit_amount:6000,currency:"gbp"},quantity:1},{price:"price_starter",quantity:1}],metadata:{membershipTier:"plus",membershipFeePence:"1900"}})});memberBooking.membershipCheckoutId=membership._id;
+  const edited=await state.prepare.handler(ctx,{...request(memberBooking),listingId:memberListing._id});assert.equal(edited.membershipFee,19);assert.equal(edited.membershipCheckoutId,membership._id);assert.equal(edited.securityCharge,0,"membership waiver survives owner additions while the full hold grows");assert.equal(edited.holdTotal,100);
+  await state.bindSession.handler(ctx,{id:edited._id,sessionId:"cs_member_edit",url:"https://checkout.stripe.com/member-edit"});assert.equal(membership.sessionId,"cs_member_edit");assert.equal(memberBooking.stripeCheckoutSessionId,"cs_member_edit");
+  await state.markPaid.handler(ctx,{id:edited._id,paymentIntentId:"pi_combined_invoice"});await state.apply.handler(ctx,{id:edited._id});
+  assert.equal(memberBooking.total,120);assert.equal(memberBooking.rentalPaidPence,12000,"rental refund cap excludes the recurring fee");assert.equal(memberBooking.depositAmount,0);assert.equal(memberBooking.lineItems.length,2);
   console.log(
     "PASS actual addition handlers: owner-only; saved retries; payment/hold prerequisites; one attachment; promoted hold ledger; draft stock exactly once; payment sources; original-payment race preserves history; missing stock rejected; split refund webhooks monotonic.",
   );

@@ -1,0 +1,6 @@
+"use client";
+import { useEffect,useState } from "react";
+import Link from "next/link";
+import { useAction } from "convex/react";
+import { api } from "@cvx/_generated/api";
+export default function Unsubscribe(){const unsubscribe=useAction(api.filmFundNotifications.unsubscribe),[token,setToken]=useState(''),[busy,setBusy]=useState(false),[done,setDone]=useState(false),[error,setError]=useState('');useEffect(()=>{setToken(window.location.hash.slice(1));window.history.replaceState(null,'','/film-fund/unsubscribe');},[]);return <main className="mx-auto max-w-lg px-6 py-24"><h1 className="font-display text-3xl text-white">Film Fund updates</h1><p className="mt-4 text-sm text-white/55">{done?'You’re unsubscribed from Film Fund emails. Your account and rental messages are unaffected.':'Stop emails about the Film Fund opening and application dates.'}</p>{!done&&<button disabled={busy||!token} className="btn-primary mt-6 px-5 py-3" onClick={async()=>{setBusy(true);setError('');try{await unsubscribe({token});setDone(true);}catch{setError('This link could not be used. Contact DB Cinema Rentals to unsubscribe.');}finally{setBusy(false);}}}>{busy?'Saving…':'Unsubscribe'}</button>}<p role="status" className="mt-4 text-xs text-rose-300">{error}</p><Link href="/film-fund" className="mt-6 inline-block text-sm text-accent-300">Back to the fund →</Link></main>;}

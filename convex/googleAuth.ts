@@ -100,6 +100,8 @@ export const _upsertGoogle = internalMutation({
         name: a.name,
         googleId: a.googleId,
         googleAvatarUrl: a.picture,
+        emailVerifiedAt: now,
+        emailVerificationRequired: false,
         createdAt: now,
       });
       await _applyPendingCollectiveGrant(ctx, id, a.email);
@@ -111,7 +113,11 @@ export const _upsertGoogle = internalMutation({
       });
       return;
     }
-    const patch: Record<string, unknown> = {};
+    const patch: Record<string, unknown> = {emailVerifiedAt:now,emailVerificationRequired:false};
+    if(acct.emailVerificationRequired&&!acct.emailVerifiedAt){
+      patch.hash=undefined;patch.salt=undefined;
+      const sessions=await ctx.db.query("sessions").withIndex("by_account",q=>q.eq("accountId",acct._id)).collect();for(const session of sessions)await ctx.db.delete(session._id);
+    }
     if (!acct.googleId) patch.googleId = a.googleId;
     if (!acct.name && a.name) patch.name = a.name;
     if (!acct.googleAvatarUrl && a.picture) patch.googleAvatarUrl = a.picture;

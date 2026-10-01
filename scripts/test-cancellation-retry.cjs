@@ -104,6 +104,32 @@ const ctx = {
   );
   assert.equal(b.status, "cancelled");
   assert.equal(b.refundAmount, 120);
+  const member = put("accounts", {email:"credit-only@rental-test.invalid"});
+  const creditOnly = put("bookings", {status:"confirmed", guestEmail:member.email,
+    accountId:member._id, currency:"GBP", total:0, creditApplied:53, depositAmount:0,
+    lineItems:[{listingId:"fixture-listing",title:"Camera",qty:1,lineTotal:53,
+      start:Date.UTC(2030,10,1),end:Date.UTC(2030,10,2)}]});
+  const restored=await checkout.cancelByAdmin.handler(ctx,{...args,bookingId:creditOnly._id});
+  assert.equal(restored.refundAmount,0);
+  assert.equal(restored.creditAmount,53,"setup-only booking restores tender despite having no payment intent");
+  assert.equal(created,1,"credit-only cancellation does not create a cash refund");
+  assert.equal(creditOnly.status,"cancelled");
+  const restoredCredits=await db.query("credits").collect();
+  assert.equal(restoredCredits.filter(c=>c.bookingId===creditOnly._id).length,1);
+  await bookings._finalizeCancellation.handler(ctx,{bookingId:creditOnly._id,accountId:member._id,
+    mode:"refund",refundAmount:0,creditAmount:53,currency:"GBP"});
+  assert.equal((await db.query("credits").collect()).filter(c=>c.bookingId===creditOnly._id).length,1);
+  for(const binding of [{stripeCheckoutSessionId:"cs_bound"},{stripePaymentIntentId:"pi_bound"}]){
+    const bound=put("bookings",{status:"pending_payment",...binding});
+    await bookings.checkoutCreationRejected.handler(ctx,{bookingId:bound._id});
+    assert.equal(bound.status,"pending_payment","a bound provider checkout cannot be released as a create rejection");
+  }
+  const memberReservation=put("membership_checkouts",{state:"creating"});
+  const rejected=put("bookings",{status:"pending_payment",membershipCheckoutId:memberReservation._id});
+  const held=put("reservations",{bookingId:rejected._id,status:"hold",holdExpiresAt:Date.now()+10000});
+  await bookings.checkoutCreationRejected.handler(ctx,{bookingId:rejected._id});
+  assert.equal(rejected.status,"cancelled");assert.equal(held.status,"cancelled");
+  assert.equal(memberReservation.state,"expired");
   console.log(
     "PASS cancellation: Stripe succeeded/database failed; original quote reused; one cash refund; retry finalizes once.",
   );

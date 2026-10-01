@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { IconLock, IconShield, IconCheck, IconTruck, IconPin, IconArrowRight } from "@/components/icons";
 import { useAction, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
+import { CheckoutAccountBenefits } from "@/components/CheckoutAccountBenefits";
+import { CheckoutMembership, type MembershipSelection } from "@/components/CheckoutMembership";
+import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
 import { CheckoutLoopBanner } from "@/components/CheckoutLoopBanner";
 import { CheckoutReminder } from "@/components/plans/CartPlanning";
 import { useCart } from "@/components/cart/CartProvider";
@@ -69,6 +72,8 @@ export default function CheckoutPage() {
   const getPriceQuote = useAction(api.checkout.priceQuote);
   const getQuote = useAction(api.delivery.quote);
   const track = useMutation(api.analytics.track);
+  const [membership,setMembership] = useState<MembershipSelection|null>(null);
+  const membershipRequest = useRef<string|null>(null);
 
   const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
   const acctPostcode = account.me?.address?.match(PC_RE)?.[1] ?? "";
@@ -112,6 +117,7 @@ export default function CheckoutPage() {
       qty: 1, total: i.total, deposit: i.deposit, offerType: i.offerType,
     })),
     token: account.token ?? undefined,
+    selectedMembership: membership ? {tier:membership.tier,intro:membership.intro} : undefined,
     customerEmail: email,
     fulfilment,
     address: fulfilment === "delivery" ? address : undefined,
@@ -147,7 +153,7 @@ export default function CheckoutPage() {
 
   const signDone = agreed && holdAgreed && laterChargeAgreed && signature.trim().length > 2;
 
-  const valid = items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
+  const valid = (!membership || membership.termsAccepted) && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
 
   async function quoteDelivery() {
     if (!postcode.trim()) return;
@@ -188,7 +194,8 @@ export default function CheckoutPage() {
         address: fulfilment === "delivery" ? address : undefined,
         deliveryPostcode: fulfilment === "delivery" ? postcode : undefined,
         deliveryFee: currentQuote!.quotedDeliveryFee,
-        expectedTotalDue: currentQuote!.totalDue,
+        expectedTotalDue: currentQuote!.combinedTotalDue,
+        selectedMembership: membership ? {tier:membership.tier,intro:membership.intro,termsVersion:MEMBERSHIP_TERMS_VERSION,requestId:membershipRequest.current ?? (membershipRequest.current = crypto.randomUUID())} : undefined,
         promoCode: promo.applied ?? undefined,
         protection,
         pickupTime,
@@ -231,7 +238,7 @@ export default function CheckoutPage() {
             Encrypted checkout by Stripe
           </span>
           <span className="text-white/20">·</span>
-          <span>The refundable security payment is returned after safe return; the card hold is released separately</span>
+          <span>Any upfront refundable security payment is returned after safe return; the card hold is released separately</span>
           <span className="text-white/20">·</span>
           <span>Need a hand? Message us any time</span>
         </p>
@@ -262,6 +269,8 @@ export default function CheckoutPage() {
                 </div>
               </div>
             </StepCard>
+
+            <CheckoutAccountBenefits />
 
             {/* 02 — fulfilment */}
             <StepCard
@@ -351,6 +360,8 @@ export default function CheckoutPage() {
             </StepCard>
 
             {/* 03 — protection */}
+            <CheckoutMembership appliedSavings={currentQuote ? {rentalSaving:currentQuote.rentalSaving,weekendSaving:currentQuote.weekendSaving,deliveryReduction:currentQuote.deliveryReduction,securityWaiverReason:currentQuote.securityWaiverReason} : undefined} suggestions={currentQuote?.recommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
+
             <StepCard n="03" title="Protection" sub="Choose how you cover the gear." done delay={140}>
               <div className="flex flex-col gap-2.5">
                 <button
@@ -361,9 +372,9 @@ export default function CheckoutPage() {
                       : "border-white/10 hover:border-white/25"
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="flex items-center gap-2.5 text-sm font-medium text-white/85">
-                      <IconShield className={`h-4.5 w-4.5 ${protection === "verify" ? "text-accent-400" : "text-white/40"}`} />
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                    <span className="flex min-w-0 flex-wrap items-center gap-2.5 text-sm font-medium text-white/85">
+                      <IconShield className={`h-4.5 w-4.5 shrink-0 ${protection === "verify" ? "text-accent-400" : "text-white/40"}`} />
                       ID verification + insurance
                       <span className="rounded bg-accent-500/20 px-1.5 py-0.5 font-mono text-[10px] uppercase text-accent-300">
                         recommended
@@ -372,7 +383,7 @@ export default function CheckoutPage() {
                     <span className="shrink-0 font-mono text-sm text-accent-300">{formatGbp(smallDamageHold(replacementSum))} hold</span>
                   </div>
                   <p className="mt-1.5 text-xs text-white/40">
-                    {formatGbp(depositChargeFor("verify", replacementSum))} refundable security payment at checkout, plus a separate {formatGbp(smallDamageHold(replacementSum))} card hold. Automatic ID, selfie and address check before handover.
+                    {formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("verify", replacementSum))} refundable security payment at checkout, plus a separate {formatGbp(smallDamageHold(replacementSum))} card hold. Automatic ID, selfie and address check before handover.
                   </p>
                 </button>
                 <button
@@ -383,14 +394,14 @@ export default function CheckoutPage() {
                       : "border-white/10 hover:border-white/25"
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="flex items-center gap-2.5 text-sm font-medium text-white/85">
-                      <IconLock className={`h-4.5 w-4.5 ${protection === "deposit" ? "text-accent-400" : "text-white/40"}`} />
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                    <span className="flex min-w-0 flex-wrap items-center gap-2.5 text-sm font-medium text-white/85">
+                      <IconLock className={`h-4.5 w-4.5 shrink-0 ${protection === "deposit" ? "text-accent-400" : "text-white/40"}`} />
                       Full-value card hold
                     </span>
                     <span className="shrink-0 font-mono text-sm text-accent-300">{formatGbp(replacementSum)} hold</span>
                   </div>
-                  <p className="mt-1.5 text-xs text-white/40">{formatGbp(depositChargeFor("deposit", replacementSum))} refundable security payment at checkout, plus a separate {formatGbp(replacementSum)} card hold. Automatic ID, selfie and address check before handover.</p>
+                  <p className="mt-1.5 text-xs text-white/40">{formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("deposit", replacementSum))} refundable security payment at checkout, plus a separate {formatGbp(replacementSum)} card hold. Automatic ID, selfie and address check before handover.</p>
                 </button>
               </div>
             </StepCard>
@@ -454,7 +465,8 @@ export default function CheckoutPage() {
                 </div>
               )}
               {(currentQuote?.deliveryFee ?? deliveryFee) > 0 && <Row label="Delivery (round trip)" value={currentQuote?.deliveryFee ?? deliveryFee} />}
-              <Row label="Refundable security payment (50%)" value={depositAmount} muted />
+              <Row label={currentQuote?.securityWaiverReason ? "Upfront security payment waived · full hold remains" : "Refundable security payment (50%)"} value={depositAmount} muted />
+              {!!membership && <Row label={membership.intro === "trial" ? "Membership · 7 days free" : "First membership month"} value={currentQuote?.membershipFee ?? 0} />}
               <Row label="Separate card hold (not charged)" value={holdAmount} muted />
               {!!currentQuote && currentQuote.creditApplied > 0 && (
                 <div className="flex justify-between text-emerald-300">
@@ -465,7 +477,7 @@ export default function CheckoutPage() {
               <hr className="receipt-sep" />
               <div className="flex justify-between font-display text-xl font-bold text-white">
                 <span>Total due</span>
-                <span className="font-mono">{currentQuote ? formatGbp(currentQuote.totalDue) : "Calculating…"}</span>
+                <span className="font-mono">{currentQuote ? formatGbp(currentQuote.combinedTotalDue) : "Calculating…"}</span>
               </div>
             </div>
             {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}

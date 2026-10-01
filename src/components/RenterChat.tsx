@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "./account/AccountProvider";
+import { RentalJourney } from "./rentals/RentalJourney";
 import { RentalKit } from "./rentals/RentalKit";
 import { RentalConversation } from "./rentals/RentalConversation";
 import { RenterRentalTools } from "./rentals/RenterRentalTools";
@@ -153,7 +154,7 @@ export function RenterChat({
         }
         stage={focus?.status ?? "Support"}
         escalated={focus?.escalated}
-        tools={focus ? <><RenterRentalTools token={token} bookingId={focus._id} /><details className="mt-3"><summary className="cursor-pointer text-xs text-white/55">Your kit · {focus.items.length} listings</summary><div className="mt-3"><RentalKit items={focus.items} compact /></div></details></> : undefined}
+        tools={focus ? <><RentalJourney booking={focus} /><RenterRentalTools token={token} bookingId={focus._id} /><details className="mt-3"><summary className="cursor-pointer text-xs text-white/55">Your kit · {focus.items.length} listings</summary><div className="mt-3"><RentalKit items={focus.items} compact /></div></details></> : undefined}
       />
     </div>
   );

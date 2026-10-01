@@ -29,6 +29,7 @@ export const createExtendPayLink = internalAction({
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const session = await stripe().checkout.sessions.create({
       mode: "payment",
+      adaptive_pricing: {enabled:false},
       line_items: [
         {
           quantity: 1,

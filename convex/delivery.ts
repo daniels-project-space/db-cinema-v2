@@ -55,7 +55,7 @@ export const quote = action({
     ctx,
     { postcode, listingIds },
   ): Promise<
-    | { ok: true; fee: number; oneWay: number; vehicle: string; vehicleLabel: string; km: number; load: number }
+    | { ok: true; fee: number; oneWay: number; vehicle: string; vehicleLabel: string; km: number; load: number; isLondon: boolean }
     | { ok: false; reason: string }
   > => {
     const pc = postcode.replace(/\s+/g, "").toUpperCase();
@@ -111,6 +111,6 @@ export const quote = action({
     // round trip (there + back) + configurable margin
     const fee = Math.round(oneWay * 2 * (1 + (cfg.deliveryMarginPct ?? 10) / 100));
 
-    return { ok: true, fee, oneWay, vehicle, vehicleLabel, km: Math.round(km * 10) / 10, load: Math.round(load) };
+    return { ok: true, fee, oneWay, vehicle, vehicleLabel, isLondon: res.region === "London", km: Math.round(km * 10) / 10, load: Math.round(load) };
   },
 });

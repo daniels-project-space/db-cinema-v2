@@ -1,0 +1,55 @@
+const assert=require('node:assert/strict');const{load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
+const f=load('convex/filmFund.ts'),shared=load('shared/filmFund.ts'),{mp4Duration}=load('convex/lib/mp4Duration.ts'),{rentalProgress}=load('shared/rentalProgress.ts');
+(async()=>{
+ const acct=put('accounts',{email:'fund@example.invalid',membershipTier:'pro',membershipActive:true});put('sessions',{token:'real',accountId:acct._id,expiresAt:Date.now()+86400000});const foreign=put('accounts',{email:'other@example.invalid'});put('sessions',{token:'foreign',accountId:foreign._id,expiresAt:Date.now()+86400000});
+ const metadata=new Map();db.system={get:async id=>metadata.get(id)};const ctx={db,scheduler:{runAfter:async()=>{}},storage:{generateUploadUrl:async()=>'/upload',getUrl:async id=>'https://files.example.invalid/'+id}};
+ await f.notify.handler(ctx,{email:'SIGNUP@example.invalid',consent:true});await f.notify.handler(ctx,{email:'signup@example.invalid',consent:true});assert.equal(tables.get('film_fund_signups').length,1);await assert.rejects(f.notify.handler(ctx,{email:'signup@example.invalid',consent:false}),/consent/);
+ const details={token:'real',title:'Passion Project',synopsis:'A carefully planned passion film about a community supporting its artists.',letter:Array(250).fill('vision').join(' '),tags:['drama'],crew:[{name:'Director',role:'Director',profile:'https://example.invalid/director',bio:'An experienced creative filmmaker working with the community.'}]};
+ const projectId=await f.saveDraft.handler(ctx,details);assert.equal(await f.saveDraft.handler(ctx,{...details,title:'  Passion   Project  '}),projectId,'normalized title is one project');
+ await assert.rejects(f.saveDraft.handler(ctx,{...details,token:'foreign',projectId}),/another account/);
+ await assert.rejects(f.saveDraft.handler(ctx,{...details,projectId,title:'Rename'}),/keeps its title/);
+ await assert.rejects(f.submit.handler(ctx,{token:'real',projectId,roundSlug:'spring-2027',termsVersion:shared.FILM_FUND_TERMS_VERSION}),/coming soon/);
+ for(const [kind,type] of [['script','application/pdf'],['moodboard','image/png'],['document','application/pdf']]){const storageId=`file-${kind}`;metadata.set(storageId,{size:1024,contentType:type,sha256:kind});await f.attachDocument.handler(ctx,{token:'real',projectId,storageId,kind,name:kind});}
+ metadata.set('video',{size:2048,contentType:'video/mp4',sha256:'video'});
+ await assert.rejects(f.attachDocument.handler(ctx,{token:'real',projectId,storageId:'video',kind:'video',name:'pitch'}),/duration verification/);
+ await assert.rejects(f.attachVideo.handler(ctx,{token:'real',projectId,storageId:'video',name:'pitch',durationSeconds:90}),/one minute/);
+ await f.attachVideo.handler(ctx,{token:'real',projectId,storageId:'video',name:'pitch',durationSeconds:60});
+ const p=await db.get(projectId);assert.deepEqual(shared.fundSubmissionErrors(p),[]);
+ assert.ok(shared.fundSubmissionErrors({...p,letter:'short'}).some(e=>e.includes('250')));
+ put('film_fund_rounds',{slug:'spring-2027',name:'Spring',state:'open',opensAt:Date.now()-86400000,deadline:Date.now()+86400000,announcementAt:Date.now()+2*86400000});
+ await f.submit.handler(ctx,{token:'real',projectId,roundSlug:'spring-2027',termsVersion:shared.FILM_FUND_TERMS_VERSION});assert.equal(p.entryIncluded,true);assert.equal(p.state,'submitted');
+ assert.equal((await f.submit.handler(ctx,{token:'real',projectId,roundSlug:'spring-2027',termsVersion:shared.FILM_FUND_TERMS_VERSION})).submitted,true);
+ await assert.rejects(f.saveDraft.handler(ctx,{...details,projectId}),/locked/);
+ assert.deepEqual(await f.mine.handler(ctx,{token:'foreign'}),[]);
+ assert.equal(await f.adminOverview.handler(ctx,{token:'forged'}),null);
+ process.env.ADMIN_TOKEN='fund-owner-test';
+ assert.equal(await f.adminApplication.handler(ctx,{token:'forged',projectId}),null,'private files require owner access');
+ const review=await f.adminApplication.handler(ctx,{token:'fund-owner-test',projectId});assert.equal(review.files.length,4);assert.equal(review.applicantEmail,acct.email);
+ await f.reviewApplication.handler(ctx,{token:'fund-owner-test',projectId,status:'winner',note:'Strong creative proposal'});assert.equal(p.reviewStatus,'winner');
+ const competing=put('film_fund_projects',{...p,_id:'competing',projectKey:'competing',title:'Competing'});
+ await assert.rejects(f.reviewApplication.handler(ctx,{token:'fund-owner-test',projectId:competing._id,status:'winner',note:''}),/already has that prize/);
+ const e=load('convex/filmFundEntries.ts');
+ const paidProject=put('film_fund_projects',{...p,_id:'paid-project',state:'draft',accountId:foreign._id,projectKey:'paid-project'});
+ for(const id of [paidProject.scriptId,paidProject.moodboardId,paidProject.videoId,...paidProject.documentIds]){const source=await db.get(id),copy=put('film_fund_uploads',{...source,_id:id+'-paid',accountId:foreign._id,projectId:paidProject._id});if(source.kind==='script')paidProject.scriptId=copy._id;if(source.kind==='moodboard')paidProject.moodboardId=copy._id;if(source.kind==='video')paidProject.videoId=copy._id;if(source.kind==='document')paidProject.documentIds=[copy._id];}
+ const entryArgs={token:'foreign',projectId:paidProject._id,roundSlug:'spring-2027',termsVersion:shared.FILM_FUND_TERMS_VERSION};
+ await assert.rejects(e.reserve.handler(ctx,{...entryArgs,token:'real'}),/not available/);
+ const entry=await e.reserve.handler(ctx,entryArgs);assert.equal(entry.included,false);assert.equal((await e.reserve.handler(ctx,entryArgs)).entry._id,entry.entry._id,'concurrent tabs share one entry checkout');
+ await e.bind.handler(ctx,{id:entry.entry._id,sessionId:'cs_entry'});
+ await assert.rejects(e.paid.handler(ctx,{id:entry.entry._id,sessionId:'cs_other',paymentIntentId:'pi_entry',amount:1500,currency:'gbp',paidAt:Date.now()}),/does not match/);
+ await assert.rejects(e.paid.handler(ctx,{id:entry.entry._id,sessionId:'cs_entry',paymentIntentId:'pi_entry',amount:100,currency:'gbp',paidAt:Date.now()}),/does not match/);
+ const paidArgs={id:entry.entry._id,sessionId:'cs_entry',paymentIntentId:'pi_entry',amount:1500,currency:'gbp',paidAt:Date.now()};
+ assert.equal((await e.paid.handler(ctx,paidArgs)).paid,true);assert.equal((await e.paid.handler(ctx,paidArgs)).paid,true,'payment retry is idempotent');
+ await assert.rejects(e.reserve.handler(ctx,entryArgs),/single entry/);
+ await e.terminal.handler(ctx,{id:entry.entry._id,refunded:true});assert.equal(paidProject.entryPaid,false);
+ await assert.rejects(e.reserve.handler(ctx,entryArgs),/Multiple tickets/);
+ const atom=(type,payload)=>{const out=Buffer.alloc(8+payload.length);out.writeUInt32BE(out.length);out.write(type,4,4);payload.copy(out,8);return out;};
+ const header=Buffer.alloc(20);header.writeUInt32BE(1000,12);header.writeUInt32BE(60000,16);const handler=Buffer.alloc(12);handler.write('vide',8,4);
+ const mp4=Buffer.concat([atom('ftyp',Buffer.from('isom')),atom('moov',Buffer.concat([atom('mvhd',header),atom('trak',atom('mdia',atom('hdlr',handler)))]))]);
+ assert.equal(mp4Duration(mp4),60);assert.throws(()=>mp4Duration(mp4.subarray(0,30)));assert.throws(()=>mp4Duration(Buffer.from('not a video')));
+ for(const status of ['pending_payment','cancelled']){const state=rentalProgress({status,idVerifyStatus:'verified',returnChecking:true});assert.equal(state.index,status==='cancelled'?-1:0);}
+ assert.equal(rentalProgress({status:'confirmed',idVerifyStatus:'requires_input'}).index,1);
+ assert.equal(rentalProgress({status:'confirmed',idVerifyStatus:'verified',depositHoldAmount:100,depositHoldStatus:'failed'}).index,1);
+ assert.equal(rentalProgress({status:'active',returnChecking:true}).index,3);
+ assert.equal(rentalProgress({status:'returned',returnChecking:true}).index,4);
+ console.log('Film Fund: consent/dedup, private drafts, project entry identity, document ownership, submission/launch gates, video metadata and rental journey stages passed.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1,6 +1,8 @@
 "use node";
 
 import Stripe from "stripe";
+import { rentalRefundBalance } from "./lib/rentalRefundBalance";
+import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
@@ -10,9 +12,11 @@ import { lateFeeQuote } from "./lib/lateFee";
 import { AGREEMENTS } from "../src/lib/legal";
 import { sendMail } from "./lib/mailer";
 import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
-import { tierByKey } from "./lib/membership";
+import { tierByKey, allocateSaving, TIERS } from "./lib/membership";
 import { cancelKind, cancellationSettlement } from "../src/lib/cancellationPolicy";
 import { calculateRentalPrice } from "./lib/rentalPrice";
+import { paidRecurringMembership } from "./lib/membershipBilling";
+import { MEMBERSHIP_TERMS_VERSION } from "../shared/membership";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 const subActive = (status: string) => status === "active" || status === "trialing";
@@ -28,6 +32,13 @@ type PriceQuoteResult = {
   totalReduction: number;
   creditApplied: number;
   totalDue: number;
+  deliveryReduction: number;
+  securityWaiverReason?: string;
+  weekendSaving: number;
+  rentalSaving: number;
+  membershipFee: number;
+  combinedTotalDue: number;
+  recommendations: {tier:string;name:string;monthlyFee:number;monthlyCredit:number;rentalSaving:number;deliverySaving:number;initialFee:number;netSaving:number;depositWaived:boolean}[];
 };
 
 /** Map a Stripe subscription back to one of our tier keys: price lookup_key (dbc_member_<key>,
@@ -35,6 +46,7 @@ type PriceQuoteResult = {
 function tierKeyFromSub(sub: Stripe.Subscription): string | undefined {
   const price = sub.items?.data?.[0]?.price;
   const lk = price?.lookup_key ?? undefined;
+  if (lk && lk.startsWith("dbc_member_v5_")) return lk.slice("dbc_member_v5_".length);
   if (lk && lk.startsWith("dbc_member_")) return lk.slice("dbc_member_".length);
   const meta = sub.metadata?.membershipTier;
   if (meta) return meta;
@@ -57,6 +69,7 @@ export const priceQuote = action({
     })),
     token: v.optional(v.string()),
     customerEmail: v.string(),
+    selectedMembership: v.optional(v.object({tier:v.string(),intro:v.union(v.literal("trial"),v.literal("credit"),v.literal("none"))})),
     fulfilment: v.union(v.literal("pickup"), v.literal("delivery")),
     address: v.optional(v.string()),
     deliveryPostcode: v.optional(v.string()),
@@ -67,7 +80,16 @@ export const priceQuote = action({
     const price = await calculateRentalPrice(ctx, {
       ...a, customer: { email: a.customerEmail },
     });
+    const recommendations = price.acct?.membershipActive ? [] : await Promise.all(TIERS.map(async tier => {
+      const preview = await calculateRentalPrice(ctx, {...a, customer:{email:a.customerEmail}, selectedMembership:{tier:tier.key,intro:a.selectedMembership?.intro ?? (price.acct?.membershipIntroUsed ? "none" : "trial")}});
+      const base = a.selectedMembership ? await calculateRentalPrice(ctx,{...a,customer:{email:a.customerEmail},selectedMembership:undefined}) : price;
+      const rentalSaving = Math.round((base.subtotal-base.totalReduction-preview.subtotal+preview.totalReduction)*100)/100;
+      const deliverySaving = base.deliveryFee-preview.deliveryFee;
+      return {tier:tier.key,name:tier.name,monthlyFee:tier.monthlyGbp,monthlyCredit:tier.monthlyCredit,rentalSaving,deliverySaving,initialFee:preview.membershipFee,netSaving:rentalSaving+deliverySaving-preview.membershipFee,depositWaived:preview.depositAmount===0};
+    }));
+    recommendations.sort((x,y)=>y.netSaving-x.netSaving||x.monthlyFee-y.monthlyFee);
     return {
+      recommendations,
       items: price.items.map((item) => ({ title: item.title, total: item.total })),
       subtotal: price.subtotal,
       depositHoldAmount: price.depositHoldAmount,
@@ -78,6 +100,12 @@ export const priceQuote = action({
       totalReduction: price.totalReduction,
       creditApplied: price.creditApplied,
       totalDue: price.totalDue,
+      deliveryReduction: price.deliveryReduction,
+      securityWaiverReason: price.securityWaiverReason,
+      weekendSaving: price.weekendSaving,
+      rentalSaving: price.rentalSaving,
+      membershipFee: price.membershipFee,
+      combinedTotalDue: price.combinedTotalDue,
     };
   },
 });
@@ -96,6 +124,7 @@ export const start = action({
         offerType: v.optional(v.string()),
       }),
     ),
+    selectedMembership: v.optional(v.object({tier:v.string(),intro:v.union(v.literal("trial"),v.literal("credit"),v.literal("none")),termsVersion:v.string(),requestId:v.string()})),
     token: v.optional(v.string()), // session token — required to apply MEMBER perks (anti-spoof)
     customer: v.object({
       email: v.string(),
@@ -161,6 +190,22 @@ export const start = action({
       process.env.DIDIT_MAX_WORKFLOW_PRICE_USD,
     );
 
+    if (a.selectedMembership && /^[A-Za-z0-9_-]{32,100}$/.test(a.selectedMembership.requestId)) {
+      const existing: any = await ctx.runQuery(internal.membershipBenefits.byRequest,{requestId:a.selectedMembership.requestId,email:a.customer.email});
+      if (existing?.sessionId) {
+        const session = await stripe().checkout.sessions.retrieve(existing.sessionId);
+        if (session.status === "open" && session.url) return {url:session.url};
+        throw Error("This membership checkout is no longer open.");
+      }
+      if (existing?.sessionParams) {
+        const session = await stripe().checkout.sessions.create(JSON.parse(existing.sessionParams),{idempotencyKey:`dbc-member-checkout-${existing._id}`});
+        await ctx.runMutation(internal.membershipBenefits.bindCheckout,{id:existing._id,sessionId:session.id,bookingId:existing.bookingId});
+        await ctx.runMutation(internal.bookings.bindCheckoutSession,{bookingId:existing.bookingId,sessionId:session.id});
+        if (!session.url) throw Error("Stripe did not return a checkout URL");
+        return {url:session.url};
+      }
+    }
+
     // Recompute exactly what the renter reviewed, using current listing and account data.
     const price = await calculateRentalPrice(ctx, a);
     a.items = price.items;
@@ -189,13 +234,25 @@ export const start = action({
     }
 
     const {
-      acct, month, freedCount, subtotal, protection, depositHoldAmount, depositAmount,
+      acct: pricedAccount, month, freedCount, subtotal, protection, depositHoldAmount, depositAmount,
       appliedCode, totalReduction, reductionLabel, deliveryFee, totalBeforeCredit: total,
     } = price;
+    let acct = pricedAccount;
+    let membershipCheckout: any = null;
+    if (a.selectedMembership) {
+      if (a.selectedMembership.termsVersion !== MEMBERSHIP_TERMS_VERSION || !/^[A-Za-z0-9_-]{32,100}$/.test(a.selectedMembership.requestId)) throw Error("Accept the membership terms and refresh your checkout.");
+      if (!acct) acct = await ctx.runMutation(internal.membershipBenefits.bootstrapCheckoutAccount, {email:price.customerEmail,name:a.customer.name!,seedHash:createHash("sha256").update(a.selectedMembership.requestId).digest("hex")});
+      membershipCheckout = await ctx.runMutation(internal.membershipBenefits.reserveCheckout, {accountId:acct._id,tier:a.selectedMembership.tier,intro:a.selectedMembership.intro,requestId:a.selectedMembership.requestId,termsVersion:a.selectedMembership.termsVersion});
+      if (membershipCheckout.sessionId) {
+        const existing = await stripe().checkout.sessions.retrieve(membershipCheckout.sessionId);
+        if (existing.status === "open" && existing.url) return {url:existing.url};
+        throw Error("Your membership checkout is no longer open.");
+      }
+    }
     a.customer.email = price.customerEmail;
     const idVerifyStatus = "required";
     if (!Number.isSafeInteger(Math.round(a.expectedTotalDue * 100)) ||
-        Math.round(a.expectedTotalDue * 100) !== Math.round(price.totalDue * 100))
+        Math.round(a.expectedTotalDue * 100) !== Math.round(price.combinedTotalDue * 100))
       throw new Error("Your rental total has changed. Review the updated order summary before paying.");
 
     const sb = stripe();
@@ -235,8 +292,14 @@ export const start = action({
       promoCode: appliedCode,
       discount: totalReduction,
       total,
-      expectedTotalDue: a.expectedTotalDue,
+      expectedTotalDue: price.totalDue,
+      membershipCheckoutId: membershipCheckout?._id,
+      accountAccessRequired: !pricedAccount,
       creditAccountId: acct?._id,
+      deliveryBenefitMonth: price.deliveryBenefitMonth,
+      securityWaiverReason: price.securityWaiverReason,
+      repeatSourceBookingId: price.repeatSourceBookingId,
+      repeatSourceFingerprint: price.repeatSourceFingerprint,
       currency: "GBP",
       agreementName: a.agreement?.name,
       securityHoldConsent: a.agreement?.securityHoldConsent,
@@ -293,7 +356,7 @@ export const start = action({
 
     let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
     const couponAmount = totalReduction + creditApplied;
-    if (couponAmount > 0) {
+    if (couponAmount > 0 && !membershipCheckout) {
       const couponName =
         creditApplied > 0
           ? reductionLabel
@@ -327,25 +390,33 @@ export const start = action({
       });
     }
 
-    const session = await sb.checkout.sessions.create({
-      mode: "payment",
-      // Stripe defaults to a 24h session. Limit this to 31 minutes, while
-      // the reservation stays protected until Stripe confirms its outcome.
+    let checkoutLines = line_items;
+    if (membershipCheckout) {
+      // Reduce only rental/delivery lines. A global coupon would incorrectly discount the recurring fee.
+      const rentalAmounts = [...a.items.map(i => i.total), ...(deliveryFee ? [deliveryFee] : [])];
+      const net = allocateSaving(rentalAmounts, couponAmount);
+      checkoutLines = line_items.slice(0,rentalAmounts.length).map((line,index) => ({...line,price_data:{...line.price_data!,unit_amount:pence(net[index])}}));
+      if (depositAmount > 0) checkoutLines.push(line_items[line_items.length-1]);
+      checkoutLines = checkoutLines.filter(l => (l.price_data?.unit_amount ?? 0) > 0);
+      checkoutLines.push({price:await ensurePrice(sb,tierByKey(membershipCheckout.tier)!),quantity:1});
+    }
+    const meta = {bookingId,rentalPaidPence:String(pence(price.totalDue)),...(membershipCheckout ? {membershipTier:membershipCheckout.tier,accountEmail:acct.email,membershipCheckoutId:String(membershipCheckout._id),membershipTerms:MEMBERSHIP_TERMS_VERSION}: {})};
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      mode: membershipCheckout ? "subscription" : price.totalDue === 0 ? "setup" : "payment",
+      ...(!membershipCheckout&&price.totalDue===0?{currency:"gbp"}:{}),
+      ...(membershipCheckout || price.totalDue > 0 ? {adaptive_pricing:{enabled:false}} : {}),
       expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
-      line_items,
-      payment_method_configuration: paymentConfigId,
-      discounts,
-      ...(stripeCustomerId
-        ? { customer: stripeCustomerId }
-        : { customer_email: a.customer.email, customer_creation: "always" as const }),
+      ...(membershipCheckout || price.totalDue > 0 ? {line_items:checkoutLines} : {}), payment_method_configuration: paymentConfigId,
+      ...(membershipCheckout ? {payment_method_collection:"always" as const,subscription_data:{metadata:meta,...(membershipCheckout.intro === "trial" ? {trial_period_days:7} : {})}} : price.totalDue > 0 ? {discounts,payment_intent_data:{metadata:{bookingId},setup_future_usage:"off_session" as const}} : {setup_intent_data:{metadata:{bookingId}}}),
+      ...(stripeCustomerId ? {customer:stripeCustomerId} : {customer_email:a.customer.email,customer_creation:"always" as const}),
       success_url: `${new URL(process.env.APP_URL!).origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${new URL(process.env.APP_URL!).origin}/cart`,
-      metadata: { bookingId },
-      payment_intent_data: {
-        metadata: { bookingId },
-        setup_future_usage: "off_session", // separately disclosed later charges need a saved card
-      },
-    });
+      cancel_url: `${new URL(process.env.APP_URL!).origin}/cart`, metadata:meta,
+    };
+    if (membershipCheckout) await ctx.runMutation(internal.membershipBenefits.saveSessionParams,{id:membershipCheckout._id,bookingId,sessionParams:JSON.stringify(sessionParams)});
+    let session:Stripe.Checkout.Session;
+    try{session=await sb.checkout.sessions.create(sessionParams,membershipCheckout ? {idempotencyKey:`dbc-member-checkout-${membershipCheckout._id}`} : undefined);}
+    catch(error){if(error instanceof Stripe.errors.StripeInvalidRequestError)await ctx.runMutation(internal.bookings.checkoutCreationRejected,{bookingId});throw error;}
+    if (membershipCheckout) await ctx.runMutation(internal.membershipBenefits.bindCheckout,{id:membershipCheckout._id,sessionId:session.id,bookingId});
 
     if (!session.url) throw new Error("Stripe did not return a checkout URL");
     await ctx.runMutation(internal.bookings.bindCheckoutSession, { bookingId, sessionId: session.id });
@@ -353,12 +424,26 @@ export const start = action({
   },
 });
 
+function checkoutCompleted(session: Stripe.Checkout.Session) {
+  return session.payment_status === "paid" || (session.status === "complete" && session.payment_status === "no_payment_required");
+}
+/** New Stripe versions expose invoice payments separately from the Checkout Session. */
+export async function checkoutPaymentIntent(session: Stripe.Checkout.Session): Promise<string | undefined> {
+  if (session.payment_intent) return typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent.id;
+  const invoiceId = typeof session.invoice === "string" ? session.invoice : session.invoice?.id;
+  if (!invoiceId) return;
+  const payments = await stripe().invoicePayments.list({ invoice: invoiceId, status: "paid", limit: 100 });
+  const intents = payments.data.filter(p => p.payment.type === "payment_intent" && p.payment.payment_intent).map(p => typeof p.payment.payment_intent === "string" ? p.payment.payment_intent : p.payment.payment_intent!.id);
+  if (intents.length > 1) throw Error("This invoice has multiple payments and needs financial reconciliation before rental confirmation.");
+  return intents[0];
+}
+
 /** A separate manual-capture PaymentIntent is required for an actual card hold.
  * Checkout saves the card for off-session use, then this attempts the hold immediately.
  * Issuer authentication is still possible; the success page handles that in the same flow. */
 async function authorizeHold(ctx: any, session: Stripe.Checkout.Session): Promise<{ status: string; clientSecret?: string }> {
   const bookingId = session.metadata?.bookingId;
-  if (!bookingId || session.payment_status !== "paid") return { status: "not_applicable" };
+  if (!bookingId || !checkoutCompleted(session)) return { status: "not_applicable" };
   const b: any = await ctx.runQuery(internal.bookings.holdContext, { bookingId: bookingId as any });
   if (!b || !b.amount || !["confirmed", "active"].includes(b.status)) return { status: "not_applicable" };
   const sb = stripe();
@@ -366,12 +451,26 @@ async function authorizeHold(ctx: any, session: Stripe.Checkout.Session): Promis
   if (b.intentId) {
     intent = await sb.paymentIntents.retrieve(b.intentId, { expand: ["latest_charge"] });
   } else {
-    const paymentId = typeof session.payment_intent === "string" ? session.payment_intent : null;
+    const paymentId = await checkoutPaymentIntent(session);
     const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
-    if (!paymentId || !customerId) return { status: "failed" };
-    const paidIntent = await sb.paymentIntents.retrieve(paymentId);
-    const paymentMethod = typeof paidIntent.payment_method === "string"
-      ? paidIntent.payment_method : paidIntent.payment_method?.id;
+    if (!customerId) return { status: "failed" };
+    let paymentMethod: string | undefined;
+    if (paymentId) {
+      const paidIntent = await sb.paymentIntents.retrieve(paymentId);
+      paymentMethod = typeof paidIntent.payment_method === "string" ? paidIntent.payment_method : paidIntent.payment_method?.id;
+    }
+    if (!paymentMethod && session.setup_intent) {
+      const setup = await sb.setupIntents.retrieve(typeof session.setup_intent === "string" ? session.setup_intent : session.setup_intent.id);
+      if (setup.status === "succeeded") paymentMethod = typeof setup.payment_method === "string" ? setup.payment_method : setup.payment_method?.id;
+    }
+    if (!paymentMethod && session.subscription) {
+      const sub = await sb.subscriptions.retrieve(typeof session.subscription === "string" ? session.subscription : session.subscription.id);
+      paymentMethod = typeof sub.default_payment_method === "string" ? sub.default_payment_method : sub.default_payment_method?.id;
+      if (!paymentMethod && sub.pending_setup_intent) {
+        const setup = await sb.setupIntents.retrieve(typeof sub.pending_setup_intent === "string" ? sub.pending_setup_intent : sub.pending_setup_intent.id);
+        if (setup.status === "succeeded") paymentMethod = typeof setup.payment_method === "string" ? setup.payment_method : setup.payment_method?.id;
+      }
+    }
     if (!paymentMethod) return { status: "failed" };
     try {
       intent = await sb.paymentIntents.create({
@@ -425,9 +524,11 @@ export const startAddon = action({
 
 /** Fulfil already-paid legacy sessions once, or refund when their rental/stock is closed. */
 async function refundDuplicateCheckout(session:Stripe.Checkout.Session){
- const payment=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id;
+ const payment=await checkoutPaymentIntent(session);
  if(session.payment_status!=="paid"||!payment)throw Error("Duplicate checkout payment is not confirmed");
- await stripe().refunds.create({payment_intent:payment},{idempotencyKey:`dbc-duplicate-rental-checkout-${session.id}`});
+ const amount=session.metadata?.rentalPaidPence !== undefined ? Number(session.metadata.rentalPaidPence) : undefined;
+ if(amount!==undefined&&(!Number.isSafeInteger(amount)||amount<0))throw Error("Invalid rental refund allocation.");
+ if(amount!==0)await stripe().refunds.create({payment_intent:payment,...(amount!==undefined?{amount}:{})},{idempotencyKey:`dbc-duplicate-rental-checkout-${session.id}`});
 }
 
 async function fulfillLegacyAddon(ctx:any,session:Stripe.Checkout.Session){
@@ -440,9 +541,9 @@ async function fulfillLegacyAddon(ctx:any,session:Stripe.Checkout.Session){
 }
 
 async function ensurePrice(sb: Stripe, tier: { key: string; name: string; monthlyGbp: number }) {
-  const lookup = `dbc_member_${tier.key}`;
+  const lookup = `dbc_member_v5_${tier.key}`;
   const existing = await sb.prices.list({ lookup_keys: [lookup], active: true, limit: 1 });
-  if (existing.data[0]) return existing.data[0].id;
+  if (existing.data[0]?.unit_amount === pence(tier.monthlyGbp) && existing.data[0].currency === "gbp" && existing.data[0].recurring?.interval === "month") return existing.data[0].id;
   const product = await sb.products.create({ name: `Db Cinema ${tier.name} membership` });
   const price = await sb.prices.create({
     product: product.id,
@@ -456,35 +557,126 @@ async function ensurePrice(sb: Stripe, tier: { key: string; name: string; monthl
 
 /** Subscribe to a membership tier (Stripe Billing). */
 export const startMembership = action({
-  args: { token: v.string(), tier: v.string(), origin: v.string() },
+  args: { token: v.string(), tier: v.string(), origin: v.string(), intro: v.optional(v.union(v.literal("trial"), v.literal("credit"), v.literal("none"))), termsVersion: v.optional(v.string()), requestId: v.optional(v.string()) },
   handler: async (ctx, a): Promise<{ url: string }> => {
-    const me: any = await ctx.runQuery(api.accounts.me, { token: a.token });
-    if (!me) throw new Error("Please sign in to subscribe.");
+    const acct: any = await ctx.runQuery(internal.accounts._byToken, { token: a.token });
+    if (!acct) throw new Error("Please sign in to subscribe.");
     const tier = tierByKey(a.tier);
     if (!tier) throw new Error("Unknown plan.");
-    const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: me.email });
-
-    const sb = stripe();
-    let customerId = acct?.stripeCustomerId;
-    if (!customerId) {
-      const c = await sb.customers.create({ email: me.email, name: me.name ?? undefined });
-      customerId = c.id;
-      await ctx.runMutation(internal.accounts._setStripeCustomer, { email: me.email, customerId });
-    }
-    const priceId = await ensurePrice(sb, tier);
-    const session = await sb.checkout.sessions.create({
-      mode: "subscription",
-      line_items: [{ price: priceId, quantity: 1 }],
-      customer: customerId,
-      success_url: `${a.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${a.origin}/membership`,
-      metadata: { membershipTier: tier.key, accountEmail: me.email },
-      subscription_data: { metadata: { accountEmail: me.email, membershipTier: tier.key } },
+    if (a.termsVersion !== MEMBERSHIP_TERMS_VERSION) throw Error("Accept the membership terms before subscribing.");
+    const base = checkoutOrigin(a.origin);
+    const reservation: any = await ctx.runMutation(internal.membershipBenefits.reserveCheckout, {
+      accountId: acct._id, tier: tier.key, intro: a.intro ?? "none", requestId: a.requestId ?? crypto.randomUUID(), termsVersion: a.termsVersion,
     });
-    if (!session.url) throw new Error("Stripe did not return a checkout URL");
-    return { url: session.url };
+    const sb = stripe();
+    if (reservation.sessionId) {
+      const existing = await sb.checkout.sessions.retrieve(reservation.sessionId);
+      if (existing.status === "open" && existing.url) return { url: existing.url };
+      throw Error("This membership checkout is no longer open.");
+    }
+    try {
+      let customerId = acct.stripeCustomerId;
+      if (!customerId) {
+        const c = await sb.customers.create({ email: acct.email, name: acct.name ?? undefined }, { idempotencyKey: `dbc-member-customer-${acct._id}` });
+        customerId = c.id;
+        await ctx.runMutation(internal.accounts._setStripeCustomer, { email: acct.email, customerId });
+      }
+      const priceId = await ensurePrice(sb, tier);
+      const metadata = { membershipTier: tier.key, accountEmail: acct.email, membershipCheckoutId: String(reservation._id), membershipTerms: MEMBERSHIP_TERMS_VERSION };
+      const session = await sb.checkout.sessions.create({
+        adaptive_pricing: {enabled:false},
+        mode: "subscription", line_items: [{ price: priceId, quantity: 1 }], customer: customerId,
+        expires_at: Math.floor(reservation.createdAt / 1000) + 31 * 60,
+        success_url: `${base}/checkout/success?session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${base}/membership`,
+        metadata, subscription_data: { metadata, ...(reservation.intro === "trial" ? { trial_period_days: 7 } : {}) },
+        payment_method_collection: "always",
+      }, { idempotencyKey: `dbc-member-checkout-${reservation._id}` });
+      await ctx.runMutation(internal.membershipBenefits.bindCheckout, { id: reservation._id, sessionId: session.id });
+      if (!session.url) throw Error("Stripe did not return a checkout URL");
+      return { url: session.url };
+    } catch (e) {
+      // Keep the reservation on an ambiguous provider failure: a retry must reuse the same idempotency key.
+      throw e;
+    }
   },
 });
+
+function checkoutOrigin(origin: string) {
+  const configured = new URL(process.env.APP_URL ?? "https://dbcinemarentals.com").origin;
+  const requested = new URL(origin).origin;
+  if (requested !== configured && !(process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_") && /^https?:\/\/localhost(?::\d+)?$/.test(requested))) throw Error("Invalid checkout origin.");
+  return requested;
+}
+
+async function syncStripeMembership(ctx: any, sub: Stripe.Subscription, checkoutId?: string) {
+  const tier = tierKeyFromSub(sub);
+  const email = sub.metadata.accountEmail;
+  if (!tier || !email) return;
+  const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email });
+  const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+  // Shared Stripe accounts deliver events for other projects/deployments too.
+  if (!acct) return;
+  if (acct.stripeCustomerId !== customerId) throw Error("Stripe membership customer does not match the account.");
+  let paidThrough: number | undefined;
+  const latestId=typeof sub.latest_invoice === "string" ? sub.latest_invoice : sub.latest_invoice?.id;
+  if(sub.status === "active" && latestId){
+    const invoice=await stripe().invoices.retrieve(latestId);
+    if(invoice.status === "paid" && invoice.amount_paid > 0){
+      const recurring:Stripe.InvoiceLineItem[]=[];
+      for await(const line of stripe().invoices.listLineItems(invoice.id,{limit:100})) if(line.parent?.type === "subscription_item_details" && !line.parent.subscription_item_details?.proration && line.amount>0 && sub.items.data.some(i=>i.id===line.parent?.subscription_item_details?.subscription_item))recurring.push(line);
+      if(recurring.length)paidThrough=Math.max(...recurring.map(l=>l.period.end))*1000;
+    }
+  }
+  await ctx.runMutation(internal.membershipBenefits.syncSubscription, {
+    accountId: acct._id, subscriptionId: sub.id, tier, status: sub.status, subscriptionCreatedAt: sub.created * 1000,
+    trialEnd: sub.trial_end ? sub.trial_end * 1000 : undefined, cancelAtPeriodEnd: sub.cancel_at_period_end, paidThrough,
+    ...(checkoutId && ["active","trialing"].includes(sub.status) ? { checkoutId } : {}),
+  });
+  return acct;
+}
+
+async function grantStripeMembershipInvoice(ctx: any, invoice: Stripe.Invoice, sub: Stripe.Subscription) {
+  const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: sub.metadata.accountEmail ?? "" });
+  if (!acct || acct.stripeSubscriptionId !== sub.id) return;
+  const lines: Stripe.InvoiceLineItem[] = [];
+  for await (const line of stripe().invoices.listLineItems(invoice.id, { limit: 100 })) lines.push(line);
+  const grant = paidRecurringMembership(invoice, lines, sub);
+  if (grant) {
+    await ctx.runMutation(internal.membershipBenefits.grantPaidInvoice, { accountId: acct._id, subscriptionId: sub.id, invoiceId: invoice.id, ...grant });
+    await reconcileMembershipCreditNotes(ctx,invoice,sub);
+  }
+}
+
+async function reconcileMembershipCreditNotes(ctx:any, invoice:Stripe.Invoice, sub:Stripe.Subscription) {
+  const lines:Stripe.InvoiceLineItem[]=[];
+  for await (const line of stripe().invoices.listLineItems(invoice.id,{limit:100})) lines.push(line);
+  const memberItems=new Set(sub.items.data.map(i=>i.id));
+  const memberLines=new Set(lines.filter(l=>l.parent?.type==="subscription_item_details"&&!l.parent.subscription_item_details?.proration&&memberItems.has(l.parent.subscription_item_details?.subscription_item??"")).map(l=>l.id));
+  let refunded=0;
+  for await (const note of stripe().creditNotes.list({invoice:invoice.id,limit:100})) {
+    if(note.status!=="issued")continue;
+    for await (const line of stripe().creditNotes.listLineItems(note.id,{limit:100})) if(line.invoice_line_item&&memberLines.has(line.invoice_line_item))refunded+=line.amount;
+  }
+  if(refunded>0)await ctx.runMutation(internal.membershipBenefits.revokeRefundedInvoice,{invoiceId:invoice.id,membershipRefundedPence:refunded});
+}
+
+async function reconcileFullyRefundedMembership(ctx:any, refund:Stripe.Refund) {
+  if(refund.status!=="succeeded"||!refund.payment_intent)return;
+  const pi=await stripe().paymentIntents.retrieve(typeof refund.payment_intent==="string"?refund.payment_intent:refund.payment_intent.id);
+  let refunded=0;for await(const r of stripe().refunds.list({payment_intent:pi.id,limit:100}))if(r.status==="succeeded")refunded+=r.amount;
+  if(refunded<pi.amount_received)return;
+  const payments=await stripe().invoicePayments.list({payment:{type:"payment_intent",payment_intent:pi.id},status:"paid",limit:100});
+  for(const p of payments.data){const id=typeof p.invoice==="string"?p.invoice:p.invoice.id;const invoice=await stripe().invoices.retrieve(id);const parent=invoice.parent?.subscription_details?.subscription;const subId=typeof parent==="string"?parent:parent?.id;if(!subId)continue;const sub=await stripe().subscriptions.retrieve(subId);const lines:Stripe.InvoiceLineItem[]=[];for await(const line of stripe().invoices.listLineItems(id,{limit:100}))lines.push(line);const grant=paidRecurringMembership(invoice,lines,sub);if(grant)await ctx.runMutation(internal.membershipBenefits.revokeRefundedInvoice,{invoiceId:id,membershipRefundedPence:grant.paidMembershipPence});}
+}
+
+async function fulfillMembership(ctx: any, session: Stripe.Checkout.Session) {
+  const subId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+  if (!subId || !session.metadata?.membershipTier || session.status !== "complete") return;
+  const sub = await stripe().subscriptions.retrieve(subId);
+  await syncStripeMembership(ctx, sub, session.metadata.membershipCheckoutId);
+  const invoiceId = typeof session.invoice === "string" ? session.invoice : session.invoice?.id;
+  if (invoiceId) await grantStripeMembershipInvoice(ctx, await stripe().invoices.retrieve(invoiceId), sub);
+}
 
 /** Open the Stripe billing portal to manage/cancel the membership. */
 export const billingPortal = action({
@@ -496,7 +688,7 @@ export const billingPortal = action({
     if (!acct?.stripeCustomerId) throw new Error("No billing account yet — subscribe first.");
     const ps = await stripe().billingPortal.sessions.create({
       customer: acct.stripeCustomerId,
-      return_url: `${a.origin}/account`,
+      return_url: `${checkoutOrigin(a.origin)}/account`,
     });
     return { url: ps.url };
   },
@@ -612,19 +804,15 @@ export const finalize = action({
   ): Promise<{ bookingId: string | null; paid: boolean; closed?: boolean; membership?: string; holdStatus?: string; holdClientSecret?: string;additionId?:string }> => {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
     const m = session.metadata ?? {};
-    const paid = session.payment_status === "paid";
+    const paid = checkoutCompleted(session);
+    if(m.filmFundEntryId){const r=await ctx.runAction(internal.filmFundPayments.fulfill,{sessionId});return {bookingId:null,paid:r.paid};}
 
     if(paid&&m.rentalAdditionId){const r=await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:m.rentalAdditionId as any,sessionId});return {bookingId:r.bookingId,paid,closed:r.closed,holdStatus:r.status,holdClientSecret:r.clientSecret,additionId:m.rentalAdditionId};}
     if(paid&&m.pendingAdditionId){const r=await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:m.pendingAdditionId as any,sessionId});if(r.closed)return {bookingId:r.bookingId,paid,closed:true};}
 
-    // membership subscription → activate the tier on the account
-    if (paid && m.membershipTier) {
-      await ctx.runMutation(internal.accounts._setMembership, {
-        email: m.accountEmail ?? "",
-        tier: m.membershipTier,
-        subscriptionId: typeof session.subscription === "string" ? session.subscription : undefined,
-      });
-      return { bookingId: null, paid, membership: m.membershipTier };
+    if (m.membershipTier && session.status === "complete") {
+      await fulfillMembership(ctx, session);
+      if (!m.bookingId) return { bookingId: null, paid: paid || session.payment_status === "no_payment_required", membership: m.membershipTier };
     }
 
     // add-on payment → attach to the existing booking
@@ -644,10 +832,7 @@ export const finalize = action({
     if (paid && bookingId) {
       const confirmation = await ctx.runMutation(internal.bookings.confirm, {
         bookingId: bookingId as any,
-        paymentIntentId:
-          typeof session.payment_intent === "string"
-            ? session.payment_intent
-            : undefined,
+        paymentIntentId: await checkoutPaymentIntent(session),
       });
       if (confirmation.closed) {if(confirmation.duplicatePayment)await refundDuplicateCheckout(session);return { bookingId, paid, closed: true };}
       await ctx.runMutation(api.analytics.track, { type: "purchase" });
@@ -663,7 +848,7 @@ export const syncHold = action({
   args: { sessionId: v.string() },
   handler: async (ctx, { sessionId }): Promise<{ status: string; clientSecret?: string }> => {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
-    if (session.payment_status !== "paid" || !session.metadata?.bookingId)
+    if (!checkoutCompleted(session) || !session.metadata?.bookingId)
       throw new Error("Payment has not completed");
     return authorizeHold(ctx, session);
   },
@@ -693,10 +878,10 @@ export const reconcilePendingPayments = internalAction({
           failures++;
           continue;
         }
-        if (session.payment_status === "paid") {
+        if (checkoutCompleted(session)) {
           if(session.metadata?.pendingAdditionId){const addition=await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:session.metadata.pendingAdditionId as any,sessionId:session.id});if(addition.closed){failures++;continue;}}
-          const paymentIntentId = typeof session.payment_intent === "string"
-            ? session.payment_intent : session.payment_intent?.id;
+          if (session.metadata?.membershipTier) await fulfillMembership(ctx, session);
+          const paymentIntentId = await checkoutPaymentIntent(session);
           const result = await ctx.runMutation(internal.bookings.confirm, {
             bookingId: booking.bookingId, paymentIntentId,
           });
@@ -768,8 +953,10 @@ export const stripeWebhook = internalAction({
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const s = event.data.object as Stripe.Checkout.Session;
       const m = s.metadata ?? {};
-      const pi = typeof s.payment_intent === "string" ? s.payment_intent : undefined;
-      if (s.payment_status === "paid") {
+      if(m.filmFundEntryId){await ctx.runAction(internal.filmFundPayments.fulfill,{sessionId:s.id});return true;}
+      const pi = await checkoutPaymentIntent(s);
+      if (m.membershipTier) await fulfillMembership(ctx, await stripe().checkout.sessions.retrieve(s.id));
+      if (checkoutCompleted(s)) {
         if(m.rentalAdditionId){await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:m.rentalAdditionId as any,sessionId:s.id});return true;}
         if(m.pendingAdditionId){const r=await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:m.pendingAdditionId as any,sessionId:s.id});if(r.closed)return true;}
         if (m.bookingId) {
@@ -780,10 +967,7 @@ export const stripeWebhook = internalAction({
         } else if (m.addonBookingId) {
           await fulfillLegacyAddon(ctx,s);
         } else if (m.membershipTier) {
-          await ctx.runMutation(internal.accounts._setMembership, {
-            email: m.accountEmail ?? "", tier: m.membershipTier,
-            subscriptionId: typeof s.subscription === "string" ? s.subscription : undefined,
-          });
+          await fulfillMembership(ctx, await stripe().checkout.sessions.retrieve(s.id));
         } else if (m.changeRequestId) {
           const result=await ctx.runMutation(internal.changes._applyExtendPaid, { requestId: m.changeRequestId as any });
           if(result.closed&&pi)await stripe().refunds.create({payment_intent:pi},{idempotencyKey:`dbc-closed-change-${m.changeRequestId}`});
@@ -792,20 +976,31 @@ export const stripeWebhook = internalAction({
     }
     if (["refund.created","refund.updated","refund.failed"].includes(event.type)) {
       const refund=event.data.object as Stripe.Refund;
+      await reconcileFullyRefundedMembership(ctx,await stripe().refunds.retrieve(refund.id));
       const id=refund.metadata?.rentalRefundId;
       if(id)await ctx.runMutation(refund.metadata?.rentalPaymentIntent?internal.rentalOperations.recordRefundPart:internal.rentalOperations.recordRefund,{id:id as any,...(refund.metadata?.rentalPaymentIntent?{paymentIntentId:refund.metadata.rentalPaymentIntent}:{}),stripeRefundId:refund.id,status:refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending"});
     }
-    // Subscription lifecycle → keep membership perks honest (perks everywhere gate on membershipActive).
-    if (event.type === "customer.subscription.deleted") {
-      const sub = event.data.object as Stripe.Subscription;
-      await ctx.runMutation(internal.accounts._setMembershipBySubscription, { subscriptionId: sub.id, active: false });
-    } else if (event.type === "customer.subscription.updated") {
-      const sub = event.data.object as Stripe.Subscription;
-      await ctx.runMutation(internal.accounts._setMembershipBySubscription, {
-        subscriptionId: sub.id,
-        active: subActive(sub.status),
-        tier: tierKeyFromSub(sub),
-      });
+    // Retrieve current state: delayed webhook snapshots must not re-enable a canceled subscription.
+    if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.type)) {
+      const snapshot = event.data.object as Stripe.Subscription;
+      const current = await stripe().subscriptions.retrieve(snapshot.id);
+      await syncStripeMembership(ctx, current, current.metadata.membershipCheckoutId);
+    }
+    if (["credit_note.created","credit_note.updated","credit_note.voided"].includes(event.type)) {
+      const note=event.data.object as Stripe.CreditNote;
+      const invoice=await stripe().invoices.retrieve(typeof note.invoice==="string"?note.invoice:note.invoice.id);
+      const parent=invoice.parent?.subscription_details?.subscription;const subId=typeof parent==="string"?parent:parent?.id;
+      if(subId)await reconcileMembershipCreditNotes(ctx,invoice,await stripe().subscriptions.retrieve(subId));
+    }
+    if (event.type === "invoice.paid") {
+      const invoice = await stripe().invoices.retrieve((event.data.object as Stripe.Invoice).id);
+      const parent = invoice.parent?.subscription_details?.subscription;
+      const subId = typeof parent === "string" ? parent : parent?.id;
+      if (subId) {
+        const sub = await stripe().subscriptions.retrieve(subId);
+        await syncStripeMembership(ctx, sub, sub.metadata.membershipCheckoutId);
+        await grantStripeMembershipInvoice(ctx, invoice, sub);
+      }
     }
     return true;
   },
@@ -829,12 +1024,18 @@ export const reconcileMemberships = internalAction({
         if (e?.code === "resource_missing") sub = null; // deleted at Stripe → deactivate
         else continue; // transient error — leave as-is, retry next cron
       }
-      const active = sub ? subActive(sub.status) : false;
-      const tier = sub ? tierKeyFromSub(sub) : undefined;
-      if (active !== s.membershipActive || (tier && tier !== s.membershipTier)) {
-        await ctx.runMutation(internal.accounts._applyMembershipReconcile, { accountId: s.accountId, active, tier });
+      if (!sub) {
+        await ctx.runMutation(internal.accounts._applyMembershipReconcile, { accountId: s.accountId, active: false });
         changed++;
+        continue;
       }
+      try {
+        await syncStripeMembership(ctx, sub, sub.metadata.membershipCheckoutId);
+        // Catch up paid invoices independently of delivery of webhooks, newest first.
+        const invoices = await sb.invoices.list({ subscription: sub.id, status: "paid", limit: 100 });
+        for (const invoice of invoices.data) await grantStripeMembershipInvoice(ctx, invoice, sub);
+        changed++;
+      } catch (e) { console.error("Membership reconciliation will retry", sub.id, e); }
     }
     return { checked: subs.length, changed };
   },
@@ -874,18 +1075,31 @@ async function paymentBeforeCancellation(b: any): Promise<string | null> {
     await sb.checkout.sessions.expire(session.id);
     return null;
   }
-  if (session.status === "complete" && session.payment_status === "paid")
-    return typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null;
+  if (session.status === "complete" && checkoutCompleted(session))
+    return (await checkoutPaymentIntent(session)) ?? null;
   if (session.status === "expired") return null;
   throw new Error("Checkout payment is still processing. Contact support before cancelling.");
 }
 
-async function remainingCancellationPayment(payment: Stripe.PaymentIntent) {
-  let refunded = 0;
-  for await (const refund of stripe().refunds.list({payment_intent:payment.id,limit:100})) {
-    if(refund.status!=="failed"&&refund.status!=="canceled")refunded+=refund.amount;
+async function remainingCancellationPayment(payment: Stripe.PaymentIntent, maxPaidPence?: number) {
+  const refunds:Stripe.Refund[]=[];for await(const refund of stripe().refunds.list({payment_intent:payment.id,limit:100}))refunds.push(refund);
+  const memberRefunds=new Map<string,number>();
+  if(maxPaidPence!==undefined&&maxPaidPence<payment.amount_received&&refunds.length){
+    const payments=await stripe().invoicePayments.list({payment:{type:"payment_intent",payment_intent:payment.id},status:"paid",limit:100});
+    for(const paid of payments.data){
+      const invoiceId=typeof paid.invoice==="string"?paid.invoice:paid.invoice.id,invoice=await stripe().invoices.retrieve(invoiceId);
+      const parent=invoice.parent?.subscription_details?.subscription,subId=typeof parent==="string"?parent:parent?.id;if(!subId)continue;
+      const sub=await stripe().subscriptions.retrieve(subId),items=new Set(sub.items.data.map(i=>i.id)),memberLines=new Set<string>();
+      for await(const line of stripe().invoices.listLineItems(invoiceId,{limit:100}))if(line.parent?.type==="subscription_item_details"&&items.has(line.parent.subscription_item_details?.subscription_item??""))memberLines.add(line.id);
+      for await(const note of stripe().creditNotes.list({invoice:invoiceId,limit:100})){
+        if(note.status!=="issued"||!note.refunds.length)continue;
+        const lines:Stripe.CreditNoteLineItem[]=[];for await(const line of stripe().creditNotes.listLineItems(note.id,{limit:100}))lines.push(line);
+        if(!lines.length||lines.some(l=>!l.invoice_line_item||!memberLines.has(l.invoice_line_item)))continue;
+        for(const allocation of note.refunds){const id=typeof allocation.refund==="string"?allocation.refund:allocation.refund.id;memberRefunds.set(id,(memberRefunds.get(id)??0)+allocation.amount_refunded);}
+      }
+    }
   }
-  return Math.max(0,payment.amount_received-refunded);
+  return rentalRefundBalance(payment.amount_received,maxPaidPence,refunds,memberRefunds);
 }
 
 async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReason?:string,fullCreditOfferId?:any){
@@ -894,9 +1108,9 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
  if(!quote){
   const paidIntentId=await paymentBeforeCancellation(b);
   let mode:"none"|"refund"|"credit"="none",refundAmount=0,creditAmount=0,allocations:any[]=[];
-  if(paidIntentId){
-   const sources=b.paymentSources?.length?b.paymentSources:[{paymentIntentId:paidIntentId,securityPence:pence(b.depositAmount)}];
-   const balances=await Promise.all(sources.map(async(source:any)=>({...source,availablePence:await remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId))})));
+  if(paidIntentId || b.status==="confirmed"&&(b.creditApplied??0)>0){
+   const sources=paidIntentId?(b.paymentSources?.length?b.paymentSources:[{paymentIntentId:paidIntentId,securityPence:pence(b.depositAmount)}]):[];
+   const balances=await Promise.all(sources.map(async(source:any)=>({...source,availablePence:await remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId),source.maxPaidPence)})));
    const settlement = decision.fullCreditOfferId
     ? { allocations: [], refundPence: 0, creditPence: balances.reduce((sum:number, source:any) => sum + source.availablePence, 0) + pence(b.creditApplied ?? 0) }
     : cancellationPaymentPlan(decision.kind,balances,b.status==="confirmed"?pence(b.creditApplied??0):0);
@@ -928,7 +1142,7 @@ export const offerFullCredit = internalAction({
   const holds = [...new Set([b.stripeDepositIntentId,b.depositHoldRenewalIntentId,...(b.depositHoldPreviousIntentIds??[])].filter(Boolean))];
   for(const id of holds){const hold=await stripe().paymentIntents.retrieve(id as string);if(hold.amount_received>0||hold.status==="processing")return null;}
   const sources=b.paymentSources??[];
-  const amountPence=(await Promise.all(sources.map(async(source:any)=>remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId))))).reduce((sum:number,amount:number)=>sum+amount,0)+pence(b.creditApplied??0);
+  const amountPence=(await Promise.all(sources.map(async(source:any)=>remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId),source.maxPaidPence)))).reduce((sum:number,amount:number)=>sum+amount,0)+pence(b.creditApplied??0);
   return ctx.runMutation(internal.rentalCreditOffers.create,{...args,amountPence,fingerprint:creditOfferFingerprint(booking)});
  }
 });
@@ -997,7 +1211,7 @@ export const refundRental=action({
    return {status,amount:job.amountPence/100};
   }
   let allocations=job.allocations;
-  if(!allocations){const sources=await ctx.runQuery(internal.rentalOperations.paymentSources,{bookingId:args.bookingId});const balances=await Promise.all(sources.map(async(source:any)=>({...source,availablePence:await remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId))})));allocations=await ctx.runMutation(internal.rentalOperations.bindRefundAllocations,{id:job._id,allocations:rentalRefundPlan(balances,job.amountPence)});}
+  if(!allocations){const sources=await ctx.runQuery(internal.rentalOperations.paymentSources,{bookingId:args.bookingId});const balances=await Promise.all(sources.map(async(source:any)=>({...source,availablePence:await remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId),source.maxPaidPence)})));allocations=await ctx.runMutation(internal.rentalOperations.bindRefundAllocations,{id:job._id,allocations:rentalRefundPlan(balances,job.amountPence)});}
   let status="succeeded";
   for(const allocation of allocations){const part=job.parts?.find((p:any)=>p.paymentIntentId===allocation.paymentIntentId);const refund=part?.stripeRefundId?await stripe().refunds.retrieve(part.stripeRefundId):await stripe().refunds.create({payment_intent:allocation.paymentIntentId,amount:allocation.amountPence,metadata:{rentalRefundId:job._id,rentalPaymentIntent:allocation.paymentIntentId,bookingId:args.bookingId}}, {idempotencyKey:allocation.paymentIntentId===allocations[0].paymentIntentId?`dbc-rental-refund-${job._id}`:`dbc-rental-refund-${job._id}-${allocation.paymentIntentId}`});const result=refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending";if(result!=="succeeded")status=result;await ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:job._id,paymentIntentId:allocation.paymentIntentId,stripeRefundId:refund.id,status:result});}
   return {status,amount:job.amountPence/100};
