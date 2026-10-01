@@ -136,6 +136,10 @@ export default defineSchema({
     .index("by_guestToken", ["guestToken"]),
 
   bookings: defineTable({
+    pricingVersion: v.optional(v.string()),benefitKind:v.optional(v.string()),
+    refundCreditApplied:v.optional(v.number()),earnedCreditApplied:v.optional(v.number()),
+    creditAllocations:v.optional(v.array(v.object({creditId:v.id("credits"),amount:v.number(),kind:v.union(v.literal("refund"),v.literal("earned"))}))),
+    referralCode:v.optional(v.string()),referralRedemptionId:v.optional(v.id("referral_redemptions")),referralRewardId:v.optional(v.id("referral_rewards")),referralPaymentHash:v.optional(v.string()),
     membershipCheckoutId: v.optional(v.id("membership_checkouts")),
     rentalPaidPence: v.optional(v.number()),
     accountCreatedAtCheckout: v.optional(v.boolean()),
@@ -477,6 +481,8 @@ export default defineSchema({
   accounts: defineTable({
     membershipSignupOfferUsed: v.optional(v.boolean()),
     membershipPerksPendingBookingId: v.optional(v.id("bookings")),
+    referralCode:v.optional(v.string()),referralFirstUsedAt:v.optional(v.number()),firstRentalPaidAt:v.optional(v.number()),referralRewardGrantedAt:v.optional(v.number()),referralRewardUsedAt:v.optional(v.number()),paymentIdentityHashes:v.optional(v.array(v.string())),
+    loyaltyLevel:v.optional(v.number()),loyaltyCelebratedLevel:v.optional(v.number()),
     loyaltyUnlockedAt: v.optional(v.number()),
     loyaltyCelebratedAt: v.optional(v.number()),
     starterRentalOfferUsed: v.optional(v.boolean()), // accepted legacy receipts
@@ -513,7 +519,7 @@ export default defineSchema({
     freeAccessoryUsed: v.optional(v.number()),
     stripeSubscriptionId: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_email", ["email"]).index("by_subscription", ["stripeSubscriptionId"]),
+  }).index("by_email", ["email"]).index("by_referral_code",["referralCode"]).index("by_subscription", ["stripeSubscriptionId"]),
 
   sessions: defineTable({
     token: v.string(),
@@ -607,6 +613,7 @@ export default defineSchema({
     amount: v.number(), // original issued (GBP)
     remaining: v.number(), // after partial redemption
     currency: v.string(),
+    kind:v.optional(v.union(v.literal("refund"),v.literal("earned"))),
     reason: v.string(), // e.g. "late_cancellation:<bookingId>"
     membershipInvoiceId: v.optional(v.string()),
     membershipGrantId: v.optional(v.id("membership_credit_grants")),
@@ -620,6 +627,10 @@ export default defineSchema({
     .index("by_account", ["accountId"])
     .index("by_status", ["status"]),
 
+  referral_redemptions:defineTable({referrerAccountId:v.id("accounts"),friendAccountId:v.id("accounts"),bookingId:v.id("bookings"),code:v.string(),discount:v.number(),state:v.union(v.literal("reserved"),v.literal("paid"),v.literal("qualified"),v.literal("void")),createdAt:v.number(),paidAt:v.optional(v.number()),qualifiedAt:v.optional(v.number()),paymentHash:v.optional(v.string()),rejectionReason:v.optional(v.string())}).index("by_friend",["friendAccountId"]).index("by_booking",["bookingId"]).index("by_referrer",["referrerAccountId"]).index("by_state",["state"]),
+  referral_rewards:defineTable({accountId:v.id("accounts"),redemptionId:v.id("referral_redemptions"),percent:v.number(),state:v.union(v.literal("available"),v.literal("used"),v.literal("expired")),createdAt:v.number(),expiresAt:v.number(),reservedBookingId:v.optional(v.id("bookings")),usedBookingId:v.optional(v.id("bookings")),usedAt:v.optional(v.number())}).index("by_account",["accountId"]).index("by_state_expiry",["state","expiresAt"]),
+  referral_campaigns:defineTable({createdAt:v.number(),enqueuedAt:v.optional(v.number()),status:v.union(v.literal("queued"),v.literal("complete"),v.literal("stopped")),recipientCount:v.number(),sent:v.number(),failed:v.number()}),
+  referral_campaign_messages:defineTable({campaignId:v.id("referral_campaigns"),accountId:v.id("accounts"),state:v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("stopped")),dueAt:v.number(),attempts:v.number(),leaseUntil:v.optional(v.number()),sentAt:v.optional(v.number())}).index("by_campaign_account",["campaignId","accountId"]).index("by_state_due",["state","dueAt"]),
   rental_additions:defineTable({
     bookingId:v.id("bookings"),requestId:v.string(),listingId:v.id("listings"),title:v.string(),
     start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number(),

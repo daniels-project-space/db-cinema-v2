@@ -30,7 +30,7 @@ export const repriceLines = internalQuery({
     const listings = await Promise.all(items.map((it) => ctx.db.get(it.listingId)));
     const cartTypes = new Set(listings.filter(Boolean).map((l: any) => l.itemType ?? ""));
 
-    const out: ({ title: string; total: number; deposit: number; dailyRate: number; ordinaryTotal:number; weekendSaving: number } | null)[] = [];
+    const out: ({ title: string; total: number; deposit: number; dailyRate: number; ordinaryTotal:number; offerTotal:number;quietTotal:number; weekendSaving: number } | null)[] = [];
     items.forEach((it, idx) => {
       const l: any = listings[idx];
       if (!l || !l.active) { out.push(null); return; }
@@ -56,8 +56,9 @@ export const repriceLines = internalQuery({
         if (pct > 0 && earned) total = Math.round(q.total * (1 - pct / 100));
       }
       // automatic quiet-item discount (idle gear) — applied server-side so the charged price matches the badge
-      if (l.quietDeal) total = Math.round(total * (1 - l.quietDeal / 100));
-      out.push({ title: l.title, total: undiscounted ? q.total : total, ordinaryTotal: total, deposit: l.depositAmount ?? 0, dailyRate: l.pricing.daily ?? 0, weekendSaving: weekendDays(it.start, it.end) ? Math.max(0, q.total - quote(l.pricing, days - 1).total) : 0 });
+      const offerTotal=total,quietTotal=l.quietDeal?Math.round(q.total*(1-l.quietDeal/100)):q.total;
+      total=Math.min(offerTotal,quietTotal);
+      out.push({ title: l.title, total: undiscounted ? q.total : total, ordinaryTotal: total, offerTotal,quietTotal, deposit: l.depositAmount ?? 0, dailyRate: l.pricing.daily ?? 0, weekendSaving: weekendDays(it.start, it.end) ? Math.max(0, q.total - quote(l.pricing, days - 1).total) : 0 });
     });
     return out;
   },

@@ -1,3 +1,4 @@
+import { ensureReferralCode } from "./lib/referrals";
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { bump } from "./rateLimit";
@@ -23,7 +24,7 @@ export const prepare=internalMutation({args:{bookingId:v.id("bookings"),secretHa
  const b=await ctx.db.get(a.bookingId);if(!b||!["confirmed","active"].includes(b.status)||b.accountAccessEmailSentAt)return null;
  const email=b.guestEmail?.trim().toLowerCase();if(!email)return null;
  let account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",email)).unique();
- if(!account){const id=await ctx.db.insert("accounts",{email,name:b.agreementName,emailVerificationRequired:true,createdAt:Date.now()});account=await ctx.db.get(id);await ctx.db.patch(b._id,{accountCreatedAtCheckout:true});}
+ if(!account){const id=await ctx.db.insert("accounts",{email,name:b.agreementName,emailVerificationRequired:true,createdAt:Date.now()});await ensureReferralCode(ctx,id);account=await ctx.db.get(id);await ctx.db.patch(b._id,{accountCreatedAtCheckout:true});}
  const previous=await ctx.db.query("account_access_links").withIndex("by_booking",q=>q.eq("bookingId",b._id)).collect();for(const link of previous)if(!link.usedAt)await ctx.db.patch(link._id,{expiresAt:Date.now()});
  await ctx.db.insert("account_access_links",{accountId:account!._id,bookingId:b._id,secretHash:a.secretHash,expiresAt:Date.now()+3600000,createdAt:Date.now()});return{email,bookingId:b._id};
 }});

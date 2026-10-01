@@ -1,3 +1,6 @@
+import { availableCreditRows,creditPlan,creditKind } from "./lib/checkoutCredit";
+import { referralEligibility,availableReferralReward } from "./lib/referrals";
+import { SINGLE_BENEFIT_VERSION } from "../shared/rentalBenefits";
 import { unlockLoyalty, loyaltyProgress } from "./lib/loyalty";
 import { creditDebit,usableCredit } from "./lib/creditLedger";
 import { safeRepeatRental,repeatRentalFingerprint } from "./lib/repeatRental";
@@ -30,6 +33,7 @@ import { rentalCancellationStart, cancelKind,CANCELLATION_CREDIT_DAYS } from "..
  * Network/unknown responses remain pending for provider reconciliation. */
 export const checkoutCreationRejected=internalMutation({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
  const b=await ctx.db.get(bookingId);if(!b||b.status!=="pending_payment"||b.stripeCheckoutSessionId||b.stripePaymentIntentId)return;
+ await releaseReferral(ctx,b);
  await ctx.db.patch(b._id,{status:"cancelled",cancelledAt:Date.now()});
  const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",b._id)).collect();for(const r of reservations)if(r.status==="hold")await ctx.db.patch(r._id,{status:"cancelled",holdExpiresAt:undefined});
  if(b.membershipCheckoutId){const m=await ctx.db.get(b.membershipCheckoutId);if(m&&["creating","open"].includes(m.state))await ctx.db.patch(m._id,{state:"expired"});}
@@ -63,12 +67,20 @@ async function availableCreditFor(ctx: any, accountId: any): Promise<number> {
 }
 
 export const availableCheckoutCredit = internalQuery({
-  args: { accountId: v.id("accounts") },
-  handler: async (ctx, { accountId }) => availableCreditFor(ctx, accountId),
+  args: {accountId:v.id("accounts"),kind:v.optional(v.union(v.literal("refund"),v.literal("earned")))},
+  handler:async(ctx,{accountId,kind})=>kind ? (await availableCreditRows(ctx,accountId)).filter((r:any)=>r.kind===kind).reduce((n:number,r:any)=>n+r.availablePence,0)/100 : availableCreditFor(ctx,accountId),
 });
+
+async function releaseReferral(ctx:any,b:any){
+ if(b.referralRedemptionId){const r=await ctx.db.get(b.referralRedemptionId);if(r&&["reserved","paid"].includes(r.state))await ctx.db.patch(r._id,{state:"void"});}
+ if(b.referralRewardId){const r=await ctx.db.get(b.referralRewardId);if(r?.state==="available"&&r.reservedBookingId===b._id)await ctx.db.patch(r._id,{reservedBookingId:undefined});}
+}
 
 export const createPending = internalMutation({
   args: {
+    pricingVersion:v.optional(v.string()),benefitKind:v.optional(v.string()),
+    refundCreditApplied:v.optional(v.number()),earnedCreditApplied:v.optional(v.number()),
+    referralCode:v.optional(v.string()),referralRewardId:v.optional(v.id("referral_rewards")),
     customerEmail: v.string(),
     customerName: v.optional(v.string()),
     phone: v.optional(v.string()),
@@ -110,6 +122,24 @@ export const createPending = internalMutation({
     returnTime: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
+    const single=a.pricingVersion===SINGLE_BENEFIT_VERSION;
+    if(a.pricingVersion&&!single)throw Error("Unsupported pricing version.");
+    const account=a.creditAccountId?await ctx.db.get(a.creditAccountId):null;
+    let friend:any=null,reward:any=null;
+    if(single){
+      if((a.earnedCreditApplied??0)>0&&a.benefitKind!=="earned_credit")throw Error("Earned credit cannot stack with another benefit.");
+      if(a.benefitKind==="earned_credit"&&((a.discount??0)>0||a.deliveryFee!==(a.quotedDeliveryFee??a.deliveryFee)))throw Error("Only one price benefit can apply.");
+      if(["referral_friend","referral_reward"].includes(a.benefitKind??"")){
+        if(a.securityWaiverReason||a.depositAmount!==Math.round((a.depositHoldAmount??0)*50)/100)throw Error("Referral offers require normal upfront security.");
+        if(a.benefitKind==="referral_friend"){
+          friend=await referralEligibility(ctx,account,a.referralCode??"");if(!friend.valid)throw Error(friend.reason);
+          if(Math.round((a.discount??0)*100)!==Math.round(Math.min(10,a.subtotal)*100))throw Error("Referral price changed.");
+        }else{
+          reward=await availableReferralReward(ctx,account);
+          if(!reward||reward._id!==a.referralRewardId||Math.round((a.discount??0)*100)!==Math.round(a.subtotal*40))throw Error("Your referral reward is no longer available.");
+        }
+      }
+    }
     const customerEmail = a.customerEmail.trim().toLowerCase();
     if (!customerEmail) throw new Error("Customer email is required.");
     if (a.creditAccountId) {
@@ -151,7 +181,7 @@ export const createPending = internalMutation({
       const loyaltyAccount = a.creditAccountId ? await ctx.db.get(a.creditAccountId) : null;
       if (!loyaltyAccount || a.membershipCheckoutId || membershipActiveNow(loyaltyAccount) || !(await loyaltyProgress(ctx,loyaltyAccount)).eligible)
         throw Error("Your Encore benefit changed. Review the updated rental total.");
-      const expectedLoyalty = Math.round((a.subtotal-(a.discount??0)+a.loyaltySaving!)*10)/100;
+      const expectedLoyalty = single ? Math.round(a.subtotal*(await loyaltyProgress(ctx,loyaltyAccount)).percent)/100 : Math.round((a.subtotal-(a.discount??0)+a.loyaltySaving!)*10)/100;
       if (Math.round(expectedLoyalty*100) !== Math.round(a.loyaltySaving!*100)) throw Error("Your Encore rental saving changed.");
     }
     // ── store-credit reservation (transactional, double-spend-safe) ──
@@ -159,8 +189,16 @@ export const createPending = internalMutation({
     // checkouts, so two concurrent checkouts can't both spend the same credit (each serializable
     // mutation sees the other's reservation). An aborted/deleted pending booking releases its
     // reservation automatically; the actual decrement still happens on confirm.
+    let allocations:any[]|undefined;
     let creditApplied = 0;
-    if (a.creditAccountId) {
+    if(single){
+      const refund=a.refundCreditApplied??0,earned=a.earnedCreditApplied??0;
+      if(![refund,earned].every(n=>Number.isFinite(n)&&n>=0)||refund+earned>a.total-a.depositAmount)throw Error("Invalid credit allocation.");
+      if((refund+earned)>0&&!a.creditAccountId)throw Error("Account credit requires an account.");
+      allocations=a.creditAccountId?await creditPlan(ctx,a.creditAccountId,refund,earned):[];
+      creditApplied=Math.round((refund+earned)*100)/100;
+    }
+    if (!single && a.creditAccountId) {
       const available = await availableCreditFor(ctx, a.creditAccountId);
       creditApplied = Math.min(available, Math.max(0, a.total - a.depositAmount));
     }
@@ -169,11 +207,11 @@ export const createPending = internalMutation({
       const checkout = (await ctx.db.get(a.membershipCheckoutId))!;
       if (checkout.bookingId) throw Error("Membership credit is already reserved for another rental.");
       const account = await ctx.db.get(checkout.accountId);
-      const expectedOffer = (a.weekendSaving ?? 0) > 0 ? 0 : membershipSignupOffer(checkout.tier,checkout.intro,a.subtotal-(a.discount??0)+(a.membershipSignupOfferSaving??0)+(a.quotedDeliveryFee??a.deliveryFee),!!(account?.membershipSignupOfferUsed || account?.starterRentalOfferUsed));
+      const expectedOffer = (single&&a.benefitKind!=="joining")||(a.weekendSaving ?? 0) > 0 ? 0 : membershipSignupOffer(checkout.tier,checkout.intro,a.subtotal-(a.discount??0)+(a.membershipSignupOfferSaving??0)+(a.quotedDeliveryFee??a.deliveryFee),!!(account?.membershipSignupOfferUsed || account?.starterRentalOfferUsed));
       if ((a.membershipSignupOfferSaving ?? 0) !== expectedOffer) throw Error("Your Membership welcome offer changed. Review the updated total before paying.");
       const immediate = checkoutMembershipCredit(checkout.tier, checkout.intro,
         Math.round(Math.max(0, a.subtotal - (a.discount ?? 0) - creditApplied) * 100), account?.membershipCreditDebtPence);
-      membershipCreditApplied = immediate.appliedPence / 100;
+      membershipCreditApplied = single&&a.benefitKind!=="earned_credit"?0:immediate.appliedPence / 100;
     }
     if (Math.round((a.membershipCreditApplied ?? 0) * 100) !== Math.round(membershipCreditApplied * 100))
       throw Error("Your first-month credit changed. Review the updated total before paying.");
@@ -186,6 +224,9 @@ export const createPending = internalMutation({
       throw new Error("Your available credit changed. Review the updated total before paying.");
 
     const bookingId = await ctx.db.insert("bookings", {
+      pricingVersion:a.pricingVersion,benefitKind:a.benefitKind,
+      refundCreditApplied:a.refundCreditApplied,earnedCreditApplied:a.earnedCreditApplied,creditAllocations:allocations,
+      referralCode:friend?.code,referralRewardId:reward?._id,
       customerId: customer!._id,
       guestEmail: customerEmail,
       status: "pending_payment",
@@ -225,6 +266,8 @@ export const createPending = internalMutation({
       pickupTime: a.pickupTime,
       returnTime: a.returnTime,
     });
+    if(friend){const redemptionId=await ctx.db.insert("referral_redemptions",{referrerAccountId:friend.referrerAccountId,friendAccountId:account!._id,bookingId,code:friend.code,discount:a.discount??0,state:"reserved",createdAt:Date.now()});await ctx.db.patch(bookingId,{referralRedemptionId:redemptionId});}
+    if(reward)await ctx.db.patch(reward._id,{reservedBookingId:bookingId});
     if (a.membershipCheckoutId) await ctx.db.patch(a.membershipCheckoutId, {bookingId, membershipSignupOfferSaving:a.membershipSignupOfferSaving, initialCreditAppliedPence:Math.round(membershipCreditApplied * 100)});
     await linkMatchingRecovery(ctx,customerEmail,a.lineItems,bookingId);
     return { bookingId, creditApplied };
@@ -352,6 +395,7 @@ export const expireUnpaidPending = internalMutation({
       const member=await ctx.db.get(booking.membershipCheckoutId);
       if(member && ["creating","open"].includes(member.state)) await ctx.db.patch(member._id,{state:"expired"});
     }
+    await releaseReferral(ctx,booking);
     await ctx.db.patch(bookingId, { status: "cancelled", cancelledAt: Date.now(), checkoutExpiredAt: Date.now() });
     return true;
   },
@@ -388,6 +432,7 @@ export const confirm = internalMutation({
       stripePaymentIntentId: paymentIntentId,
     });
     const membershipAccount = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", booking.guestEmail ?? "")).first();
+    if(membershipAccount&&!membershipAccount.firstRentalPaidAt)await ctx.db.patch(membershipAccount._id,{firstRentalPaidAt:Date.now()});
     if (membershipAccount?.membershipPerksPendingBookingId === bookingId)
       await ctx.db.patch(membershipAccount._id,{membershipPerksPendingBookingId:undefined});
     // write the reservation ledger (source:site) per BOM component
@@ -436,9 +481,12 @@ export const confirm = internalMutation({
         // pre-existing account credits are consumed by the ordinary FIFO ledger.
         let need = booking.creditApplied - (booking.membershipCreditApplied ?? 0);
         let debtPence = 0;
-        for (const c of rows) {
+        const frozenRows=booking.creditAllocations ? await Promise.all(booking.creditAllocations.map(async allocation=>({credit:await ctx.db.get(allocation.creditId),amount:allocation.amount}))) : rows.map(credit=>({credit,amount:credit.remaining}));
+        for (const entry of frozenRows) {
+          const c=entry.credit;
+          if(!c||c.accountId!==acct._id||c.remaining<entry.amount)throw Error("Reserved credit source changed.");
           if (need <= 0) break;
-          const take = Math.min(c.remaining, need);
+          const take = Math.min(entry.amount, need);
           const debit = creditDebit(c,take); debtPence += debit.debtPence;
           await ctx.db.patch(c._id, debit.patch);
           need -= take;
@@ -446,6 +494,15 @@ export const confirm = internalMutation({
         if (debtPence) await ctx.db.patch(acct._id,{membershipCreditDebtPence:(acct.membershipCreditDebtPence??0)+debtPence});
       }
     }
+    if(booking.referralRedemptionId){
+      const r=await ctx.db.get(booking.referralRedemptionId);
+      if(r?.state==="reserved"){await ctx.db.patch(r._id,{state:"paid",paidAt:Date.now()});await ctx.db.patch(r.friendAccountId,{referralFirstUsedAt:Date.now()});}
+    }
+    if(booking.referralRewardId){
+      const r=await ctx.db.get(booking.referralRewardId);
+      if(r?.state==="available"&&r.reservedBookingId===bookingId){await ctx.db.patch(r._id,{state:"used",usedBookingId:bookingId,usedAt:Date.now()});await ctx.db.patch(r.accountId,{referralRewardUsedAt:Date.now()});}
+    }
+    await ctx.scheduler.runAfter(0, internal.referralPayments.attest, {bookingId});
     await ctx.scheduler.runAfter(0, internal.notify.bookingAlert, { bookingId });
     await ctx.scheduler.runAfter(0, internal.invoice.invoiceEmail, { bookingId });
     await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
@@ -828,6 +885,7 @@ export const recordLateFee = internalMutation({
       returnStatementEmailStatus: "pending",
     });
     if (amount > 0) await ctx.scheduler.runAfter(0, internal.lateFees.sendNotice, { bookingId });
+    await ctx.scheduler.runAfter(0, internal.referralPayments.attest, {bookingId});
     await ctx.scheduler.runAfter(0, internal.invoice.returnSettlementEmail, { bookingId });
   },
 });
@@ -1505,7 +1563,8 @@ export const _finalizeCancellation = internalMutation({
       // future-credit offset, rather than creating fresh unbacked credit.
       const offset = grant?.revokedPence ? Math.min(restoredMembership, account?.membershipCreditDebtPence ?? 0) : 0;
       if (offset && account) await ctx.db.patch(accountId,{membershipCreditDebtPence:(account.membershipCreditDebtPence ?? 0)-offset});
-      const issue = (amountPence: number, linked: boolean) => ctx.db.insert("credits", {
+      const issue = (amountPence: number, linked: boolean, kind:"refund"|"earned"="earned", source?:any) => ctx.db.insert("credits", {
+        kind,
         accountId,
         amount: amountPence / 100,
         remaining: amountPence / 100,
@@ -1513,18 +1572,36 @@ export const _finalizeCancellation = internalMutation({
         reason: `${b.cancellationDecision?.fullCreditOfferId ? "consented_full_credit" : mode === "refund" ? "restored_credit" : "late_cancellation"}:${bookingId}`,
         bookingId,
         createdAt: now,
-        expiresAt: now + CANCELLATION_CREDIT_DAYS * 86400000,
+        expiresAt: source?.expiresAt ?? now + CANCELLATION_CREDIT_DAYS * 86400000,
         status: "active",
-        ...(linked && grant ? {membershipInvoiceId:grant.invoiceId,membershipGrantId:grant._id} : {}),
+        ...(source?.membershipGrantId ? {membershipInvoiceId:source.membershipInvoiceId,membershipGrantId:source.membershipGrantId} : linked && grant ? {membershipInvoiceId:grant.invoiceId,membershipGrantId:grant._id} : {}),
       });
       const ordinary = Math.round(creditAmount * 100)-restoredMembership;
-      if (ordinary > 0) creditId = await issue(ordinary,false);
+      if (ordinary > 0){
+        const oldSpent=Math.round(((b.creditApplied??0)-(b.membershipCreditApplied??0))*100);
+        let restore=Math.min(ordinary,oldSpent);
+        if(b.creditAllocations){
+          for(const a of b.creditAllocations){
+            const source=await ctx.db.get(a.creditId),take=Math.min(restore,Math.round(a.amount*100));
+            if(take>0){
+              const oldGrant=source?.membershipGrantId?await ctx.db.get(source.membershipGrantId):null;
+              const currentAccount=await ctx.db.get(accountId),clear=oldGrant?.revokedPence?Math.min(take,currentAccount?.membershipCreditDebtPence??0):0;
+              if(clear&&currentAccount)await ctx.db.patch(accountId,{membershipCreditDebtPence:(currentAccount.membershipCreditDebtPence??0)-clear});
+              if(take>clear)creditId=await issue(take-clear,false,a.kind,source);
+              restore-=take;
+            }
+          }
+        }else if(restore>0){creditId=await issue(restore,false,"earned");restore=0;}
+        const cash=ordinary-Math.min(ordinary,oldSpent);
+        if(cash>0)creditId=await issue(cash,false,"refund");
+      }
       if (restoredMembership > offset) creditId = await issue(restoredMembership-offset,!!grant && (grant.membershipRefundedPence ?? 0) < grant.paidMembershipPence);
     }
     if (b.membershipCheckoutId) {
       const member=await ctx.db.get(b.membershipCheckoutId);
       if(member && ["creating","open"].includes(member.state)) await ctx.db.patch(member._id,{state:"expired"});
     }
+    await releaseReferral(ctx,b);
     await ctx.db.patch(bookingId, {
       status: "cancelled",
       cancelledAt: Date.now(),

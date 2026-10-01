@@ -1,4 +1,6 @@
 "use client";
+import { ReferralPanel } from "@/components/account/ReferralPanel";
+import { EncoreCrest } from "@/components/account/LoyaltyCelebration";
 
 import { useEffect, useState } from "react";
 import {
@@ -321,15 +323,17 @@ function Dashboard() {
                   £{((me as any).storeCredit ?? 0).toFixed(2)}
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-white/40">
-                  Applied automatically to your next rental. Each issued credit
-                  expires after one year.
+                  Earned credit competes with other savings. Refund credit can pay the remaining balance. Check each credit’s expiry.
                 </p>
               </div>
               <div className="mb-4 rounded-3xl border border-amber-200/20 bg-gradient-to-br from-amber-200/[.07] to-transparent p-5">
                 <p className="font-mono text-[10px] uppercase tracking-[.25em] text-amber-200/65">Encore · returning filmmakers</p>
-                <p className="mt-2 font-display text-2xl text-white">{me.loyaltyEligible ? "10% off your next story" : `${me.loyaltyCompleted} / 3 completed rentals`}</p>
-                <p className="mt-2 text-xs leading-6 text-white/45">{me.loyaltyEligible ? me.membershipActive ? "Unlocked and saved. Your subscription perks take priority; Encore applies when renting without a subscription." : "Automatically applied to rental charges. Delivery and security are excluded. No subscription needed." : "Complete three rentals with separate dates and checkout payments to unlock 10% off future rental charges."}</p>
+                <p className="mt-2 font-display text-2xl text-white">{me.loyaltyEligible ? `${me.loyaltyPercent}% off your next story` : `${me.loyaltyCompleted} / 3 completed rentals`}</p>
+                <EncoreCrest level={Math.max(1,me.loyaltyLevel)} className="mx-auto mt-3 h-20 w-20 text-amber-100/65"/>
+                <p className="mt-2 text-xs leading-6 text-white/45">{me.loyaltyEligible ? me.membershipActive ? "Unlocked and saved. Your subscription and Encore price benefits do not stack." : "Applied automatically when it is your best saving. Rental charges only; delivery and security are excluded." : "Complete separate rentals to earn 2%, then 4%, then 10% off rental charges. No subscription needed."}</p>
+                {me.loyaltyLevel<3&&<p className="mt-3 border-t border-white/10 pt-3 text-xs text-amber-100/60">{me.loyaltyCompleted} / 3 completed · Next: {me.loyaltyLevel===0?2:me.loyaltyLevel===1?4:10}%</p>}
               </div>
+              {account.token&&<ReferralPanel token={account.token}/>}
               <RentalCalendar bookings={bookings as any} />
             </div>
           </div>
@@ -395,9 +399,7 @@ function Dashboard() {
                 className="accent-accent-500"
               />
               Email me booking reminders &amp; offers
-              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
-                −5% on every rental
-              </span>
+
             </label>
             {saveError && (
               <p role="alert" className="mt-3 text-xs text-rose-300">

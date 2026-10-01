@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
+import { ReferralCampaignAdmin } from "@/components/admin/ReferralCampaignAdmin";
 import { FilmFundAdmin } from "@/components/admin/FilmFundAdmin";
 import { AdminGafferCalls } from "@/components/admin/GafferCalls";
 import { RentalInbox } from "@/components/admin/RentalInbox";
@@ -244,7 +245,7 @@ export default function AdminPage() {
             <AdminSettings token={token} />
             {[
               ["Community", <AdminCollective key="collective" token={token} />],
-              ["Promotions", <AdminPromos key="promos" token={token} />],
+              ["Promotions", <div className="space-y-5"><AdminPromos key="promos" token={token} /><ReferralCampaignAdmin token={token}/></div>],
             ].map(([label, content]) => (
               <details
                 key={String(label)}

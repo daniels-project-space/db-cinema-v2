@@ -33,8 +33,8 @@ const ctx={db,storage:{getUrl:async()=>null},scheduler:{runAfter:async()=>{}},ru
  await checkout.acceptFullCredit.handler(ctx,{token:'owned',offerId:id,consent:true});
  await checkout.acceptFullCredit.handler(ctx,{token:'owned',offerId:id,consent:true});
  assert.equal(await bookingFns.replaceHold.handler(ctx,{bookingId:b._id,oldIntentId:'hold',newIntentId:'replacement',expiresAt:Date.now()+60000}),false);
- assert.equal(b.status,'cancelled');assert.equal(refunds,0);assert.ok(releases>0);assert.equal(tables.get('credits').length,1);
- const credit=tables.get('credits')[0];assert.equal(credit.amount,150);assert.equal(credit.expiresAt-credit.createdAt,365*86400000);assert.equal((await db.get(id)).status,'accepted');
+ assert.equal(b.status,'cancelled');assert.equal(refunds,0);assert.ok(releases>0);assert.equal(tables.get('credits').length,2,'cash and previously earned credit keep separate origins');
+ const credits=tables.get('credits');assert.equal(credits.reduce((n,c)=>n+c.amount,0),150);assert.equal(credits.find(c=>c.kind==='earned').amount,30);assert.equal(credits.find(c=>c.kind==='refund').amount,120);const credit=credits[0];assert.equal(credit.expiresAt-credit.createdAt,365*86400000);assert.equal((await db.get(id)).status,'accepted');
  const {assertCreditOffer,creditOfferFingerprint}=load('convex/lib/rentalCreditPolicy.ts');
  const open={...b,status:'confirmed',cancellationDecision:undefined};
  const offer={bookingId:b._id,expiresAt:Date.now()+60000,fingerprint:creditOfferFingerprint(open)};

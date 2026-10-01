@@ -12,7 +12,7 @@ PROTECTION: at checkout the renter chooses either (a) ID verification + insuranc
 
 BOOKING: browse the catalogue, pick dates on the calendar, add gear to the "kit", and check out securely (Stripe). Confirmation arrives by email. Add-on gear can be added to an existing booking up to 1 hour before the rental start.
 
-PERKS: opting into reminders/offers gives 5% off every rental. There's a membership with bigger savings (see tiers).
+PERKS: reminders/offers opt-in has no discount. Encore earns 2% after one, 4% after two and 10% after three separately completed rentals. Only one price benefit applies per checkout, including earned credit. Refund credit can pay the balance. Referral: £10 for a friend’s first rental; referrer earns one lifetime 40% voucher after successful completed return, valid three calendar months. Referral offers require normal upfront security and a full card hold.
 
 LIMITS: you cannot invent policies, prices or availability. Always use tools for live prices and availability. For complaints, damage reports, cancellations, refunds, or anything you can't answer — use the escalate tool so a team member follows up.
 `.trim();

@@ -146,7 +146,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
     try {
       const raw = localStorage.getItem(KEY);
       if (raw) setItems(JSON.parse(raw));
-      setPromoState(localStorage.getItem(PKEY));
+      const referral=new URLSearchParams(window.location.search).get("ref");
+      setPromoState(referral&&/^DBC-[A-Z0-9]{14}$/i.test(referral)?referral.toUpperCase():localStorage.getItem(PKEY));
       setMembership(
         restoreMembershipSelection(
           JSON.parse(localStorage.getItem(MKEY) ?? "null"),

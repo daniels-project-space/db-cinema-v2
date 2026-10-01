@@ -17,3 +17,7 @@
 @keyframes rise{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:none}}@keyframes rays{from{opacity:.35}to{opacity:1}}@keyframes spark{0%{opacity:0;transform:rotate(var(--angle)) translateX(50px)}25%{opacity:1}100%{opacity:0;transform:rotate(var(--angle)) translateX(230px)}}
 @media(max-height:700px){.card{padding:22px}.crest{width:125px;height:125px}.title{font-size:48px}.rule{margin:14px auto}.saving{font-size:42px}.button{margin-top:16px}}
 @media(prefers-reduced-motion:reduce){.veil,.card,.crest,.draw,.iris,.label,.title,.rule,.copy,.saving,.button,.card::before{animation:none;opacity:1;transform:none}.draw{stroke-dashoffset:0}.spark{display:none}}
+
+.calm .card{border-color:#b9d0d844;background:radial-gradient(ellipse at 50% 20%,#728da520,transparent 55%),#0c131a;box-shadow:0 0 55px #9bbaca12,0 30px 100px #0008}.calm .crest,.calm .saving{color:#c4d8e0;filter:drop-shadow(0 0 12px #9bbaca30)}.calm .card::before{opacity:.22;animation:none}.rising .crest{color:#dec6ab;filter:drop-shadow(0 0 17px #deb78540)}.progress{margin:22px auto 0;max-width:310px;color:#b9b8b3;font-size:11px}.progress>div{display:flex;gap:12px;margin-bottom:12px}.progress span{flex:1;border-top:2px solid #ffffff20;padding-top:9px}.progress .reached{border-color:#efd39c;color:#efd39c}
+
+@media(max-width:480px){.calm .card,.rising .card{padding:28px 24px}.calm .crest,.rising .crest{width:150px;height:150px}.calm .rule,.rising .rule{margin:16px auto}.calm .copy,.rising .copy{font-size:13px;line-height:1.65}}

@@ -1,3 +1,4 @@
+import { ensureReferralCode } from "./lib/referrals";
 import { action, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -104,6 +105,7 @@ export const _upsertGoogle = internalMutation({
         emailVerificationRequired: false,
         createdAt: now,
       });
+      await ensureReferralCode(ctx,id);
       await _applyPendingCollectiveGrant(ctx, id, a.email);
       await ctx.db.insert("sessions", {
         token: a.token,

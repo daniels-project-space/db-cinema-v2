@@ -23,6 +23,7 @@ const pence = (gbp: number) => Math.round(gbp * 100);
 const subActive = (status: string) => status === "active" || status === "trialing";
 
 type PriceQuoteResult = {
+  benefitKind:string;refundCreditApplied:number;earnedCreditApplied:number;
   items: { title: string; total: number }[];
   subtotal: number;
   depositHoldAmount: number;
@@ -111,6 +112,9 @@ export const priceQuote = action({
       deliveryFee: price.deliveryFee,
       reductionLabel: price.reductionLabel,
       totalReduction: price.totalReduction,
+      benefitKind: price.benefitKind,
+      refundCreditApplied: price.refundCreditApplied,
+      earnedCreditApplied: price.earnedCreditApplied,
       creditApplied: price.creditApplied,
       totalDue: price.totalDue,
       deliveryReduction: price.deliveryReduction,
@@ -284,6 +288,9 @@ export const start = action({
     // available balance minus credit already reserved by its other pending checkouts, and returns
     // the amount actually applied, which drives the Stripe discount below.
     const { bookingId, creditApplied } = await ctx.runMutation(internal.bookings.createPending, {
+      pricingVersion:price.pricingVersion,benefitKind:price.benefitKind,
+      refundCreditApplied:price.refundCreditApplied,earnedCreditApplied:price.earnedCreditApplied,
+      referralCode:price.referralCode,referralRewardId:price.referralRewardId,
       customerEmail: a.customer.email,
       customerName: a.customer.name,
       billingAddress: a.customer.billingAddress.trim(),
@@ -373,23 +380,6 @@ export const start = action({
       });
     }
 
-    let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
-    const couponAmount = totalReduction + creditApplied;
-    if (couponAmount > 0 && !membershipCheckout) {
-      const couponName =
-        creditApplied > 0
-          ? reductionLabel
-            ? `${reductionLabel} + £${creditApplied} credit`
-            : `£${creditApplied} store credit`
-          : reductionLabel ?? "Discount";
-      const coupon = await sb.coupons.create({
-        amount_off: pence(couponAmount),
-        currency: "gbp",
-        name: couponName,
-        duration: "once",
-      });
-      discounts = [{ coupon: coupon.id }];
-    }
     if (freedCount > 0 && acct) {
       await ctx.runMutation(internal.accounts._useFreeAccessories, {
         email: acct.email,
@@ -409,16 +399,16 @@ export const start = action({
       });
     }
 
-    let checkoutLines = line_items;
-    if (membershipCheckout) {
-      // Reduce only rental/delivery lines. A global coupon would incorrectly discount the recurring fee.
-      const rentalAmounts = [...a.items.map(i => i.total), ...(deliveryFee ? [deliveryFee] : [])];
-      const net = allocateSaving(rentalAmounts, couponAmount);
-      checkoutLines = line_items.slice(0,rentalAmounts.length).map((line,index) => ({...line,price_data:{...line.price_data!,unit_amount:pence(net[index])}}));
-      if (depositAmount > 0) checkoutLines.push(line_items[line_items.length-1]);
-      checkoutLines = checkoutLines.filter(l => (l.price_data?.unit_amount ?? 0) > 0);
-      checkoutLines.push({price:await ensurePrice(sb,tierByKey(membershipCheckout.tier)!),quantity:1});
-    }
+    // Apply rental discounts and first-month credit only to rental lines.
+    // Other account credit can cover remaining rental/delivery, never security.
+    // This applies to every checkout, including referrals without membership.
+    const rentalNet=allocateSaving(a.items.map(i=>i.total),totalReduction+price.membershipCreditApplied);
+    const eligibleNet=[...rentalNet,...(deliveryFee?[deliveryFee]:[])];
+    const net=allocateSaving(eligibleNet,creditApplied-price.membershipCreditApplied);
+    let checkoutLines:Stripe.Checkout.SessionCreateParams.LineItem[]=line_items.slice(0,eligibleNet.length).map((line,index)=>({...line,price_data:{...line.price_data!,unit_amount:pence(net[index])}}));
+    if(depositAmount>0)checkoutLines.push(line_items[line_items.length-1]);
+    checkoutLines=checkoutLines.filter(l=>(l.price_data?.unit_amount??0)>0);
+    if(membershipCheckout)checkoutLines.push({price:await ensurePrice(sb,tierByKey(membershipCheckout.tier)!),quantity:1});
     const meta = {bookingId,rentalPaidPence:String(pence(price.totalDue)),...(membershipCheckout ? {membershipTier:membershipCheckout.tier,accountEmail:acct.email,membershipCheckoutId:String(membershipCheckout._id),membershipTerms:MEMBERSHIP_TERMS_VERSION}: {})};
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: membershipCheckout ? "subscription" : price.totalDue === 0 ? "setup" : "payment",
@@ -426,7 +416,7 @@ export const start = action({
       ...(membershipCheckout || price.totalDue > 0 ? {adaptive_pricing:{enabled:false}} : {}),
       expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
       ...(membershipCheckout || price.totalDue > 0 ? {line_items:checkoutLines} : {}), payment_method_configuration: paymentConfigId,
-      ...(membershipCheckout ? {payment_method_collection:"always" as const,subscription_data:{metadata:meta,...(membershipCheckout.intro === "trial" ? {trial_period_days:7} : {})}} : price.totalDue > 0 ? {discounts,payment_intent_data:{metadata:{bookingId},setup_future_usage:"off_session" as const}} : {setup_intent_data:{metadata:{bookingId}}}),
+      ...(membershipCheckout ? {payment_method_collection:"always" as const,subscription_data:{metadata:meta,...(membershipCheckout.intro === "trial" ? {trial_period_days:7} : {})}} : price.totalDue > 0 ? {payment_intent_data:{metadata:{bookingId},setup_future_usage:"off_session" as const}} : {setup_intent_data:{metadata:{bookingId}}}),
       ...(stripeCustomerId ? {customer:stripeCustomerId} : {customer_email:a.customer.email,customer_creation:"always" as const}),
       success_url: `${new URL(process.env.APP_URL!).origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${new URL(process.env.APP_URL!).origin}/cart`, metadata:meta,

@@ -284,7 +284,7 @@ export function CheckoutMembership({
             {(chosen ?? recommendedTier).weekend && <li>✦ Future weekend deals · save up to £100</li>}
             {(chosen ?? recommendedTier).filmFund && <li>✦ Film Fund entry included · coming soon</li>}
           </ul>
-          <p className="mt-3 text-[10px] leading-5 text-white/40">This checkout uses credit and the joining offer only. Verification, the upfront refundable security payment and the full card hold still apply. Other perks start after this booking is confirmed, for future rentals.</p>
+          <p className="mt-3 text-[10px] leading-5 text-white/40">This checkout applies the best single saving: credit or an eligible offer. Verification, the upfront refundable security payment and the full card hold still apply. Other perks start after this booking is confirmed, for future rentals.</p>
         </>}
         <button
           onClick={() => setOpen(true)}

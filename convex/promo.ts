@@ -1,3 +1,5 @@
+import { referralEligibility } from "./lib/referrals";
+import { accountForToken } from "./lib/rentalChat";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { TIER_RANK } from "./lib/membership";
@@ -12,15 +14,21 @@ import { GAFFER_PRICE_CODE, gafferDiscount } from "./lib/gafferDiscount";
 export const validate = query({
   args: {
     code: v.string(),
+    token:v.optional(v.string()),
     eligibleSubtotal: v.number(),
     rentalSubtotal: v.optional(v.number()),
     tier: v.optional(v.string()),
     membershipActive: v.optional(v.boolean()),
     email: v.optional(v.string()),
   },
-  handler: async (ctx, { code, eligibleSubtotal, rentalSubtotal, tier, membershipActive, email }) => {
+  handler: async (ctx, { code, token, eligibleSubtotal, rentalSubtotal, tier, membershipActive, email }) => {
     const norm = code.trim().toLowerCase();
     if (!norm) return { valid: false as const, reason: "empty" };
+    if(norm.toUpperCase().startsWith("DBC-")){
+      const account=token?await accountForToken(ctx,token):null,offer=await referralEligibility(ctx,account,norm);
+      if(!offer.valid)return {valid:false as const,reason:offer.reason};
+      return {valid:true as const,code:offer.code!,type:"fixed",value:10,discount:Math.min(10,rentalSubtotal??eligibleSubtotal),referral:true};
+    }
     // Explicitly requested via Gaffer (or entered as a code), never automatic.
     // Checkout supplies its server-repriced totals; preview totals cannot authorise a charge.
     if (norm === GAFFER_PRICE_CODE) {
