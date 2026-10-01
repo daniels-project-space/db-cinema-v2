@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { GearLoopBanner } from "@/components/GearLoopBanner";
+import { CartPlanning } from "@/components/plans/CartPlanning";
 import { KitCompatibility } from "@/components/cart/KitCompatibility";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -31,7 +32,8 @@ export default function CartPage() {
     ) ?? {};
   const blocked = Object.values(avail).some((a: any) => !a.ok);
 
-  const total = subtotal + hold - promo.discount;
+  const securityCharge = Math.round(hold * 50) / 100;
+  const total = subtotal + securityCharge - promo.discount;
   // store credit (members) applies to the rental spend, never the refundable hold — previewed here,
   // applied for real server-side at checkout.
   const storeCredit = (account.me as any)?.storeCredit ?? 0;
@@ -61,6 +63,7 @@ export default function CartPage() {
           </div>
         ) : (
           <>
+            <CartPlanning />
             <div className="mt-8">
               <KitCompatibility />
             </div>
@@ -181,15 +184,18 @@ export default function CartPage() {
                     </div>
                   )}
                   <div className="flex justify-between text-xs text-white/35">
-                    <span>Refundable damage hold</span>
+                    <span>Separate card hold</span>
                     <span className="font-mono">£{hold}</span>
                   </div>
+                  <div className="flex justify-between text-xs text-white/50">
+                    <span>Refundable security payment</span><span className="font-mono">£{securityCharge}</span>
+                  </div>
                   <div className="text-[11px] leading-relaxed text-white/25">
-                    Choose ID+insurance (small hold) or a full security deposit at checkout.
+                    The hold is not charged. Security payment is 50% of the hold, refundable after settlement. Protection, member discounts and delivery are confirmed at checkout.
                   </div>
                   <hr className="receipt-sep" />
                   <div className="flex justify-between font-display text-lg font-bold text-white">
-                    <span>Due now</span>
+                    <span>Estimated due now</span>
                     <span className="font-mono">£{dueNow}</span>
                   </div>
                 </div>

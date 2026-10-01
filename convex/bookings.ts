@@ -1,3 +1,4 @@
+import { stopMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
@@ -145,6 +146,7 @@ export const createPending = internalMutation({
       pickupTime: a.pickupTime,
       returnTime: a.returnTime,
     });
+    await stopMatchingRecovery(ctx,customerEmail,a.lineItems,bookingId);
     return { bookingId, creditApplied };
   },
 });

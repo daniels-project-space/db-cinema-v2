@@ -23,8 +23,11 @@ export async function assertRentalInventory(
     for (let day = line.start; day <= line.end; day += 86400000)
       if (blocked.has(new Date(day).toISOString().slice(0, 10)))
         throw Error(`${listing.title} is unavailable on those dates`);
+    if (!Array.isArray(listing.components) || !listing.components.length)
+      throw Error("Inventory capacity mapping is missing");
     for (const comp of listing.components) {
-      if(!Number.isSafeInteger(comp.qty)||comp.qty<1)throw Error("Inventory capacity mapping is invalid");
+      if (!Number.isSafeInteger(comp.qty) || comp.qty < 1)
+        throw Error("Inventory capacity mapping is invalid");
       const key = String(comp.inventoryUnitId);
       const row = byUnit.get(key) ?? {
         id: comp.inventoryUnitId,
@@ -53,13 +56,26 @@ export async function assertRentalInventory(
     const existing = reservations
       .filter(
         (r: any) =>
-          r.bookingId !== excludeBookingId &&
+          (!excludeBookingId || r.bookingId !== excludeBookingId) &&
           (["confirmed", "active"].includes(r.status) ||
             (r.status === "hold" &&
               (r.holdExpiresAt ?? Infinity) > Date.now())),
       )
       .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty }));
-    if (peak([...existing, ...row.intervals]) > unit.quantityOwned)
+    const over = row.intervals.some((window) => {
+      const overlapping = [...existing, ...row.intervals]
+        .filter(
+          (interval) =>
+            interval.start <= window.end && interval.end >= window.start,
+        )
+        .map((interval) => ({
+          ...interval,
+          start: Math.max(interval.start, window.start),
+          end: Math.min(interval.end, window.end),
+        }));
+      return peak(overlapping) > unit.quantityOwned;
+    });
+    if (over)
       throw Error(
         `${unit.name ?? "An item"} is already reserved for those dates`,
       );

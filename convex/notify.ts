@@ -72,14 +72,11 @@ export const bookingAlert = internalAction({
 /** Emails a waitlisted renter when their item frees up for their requested dates. */
 export const waitlistEmail = internalAction({
   args: { email: v.string(), title: v.string(), slug: v.string(), start: v.number(), end: v.number() },
-  handler: async (ctx, a) => {
+  handler: async (ctx, a): Promise<boolean> => {
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
-    const d = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-    await email(
-      a.email,
-      `Good news — the ${a.title} is free for your dates`,
-      `<h2>It's available 🎬</h2><p>The <b>${a.title}</b> you asked about is now free for <b>${d(a.start)} – ${d(a.end)}</b>.</p><p>Gear like this books up fast — secure it now:</p><p><a href="${app}/gear/${a.slug}">Book the ${a.title} →</a></p>`,
-    );
+    const esc = (s:string) => s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!));
+    const url=`${app}/gear/${encodeURIComponent(a.slug)}?start=${day(a.start)}&end=${day(a.end)}`;
+    return sendMail({to:a.email,subject:`${a.title} is available for your dates`,html:`<h2>Your availability alert</h2><p><b>${esc(a.title)}</b> is available for ${day(a.start)} – ${day(a.end)}. This alert does not reserve the item; prices and stock are checked again at checkout.</p><p><a href="${url}">Review and book</a></p><p><a href="${app}/account#plans">Manage alerts</a></p>`});
   },
 });
 

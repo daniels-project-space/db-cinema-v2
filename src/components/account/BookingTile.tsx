@@ -94,7 +94,7 @@ export function BookingTile({
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
         <button onClick={chat} className={`${isHistory ? "text-white/65 hover:text-white" : "rounded-full bg-accent-500 px-5 py-2.5 text-white hover:bg-accent-400"} text-xs font-medium`}>{isHistory ? "Conversation ↗" : "Open conversation"}</button>
-        {isHistory && booking.firstSlug && <Link href={`/gear/${booking.firstSlug}`} className="rounded-full bg-white/[0.06] px-4 py-2 text-xs text-white/75 hover:bg-white/10">Rent again ↗</Link>}
+        {isHistory && <Link href={`/plan?booking=${booking._id}`} className="rounded-full bg-white/[0.06] px-4 py-2 text-xs text-white/75 hover:bg-white/10">Rent this kit again ↗</Link>}
         {isPending && <button onClick={abort} disabled={busy} className="text-xs text-white/40 hover:text-rose-300 disabled:opacity-30">{busy ? "Removing…" : "Remove draft"}</button>}
       </div>
       <details className="mt-4 border-t border-white/[0.06] pt-3">
@@ -132,9 +132,9 @@ export function BookingTile({
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-white/[0.06] pt-2.5 text-xs">
         <CancelButton booking={booking} />
         <button onClick={chat} className="font-medium text-white/55 hover:text-white">Request a change</button>
-        {booking.firstSlug && (
-          <Link href={`/gear/${booking.firstSlug}`} className="font-medium text-white/55 hover:text-white">
-            Rent again
+        {booking.lineItems.length > 0 && (
+          <Link href={`/plan?booking=${booking._id}`} className="font-medium text-white/55 hover:text-white">
+            Rent this kit again
           </Link>
         )}
         <button onClick={chat} className="font-medium text-white/55 hover:text-white">

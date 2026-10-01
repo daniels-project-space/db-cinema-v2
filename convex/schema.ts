@@ -710,5 +710,25 @@ export default defineSchema({
     end: v.number(),
     createdAt: v.number(),
     notified: v.boolean(),
-  }).index("by_notified", ["notified"]),
+    accountId: v.optional(v.id("accounts")),
+    cancelled: v.optional(v.boolean()),
+    deliveredAt: v.optional(v.number()),
+    leaseUntil: v.optional(v.number()),
+    attempts: v.optional(v.number()),
+  }).index("by_notified", ["notified"]).index("by_email", ["email"]),
+
+  kit_plans: defineTable({
+    accountId: v.id("accounts"), title: v.string(),
+    lines: v.array(v.object({ listingId: v.id("listings"), qty: v.number() })),
+    start: v.optional(v.number()), end: v.optional(v.number()),
+    shareKey: v.optional(v.string()), updatedAt: v.number(),
+  }).index("by_account", ["accountId"]).index("by_share", ["shareKey"]),
+  checkout_recoveries: defineTable({
+    accountId: v.id("accounts"),
+    lines: v.array(v.object({ listingId: v.id("listings"), qty: v.number(), start: v.number(), end: v.number() })),
+    consentAt: v.number(), updatedAt: v.number(), dueAt: v.number(), expiresAt: v.number(),
+    state: v.union(v.literal("waiting"), v.literal("sent"), v.literal("stopped")),
+    leaseUntil: v.optional(v.number()), attempts: v.number(), deliveredAt: v.optional(v.number()),
+    bookingId: v.optional(v.id("bookings")),
+  }).index("by_account", ["accountId"]).index("by_state_due", ["state", "dueAt"]),
 });
