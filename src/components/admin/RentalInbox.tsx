@@ -273,7 +273,7 @@ export function RentalInbox({
               escalated={focus.escalated}
               tools={
                 focus.status !== "support" ? (
-                  <><details><summary className="cursor-pointer text-xs text-white/55">Kit · {focus.items.length} listings</summary><div className="mt-3"><RentalKit items={focus.items} compact /></div></details><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /></>
+                  <><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /><details className="mt-3"><summary className="cursor-pointer text-xs text-white/55">Kit · {focus.items.length} listings</summary><div className="mt-3"><RentalKit items={focus.items} compact /></div></details></>
                 ) : undefined
               }
             />

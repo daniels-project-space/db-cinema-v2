@@ -33,3 +33,9 @@ export function cancellationSettlement(
   const refundPence = Math.min(paidPence, securityPence);
   return { refundPence, creditPence: paidPence - refundPence + restored };
 }
+
+/** Removing kit cannot silently move the agreed cancellation deadline. */
+export function rentalCancellationStart(booking: { lineItems: { start: number }[]; removedItems?: { start: number }[]; cancellationPolicyStart?: number }): number {
+  if (booking.cancellationPolicyStart !== undefined) return booking.cancellationPolicyStart;
+  return Math.min(...booking.lineItems.map(line => line.start), ...(booking.removedItems ?? []).map(line => line.start));
+}

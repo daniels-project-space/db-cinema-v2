@@ -1,5 +1,5 @@
 import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "./lib/rentalChat";
-import { cancelKind } from "../src/lib/cancellationPolicy";
+import { rentalCancellationStart, cancelKind } from "../src/lib/cancellationPolicy";
 import { contentsText } from "../shared/rentalContents";
 import { query, mutation, internalQuery, internalMutation, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
@@ -112,7 +112,7 @@ export const _gafferContext = internalQuery({
         pendingItemAddition:addition?{title:addition.title,qty:addition.qty,status:addition.status,rentalCharge:addition.lineTotal,securityCharge:addition.securityCharge,updatedHold:addition.holdTotal,applied:false}:null,
         rentalContents,
         stage:pick.status,
-        cancellation:{policy:pick.cancellationDecision?.kind??cancelKind(start,Date.now()),cardRefund:pick.refundAmount??null,creditIssued:credit?.amount??0,creditExpiresAt:credit?.expiresAt??null,rentalRefunds:refunds.map(r=>({amount:r.amountPence/100,status:r.status}))},
+        cancellation:{policy:pick.cancellationDecision?.kind??cancelKind(rentalCancellationStart(pick),Date.now()),cardRefund:pick.refundAmount??null,creditIssued:credit?.amount??0,creditExpiresAt:credit?.expiresAt??null,rentalRefunds:refunds.map(r=>({amount:r.amountPence/100,status:r.status}))},
         payment:{total:pick.total,securityPaid:pick.depositAmount,securityRefunded:pick.depositRefundAmount??null,depositRefunded:!!pick.depositRefunded,securityRetained:pick.depositKept??0,holdStatus:pick.depositHoldStatus??null,lateFee:pick.lateFeeAmount??0,lateFeeStatus:pick.lateFeeStatus??null},
         summary: pick.lineItems.map((li: any) => li.title).join(", "),
         dates: `${iso(start)} → ${iso(end)}`,

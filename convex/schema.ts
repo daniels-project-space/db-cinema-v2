@@ -84,6 +84,11 @@ export default defineSchema({
     .index("by_hyggloProductId", ["hyggloProductId"]),
 
   // ── Layer 3: the availability ledger (double-booking guard) ───
+  rental_change_requests: defineTable({
+    requestId: v.string(), accountId: v.id("accounts"), bookingId: v.id("bookings"),
+    kind: v.union(v.literal("dates"), v.literal("items"), v.literal("extension"), v.literal("cancel")),
+    detail: v.string(), messageId: v.id("messages"), createdAt: v.number(),
+  }).index("by_request", ["requestId"]).index("by_account", ["accountId"]),
   reservations: defineTable({
     inventoryUnitId: v.id("inventory_units"),
     listingId: v.optional(v.id("listings")),
@@ -159,6 +164,8 @@ export default defineSchema({
         dailyRate: v.optional(v.number()),
       }),
     ),
+    removedItems: v.optional(v.array(v.object({ listingId: v.id("listings"), title: v.string(), start: v.number(), end: v.number(), qty: v.number(), lineTotal: v.number(), removedAt: v.number(), reason: v.string(), requestId: v.string() }))),
+    cancellationPolicyStart: v.optional(v.number()),
     fulfilment: v.union(v.literal("pickup"), v.literal("delivery")),
     address: v.optional(v.string()),
     billingAddress: v.optional(v.string()),
