@@ -1,12 +1,9 @@
-/**
- * Top-of-checkout banner: the payment-terminal idle loop with a perpetual
- * "Processing" spinner overlaid on the terminal (crisp CSS, not baked into the
- * video). Its first frame is the checkout turn's last frame for a seamless
- * hand-off.
- */
+import { IconLock } from "./icons";
+
+/** Compact checkout header keeps the membership offer and form easy to find. */
 export function CheckoutLoopBanner() {
   return (
-    <section className="section-window relative h-[46vh] min-h-[320px] w-full overflow-hidden">
+    <section className="section-window relative h-[24vh] min-h-[200px] max-h-[280px] sm:h-[30vh] sm:max-h-[320px] w-full overflow-hidden">
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <video
         className="absolute inset-0 h-full w-full object-cover object-center"
@@ -28,17 +25,14 @@ export function CheckoutLoopBanner() {
         }}
         aria-hidden
       />
-      {/* perpetual processing indicator over the terminal */}
+      {/* Security indicator; no processing claim before a payment starts. */}
       <div
         className="pointer-events-none absolute left-[45%] top-[52%] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2.5 rounded-full border border-accent-400/40 bg-[#05050a]/70 px-4 py-2 backdrop-blur-sm"
         aria-hidden
       >
-        <span
-          className="h-4 w-4 animate-spin rounded-full border-2 border-accent-400/25 border-t-accent-400"
-          aria-hidden
-        />
+        <IconLock className="h-4 w-4 text-accent-300" />
         <span className="font-mono text-xs uppercase tracking-[0.25em] text-accent-300/90">
-          Processing
+          Secure checkout
         </span>
       </div>
       <div className="absolute inset-x-0 bottom-0">

@@ -117,6 +117,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     }
     throw Error("Browser condition timed out: " + expr);
   }
+  async function reload() {
+    const previous = await c.evaluate("performance.timeOrigin");
+    await c.cmd("Page.reload");
+    await until(
+      `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,
+    );
+  }
   async function shot(name) {
     let s = await c.cmd("Page.captureScreenshot", { format: "png" });
     fs.writeFileSync(
@@ -129,7 +136,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.evaluate(
     `localStorage.clear();localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([item]))});true`,
   );
-  await c.cmd("Page.reload");
+  await reload();
   await until(`!!document.querySelector('[data-testid="add-membership"]')`);
   await until(
     `document.querySelector('[data-testid="basket-due"]')?.textContent.includes('£')`,
@@ -235,7 +242,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `[...document.querySelectorAll('a')].find(a=>a.textContent.includes('Secure checkout')).click()`,
   );
   await until(
-    `location.pathname==='/checkout'&&!!document.querySelector('[data-testid="membership-upsell"]')`,
+    `location.pathname==='/checkout'&&!!document.querySelector('#co-email')&&!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,
   );
   await until(
     `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`,
@@ -254,7 +261,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     true,
   );
   await shot("selected-checkout-mobile");
-  await c.cmd("Page.reload");
+  await reload();
   await until(
     `!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,
   );

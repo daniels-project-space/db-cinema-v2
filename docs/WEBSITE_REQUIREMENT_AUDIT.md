@@ -11,6 +11,7 @@ Latest request: restore the visible basket/checkout membership upsell and one-cl
 - The recommendation endpoint used the raw membership flag, while pricing used effective entitlement. Expired paid subscriptions now receive recommendations, and current subscribers do not receive duplicate subscription offers.
 - Benefits popup was nested inside a clipping/transformed card. It now renders into the document body, fits mobile, closes on Escape, contains keyboard focus and restores focus/scroll on close.
 - Asynchronous account loading left contact fields blank. Saved contact details now fill initially empty fields without overwriting entered text. Payment still requires account resolution, complete contact/fulfilment details, current quote and all agreements.
+- Checkout header is shorter so the membership CTA appears earlier on phones. Its security indicator no longer claims a payment is processing before payment begins.
 - Homepage Fund invitation now follows featured gear and catalogue categories, before How it works.
 
 ## Earlier website requests checked
