@@ -1,4 +1,4 @@
-import { cancelKind } from "../../src/lib/cancellationPolicy";
+import { rentalCancellationStart, cancelKind } from "../../src/lib/cancellationPolicy";
 
 export function creditOfferFingerprint(b: any) {
   return JSON.stringify([b.total, b.creditApplied ?? 0, b.stripePaymentIntentId, b.stripeDepositIntentId,
@@ -6,7 +6,7 @@ export function creditOfferFingerprint(b: any) {
 }
 export function assertCreditOffer(offer: any, b: any) {
   if (!offer || offer.bookingId !== b._id || offer.expiresAt <= Date.now() || b.status !== "confirmed" ||
-    cancelKind(Math.min(...b.lineItems.map((li: any) => li.start)), Date.now()) !== "full_refund" ||
+    cancelKind(rentalCancellationStart(b), Date.now()) !== "full_refund" ||
     offer.fingerprint !== creditOfferFingerprint(b) || b.activeAdditionId || b.returnDecision)
     throw Error("This credit offer is no longer available. Please ask the team for a new quote.");
 }

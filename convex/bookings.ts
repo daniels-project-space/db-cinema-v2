@@ -1,3 +1,4 @@
+import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
@@ -14,7 +15,7 @@ import { peak, type Iv } from "./availability";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
-import { cancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
+import { rentalCancellationStart, cancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 
 const lineItem = v.object({
   listingId: v.id("listings"),
@@ -712,7 +713,7 @@ export const recordLateFee = internalMutation({
         customerName: customer?.name || undefined,
         customerEmail: b.guestEmail ?? "",
         billingAddress: b.billingAddress ?? b.address,
-        lineItems: b.lineItems.map((line) => ({ title: line.title, start: line.start, end: line.end, qty: line.qty, lineTotal: line.lineTotal })),
+        lineItems: rentalBillingLines(b),
         subtotal: b.subtotal, discount: b.discount ?? 0, deliveryFee: b.deliveryFee ?? 0,
         creditApplied: b.creditApplied ?? 0, checkoutPaid: b.total, rentalRefunded:confirmedRentalRefundPence(refundJobs)/100,
         securityPaid: b.depositAmount, securityRefunded: b.depositRefundAmount ?? 0,
@@ -1019,7 +1020,7 @@ export const invoiceData = query({
       fulfilment: b.fulfilment,
       address: b.address ?? null,
       currency: b.currency ?? "GBP",
-      lineItems: b.lineItems.map((li) => ({ title: li.title, start: li.start, end: li.end, qty: li.qty, lineTotal: li.lineTotal })),
+      lineItems: rentalBillingLines(b),
       subtotal: b.subtotal,
       discount: b.discount ?? 0,
       deliveryFee: b.deliveryFee ?? 0,
@@ -1352,7 +1353,7 @@ export const prepareCancellation=internalMutation({args:{bookingId:v.id("booking
  if(fullCreditOfferId){const offer=await ctx.db.get(fullCreditOfferId);assertCreditOffer(offer,b);if(offer?.status!=="offered")throw Error("Credit offer already settled");}
  const jobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
  if(jobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("A refund is still processing");
- const kind=cancelKind(Math.min(...b.lineItems.map(li=>li.start)),Date.now());
+ const kind=cancelKind(rentalCancellationStart(b),Date.now());
  const decision={kind,createdAt:Date.now(),...(fullCreditOfferId?{fullCreditOfferId}:{})};await ctx.db.patch(bookingId,{cancellationDecision:decision});return decision;
 }});
 export const recordCancellationQuote=internalMutation({args:{bookingId:v.id("bookings"),quote:v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})},handler:async(ctx,{bookingId,quote})=>{

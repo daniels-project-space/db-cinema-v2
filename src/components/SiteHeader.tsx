@@ -1,6 +1,8 @@
 "use client";
 
 import { ChatAvatar } from "./rentals/ChatIdentity";
+import { useQuery } from "convex/react";
+import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -33,6 +35,9 @@ export function SiteHeader() {
   const { count, open } = useCart();
   const account = useAccount();
   const me = account.me;
+  const messages = useQuery(api.rentalChat.unreadBreakdown, account.token && me ? { token: account.token } : "skip");
+  const unread = (messages?.rentals ?? 0) + (messages?.general ?? 0);
+  const messageBadge = unread > 0 ? <span data-testid="account-unread" aria-hidden className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-500 px-1 text-[10px] font-semibold text-white ring-2 ring-[#060608]">{unread > 99 ? "99+" : unread}</span> : null;
   const pathname = usePathname();
   const [menu, setMenu] = useState(false);
   const [mobile, setMobile] = useState(false);
@@ -236,8 +241,11 @@ export function SiteHeader() {
                   {(me.storeCredit ?? 0) > 0 && <Link href="/account" className="mr-2 rounded-full bg-emerald-300/10 px-3 py-2 text-xs text-emerald-200">£{me.storeCredit.toFixed(2)} credit</Link>}
                   <button
                     onClick={() => setMenu((m) => !m)}
-                    className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] py-1 pl-1 pr-3 transition hover:border-accent-400/40 hover:bg-white/[0.07]"
+                    aria-label={unread ? `Account, ${unread} unread messages` : "Account"}
+                    aria-expanded={menu}
+                    className="relative flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] py-1 pl-1 pr-3 transition hover:border-accent-400/40 hover:bg-white/[0.07]"
                   >
+                    {messageBadge}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-7 !w-7 ring-1 ring-accent-400/50" />
                     <span className="max-w-[90px] truncate text-sm text-white/80" title={me.name || me.email}>
@@ -254,6 +262,13 @@ export function SiteHeader() {
                           <div className="truncate text-xs text-white/40">{me.email}</div>
                         </div>
                       </div>
+                      <Link
+                        href="/account#chat"
+                        onClick={() => { setMenu(false); window.dispatchEvent(new CustomEvent("dbc:open-rental-chat")); }}
+                        className="flex items-center justify-between px-4 py-2.5 text-sm text-white/70 hover:bg-white/5 hover:text-white"
+                      >
+                        Messages {unread > 0 && <span className="rounded-full bg-accent-500 px-2 text-xs text-white">{unread}</span>}
+                      </Link>
                       <Link
                         href="/account"
                         onClick={() => setMenu(false)}
@@ -348,13 +363,18 @@ export function SiteHeader() {
               )}
             </div>
 
+            <Link href={me ? "/account#chat" : "/account"} onClick={() => { if (me) window.dispatchEvent(new CustomEvent("dbc:open-rental-chat")); }} aria-label={unread ? `Account, ${unread} unread messages` : "Account"} className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] md:hidden">
+              {me ? <ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-7 !w-7" /> : <IconUser className="h-4 w-4 text-white/70" />}
+              {messageBadge}
+            </Link>
+
             <button
               onClick={open}
-              className="relative flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-white/80 transition hover:border-accent-400/40 hover:text-white"
+              className="relative flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-white/80 transition hover:border-accent-400/40 hover:text-white sm:px-4"
               aria-label="Open kit"
             >
               <IconCart className="h-4 w-4" />
-              <span>Kit</span>
+              <span className="hidden sm:inline">Kit</span>
               {count > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-500 px-1 font-mono text-xs font-semibold text-white">
                   {count}

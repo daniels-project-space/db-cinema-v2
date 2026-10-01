@@ -11,7 +11,7 @@ import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { postRentalMessage } from "./lib/rentalChat";
-import { cancelKind, londonStartOfDay } from "../src/lib/cancellationPolicy";
+import { rentalCancellationStart, cancelKind, londonStartOfDay } from "../src/lib/cancellationPolicy";
 
 export const details = query({
   args: { token: v.string(), bookingId: v.id("bookings") },
@@ -32,7 +32,7 @@ export const details = query({
       })),
       rentalRefunds: refunds,
       cancellationKind: cancelKind(
-        Math.min(...b.lineItems.map((li) => li.start)),
+        rentalCancellationStart(b),
         Date.now(),
       ),
     };
@@ -43,15 +43,19 @@ export const reschedule = mutation({
     token: v.string(),
     bookingId: v.id("bookings"),
     start: v.number(),
+    end: v.optional(v.number()),
+    keepAgreedPrice: v.optional(v.boolean()),
     reason: v.string(),
   },
-  handler: async (ctx, { token, bookingId, start, reason }) => {
+  handler: async (ctx, { token, bookingId, start, end, keepAgreedPrice, reason }) => {
     await assertAdmin(ctx, token, "rentalOperations.reschedule");
     const b = await ctx.db.get(bookingId);
     if (!b || b.status !== "confirmed")
       throw Error("Only an upcoming rental can be rescheduled");
     if (b.cancellationDecision || b.activeAdditionId || b.returnDecision)
       throw Error("Finish the open cancellation or item addition first");
+    const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
+    if (refunds.some(r => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
     if (reason.trim().length < 5)
       throw Error("Record the reason for the change");
     if (
@@ -68,18 +72,22 @@ export const reschedule = mutation({
       throw Error("Manage this rental through its original booking platform");
     const previous = Math.min(...b.lineItems.map((li) => li.start));
     const shift = start - previous;
+    const previousEnd = Math.max(...b.lineItems.map(li => li.end));
+    if (end !== undefined && (!Number.isSafeInteger(end) || end % 86400000 !== 0 || end < start)) throw Error("Choose a valid return date on or after the start.");
+    const endShift = end === undefined ? 0 : end - (previousEnd + shift);
+    if (endShift !== 0 && keepAgreedPrice !== true) throw Error("Confirm that the changed duration keeps the agreed charges; extra days are complimentary.");
     const lines = b.lineItems.map((li) => ({
       ...li,
       start: li.start + shift,
-      end: li.end + shift,
+      end: li.end + shift + endShift,
     }));
     await assertRentalInventory(ctx, lines, bookingId);
-    await ctx.db.patch(bookingId, { lineItems: lines });
+    await ctx.db.patch(bookingId, { lineItems: lines, cancellationPolicyStart: start });
     for (const r of reservations)
       if (["confirmed", "hold"].includes(r.status))
         await ctx.db.patch(r._id, {
           start: r.start + shift,
-          end: r.end + shift,
+          end: r.end + shift + endShift,
         });
     const a = await ctx.db
       .query("accounts")
@@ -93,7 +101,7 @@ export const reschedule = mutation({
         accountId: a._id,
         bookingId,
         sender: "system",
-        text: `The team rescheduled your rental to ${detail}. Duration and agreed price are unchanged. ${reason.trim()}`,
+        text: `The team rescheduled your rental to ${detail}. Agreed charges and security are unchanged${endShift > 0 ? "; the additional days have no extra rental charge" : ""}. Any eligible refund is recorded separately. ${reason.trim()}`,
       });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
       bookingId,
@@ -101,6 +109,49 @@ export const reschedule = mutation({
       detail,
     });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
+    return { ok: true };
+  },
+});
+
+/** Amend fulfilment, preserving captured charges and a permanent invoice audit trail.
+ * Refunds use the existing provider-backed refund control; security settles separately. */
+export const removeItem = mutation({
+  args: { token: v.string(), bookingId: v.id("bookings"), requestId: v.string(),
+    lineIndex: v.number(), listingId: v.id("listings"), expectedQty: v.number(), expectedStart: v.number(), expectedEnd: v.number(), reason: v.string() },
+  handler: async (ctx, args) => {
+    await assertAdmin(ctx, args.token, "rentalOperations.removeItem");
+    const b = await ctx.db.get(args.bookingId);
+    if (!b) throw Error("Rental unavailable.");
+    const prior = b.removedItems?.find(l => l.requestId === args.requestId);
+    if (prior) {
+      if (prior.listingId !== args.listingId || prior.qty !== args.expectedQty || prior.start !== args.expectedStart || prior.end !== args.expectedEnd || prior.reason !== args.reason.trim()) throw Error("Removal request has changed.");
+      return { ok: true };
+    }
+    if (b.status !== "confirmed") throw Error("Only an unstarted confirmed rental can have kit removed.");
+    if (b.cancellationDecision || b.activeAdditionId || b.returnDecision) throw Error("Finish the open rental operation first.");
+    const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
+    if (refunds.some(r => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
+    if (!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId) || args.reason.trim().length < 5 || args.reason.trim().length > 400) throw Error("Record a valid removal request and reason.");
+    if (!Number.isSafeInteger(args.lineIndex) || args.lineIndex < 0) throw Error("Invalid item.");
+    const line = b.lineItems[args.lineIndex];
+    if (!line || line.listingId !== args.listingId || line.qty !== args.expectedQty || line.start !== args.expectedStart || line.end !== args.expectedEnd) throw Error("The kit changed. Refresh and choose the item again.");
+    if (b.lineItems.length < 2) throw Error("Use Cancel rental to remove the last item.");
+    const reservations = await ctx.db.query("reservations").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
+    if (reservations.some(r => r.source !== "site" || r.status === "active")) throw Error("Manage external or already collected kit through its original rental flow.");
+    const lines = b.lineItems.filter((_, i) => i !== args.lineIndex);
+    await assertRentalInventory(ctx, lines, b._id);
+    for (const r of reservations) if (["hold", "confirmed"].includes(r.status)) await ctx.db.patch(r._id, { status: "cancelled" });
+    for (const remaining of lines) {
+      const listing = await ctx.db.get(remaining.listingId);
+      for (const component of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: remaining.listingId, inventoryUnitId: component.inventoryUnitId, start: remaining.start, end: remaining.end, qty: component.qty * remaining.qty, source: "site", status: "confirmed" });
+    }
+    const { dailyRate: _, ...removed } = line;
+    await ctx.db.patch(b._id, { lineItems: lines, cancellationPolicyStart: rentalCancellationStart(b), removedItems: [...(b.removedItems ?? []), { ...removed, removedAt: Date.now(), reason: args.reason.trim(), requestId: args.requestId }] });
+    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    const detail = `${line.qty}× ${line.title} removed from your kit. Agreed charges and security are unchanged; any eligible refund is recorded separately. ${args.reason.trim()}`;
+    if (account) await postRentalMessage(ctx, { accountId: account._id, bookingId: b._id, sender: "system", text: detail });
+    await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: b._id, kind: "kit updated", detail });
+    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId: b._id });
     return { ok: true };
   },
 });
@@ -135,7 +186,7 @@ export const prepareRefund = internalMutation({
     if (b.cancellationDecision || b.activeAdditionId || b.returnDecision)
       throw Error("Finish the open cancellation or item addition first");
     if (
-      cancelKind(Math.min(...b.lineItems.map((li) => li.start)), Date.now()) !==
+      cancelKind(rentalCancellationStart(b), Date.now()) !==
       "full_refund"
     )
       throw Error(

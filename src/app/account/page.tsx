@@ -174,8 +174,14 @@ function Dashboard() {
       }
     };
     openFromHash();
+    const openChat = (event: Event) => {
+      setTab("chat");
+      const id = (event as CustomEvent<{ bookingId?: string }>).detail?.bookingId;
+      if (id) setChatBooking(id);
+    };
     window.addEventListener("hashchange", openFromHash);
-    return () => window.removeEventListener("hashchange", openFromHash);
+    window.addEventListener("dbc:open-rental-chat", openChat);
+    return () => { window.removeEventListener("hashchange", openFromHash); window.removeEventListener("dbc:open-rental-chat", openChat); };
   }, []);
 
   async function save() {

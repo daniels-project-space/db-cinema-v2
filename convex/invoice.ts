@@ -1,4 +1,5 @@
 "use node";
+import { rentalBillingLines } from "./lib/rentalBillingLines";
 
 import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
@@ -38,7 +39,7 @@ export const invoiceEmail = internalAction({
       }
     }
 
-    const items = b.lineItems.map((li: any) => `• ${esc(li.title)} — ${amount(li.lineTotal)}`).join("<br>");
+    const items = rentalBillingLines(b).map((li: any) => `• ${esc(li.title)} — ${amount(li.lineTotal)}`).join("<br>");
     await sendMail({
       to: b.guestEmail,
       subject: "Your Db Cinema receipt 🎬",
