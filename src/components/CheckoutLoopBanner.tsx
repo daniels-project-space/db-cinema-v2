@@ -27,7 +27,7 @@ export function CheckoutLoopBanner() {
       />
       {/* Security indicator; no processing claim before a payment starts. */}
       <div
-        className="pointer-events-none absolute left-[45%] top-[52%] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2.5 rounded-full border border-accent-400/40 bg-[#05050a]/70 px-4 py-2 backdrop-blur-sm"
+        className="pointer-events-none absolute left-[45%] top-[28%] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2.5 rounded-full border border-accent-400/40 bg-[#05050a]/70 px-4 py-2 backdrop-blur-sm"
         aria-hidden
       >
         <IconLock className="h-4 w-4 text-accent-300" />
