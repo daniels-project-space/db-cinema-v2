@@ -128,6 +128,7 @@ export function CartDrawer() {
                 {quote ? formatGbp(quote.combinedTotalDue) : "Calculating…"}
               </span>
             </div>
+            {!!quote?.membershipCreditApplied && <p className="mt-1 text-xs text-accent-300">First-month credit used now · −{formatGbp(quote.membershipCreditApplied)}</p>}
             {!!quote?.totalReduction && (
               <p className="mt-1 text-xs text-accent-300">
                 {quote.reductionLabel ?? "Rental discount"} · −

@@ -241,7 +241,7 @@ export default function CheckoutPage() {
       <SiteHeader />
       <CheckoutLoopBanner />
       <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
-        <CheckoutMembership appliedSavings={currentQuote ? {rentalSaving:currentQuote.rentalSaving,weekendSaving:currentQuote.weekendSaving,deliveryReduction:currentQuote.deliveryReduction,membershipFee:currentQuote.membershipFee,securityWaiverReason:currentQuote.securityWaiverReason} : undefined} suggestions={currentQuote?.recommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
+        <CheckoutMembership appliedSavings={currentQuote ? {rentalSaving:currentQuote.rentalSaving,weekendSaving:currentQuote.weekendSaving,deliveryReduction:currentQuote.deliveryReduction,membershipFee:currentQuote.membershipFee,membershipCreditApplied:currentQuote.membershipCreditApplied,membershipNetSaving:currentQuote.membershipNetSaving,securityWaiverReason:currentQuote.securityWaiverReason} : undefined} suggestions={currentQuote?.recommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <div className="mb-5 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
           <span className="inline-flex items-center gap-1.5">
@@ -479,10 +479,11 @@ export default function CheckoutPage() {
               <Row label={currentQuote?.securityWaiverReason ? "Upfront security payment waived · full hold remains" : "Refundable security payment (50%)"} value={depositAmount} muted />
               {!!membership && <Row label={membership.intro === "trial" ? "Membership · 7 days free" : "First membership month"} value={currentQuote?.membershipFee ?? 0} />}
               <Row label="Separate card hold (not charged)" value={holdAmount} muted />
-              {!!currentQuote && currentQuote.creditApplied > 0 && (
+              {!!currentQuote?.membershipCreditApplied && <Row label="First-month credit used now" value={-currentQuote.membershipCreditApplied} />}
+              {!!currentQuote && currentQuote.creditApplied - currentQuote.membershipCreditApplied > 0 && (
                 <div className="flex justify-between text-emerald-300">
                   <span>Account credit</span>
-                  <span className="font-mono">−{formatGbp(currentQuote.creditApplied)}</span>
+                  <span className="font-mono">−{formatGbp(currentQuote.creditApplied-currentQuote.membershipCreditApplied)}</span>
                 </div>
               )}
               <hr className="receipt-sep" />

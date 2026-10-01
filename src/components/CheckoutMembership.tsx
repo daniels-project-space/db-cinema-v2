@@ -5,6 +5,9 @@ import Link from "next/link";
 import { TIERS } from "@/lib/membership";
 import { useAccount } from "./account/AccountProvider";
 type Suggestion = {
+  intro: "trial" | "none";
+  membershipCreditApplied: number;
+  membershipSignupOfferSaving: number;
   tier: string;
   name: string;
   monthlyFee: number;
@@ -31,6 +34,8 @@ export function CheckoutMembership({
     rentalSaving: number;
     deliveryReduction: number;
     membershipFee: number;
+    membershipCreditApplied: number;
+    membershipNetSaving: number;
     securityWaiverReason?: string;
   };
 }) {
@@ -43,16 +48,8 @@ export function CheckoutMembership({
     recommend = suggestions?.[0],
     recommendedTier = TIERS.find((t) => t.key === recommend?.tier) ?? TIERS[0],
     tier = chosen ?? current;
-  // Credits for a future rental and a refundable security waiver are not savings
-  // on this order. Include any membership fee charged today in the comparison.
-  const appliedNetSaving = appliedSavings
-    ? Math.round(
-        (appliedSavings.rentalSaving +
-          appliedSavings.deliveryReduction -
-          appliedSavings.membershipFee) *
-          100,
-      ) / 100
-    : 0;
+  // Only credit actually used in this checkout counts as an immediate saving.
+  const appliedNetSaving = appliedSavings?.membershipNetSaving ?? 0;
   const potentialNetSaving = recommend
     ? Math.round(recommend.netSaving * 100) / 100
     : 0;
@@ -116,7 +113,7 @@ export function CheckoutMembership({
         <h3 className="mt-2 text-lg font-medium text-white">
           {tier
             ? `£${tier.monthlyCredit.toFixed(2)} credit every paid month`
-            : "Your next film starts with this one."}
+            : "Get more from the kit you love."}
         </h3>
         {tier && appliedSavings && appliedNetSaving > 0 && (
           <div
@@ -134,6 +131,8 @@ export function CheckoutMembership({
               </p>
             </div>
             <div className="space-y-2 text-[11px] text-white/60">
+              {appliedSavings.membershipCreditApplied > 0 && <p>First-month credit used · £{appliedSavings.membershipCreditApplied.toFixed(2)}</p>}
+
               {tier.weekend && appliedSavings.rentalSaving > 0 && (
                 <p>
                   Weekend savings · £{appliedSavings.rentalSaving.toFixed(2)}
@@ -167,18 +166,19 @@ export function CheckoutMembership({
               </p>
               <p className="text-[10px] text-white/40">
                 {recommend.initialFee > 0
-                  ? "After today’s membership fee"
+                  ? "Includes today’s membership fee"
                   : `Rental + delivery with ${recommend.name}`}
               </p>
             </div>
             <div className="text-right">
               <p className="text-sm text-white/80">
-                £{recommend.monthlyCredit.toFixed(2)}
+                £{(recommend.membershipCreditApplied || recommend.monthlyCredit).toFixed(2)}
               </p>
-              <p className="text-[10px] text-white/45">credit / paid month</p>
+              <p className="text-[10px] text-white/45">{recommend.membershipCreditApplied > 0 ? "credit used on this rental" : "credit / paid month"}</p>
             </div>
           </div>
         )}
+        {!tier && !!recommend?.membershipSignupOfferSaving && <p className="mt-3 text-xs text-accent-200">Includes a one-time £{recommend.membershipSignupOfferSaving} {recommend.name} welcome discount.</p>}
         {current ? (
           <p className="mt-2 text-xs leading-6 text-white/55">
             Your membership perks are included in the confirmed price below.
@@ -191,9 +191,9 @@ export function CheckoutMembership({
           <>
             <p className="mt-2 text-xs leading-6 text-white/55">
               {chosen
-                ? `${chosen.name} is included in this checkout. Your monthly fee becomes £${chosen.monthlyCredit.toFixed(2)} rental credit after each paid month.`
+                ? `${chosen.name} is included in this checkout. Pay £${chosen.monthlyGbp}/month and receive £${chosen.monthlyCredit.toFixed(2)} credit each paid month.${selected?.intro === "trial" ? " The free week earns no monthly credit." : " Your first paid month’s credit is applied to this rental."}`
                 : recommend && potentialNetSaving > 0
-                  ? `${recommend.name} is the best fit for today’s basket: save £${potentialNetSaving.toFixed(2)} on this order${recommend.initialFee > 0 ? " after today’s membership fee" : " with the free first week"}. Then £${recommend.monthlyFee}/month, earning £${recommend.monthlyCredit.toFixed(2)} credit each paid month.`
+                  ? `${recommend.name} is recommended for today’s basket: save £${potentialNetSaving.toFixed(2)} on this order${recommend.initialFee > 0 ? " after today’s membership fee" : " with the free first week"}. Then £${recommend.monthlyFee}/month, earning £${recommend.monthlyCredit.toFixed(2)} credit each paid month.`
                   : `From £${recommendedTier.monthlyGbp}/month. Earn £${recommendedTier.monthlyCredit.toFixed(2)} rental credit every paid month. Choose a plan now; your basket savings update automatically.`}
             </p>
             {!selected && (
@@ -202,7 +202,7 @@ export function CheckoutMembership({
                 onClick={() =>
                   onChange({
                     tier: recommendedTier.key,
-                    intro: me?.membershipIntroUsed ? "none" : "trial",
+                    intro: recommend?.intro ?? "none",
                     termsAccepted: false,
                   })
                 }
@@ -248,8 +248,9 @@ export function CheckoutMembership({
                   {selected.intro === "trial"
                     ? "The free week alone does not waive the upfront security payment."
                     : "No upfront security payment on this rental once checkout completes."}{" "}
-                  Full card hold still applies. New credit arrives after
-                  payment, for future rentals; it isn’t spent on this order.
+                  Full card hold still applies. {selected.intro === "trial"
+                    ? "The free week earns no monthly credit."
+                    : `£${(appliedSavings?.membershipCreditApplied ?? 0).toFixed(2)} of your first-month credit is used on this rental. Any unused balance is issued after successful payment, lasts one year and stacks with future monthly credit.`}
                 </p>
                 <label className="flex items-start gap-2 text-[11px] text-white/55">
                   <input
@@ -342,7 +343,7 @@ export function CheckoutMembership({
                             tier: t.key,
                             intro: me?.membershipIntroUsed
                               ? "none"
-                              : (selected?.intro ?? "trial"),
+                              : (selected?.intro ?? recommend?.intro ?? "none"),
                             termsAccepted: false,
                           });
                           setOpen(false);

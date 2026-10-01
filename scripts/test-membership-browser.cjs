@@ -61,7 +61,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     );
   const r = await cv.query(api.catalog.listListings, {}),
     rows = Array.isArray(r) ? r : (r.items ?? r.listings ?? []),
-    l = rows.find((l) => l.pricing && !l.displayOnly);
+    l = rows.filter(l=>l.pricing && !l.displayOnly).sort((a,b)=>b.pricing.daily-a.pricing.daily)[0];
   const future = new Date(Date.now() + 60 * 86400000);
   const start =
       Date.UTC(
@@ -239,7 +239,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       `!!document.querySelector('[data-testid="applied-membership-savings"]')`,
     ),
     Math.round(
-      (paid.rentalSaving + paid.deliveryReduction - paid.membershipFee) * 100,
+      paid.membershipNetSaving * 100,
     ) > 0,
     "Applied card requires positive net savings after the first fee",
   );
@@ -310,7 +310,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
   );
   await until(
-    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('best fit')`,
+    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('recommended for')`,
   );
   await c.cmd("Emulation.setDeviceMetricsOverride", {
     width: 390,
@@ -339,18 +339,24 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     true,
     "Film Fund must remain directly after the gear catalogue",
   );
-  // A weekday pickup has no weekend/delivery saving: neither an introductory
-  // offer nor a paid plan should invent a discount panel.
+  // A large weekday kit must now offer first-month credit in this checkout.
   const weekdayStart = start + 3 * 86400000,
-    weekdayEnd = weekdayStart + 2 * 86400000;
-  const weekdayArgs = {
-    ...args,
-    items: args.items.map((i) => ({
-      ...i,
-      start: weekdayStart,
-      end: weekdayEnd,
-    })),
-  };
+    weekdayEnd = weekdayStart;
+  const bigWeekdayArgs = {...args,items:args.items.map(i=>({...i,start:weekdayStart,end:weekdayEnd}))};
+  const bigWeekdayQuote = await cv.action(api.checkout.priceQuote,bigWeekdayArgs);
+  assert.equal(bigWeekdayQuote.recommendations[0].tier,"studio");
+  assert.equal(bigWeekdayQuote.recommendations[0].intro,"none");
+  assert(bigWeekdayQuote.recommendations[0].membershipCreditApplied > 0);
+  const bigWeekdayItem = {...item,key:l._id+":big-weekday",start:new Date(weekdayStart).toISOString().slice(0,10),end:new Date(weekdayEnd).toISOString().slice(0,10),days:1,total:bigWeekdayQuote.items[0].total,perDay:bigWeekdayQuote.items[0].total};
+  await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([bigWeekdayItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`);
+  await c.cmd("Page.navigate", {url:root+"/cart"});
+  await until(`!!document.querySelector('[data-testid="potential-membership-savings"]')`);
+  assert((await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`)).includes(bigWeekdayQuote.recommendations[0].netSaving.toFixed(2)));
+  await shot("weekday-immediate-credit-mobile");
+  // Below £100 there must be no unsolicited subscription offer.
+  const cheap = rows.filter(l=>l.pricing && !l.displayOnly && l.pricing.daily<30).sort((a,b)=>a.pricing.daily-b.pricing.daily)[0];
+  assert(cheap,"Need a small kit for the no-saving regression");
+  const weekdayArgs = {...args,items:args.items.map(i=>({...i,listingId:cheap._id,title:cheap.title,start:weekdayStart,end:weekdayEnd}))};
   const weekdayQuote = await cv.action(api.checkout.priceQuote, weekdayArgs);
   assert(
     weekdayQuote.recommendations.every((r) => r.netSaving <= 0),
@@ -358,11 +364,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   const weekdayItem = {
     ...item,
-    key: l._id + ":weekday",
+    listingId:cheap._id,title:cheap.title,slug:cheap.slug,heroImage:cheap.heroImage,days:1,
+    key: cheap._id + ":weekday",
     start: new Date(weekdayStart).toISOString().slice(0, 10),
     end: new Date(weekdayEnd).toISOString().slice(0, 10),
     total: weekdayQuote.items[0].total,
-    perDay: weekdayQuote.items[0].total / 3,
+    perDay: weekdayQuote.items[0].total,
   };
   await c.evaluate(
     `localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([weekdayItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`,
@@ -397,9 +404,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     selectedMembership: { tier: "pro", intro: "none" },
   });
   assert(
-    noSavingPaid.rentalSaving +
-      noSavingPaid.deliveryReduction -
-      noSavingPaid.membershipFee <
+    noSavingPaid.membershipNetSaving <
       0,
   );
   const noSavingDue = new Intl.NumberFormat("en-GB", {
@@ -431,6 +436,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     reloadConsentReset: true,
     paidBasketMatchesAPI: true,
     zeroAndNegativeSavingsHidden: true,
+    largeWeekdayImmediateCredit: true,
     modal,
     placement,
     screenshots: "/tmp/dbc-basket-*.png",

@@ -14,6 +14,7 @@ import { sendMail } from "./lib/mailer";
 import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
 import { tierByKey, allocateSaving, TIERS } from "./lib/membership";
 import { cancelKind, cancellationSettlement } from "../src/lib/cancellationPolicy";
+import { MEMBERSHIP_BASKET_MINIMUM } from "../shared/checkoutMembershipCredit";
 import { calculateRentalPrice } from "./lib/rentalPrice";
 import { paidRecurringMembership } from "./lib/membershipBilling";
 import { MEMBERSHIP_TERMS_VERSION,membershipActiveNow } from "../shared/membership";
@@ -31,6 +32,9 @@ type PriceQuoteResult = {
   reductionLabel?: string;
   totalReduction: number;
   creditApplied: number;
+  membershipCreditApplied: number;
+  membershipNetSaving: number;
+  membershipSignupOfferSaving: number;
   totalDue: number;
   deliveryReduction: number;
   securityWaiverReason?: string;
@@ -38,7 +42,7 @@ type PriceQuoteResult = {
   rentalSaving: number;
   membershipFee: number;
   combinedTotalDue: number;
-  recommendations: {tier:string;name:string;monthlyFee:number;monthlyCredit:number;rentalSaving:number;deliverySaving:number;initialFee:number;netSaving:number;depositWaived:boolean}[];
+  recommendations: {membershipSignupOfferSaving:number;intro:"trial"|"none";membershipCreditApplied:number;tier:string;name:string;monthlyFee:number;monthlyCredit:number;rentalSaving:number;deliverySaving:number;initialFee:number;netSaving:number;depositWaived:boolean}[];
 };
 
 /** Map a Stripe subscription back to one of our tier keys: price lookup_key (dbc_member_<key>,
@@ -80,16 +84,24 @@ export const priceQuote = action({
     const price = await calculateRentalPrice(ctx, {
       ...a, customer: { email: a.customerEmail },
     });
-    const recommendations = membershipActiveNow(price.acct) ? [] : await Promise.all(TIERS.map(async tier => {
-      const preview = await calculateRentalPrice(ctx, {...a, customer:{email:a.customerEmail}, selectedMembership:{tier:tier.key,intro:a.selectedMembership?.intro ?? (price.acct?.membershipIntroUsed ? "none" : "trial")}});
-      const base = a.selectedMembership ? await calculateRentalPrice(ctx,{...a,customer:{email:a.customerEmail},selectedMembership:undefined}) : price;
-      const rentalSaving = Math.round((base.subtotal-base.totalReduction-preview.subtotal+preview.totalReduction)*100)/100;
-      const deliverySaving = base.deliveryFee-preview.deliveryFee;
-      return {tier:tier.key,name:tier.name,monthlyFee:tier.monthlyGbp,monthlyCredit:tier.monthlyCredit,rentalSaving,deliverySaving,initialFee:preview.membershipFee,netSaving:rentalSaving+deliverySaving-preview.membershipFee,depositWaived:preview.depositAmount===0};
+    const base = a.selectedMembership ? await calculateRentalPrice(ctx, {...a, customer:{email:a.customerEmail}, selectedMembership:undefined}) : price;
+    const netSaving = (preview: typeof price) => Math.round(((base.totalDue-base.depositAmount) - (preview.totalDue-preview.depositAmount+preview.membershipFee))*100)/100;
+    const recommendations = membershipActiveNow(price.acct) ? [] : await Promise.all(TIERS.filter(tier => Math.round((base.subtotal-base.totalReduction+base.deliveryFee)*100) >= MEMBERSHIP_BASKET_MINIMUM[tier.key]*100).map(async tier => {
+      const intros: ("trial"|"none")[] = a.selectedMembership ? [a.selectedMembership.intro === "trial" ? "trial" : "none"] : price.acct?.membershipIntroUsed ? ["none"] : ["none","trial"];
+      const offers = await Promise.all(intros.map(async intro => {
+        const preview = await calculateRentalPrice(ctx, {...a, customer:{email:a.customerEmail}, selectedMembership:{tier:tier.key,intro}});
+        const rentalSaving = Math.round((base.subtotal-base.totalReduction-preview.subtotal+preview.totalReduction)*100)/100;
+        const deliverySaving = base.deliveryFee-preview.deliveryFee;
+        return {tier:tier.key,intro,membershipSignupOfferSaving:preview.membershipSignupOfferSaving,name:tier.name,monthlyFee:tier.monthlyGbp,monthlyCredit:tier.monthlyCredit,rentalSaving,deliverySaving,initialFee:preview.membershipFee,membershipCreditApplied:preview.membershipCreditApplied,netSaving:netSaving(preview),depositWaived:preview.depositAmount===0};
+      }));
+      return offers.sort((x,y)=>y.netSaving-x.netSaving)[0];
     }));
-    recommendations.sort((x,y)=>y.netSaving-x.netSaving||x.monthlyFee-y.monthlyFee);
+    recommendations.sort((x,y)=>Number(y.netSaving>0)-Number(x.netSaving>0)||MEMBERSHIP_BASKET_MINIMUM[y.tier]-MEMBERSHIP_BASKET_MINIMUM[x.tier]);
     return {
       recommendations,
+      membershipNetSaving: a.selectedMembership ? netSaving(price) : price.rentalSaving + price.deliveryReduction,
+      membershipCreditApplied: price.membershipCreditApplied,
+      membershipSignupOfferSaving: price.membershipSignupOfferSaving,
       items: price.items.map((item) => ({ title: item.title, total: item.total })),
       subtotal: price.subtotal,
       depositHoldAmount: price.depositHoldAmount,
@@ -293,6 +305,10 @@ export const start = action({
       discount: totalReduction,
       total,
       expectedTotalDue: price.totalDue,
+      membershipCreditApplied: price.membershipCreditApplied,
+      membershipSignupOfferSaving: price.membershipSignupOfferSaving,
+      weekendSaving: price.weekendSaving,
+      quotedDeliveryFee: price.quotedDeliveryFee,
       membershipCheckoutId: membershipCheckout?._id,
       accountAccessRequired: !pricedAccount,
       creditAccountId: acct?._id,
@@ -642,7 +658,7 @@ async function grantStripeMembershipInvoice(ctx: any, invoice: Stripe.Invoice, s
   for await (const line of stripe().invoices.listLineItems(invoice.id, { limit: 100 })) lines.push(line);
   const grant = paidRecurringMembership(invoice, lines, sub);
   if (grant) {
-    await ctx.runMutation(internal.membershipBenefits.grantPaidInvoice, { accountId: acct._id, subscriptionId: sub.id, invoiceId: invoice.id, ...grant });
+    await ctx.runMutation(internal.membershipBenefits.grantPaidInvoice, { accountId: acct._id, subscriptionId: sub.id, invoiceId: invoice.id, ...(invoice.billing_reason === "subscription_create" && sub.metadata.membershipCheckoutId ? {checkoutId:sub.metadata.membershipCheckoutId as any} : {}), ...grant });
     await reconcileMembershipCreditNotes(ctx,invoice,sub);
   }
 }

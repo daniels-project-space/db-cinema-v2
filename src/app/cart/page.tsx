@@ -224,10 +224,11 @@ export default function CartPage() {
                       value={-quote.totalReduction}
                     />
                   )}
-                  {!!quote?.creditApplied && (
+                  {!!quote?.membershipCreditApplied && <SummaryRow label="First-month credit used now" value={-quote.membershipCreditApplied} />}
+                  {!!quote && quote.creditApplied-quote.membershipCreditApplied > 0 && (
                     <SummaryRow
                       label="Account credit"
-                      value={-quote.creditApplied}
+                      value={-(quote.creditApplied-quote.membershipCreditApplied)}
                     />
                   )}
                   <SummaryRow

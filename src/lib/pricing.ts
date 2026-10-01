@@ -46,7 +46,7 @@ export type NextTier = {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 export const money = (n: number) => Math.round(n); // whole-pound display
-export const formatGbp = (n: number) => `£${(Math.round(n * 100) / 100).toFixed(2)}`;
+export const formatGbp = (n: number) => new Intl.NumberFormat("en-GB", {style:"currency",currency:"GBP"}).format(n);
 
 // fallback discounts off the daily rate when a rung isn't supplied by Hygglo
 const SYNTH_DISCOUNT: Record<number, number> = {
