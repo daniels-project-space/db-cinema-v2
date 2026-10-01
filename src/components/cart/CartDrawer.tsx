@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useCart } from "./CartProvider";
 import { IconX, IconArrowRight } from "@/components/icons";
-import { smallDamageHold } from "@/lib/pricing";
-import { usePromo } from "./usePromo";
+import { formatGbp } from "@/lib/pricing";
+import { CheckoutMembership } from "../CheckoutMembership";
+import { useBasketPrice } from "./useBasketPrice";
 
 export function CartDrawer() {
-  const { items, remove, subtotal, eligibleSubtotal, depositTotal, isOpen, close } = useCart();
-  const promo = usePromo(eligibleSubtotal);
+  const { items, remove, isOpen, close, membership, setMembership } = useCart();
+  const { quote, error } = useBasketPrice(isOpen);
 
   return (
     <>
@@ -22,6 +23,8 @@ export function CartDrawer() {
       />
       {/* panel */}
       <aside
+        aria-hidden={!isOpen}
+        inert={!isOpen}
         className={`fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-white/10 bg-charcoal-900/95 backdrop-blur-xl transition-transform duration-500 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)] ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
@@ -59,11 +62,25 @@ export function CartDrawer() {
             </div>
           ) : (
             <div className="flex flex-col gap-3">
+              {isOpen && (
+                <CheckoutMembership
+                  suggestions={quote?.recommendations}
+                  appliedSavings={quote ?? undefined}
+                  selected={membership}
+                  onChange={setMembership}
+                />
+              )}
               {items.map((it, i) => (
                 <div
                   key={it.key}
                   className="glass flex gap-3 rounded-xl p-3"
-                  style={isOpen ? { animation: `drawer-item-in 0.45s var(--ease-out-expo) ${120 + i * 60}ms both` } : undefined}
+                  style={
+                    isOpen
+                      ? {
+                          animation: `drawer-item-in 0.45s var(--ease-out-expo) ${120 + i * 60}ms both`,
+                        }
+                      : undefined
+                  }
                 >
                   <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-charcoal-800">
                     {it.heroImage ? (
@@ -87,7 +104,7 @@ export function CartDrawer() {
                       {it.start} → {it.end} · {it.days}d
                     </div>
                     <div className="mt-1 text-sm text-accent-400">
-                      £{it.total}
+                      {formatGbp(quote?.items[i]?.total ?? it.total)}
                     </div>
                   </div>
                   <button
@@ -106,21 +123,34 @@ export function CartDrawer() {
         {items.length > 0 && (
           <div className="border-t border-white/5 px-5 py-4">
             <div className="flex justify-between text-sm text-white/60">
-              <span>Rental total</span>
-              <span className="font-mono text-white/90">£{subtotal - promo.discount}</span>
+              <span>Due now · pickup{membership ? " + membership" : ""}</span>
+              <span className="font-mono text-white/90">
+                {quote ? formatGbp(quote.combinedTotalDue) : "Calculating…"}
+              </span>
             </div>
-            {promo.discount > 0 && <div className="mt-1 text-xs text-accent-400">Saving £{promo.discount} · {promo.applied?.toUpperCase()}</div>}
-            {/* The per-item `deposit` is the gear's REPLACEMENT VALUE, not a
-                charge. Showing it summed made the basket read "£4,700 deposits"
-                on a £90 hire. Default to the ID+insurance route, which is what
-                checkout preselects, and label it as the refundable hold it is. */}
+            {!!quote?.totalReduction && (
+              <p className="mt-1 text-xs text-accent-300">
+                {quote.reductionLabel ?? "Rental discount"} · −
+                {formatGbp(quote.totalReduction)}
+              </p>
+            )}
+            <div className="mt-1 flex justify-between text-xs text-white/50">
+              <span>Refundable security payment</span>
+              <span>{quote ? formatGbp(quote.depositAmount) : "…"}</span>
+            </div>
             <div className="mt-1 flex justify-between text-xs text-white/35">
-              <span>Refundable hold</span>
-              <span className="font-mono">£{smallDamageHold(depositTotal)}</span>
+              <span>Separate card hold · not charged</span>
+              <span>{quote ? formatGbp(quote.depositHoldAmount) : "…"}</span>
             </div>
-            <p className="mt-1 text-[11px] leading-snug text-white/25">
-              Fully refunded after return. Covers minor damage with ID + insurance.
+            <p className="mt-1 text-[11px] leading-snug text-white/35">
+              Security payment refunded after settlement; the uncharged hold is
+              released. Delivery confirmed at checkout.
             </p>
+            {error && (
+              <p role="alert" className="mt-1 text-xs text-red-300">
+                {error}
+              </p>
+            )}
             <Link
               href="/cart"
               onClick={close}

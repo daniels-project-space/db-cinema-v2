@@ -16,7 +16,7 @@ import { tierByKey, allocateSaving, TIERS } from "./lib/membership";
 import { cancelKind, cancellationSettlement } from "../src/lib/cancellationPolicy";
 import { calculateRentalPrice } from "./lib/rentalPrice";
 import { paidRecurringMembership } from "./lib/membershipBilling";
-import { MEMBERSHIP_TERMS_VERSION } from "../shared/membership";
+import { MEMBERSHIP_TERMS_VERSION,membershipActiveNow } from "../shared/membership";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 const subActive = (status: string) => status === "active" || status === "trialing";
@@ -80,7 +80,7 @@ export const priceQuote = action({
     const price = await calculateRentalPrice(ctx, {
       ...a, customer: { email: a.customerEmail },
     });
-    const recommendations = price.acct?.membershipActive ? [] : await Promise.all(TIERS.map(async tier => {
+    const recommendations = membershipActiveNow(price.acct) ? [] : await Promise.all(TIERS.map(async tier => {
       const preview = await calculateRentalPrice(ctx, {...a, customer:{email:a.customerEmail}, selectedMembership:{tier:tier.key,intro:a.selectedMembership?.intro ?? (price.acct?.membershipIntroUsed ? "none" : "trial")}});
       const base = a.selectedMembership ? await calculateRentalPrice(ctx,{...a,customer:{email:a.customerEmail},selectedMembership:undefined}) : price;
       const rentalSaving = Math.round((base.subtotal-base.totalReduction-preview.subtotal+preview.totalReduction)*100)/100;

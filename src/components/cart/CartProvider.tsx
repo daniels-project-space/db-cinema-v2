@@ -13,6 +13,10 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { dayMs } from "@/lib/dates";
+import {
+  restoreMembershipSelection,
+  type MembershipSelection,
+} from "../../../shared/membershipSelection";
 import { getSessionId } from "@/lib/session";
 
 export type CartItem = {
@@ -31,6 +35,8 @@ export type CartItem = {
 };
 
 type CartCtx = {
+  membership: MembershipSelection | null;
+  setMembership: (selection: MembershipSelection | null) => void;
   items: CartItem[];
   add: (item: Omit<CartItem, "key">) => void;
   replace: (items: CartItem[]) => void;
@@ -56,8 +62,12 @@ type CartCtx = {
 const Ctx = createContext<CartCtx | null>(null);
 const KEY = "dbc_cart_v1";
 const PKEY = "dbc_promo_v1";
+const MKEY = "dbc_membership_selection_v1";
 
 export function CartProvider({ children }: { children: ReactNode }) {
+  const [membership, setMembership] = useState<MembershipSelection | null>(
+    null,
+  );
   const [items, setItems] = useState<CartItem[]>([]);
   const [promo, setPromoState] = useState<string | null>(null);
   const [isOpen, setOpen] = useState(false);
@@ -137,6 +147,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const raw = localStorage.getItem(KEY);
       if (raw) setItems(JSON.parse(raw));
       setPromoState(localStorage.getItem(PKEY));
+      setMembership(
+        restoreMembershipSelection(
+          JSON.parse(localStorage.getItem(MKEY) ?? "null"),
+        ),
+      );
     } catch {}
     setHydrated(true);
   }, []);
@@ -145,6 +160,33 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (hydrated) localStorage.setItem(KEY, JSON.stringify(items));
   }, [items, hydrated]);
 
+  useEffect(() => {
+    if (hydrated && !items.length) setMembership(null);
+  }, [hydrated, items.length]);
+  useEffect(() => {
+    if (!hydrated) return;
+    if (membership)
+      localStorage.setItem(
+        MKEY,
+        JSON.stringify({ tier: membership.tier, intro: membership.intro }),
+      );
+    else localStorage.removeItem(MKEY);
+  }, [membership, hydrated]);
+  useEffect(() => {
+    if (account.me?.membershipActive) {
+      setMembership(null);
+      return;
+    }
+    if (account.me?.membershipIntroUsed)
+      setMembership((v) =>
+        v?.intro === "trial"
+          ? { ...v, intro: "none", termsAccepted: false }
+          : v,
+      );
+  }, [account.me?.membershipActive, account.me?.membershipIntroUsed]);
+  useEffect(() => {
+    setMembership((v) => (v ? { ...v, termsAccepted: false } : v));
+  }, [account.token]);
   const setPromo = useCallback((code: string | null) => {
     setPromoState(code);
     if (code) localStorage.setItem(PKEY, code);
@@ -176,6 +218,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   );
   const clear = useCallback(() => {
     setItems([]);
+    setMembership(null);
     setPromo(null);
   }, [setPromo]);
   const has = useCallback(
@@ -192,6 +235,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider
       value={{
+        membership,
+        setMembership,
         items,
         add,
         replace,
