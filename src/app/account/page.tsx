@@ -16,7 +16,7 @@ import { GearCard } from "@/components/GearCard";
 import { ChatAvatar } from "@/components/rentals/ChatIdentity";
 import { RenterChat } from "@/components/RenterChat";
 import { tierByKey, TIERS } from "@/lib/membership";
-import { MemberOffers } from "@/components/MemberOffers";
+
 import { AccentPicker } from "@/components/AccentPicker";
 import { CollectiveProfile } from "@/components/account/CollectiveProfile";
 import { BookingSections } from "@/components/account/BookingSections";
@@ -47,6 +47,8 @@ export default function AccountPage() {
 
 function AuthForm() {
   const account = useAccount();
+  const requestSignIn = useAction(api.accountAccess.requestSignIn);
+  const [linkSent, setLinkSent] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -58,8 +60,10 @@ function AuthForm() {
     setBusy(true);
     setErr(null);
     try {
-      if (mode === "signup")
+      if (mode === "signup") {
         await account.signUp(email, password, name || undefined);
+        setLinkSent(true);
+      }
       else await account.signIn(email, password);
     } catch (e: any) {
       setErr(e?.message ?? "Failed");
@@ -120,7 +124,13 @@ function AuthForm() {
         <button onClick={go} disabled={busy} className="btn-primary py-3">
           {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
         </button>
+        {mode === "signup" && linkSent && <p role="status" className="text-xs text-accent-300">Check your email to confirm account creation and activate your password. Private rentals stay locked until then.</p>}
         <GoogleSignIn onError={setErr} />
+        {mode === "signin" && <>
+          <div className="mt-2 border-t border-white/10 pt-4 text-xs text-white/50">Booked without a password? Sign in with your rental email.</div>
+          <button className="btn-secondary py-3" disabled={busy || !email.trim()} onClick={async()=>{setBusy(true);setErr(null);setLinkSent(false);try{await requestSignIn({email});setLinkSent(true);}catch{setErr("Could not request a link. Please try again.");}finally{setBusy(false);}}}>Email me a sign-in link</button>
+          {linkSent && <p role="status" className="text-xs text-accent-300">If an account uses this email, a private sign-in link is on its way. It expires in 15 minutes.</p>}
+        </>}
       </div>
     </div>
   );
@@ -418,7 +428,7 @@ function Dashboard() {
       {tab === "membership" && (
         <div className="tab-in mt-6 space-y-6">
           <Membership bookings={bookings} />
-          <MemberOffers />
+          <p className="mt-4 text-xs text-white/45">Pro and Studio weekend deals are applied automatically to eligible website rentals; no member coupon is needed.</p>
         </div>
       )}
 
@@ -506,13 +516,13 @@ function AccountSecurity() {
     <section className="rounded-3xl border border-white/[0.07] bg-[#141414] p-6">
       <h2 className="font-display font-semibold text-white/80">Security</h2>
       <div className="mt-4 flex flex-col gap-3">
-        <input
+        {account.me?.hasPassword && <input
           type="password"
           value={oldp}
           onChange={(e) => setOldp(e.target.value)}
           placeholder="Current password"
           className="input"
-        />
+        />}
         <input
           type="password"
           value={newp}
@@ -584,20 +594,7 @@ function Membership({ bookings }: { bookings: any[] | null | undefined }) {
       setBusy(false);
     }
   }
-  async function join(tierKey: string) {
-    setBusyTier(tierKey);
-    try {
-      const { url } = await subscribe({
-        token: account.token!,
-        tier: tierKey,
-        origin: window.location.origin,
-      });
-      window.location.href = url;
-    } catch (e: any) {
-      setBusyTier(null);
-      alert(e?.message ?? "Could not start checkout.");
-    }
-  }
+  async function join(_tierKey: string) { window.location.href = "/membership"; }
 
   // ── active member: what they're getting + manage ──
   if (tier) {
@@ -619,24 +616,17 @@ function Membership({ bookings }: { bookings: any[] | null | undefined }) {
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-white/60">
-            You're saving{" "}
-            <span className="font-medium text-accent-300">
-              {tier.pct}% on every rental
-            </span>
-            {tier.freeDelivery ? " + free delivery" : ""}.
-            {tier.freeAccessories > 0 && (
-              <span className="mt-1 block text-amber-300">
-                {left} of {tier.freeAccessories} free accessories left this
-                month (tripod, gimbal, filters or batteries).
-              </span>
-            )}
+            <span className="font-medium text-accent-300">£{tier.monthlyCredit.toFixed(2)} rental credit each paid month.</span>
+            <span className="mt-1 block">Credits stack for one year. {tier.weekend ? "Weekend deals up to £100 per rental. " : ""}{tier.key === "studio" ? "One London delivery each month." : `${tier.deliveryPct}% off delivery.`}</span>
+            {account.me?.membershipStatus === "trialing" && <span className="mt-1 block text-amber-200">Free week: upfront security payment applies until the first paid invoice.</span>}
+            {account.me?.membershipCancelAtPeriodEnd && <span className="mt-1 block text-white/45">Cancellation scheduled. Your plan will not renew.</span>}
           </div>
           <button
             onClick={manage}
             disabled={busy}
             className="btn-ghost px-4 py-2 text-sm disabled:opacity-40"
           >
-            {busy ? "…" : "Manage membership"}
+            {busy ? "…" : "Membership settings / cancel"}
           </button>
         </div>
       </section>

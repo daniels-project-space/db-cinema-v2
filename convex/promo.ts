@@ -34,17 +34,7 @@ export const validate = query({
       .first();
     if (!promo || !promo.active) return { valid: false as const, reason: "unknown code" };
 
-    // tier gate: minTier ("pro" → Pro & Studio) or legacy memberOnly (any member)
-    if (promo.minTier) {
-      const ok = membershipActive && (TIER_RANK[tier ?? ""] ?? 0) >= (TIER_RANK[promo.minTier] ?? 0);
-      if (!ok)
-        return {
-          valid: false as const,
-          reason: promo.minTier === "pro" ? "Pro members only — upgrade to use this" : "members only",
-        };
-    } else if (promo.memberOnly && !membershipActive) {
-      return { valid: false as const, reason: "members only — join to use this code" };
-    }
+    if (promo.minTier || promo.memberOnly) return {valid:false as const,reason:"Member coupons have been replaced by weekend deals and delivery benefits."};
 
     if (promo.expiry && promo.expiry < Date.now())
       return { valid: false as const, reason: "this offer has expired" };
@@ -162,15 +152,7 @@ export const adminToggle = mutation({
 });
 
 // ── Member-only offers (curated deals shown in gold frames) ──────────
-export const memberOffers = query({
-  args: {},
-  handler: async (ctx) => {
-    const rows = await ctx.db.query("member_offers").collect();
-    return rows
-      .filter((r) => r.active)
-      .map((r) => ({ _id: r._id, title: r.title, blurb: r.blurb, badge: r.badge, code: r.code }));
-  },
-});
+export const memberOffers = query({args:{},handler:async()=>[]});
 
 export const adminListMemberOffers = query({
   args: { token: v.string() },
@@ -205,48 +187,7 @@ export const adminCreateMemberOffer = mutation({
     limit: v.optional(v.union(v.literal("monthly"), v.literal("once"))),
     expiryDays: v.optional(v.number()),
   },
-  handler: async (ctx, { token, title, blurb, badge, code, type, value, minSubtotal, limit, expiryDays }) => {
-    await assertAdmin(ctx, token, "promo.adminCreateMemberOffer");
-    const norm = code.trim().toLowerCase();
-    if (!norm || !title.trim()) throw new Error("title and code required");
-    // Pro+ exclusive, non-stacking, with a usage limit (default: once a month)
-    const flags: any = {
-      minTier: "pro",
-      monthly: limit !== "once",
-      onceOnly: limit === "once",
-      expiry: expiryDays ? Date.now() + expiryDays * 86400000 : undefined,
-    };
-    const existing = await ctx.db
-      .query("promo_codes")
-      .withIndex("by_code", (q) => q.eq("code", norm))
-      .first();
-    if (!existing) {
-      await ctx.db.insert("promo_codes", {
-        code: norm,
-        type,
-        value,
-        minSubtotal,
-        usedCount: 0,
-        active: true,
-        ...flags,
-      } as any);
-    } else {
-      await ctx.db.patch(existing._id, { active: true, ...flags } as any);
-    }
-    const offerDoc = {
-      title: title.trim(),
-      blurb: blurb.trim(),
-      badge: badge.trim(),
-      code: norm,
-      active: true,
-    };
-    const existingOffer = (await ctx.db.query("member_offers").collect()).find(
-      (o) => o.code === norm,
-    );
-    if (existingOffer) await ctx.db.patch(existingOffer._id, offerDoc);
-    else await ctx.db.insert("member_offers", offerDoc);
-    return { ok: true };
-  },
+  handler: async (ctx, { token, title, blurb, badge, code, type, value, minSubtotal, limit, expiryDays }) => { await assertAdmin(ctx, token, "promo.adminCreateMemberOffer"); throw new Error("Member coupons have been replaced by automatic weekend and delivery benefits."); },
 });
 
 export const adminToggleMemberOffer = mutation({

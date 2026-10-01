@@ -1,3 +1,5 @@
+import { membershipActiveNow } from "../shared/membership";
+import { usableCredit } from "./lib/creditLedger";
 import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import {
   action,
@@ -61,7 +63,7 @@ export const _byToken = internalQuery({
       .withIndex("by_token", (q) => q.eq("token", token))
       .first();
     if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
-    return ctx.db.get(s.accountId);
+    const account=await ctx.db.get(s.accountId);return account?.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
   },
 });
 
@@ -72,18 +74,21 @@ export const _create = internalMutation({
     hash: v.string(),
     name: v.optional(v.string()),
     token: v.string(),
+    pendingEmailVerification: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
+    if(await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",a.email)).first())throw Error("An account with that email already exists.");
     const accountId = await ctx.db.insert("accounts", {
       email: a.email,
       salt: a.salt,
       hash: a.hash,
+      emailVerificationRequired: !!a.pendingEmailVerification,
       name: a.name,
       createdAt: Date.now(),
     });
     await _applyPendingCollectiveGrant(ctx, accountId, a.email);
     const now = Date.now();
-    await ctx.db.insert("sessions", { token: a.token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
+    if(!a.pendingEmailVerification)await ctx.db.insert("sessions", { token: a.token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
     return accountId;
   },
 });
@@ -140,15 +145,16 @@ export const signUp = action({
   args: { email: v.string(), password: v.string(), name: v.optional(v.string()) },
   handler: async (ctx, { email, password, name }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
-    if (!/\S+@\S+\.\S+/.test(e) || password.length < 6)
+    if (e.length>254||!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(e) || password.length < 6)
       throw new Error("Enter a valid email and a password of 6+ characters.");
     const existing = await ctx.runQuery(internal.accounts._byEmail, { email: e });
     if (existing) throw new Error("An account with that email already exists.");
     const salt = randomHex(16);
     const hash = await pbkdf2(password, salt);
     const token = randomHex(24);
-    await ctx.runMutation(internal.accounts._create, { email: e, salt, hash, name, token });
-    return { token };
+    await ctx.runMutation(internal.accounts._create, { email: e, salt, hash, name, token, pendingEmailVerification: true });
+    await ctx.scheduler.runAfter(0,internal.accountAccess.sendForSignup,{email:e,credentialHash:hash});
+    return { token: "" };
   },
 });
 
@@ -158,8 +164,9 @@ export const signIn = action({
     const e = email.trim().toLowerCase();
     const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: e });
     if (!acct) throw new Error("No account found for that email.");
+    if(acct.emailVerificationRequired&&!acct.emailVerifiedAt)throw Error("Confirm your signup email or request a private sign-in link first.");
     if (!acct.hash || !acct.salt)
-      throw new Error("This account uses Google sign-in \u2014 tap \u201CContinue with Google\u201D.");
+      throw new Error("Use an email sign-in link or Continue with Google for this account.");
     const hash = await pbkdf2(password, acct.salt);
     if (hash !== acct.hash) throw new Error("Incorrect password.");
     const token = randomHex(24);
@@ -175,7 +182,7 @@ async function resolve(ctx: any, token: string) {
     .withIndex("by_token", (q: any) => q.eq("token", token))
     .first();
   if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
-  return await ctx.db.get(s.accountId);
+  const account=await ctx.db.get(s.accountId);return account?.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
 }
 
 export const me = query({
@@ -190,7 +197,7 @@ export const me = query({
       .collect();
     const storeCredit = credits
       .filter((c) => c.status === "active" && c.expiresAt > now)
-      .reduce((n, c) => n + c.remaining, 0);
+      .reduce((n, c) => n + usableCredit(c), 0);
     return {
       _id: a._id,
       email: a.email,
@@ -202,8 +209,14 @@ export const me = query({
       avatarUrl: a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : (a.googleAvatarUrl ?? null),
       idVerified: a.rentalVerification ? a.rentalVerification.expiresAt > now : (a.idVerified ?? false),
       verificationValidUntil: a.rentalVerification?.expiresAt ?? null,
+      hasPassword: !!a.hash,
       membershipTier: a.membershipTier ?? null,
-      membershipActive: a.membershipActive ?? false,
+      membershipActive: membershipActiveNow(a),
+      membershipStatus: a.membershipStatus ?? null,
+      membershipPaidThrough: a.membershipPaidThrough ?? null,
+      membershipTrialEnd: a.membershipTrialEnd ?? null,
+      membershipCancelAtPeriodEnd: a.membershipCancelAtPeriodEnd ?? false,
+      membershipIntroUsed: a.membershipIntroUsed ?? false,
       freeAccessoryMonth: a.freeAccessoryMonth ?? null,
       freeAccessoryUsed: a.freeAccessoryUsed ?? 0,
       storeCredit,
@@ -484,10 +497,10 @@ export const _authFor = internalQuery({
       .query("sessions")
       .withIndex("by_token", (q) => q.eq("token", token))
       .first();
-    if (!s) return null;
+    if (!s||(s.expiresAt!=null&&s.expiresAt<=Date.now())) return null;
     const a: any = await ctx.db.get(s.accountId);
-    if (!a) return null;
-    return { accountId: a._id, salt: a.salt, hash: a.hash };
+    if (!a||a.emailVerificationRequired&&!a.emailVerifiedAt) return null;
+    return { accountId: a._id, salt: a.salt, hash: a.hash, emailVerified:!!a.emailVerifiedAt||!!a.googleId };
   },
 });
 
@@ -504,8 +517,8 @@ export const changePassword = action({
     if (newPassword.length < 6) throw new Error("New password must be 6+ characters.");
     const a: any = await ctx.runQuery(internal.accounts._authFor, { token });
     if (!a) throw new Error("unauthorized");
-    const oldHash = await pbkdf2(oldPassword, a.salt);
-    if (oldHash !== a.hash) throw new Error("Current password is incorrect.");
+    if(a.hash&&a.salt){const oldHash = await pbkdf2(oldPassword,a.salt);if(oldHash!==a.hash)throw new Error("Current password is incorrect.");}
+    else if(!a.emailVerified)throw Error("Verify your email before setting a password.");
     const salt = randomHex(16);
     const hash = await pbkdf2(newPassword, salt);
     await ctx.runMutation(internal.accounts._setPassword, { accountId: a.accountId, salt, hash });
@@ -536,7 +549,7 @@ export const _listSubscribers = internalQuery({
         accountId: a._id,
         email: a.email,
         subscriptionId: a.stripeSubscriptionId as string,
-        membershipActive: a.membershipActive ?? false,
+        membershipActive: membershipActiveNow(a),
         membershipTier: a.membershipTier ?? null,
       }));
   },

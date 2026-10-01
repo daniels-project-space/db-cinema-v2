@@ -136,6 +136,18 @@ export default defineSchema({
     .index("by_guestToken", ["guestToken"]),
 
   bookings: defineTable({
+    membershipCheckoutId: v.optional(v.id("membership_checkouts")),
+    rentalPaidPence: v.optional(v.number()),
+    accountCreatedAtCheckout: v.optional(v.boolean()),
+    accountAccessEmailSentAt: v.optional(v.number()),
+    accountAccessRequired: v.optional(v.boolean()),
+    deliveryBenefitAccountId: v.optional(v.id("accounts")),
+    deliveryBenefitMonth: v.optional(v.string()),
+    deliveryBenefitConsumed: v.optional(v.boolean()),
+    securityWaiverReason: v.optional(v.string()),
+    repeatSourceBookingId: v.optional(v.id("bookings")),
+    repeatSourceFingerprint: v.optional(v.string()),
+    pickedUpAt: v.optional(v.number()),
     checkoutExpiredAt: v.optional(v.number()),
     activeAdditionId:v.optional(v.id("rental_additions")),
     chatConfirmationMessageId: v.optional(v.id("messages")),
@@ -461,6 +473,8 @@ export default defineSchema({
   accounts: defineTable({
     email: v.string(),
     salt: v.optional(v.string()), // optional: Google-only accounts have no password
+    emailVerificationRequired: v.optional(v.boolean()),
+    emailVerifiedAt: v.optional(v.number()),
     hash: v.optional(v.string()),
     googleId: v.optional(v.string()), // linked Google account (the OIDC `sub`)
     googleAvatarUrl: v.optional(v.string()), // Google profile photo, fallback when no uploaded avatar
@@ -476,6 +490,15 @@ export default defineSchema({
     stripeCustomerId: v.optional(v.string()),
     membershipTier: v.optional(v.string()),
     membershipActive: v.optional(v.boolean()),
+    membershipStatus: v.optional(v.string()),
+    membershipSubscriptionCreatedAt: v.optional(v.number()),
+    checkoutSeedHash: v.optional(v.string()),
+    membershipCreditDebtPence: v.optional(v.number()),
+    membershipPaidThrough: v.optional(v.number()),
+    membershipTrialEnd: v.optional(v.number()),
+    membershipCancelAtPeriodEnd: v.optional(v.boolean()),
+    membershipIntroUsed: v.optional(v.boolean()),
+    membershipIntroChoice: v.optional(v.string()),
     membershipSource: v.optional(v.string()), // "collective-comp" = free grant from Creative Collective approval; undefined = real Stripe subscription
     freeAccessoryMonth: v.optional(v.string()),
     freeAccessoryUsed: v.optional(v.number()),
@@ -488,7 +511,7 @@ export default defineSchema({
     accountId: v.id("accounts"),
     createdAt: v.optional(v.number()),
     expiresAt: v.optional(v.number()), // sessions past this are swept by cron (Convex queries can't read the clock)
-  }).index("by_token", ["token"]).index("by_expiry", ["expiresAt"]),
+  }).index("by_token", ["token"]).index("by_expiry", ["expiresAt"]).index("by_account",["accountId"]),
 
   messages: defineTable({
     accountId: v.id("accounts"),
@@ -576,6 +599,10 @@ export default defineSchema({
     remaining: v.number(), // after partial redemption
     currency: v.string(),
     reason: v.string(), // e.g. "late_cancellation:<bookingId>"
+    membershipInvoiceId: v.optional(v.string()),
+    membershipGrantId: v.optional(v.id("membership_credit_grants")),
+    revokedAmount: v.optional(v.number()),
+    revokedPendingPence: v.optional(v.number()),
     bookingId: v.optional(v.id("bookings")),
     createdAt: v.number(),
     expiresAt: v.number(), // createdAt + 365d
@@ -588,6 +615,7 @@ export default defineSchema({
     bookingId:v.id("bookings"),requestId:v.string(),listingId:v.id("listings"),title:v.string(),
     start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number(),
     complimentary:v.optional(v.boolean()),draftReplacement:v.optional(v.boolean()),baseTotal:v.optional(v.number()),baseSecurity:v.optional(v.number()),baseSessionId:v.optional(v.string()),
+    membershipCheckoutId:v.optional(v.id("membership_checkouts")),membershipFee:v.optional(v.number()),membershipSessionParams:v.optional(v.string()),
     securityCharge:v.number(),holdTotal:v.number(),oldHoldId:v.optional(v.string()),
     status:v.string(),reason:v.string(),createdAt:v.number(),updatedAt:v.number(),
     sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),
@@ -732,4 +760,35 @@ export default defineSchema({
     leaseUntil: v.optional(v.number()), attempts: v.number(), deliveredAt: v.optional(v.number()),
     bookingId: v.optional(v.id("bookings")),
   }).index("by_account", ["accountId"]).index("by_state_due", ["state", "dueAt"]),
+  account_access_links: defineTable({accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),secretHash:v.string(),purpose:v.optional(v.literal("signup")),credentialHash:v.optional(v.string()),expiresAt:v.number(),usedAt:v.optional(v.number()),createdAt:v.number()}).index("by_hash",["secretHash"]).index("by_booking",["bookingId"]).index("by_account",["accountId"]),
+  film_fund_rounds: defineTable({
+    slug:v.string(),name:v.string(),state:v.union(v.literal("coming_soon"),v.literal("open"),v.literal("closed")),
+    opensAt:v.number(),deadline:v.number(),announcementAt:v.number(),updatedAt:v.number(),
+  }).index("by_slug",["slug"]),
+  film_fund_signups: defineTable({email:v.string(),consentAt:v.number(),createdAt:v.number(),active:v.boolean()}).index("by_email",["email"]),
+  film_fund_projects: defineTable({
+    accountId:v.id("accounts"),projectKey:v.string(),title:v.string(),synopsis:v.string(),tags:v.array(v.string()),letter:v.string(),
+    crew:v.array(v.object({name:v.string(),role:v.string(),profile:v.string(),bio:v.string()})),
+    scriptId:v.optional(v.id("film_fund_uploads")),moodboardId:v.optional(v.id("film_fund_uploads")),documentIds:v.array(v.id("film_fund_uploads")),videoId:v.optional(v.id("film_fund_uploads")),
+    state:v.union(v.literal("draft"),v.literal("submitted")),roundSlug:v.optional(v.string()),submittedAt:v.optional(v.number()),termsVersion:v.optional(v.string()),
+    entryPaid:v.optional(v.boolean()),entrySessionId:v.optional(v.string()),entryPaymentIntentId:v.optional(v.string()),entryIncluded:v.optional(v.boolean()),entryRoundSlug:v.optional(v.string()),createdAt:v.number(),updatedAt:v.number(),
+    reviewStatus:v.optional(v.string()),reviewNote:v.optional(v.string()),
+  }).index("by_account",["accountId"]).index("by_project",["accountId","projectKey"]).index("by_round",["roundSlug"]),
+  film_fund_entries: defineTable({
+    projectId:v.id("film_fund_projects"),accountId:v.id("accounts"),roundSlug:v.string(),termsVersion:v.string(),consentAt:v.number(),
+    state:v.union(v.literal("creating"),v.literal("open"),v.literal("paid"),v.literal("expired"),v.literal("refunded")),
+    createdAt:v.number(),expiresAt:v.number(),sessionId:v.optional(v.string()),paymentIntentId:v.optional(v.string()),sessionParams:v.optional(v.string()),
+  }).index("by_project",["projectId"]).index("by_session",["sessionId"]),
+  film_fund_uploads: defineTable({accountId:v.id("accounts"),projectId:v.id("film_fund_projects"),kind:v.string(),storageId:v.id("_storage"),name:v.string(),size:v.number(),contentType:v.string(),sha256:v.string(),durationSeconds:v.optional(v.number()),createdAt:v.number()}).index("by_storage",["storageId"]).index("by_project",["projectId"]),
+  membership_checkouts: defineTable({
+    accountId:v.id("accounts"),tier:v.string(),intro:v.string(),requestId:v.string(),createdAt:v.number(),expiresAt:v.number(),
+    state:v.union(v.literal("creating"),v.literal("open"),v.literal("complete"),v.literal("expired")),
+    sessionId:v.optional(v.string()),subscriptionId:v.optional(v.string()),bookingId:v.optional(v.id("bookings")),
+    termsVersion:v.string(),consentAt:v.number(),sessionParams:v.optional(v.string()),
+  }).index("by_account",["accountId"]).index("by_session",["sessionId"]).index("by_request",["requestId"]),
+  membership_credit_grants: defineTable({
+    accountId:v.id("accounts"),subscriptionId:v.string(),invoiceId:v.string(),paidMembershipPence:v.number(),creditPence:v.number(),
+    bonusPence:v.number(),revokedPence:v.number(),membershipRefundedPence:v.optional(v.number()),periodEnd:v.number(),createdAt:v.number(),creditId:v.optional(v.id("credits")),bonusCreditId:v.optional(v.id("credits")),
+  }).index("by_invoice",["invoiceId"]).index("by_account",["accountId"]),
+
 });

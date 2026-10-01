@@ -1,3 +1,8 @@
+import { creditDebit,usableCredit } from "./lib/creditLedger";
+import { safeRepeatRental,repeatRentalFingerprint } from "./lib/repeatRental";
+import { reviewContext } from "./lib/reviewContext";
+import { studioDeliveryAvailable, londonMonth } from "./lib/memberDelivery";
+import { paidDepositExempt } from "../shared/membership";
 import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRentalInventory } from "./lib/rentalInventory";
@@ -18,6 +23,17 @@ import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUp
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
 import { rentalCancellationStart, cancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 
+
+/** Only an attested Stripe create rejection may release an unbound checkout.
+ * Network/unknown responses remain pending for provider reconciliation. */
+export const checkoutCreationRejected=internalMutation({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
+ const b=await ctx.db.get(bookingId);if(!b||b.status!=="pending_payment"||b.stripeCheckoutSessionId||b.stripePaymentIntentId)return;
+ await ctx.db.patch(b._id,{status:"cancelled",cancelledAt:Date.now()});
+ const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",b._id)).collect();for(const r of reservations)if(r.status==="hold")await ctx.db.patch(r._id,{status:"cancelled",holdExpiresAt:undefined});
+ if(b.membershipCheckoutId){const m=await ctx.db.get(b.membershipCheckoutId);if(m&&["creating","open"].includes(m.state))await ctx.db.patch(m._id,{state:"expired"});}
+}});
+
+
 const lineItem = v.object({
   listingId: v.id("listings"),
   title: v.string(),
@@ -35,12 +51,13 @@ async function availableCreditFor(ctx: any, accountId: any): Promise<number> {
   const credits = await ctx.db.query("credits")
     .withIndex("by_account", (q: any) => q.eq("accountId", accountId)).collect();
   const balance = credits.filter((c: any) => c.status === "active" && c.expiresAt > now)
-    .reduce((n: number, c: any) => n + c.remaining, 0);
+    .reduce((n: number, c: any) => n + usableCredit(c), 0);
   const pending = await ctx.db.query("bookings")
     .withIndex("by_guestEmail", (q: any) => q.eq("guestEmail", acct.email.trim().toLowerCase())).collect();
   const reserved = pending.filter((b: any) => b.status === "pending_payment")
     .reduce((n: number, b: any) => n + (b.creditApplied ?? 0), 0);
-  return Math.max(0, balance - reserved);
+  const frozen = credits.filter((c:any)=>c.status === "active").reduce((n:number,c:any)=>n+(c.revokedPendingPence??0)/100,0);
+  return Math.max(0, balance - Math.max(0,reserved-frozen));
 }
 
 export const availableCheckoutCredit = internalQuery({
@@ -66,6 +83,12 @@ export const createPending = internalMutation({
     total: v.number(),
     expectedTotalDue: v.number(),
     creditAccountId: v.optional(v.id("accounts")),
+    deliveryBenefitMonth: v.optional(v.string()),
+    securityWaiverReason: v.optional(v.string()),
+    membershipCheckoutId: v.optional(v.id("membership_checkouts")),
+    accountAccessRequired: v.optional(v.boolean()),
+    repeatSourceBookingId: v.optional(v.id("bookings")),
+    repeatSourceFingerprint: v.optional(v.string()),
     currency: v.string(),
     agreementName: v.optional(v.string()),
     securityHoldConsent: v.optional(v.boolean()),
@@ -87,6 +110,23 @@ export const createPending = internalMutation({
       if (!creditAccount || creditAccount.email.trim().toLowerCase() !== customerEmail)
         throw new Error("Account credit belongs to a different customer.");
     }
+    if (a.deliveryBenefitMonth) {
+      const account = a.creditAccountId ? await ctx.db.get(a.creditAccountId) : null;
+      if (a.deliveryBenefitMonth !== londonMonth() || a.fulfilment !== "delivery" || a.deliveryFee !== 0 || !await studioDeliveryAvailable(ctx, account, a.deliveryBenefitMonth, !!(a.membershipCheckoutId && (await ctx.db.get(a.membershipCheckoutId))?.tier === "studio")))
+        throw Error("Your included London delivery has already been reserved. Review the updated total before paying.");
+    }
+    if (a.membershipCheckoutId) {
+      const checkout = await ctx.db.get(a.membershipCheckoutId);
+      if (!checkout || checkout.accountId !== a.creditAccountId || checkout.state !== "creating" || checkout.expiresAt <= Date.now()) throw Error("Membership checkout reservation expired.");
+      if (a.securityWaiverReason === "new_paid_membership" && checkout.intro === "trial") throw Error("Free trials cannot waive the upfront security payment.");
+    } else if (a.securityWaiverReason === "new_paid_membership") throw Error("A paid membership checkout is required for this security benefit.");
+    if (a.securityWaiverReason === "safe_repeat_kit") {
+      const source=a.repeatSourceBookingId?await ctx.db.get(a.repeatSourceBookingId):null;
+      const account=a.creditAccountId?await ctx.db.get(a.creditAccountId):null;
+      if(!source||!safeRepeatRental(source,account,a.lineItems)||repeatRentalFingerprint(await reviewContext(ctx,source))!==a.repeatSourceFingerprint)throw Error("Your repeat-rental security benefit changed. Refresh checkout before paying.");
+    }
+    if (a.securityWaiverReason === "paid_membership" && !paidDepositExempt(a.creditAccountId ? await ctx.db.get(a.creditAccountId) : null))
+      throw Error("Your paid membership changed. Refresh the security payment before paying.");
     let customer = await ctx.db
       .query("customers")
       .withIndex("by_email", (q) => q.eq("email", customerEmail))
@@ -133,6 +173,14 @@ export const createPending = internalMutation({
       depositHoldStatus: a.depositHoldAmount ? "awaiting_payment" : undefined,
       total: chargedTotal,
       creditApplied,
+      deliveryBenefitMonth: a.deliveryBenefitMonth,
+      deliveryBenefitAccountId: a.deliveryBenefitMonth ? a.creditAccountId : undefined,
+      securityWaiverReason: a.securityWaiverReason,
+      membershipCheckoutId: a.membershipCheckoutId,
+      accountAccessRequired: a.accountAccessRequired,
+      repeatSourceBookingId: a.repeatSourceBookingId,
+      repeatSourceFingerprint: a.repeatSourceFingerprint,
+      rentalPaidPence: a.membershipCheckoutId ? Math.round(chargedTotal * 100) : undefined,
       currency: a.currency,
       agreementName: a.agreementName,
       agreementSignedAt: a.agreementName ? Date.now() : undefined,
@@ -268,6 +316,10 @@ export const expireUnpaidPending = internalMutation({
     const res = await ctx.db.query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId)).collect();
     for (const hold of res) if (hold.status === "hold") await ctx.db.delete(hold._id);
+    if (booking.membershipCheckoutId) {
+      const member=await ctx.db.get(booking.membershipCheckoutId);
+      if(member && ["creating","open"].includes(member.state)) await ctx.db.patch(member._id,{state:"expired"});
+    }
     await ctx.db.patch(bookingId, { status: "cancelled", cancelledAt: Date.now(), checkoutExpiredAt: Date.now() });
     return true;
   },
@@ -285,6 +337,9 @@ export const confirm = internalMutation({
       if(paymentIntentId&&booking.stripePaymentIntentId&&paymentIntentId!==booking.stripePaymentIntentId)return {closed:true,duplicatePayment:true};
       return { already: true };
     }
+    // Email ownership must be proved before an automatically created account gains a session.
+    if (booking.accountAccessRequired || !await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", booking.guestEmail ?? "")).first())
+      await ctx.scheduler.runAfter(0, internal.accountAccess.sendForRental, { bookingId });
     // clear this booking's soft holds before writing the real reservations
     const holds = await ctx.db
       .query("reservations")
@@ -338,13 +393,15 @@ export const confirm = internalMutation({
             c.expiresAt > booking._creationTime && c.remaining > 0)
           .sort((a, b) => a.expiresAt - b.expiresAt);
         let need = booking.creditApplied;
+        let debtPence = 0;
         for (const c of rows) {
           if (need <= 0) break;
           const take = Math.min(c.remaining, need);
-          const rem = c.remaining - take;
-          await ctx.db.patch(c._id, { remaining: rem, status: rem <= 0 ? "spent" : "active" });
+          const debit = creditDebit(c,take); debtPence += debit.debtPence;
+          await ctx.db.patch(c._id, debit.patch);
           need -= take;
         }
+        if (debtPence) await ctx.db.patch(acct._id,{membershipCreditDebtPence:(acct.membershipCreditDebtPence??0)+debtPence});
       }
     }
     await ctx.scheduler.runAfter(0, internal.notify.bookingAlert, { bookingId });
@@ -487,7 +544,7 @@ export const adminSetStatus = mutation({
     if (status === "active" && booking.depositHoldAmount &&
         (booking.depositHoldStatus !== "held" || (booking.depositHoldExpiresAt ?? 0) <= Date.now()))
       throw new Error("The card hold must be active before handover.");
-    await ctx.db.patch(bookingId, { status });
+    await ctx.db.patch(bookingId, { status, ...(status === "active" ? { pickedUpAt: booking.pickedUpAt ?? Date.now(), deliveryBenefitConsumed: !!booking.deliveryBenefitMonth } : {}) });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
   },
 });
@@ -1397,6 +1454,10 @@ export const _finalizeCancellation = internalMutation({
         expiresAt: Date.now() + CANCELLATION_CREDIT_DAYS * 86400000,
         status: "active",
       });
+    }
+    if (b.membershipCheckoutId) {
+      const member=await ctx.db.get(b.membershipCheckoutId);
+      if(member && ["creating","open"].includes(member.state)) await ctx.db.patch(member._id,{state:"expired"});
     }
     await ctx.db.patch(bookingId, {
       status: "cancelled",

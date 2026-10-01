@@ -1,8 +1,14 @@
+"use node";
+
+import Stripe from "stripe";
+import { providerRepeatGate } from "./repeatRentalProvider";
+import { membershipActiveNow } from "../../shared/membership";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
 import { depositFor } from "./pricing";
-import { tierByKey, FREE_ACCESSORY_TYPES } from "./membership";
+import { londonMonth } from "./memberDelivery";
+import { tierByKey, paidDepositExempt } from "./membership";
 
 export type RentalPriceInput = {
   items: {
@@ -16,6 +22,7 @@ export type RentalPriceInput = {
     offerType?: string;
   }[];
   token?: string;
+  selectedMembership?: { tier: string; intro: "trial" | "credit" | "none" };
   customer: { email: string };
   fulfilment: "pickup" | "delivery";
   address?: string;
@@ -45,6 +52,15 @@ export type RentalPrice = {
   totalBeforeCredit: number;
   creditApplied: number;
   totalDue: number;
+  deliveryBenefitMonth?: string;
+  deliveryReduction: number;
+  securityWaiverReason?: string;
+  weekendSaving: number;
+  rentalSaving: number;
+  repeatSourceBookingId?: Id<"bookings">;
+  repeatSourceFingerprint?: string;
+  membershipFee: number;
+  combinedTotalDue: number;
 };
 
 const postcodeFromAddress = (address: string) =>
@@ -56,45 +72,40 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
       !Number.isSafeInteger(item.end) || item.end < item.start))
     throw new Error("Each rental line must be one item with valid dates. Please refresh your basket.");
 
-  const repriced: any[] = await ctx.runQuery(internal.catalog.repriceLines, {
-    items: a.items.map((i) => ({ listingId: i.listingId, start: i.start, end: i.end, offerType: i.offerType })),
-  });
-  const items: PricedItem[] = a.items.map((it, idx) => {
-    const r = repriced[idx];
-    if (!r) throw new Error(`"${it.title}" is no longer available.`);
-    return { ...it, title: r.title, total: r.total, deposit: r.deposit, dailyRate: r.dailyRate };
-  });
-  const subtotal = items.reduce((n, i) => n + i.total, 0);
-  const protection = a.protection ?? "verify";
-  const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
-  const depositHoldAmount = depositFor(protection, replacementSum);
-  const depositAmount = Math.round(depositHoldAmount * 50) / 100;
-
   const customerEmail = a.customer.email.trim().toLowerCase();
   const acct: any = a.token ? await ctx.runQuery(internal.accounts._byToken, { token: a.token }) : null;
   if (acct && customerEmail !== acct.email.trim().toLowerCase())
     throw new Error("Use your signed-in account email for this booking, or sign out to book as a guest.");
-  const member = acct?.membershipActive ? tierByKey(acct.membershipTier) : null;
-  const month = new Date().toISOString().slice(0, 7);
-  const allowance = member?.freeAccessories ?? 0;
-  const used = acct?.freeAccessoryMonth === month ? acct?.freeAccessoryUsed ?? 0 : 0;
-  const creditsLeft = Math.max(0, allowance - used);
-  const freed = new Set<number>();
-  let freeAccessoryValue = 0;
-  if (creditsLeft > 0) {
-    const types: Record<string, string> = await ctx.runQuery(api.catalog.itemTypes, { ids: items.map((i) => i.listingId) });
-    const eligible = items.map((it, i) => ({ i, it }))
-      .filter((x) => !x.it.offerType && FREE_ACCESSORY_TYPES.includes(types[x.it.listingId] ?? ""))
-      .sort((x, y) => y.it.total - x.it.total)
-      .slice(0, creditsLeft);
-    for (const e of eligible) {
-      freed.add(e.i);
-      freeAccessoryValue += e.it.total;
+  if (a.selectedMembership && membershipActiveNow(acct)) throw Error("Manage your existing membership in account settings.");
+  const selected = a.selectedMembership ? tierByKey(a.selectedMembership.tier) : undefined;
+  if (a.selectedMembership && !selected) throw Error("Unknown membership plan.");
+  if (a.selectedMembership && a.selectedMembership.intro !== "none" && acct?.membershipIntroUsed) throw Error("Your introductory offer has already been used.");
+  const membershipFee = selected && a.selectedMembership?.intro !== "trial" ? selected.monthlyGbp : 0;
+  const member = selected ?? (membershipActiveNow(acct) ? tierByKey(acct.membershipTier) : null);
+  const raw: any[] = await ctx.runQuery(internal.catalog.repriceLines, {
+    items: a.items.map(i => ({ listingId: i.listingId, start: i.start, end: i.end, offerType: i.offerType })), undiscounted: true,
+  });
+  const weekendCandidate = member?.weekend ? Math.min(100,raw.reduce((n,r)=>n+(r?.weekendSaving??0),0)) : 0;
+  let items: PricedItem[] = a.items.map((it,idx)=>{const r=raw[idx];if(!r)throw Error(`"${it.title}" is no longer available.`);return {...it,title:r.title,total:r.ordinaryTotal??r.total,deposit:r.deposit,dailyRate:r.dailyRate};});
+  let subtotal=items.reduce((n,i)=>n+i.total,0);
+  const ordinarySubtotal=subtotal;
+  const protection = a.protection ?? "verify";
+  const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
+  const depositHoldAmount = depositFor(protection, replacementSum);
+  let repeatSourceBookingId: Id<"bookings"> | undefined;
+  let repeatSourceFingerprint: string | undefined;
+  if (acct && a.token && !paidDepositExempt(acct) && !(selected && a.selectedMembership?.intro !== "trial") && process.env.STRIPE_SECRET_KEY) {
+    const previous: any = await ctx.runQuery(internal.repeatRentals.candidate,{token:a.token,kit:a.items.map(i=>({listingId:i.listingId,qty:i.qty}))});
+    if (previous) {
+      try { if (await providerRepeatGate(previous.booking,new Stripe(process.env.STRIPE_SECRET_KEY))) {repeatSourceBookingId=previous.booking._id;repeatSourceFingerprint=previous.fingerprint;} }
+      catch { /* A provider outage retains the normal security payment, never an unproved waiver. */ }
     }
   }
-  const freedCount = freed.size;
-  const discountable = items.filter((i, idx) => !i.offerType && !freed.has(idx))
-    .reduce((n, i) => n + i.total, 0);
+  const securityWaiverReason = selected && a.selectedMembership?.intro !== "trial" ? "new_paid_membership" : paidDepositExempt(acct) ? "paid_membership" : repeatSourceBookingId ? "safe_repeat_kit" : undefined;
+  const depositAmount = securityWaiverReason ? 0 : Math.round(depositHoldAmount * 50) / 100;
+  const month = londonMonth();
+  const freedCount = 0;
+  const discountable = items.filter(i => !i.offerType).reduce((n, i) => n + i.total, 0);
   let promoDiscount = 0;
   let appliedCode: string | undefined;
   if (a.promoCode) {
@@ -103,7 +114,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
       eligibleSubtotal: discountable,
       rentalSubtotal: subtotal,
       tier: acct?.membershipTier ?? undefined,
-      membershipActive: !!acct?.membershipActive,
+      membershipActive: membershipActiveNow(acct),
       email: customerEmail,
     });
     if (res?.valid) {
@@ -111,26 +122,15 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
       appliedCode = res.code;
     }
   }
-  const reminderDiscount = acct?.marketingEmails ? Math.round(discountable * 0.05) : 0;
-  const memberDiscount = member ? Math.round(discountable * member.pct / 100) : 0;
-  let discount = promoDiscount;
-  let discountLabel = appliedCode?.toUpperCase();
-  if (reminderDiscount > discount) {
-    discount = reminderDiscount;
-    discountLabel = "Reminder member −5%";
-    appliedCode = undefined;
-  }
-  if (memberDiscount > discount) {
-    discount = memberDiscount;
-    discountLabel = `${member!.name} member −${member!.pct}%`;
-    appliedCode = undefined;
-  }
-  const totalReduction = discount + freeAccessoryValue;
-  const reductionLabel = freeAccessoryValue > 0
-    ? discount > 0 ? "Member perks" : `${freedCount} free accessor${freedCount > 1 ? "ies" : "y"}`
-    : discountLabel;
+  const rawSubtotal=raw.reduce((n,r)=>n+r.total,0);
+  const weekendSaving = weekendCandidate>0 && rawSubtotal-weekendCandidate < ordinarySubtotal-promoDiscount ? weekendCandidate : 0;
+  const rentalSaving = weekendSaving ? ordinarySubtotal-promoDiscount-(rawSubtotal-weekendSaving) : 0;
+  if(weekendSaving){items=items.map((item,idx)=>({...item,total:raw[idx].total}));subtotal=rawSubtotal;appliedCode=undefined;}
+  const totalReduction = weekendSaving || promoDiscount;
+  const reductionLabel = weekendSaving > 0 ? "Member weekend deal · £100 cap" : appliedCode?.toUpperCase();
 
   let quotedDeliveryFee = 0;
+  let isLondon = false;
   if (a.fulfilment === "delivery") {
     const postcode = postcodeFromAddress(a.deliveryPostcode ?? "");
     if (!postcode || postcode !== postcodeFromAddress(a.address ?? "") || (a.address ?? "").trim().length < 10)
@@ -141,10 +141,15 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     if (!quote.ok || !Number.isSafeInteger(quote.fee) || quote.fee < 0)
       throw new Error(quote.ok ? "Delivery is unavailable for this address." : quote.reason);
     quotedDeliveryFee = quote.fee;
+    isLondon = quote.isLondon === true;
     if (a.deliveryFee !== undefined && Math.round(a.deliveryFee * 100) !== Math.round(quotedDeliveryFee * 100))
       throw new Error("Your delivery quote has changed. Please refresh it before paying.");
   }
-  const deliveryFee = member?.freeDelivery && a.fulfilment === "delivery" ? 0 : quotedDeliveryFee;
+  const studioAvailable = member?.key === "studio" && isLondon && quotedDeliveryFee > 0 && acct
+    ? await ctx.runQuery(internal.membershipBenefits.deliveryAvailable, { accountId: acct._id, month, prospective: selected?.key === "studio" }) : !!(selected?.key === "studio" && isLondon && quotedDeliveryFee > 0 && !acct);
+  const deliveryBenefitMonth = studioAvailable ? month : undefined;
+  const deliveryFee = studioAvailable ? 0 : Math.round(quotedDeliveryFee * (100 - (member?.deliveryPct ?? 0))) / 100;
+  const deliveryReduction = quotedDeliveryFee - deliveryFee;
   const totalBeforeCredit = subtotal + deliveryFee + depositAmount - totalReduction;
   const availableCredit = acct
     ? await ctx.runQuery(internal.bookings.availableCheckoutCredit, { accountId: acct._id }) : 0;
@@ -153,6 +158,6 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   return {
     items, customerEmail, acct, month, freedCount, subtotal, replacementSum, protection,
     depositHoldAmount, depositAmount, appliedCode, totalReduction, reductionLabel,
-    quotedDeliveryFee, deliveryFee, totalBeforeCredit, creditApplied, totalDue: totalBeforeCredit - creditApplied,
+    quotedDeliveryFee, deliveryFee, deliveryBenefitMonth, deliveryReduction, securityWaiverReason, weekendSaving, rentalSaving, repeatSourceBookingId, repeatSourceFingerprint, membershipFee, combinedTotalDue: totalBeforeCredit - creditApplied + membershipFee, totalBeforeCredit, creditApplied, totalDue: totalBeforeCredit - creditApplied,
   };
 }

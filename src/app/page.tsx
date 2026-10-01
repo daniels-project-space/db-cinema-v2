@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { ReviewCarousel } from "@/components/ReviewCarousel";
 import { HomeStats } from "@/components/HomeStats";
 import { HeroCinematic } from "@/components/HeroCinematic";
+import { FilmFundInvite } from "@/components/FilmFundInvite";
 import { CameraDeconstruct } from "@/components/CameraDeconstruct";
 import { Reveal } from "@/components/Reveal";
 import { Marquee } from "@/components/Marquee";
@@ -125,6 +126,7 @@ export default async function Home() {
       {/* ──────────── the instrument — scroll-scrubbed deconstruction ──────────── */}
       <div className="h-8 lg:h-0" aria-hidden />
       <CameraDeconstruct />
+      <FilmFundInvite />
 
       <div className="h-8 lg:h-0" aria-hidden />
       <div className="film-strip" aria-hidden />

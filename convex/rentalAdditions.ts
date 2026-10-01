@@ -1,5 +1,6 @@
 "use node";
 import Stripe from "stripe";
+import { checkoutPaymentIntent } from "./checkout";
 import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
@@ -28,7 +29,7 @@ async function ensureSession(ctx: any, id: any) {
   // The recovery worker follows the same original-payment preflight as the owner action.
   if (r.draftReplacement && r.baseSessionId) {
     const original = await sb().checkout.sessions.retrieve(r.baseSessionId);
-    if (original.payment_status === "paid") {
+    if (original.status === "complete" && ["paid","no_payment_required"].includes(original.payment_status)) {
       await ctx.runMutation(internal.rentalAdditionState.close, {
         id,
         refunded: false,
@@ -74,12 +75,11 @@ async function ensureSession(ctx: any, id: any) {
     (r.draftReplacement ? (r.baseTotal ?? 0) : 0) +
     r.lineTotal +
     r.securityCharge;
-  if (!Number.isSafeInteger(money(amount)) || amount <= 0)
+  if (!Number.isSafeInteger(money(amount)) || amount < 0 || amount === 0 && !r.membershipCheckoutId)
     throw Error("The rental update has no payable amount");
   const origin = new URL(process.env.APP_URL ?? "https://dbcinemarentals.com")
     .origin;
-  const session = await sb().checkout.sessions.create(
-    {
+  let params: Stripe.Checkout.SessionCreateParams = {
       integration_identifier: `db-rental-update-${Array.from(createHash("sha256").update(r.requestId).digest().subarray(0, 8), (n) => String.fromCharCode(97 + (n % 26))).join("")}`,
       custom_text: {
         submit: {
@@ -87,6 +87,7 @@ async function ensureSession(ctx: any, id: any) {
         },
       },
       mode: "payment",
+      adaptive_pricing: {enabled:false},
       expires_at: Math.floor(r.createdAt / 1000) + 24 * 60 * 60,
       payment_method_types: ["card"],
       customer_email: b.guestEmail,
@@ -116,9 +117,18 @@ async function ensureSession(ctx: any, id: any) {
       metadata: r.draftReplacement
         ? { bookingId: r.bookingId, pendingAdditionId: r._id }
         : { rentalAdditionId: r._id, additionBookingId: r.bookingId },
-    },
-    { idempotencyKey: `dbc-addition-checkout-${id}` },
-  );
+    };
+  if(r.membershipCheckoutId){
+    const original:Stripe.Checkout.SessionCreateParams=JSON.parse(r.membershipSessionParams);
+    const recurring=(original.line_items??[]).filter(line=>typeof line.price==="string");
+    if(original.mode!=="subscription"||recurring.length!==1||!original.customer)throw Error("Original membership checkout is not recoverable.");
+    params={...original,...params,mode:"subscription",customer:original.customer,customer_email:undefined,customer_creation:undefined,payment_intent_data:undefined,
+      payment_method_types:original.payment_method_configuration?undefined:params.payment_method_types,
+      subscription_data:original.subscription_data,
+      line_items:[...(params.line_items??[]),...recurring],
+      metadata:{...original.metadata,...params.metadata,rentalPaidPence:String(money(amount)),membershipFeePence:String(money(r.membershipFee??0))}};
+  }
+  const session=await sb().checkout.sessions.create(params,{idempotencyKey:`dbc-addition-checkout-${id}`});
   if (!session.url) throw Error("Stripe did not provide a payment link");
   await ctx.runMutation(internal.rentalAdditionState.bindSession, {
     id,
@@ -158,10 +168,8 @@ async function withdraw(ctx: any, id: any) {
       "The addition payment is still processing. Wait for its provider result.",
     );
   const paid = session.payment_status === "paid";
-  const payment =
-    typeof session.payment_intent === "string"
-      ? session.payment_intent
-      : session.payment_intent?.id;
+  if(paid&&r.membershipCheckoutId&&session.subscription){const sub=typeof session.subscription==="string"?session.subscription:session.subscription.id;await sb().subscriptions.cancel(sub);}
+  const payment = await checkoutPaymentIntent(session);
   if (paid && payment) {
     await ctx.runMutation(internal.rentalAdditionState.markPaid, {
       id,
@@ -233,7 +241,8 @@ async function finish(
   });
   if (!state) throw Error("Addition missing");
   const { addition: r, booking: b } = state;
-  if (session.id !== r.sessionId || session.payment_status !== "paid")
+  const noPayment=r.membershipCheckoutId&&session.status==="complete"&&session.payment_status==="no_payment_required";
+  if (session.id !== r.sessionId || session.payment_status !== "paid"&&!noPayment)
     throw Error("Addition payment has not completed");
   if (["refunded", "expired"].includes(r.status))
     return { bookingId: r.bookingId, status: r.status, closed: true };
@@ -245,21 +254,18 @@ async function finish(
     await withdraw(ctx, id);
     return { bookingId: r.bookingId, status: "refunded", closed: true };
   }
-  const payment =
-    typeof session.payment_intent === "string"
-      ? session.payment_intent
-      : session.payment_intent?.id;
-  if (!payment) throw Error("Paid addition has no card payment");
+  const payment = await checkoutPaymentIntent(session);
+  if (!payment&&!noPayment) throw Error("Paid addition has no card payment");
   if (
     session.amount_total !==
     money(
       (r.draftReplacement ? (r.baseTotal ?? 0) : 0) +
         r.lineTotal +
-        r.securityCharge,
+        r.securityCharge + (r.membershipFee??0),
     )
   )
     throw Error("Addition paid amount does not match the saved order");
-  await ctx.runMutation(internal.rentalAdditionState.markPaid, {
+  if(payment)await ctx.runMutation(internal.rentalAdditionState.markPaid, {
     id,
     paymentIntentId: payment,
   });
@@ -282,6 +288,7 @@ async function finish(
     }
     return { bookingId: r.bookingId, status: "draft_applied" };
   }
+  if(!payment)throw Error("An item addition requires a saved rental payment.");
   let intent: Stripe.PaymentIntent | null = null;
   if (r.holdTotal > 0) {
     if (r.holdIntentId)
@@ -415,7 +422,7 @@ export const start = action({
     // Every retry attests the original provider state until the replacement is bound.
     if (r.draftReplacement && !r.sessionId && r.baseSessionId) {
       const original = await sb().checkout.sessions.retrieve(r.baseSessionId);
-      if (original.payment_status === "paid") {
+      if (original.status === "complete" && ["paid","no_payment_required"].includes(original.payment_status)) {
         await ctx.runMutation(internal.rentalAdditionState.close, {
           id: r._id,
           refunded: false,

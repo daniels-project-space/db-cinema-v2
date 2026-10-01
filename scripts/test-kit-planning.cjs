@@ -261,13 +261,14 @@ const start = londonDay() + 30 * DAY,
   );
   const r = await db.get(rId);
   await db.patch(rId, { dueAt: Date.now() - 1 });
-  process.env.RENTAL_CHECKOUT_ENABLED = "false";
+  process.env.CHECKOUT_RECOVERY_ENABLED = "false";
   assert.equal(
     await recovery._claim.handler(ctx, { id: rId }),
     null,
     "cannot email a disabled checkout",
   );
-  process.env.RENTAL_CHECKOUT_ENABLED = "true";
+  process.env.CHECKOUT_RECOVERY_ENABLED = "true";
+  process.env.RENTAL_CHECKOUT_ENABLED = "false";
   let c = await recovery._claim.handler(ctx, { id: rId });
   assert.ok(c);
   assert.equal(await recovery._claim.handler(ctx, { id: rId }), null);

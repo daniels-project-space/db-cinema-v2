@@ -42,6 +42,10 @@ async function bookingView(ctx: any, b: any, account: any) {
   return {
     _id: b._id,
     status: b.status,
+    idVerifyStatus: b.idVerifyStatus ?? "required",
+    depositHoldAmount: b.depositHoldAmount ?? 0,
+    depositHoldStatus: b.depositHoldStatus ?? null,
+    returnChecking: !!b.returnDecision && b.status !== "returned",
     guestEmail: b.guestEmail,
     name: account?.name ?? null,
     start: Math.min(...items.map((li: any) => li.start)),

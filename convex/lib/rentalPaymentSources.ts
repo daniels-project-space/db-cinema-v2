@@ -16,6 +16,7 @@ export async function rentalPaymentSources(ctx: any, b: any) {
       ? [
           {
             paymentIntentId: b.stripePaymentIntentId,
+            ...(b.rentalPaidPence !== undefined ? { maxPaidPence: b.rentalPaidPence } : {}),
             securityPence: Math.round(
               Math.max(0, b.depositAmount - addedSecurity) * 100,
             ),

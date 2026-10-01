@@ -1,6 +1,7 @@
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { quote } from "./lib/pricing";
+import { weekendDays } from "../shared/membership";
 import { OFFER_PCT_BY_TYPE, OFFER_NEEDS_BY_TYPE } from "./offers";
 import { listingImages } from "./lib/catalogImages";
 
@@ -13,6 +14,7 @@ import { listingImages } from "./lib/catalogImages";
  */
 export const repriceLines = internalQuery({
   args: {
+    undiscounted: v.optional(v.boolean()),
     items: v.array(
       v.object({
         listingId: v.id("listings"),
@@ -22,13 +24,13 @@ export const repriceLines = internalQuery({
       }),
     ),
   },
-  handler: async (ctx, { items }) => {
+  handler: async (ctx, { items, undiscounted }) => {
     // itemType for every line, fetched once — an offer's eligibility depends
     // on what ELSE is in the cart, not on the line being priced.
     const listings = await Promise.all(items.map((it) => ctx.db.get(it.listingId)));
     const cartTypes = new Set(listings.filter(Boolean).map((l: any) => l.itemType ?? ""));
 
-    const out: ({ title: string; total: number; deposit: number; dailyRate: number } | null)[] = [];
+    const out: ({ title: string; total: number; deposit: number; dailyRate: number; ordinaryTotal:number; weekendSaving: number } | null)[] = [];
     items.forEach((it, idx) => {
       const l: any = listings[idx];
       if (!l || !l.active) { out.push(null); return; }
@@ -55,7 +57,7 @@ export const repriceLines = internalQuery({
       }
       // automatic quiet-item discount (idle gear) — applied server-side so the charged price matches the badge
       if (l.quietDeal) total = Math.round(total * (1 - l.quietDeal / 100));
-      out.push({ title: l.title, total, deposit: l.depositAmount ?? 0, dailyRate: l.pricing.daily ?? 0 });
+      out.push({ title: l.title, total: undiscounted ? q.total : total, ordinaryTotal: total, deposit: l.depositAmount ?? 0, dailyRate: l.pricing.daily ?? 0, weekendSaving: weekendDays(it.start, it.end) ? Math.max(0, q.total - quote(l.pricing, days - 1).total) : 0 });
     });
     return out;
   },

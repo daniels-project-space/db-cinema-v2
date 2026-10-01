@@ -160,7 +160,7 @@ export const _claim = internalMutation({
       await ctx.db.patch(id, { state: "stopped" });
       return null;
     }
-    if (process.env.RENTAL_CHECKOUT_ENABLED !== "true") return null;
+    if (process.env.CHECKOUT_RECOVERY_ENABLED !== "true") return null;
     const account = await ctx.db.get(r.accountId);
     if (!account) return null;
     // Recheck consent and booking state at the point of claiming the send.
