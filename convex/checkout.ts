@@ -977,6 +977,7 @@ export const stripeWebhook = internalAction({
     if (["refund.created","refund.updated","refund.failed"].includes(event.type)) {
       const refund=event.data.object as Stripe.Refund;
       await reconcileFullyRefundedMembership(ctx,await stripe().refunds.retrieve(refund.id));
+      await ctx.runAction(internal.filmFundPayments.reconcileRefund,{refundId:refund.id});
       const id=refund.metadata?.rentalRefundId;
       if(id)await ctx.runMutation(refund.metadata?.rentalPaymentIntent?internal.rentalOperations.recordRefundPart:internal.rentalOperations.recordRefund,{id:id as any,...(refund.metadata?.rentalPaymentIntent?{paymentIntentId:refund.metadata.rentalPaymentIntent}:{}),stripeRefundId:refund.id,status:refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending"});
     }

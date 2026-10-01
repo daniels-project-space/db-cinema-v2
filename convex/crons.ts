@@ -57,5 +57,6 @@ crons.interval("waitlist-check", { minutes: 15 }, internal.waitlist.checkAndNoti
 crons.interval("refresh-quiet-deals", { hours: 12 }, api.catalog.refreshQuietDeals, {});
 
 crons.interval("consented-checkout-reminders", { minutes: 15 }, internal.checkoutRecoveryMail.processDue, {});
+crons.interval("consented-film-fund-opening", { minutes: 15 }, internal.filmFundNotifications.processOpeningAnnouncements, {});
 
 export default crons;

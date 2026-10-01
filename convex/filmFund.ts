@@ -17,6 +17,7 @@ export const notify=mutation({args:{email:v.string(),consent:v.boolean()},handle
  if(!existing?.active)await ctx.scheduler.runAfter(0,internal.filmFundNotifications.confirm,{email});
  return {saved:true};
 }});
+export const notificationSchedule=internalQuery({args:{},handler:async(ctx)=>({rounds:await rounds(ctx)})});
 export const notificationActive=internalQuery({args:{email:v.string()},handler:async(ctx,a)=>!!(await ctx.db.query("film_fund_signups").withIndex("by_email",q=>q.eq("email",a.email)).unique())?.active});
 export const unsubscribeNotification=internalMutation({args:{email:v.string()},handler:async(ctx,a)=>{const row=await ctx.db.query("film_fund_signups").withIndex("by_email",q=>q.eq("email",a.email)).unique();if(row)await ctx.db.patch(row._id,{active:false});return {unsubscribed:true};}});
 export const mine=query({args:{token:v.string()},handler:async(ctx,{token})=>{const a=await accountForToken(ctx,token);if(!a)return [];return ctx.db.query("film_fund_projects").withIndex("by_account",q=>q.eq("accountId",a._id)).collect();}});
@@ -78,6 +79,7 @@ export const adminApplication=query({args:{token:v.string(),projectId:v.id("film
 export const reviewApplication=mutation({args:{token:v.string(),projectId:v.id("film_fund_projects"),status:v.union(v.literal("new"),v.literal("shortlisted"),v.literal("winner"),v.literal("runner_up"),v.literal("not_selected")),note:v.string()},handler:async(ctx,a)=>{
  await assertAdmin(ctx,a.token,"filmFund.reviewApplication");const p=await ctx.db.get(a.projectId);
  if(!p||p.state!=="submitted"||!p.roundSlug)throw Error("Only submitted applications can be reviewed.");
+ if(["shortlisted","winner","runner_up"].includes(a.status)&&!p.entryIncluded&&!p.entryPaid)throw Error("This entry payment was refunded. It is not eligible for selection.");
  if(a.note.length>4000)throw Error("Keep the review note under 4,000 characters.");
  if(["winner","runner_up"].includes(a.status)){
   const peers=await ctx.db.query("film_fund_projects").withIndex("by_round",q=>q.eq("roundSlug",p.roundSlug)).collect();
@@ -85,4 +87,22 @@ export const reviewApplication=mutation({args:{token:v.string(),projectId:v.id("
  }
  await ctx.db.patch(p._id,{reviewStatus:a.status,reviewNote:a.note.trim(),updatedAt:Date.now()});return {saved:true};
 }});
-export const setRound=mutation({args:{token:v.string(),slug:v.string(),opensAt:v.number(),deadline:v.number(),announcementAt:v.number()},handler:async(ctx,a)=>{await assertAdmin(ctx,a.token,"filmFund.setRound");const base=FUND_ROUNDS.find(r=>r.slug===a.slug);if(!base||!Number.isSafeInteger(a.opensAt)||a.deadline<=a.opensAt||a.announcementAt<=a.deadline)throw Error("Use valid round dates in order.");const row=await ctx.db.query("film_fund_rounds").withIndex("by_slug",q=>q.eq("slug",a.slug)).unique();const data={slug:a.slug,name:base.name,state:"coming_soon" as const,opensAt:a.opensAt,deadline:a.deadline,announcementAt:a.announcementAt,updatedAt:Date.now()};if(row)await ctx.db.patch(row._id,data);else await ctx.db.insert("film_fund_rounds",data);return {saved:true};}});
+export const setRound=mutation({args:{token:v.string(),slug:v.string(),opensAt:v.number(),deadline:v.number(),announcementAt:v.number()},handler:async(ctx,a)=>{
+ await assertAdmin(ctx,a.token,"filmFund.setRound");const base=FUND_ROUNDS.find(r=>r.slug===a.slug);
+ if(!base||![a.opensAt,a.deadline,a.announcementAt].every(Number.isSafeInteger)||a.deadline<=a.opensAt||a.announcementAt<=a.deadline)throw Error("Use valid round dates in order.");
+ const row=await ctx.db.query("film_fund_rounds").withIndex("by_slug",q=>q.eq("slug",a.slug)).unique();
+ if(row?.state==="open")throw Error("Close the round before changing its published dates.");
+ const data={slug:a.slug,name:base.name,state:row?.state??"coming_soon" as const,opensAt:a.opensAt,deadline:a.deadline,announcementAt:a.announcementAt,updatedAt:Date.now()};
+ if(row)await ctx.db.patch(row._id,data);else await ctx.db.insert("film_fund_rounds",data);return {saved:true};
+}});
+export const setRoundState=mutation({args:{token:v.string(),slug:v.string(),state:v.union(v.literal("coming_soon"),v.literal("open"),v.literal("closed")),notifySignups:v.boolean()},handler:async(ctx,a)=>{
+ await assertAdmin(ctx,a.token,"filmFund.setRoundState");const round=(await rounds(ctx)).find(r=>r.slug===a.slug),now=Date.now();
+ if(!round)throw Error("Unknown Film Fund round.");
+ if(a.state==="open"&&(!a.notifySignups||round.opensAt>now||round.deadline<=now))throw Error("Opening requires a current application window and confirmation to notify consenting signups.");
+ if(a.state===round.state)return {changed:false};
+ const row=await ctx.db.query("film_fund_rounds").withIndex("by_slug",q=>q.eq("slug",a.slug)).unique();
+ const status={state:a.state,updatedAt:now,closedAt:a.state==="open"?undefined:now};
+ if(row)await ctx.db.patch(row._id,status);else await ctx.db.insert("film_fund_rounds",{slug:round.slug,name:round.name,opensAt:round.opensAt,deadline:round.deadline,announcementAt:round.announcementAt,...status});
+ if(a.state==="open")await ctx.scheduler.runAfter(0,internal.filmFundAnnouncements.enqueue,{roundSlug:a.slug,cursor:null});
+ return {changed:true};
+}});
