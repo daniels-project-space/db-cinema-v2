@@ -6,25 +6,25 @@ Agreed prices remain £19 Starter (legacy key plus), £49 Pro, £99 Studio. Mont
 
 ## Required implementation and evidence
 
-- [ ] Single shared tier contract; old rental percent/coupon/free-accessory entitlements removed from calculation and marketing.
-- [ ] Paid member refundable upfront security charge £0; full hold retained; free-trial exclusion; faithful checkout and membership labels.
-- [ ] Authenticated repeat renters with safely completed same exact kit get charge exemption, full hold retained; abuse/damage/late settlement guards.
-- [ ] +30% monthly credits from actual paid subscription invoices only; idempotency, expiry, stacking, refund/chargeback handling and account balance.
-- [ ] One-time introductory choice and eligibility; seven-day recurring trial with renewal/cancellation disclosure; £20 credit alternative; no credit before fee collection.
-- [ ] Pro/Studio Fri–Sun 2-for-1/3-for-2, maximum £100 aggregate saving per rental, no stacking other discounts on weekend orders.
-- [ ] Delivery Starter −10%, Pro −30%, Studio one eligible London delivery/month; atomic reservation/consumption, cancellation and renewal coverage.
-- [ ] Accurate basket-based recommendations, paid/trial/add-on quote breakdown; membership added in same checkout/payment, no unintended second subscription.
-- [ ] Elevated subscriber checkout/savings field, grey glowing nonmember field, concise benefits overlay, membership page, badge/avatar treatments.
-- [ ] Account automatic checkout creation with secure ownership/sign-in, existing-account protection, account-benefit overlay and marketing.
-- [ ] Account settings cancellation/management accessible and provider-backed; legal version and accurate membership/rental/credit terms.
-- [ ] Owner pickup/return controls connected to verification/hold guards and existing financial settlement; stage-aware renter chat progress with authored SVG icons and reduced-motion animation.
-- [ ] Film Fund landing, homepage placement directly after camera disassembly, twice-yearly schedule/deadlines/announcements, seven-day first and two-day second gear prizes, producer credit terms.
-- [ ] Complete application model and submission validation: project tags, crew profiles/info, 250-word bio/letter, script/moodboard/documents, one-minute pitch video; authorized uploads and owner review.
-- [ ] £15 once-per-project ticket/payment or Pro/Studio included entry; paid/failed/refunded/duplicate states and owner controls.
-- [ ] Fund launch is Coming soon/greyed, closed applications/ticket purchases, real consented notify signup/count in admin; access remains truthful.
-- [ ] Recovery emails unpaused, consent/delivery/availability/payment-state protections retained and resume links useful in current deployment.
-- [ ] Meaningful handler/payment sandbox tests, full suite/typecheck/build, actual desktop/mobile rendered UI, provider deployment and exact live alias.
-- [ ] Final requirement-by-requirement audit before goal complete.
+- [x] Single shared tier contract; old rental percent/coupon/free-accessory entitlements removed from calculation and marketing.
+- [x] Paid member refundable upfront security charge £0; full hold retained; free-trial exclusion; faithful checkout and membership labels.
+- [x] Authenticated repeat renters with safely completed same exact kit get charge exemption, full hold retained; abuse/damage/late settlement guards.
+- [x] +30% monthly credits from actual paid subscription invoices only; idempotency, expiry, stacking, refund/chargeback handling and account balance.
+- [x] One-time introductory choice and eligibility; seven-day recurring trial with renewal/cancellation disclosure; £20 credit alternative; no credit before fee collection.
+- [x] Pro/Studio Fri–Sun 2-for-1/3-for-2, maximum £100 aggregate saving per rental, no stacking other discounts on weekend orders.
+- [x] Delivery Starter −10%, Pro −30%, Studio one eligible London delivery/month; atomic reservation/consumption, cancellation and renewal coverage.
+- [x] Accurate basket-based recommendations, paid/trial/add-on quote breakdown; membership added in same checkout/payment, no unintended second subscription.
+- [x] Elevated subscriber checkout/savings field, grey glowing nonmember field, concise benefits overlay, membership page, badge/avatar treatments.
+- [x] Account automatic checkout creation with secure ownership/sign-in, existing-account protection, account-benefit overlay and marketing.
+- [x] Account settings cancellation/management accessible and provider-backed; legal version and accurate membership/rental/credit terms.
+- [x] Owner pickup/return controls connected to verification/hold guards and existing financial settlement; stage-aware renter chat progress with authored SVG icons and reduced-motion animation.
+- [x] Film Fund landing, homepage placement directly after camera disassembly, twice-yearly schedule/deadlines/announcements, seven-day first and two-day second gear prizes, producer credit terms.
+- [x] Complete application model and submission validation: project tags, crew profiles/info, 250-word bio/letter, script/moodboard/documents, one-minute pitch video; authorized uploads and owner review.
+- [x] £15 once-per-project ticket/payment or Pro/Studio included entry; paid/failed/refunded/duplicate states and owner controls.
+- [x] Fund launch is Coming soon/greyed, closed applications/ticket purchases, real consented notify signup/count in admin; access remains truthful.
+- [x] Recovery emails unpaused, consent/delivery/availability/payment-state protections retained and resume links useful in current deployment.
+- [x] Meaningful handler/payment sandbox tests, full suite/typecheck/build, actual desktop/mobile rendered UI, provider deployment and exact live alias.
+- [x] Final requirement-by-requirement audit before goal complete.
 
 No production partial marketing/financial activation before corresponding wiring is ready. Existing public Stripe test mode is authoritative; do not silently switch providers or keys.
 
@@ -70,3 +70,14 @@ Production Next build passed after auth/notification changes (55 routes, includi
 - Retired member-coupon creation/control removed; ordinary public promotions remain, with weekend nonstacking enforced in pricing.
 - Public Convex functions uploaded explicitly to veracious-wombat-196; matching public sandbox webhook created because none existed, signing secret stored server-side, lifecycle/invoice/refund/credit-note events enabled. Dedicated public Film Fund email signing secret provisioned. Recovery email flag enabled as requested, retaining consent/stock/payment checks. Frontend publication and exact alias verification remain pending.
 - Local diagnostic inadvertently exposed voice credentials. No tracked source contains either value. ElevenLabs replacement requested directly into Hub vault; dashboard rotation remains an explicit outstanding security item and is not claimed complete.
+
+## Final Fund acceptance · 1 October 2026, 18:12 UTC
+
+- Added owner opening/closing controls, current-window/date guards and explicit notification confirmation. UTC date inputs are interpreted as UTC. Public rounds remain Coming soon.
+- Consented opening email queue persists one announcement per signup/round, rechecks consent/window, uses leases, bounded retries and signed opt-out links. Transport and sender credentials/domain checked; no real opening emails sent during testing.
+- Real Stripe sandbox £15 GBP hosted payment automatically submitted the validated project with four actual private files. Finalize retry was idempotent; another purchase was blocked without a second submission click.
+- Fully settled refund receipts invalidate the paid entry and selection; partial, pending and foreign-deployment receipts are ignored. Actual sandbox refund reconciled before browser return; test funds and round restored.
+- Last-minute checkout starts retain Stripe's minimum lifetime but are separately expired at the real deadline; late/invalid payment receipts refund instead of entering. A refunded failed draft can be corrected without buying extra valid entries; submitted projects remain locked.
+- Full suite, both Convex checks and production build passed; graph updated. Prior published membership/UI/financial sandbox evidence is recorded in the release memory.
+
+Feature checklist is audited. Financial launch remains disabled/test mode as previously configured. The separately reported ElevenLabs dashboard key replacement remains pending and is not claimed resolved.

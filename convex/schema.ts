@@ -763,15 +763,20 @@ export default defineSchema({
   account_access_links: defineTable({accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),secretHash:v.string(),purpose:v.optional(v.literal("signup")),credentialHash:v.optional(v.string()),expiresAt:v.number(),usedAt:v.optional(v.number()),createdAt:v.number()}).index("by_hash",["secretHash"]).index("by_booking",["bookingId"]).index("by_account",["accountId"]),
   film_fund_rounds: defineTable({
     slug:v.string(),name:v.string(),state:v.union(v.literal("coming_soon"),v.literal("open"),v.literal("closed")),
-    opensAt:v.number(),deadline:v.number(),announcementAt:v.number(),updatedAt:v.number(),
+    opensAt:v.number(),deadline:v.number(),announcementAt:v.number(),updatedAt:v.number(),closedAt:v.optional(v.number()),
   }).index("by_slug",["slug"]),
   film_fund_signups: defineTable({email:v.string(),consentAt:v.number(),createdAt:v.number(),active:v.boolean()}).index("by_email",["email"]),
+  film_fund_announcements: defineTable({
+    roundSlug:v.string(),signupId:v.id("film_fund_signups"),
+    state:v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("stopped")),
+    dueAt:v.number(),attempts:v.number(),createdAt:v.number(),leaseUntil:v.optional(v.number()),sentAt:v.optional(v.number()),
+  }).index("by_round_signup",["roundSlug","signupId"]).index("by_state_due",["state","dueAt"]),
   film_fund_projects: defineTable({
     accountId:v.id("accounts"),projectKey:v.string(),title:v.string(),synopsis:v.string(),tags:v.array(v.string()),letter:v.string(),
     crew:v.array(v.object({name:v.string(),role:v.string(),profile:v.string(),bio:v.string()})),
     scriptId:v.optional(v.id("film_fund_uploads")),moodboardId:v.optional(v.id("film_fund_uploads")),documentIds:v.array(v.id("film_fund_uploads")),videoId:v.optional(v.id("film_fund_uploads")),
     state:v.union(v.literal("draft"),v.literal("submitted")),roundSlug:v.optional(v.string()),submittedAt:v.optional(v.number()),termsVersion:v.optional(v.string()),
-    entryPaid:v.optional(v.boolean()),entrySessionId:v.optional(v.string()),entryPaymentIntentId:v.optional(v.string()),entryIncluded:v.optional(v.boolean()),entryRoundSlug:v.optional(v.string()),createdAt:v.number(),updatedAt:v.number(),
+    entryPaid:v.optional(v.boolean()),entrySessionId:v.optional(v.string()),entryPaymentIntentId:v.optional(v.string()),entryIncluded:v.optional(v.boolean()),entryRoundSlug:v.optional(v.string()),entryRefundedAt:v.optional(v.number()),createdAt:v.number(),updatedAt:v.number(),
     reviewStatus:v.optional(v.string()),reviewNote:v.optional(v.string()),
   }).index("by_account",["accountId"]).index("by_project",["accountId","projectKey"]).index("by_round",["roundSlug"]),
   film_fund_entries: defineTable({

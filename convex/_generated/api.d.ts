@@ -32,6 +32,7 @@ import type * as crons from "../crons.js";
 import type * as delivery from "../delivery.js";
 import type * as didit from "../didit.js";
 import type * as filmFund from "../filmFund.js";
+import type * as filmFundAnnouncements from "../filmFundAnnouncements.js";
 import type * as filmFundEntries from "../filmFundEntries.js";
 import type * as filmFundMedia from "../filmFundMedia.js";
 import type * as filmFundNotifications from "../filmFundNotifications.js";
@@ -136,6 +137,7 @@ declare const fullApi: ApiFromModules<{
   delivery: typeof delivery;
   didit: typeof didit;
   filmFund: typeof filmFund;
+  filmFundAnnouncements: typeof filmFundAnnouncements;
   filmFundEntries: typeof filmFundEntries;
   filmFundMedia: typeof filmFundMedia;
   filmFundNotifications: typeof filmFundNotifications;
