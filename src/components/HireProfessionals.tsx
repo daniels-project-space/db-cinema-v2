@@ -186,6 +186,7 @@ function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () =>
 /** Headshot with a neon ring; falls back to the animated role icon if none. */
 function Headshot({ pro, neon, size = "h-20 w-20" }: { pro: any; neon: string; size?: string }) {
   const [err, setErr] = useState(false);
+  useEffect(() => { setErr(false); }, [pro.headshot]);
   if (pro.headshot && !err)
     return (
       <span className={`crew-headshot ${size}`} style={{ ["--neon" as string]: neon }}>

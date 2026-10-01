@@ -18,6 +18,7 @@ export type GearListing = {
   title: string;
   category: string;
   heroImage: string | null;
+  imageSources?: string[];
   pricing: { daily: number; day3?: number; day7?: number };
   depositAmount: number;
   minimumRentalDays: number;
@@ -111,6 +112,7 @@ export function GearCard({ listing }: { listing: GearListing }) {
         ) : null}
         <SmartImage
           src={heroImage}
+          fallbackSources={listing.imageSources}
           alt={title}
           className="aspect-[4/3]"
           imgClassName="transition-transform duration-700 ease-out group-hover:scale-[1.07]"

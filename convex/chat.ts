@@ -128,7 +128,9 @@ export const _gafferContext = internalQuery({
       messages: msgs,
       latestRenterId:[...msgs].reverse().find(m=>m.sender==="renter")?._id??null,
       booking,
-      location: settings?.businessAddress || null,
+      // An unpaid draft must never receive depot details or pickup confirmation.
+      location: pick && ["confirmed", "active"].includes(pick.status) && pick.fulfilment === "pickup"
+        ? settings?.businessAddress || null : null,
       hours: settings?.openingHours || "09:00–22:00, daily",
     };
   },

@@ -2125,6 +2125,7 @@ html[data-gaffer-nav="1"] .tile-in {
   background: linear-gradient(180deg, rgba(8, 8, 10, 0.68) 0%, rgba(8, 8, 10, 0.32) 38%, rgba(8, 8, 10, 0.92) 100%);
 }
 .crew-headshot {
+  display: inline-flex;
   position: relative;
   flex-shrink: 0;
   border-radius: 1rem;

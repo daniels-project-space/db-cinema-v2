@@ -434,6 +434,7 @@ export default defineSchema({
     grantActive: v.optional(v.boolean()), // false once an admin deactivates the member
     operatorId: v.optional(v.id("operators")), // back-link to the roster row (professionals only)
   })
+    .index("by_operator", ["operatorId"])
     .index("by_status", ["status"])
     .index("by_email", ["email"]),
 

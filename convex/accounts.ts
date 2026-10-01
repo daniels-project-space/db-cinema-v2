@@ -8,6 +8,7 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
+import { listingImages } from "./lib/catalogImages";
 
 // ── crypto helpers (Web Crypto, available in Convex actions) ──────
 const toHex = (b: Uint8Array) =>
@@ -399,7 +400,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
     };
     const heroOf = (l: any): string | null => {
       if (!l) return null;
-      const imgs = (l.r2Images?.length ? l.r2Images : (l.sourceImages ?? l.gallery ?? [])) as string[];
+      const imgs = listingImages(l);
       return imgs?.[0] ?? null;
     };
 
@@ -417,6 +418,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
           lineTotal: li.lineTotal,
           slug: (l as any)?.slug ?? null,
           heroImage: heroOf(l),
+          imageSources: listingImages(l),
           category: (l as any)?.category ?? null,
           tip: (l as any)?.knowledge?.summary ?? null,
         });

@@ -75,6 +75,7 @@ export function AdminRentalCards({
             <div className="relative h-40 bg-gradient-to-br from-white/[0.04] to-transparent p-5">
               <SmartImage
                 src={r.items[0]?.heroImage}
+                fallbackSources={r.items[0]?.imageSources}
                 alt={r.items[0]?.title ?? "Rental"}
                 className="h-full w-full"
                 imgClassName="!object-contain"

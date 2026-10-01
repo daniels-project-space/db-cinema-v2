@@ -104,6 +104,12 @@ process.env.ADMIN_TOKEN = "fixture-owner-only";
     focusBookingId: booking._id,
   });
   assert.equal(cx.booking.stage, "pending_payment");
+  assert.equal(cx.location, null, "unpaid rental cannot disclose pickup location");
+  put("settings", { businessAddress: "Verified collection depot" });
+  await db.patch(booking._id, { status: "confirmed", fulfilment: "pickup" });
+  const confirmedContext = await chat._gafferContext.handler(ctx, { accountId: a._id, focusBookingId: booking._id });
+  assert.equal(confirmedContext.location, "Verified collection depot");
+  await db.patch(booking._id, { status: "pending_payment" });
   assert.equal(cx.messages.length, 1);
   assert.equal(cx.messages[0].text, "What is included?");
   assert.equal(

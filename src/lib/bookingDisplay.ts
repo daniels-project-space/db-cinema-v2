@@ -13,6 +13,7 @@ export type EnrichedLine = {
   lineTotal: number;
   slug: string | null;
   heroImage: string | null;
+  imageSources?: string[];
   category: string | null;
   tip?: string | null;
 };

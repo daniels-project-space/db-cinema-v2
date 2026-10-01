@@ -72,7 +72,7 @@ export function BookingTile({
       {/* header */}
       <div className="mt-3 flex items-start gap-3">
         <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl sm:h-24 sm:w-24">
-          <SmartImage src={first?.heroImage ?? null} alt={first?.title ?? "Rental"} className="h-full w-full" />
+          <SmartImage src={first?.heroImage ?? null} fallbackSources={first?.imageSources} alt={first?.title ?? "Rental"} className="h-full w-full" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">

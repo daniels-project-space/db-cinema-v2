@@ -192,6 +192,7 @@ export function RentalInbox({
                   <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/[0.04]">
                     <SmartImage
                       src={r.items[0]?.heroImage}
+                      fallbackSources={r.items[0]?.imageSources}
                       alt=""
                       className="h-full w-full"
                     />

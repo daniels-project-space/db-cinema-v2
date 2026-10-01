@@ -7,9 +7,17 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db.query("operators").withIndex("by_order").collect();
-    return rows
+    return Promise.all(rows
       .filter((o) => o.active)
-      .map((o) => ({
+      .map(async (o) => {
+        const application = await ctx.db.query("collective_applications")
+          .withIndex("by_operator", q => q.eq("operatorId", o._id)).first();
+        const account = application?.status === "approved"
+          ? await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", application.email.trim().toLowerCase())).first()
+          : null;
+        const uploaded = account?.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
+        const applicationPhoto = application?.headshotStorageId ? await ctx.storage.getUrl(application.headshotStorageId) : null;
+        return ({
         _id: o._id,
         role: o.role,
         roleLabel: o.roleLabel,
@@ -19,14 +27,14 @@ export const list = query({
         tagline: o.tagline,
         bio: o.bio ?? null,
         tags: o.tags ?? [],
-        headshot: o.headshot ?? null,
+        headshot: uploaded ?? applicationPhoto ?? o.headshot ?? account?.googleAvatarUrl ?? null,
         skills: o.skills,
         rateHourly: o.rateHourly ?? null,
         rateHalfDay: o.rateHalfDay ?? null,
         rateDay: o.rateDay ?? null,
         portfolioUrl: o.portfolioUrl ?? null,
         neon: o.neon,
-      }));
+      }); }));
   },
 });
 
