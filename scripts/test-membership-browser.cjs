@@ -278,6 +278,24 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.evaluate(
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
   );
+  await until(
+    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('best fit')`,
+  );
+  await c.cmd("Emulation.setDeviceMetricsOverride", {
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await c.evaluate("window.scrollTo(0,0)");
+  await wait(300);
+  assert.equal(
+    await c.evaluate(
+      `document.querySelector('[data-testid="add-membership"]').getBoundingClientRect().bottom<=innerHeight`,
+    ),
+    true,
+    "Checkout membership CTA must be visible in the first mobile viewport",
+  );
   await shot("checkout-offer-mobile");
   // The homepage placement is checked against the actual rendered sections.
   await c.cmd("Page.navigate", { url: root + "/" });
