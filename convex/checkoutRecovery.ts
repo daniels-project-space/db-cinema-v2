@@ -13,7 +13,7 @@ import {
   kitDetails,
 } from "./lib/kitPlanning";
 import { bump } from "./rateLimit";
-import { basketKey } from "./lib/checkoutRecovery";
+import { basketKey, recoveryBookingState } from "./lib/checkoutRecovery";
 import { assertRentalInventory } from "./lib/rentalInventory";
 const line = v.object({
   listingId: v.id("listings"),
@@ -50,15 +50,20 @@ export const sync = mutation({
         q.eq("guestEmail", account.email.trim().toLowerCase()),
       )
       .collect();
-    const alreadyUsed = rows.find(
+    const linked = rows.filter(
       (r) => r.bookingId && basketKey(r.lines) === basketKey(a.lines),
     );
+    let alreadyUsed = false;
+    for (const row of linked)
+      if (recoveryBookingState(await ctx.db.get(row.bookingId!)) === "stopped")
+        alreadyUsed = true;
     if (
       alreadyUsed ||
       bookings.some(
         (b) =>
           b._creationTime >= (current?.consentAt ?? Date.now()) &&
-          basketKey(b.lineItems) === basketKey(a.lines),
+          basketKey(b.lineItems) === basketKey(a.lines) &&
+          recoveryBookingState(b) === "stopped",
       )
     )
       return null;
@@ -113,6 +118,11 @@ export const resume = query({
       r.expiresAt <= Date.now()
     )
       return null;
+    if (
+      r.bookingId &&
+      recoveryBookingState(await ctx.db.get(r.bookingId)) !== "recoverable"
+    )
+      return null;
     return {
       title: "Your saved checkout",
       lines: r.lines,
@@ -160,15 +170,22 @@ export const _claim = internalMutation({
         q.eq("guestEmail", account.email.trim().toLowerCase()),
       )
       .collect();
-    if (
-      r.bookingId ||
-      bookings.some(
-        (b) =>
-          b._creationTime >= r.consentAt &&
-          basketKey(b.lineItems) === basketKey(r.lines),
-      )
-    ) {
+    const related = bookings.filter(
+      (b) =>
+        b._creationTime >= r.consentAt &&
+        basketKey(b.lineItems) === basketKey(r.lines),
+    );
+    if (r.bookingId) {
+      const linked = await ctx.db.get(r.bookingId);
+      if (linked && !related.some((b) => b._id === linked._id))
+        related.push(linked);
+    }
+    if (related.some((b) => recoveryBookingState(b) === "stopped")) {
       await ctx.db.patch(id, { state: "stopped" });
+      return null;
+    }
+    if (related.some((b) => recoveryBookingState(b) === "waiting")) {
+      await ctx.db.patch(id, { dueAt: now + 15 * 60000 });
       return null;
     }
     try {

@@ -136,6 +136,7 @@ export default defineSchema({
     .index("by_guestToken", ["guestToken"]),
 
   bookings: defineTable({
+    checkoutExpiredAt: v.optional(v.number()),
     activeAdditionId:v.optional(v.id("rental_additions")),
     chatConfirmationMessageId: v.optional(v.id("messages")),
     chatUpdatedAt:v.optional(v.number()),chatUnreadOwner:v.optional(v.number()),chatUnreadRenter:v.optional(v.number()),
