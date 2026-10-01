@@ -30,6 +30,7 @@ export function CheckoutMembership({
     weekendSaving: number;
     rentalSaving: number;
     deliveryReduction: number;
+    membershipFee: number;
     securityWaiverReason?: string;
   };
 }) {
@@ -42,7 +43,24 @@ export function CheckoutMembership({
     recommend = suggestions?.[0],
     recommendedTier = TIERS.find((t) => t.key === recommend?.tier) ?? TIERS[0],
     tier = chosen ?? current;
+  // Credits for a future rental and a refundable security waiver are not savings
+  // on this order. Include any membership fee charged today in the comparison.
+  const appliedNetSaving = appliedSavings
+    ? Math.round(
+        (appliedSavings.rentalSaving +
+          appliedSavings.deliveryReduction -
+          appliedSavings.membershipFee) *
+          100,
+      ) / 100
+    : 0;
+  const potentialNetSaving = recommend
+    ? Math.round(recommend.netSaving * 100) / 100
+    : 0;
+  const showMembershipCard = !!tier || potentialNetSaving > 0;
   const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showMembershipCard) setOpen(false);
+  }, [showMembershipCard]);
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -78,6 +96,7 @@ export function CheckoutMembership({
       previous?.focus();
     };
   }, [open]);
+  if (!showMembershipCard) return null;
   return (
     <section
       data-testid="membership-upsell"
@@ -99,52 +118,57 @@ export function CheckoutMembership({
             ? `£${tier.monthlyCredit.toFixed(2)} credit every paid month`
             : "Your next film starts with this one."}
         </h3>
-        {tier && appliedSavings && (
-          <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-accent-300/15 bg-black/10 p-4">
+        {tier && appliedSavings && appliedNetSaving > 0 && (
+          <div
+            data-testid="applied-membership-savings"
+            className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-accent-300/15 bg-black/10 p-4"
+          >
             <div>
               <p className="font-poster text-3xl text-accent-200">
-                £
-                {(
-                  appliedSavings.rentalSaving + appliedSavings.deliveryReduction
-                ).toFixed(2)}
+                £{appliedNetSaving.toFixed(2)}
               </p>
               <p className="mt-1 text-[10px] text-white/45">
-                Lower rental / delivery charges
+                {appliedSavings.membershipFee > 0
+                  ? "Net savings after today’s membership fee"
+                  : "Lower rental / delivery charges"}
               </p>
             </div>
             <div className="space-y-2 text-[11px] text-white/60">
-              {tier.weekend && (
+              {tier.weekend && appliedSavings.rentalSaving > 0 && (
                 <p>
                   Weekend savings · £{appliedSavings.rentalSaving.toFixed(2)}
                 </p>
               )}
-              <p>
-                Delivery benefit · £
-                {appliedSavings.deliveryReduction.toFixed(2)}
-              </p>
-              {appliedSavings.securityWaiverReason && (
-                <p className="text-accent-200">
-                  £0 upfront security · full hold remains
+              {appliedSavings.deliveryReduction > 0 && (
+                <p>
+                  Delivery benefit · £
+                  {appliedSavings.deliveryReduction.toFixed(2)}
                 </p>
               )}
             </div>
           </div>
         )}
-        {!tier && recommend && (
-          <div className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-white/15 bg-white/[.035] p-4">
+        {tier && appliedSavings?.securityWaiverReason && (
+          <p className="mt-3 text-xs text-accent-200">
+            £0 upfront security · full hold remains
+          </p>
+        )}
+        {!tier && recommend && potentialNetSaving > 0 && (
+          <div
+            data-testid="potential-membership-savings"
+            className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-white/15 bg-white/[.035] p-4"
+          >
             <div>
               <p className="text-[10px] uppercase tracking-wider text-white/45">
                 Your basket could save
               </p>
               <p className="mt-1 font-poster text-3xl text-white">
-                £
-                {Math.max(
-                  0,
-                  recommend.rentalSaving + recommend.deliverySaving,
-                ).toFixed(2)}
+                £{potentialNetSaving.toFixed(2)}
               </p>
               <p className="text-[10px] text-white/40">
-                Rental + delivery with {recommend.name}
+                {recommend.initialFee > 0
+                  ? "After today’s membership fee"
+                  : `Rental + delivery with ${recommend.name}`}
               </p>
             </div>
             <div className="text-right">
@@ -168,8 +192,8 @@ export function CheckoutMembership({
             <p className="mt-2 text-xs leading-6 text-white/55">
               {chosen
                 ? `${chosen.name} is included in this checkout. Your monthly fee becomes £${chosen.monthlyCredit.toFixed(2)} rental credit after each paid month.`
-                : recommend
-                  ? `${recommend.name} is the best fit for today’s basket: £${Math.max(0, recommend.rentalSaving + recommend.deliverySaving).toFixed(2)} lower rental and delivery charges${recommend.netSaving < 0 ? " (the initial membership fee is more than today’s savings)" : ""}. From £${recommend.monthlyFee}/month, earning £${recommend.monthlyCredit.toFixed(2)} monthly credit.`
+                : recommend && potentialNetSaving > 0
+                  ? `${recommend.name} is the best fit for today’s basket: save £${potentialNetSaving.toFixed(2)} on this order${recommend.initialFee > 0 ? " after today’s membership fee" : " with the free first week"}. Then £${recommend.monthlyFee}/month, earning £${recommend.monthlyCredit.toFixed(2)} credit each paid month.`
                   : `From £${recommendedTier.monthlyGbp}/month. Earn £${recommendedTier.monthlyCredit.toFixed(2)} rental credit every paid month. Choose a plan now; your basket savings update automatically.`}
             </p>
             {!selected && (
