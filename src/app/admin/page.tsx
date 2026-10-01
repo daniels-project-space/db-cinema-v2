@@ -11,6 +11,7 @@ import { RentalWorkspace } from "@/components/admin/RentalWorkspace";
 import { OwnerNotificationBell } from "@/components/admin/OwnerNotificationBell";
 import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
+import { parseOwnerConversationUrl } from "../../../shared/ownerConversationRoute";
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -19,15 +20,38 @@ export default function AdminPage() {
     "overview" | "bookings" | "inbox" | "enquiries" | "calls" | "settings"
   >("overview");
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
+  const [conversationNavigation, setConversationNavigation] = useState(0);
   const [detailId, setDetailId] = useState<string | null>(null);
 
   useEffect(() => {
     setToken(localStorage.getItem("dbc_admin"));
-    const rental = new URLSearchParams(window.location.search).get("rental");
-    if (rental) {
-      setConversationId(rental);
+    const open = (href: string) => {
+      const route = parseOwnerConversationUrl(href, window.location.origin);
+      if (!route?.openMessages) return;
+      setConversationId(route.bookingId);
+      setSupportAccountId(route.accountId);
+      setConversationNavigation(value => value + 1);
+      setDetailId(null);
       setTab("inbox");
-    } else if (window.location.hash === "#messages") setTab("inbox");
+    };
+    const fromLocation = () => open(window.location.href);
+    const fromPush = (event: MessageEvent) => {
+      if (event.data?.type !== "dbc:open-owner-conversation" || typeof event.data.url !== "string") return;
+      const route = parseOwnerConversationUrl(event.data.url, window.location.origin);
+      if (!route?.openMessages) return;
+      window.history.replaceState(null, "", route.href);
+      open(route.href);
+    };
+    fromLocation();
+    window.addEventListener("hashchange", fromLocation);
+    window.addEventListener("popstate", fromLocation);
+    navigator.serviceWorker?.addEventListener("message", fromPush);
+    return () => {
+      window.removeEventListener("hashchange", fromLocation);
+      window.removeEventListener("popstate", fromLocation);
+      navigator.serviceWorker?.removeEventListener("message", fromPush);
+    };
   }, []);
 
   const bookings = useQuery(api.bookings.adminList, token ? { token } : "skip");
@@ -150,13 +174,14 @@ export default function AdminPage() {
         )}
 
         {tab === "inbox" && (
-          <RentalInbox token={token} focusBookingId={conversationId} />
+          <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusRevision={conversationNavigation} />
         )}
         {tab === "bookings" && !detailId && (
           <AdminRentalCards
             token={token}
             onChat={(id) => {
               setConversationId(id);
+              setSupportAccountId(null);
               setTab("inbox");
             }}
             onDetails={setDetailId}
@@ -170,6 +195,7 @@ export default function AdminPage() {
             onClose={() => setDetailId(null)}
             onChat={() => {
               setConversationId(detailId);
+              setSupportAccountId(null);
               setTab("inbox");
             }}
           />

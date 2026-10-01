@@ -5,6 +5,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { validatePushSubscription } from "./lib/adminPush";
+import { ownerConversationUrl } from "../shared/ownerConversationRoute";
 
 export const deliver = internalAction({
   args: { deliveryId: v.id("admin_push_deliveries") },
@@ -19,7 +20,7 @@ export const deliver = internalAction({
       const publicKey = process.env.ADMIN_PUSH_PUBLIC_KEY, privateKey = process.env.ADMIN_PUSH_PRIVATE_KEY;
       if (!publicKey || !privateKey) throw Error("Push configuration missing.");
       const notification = data.notification;
-      const url = `/admin${notification.bookingId ? `?rental=${encodeURIComponent(notification.bookingId)}` : ""}#messages`;
+      const url = ownerConversationUrl(notification);
       await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
         JSON.stringify({ title: notification.title, body: notification.body, url, tag: notification.eventKey }),
         { vapidDetails: { subject: "https://dbcinemarentals.com", publicKey, privateKey }, TTL: 300, timeout: 10000,

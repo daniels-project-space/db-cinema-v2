@@ -17,6 +17,7 @@ export function RentalConversation({
   stage,
   escalated = false,
   tools,
+  openRevision = 0,
 }: {
   token: string;
   bookingId?: string;
@@ -26,6 +27,7 @@ export function RentalConversation({
   stage: string;
   escalated?: boolean;
   tools?: React.ReactNode;
+  openRevision?: number;
 }) {
   const thread = useQuery(api.rentalChat.messages, {
     token,
@@ -91,6 +93,14 @@ export function RentalConversation({
     };
   }, [thread?.page[0]?._id]);
   const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!openRevision || !thread) return;
+    const frame = requestAnimationFrame(() => {
+      container.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      if (body.current) body.current.scrollTop = body.current.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [openRevision, bookingId, accountId, thread !== undefined]);
   const lastRead = useRef<string>("");
   useEffect(() => {
     setHistory([]);
@@ -184,7 +194,8 @@ export function RentalConversation({
   return (
     <section
       ref={container}
-      className="flex min-h-[450px] sm:min-h-[540px] flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313]"
+      data-conversation-scope={bookingId ? `rental:${bookingId}` : `support:${accountId ?? "self"}`}
+      className="scroll-mt-24 flex min-h-[450px] sm:min-h-[540px] flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313]"
     >
       <header className={`flex items-center justify-between gap-3 border-b p-5 ${teamHandling ? "border-amber-300/20 bg-amber-300/[0.07]" : "border-emerald-300/20 bg-emerald-300/[0.05]"}`}>
         <div className="flex min-w-0 items-center gap-3">
