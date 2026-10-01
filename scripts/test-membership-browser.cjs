@@ -378,24 +378,20 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     false,
     "Zero saving must hide the discount panel",
   );
+  assert.equal(
+    await c.evaluate(
+      `!!document.querySelector('[data-testid="membership-upsell"]')`,
+    ),
+    false,
+    "Do not upsell a membership when this order has no net saving",
+  );
+  // A plan already chosen on an earlier basket remains visible/manageable
+  // when the renter changes to dates without a discount. This is a persisted
+  // checkout preference, not an active subscription or stored legal consent.
   await c.evaluate(
-    `document.querySelector('[data-testid="add-membership"]').click()`,
+    `localStorage.setItem('dbc_membership_selection_v1',JSON.stringify({tier:'pro',intro:'none'}));true`,
   );
-  await until(
-    `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Start paid membership now')`,
-  );
-  await c.evaluate(
-    `[...document.querySelectorAll('button')].find(b=>b.innerText==='Start paid membership now').click()`,
-  );
-  await c.evaluate(
-    `[...document.querySelectorAll('button')].find(b=>b.innerText==='See the membership benefits').click()`,
-  );
-  await until(
-    `!!document.querySelector('[role="dialog"][aria-label="Membership benefits"]')`,
-  );
-  await c.evaluate(
-    `[...document.querySelectorAll('[role="dialog"] button')].find(b=>b.innerText==='Choose Pro').click()`,
-  );
+  await reload();
   const noSavingPaid = await cv.action(api.checkout.priceQuote, {
     ...weekdayArgs,
     selectedMembership: { tier: "pro", intro: "none" },

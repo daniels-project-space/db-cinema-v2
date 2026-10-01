@@ -56,7 +56,11 @@ export function CheckoutMembership({
   const potentialNetSaving = recommend
     ? Math.round(recommend.netSaving * 100) / 100
     : 0;
+  const showMembershipCard = !!tier || potentialNetSaving > 0;
   const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showMembershipCard) setOpen(false);
+  }, [showMembershipCard]);
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -92,6 +96,7 @@ export function CheckoutMembership({
       previous?.focus();
     };
   }, [open]);
+  if (!showMembershipCard) return null;
   return (
     <section
       data-testid="membership-upsell"
