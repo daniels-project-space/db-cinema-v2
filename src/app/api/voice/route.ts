@@ -114,6 +114,7 @@ type Match = {
 
 export async function POST(req: NextRequest) {
   const secret = process.env.VOICE_WEBHOOK_SECRET;
+  if (!secret) return NextResponse.json({ error: "voice tool is not configured" }, { status: 503 });
   if (secret) {
     const got = req.headers.get("x-voice-secret") || new URL(req.url).searchParams.get("key");
     if (got !== secret) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
