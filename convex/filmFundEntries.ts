@@ -2,7 +2,7 @@ import { internalMutation,internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { accountForToken } from "./lib/rentalChat";
 import { rounds } from "./filmFund";
-import { FILM_FUND_TERMS_VERSION,fundSubmissionErrors } from "../shared/filmFund";
+import { FILM_FUND_TERMS_VERSION,fundSubmissionErrors,fundEntryPence } from "../shared/filmFund";
 import { isProPlus,membershipActiveNow } from "../shared/membership";
 export const reserve=internalMutation({args:{token:v.string(),projectId:v.id("film_fund_projects"),roundSlug:v.string(),termsVersion:v.string()},handler:async(ctx,a)=>{
  const account=await accountForToken(ctx,a.token),p=await ctx.db.get(a.projectId);
@@ -19,7 +19,7 @@ export const reserve=internalMutation({args:{token:v.string(),projectId:v.id("fi
  if(existing){if(existing.roundSlug!==a.roundSlug)throw Error("Finish or expire the existing entry checkout first.");return {included:false as const,entry:existing,email:account.email,deadline:round.deadline};}
  // Stripe requires a checkout lifetime of at least 30 minutes. Accept starts
  // until the actual deadline; the provider session is separately expired then.
- const id=await ctx.db.insert("film_fund_entries",{projectId:p._id,accountId:account._id,roundSlug:a.roundSlug,termsVersion:a.termsVersion,consentAt:Date.now(),createdAt:Date.now(),expiresAt:Date.now()+31*60000,state:"creating"});
+ const id=await ctx.db.insert("film_fund_entries",{projectId:p._id,accountId:account._id,roundSlug:a.roundSlug,termsVersion:a.termsVersion,consentAt:Date.now(),amountPence:fundEntryPence(account),createdAt:Date.now(),expiresAt:Date.now()+31*60000,state:"creating"});
  return {included:false as const,entry:(await ctx.db.get(id))!,email:account.email,deadline:round.deadline};
 }});
 export const saveParams=internalMutation({args:{id:v.id("film_fund_entries"),sessionParams:v.string()},handler:async(ctx,a)=>{
@@ -30,7 +30,7 @@ export const bind=internalMutation({args:{id:v.id("film_fund_entries"),sessionId
 export const byId=internalQuery({args:{id:v.id("film_fund_entries")},handler:async(ctx,a)=>ctx.db.get(a.id)});
 export const byExternalId=internalQuery({args:{id:v.string()},handler:async(ctx,a)=>{const id=ctx.db.normalizeId("film_fund_entries",a.id);return id?ctx.db.get(id):null;}});
 export const paid=internalMutation({args:{id:v.id("film_fund_entries"),sessionId:v.string(),paymentIntentId:v.string(),amount:v.number(),currency:v.string(),paidAt:v.number()},handler:async(ctx,a)=>{
- const e=await ctx.db.get(a.id);if(!e||e.sessionId!==a.sessionId||a.amount!==1500||a.currency!=="gbp")throw Error("Film Fund payment does not match its entry.");
+ const e=await ctx.db.get(a.id);if(!e||e.sessionId!==a.sessionId||a.amount!==(e.amountPence??1500)||a.currency!=="gbp")throw Error("Film Fund payment does not match its entry.");
  if(e.state==="paid"||e.state==="refunded")return {paid:e.state==="paid",refund:false};
  const round=(await rounds(ctx)).find((r:any)=>r.slug===e.roundSlug),p=await ctx.db.get(e.projectId);
  if(!p||p.accountId!==e.accountId)throw Error("Entry project ownership mismatch.");

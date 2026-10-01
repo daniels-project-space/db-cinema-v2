@@ -44,11 +44,11 @@ const f=load('convex/filmFund.ts'),shared=load('shared/filmFund.ts'),{mp4Duratio
  for(const id of [paidProject.scriptId,paidProject.moodboardId,paidProject.videoId,...paidProject.documentIds]){const source=await db.get(id),copy=put('film_fund_uploads',{...source,_id:id+'-paid',accountId:foreign._id,projectId:paidProject._id});if(source.kind==='script')paidProject.scriptId=copy._id;if(source.kind==='moodboard')paidProject.moodboardId=copy._id;if(source.kind==='video')paidProject.videoId=copy._id;if(source.kind==='document')paidProject.documentIds=[copy._id];}
  const entryArgs={token:'foreign',projectId:paidProject._id,roundSlug:'spring-2027',termsVersion:shared.FILM_FUND_TERMS_VERSION};
  await assert.rejects(e.reserve.handler(ctx,{...entryArgs,token:'real'}),/not available/);
- const entry=await e.reserve.handler(ctx,entryArgs);assert.equal(entry.included,false);assert.equal((await e.reserve.handler(ctx,entryArgs)).entry._id,entry.entry._id,'concurrent tabs share one entry checkout');
+ const entry=await e.reserve.handler(ctx,entryArgs);assert.equal(entry.included,false);assert.equal(entry.entry.amountPence,3000,"nonmember entry is £30");assert.equal(shared.fundEntryPence({membershipTier:"plus",membershipActive:true}),1500);assert.equal(shared.fundEntryPence({membershipTier:"plus",membershipActive:false}),3000);assert.equal((await e.reserve.handler(ctx,entryArgs)).entry._id,entry.entry._id,'concurrent tabs share one entry checkout');
  await e.bind.handler(ctx,{id:entry.entry._id,sessionId:'cs_entry'});
- await assert.rejects(e.paid.handler(ctx,{id:entry.entry._id,sessionId:'cs_other',paymentIntentId:'pi_entry',amount:1500,currency:'gbp',paidAt:Date.now()}),/does not match/);
+ await assert.rejects(e.paid.handler(ctx,{id:entry.entry._id,sessionId:'cs_other',paymentIntentId:'pi_entry',amount:3000,currency:'gbp',paidAt:Date.now()}),/does not match/);
  await assert.rejects(e.paid.handler(ctx,{id:entry.entry._id,sessionId:'cs_entry',paymentIntentId:'pi_entry',amount:100,currency:'gbp',paidAt:Date.now()}),/does not match/);
- const paidArgs={id:entry.entry._id,sessionId:'cs_entry',paymentIntentId:'pi_entry',amount:1500,currency:'gbp',paidAt:Date.now()};
+ const paidArgs={id:entry.entry._id,sessionId:'cs_entry',paymentIntentId:'pi_entry',amount:3000,currency:'gbp',paidAt:Date.now()};
  assert.equal((await e.paid.handler(ctx,paidArgs)).paid,true);assert.equal((await e.paid.handler(ctx,paidArgs)).paid,true,'payment retry is idempotent');
  assert.equal(paidProject.state,'submitted','payment atomically submits the validated application');assert.equal(paidProject.roundSlug,entryArgs.roundSlug);assert.equal(paidProject.submittedAt,paidArgs.paidAt);
  await assert.rejects(e.reserve.handler(ctx,entryArgs),/not available/);
@@ -56,6 +56,14 @@ const f=load('convex/filmFund.ts'),shared=load('shared/filmFund.ts'),{mp4Duratio
  await assert.rejects(e.reserve.handler(ctx,entryArgs),/not available/);
  assert.equal(paidProject.reviewStatus,'not_selected');
  await assert.rejects(f.reviewApplication.handler(ctx,{token:'fund-owner-test',projectId:paidProject._id,status:'shortlisted',note:''}),/refunded/);
+ await db.patch(foreign._id,{membershipTier:'plus',membershipActive:true});
+ const starterProject=put('film_fund_projects',{...paidProject,_id:'starter-project',state:'draft',entryPaid:false,entrySessionId:undefined,projectKey:'starter-project'});
+ for(const id of [starterProject.scriptId,starterProject.moodboardId,starterProject.videoId,...starterProject.documentIds]){const source=await db.get(id),copy=put('film_fund_uploads',{...source,_id:id+'-starter',projectId:starterProject._id});if(source.kind==='script')starterProject.scriptId=copy._id;if(source.kind==='moodboard')starterProject.moodboardId=copy._id;if(source.kind==='video')starterProject.videoId=copy._id;if(source.kind==='document')starterProject.documentIds=[copy._id];}
+ const starterEntry=await e.reserve.handler(ctx,{...entryArgs,projectId:starterProject._id});assert.equal(starterEntry.entry.amountPence,1500);
+ await db.patch(foreign._id,{membershipActive:false});
+ assert.equal((await e.reserve.handler(ctx,{...entryArgs,projectId:starterProject._id})).entry.amountPence,1500,'reserved Starter entry keeps its agreed price after membership expiry');
+ await e.bind.handler(ctx,{id:starterEntry.entry._id,sessionId:'cs_starter_entry'});
+ assert.equal((await e.paid.handler(ctx,{id:starterEntry.entry._id,sessionId:'cs_starter_entry',paymentIntentId:'pi_starter_entry',amount:1500,currency:'gbp',paidAt:Date.now()})).paid,true);
  const announcements=load('convex/filmFundAnnouncements.ts');
  const inactive=put('film_fund_signups',{email:'optout@example.invalid',active:false,consentAt:Date.now(),createdAt:Date.now()});
  await announcements.enqueue.handler(ctx,{roundSlug:dates.slug,cursor:null});await announcements.enqueue.handler(ctx,{roundSlug:dates.slug,cursor:null});
@@ -86,11 +94,11 @@ const f=load('convex/filmFund.ts'),shared=load('shared/filmFund.ts'),{mp4Duratio
  for(const id of [lateProject.scriptId,lateProject.moodboardId,lateProject.videoId,...lateProject.documentIds]){const source=await db.get(id),copy=put('film_fund_uploads',{...source,_id:id+'-late',projectId:lateProject._id});if(source.kind==='script')lateProject.scriptId=copy._id;if(source.kind==='moodboard')lateProject.moodboardId=copy._id;if(source.kind==='video')lateProject.videoId=copy._id;if(source.kind==='document')lateProject.documentIds=[copy._id];}
  const lateArgs={...entryArgs,projectId:lateProject._id},lastMinute=await e.reserve.handler(ctx,lateArgs);assert.ok(lastMinute.entry.expiresAt>round.deadline,'last-minute entries are not excluded by Stripe 30-minute expiry minimum');
  let checkoutParams,sessionState='open',expireCount=0,refundStatus='succeeded',chargeRefunded=false,foreignReceipt=false,refundMutations=0;
- setMock('stripe',{default:class{constructor(){this.checkout={sessions:{create:async params=>{checkoutParams=params;return{id:'cs_last_minute',url:'https://checkout.example.invalid'};},retrieve:async()=>({id:'cs_last_minute',status:sessionState}),expire:async()=>{expireCount++;sessionState='expired';}}};this.refunds={retrieve:async()=>({status:refundStatus,payment_intent:'pi_entry'})};this.paymentIntents={retrieve:async()=>({metadata:{filmFundEntryId:foreignReceipt?'foreign-entry':entry.entry._id},latest_charge:'ch_entry'})};this.charges={retrieve:async()=>({refunded:chargeRefunded,amount:1500,amount_refunded:chargeRefunded?1500:500})};}}});
+ setMock('stripe',{default:class{constructor(){this.checkout={sessions:{create:async params=>{checkoutParams=params;return{id:'cs_last_minute',url:'https://checkout.example.invalid'};},retrieve:async()=>({id:'cs_last_minute',status:sessionState}),expire:async()=>{expireCount++;sessionState='expired';}}};this.refunds={retrieve:async()=>({status:refundStatus,payment_intent:'pi_entry'})};this.paymentIntents={retrieve:async()=>({metadata:{filmFundEntryId:foreignReceipt?'foreign-entry':entry.entry._id},latest_charge:'ch_entry'})};this.charges={retrieve:async()=>({refunded:chargeRefunded,amount:3000,amount_refunded:chargeRefunded?3000:500})};}}});
  const payments=load('convex/filmFundPayments.ts'),paymentCtx={...ctx,runQuery:async(ref,args)=>e[ref.split('.')[1]].handler(ctx,args),runMutation:async(ref,args)=>e[ref.split('.')[1]].handler(ctx,args)};
- await payments.start.handler(paymentCtx,lateArgs);assert.ok(checkoutParams.expires_at*1000>=Date.now()+30*60000-1000);
+ await payments.start.handler(paymentCtx,lateArgs);assert.ok(checkoutParams.expires_at*1000>=Date.now()+30*60000-1000);assert.equal(checkoutParams.line_items[0].price_data.unit_amount,3000);
  assert.ok(scheduled.some(x=>x.ref==='filmFundPayments.expireAtDeadline'),'checkout expires at the real application deadline');
- const lateReceipt=await e.paid.handler(ctx,{id:lastMinute.entry._id,sessionId:'cs_last_minute',paymentIntentId:'pi_last_minute',amount:1500,currency:'gbp',paidAt:round.deadline+1000});assert.equal(lateReceipt.refund,true,'approval after the deadline cannot buy an entry');
+ const lateReceipt=await e.paid.handler(ctx,{id:lastMinute.entry._id,sessionId:'cs_last_minute',paymentIntentId:'pi_last_minute',amount:3000,currency:'gbp',paidAt:round.deadline+1000});assert.equal(lateReceipt.refund,true,'approval after the deadline cannot buy an entry');
  await payments.expireAtDeadline.handler(paymentCtx,{id:lastMinute.entry._id});assert.equal(lastMinute.entry.state,'expired');assert.equal(expireCount,1);
  await payments.expireAtDeadline.handler(paymentCtx,{id:lastMinute.entry._id});assert.equal(expireCount,1,'expiry retry does not call the provider again');
  const refundCtx={runQuery:async(_ref,a)=>a.id===entry.entry._id?entry.entry:null,runMutation:async(_ref,a)=>{refundMutations++;return e.terminal.handler(ctx,a);}};

@@ -2,7 +2,7 @@
 
 Full objective: user goal attachment f94374b4-9888-4912-a0fa-56230633bf8a. This checklist does not narrow it.
 
-Agreed prices remain £19 Starter (legacy key plus), £49 Pro, £99 Studio. Monthly credit is the paid membership fee ×1.30, individually expiring after one year and stackable. £20 was an example, not a new subscription price. Intro choice: seven-day free trial (no membership deposit exemption until paid) OR one-time £20 store-credit introduction. Film Fund entry £15, once per project, included with Pro/Studio, no multiple tickets.
+Agreed prices remain £19 Starter (legacy key plus), £49 Pro, £99 Studio. Current monthly credit is the paid membership fee ×1.10 for Starter, ×1.20 for Pro and ×1.30 for Studio, individually expiring after one year and stackable. £20 was an example, not a new subscription price. Current intro choice: seven-day free trial (no membership deposit exemption until paid) or immediate paid membership, no new £20 welcome bonus. Fund entry £30 for nonmembers, £15 for Starter, included with Pro/Studio, once per project. Historical acceptance evidence below records the earlier policy. See FILM_FUND_COMMUNITY_DESIGN.md for the latest release.
 
 ## Required implementation and evidence
 

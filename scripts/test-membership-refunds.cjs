@@ -22,5 +22,11 @@ const membership=load('convex/membershipBenefits.ts'),{creditDebit,usableCredit}
  await membership.revokeRefundedInvoice.handler(ctx,{invoiceId:'in_reserved',membershipRefundedPence:1900});
  assert.equal(usableCredit(rc),0,'reserved refunded credit is unavailable to a second checkout');assert.equal(rc.remaining,10);assert.equal(rc.revokedPendingPence,1000);assert.equal(reserved.membershipCreditDebtPence,0);
  const debit=creditDebit(rc,10);assert.equal(debit.debtPence,1000,'only spending the reserved credit creates an offset');assert.equal(debit.patch.remaining,0);
+ const newStarter=put('accounts',{email:'new-rate@example.invalid',stripeSubscriptionId:'sub_new_rate',membershipTier:'plus'});
+ const newGrantId=await membership.grantPaidInvoice.handler(ctx,{...args,accountId:newStarter._id,subscriptionId:'sub_new_rate',invoiceId:'in_new_rate'}),newGrant=await db.get(newGrantId);
+ assert.equal(newGrant.earnedCreditPence,2090);
+ await db.patch(newStarter._id,{membershipTier:'studio'});
+ await membership.revokeRefundedInvoice.handler(ctx,{invoiceId:'in_new_rate',membershipRefundedPence:950});assert.equal(newGrant.revokedPence,1045,'refund uses recorded grant rate even after a tier change');
+ await membership.revokeRefundedInvoice.handler(ctx,{invoiceId:'in_new_rate',membershipRefundedPence:1900});assert.equal(newGrant.revokedPence,2090);
  console.log('Membership refunds: mixed payment scopes, cash caps, pending/failed refunds, revocation retries, reserved credits and future-credit offsets passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
