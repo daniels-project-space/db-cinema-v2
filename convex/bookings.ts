@@ -1,4 +1,4 @@
-import { stopMatchingRecovery } from "./lib/checkoutRecovery";
+import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
@@ -146,7 +146,7 @@ export const createPending = internalMutation({
       pickupTime: a.pickupTime,
       returnTime: a.returnTime,
     });
-    await stopMatchingRecovery(ctx,customerEmail,a.lineItems,bookingId);
+    await linkMatchingRecovery(ctx,customerEmail,a.lineItems,bookingId);
     return { bookingId, creditApplied };
   },
 });
@@ -268,7 +268,7 @@ export const expireUnpaidPending = internalMutation({
     const res = await ctx.db.query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId)).collect();
     for (const hold of res) if (hold.status === "hold") await ctx.db.delete(hold._id);
-    await ctx.db.patch(bookingId, { status: "cancelled", cancelledAt: Date.now() });
+    await ctx.db.patch(bookingId, { status: "cancelled", cancelledAt: Date.now(), checkoutExpiredAt: Date.now() });
     return true;
   },
 });
@@ -278,6 +278,7 @@ export const confirm = internalMutation({
   handler: async (ctx, { bookingId, paymentIntentId }) => {
     const booking = await ctx.db.get(bookingId);
     if (!booking) throw new Error("booking not found");
+    await stopMatchingRecovery(ctx,booking.guestEmail??"",booking.lineItems,bookingId);
     if (booking.cancellationDecision || booking.status === "cancelled" || booking.status === "returned")
       return { closed: true, duplicatePayment: false };
     if (booking.status === "confirmed" || booking.status === "active") {
@@ -1380,6 +1381,7 @@ export const _finalizeCancellation = internalMutation({
   handler: async (ctx, { bookingId, accountId, mode, refundAmount, creditAmount, currency, adminReason }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return { ok: false as const };
+    await stopMatchingRecovery(ctx,b.guestEmail??"",b.lineItems,bookingId);
     if (b.status === "cancelled") return { ok: true as const, already: true };
 
     let creditId: any = undefined;

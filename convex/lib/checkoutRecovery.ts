@@ -6,13 +6,43 @@ export function basketKey(lines: any[]) {
   }
   return JSON.stringify([...counts].sort(([a], [b]) => a.localeCompare(b)));
 }
-/** Creating a real checkout suppresses its reminder transactionally, even if the
- * browser closes before the success page. Failed/cancelled attempts stay suppressed. */
+/** Stripe-attested unpaid expiry is recoverable; explicit cancellation is not. */
+export function recoveryBookingState(
+  booking: any,
+): "waiting" | "recoverable" | "stopped" {
+  if (!booking) return "recoverable";
+  if (booking.cancellationDecision) return "stopped";
+  if (booking.status === "pending_payment") return "waiting";
+  if (
+    booking.status === "cancelled" &&
+    booking.checkoutExpiredAt &&
+    !booking.stripePaymentIntentId
+  )
+    return "recoverable";
+  return "stopped";
+}
+export async function linkMatchingRecovery(
+  ctx: any,
+  email: string,
+  lines: any[],
+  bookingId: any,
+) {
+  return matchingRecovery(ctx, email, lines, bookingId, false);
+}
 export async function stopMatchingRecovery(
   ctx: any,
   email: string,
   lines: any[],
   bookingId: any,
+) {
+  return matchingRecovery(ctx, email, lines, bookingId, true);
+}
+async function matchingRecovery(
+  ctx: any,
+  email: string,
+  lines: any[],
+  bookingId: any,
+  stop: boolean,
 ) {
   const a = await ctx.db
     .query("accounts")
@@ -28,7 +58,7 @@ export async function stopMatchingRecovery(
   for (const r of rows)
     if (r.state !== "stopped" && basketKey(r.lines) === basketKey(lines))
       await ctx.db.patch(r._id, {
-        state: "stopped",
+        ...(stop ? { state: "stopped" } : {}),
         bookingId,
         leaseUntil: undefined,
       });

@@ -8,9 +8,12 @@ const {
 } = require("./lib/rentalTestHarness.cjs");
 const { londonDay, DAY } = load("convex/lib/kitPlanning.ts");
 const { expandKitCart, mergeKitLines } = load("shared/kitCart.ts");
-const { basketKey, stopMatchingRecovery } = load(
-  "convex/lib/checkoutRecovery.ts",
-);
+const {
+  basketKey,
+  stopMatchingRecovery,
+  linkMatchingRecovery,
+  recoveryBookingState,
+} = load("convex/lib/checkoutRecovery.ts");
 const plans = load("convex/kitPlans.ts"),
   waitlist = load("convex/waitlist.ts"),
   recovery = load("convex/checkoutRecovery.ts");
@@ -409,6 +412,111 @@ const start = londonDay() + 30 * DAY,
     (await recoveryMail.processDue.handler(actionCtx, {})).sent,
     0,
     "sent recovery cannot be mailed twice",
+  );
+
+  const payer = put("accounts", { email: "payer@rental-test.invalid" });
+  put("sessions", {
+    token: "payer",
+    accountId: payer._id,
+    expiresAt: Date.now() + DAY,
+  });
+  const paymentLines = [{ listingId: listing._id, qty: 1, start, end }];
+  const recoveryId = await recovery.sync.handler(ctx, {
+    token: "payer",
+    enabled: true,
+    lines: paymentLines,
+  });
+  const pendingBooking = put("bookings", {
+    _creationTime: Date.now(),
+    guestEmail: payer.email,
+    status: "pending_payment",
+    lineItems: paymentLines,
+  });
+  await linkMatchingRecovery(
+    ctx,
+    payer.email,
+    paymentLines,
+    pendingBooking._id,
+  );
+  assert.equal(
+    await recovery.resume.handler(ctx, { token: "payer", id: recoveryId }),
+    null,
+    "cannot resume into a second checkout while payment unresolved",
+  );
+  await db.patch(recoveryId, { dueAt: Date.now() - 1 });
+  assert.equal(
+    await recovery._claim.handler(ctx, { id: recoveryId }),
+    null,
+    "pending or processing payment must wait for provider reconciliation",
+  );
+  assert.equal((await db.get(recoveryId)).state, "waiting");
+  assert.equal(
+    await recovery.sync.handler(ctx, {
+      token: "payer",
+      enabled: true,
+      lines: paymentLines,
+    }),
+    recoveryId,
+    "refresh preserves linked unfinished checkout",
+  );
+  const bookings = load("convex/bookings.ts");
+  assert.equal(
+    await bookings.expireUnpaidPending.handler(ctx, {
+      bookingId: pendingBooking._id,
+    }),
+    true,
+  );
+  assert.ok(
+    pendingBooking.checkoutExpiredAt,
+    "terminal unpaid expiry explicitly recorded",
+  );
+  assert.ok(
+    await recovery.resume.handler(ctx, { token: "payer", id: recoveryId }),
+    "expired unpaid payment can resume with current quote",
+  );
+  await db.patch(recoveryId, { dueAt: Date.now() - 1 });
+  const recoverable = await recovery._claim.handler(ctx, { id: recoveryId });
+  assert.ok(
+    recoverable,
+    "Stripe-attested unpaid expired checkout remains recoverable",
+  );
+  await db.patch(pendingBooking._id, {
+    status: "confirmed",
+    stripePaymentIntentId: "pi_test_paid",
+  });
+  await stopMatchingRecovery(
+    ctx,
+    payer.email,
+    paymentLines,
+    pendingBooking._id,
+  );
+  await recovery._finish.handler(ctx, {
+    id: recoveryId,
+    leaseUntil: recoverable.leaseUntil,
+    sent: true,
+  });
+  assert.equal(
+    (await db.get(recoveryId)).state,
+    "stopped",
+    "payment confirmation wins over late mail receipt",
+  );
+  assert.equal(recoveryBookingState({ status: "cancelled" }), "stopped");
+  assert.equal(
+    recoveryBookingState({
+      status: "cancelled",
+      checkoutExpiredAt: 1,
+      cancellationDecision: {},
+    }),
+    "stopped",
+    "explicit cancellation cannot be recovered",
+  );
+  assert.equal(
+    recoveryBookingState({
+      status: "cancelled",
+      checkoutExpiredAt: 1,
+      stripePaymentIntentId: "paid",
+    }),
+    "stopped",
   );
   console.log(
     "PASS whole-kit quantities/live pricing/shared stock; private plans/revocable sharing; waitlist ownership/today/failed delivery/claims; consent recovery/gates/retry/opt-out/checkout suppression.",
