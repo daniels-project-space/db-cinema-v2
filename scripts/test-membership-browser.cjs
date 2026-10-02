@@ -667,6 +667,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   // without scrolling through items or the membership pitch.
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(clearKit))});localStorage.setItem('dbc_promo_v1','GAFFER10');localStorage.setItem('dbc_membership_selection_v1',JSON.stringify({tier:'studio',intro:'none'}));true`);
   await reload();
+  await until(`document.querySelectorAll('main [data-cart-dates]').length===2&&document.querySelector('[data-testid="basket-due"]')?.textContent.includes('£')`);
   await nativeClick(`document.querySelector('button[aria-label="Open kit"]')`);
   await until(`!!document.querySelector('aside[aria-hidden="false"] [data-testid="clear-basket"]')`);
   assert.equal(await c.evaluate(`(()=>{const r=document.querySelector('aside[aria-hidden="false"] [data-testid="clear-basket"]').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})()`),true,'Clear basket remains on screen at the bottom of the drawer');
