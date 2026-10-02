@@ -51,7 +51,7 @@ async function pay(fixture,fee=1900) {
 }
 (async()=>{
  assert(!renderQuotedHook(undefined,null).includes('membership-upsell'),'Initial loading must not show an empty savings card');
- assert(renderQuotedHook(undefined,null).includes('membership-chooser'),'The membership chooser stays available without a savings quote');
+ assert.equal(renderQuotedHook(undefined,null),'','No fallback membership chooser before a savings quote');
  assert.equal(renderQuotedHook(undefined,null,'checkout'),'','Checkout offers nothing before a positive authoritative quote');
  account=put('accounts',{email:'thresholds@example.invalid'});
  for(const [spend,tier] of [[99,null],[100,'plus'],[199,'plus'],[200,'pro'],[299,'pro'],[300,'studio']]) {
@@ -65,6 +65,7 @@ async function pay(fixture,fee=1900) {
    assert.deepEqual(quote.membershipOffer,{tier:offer.tier,netSaving:offer.netSaving,state:'join'});
    const staleUiAccount={...account,membershipActive:true,membershipTier:'studio'};
    const html=renderQuotedHook(quote,staleUiAccount);
+   assert(!html.includes('membership-chooser'),'The entire booking flow uses one recommendation');
    assert(html.includes('Subscribe to save £'+offer.netSaving.toFixed(2)),'Finished server quote must keep its heading even when client account context differs');
    assert(html.includes('data-testid="add-membership"'),'Server join offer must remain selectable rather than becoming an existing-member card');
    assert(checkoutHtml.includes('Subscribe to save £'+offer.netSaving.toFixed(2)));
