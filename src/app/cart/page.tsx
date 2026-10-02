@@ -75,11 +75,7 @@ export default function CartPage() {
               selected={membership}
               onChange={setMembership}
             />
-            <CartPlanning />
-            <div className="mt-8">
-              <KitCompatibility />
-            </div>
-            <div className="grid gap-8 lg:grid-cols-[1fr_330px]">
+            <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_330px]">
               <div className="flex flex-col gap-3">
                 {items.map((it, idx) => {
                   const a: any = (avail as any)[it.listingId];
@@ -286,6 +282,11 @@ export default function CartPage() {
                 </div>
               </aside>
             </div>
+
+            <div className="mt-8">
+              <KitCompatibility />
+            </div>
+            <CartPlanning />
 
             {first && (
               <Recommendations
