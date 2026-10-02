@@ -31,7 +31,7 @@ export type CartItem = {
   perDay: number;
   total: number;
   deposit: number;
-  offerType?: string; // tripod50 / gimbal30 — excluded from promo discount
+  offerType?: string; // legacy saved-basket marker; no pricing or promo effect
 };
 
 type CartCtx = {
@@ -49,7 +49,7 @@ type CartCtx = {
   has: (listingId: string) => boolean;
   count: number;
   subtotal: number; // all rental lines
-  eligibleSubtotal: number; // non-offer lines (promo applies here)
+  eligibleSubtotal: number; // ordinary rental lines eligible for promos
   depositTotal: number;
   promo: string | null;
   setPromo: (code: string | null) => void;
@@ -239,9 +239,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   );
 
   const subtotal = items.reduce((n, i) => n + i.total, 0);
-  const eligibleSubtotal = items
-    .filter((i) => !i.offerType)
-    .reduce((n, i) => n + i.total, 0);
+  const eligibleSubtotal = subtotal;
   const depositTotal = items.reduce((n, i) => n + i.deposit, 0);
 
   return (

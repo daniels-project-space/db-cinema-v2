@@ -2,15 +2,14 @@ import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { quote } from "./lib/pricing";
 import { weekendDays } from "../shared/membership";
-import { OFFER_PCT_BY_TYPE, OFFER_NEEDS_BY_TYPE } from "./offers";
 import { listingImages } from "./lib/catalogImages";
 
 /**
  * SERVER-AUTHORITATIVE line pricing for checkout (anti-tamper). Recomputes each line's
  * total + deposit from the REAL listing using the same quote() the storefront shows, so
- * a tampered cart (e.g. total:1) can't be billed. Offer lines only get a LEGIT contextual
- * discount for their itemType, AND only when the rest of the cart actually earns it — see
- * the eligibility pass below. Returns null for a missing/inactive listing.
+ * a tampered cart (e.g. total:1) can't be billed. Legacy offerType markers are
+ * accepted for saved baskets but no longer change prices. Returns null for a
+ * missing/inactive listing.
  */
 export const repriceLines = internalQuery({
   args: {
@@ -25,10 +24,7 @@ export const repriceLines = internalQuery({
     ),
   },
   handler: async (ctx, { items, undiscounted }) => {
-    // itemType for every line, fetched once — an offer's eligibility depends
-    // on what ELSE is in the cart, not on the line being priced.
     const listings = await Promise.all(items.map((it) => ctx.db.get(it.listingId)));
-    const cartTypes = new Set(listings.filter(Boolean).map((l: any) => l.itemType ?? ""));
 
     const out: ({ title: string; total: number; deposit: number; dailyRate: number; ordinaryTotal:number; offerTotal:number;quietTotal:number; weekendSaving: number } | null)[] = [];
     items.forEach((it, idx) => {
@@ -36,28 +32,9 @@ export const repriceLines = internalQuery({
       if (!l || !l.active) { out.push(null); return; }
       const days = Math.max(1, Math.round((it.end - it.start) / 86400000) + 1);
       const q: any = quote(l.pricing, days);
-      let total = q.total;
-      if (it.offerType) {
-        const type = l.itemType ?? "";
-        const pct = OFFER_PCT_BY_TYPE[type] ?? 0; // only a real offer pct, never client-forged
-        /**
-         * The discount exists to sell an ND filter alongside a lens, a tripod
-         * alongside a camera — never on its own. Without this, offerType was
-         * checked only for truthiness: any client that called cart.add with
-         * offerType:"tripod50" set on a tripod in an otherwise empty basket
-         * still got the 50% at real checkout, because nothing here re-checked
-         * that a lens or camera was actually in the cart. `needs` mirrors the
-         * exact condition offers.forCart already applies when it *suggests*
-         * the deal — re-applying it here is what makes that suggestion-time
-         * gate mean anything at the point money is actually charged.
-         */
-        const needs = OFFER_NEEDS_BY_TYPE[type] ?? [];
-        const earned = needs.some((t) => cartTypes.has(t));
-        if (pct > 0 && earned) total = Math.round(q.total * (1 - pct / 100));
-      }
       // automatic quiet-item discount (idle gear) — applied server-side so the charged price matches the badge
-      const offerTotal=total,quietTotal=l.quietDeal?Math.round(q.total*(1-l.quietDeal/100)):q.total;
-      total=Math.min(offerTotal,quietTotal);
+      const offerTotal=q.total,quietTotal=l.quietDeal?Math.round(q.total*(1-l.quietDeal/100)):q.total;
+      const total=quietTotal;
       out.push({ title: l.title, total: undiscounted ? q.total : total, ordinaryTotal: total, offerTotal,quietTotal, deposit: l.depositAmount ?? 0, dailyRate: l.pricing.daily ?? 0, weekendSaving: weekendDays(it.start, it.end) ? Math.max(0, q.total - quote(l.pricing, days - 1).total) : 0 });
     });
     return out;

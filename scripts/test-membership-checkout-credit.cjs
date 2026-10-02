@@ -114,6 +114,30 @@ async function pay(fixture,fee=1900) {
  assert.equal(shouldResetMembershipPreference({tier:'studio',intro:'none',termsAccepted:false},{...restoredQuote,membershipNetSaving:1}),false,'Profitable selected plans stay selected');
  assert.equal(shouldResetMembershipPreference({tier:'studio',intro:'none',termsAccepted:false},{...restoredQuote,recommendations:[]}),false,'No substitute offer means the old plan remains manageable');
  assert.equal(shouldResetMembershipPreference(null,restoredQuote),false);
+ // Regression for the real five-line £1,905 basket: a retired £45 gear
+ // offer must no longer suppress the actual £39.70 Studio net saving.
+ account=put('accounts',{email:'retired-gear-offer@example.invalid'});
+ camera.pricing.daily=1625;camera.itemType='camera-body';
+ const extras=[['Tripod',90,'tripod'],['Filter',50,'nd-filter'],['Monitor',80,'monitor'],['Light',60,'light']]
+   .map(([title,daily,itemType])=>put('listings',{active:true,title,pricing:{daily},itemType,depositAmount:1000,components:[]}));
+ const restoredBasket={...input(),items:[...input().items,...extras.map(l=>({listingId:l._id,title:l.title,start:Date.UTC(2027,0,4),end:Date.UTC(2027,0,4),qty:1,total:l.itemType==='tripod'?45:l.pricing.daily,deposit:1,...(l.itemType==='tripod'?{offerType:'tripod50'}:{})}))]};
+ assert.deepEqual(await load('convex/offers.ts').forCart.handler(ctx,{items:restoredBasket.items}),[],'No retired gear discounts may be advertised');
+ const retiredBase=await checkout.priceQuote.handler(ctx,restoredBasket);
+ assert.equal(retiredBase.subtotal,1905);
+ assert.equal(retiredBase.items[1].total,90,'Saved discounted client prices and offer markers cannot revive a retired offer');
+ assert.equal(retiredBase.benefitKind,'none');assert.equal(retiredBase.totalReduction,0);
+ assert.deepEqual(retiredBase.membershipOffer,{tier:'studio',netSaving:39.7,state:'join'});
+ for(const variant of ['basket','drawer','checkout'])assert.match(renderQuotedHook(retiredBase,account,variant),/<h3[^>]*>Subscribe to save £39\.70<\/h3>/);
+ const retiredSelected=await checkout.priceQuote.handler(ctx,{...restoredBasket,selectedMembership:{tier:'studio',intro:'none'}});
+ assert.equal(retiredSelected.membershipCreditApplied,128.7);assert.equal(retiredSelected.membershipSignupOfferSaving,10);
+ assert.equal(retiredSelected.combinedTotalDue-retiredSelected.depositAmount,1865.3,'Savings includes the £99 subscription fee and excludes security');
+ extras[0].quietDeal=50;
+ const competingQuiet=await checkout.priceQuote.handler(ctx,restoredBasket);
+ assert.equal(competingQuiet.benefitKind,'quiet');assert.equal(competingQuiet.totalReduction,45);
+ assert.equal(competingQuiet.membershipOffer,null,'Keep no stacking: a genuine larger remaining price benefit still wins');
+ assert.equal(competingQuiet.recommendations.find(r=>r.tier==='studio').netSaving,-5.3);
+ assert.equal(renderQuotedHook(competingQuiet,account),'','Never invent a positive savings card for a more expensive subscription');
+ extras[0].quietDeal=undefined;
  account=put('accounts',{email:'large@example.invalid'});camera.pricing.daily=300;
  const large=await checkout.priceQuote.handler(ctx,input());assert.equal(large.recommendations[0].netSaving,39.7);
  camera.pricing.daily=100;account=put('accounts',{email:'starter-immediate@example.invalid'});
