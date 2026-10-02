@@ -70,6 +70,7 @@ export default function CartPage() {
         ) : (
           <>
             <CheckoutMembership
+              compact
               suggestions={recommendations}
               appliedSavings={quote ?? undefined}
               selected={membership}

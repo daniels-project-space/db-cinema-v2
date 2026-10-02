@@ -27,8 +27,10 @@ export function CheckoutMembership({
   onChange,
   appliedSavings,
   variant = "basket",
+  compact: compactLayout = false,
 }: {
   variant?: "basket" | "checkout";
+  compact?: boolean;
   suggestions?: Suggestion[];
   selected: MembershipSelection | null;
   onChange: (s: MembershipSelection | null) => void;
@@ -147,7 +149,7 @@ export function CheckoutMembership({
     if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
     celebrationTimer.current = setTimeout(() => setCelebrating(false), 2200);
   };
-  const compact = variant === "checkout" && !selected && !current;
+  const compact = compactLayout || variant === "checkout";
   const benefits = [
     `Pay £${displayTier.monthlyGbp}/month → £${displayTier.monthlyCredit.toFixed(2)} credit to spend`,
     "Credit stacks monthly · valid for one year",
@@ -246,21 +248,17 @@ export function CheckoutMembership({
         </p>
         {compact ? (
           <>
-            <label className="mt-2 flex cursor-pointer items-center gap-2 text-[11px] text-white/70">
+            {!current && <label className="mt-2 flex cursor-pointer items-start gap-2 text-[10px] leading-4 text-white/55">
               <input
                 type="checkbox"
-                className="h-4 w-4 accent-[#acd17c]"
-                checked={false}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[#acd17c]"
+                checked={confirmed}
                 onChange={(e) => {
                   if (e.target.checked) confirmSelection();
+                  else if (selected) onChange({ ...selected, termsAccepted: false });
                 }}
               />
-              <span>Start my membership now</span>
-            </label>
-            <p
-              id={consentId}
-              className="mt-2 text-[10px] leading-4 text-white/45"
-            >
+              <span id={consentId}>
               Selecting this card confirms the{" "}
               <Link
                 href="/legal/membership"
@@ -269,8 +267,15 @@ export function CheckoutMembership({
               >
                 subscription terms
               </Link>{" "}
-              and monthly renewal. Cancel in account settings.
-            </p>
+              and £{displayTier.monthlyGbp}/month renewal. Cancel in account settings.
+              </span>
+            </label>}
+            {selected && <div className="mt-2 flex items-center justify-between gap-2 text-[10px]">
+              <span role="status" className="text-emerald-300">
+                {confirmed ? "Membership added · consent confirmed" : "Membership added · confirm terms"}
+              </span>
+              <button type="button" data-testid="remove-membership" onClick={() => onChange(null)} className="text-white/45 underline">Remove membership</button>
+            </div>}
           </>
         ) : (
           <>
