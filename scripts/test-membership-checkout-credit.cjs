@@ -4,6 +4,7 @@ const realNow=Date.now,now=realNow();Date.now=()=>now;
 const billing=load('convex/membershipBenefits.ts'),bookings=load('convex/bookings.ts'),checkout=load('convex/checkout.ts');
 const {calculateRentalPrice}=load('convex/lib/rentalPrice.ts'),catalog=load('convex/catalog.ts');
 const {MEMBERSHIP_TERMS_VERSION}=load('shared/membership.ts');
+const {shouldResetMembershipPreference}=load('shared/membershipSelection.ts');
 const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:100000,components:[]});
 let account;
 const ctx={db,scheduler:{runAfter:async()=>{}},runQuery:async(ref,args)=>{
@@ -39,6 +40,21 @@ async function pay(fixture,fee=1900) {
   if(tier)assert.equal(quote.recommendations[0].intro,'none','weekday offer starts paid membership to use credit now');
  }
  camera.pricing.daily=300;
+ // A restored Studio choice can lose money while Starter saves money after
+ // refund credits. It must not blank the profitable offer or preserve consent.
+ account=put('accounts',{email:'restored-refund@example.invalid'});
+ camera.pricing.daily=100;
+ put('credits',{accountId:account._id,amount:80,remaining:80,kind:'refund',createdAt:now,expiresAt:now+86400000,status:'active'});
+ const restoredQuote=await checkout.priceQuote.handler(ctx,{...input(),selectedMembership:{tier:'studio',intro:'none'}});
+ assert.equal(restoredQuote.membershipNetSaving,-79);
+ assert.equal(restoredQuote.recommendations[0].tier,'plus');
+ assert.equal(restoredQuote.recommendations[0].netSaving,1);
+ assert.equal(shouldResetMembershipPreference({tier:'studio',intro:'none',termsAccepted:false},restoredQuote),true);
+ assert.equal(shouldResetMembershipPreference({tier:'studio',intro:'none',termsAccepted:true},restoredQuote),false,'Never replace a plan explicitly confirmed in this checkout');
+ assert.equal(shouldResetMembershipPreference({tier:'studio',intro:'none',termsAccepted:false},{...restoredQuote,membershipNetSaving:1}),false,'Profitable selected plans stay selected');
+ assert.equal(shouldResetMembershipPreference({tier:'studio',intro:'none',termsAccepted:false},{...restoredQuote,recommendations:[]}),false,'No substitute offer means the old plan remains manageable');
+ assert.equal(shouldResetMembershipPreference(null,restoredQuote),false);
+ account=put('accounts',{email:'large@example.invalid'});camera.pricing.daily=300;
  const large=await checkout.priceQuote.handler(ctx,input());assert.equal(large.recommendations[0].netSaving,39.7);
  camera.pricing.daily=100;account=put('accounts',{email:'starter-immediate@example.invalid'});
  const f=await prepare();assert.equal(f.price.membershipCreditApplied,20.9);assert.equal(f.price.membershipSignupOfferSaving,5);assert.equal(f.price.combinedTotalDue,f.price.depositAmount+93.1);

@@ -5,6 +5,7 @@ import { api } from "@cvx/_generated/api";
 import { dayMs } from "@/lib/dates";
 import { useCart } from "./CartProvider";
 import { useAccount } from "../account/AccountProvider";
+import { shouldResetMembershipPreference } from "../../../shared/membershipSelection";
 export function useBasketPrice(enabled = true) {
   const cart = useCart(),
     account = useAccount(),
@@ -42,7 +43,13 @@ export function useBasketPrice(enabled = true) {
     const timer = setTimeout(() => {
       priceQuote(args)
         .then((quote) => {
-          if (!cancelled) setResult({ key, quote });
+          if (!cancelled) {
+            if (shouldResetMembershipPreference(cart.membership, quote)) {
+              cart.setMembership(null);
+              return;
+            }
+            setResult({ key, quote });
+          }
         })
         .catch((e) => {
           if (!cancelled)
