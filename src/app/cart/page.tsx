@@ -9,7 +9,6 @@ import { CartPlanning } from "@/components/plans/CartPlanning";
 import { KitCompatibility } from "@/components/cart/KitCompatibility";
 import { useCart } from "@/components/cart/CartProvider";
 import { usePromo } from "@/components/cart/usePromo";
-import { Offers } from "@/components/Offers";
 import { Recommendations } from "@/components/Recommendations";
 import { formatGbp } from "@/lib/pricing";
 import { CheckoutMembership } from "@/components/CheckoutMembership";
@@ -115,11 +114,6 @@ export default function CartPage() {
                         >
                           {it.title}
                         </Link>
-                        {it.offerType && (
-                          <span className="ml-2 rounded bg-emerald-500/20 px-1.5 py-0.5 font-mono text-[10px] uppercase text-emerald-300">
-                            offer
-                          </span>
-                        )}
                         <div className="mt-1.5 font-mono text-xs text-white/40">
                           {it.start} → {it.end} · {it.days}d
                         </div>
@@ -283,7 +277,6 @@ export default function CartPage() {
               </aside>
             </div>
 
-            <Offers />
             {first && (
               <Recommendations
                 start={first.start}

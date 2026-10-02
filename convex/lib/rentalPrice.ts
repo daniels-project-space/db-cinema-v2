@@ -121,7 +121,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   let depositAmount = securityWaiverReason ? 0 : depositChargeFor(protection, replacementSum);
   const month = londonMonth();
   const freedCount = 0;
-  const discountable = items.filter(i => !i.offerType).reduce((n, i) => n + i.total, 0);
+  const discountable = subtotal;
   let promoDiscount = 0, promoCode: string | undefined;
   let referral: any = null;
   if (a.promoCode?.trim().toUpperCase().startsWith("DBC-") || acct?.referralRewardGrantedAt)
@@ -163,7 +163,6 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     Math.round(Math.max(0,subtotal-refundBefore-existingBefore)*100),acct?.membershipCreditDebtPence);
   const pence = (n:number)=>Math.max(0,Math.round(n*100));
   const chosen = bestBenefit([
-    {kind:"catalog_offer",savingPence:pence(subtotal-raw.reduce((n,r)=>n+(r.offerTotal??r.ordinaryTotal??r.total),0)),label:"Gear offer"},
     {kind:"quiet",savingPence:pence(subtotal-raw.reduce((n,r)=>n+(r.quietTotal??r.total),0)),label:"Quiet gear saving"},
     {kind:"promo",savingPence:pence(promoDiscount),label:promoCode?.toUpperCase()??"Promo saving"},
     {kind:"weekend",savingPence:pence(weekendCandidate),label:"Member weekend deal · £100 cap"},

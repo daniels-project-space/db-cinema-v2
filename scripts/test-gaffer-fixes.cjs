@@ -89,8 +89,8 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     return pending;
   }
   let order=await checkout([500,50],{submittedTitle:'Forged title'}); assert.equal(order.discount,0,'never automatic'); assert.equal(order.lineItems[0].title,'Real item 0','booking title comes from catalog');
-  order=await checkout([500,50],{code:'gaffer10',submittedTotal:1}); assert.equal(order.subtotal,550);assert.equal(order.discount,50);assert.equal(order.lineItems[1].lineTotal,50);
-  order=await checkout([390,60],{code:'gaffer10'});assert.equal(order.discount,39,'offer counts toward threshold, not saving');
+  order=await checkout([500,50],{code:'gaffer10',submittedTotal:1}); assert.equal(order.subtotal,550);assert.equal(order.discount,55);assert.equal(order.lineItems[1].lineTotal,50);
+  order=await checkout([390,60],{code:'gaffer10'});assert.equal(order.discount,45,'retired offer markers do not exclude ordinary-priced gear from a promo');
   order=await checkout([400],{code:'gaffer10',deliveryFee:200});assert.equal(order.discount,0,'delivery/deposit do not qualify order');
   order=await checkout([401],{code:'gaffer10'});assert.equal(order.discount,40.1);
   order=await checkout([350],{code:'gaffer10'});assert.equal(order.discount,0,'discount is removed after basket shrinks');
@@ -237,5 +237,5 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   assert.doesNotMatch(sessions[2].updates.join(' '),/Alex/,'new call does not inherit private history');
   sessions[2].cfg.onMessage({source:'user',message:'goodbye'});now+=10_000;sessions[2].cfg.onDisconnect();
   assert.equal(sessions.length,3,'intentional sign-off never reconnects');
-  console.log('PASS: discount boundaries, offer exclusion, explicit requests, authoritative checkout repricing, deposit/delivery exclusion, changed baskets, reconnect history, fresh basket, stale callbacks, deliberate reset and sign-off.');
+  console.log('PASS: discount boundaries, retired offer compatibility, explicit requests, authoritative checkout repricing, deposit/delivery exclusion, changed baskets, reconnect history, fresh basket, stale callbacks, deliberate reset and sign-off.');
 })().catch(e=>{console.error(e);process.exitCode=1});
