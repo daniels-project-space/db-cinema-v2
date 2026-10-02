@@ -34,7 +34,7 @@ async function connect(url, existingId) {
       const id = ++serial;
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(Error('Browser command timed out: '+method));
+        reject(Error('Browser command timed out: '+method+(method==='Runtime.evaluate'?' '+params.expression?.slice(0,240):'')));
       }, 30000);
       pending.set(id, { resolve, reject, timer });
       ws.send(JSON.stringify({ id, method, params }));
@@ -151,7 +151,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // Release decorative media decoders before tearing down the document.
     // Cards and their animations are tested before this navigation step.
     await c.evaluate("document.querySelectorAll('video').forEach(v=>v.pause());true");
-    await c.cmd("Page.reload");
+    await loadDocument("Page.reload");
     await until(
       `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,
     );
@@ -162,10 +162,26 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const previous = await c.evaluate("performance.timeOrigin");
     await c.evaluate("document.querySelectorAll('video').forEach(v=>v.pause());true");
     console.log({ navigation: new URL(url).pathname });
-    await c.cmd("Page.navigate", { url });
+    await loadDocument("Page.navigate", { url });
     await until(
       `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,
     );
+  }
+  async function loadDocument(method, params = {}) {
+    // Runtime.evaluate sent during document teardown can be stranded in the
+    // old execution context (notably after Stripe's frames were loaded).
+    // Wait for the real main-document load before querying the new context.
+    let finished = false, timer;
+    const loaded = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {finished = true;reject(Error('Document load timed out: '+method));},30000);
+      c.on(event => {
+        if (!finished && event.method === 'Page.loadEventFired') {
+          finished = true;clearTimeout(timer);resolve();
+        }
+      });
+    });
+    await c.cmd(method, params);
+    await loaded;
   }
   async function shot(name) {
     let s = await c.cmd("Page.captureScreenshot", { format: "png" });
@@ -189,6 +205,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // scrolling to it hid the disappearing-card defect in the older test.
     await c.evaluate(`(()=>{window.__missingMembershipOffer=false;window.__membershipOfferObserver=new MutationObserver(()=>{const card=(${card});if(!card||card.querySelector('h3')?.innerText!==${JSON.stringify(hook)})window.__missingMembershipOffer=true});window.__membershipOfferObserver.observe(document.body,{childList:true,subtree:true,characterData:true})})()`);
     await nativeClick(`(${card}).querySelector('[data-testid="remove-membership"]')`);
+    if (name === 'checkout') {
+      await until(`!!document.querySelector('[data-testid="membership-remove-dialog"]')`);
+      assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-remove-dialog"]').innerText.includes(${JSON.stringify(hook.match(/£[\d.]+/)[0])})`),true,'Removal confirmation quotes the exact current net saving');
+      await nativeClick(`document.querySelector('[data-testid="keep-membership"]')`);
+      await until(`!document.querySelector('[data-testid="membership-remove-dialog"]')`);
+      assert.equal(await c.evaluate(`(${card}).dataset.membershipSelected`),'true','Keeping savings leaves membership and consent unchanged');
+      await nativeClick(`(${card}).querySelector('[data-testid="remove-membership"]')`);
+      await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
+      await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
+    }
     await until(`!!(${card})?.querySelector('[data-testid="add-membership"]')`);
     await shot(name+'-removed-no-rescroll');
     await wait(1200);
@@ -394,6 +420,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.equal(await c.evaluate(`getComputedStyle(document.querySelector('[data-testid="membership-celebration"]')).display`),'none','Reduced motion keeps the selection state without the burst');
   await removeAndReadd('', 'checkout');
   await nativeClick(`document.querySelector('[data-testid="remove-membership"]')`);
+  await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
+  await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
   await until(`!!document.querySelector('[data-testid="add-membership"]')`);
   await c.evaluate(
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
@@ -460,6 +488,27 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`!!document.querySelector('[data-testid="potential-membership-savings"]')`);
   assert((await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`)).includes(bigWeekdayQuote.recommendations[0].netSaving.toFixed(2)));
   await shot("weekday-immediate-credit-mobile");
+  // Removing real £100 lines crosses Studio → Pro → Starter. Preserve the
+  // card space while pricing, with no stale saving or selectable stale plan.
+  const transitionGear=rows.filter(g=>g.pricing?.daily===100&&!g.displayOnly&&!g.quietDeal).slice(0,3);
+  assert.equal(transitionGear.length,3);
+  let transitionItems=transitionGear.map((g,n)=>({...bigWeekdayItem,key:'tier-transition-'+n,listingId:g._id,title:g.title,slug:g.slug,heroImage:g.heroImage,deposit:g.depositAmount,total:100,perDay:100}));
+  await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(transitionItems))});localStorage.removeItem('dbc_membership_selection_v1');true`);
+  await navigate(root+'/cart');
+  await until(`document.querySelector('[data-testid="membership-upsell"]')?.textContent.includes('Studio subscription')&&!!document.querySelector('[data-testid="potential-membership-savings"]')`);
+  for(const expectedTier of ['pro','starter']){
+    const previousHeight=await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').getBoundingClientRect().height`);
+    await nativeClick(`document.querySelector('main button[aria-label^="Remove "]')`);
+    await until(`document.querySelector('[data-testid="membership-upsell"]')?.getAttribute('aria-busy')==='true'`);
+    assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="potential-membership-savings"],main [data-testid="add-membership"]')`),false,'Pending repricing never shows an old amount or lets an old plan be selected');
+    assert(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').getBoundingClientRect().height>=${previousHeight}`),'The tile keeps its space while recalculating');
+    transitionItems=transitionItems.slice(1);
+    const transitionQuote=await cv.action(api.checkout.priceQuote,{...bigWeekdayArgs,items:transitionItems.map(i=>({...bigWeekdayArgs.items[0],listingId:i.listingId,title:i.title}))});
+    const offer=transitionQuote.recommendations.find(r=>r.netSaving>0);
+    assert.equal(offer.tier,expectedTier);
+    await until(`document.querySelector('[data-testid="potential-membership-savings"]')?.innerText===${JSON.stringify('Subscribe to save £'+offer.netSaving.toFixed(2))}`);
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').textContent.includes(${JSON.stringify(offer.name+' subscription')})`),true,'The lower plan and savings update together from the new quote');
+  }
   // Compact checkout enrolment includes explicit recurring terms in the checkbox.
   // Below £100 there must be no unsolicited subscription offer.
   const cheap = rows.filter(l=>l.pricing && !l.displayOnly && l.pricing.daily<30).sort((a,b)=>a.pricing.daily-b.pricing.daily)[0];

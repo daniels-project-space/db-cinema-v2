@@ -28,9 +28,11 @@ export function CheckoutMembership({
   appliedSavings,
   variant = "basket",
   compact: compactLayout = false,
+  loading = false,
 }: {
   variant?: "basket" | "checkout";
   compact?: boolean;
+  loading?: boolean;
   suggestions?: Suggestion[];
   selected: MembershipSelection | null;
   onChange: (s: MembershipSelection | null) => void;
@@ -53,8 +55,12 @@ export function CheckoutMembership({
   const { me } = useAccount(),
     [open, setOpen] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const celebrationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consentId = useId();
+  const card = useRef<HTMLElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const lastCard = useRef<{tier: string; height: number} | null>(null);
   useEffect(
     () => () => {
       if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
@@ -96,17 +102,21 @@ export function CheckoutMembership({
     : tier
       ? appliedNetSaving
       : potentialNetSaving;
+  const pending = loading && !appliedSavings && !recommend && !!lastCard.current;
   const showMembershipCard =
-    !!selected || saving > 0 || (!!current && !appliedSavings);
+    pending || !!selected || saving > 0 || (!!current && !appliedSavings);
   const dialog = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!open) return;
+    if (!open && !removeOpen) return;
     const previous = document.activeElement as HTMLElement | null;
     const scroll = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     dialog.current?.focus();
     const keys = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        setRemoveOpen(false);
+      }
       if (e.key === "Tab") {
         const nodes = dialog.current?.querySelectorAll<HTMLElement>(
           'button, a[href], input, [tabindex="0"]',
@@ -133,8 +143,21 @@ export function CheckoutMembership({
       document.removeEventListener("keydown", keys);
       previous?.focus();
     };
-  }, [open]);
+  }, [open, removeOpen]);
   const displayTier = quotedTier ?? tier ?? recommendedTier;
+  useEffect(() => {
+    if (loading || !showMembershipCard || !card.current) return;
+    if (lastCard.current && lastCard.current.tier !== displayTier.key &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const transition = content.current?.animate(
+        [{opacity: 0.3, transform: 'translateY(4px)'}, {opacity: 1, transform: 'translateY(0)'}],
+        {duration: 240, easing: 'cubic-bezier(0.16,1,0.3,1)'},
+      );
+      lastCard.current = {tier: displayTier.key, height: card.current.getBoundingClientRect().height};
+      return () => transition?.cancel();
+    }
+    lastCard.current = {tier: displayTier.key, height: card.current.getBoundingClientRect().height};
+  }, [loading, showMembershipCard, displayTier.key]);
   const savingsHook =
     saving > 0 ? `Subscribe to save £${saving.toFixed(2)}` : null;
   const confirmed = !!selected?.termsAccepted;
@@ -150,6 +173,10 @@ export function CheckoutMembership({
     celebrationTimer.current = setTimeout(() => setCelebrating(false), 2200);
   };
   const compact = compactLayout || variant === "checkout";
+  const removeSelection = () => {
+    if (variant === "checkout") setRemoveOpen(true);
+    else onChange(null);
+  };
   const benefits = [
     `Pay £${displayTier.monthlyGbp}/month → £${displayTier.monthlyCredit.toFixed(2)} credit to spend`,
     "Credit stacks monthly · valid for one year",
@@ -169,15 +196,18 @@ export function CheckoutMembership({
   return (
     <>
     {showMembershipCard && <section
+      ref={card}
       data-testid="membership-upsell"
+      aria-busy={pending || undefined}
+      style={pending ? {minHeight: lastCard.current?.height} : undefined}
       data-membership-compact={compact || undefined}
       aria-label="Subscription for your rental"
       data-membership-selected={confirmed || undefined}
       data-membership-celebrating={celebrating || undefined}
-      className={`membership-pitch relative my-3 rounded-2xl border border-white/15 ${compact ? "p-3" : "p-4"}`}
+      className={`membership-pitch relative my-3 rounded-2xl border border-white/15 ${compact ? "p-2.5" : "p-4"}`}
     >
       <div className="membership-pitch-rim" aria-hidden="true" />
-      {!current && (
+      {!current && !pending && (
         <button
           type="button"
           data-testid={!selected ? "add-membership" : "confirm-membership-card"}
@@ -224,7 +254,11 @@ export function CheckoutMembership({
           })}
         </div>
       )}
-      <div className="membership-pitch-content pointer-events-none relative z-[2]">
+      <div ref={content} className="membership-pitch-content pointer-events-none relative z-[2]">
+        {pending ? <div role="status" className="py-2">
+          <div aria-hidden="true" className="h-8 w-4/5 rounded-lg bg-white/5 motion-safe:animate-pulse" />
+          <p className="mt-3 text-[10px] text-white/45">Updating rental savings…</p>
+        </div> : <>
         {savingsHook ? (
           <h3
             data-testid={
@@ -243,12 +277,15 @@ export function CheckoutMembership({
             className="h-14 rounded-lg bg-white/5 motion-safe:animate-pulse"
           />
         ) : null}
-        <p className="mt-2 font-mono text-[9px] uppercase tracking-[.15em] text-white/50">
-          {displayTier.name} subscription · £{displayTier.monthlyGbp}/month
-        </p>
+        <div className={`${compact ? "mt-1" : "mt-2"} flex items-center justify-between gap-2`}>
+          <p className="font-mono text-[9px] uppercase tracking-[.15em] text-white/50">
+            {displayTier.name} subscription · £{displayTier.monthlyGbp}/month
+          </p>
+          {compact && selected && <button type="button" data-testid="remove-membership" onClick={removeSelection} className="shrink-0 text-[10px] text-white/45 underline">Remove membership</button>}
+        </div>
         {compact ? (
           <>
-            {!current && <label className="mt-2 flex cursor-pointer items-start gap-2 text-[10px] leading-4 text-white/55">
+            {!current && <label className="mt-1 flex cursor-pointer items-start gap-2 text-[9px] leading-[14px] text-white/55">
               <input
                 type="checkbox"
                 className="mt-0.5 h-4 w-4 shrink-0 accent-[#acd17c]"
@@ -270,12 +307,9 @@ export function CheckoutMembership({
               and £{displayTier.monthlyGbp}/month renewal. Cancel in account settings.
               </span>
             </label>}
-            {selected && <div className="mt-2 flex items-center justify-between gap-2 text-[10px]">
-              <span role="status" className="text-emerald-300">
+            {selected && <span role="status" className="sr-only">
                 {confirmed ? "Membership added · consent confirmed" : "Membership added · confirm terms"}
-              </span>
-              <button type="button" data-testid="remove-membership" onClick={() => onChange(null)} className="text-white/45 underline">Remove membership</button>
-            </div>}
+              </span>}
           </>
         ) : (
           <>
@@ -344,7 +378,7 @@ export function CheckoutMembership({
                   <button
                     type="button"
                     data-testid="remove-membership"
-                    onClick={() => onChange(null)}
+                    onClick={removeSelection}
                     className="text-[10px] text-white/45 underline"
                   >
                     Remove membership
@@ -355,7 +389,7 @@ export function CheckoutMembership({
           </>
         )}
         {!current && (
-          <p className="mt-2 text-[10px] leading-4 text-white/45">
+          <p className={compact ? "mt-1 text-[9px] leading-3 text-white/45" : "mt-2 text-[10px] leading-4 text-white/45"}>
             {compact
               ? "First rental: normal verification & refundable security. Other perks start next booking."
               : "This first rental still requires verification and normal upfront refundable security. Other perks start on future bookings."}
@@ -369,8 +403,23 @@ export function CheckoutMembership({
         >
           See the subscription benefits
         </button>}
+        </>}
       </div>
     </section>}
+      {removeOpen && createPortal(
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/75 p-5 backdrop-blur-lg" onClick={() => setRemoveOpen(false)}>
+          <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={`${consentId}-remove-title`} aria-describedby={`${consentId}-remove-copy`} data-testid="membership-remove-dialog" onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-3xl border border-accent-300/25 bg-[#151a17] p-6 shadow-[0_0_70px_#acd17c12]">
+            <h2 id={`${consentId}-remove-title`} className="font-display text-3xl text-white">Are you sure?</h2>
+            <p id={`${consentId}-remove-copy`} className="mt-3 text-sm leading-6 text-white/65">
+              {saving > 0 ? <>If you remove the subscription, you’ll lose <strong className="text-accent-200">£{saving.toFixed(2)} in savings on this booking</strong> and the other great membership benefits.</> : <>Removing the subscription also removes its credit and future membership benefits.</>}
+            </p>
+            <div className="mt-5 grid gap-2">
+              <button type="button" data-testid="keep-membership" onClick={() => setRemoveOpen(false)} className="btn-primary w-full py-3 text-sm">{saving > 0 ? "Keep my savings" : "Keep my membership"}</button>
+              <button type="button" data-testid="confirm-remove-membership" onClick={() => {setRemoveOpen(false);onChange(null);}} className="w-full rounded-xl border border-white/10 py-3 text-xs text-white/55">Remove membership</button>
+            </div>
+          </div>
+        </div>, document.body
+      )}
       {open &&
         createPortal(
           <div
