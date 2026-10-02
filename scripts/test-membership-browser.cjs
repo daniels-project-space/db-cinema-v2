@@ -135,6 +135,15 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,
     );
   }
+  async function navigate(url) {
+    // CDP navigation acknowledges before the old document is replaced. Wait
+    // for the new document so an old price panel cannot satisfy readiness.
+    const previous = await c.evaluate("performance.timeOrigin");
+    await c.cmd("Page.navigate", { url });
+    await until(
+      `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,
+    );
+  }
   async function shot(name) {
     let s = await c.cmd("Page.captureScreenshot", { format: "png" });
     fs.writeFileSync(
@@ -142,7 +151,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       Buffer.from(s.data, "base64"),
     );
   }
-  await c.cmd("Page.navigate", { url: root + "/cart" });
+  await navigate(root + "/cart");
   await wait(1500);
   await c.evaluate(
     `localStorage.clear();localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([item]))});true`,
@@ -339,7 +348,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('consent confirmed')`),true,'One-click checkout opt-in confirms monthly terms');
   await until(`document.querySelector('[data-testid="checkout-summary"]').innerText.includes('One-time joining credit')`);
   // The homepage placement is checked against the actual rendered sections.
-  await c.cmd("Page.navigate", { url: root + "/" });
+  await navigate(root + "/");
   await until(`!!document.querySelector('.fund-invite')`);
   let placement = await c.evaluate(
     `(()=>{let f=document.querySelector('.fund-invite');return {previousText:f.previousElementSibling?.innerText.slice(0,100),afterGear:!!f.previousElementSibling?.querySelector('a[href^="/gear"]')}})()`,
@@ -359,7 +368,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert(bigWeekdayQuote.recommendations[0].membershipCreditApplied > 0);
   const bigWeekdayItem = {...item,key:l._id+":big-weekday",start:new Date(weekdayStart).toISOString().slice(0,10),end:new Date(weekdayEnd).toISOString().slice(0,10),days:1,total:bigWeekdayQuote.items[0].total,perDay:bigWeekdayQuote.items[0].total};
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([bigWeekdayItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`);
-  await c.cmd("Page.navigate", {url:root+"/cart"});
+  await navigate(root+"/cart");
   await until(`!!document.querySelector('[data-testid="potential-membership-savings"]')`);
   assert((await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`)).includes(bigWeekdayQuote.recommendations[0].netSaving.toFixed(2)));
   await shot("weekday-immediate-credit-mobile");
@@ -385,7 +394,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.evaluate(
     `localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([weekdayItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`,
   );
-  await c.cmd("Page.navigate", { url: root + "/cart" });
+  await navigate(root + "/cart");
   await until(
     `!!document.querySelector('[data-testid="basket-due"]')&&document.querySelector('[data-testid="basket-due"]').textContent.includes('£')`,
   );
@@ -445,7 +454,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const secondStart=weekdayStart+30*86400000;
   const secondItem={...weekdayItem,key:cheap._id+":second-dates",start:new Date(secondStart).toISOString().slice(0,10),end:new Date(secondStart).toISOString().slice(0,10)};
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([weekdayItem,secondItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`);
-  await c.cmd("Page.navigate",{url:root+"/cart"});
+  await navigate(root+"/cart");
   await until(`document.querySelectorAll('main [data-cart-dates]').length===2&&document.querySelector('[data-testid="basket-due"]')?.textContent.includes('£')`);
   assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="basket-summary"]');return !s.innerText.includes('Refundable security payment (50%)')&&!s.innerText.includes('Separate card hold')})()`),true);
   await c.evaluate(`document.querySelector('main [data-cart-dates] button').click()`);
@@ -489,7 +498,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert.equal(bandQuote.depositAmount,100);assert.equal(bandQuote.depositHoldAmount,band==='deposit-only'?0:100);
     const bandItem={...weekdayItem,key:fixture._id+':security-band',listingId:fixture._id,title:fixture.title,slug:fixture.slug,heroImage:fixture.heroImage,deposit:fixture.depositAmount,total:bandQuote.items[0].total};
     await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([bandItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`);
-    await c.cmd('Page.navigate',{url:root+'/checkout'});
+    await navigate(root+'/checkout');
     const bandDue=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(bandQuote.combinedTotalDue);
     await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(bandDue)}`);
     assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="rental-consent"] input[type="checkbox"]').length`),1,'One combined rental consent checkbox');
