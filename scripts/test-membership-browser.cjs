@@ -186,9 +186,24 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     );
     await shot("offer-" + width);
   }
-  await c.evaluate(
-    `document.querySelector('[data-testid="add-membership"]').click()`,
-  );
+  assert((await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`)).startsWith('Add a subscription and save £'));
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Includes £')`),false,'Joining credit is in the canonical headline saving, without an includes-credit line');
+  await c.cmd("Emulation.setEmulatedMedia", {features:[{name:"prefers-reduced-motion",value:"no-preference"}]});
+  await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').scrollIntoView({block:'center'})`);
+  const point=await c.evaluate(`(()=>{const r=document.querySelector('[data-testid="potential-membership-savings"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+  await c.cmd('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
+  await c.cmd('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point});
+  await until(`document.querySelector('[data-testid="membership-upsell"]').dataset.membershipSelected==='true'`);
+  assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="membership-celebration"] .membership-confetti').length`),36,'Whole headline click starts one real confetti burst');
+  assert.equal(await c.evaluate(`document.querySelector('.membership-confetti').getAnimations().some(a=>a.playState==='running')`),true,'Confetti is animated, not a static decoration');
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('£99/month → £128.70 credit to spend')&&document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Subscription-exclusive weekends')`),true,'Studio card explains price versus credit and exclusive weekend deals');
+  await wait(350);
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"] h3')?.innerText.startsWith('Subscription added · save £')`),true,'The canonical saving stays visible throughout the selection burst');
+  await shot('selection-confetti-mobile');
+  await until(`!document.querySelector('[data-testid="membership-celebration"]')`);
+  await c.evaluate(`document.querySelector('[data-testid="confirm-membership-card"]').click()`);
+  assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')`),false,'Clicking a confirmed card never replays confetti');
+  await c.cmd("Emulation.setEmulatedMedia", {features:[{name:"prefers-reduced-motion",value:"reduce"}]});
   await until(
     `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`,
   );
@@ -283,7 +298,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(
     `!document.querySelector('[role="dialog"][aria-label="Subscription benefits"]')`,
   );
-  // Real client navigation carries the one-click selection without a fresh consent claim.
+  // Real client navigation carries the explicit card-selection consent.
   await c.evaluate(
     `setTimeout(()=>[...document.querySelectorAll('a')].find(a=>a.textContent.includes('Secure checkout')).click(),0);true`,
   );
@@ -297,7 +312,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await c.evaluate(
       `document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]').checked`,
     ),
-    false,
+    true,
   );
   await until(
     `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('This first rental still requires verification')`,
@@ -317,6 +332,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     ),
     false,
   );
+  assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')`),false,'Reload never replays a selection celebration');
+  await c.evaluate(`document.querySelector('[data-testid="confirm-membership-card"]').focus()`);
+  await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13});
+  await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]').checked===true`);
+  assert.equal(await c.evaluate(`getComputedStyle(document.querySelector('[data-testid="membership-celebration"]')).display`),'none','Reduced motion keeps the selection state without the burst');
   await c.evaluate(
     `[...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership').click()`,
   );
@@ -325,7 +346,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
   );
   await until(
-    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Subscribe and save')`,
+    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Add a subscription and save')`,
   );
   await c.cmd("Emulation.setDeviceMetricsOverride", {
     width: 390,

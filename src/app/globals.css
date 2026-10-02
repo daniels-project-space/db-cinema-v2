@@ -3253,3 +3253,20 @@ html[data-gaffer-nav="1"] .tile-in {
 @keyframes story-ticket-float { 50% { transform:translateY(-8px) rotate(-1deg); } }
 @keyframes story-heart-beat { 50% { transform:scale(1.12); } }
 @media(prefers-reduced-motion:reduce) { .story-prize-ticket,.story-ticket-heart { animation:none!important; } }
+
+/* Membership selection: a single burst on the customer's explicit click. */
+.membership-pitch-content :is(a, button, input) { pointer-events:auto; }
+.membership-card-select { cursor:pointer; outline:none; }
+.membership-card-select:focus-visible { outline:2px solid #e5f6bb; outline-offset:4px; }
+.membership-pitch { transition:background .4s ease, border-color .4s ease, box-shadow .4s ease; }
+.membership-pitch[data-membership-selected] { background:radial-gradient(ellipse at 20% 0%,#84d79530,transparent 65%),linear-gradient(125deg,#283b26,#15251b 65%); border-color:#d4efaa90; box-shadow:0 0 0 1px #bff09c35,0 0 32px #acd17c30,inset 0 0 24px #b8e5960d; }
+.membership-pitch[data-membership-selected] .membership-pitch-rim { filter:drop-shadow(0 0 8px #cff5a5); }
+.membership-celebration { pointer-events:none; }
+.membership-selection-wave { position:absolute; inset:-25%; background:radial-gradient(ellipse,#e9ffd250 0%,#a8f0b822 22%,transparent 62%); animation:membership-select-wave 1.2s ease-out both; }
+.membership-selection-shimmer { position:absolute; inset:-30%; background:linear-gradient(115deg,transparent 35%,#eaffd63a 48%,transparent 59%); animation:membership-select-shimmer 1.5s ease-out both; }
+.membership-confetti { position:absolute; left:50%; top:40%; width:7px; height:4px; border-radius:1px; box-shadow:0 0 7px #e7ffc840; opacity:0; animation:membership-confetti-burst 1.75s cubic-bezier(.15,.7,.25,1) var(--confetti-delay) both; }
+.membership-confetti-star { width:10px; height:10px; clip-path:polygon(50% 0,61% 35%,100% 50%,61% 62%,50% 100%,38% 62%,0 50%,38% 35%); }
+@keyframes membership-select-wave { from { opacity:0; transform:scale(.3); } 20% { opacity:1; } to { opacity:0; transform:scale(1.25); } }
+@keyframes membership-select-shimmer { from { opacity:0; transform:translateX(-65%); } 20% { opacity:1; } to { opacity:0; transform:translateX(70%); } }
+@keyframes membership-confetti-burst { 0% { opacity:0; transform:translate(-50%,-50%) scale(.3) rotate(0); } 12% { opacity:1; } 62% { opacity:1; transform:translate(calc(-50% + var(--confetti-x)),calc(-50% + var(--confetti-y))) scale(1) rotate(var(--confetti-spin)); } 100% { opacity:0; transform:translate(calc(-50% + var(--confetti-x)),calc(-50% + var(--confetti-y) + 90px)) scale(.75) rotate(calc(var(--confetti-spin) + 110deg)); } }
+@media(prefers-reduced-motion:reduce) { .membership-celebration { display:none; } .membership-pitch { transition:none; } }
