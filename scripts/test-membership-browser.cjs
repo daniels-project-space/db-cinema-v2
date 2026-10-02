@@ -107,12 +107,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.cmd("Page.enable");
   await c.cmd("Network.enable");
   await c.cmd("Network.setCacheDisabled", { cacheDisabled: true });
-  // Watch transient states too: a restored selection must never replace the
-  // rental-saving hook with a monthly-credit headline while quotes load.
+  // Watch transient states too: the requested hook must stay exact through
+  // selection, restored baskets and quote loading. No invented alternatives.
   await c.cmd("Page.addScriptToEvaluateOnNewDocument", {source: `
     new MutationObserver(() => {
-      const heading = document.querySelector('[data-testid="membership-upsell"] h3');
-      if (heading && /credit every paid month/i.test(heading.textContent)) {
+      const heading = document.querySelector('[data-testid="membership-upsell"] h3, [data-testid="membership-upsell"] [data-testid="potential-membership-savings"]');
+      if (heading && !/^Subscribe and save £\\d+\\.\\d{2} on this rental$/.test(heading.textContent.trim())) {
         window.__dbcMembershipHeadlineRegression = heading.textContent;
       }
     }).observe(document, {subtree:true, childList:true, characterData:true});
@@ -124,7 +124,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     for (let i = 0; i < 100; i++) {
       try {
         if (await c.evaluate(expr)) {
-          assert.equal(await c.evaluate('window.__dbcMembershipHeadlineRegression || null'),null,'The savings hook must never revert to a monthly-credit headline, including quote loading and restored selections');
+          assert.equal(await c.evaluate('window.__dbcMembershipHeadlineRegression || null'),null,'Use exactly Subscribe and save £X on this rental in all card states');
           return;
         }
       } catch (e) {
@@ -199,7 +199,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     );
     await shot("offer-" + width);
   }
-  assert((await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`)).startsWith('Add a subscription and save £'));
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`),`Subscribe and save £${potential.toFixed(2)} on this rental`,'Use the exact requested hook and authoritative basket saving');
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Includes £')`),false,'Joining credit is in the canonical headline saving, without an includes-credit line');
   await c.cmd("Emulation.setEmulatedMedia", {features:[{name:"prefers-reduced-motion",value:"no-preference"}]});
   await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').scrollIntoView({block:'center'})`);
@@ -211,7 +211,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.equal(await c.evaluate(`document.querySelector('.membership-confetti').getAnimations().some(a=>a.playState==='running')`),true,'Confetti is animated, not a static decoration');
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('£99/month → £128.70 credit to spend')&&document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Subscription-exclusive weekends')`),true,'Studio card explains price versus credit and exclusive weekend deals');
   await wait(350);
-  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"] h3')?.innerText.startsWith('Subscription added · save £')`),true,'The canonical saving stays visible throughout the selection burst');
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"] h3')?.innerText`),`Subscribe and save £${potential.toFixed(2)} on this rental`,'The exact hook stays unchanged throughout the selection burst');
   await shot('selection-confetti-mobile');
   await until(`!document.querySelector('[data-testid="membership-celebration"]')`);
   await c.evaluate(`document.querySelector('[data-testid="confirm-membership-card"]').click()`);
@@ -359,7 +359,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
   );
   await until(
-    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Add a subscription and save')`,
+    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Subscribe and save £')`,
   );
   await c.cmd("Emulation.setDeviceMetricsOverride", {
     width: 390,

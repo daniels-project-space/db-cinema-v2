@@ -129,6 +129,10 @@ export function CheckoutMembership({
   if (!showMembershipCard) return null;
   const displayTier = tier ?? recommendedTier;
   const saving = tier ? appliedNetSaving : potentialNetSaving;
+  const savingsHook =
+    saving > 0
+      ? `Subscribe and save £${saving.toFixed(2)} on this rental`
+      : null;
   const confirmed = !!selected?.termsAccepted;
   const confirmSelection = () => {
     if (current || confirmed) return;
@@ -181,7 +185,7 @@ export function CheckoutMembership({
             confirmed
               ? `${displayTier.name} subscription selected`
               : saving > 0
-                ? `Add ${displayTier.name} subscription and save £${saving.toFixed(2)} on this rental`
+                ? savingsHook!
                 : `Confirm ${displayTier.name} subscription at £${displayTier.monthlyGbp} per month`
           }
           aria-pressed={confirmed}
@@ -238,8 +242,7 @@ export function CheckoutMembership({
                 data-testid="potential-membership-savings"
                 className="font-display text-base font-semibold"
               >
-                Add a subscription and save £{potentialNetSaving.toFixed(2)} on
-                this rental!
+                {savingsHook}
               </span>
             </label>
             <p
@@ -259,41 +262,31 @@ export function CheckoutMembership({
           </>
         ) : (
           <>
-            <h3
-              data-testid={
-                saving > 0
-                  ? tier
-                    ? "applied-membership-savings"
-                    : "potential-membership-savings"
-                  : undefined
-              }
-              className="mt-2 font-display text-2xl font-semibold leading-tight text-white"
-            >
-              {saving > 0
-                ? current
-                  ? `Your subscription saves £${saving.toFixed(2)} on this rental!`
-                  : confirmed
-                    ? `Subscription added · save £${saving.toFixed(2)} on this rental!`
-                    : `Add a subscription and save £${saving.toFixed(2)} on this rental!`
-                : !appliedSavings
-                  ? current
-                    ? "Calculating your subscription saving…"
-                    : confirmed
-                      ? "Subscription added · calculating your saving…"
-                      : "Add a subscription and save on this rental!"
-                  : current
-                    ? "Your subscription is applied to this rental"
-                    : confirmed
-                      ? "Subscription added to this rental"
-                      : "Add a subscription to this rental"}
-            </h3>
-            <p className="mt-1 text-[10px] text-white/45">
-              {saving > 0
-                ? "Net saving includes today’s membership fee."
-                : !appliedSavings
-                  ? "Calculating the exact saving for your kit…"
-                  : "Your membership is reflected in the price below."}
-            </p>
+            {savingsHook ? (
+              <h3
+                data-testid={
+                  saving > 0
+                    ? tier
+                      ? "applied-membership-savings"
+                      : "potential-membership-savings"
+                    : undefined
+                }
+                className="mt-2 font-display text-2xl font-semibold leading-tight text-white"
+              >
+                {savingsHook}
+              </h3>
+            ) : !appliedSavings ? (
+              <div
+                role="status"
+                aria-label="Calculating savings"
+                className="mt-2 h-14 rounded-lg bg-white/5 motion-safe:animate-pulse"
+              />
+            ) : null}
+            {savingsHook && (
+              <p className="mt-1 text-[10px] text-white/45">
+                Net saving includes today’s membership fee.
+              </p>
+            )}
             {!current && (
               <ul
                 aria-label="Future subscription benefits"
