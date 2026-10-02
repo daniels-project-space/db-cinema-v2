@@ -455,7 +455,7 @@ export default function CheckoutPage() {
           </div>
 
           {/* summary */}
-          <aside className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky! lg:top-24">
+          <aside data-testid="checkout-summary" className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky! lg:top-24">
             <div className="hud-label !text-accent-400/90">Order summary</div>
             <div className="mt-4 flex flex-col gap-2 text-sm">
               {items.map((i, index) => (
@@ -478,10 +478,7 @@ export default function CheckoutPage() {
                 </div>
               )}
               {(currentQuote?.deliveryFee ?? deliveryFee) > 0 && <Row label="Delivery (round trip)" value={currentQuote?.deliveryFee ?? deliveryFee} />}
-              <Row label={currentQuote?.securityWaiverReason ? "Upfront security payment waived · full hold remains" : "Refundable security payment (50%)"} value={depositAmount} muted />
-              {!!membership && <Row label={membership.intro === "trial" ? "Membership · 7 days free" : "First membership month"} value={currentQuote?.membershipFee ?? 0} />}
-              <Row label="Separate card hold (not charged)" value={holdAmount} muted />
-              {!!currentQuote?.membershipCreditApplied && <Row label="First-month credit used now" value={-currentQuote.membershipCreditApplied} />}
+              {!!currentQuote?.membershipCreditApplied && <Row label="Subscription credit applied" value={-currentQuote.membershipCreditApplied} saving />}
               {!!currentQuote && currentQuote.creditApplied - currentQuote.membershipCreditApplied > 0 && (
                 <div className="flex justify-between text-emerald-300">
                   <span>{currentQuote.refundCreditApplied>0&&currentQuote.earnedCreditApplied>0?"Refund + earned credit":currentQuote.refundCreditApplied>0?"Refund credit":"Earned credit"}</span>
@@ -489,9 +486,16 @@ export default function CheckoutPage() {
                 </div>
               )}
               <hr className="receipt-sep" />
+              <div data-testid="checkout-secondary-charges" className="space-y-2">
+                {!!membership && <Row label={membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"} value={currentQuote?.membershipFee ?? 0} muted />}
+                <Row label={currentQuote?.securityWaiverReason ? "Upfront security payment waived" : "Refundable security payment (50%)"} value={depositAmount} muted />
+                <Row label="Separate card hold · not charged" value={holdAmount} muted />
+                <p className="text-[10px] leading-4 text-white/40">Security is refundable after return and settlement. The card hold is separate and is not included in the amount charged.</p>
+              </div>
+              <hr className="receipt-sep" />
               <div className="flex justify-between font-display text-xl font-bold text-white">
                 <span>Total due</span>
-                <span className="font-mono">{currentQuote ? formatGbp(currentQuote.combinedTotalDue) : "Calculating…"}</span>
+                <span data-testid="checkout-due" className="font-mono">{currentQuote ? formatGbp(currentQuote.combinedTotalDue) : "Calculating…"}</span>
               </div>
             </div>
             {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
@@ -510,11 +514,11 @@ export default function CheckoutPage() {
   );
 }
 
-function Row({ label, value, muted }: { label: string; value: number; muted?: boolean }) {
+function Row({ label, value, muted, saving }: { label: string; value: number; muted?: boolean; saving?: boolean }) {
   return (
-    <div className={`flex justify-between ${muted ? "text-white/35" : "text-white/60"}`}>
+    <div className={`flex justify-between gap-3 ${saving ? "text-emerald-300" : muted ? "text-[11px] text-white/40" : "text-white/60"}`}>
       <span>{label}</span>
-      <span className="font-mono">{formatGbp(value)}</span>
+      <span className="shrink-0 font-mono">{formatGbp(value)}</span>
     </div>
   );
 }

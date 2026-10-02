@@ -196,7 +196,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   assert.equal(
     await c.evaluate(
-      `document.querySelector('aside[aria-hidden="false"]').innerText.includes('Separate card hold · not charged')`,
+      `document.querySelector('aside[aria-hidden="false"]').innerText.includes('Delivery and refundable security are calculated at checkout.')&&!document.querySelector('aside[aria-hidden="false"]').innerText.includes('Separate card hold · not charged')`,
     ),
     true,
   );
@@ -232,7 +232,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const paidDue = new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency: "GBP",
-  }).format(paid.combinedTotalDue);
+  }).format(Math.round((paid.combinedTotalDue-paid.depositAmount)*100)/100);
   await until(
     `document.querySelector('[data-testid="basket-due"]').textContent===${JSON.stringify(paidDue)}`,
   );
@@ -252,7 +252,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     new Intl.NumberFormat("en-GB", {
       style: "currency",
       currency: "GBP",
-    }).format(paid.combinedTotalDue),
+    }).format(Math.round((paid.combinedTotalDue-paid.depositAmount)*100)/100),
   );
   await c.evaluate(
     `[...document.querySelectorAll('button')].find(b=>b.innerText==='See the subscription benefits').click()`,
@@ -293,6 +293,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(
     `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('This first rental still requires verification')`,
   );
+  await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(paid.combinedTotalDue))}`);
+  assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]');const rows=[...secondary.children].filter(e=>e.querySelector('.font-mono'));return rows.length===3&&rows.every(e=>getComputedStyle(e).fontSize==='11px')&&[...s.querySelectorAll('div')].some(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied'&&e.classList.contains('text-emerald-300'))})()`),true,"Checkout separates small subscription/security rows and green applied credit while retaining the full payment total");
+  await c.evaluate(`document.querySelector('[data-testid="checkout-summary"]').scrollIntoView({block:'center'})`);
+  await shot("checkout-summary-mobile");
   await shot("selected-checkout-mobile");
   await reload();
   await until(
@@ -412,7 +416,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const noSavingDue = new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency: "GBP",
-  }).format(noSavingPaid.combinedTotalDue);
+  }).format(Math.round((noSavingPaid.combinedTotalDue-noSavingPaid.depositAmount)*100)/100);
   await until(
     `document.querySelector('[data-testid="basket-due"]').textContent===${JSON.stringify(noSavingDue)}`,
   );
@@ -431,8 +435,51 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     "Selected plan remains manageable",
   );
   await shot("no-savings-mobile");
+  // Edit one of two independently dated copies of a listing. Other lines must
+  // survive, and the stored base price must come from the real pricing action.
+  const secondStart=weekdayStart+30*86400000;
+  const secondItem={...weekdayItem,key:cheap._id+":second-dates",start:new Date(secondStart).toISOString().slice(0,10),end:new Date(secondStart).toISOString().slice(0,10)};
+  await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([weekdayItem,secondItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`);
+  await c.cmd("Page.navigate",{url:root+"/cart"});
+  await until(`document.querySelectorAll('main [data-cart-dates]').length===2&&document.querySelector('[data-testid="basket-due"]')?.textContent.includes('£')`);
+  assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="basket-summary"]');return !s.innerText.includes('Refundable security payment (50%)')&&!s.innerText.includes('Separate card hold')})()`),true);
+  await c.evaluate(`document.querySelector('main [data-cart-dates] button').click()`);
+  const newEnd=new Date(weekdayStart+2*86400000).toISOString().slice(0,10);
+  async function dateInput(index,value){await c.evaluate(`(()=>{const e=document.querySelectorAll('main [data-cart-dates] input')[${index}];Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
+  await dateInput(1,new Date(weekdayStart-86400000).toISOString().slice(0,10));
+  assert.equal(await c.evaluate(`document.querySelector('main [data-cart-dates] button:last-child').disabled`),true,"Reversed dates must not save");
+  await dateInput(1,newEnd);
+  await until(`!document.querySelector('main [data-cart-dates] button:last-child').disabled`);
+  for(const width of [1440,390]){
+    await c.cmd("Emulation.setDeviceMetricsOverride",{width,height:1000,deviceScaleFactor:1,mobile:width<600});
+    await c.evaluate(`document.querySelector('main [data-cart-dates]').scrollIntoView({block:'center'})`);await wait(300);
+    assert.equal(await c.evaluate("document.documentElement.scrollWidth>innerWidth"),false);
+    await shot("date-editor-"+width);
+  }
+  await c.evaluate(`document.querySelector('main [data-cart-dates] button:last-child').click()`);
+  await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].end===${JSON.stringify(newEnd)}&&!document.querySelector('main [data-cart-dates] input')`);
+  const stored=await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))`);
+  assert.equal(stored[0].days,3);assert.deepEqual(stored[1],secondItem,"Changing the first line must preserve the second line");
+  const editedQuote=await cv.action(api.checkout.priceQuote,{...weekdayArgs,items:[{...weekdayArgs.items[0],end:weekdayStart+2*86400000}, {...weekdayArgs.items[0],start:secondStart,end:secondStart}]});
+  assert.equal(stored[0].total,editedQuote.items[0].total,"Saved line price must reflect the authoritative new date quote");
+  const editedDue=new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(Math.round((editedQuote.combinedTotalDue-editedQuote.depositAmount)*100)/100);
+  await until(`document.querySelector('[data-testid="basket-due"]').textContent===${JSON.stringify(editedDue)}`);
+  await reload();
+  await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].end===${JSON.stringify(newEnd)}&&document.querySelectorAll('main [data-cart-dates]').length===2`);
+  await c.evaluate(`document.querySelector('button[aria-label="Open kit"]').click()`);
+  await until(`document.querySelectorAll('aside[aria-hidden="false"] [data-cart-dates]').length===2`);
+  assert.equal(await c.evaluate(`document.querySelector('aside[aria-hidden="false"] [data-cart-dates]').textContent.includes('Change dates')`),true);
+  await until(`!document.querySelector('aside[aria-hidden="false"]').textContent.includes('Calculating…')`);
+  await wait(700);
+  await c.evaluate(`document.querySelector('aside[aria-hidden="false"] [data-cart-dates] button').click()`);
+  await until(`document.querySelector('aside[aria-hidden="false"] [data-cart-dates]').textContent.includes('available with your kit')`);
+  await wait(300);
+  await shot("date-drawer-mobile");
   console.log({
     root,
+    individualDatesPersistAndReprice:true,
+    basketExcludesSecurity:true,
+    checkoutFullTotalAndSecondaryCharges:true,
     guestOfferVisibleBeforeContact: true,
     oneClickCarry: true,
     reloadConsentReset: true,

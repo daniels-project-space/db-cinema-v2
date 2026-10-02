@@ -12,7 +12,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
-import { dayMs } from "@/lib/dates";
+import { dayMs, daysInclusive } from "@/lib/dates";
 import {
   restoreMembershipSelection,
   type MembershipSelection,
@@ -40,6 +40,7 @@ type CartCtx = {
   items: CartItem[];
   add: (item: Omit<CartItem, "key">) => void;
   replace: (items: CartItem[]) => void;
+  updateDates: (key: string, start: string, end: string, total: number) => void;
   reminderEnabled: boolean;
   setReminderEnabled: (enabled: boolean) => void;
   reminderError: string | null;
@@ -217,6 +218,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
     (key: string) => setItems((prev) => prev.filter((p) => p.key !== key)),
     [],
   );
+  const updateDates = useCallback((key: string, start: string, end: string, total: number) => {
+    const item = items.find(i => i.key === key);
+    if (!item) throw Error("This item is no longer in your kit.");
+    if (!dayMs(start) || !dayMs(end) || end < start || !Number.isFinite(total) || total < 0) throw Error("Invalid rental dates or price.");
+    if (items.some(i => i.key !== key && i.listingId === item.listingId && i.start === start && i.end === end && i.offerType === item.offerType)) throw Error("This item is already in your kit for those dates.");
+    const days = daysInclusive(start, end);
+    setItems(prev => prev.map(i => i.key === key ? { ...i, key: `${i.listingId}|${start}|${days}|${i.offerType ?? ""}`, start, end, days, total, perDay: Math.round(total / days * 100) / 100 } : i));
+    setMembership(v => v ? { ...v, termsAccepted: false } : v);
+    setToast("Rental dates and price updated");
+  }, [items]);
   const clear = useCallback(() => {
     setItems([]);
     setMembership(null);
@@ -241,6 +252,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         items,
         add,
         replace,
+        updateDates,
         reminderEnabled,
         setReminderEnabled,
         reminderError,
