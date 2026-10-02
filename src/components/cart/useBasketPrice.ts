@@ -6,7 +6,7 @@ import { dayMs } from "@/lib/dates";
 import { useCart } from "./CartProvider";
 import { useAccount } from "../account/AccountProvider";
 import { accountPricingContext, shouldResetMembershipPreference, membershipOfferContext, membershipRecommendationPreview } from "../../../shared/membershipSelection";
-export function useBasketPrice(enabled = true) {
+export function useBasketPrice(enabled = true, resetPreference = true) {
   const cart = useCart(),
     account = useAccount(),
     priceQuote = useAction(api.checkout.priceQuote);
@@ -47,7 +47,7 @@ export function useBasketPrice(enabled = true) {
         .then((quote) => {
           if (!cancelled) {
             setResult({ key, offerContext, quote });
-            if (shouldResetMembershipPreference(cart.membership, quote)) {
+            if (resetPreference && shouldResetMembershipPreference(cart.membership, quote)) {
               cart.setMembership(null);
               return;
             }
@@ -62,7 +62,7 @@ export function useBasketPrice(enabled = true) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [key, enabled, priceQuote]);
+  }, [key, enabled, priceQuote, resetPreference]);
   return {
     quote: result?.key === key ? result.quote : null,
     recommendations: membershipRecommendationPreview(result ? {

@@ -16,6 +16,7 @@ import { CheckoutReminder } from "@/components/plans/CartPlanning";
 import { useCart } from "@/components/cart/CartProvider";
 import { CheckoutCode } from "@/components/cart/CheckoutCode";
 import { usePromo } from "@/components/cart/usePromo";
+import { useBasketPrice } from "@/components/cart/useBasketPrice";
 import { useAccount } from "@/components/account/AccountProvider";
 import { AGREEMENTS } from "@/lib/legal";
 import { depositFor, depositChargeFor, smallDamageHold, formatGbp, type Protection } from "@/lib/pricing";
@@ -139,9 +140,14 @@ export default function CheckoutPage() {
   const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null, account: accountPricingContext(account.me) });
   const offerContext = membershipOfferContext({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null, account: accountPricingContext(account.me) });
   const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
+  // Delivery details are not needed to quote the rental-only joining saving.
+  // This preview never becomes the billing quote or enables payment.
+  const rentalPreview = useBasketPrice(true, false);
+  const membershipDisplayQuote = currentQuote ?? rentalPreview.quote;
   const membershipRecommendations = membershipRecommendationPreview(quoted ? {
     offerContext: quoted.offerContext, recommendations: quoted.value.recommendations,
   } : null, offerContext, !!quoteError);
+  const displayedRecommendations = membershipDisplayQuote?.recommendations ?? membershipRecommendations ?? rentalPreview.recommendations;
   const equipmentValue = currentQuote?.replacementValue ?? replacementSum;
   const holdAmount = currentQuote?.depositHoldAmount ?? depositFor(protection, replacementSum);
   const depositAmount = currentQuote?.depositAmount ?? depositChargeFor(protection, replacementSum);
@@ -251,7 +257,7 @@ export default function CheckoutPage() {
       <CheckoutLoopBanner />
       <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
-        <CheckoutMembership variant="checkout" appliedSavings={currentQuote ? {rentalSaving:currentQuote.rentalSaving,weekendSaving:currentQuote.weekendSaving,deliveryReduction:currentQuote.deliveryReduction,membershipFee:currentQuote.membershipFee,membershipCreditApplied:currentQuote.membershipCreditApplied,membershipSignupOfferSaving:currentQuote.membershipSignupOfferSaving,membershipNetSaving:currentQuote.membershipNetSaving,membershipOffer:currentQuote.membershipOffer,securityWaiverReason:currentQuote.securityWaiverReason} : undefined} suggestions={membershipRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
+        <CheckoutMembership variant="checkout" appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <div className="mb-5 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
           <span className="inline-flex items-center gap-1.5">

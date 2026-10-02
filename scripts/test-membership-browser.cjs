@@ -418,6 +418,14 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.equal(await c.evaluate(`(()=>{const h=document.querySelector('[data-testid="potential-membership-savings"]');return h.tagName==='H3'&&h===h.parentElement.firstElementChild&&parseFloat(getComputedStyle(h).fontSize)>=30})()`),true,'Checkout keeps a large top savings heading');
   assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="membership-chooser"], [data-testid^="membership-plan-"]').length`),0,'Checkout offers only its recommendation, never a plan chooser');
   await shot("checkout-offer-mobile");
+  const rentalHook = `Subscribe to save £${potential.toFixed(2)}`;
+  await nativeClick(`[...document.querySelectorAll('button')].find(b=>b.innerText.startsWith('Delivery'))`);
+  await until(`!!document.querySelector('textarea[placeholder="Full delivery address"]')||[...document.querySelectorAll('button')].some(b=>b.innerText.includes('Get quote'))`);
+  await wait(700);
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]')?.innerText`),rentalHook,'Incomplete delivery details must not hide a genuine rental saving');
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-due"]')?.textContent.includes('Calculating')`),true,'A rental-only preview must never become the final delivery payment quote');
+  await nativeClick(`[...document.querySelectorAll('button')].find(b=>b.innerText.startsWith('Pickup'))`);
+  await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent.includes('£')`);
   await c.cmd("Emulation.setEmulatedMedia", {features: [{name:"prefers-reduced-motion",value:"no-preference"}]});
   await nativeClick(`document.querySelector('[data-testid="add-membership"]')`);
   await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')?.checked===true`);
@@ -591,6 +599,18 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await c.evaluate(`document.querySelector('[data-testid="rental-consent"]').scrollIntoView({block:'center'})`);await wait(200);await shot('consent-'+band+'-mobile');
     await c.evaluate(`document.querySelector('[data-testid="checkout-summary"]').scrollIntoView({block:'center'})`);await wait(200);await shot('security-'+band+'-mobile');
   }
+  const clearKit = await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))`);
+  clearKit.push({...weekdayItem,key:'clear-second-item'});
+  await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(clearKit))});true`);
+  await navigate(root+'/cart');
+  await until(`!!document.querySelector('[data-testid="clear-basket"]')`);
+  await until(`document.querySelectorAll('main [data-cart-dates]').length===2`);
+  await nativeClick(`document.querySelector('[data-testid="clear-basket"]')`);
+  await until(`document.querySelector('main')?.innerText.includes('Your kit is empty.')`);
+  assert.equal(await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1')).length`),0,'Clear basket removes all persisted items');
+  assert.equal(await c.evaluate(`localStorage.getItem('dbc_membership_selection_v1')`),null,'Clear basket also removes a selected membership');
+  await reload();
+  await until(`document.querySelector('main')?.innerText.includes('Your kit is empty.')`);
   console.log({
     root,
     individualDatesPersistAndReprice:true,
