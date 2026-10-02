@@ -14,6 +14,7 @@ import { Recommendations } from "@/components/Recommendations";
 import { formatGbp } from "@/lib/pricing";
 import { CheckoutMembership } from "@/components/CheckoutMembership";
 import { useBasketPrice } from "@/components/cart/useBasketPrice";
+import { CartItemDates } from "@/components/cart/CartItemDates";
 import { IconX, IconArrowRight, IconLock } from "@/components/icons";
 
 import { dayMs as ms } from "@/lib/dates";
@@ -89,14 +90,14 @@ export default function CartPage() {
                   return (
                     <div
                       key={it.key}
-                      className={`spot flex gap-4 rounded-2xl p-4 ${dim ? "opacity-50 ring-1 ring-rec-500/40" : ""}`}
+                      className={`spot grid grid-cols-[64px_minmax(0,1fr)_auto] gap-x-3 rounded-2xl p-4 sm:grid-cols-[80px_minmax(0,1fr)_auto] ${dim ? "opacity-50 ring-1 ring-rec-500/40" : ""}`}
                       style={{
                         animation: `card-in 0.5s var(--ease-out-expo) ${idx * 60}ms both`,
                       }}
                     >
                       <Link
                         href={`/gear/${it.slug}`}
-                        className="block h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-charcoal-800"
+                        className="block h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-charcoal-800 sm:h-20 sm:w-20"
                       >
                         {it.heroImage ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -120,26 +121,18 @@ export default function CartPage() {
                           </span>
                         )}
                         <div className="mt-1.5 font-mono text-xs text-white/40">
-                          {it.start} → {it.end} · {it.days}d · £{it.perDay}/day
+                          {it.start} → {it.end} · {it.days}d
                         </div>
                         {unavailable ? (
                           <div className="mt-1.5 text-xs text-red-300">
-                            Unavailable for these dates — remove to checkout
+                            Unavailable — change dates or remove this item
                           </div>
                         ) : over ? (
                           <div className="mt-1.5 text-xs text-red-300">
                             Only {a.available} available for these dates (you
                             have {a.demanded})
                           </div>
-                        ) : (
-                          // `it.deposit` is the item's replacement value, not a
-                          // charge — the refundable hold is worked out across
-                          // the whole basket below, so quoting it per line just
-                          // frightened people with the price of the camera.
-                          <div className="mt-1.5 text-xs text-white/30">
-                            insured hire · separate card hold
-                          </div>
-                        )}
+                        ) : null}
                       </div>
                       <div className="flex flex-col items-end justify-between">
                         <div className="font-display text-lg font-bold text-accent-400">
@@ -153,6 +146,7 @@ export default function CartPage() {
                           <IconX className="h-3.5 w-3.5" />
                         </button>
                       </div>
+                      <div className="col-span-3"><CartItemDates item={it} /></div>
                     </div>
                   );
                 })}
@@ -164,7 +158,7 @@ export default function CartPage() {
                 </button>
               </div>
 
-              <aside className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky! lg:top-24">
+              <aside data-testid="basket-summary" className="ticket spot gradient-border h-fit rounded-2xl p-5 lg:sticky! lg:top-24">
                 <div className="hud-label !text-accent-400/90">Summary</div>
 
                 {/* promo */}
@@ -225,55 +219,40 @@ export default function CartPage() {
                       value={-quote.totalReduction}
                     />
                   )}
-                  {!!quote?.membershipCreditApplied && <SummaryRow label="First-month credit used now" value={-quote.membershipCreditApplied} />}
+                  {!!quote?.membershipCreditApplied && <SummaryRow label="Subscription credit applied" value={-quote.membershipCreditApplied} saving />}
                   {!!quote && quote.creditApplied-quote.membershipCreditApplied > 0 && (
                     <SummaryRow
                       label="Account credit"
                       value={-(quote.creditApplied-quote.membershipCreditApplied)}
+                      saving
                     />
                   )}
-                  <SummaryRow
-                    label={
-                      quote?.securityWaiverReason
-                        ? "Upfront security payment waived"
-                        : "Refundable security payment (50%)"
-                    }
-                    value={quote?.depositAmount}
-                  />
+                  <hr className="receipt-sep" />
                   {!!membership && (
                     <SummaryRow
                       label={
                         membership.intro === "trial"
-                          ? "Membership · 7 days free"
-                          : "First membership month"
+                          ? "Subscription · first 7 days free"
+                          : "First subscription month"
                       }
                       value={quote?.membershipFee}
+                      muted
                     />
                   )}
-                  <SummaryRow
-                    label="Separate card hold (not charged)"
-                    value={quote?.depositHoldAmount}
-                  />
-                  <p className="text-[11px] leading-relaxed text-white/35">
-                    The full hold remains with any security payment waiver. The
-                    separate security payment is refundable after settlement.
-                    Pickup pricing shown; delivery and protection are confirmed
-                    at checkout.
-                  </p>
                   {quoteError && (
                     <p role="alert" className="text-xs text-red-300">
                       {quoteError}
                     </p>
                   )}
-                  <hr className="receipt-sep" />
                   <div className="flex justify-between font-display text-lg font-bold text-white">
-                    <span>Due now · pickup</span>
+                    <span>Estimated basket total</span>
                     <span data-testid="basket-due" className="font-mono">
                       {quote
-                        ? formatGbp(quote.combinedTotalDue)
+                        ? formatGbp(Math.round((quote.combinedTotalDue - quote.depositAmount) * 100) / 100)
                         : "Calculating…"}
                     </span>
                   </div>
+                  <p className="text-[11px] leading-relaxed text-white/40">Rental charges{membership ? " + subscription" : ""}, after applied credit. Delivery and refundable security are calculated at checkout.</p>
                 </div>
 
                 {blocked ? (
@@ -324,9 +303,9 @@ export default function CartPage() {
   );
 }
 
-function SummaryRow({ label, value }: { label: string; value?: number }) {
+function SummaryRow({ label, value, saving, muted }: { label: string; value?: number; saving?: boolean; muted?: boolean }) {
   return (
-    <div className="flex justify-between gap-3 text-white/60">
+    <div className={`flex justify-between gap-3 ${saving ? "text-emerald-300" : muted ? "text-[11px] text-white/40" : "text-white/60"}`}>
       <span>{label}</span>
       <span className="shrink-0 font-mono">
         {value === undefined ? "…" : formatGbp(value)}

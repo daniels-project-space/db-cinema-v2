@@ -6,6 +6,7 @@ import { IconX, IconArrowRight } from "@/components/icons";
 import { formatGbp } from "@/lib/pricing";
 import { CheckoutMembership } from "../CheckoutMembership";
 import { useBasketPrice } from "./useBasketPrice";
+import { CartItemDates } from "./CartItemDates";
 
 export function CartDrawer() {
   const { items, remove, isOpen, close, membership, setMembership } = useCart();
@@ -73,7 +74,7 @@ export function CartDrawer() {
               {items.map((it, i) => (
                 <div
                   key={it.key}
-                  className="glass flex gap-3 rounded-xl p-3"
+                  className="glass grid grid-cols-[64px_minmax(0,1fr)_28px] gap-x-3 rounded-xl p-3"
                   style={
                     isOpen
                       ? {
@@ -114,6 +115,7 @@ export function CartDrawer() {
                   >
                     <IconX className="h-3.5 w-3.5" />
                   </button>
+                  <div className="col-span-3"><CartItemDates item={it} /></div>
                 </div>
               ))}
             </div>
@@ -123,29 +125,21 @@ export function CartDrawer() {
         {items.length > 0 && (
           <div className="border-t border-white/5 px-5 py-4">
             <div className="flex justify-between text-sm text-white/60">
-              <span>Due now · pickup{membership ? " + membership" : ""}</span>
+              <span>Estimated basket total</span>
               <span className="font-mono text-white/90">
-                {quote ? formatGbp(quote.combinedTotalDue) : "Calculating…"}
+                {quote ? formatGbp(Math.round((quote.combinedTotalDue - quote.depositAmount) * 100) / 100) : "Calculating…"}
               </span>
             </div>
-            {!!quote?.membershipCreditApplied && <p className="mt-1 text-xs text-accent-300">First-month credit used now · −{formatGbp(quote.membershipCreditApplied)}</p>}
+            {!!quote?.membershipCreditApplied && <p className="mt-1 text-xs text-emerald-300">Subscription credit applied · −{formatGbp(quote.membershipCreditApplied)}</p>}
             {!!quote?.totalReduction && (
               <p className="mt-1 text-xs text-accent-300">
                 {quote.reductionLabel ?? "Rental discount"} · −
                 {formatGbp(quote.totalReduction)}
               </p>
             )}
-            <div className="mt-1 flex justify-between text-xs text-white/50">
-              <span>Refundable security payment</span>
-              <span>{quote ? formatGbp(quote.depositAmount) : "…"}</span>
-            </div>
-            <div className="mt-1 flex justify-between text-xs text-white/35">
-              <span>Separate card hold · not charged</span>
-              <span>{quote ? formatGbp(quote.depositHoldAmount) : "…"}</span>
-            </div>
+            {!!membership && <div className="mt-2 flex justify-between gap-3 text-[11px] text-white/40"><span>{membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"}</span><span className="font-mono">{quote ? formatGbp(quote.membershipFee) : "…"}</span></div>}
             <p className="mt-1 text-[11px] leading-snug text-white/35">
-              Security payment refunded after settlement; the uncharged hold is
-              released. Delivery confirmed at checkout.
+              Delivery and refundable security are calculated at checkout.
             </p>
             {error && (
               <p role="alert" className="mt-1 text-xs text-red-300">
