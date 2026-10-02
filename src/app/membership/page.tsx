@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { MembershipHero } from "@/components/MembershipHero";
+import { SubscriptionBenefitSymbol } from "@/components/SubscriptionBenefitSymbol";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -82,18 +83,17 @@ export default function MembershipPage() {
                       </div>
                     )}
                     <h2 className="font-display text-2xl font-bold text-white">{t.name}</h2>
+                    <p className="mt-1 font-mono text-[9px] uppercase tracking-[.16em] text-white/40">Monthly subscription</p>
                     <div className="mt-2 flex items-baseline gap-1">
                       <span className="font-poster gradient-text text-5xl">£{t.monthlyGbp}</span>
                       <span className="text-sm text-white/40">/mo</span>
                     </div>
                     <div className="mt-1.5 text-sm font-medium text-emerald-300">£{t.monthlyCredit.toFixed(2)} credit every paid month</div>
                     <ul className="mt-5 flex-1 space-y-2.5 text-sm text-white/55">
-                      {t.perks.map((p) => (
+                      {t.perks.map((p, index) => (
                         <li key={p} className="flex gap-2.5">
-                          <span className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-accent-500/15 text-accent-400">
-                            <IconCheck className="h-3 w-3" />
-                          </span>
-                          {p}
+                          <SubscriptionBenefitSymbol benefit={p} index={index + i * 3} />
+                          <span>{p}</span>
                         </li>
                       ))}
                     </ul>
@@ -102,7 +102,7 @@ export default function MembershipPage() {
                       disabled={!!current || busy !== null || !accepted}
                       className={`mt-6 w-full py-3 ${featured ? "btn-primary" : "btn-ghost"}`}
                     >
-                      {isCurrent ? "Your plan" : busy === t.key ? "…" : `Get ${t.name}`}
+                      {isCurrent ? "Your subscription" : busy === t.key ? "…" : `Subscribe to ${t.name}`}
                     </button>
                   </div>
                 </Tilt>

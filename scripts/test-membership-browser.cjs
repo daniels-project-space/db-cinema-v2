@@ -255,13 +255,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     }).format(paid.combinedTotalDue),
   );
   await c.evaluate(
-    `[...document.querySelectorAll('button')].find(b=>b.innerText==='See the membership benefits').click()`,
+    `[...document.querySelectorAll('button')].find(b=>b.innerText==='See the subscription benefits').click()`,
   );
   await until(
-    `!!document.querySelector('[role="dialog"][aria-label="Membership benefits"]')`,
+    `!!document.querySelector('[role="dialog"][aria-label="Subscription benefits"]')`,
   );
   let modal = await c.evaluate(
-    `(()=>{let d=document.querySelector('[role="dialog"][aria-label="Membership benefits"]'),r=d.getBoundingClientRect();return {outsideCard:!d.closest('[data-testid="membership-upsell"]'),onScreen:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight}})()`,
+    `(()=>{let d=document.querySelector('[role="dialog"][aria-label="Subscription benefits"]'),r=d.getBoundingClientRect();return {outsideCard:!d.closest('[data-testid="membership-upsell"]'),onScreen:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight}})()`,
   );
   assert(modal.outsideCard && modal.onScreen);
   await shot("benefits-mobile");
@@ -272,7 +272,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     windowsVirtualKeyCode: 27,
   });
   await until(
-    `!document.querySelector('[role="dialog"][aria-label="Membership benefits"]')`,
+    `!document.querySelector('[role="dialog"][aria-label="Subscription benefits"]')`,
   );
   // Real client navigation carries the one-click selection without a fresh consent claim.
   await c.evaluate(
