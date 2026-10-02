@@ -274,6 +274,16 @@ export default function CartPage() {
                 <p className="mt-3 flex items-center justify-center gap-1.5 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">
                   <IconLock className="h-3 w-3" /> Secured by Stripe · test mode
                 </p>
+                <div className="mt-4 flex justify-center">
+                  <button
+                    type="button"
+                    data-testid="clear-basket"
+                    onClick={clear}
+                    className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/50 transition-colors hover:bg-white/10 hover:text-white/75"
+                  >
+                    Clear basket
+                  </button>
+                </div>
               </aside>
             </div>
 
@@ -284,16 +294,6 @@ export default function CartPage() {
                 days={first.days}
               />
             )}
-            <div className="mt-8 flex justify-center">
-              <button
-                type="button"
-                data-testid="clear-basket"
-                onClick={clear}
-                className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/50 transition-colors hover:bg-white/10 hover:text-white/75"
-              >
-                Clear basket
-              </button>
-            </div>
           </>
         )}
       </main>

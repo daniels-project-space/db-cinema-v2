@@ -9,7 +9,7 @@ import { useBasketPrice } from "./useBasketPrice";
 import { CartItemDates } from "./CartItemDates";
 
 export function CartDrawer() {
-  const { items, remove, isOpen, close, membership, setMembership } = useCart();
+  const { items, remove, clear, isOpen, close, membership, setMembership } = useCart();
   const { quote, recommendations, error } = useBasketPrice(isOpen);
 
   return (
@@ -26,7 +26,7 @@ export function CartDrawer() {
       <aside
         aria-hidden={!isOpen}
         inert={!isOpen}
-        className={`fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-white/10 bg-charcoal-900/95 backdrop-blur-xl transition-transform duration-500 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)] ${
+        className={`fixed right-0 top-0 z-50 flex h-dvh w-full max-w-md flex-col border-l border-white/10 bg-charcoal-900/95 backdrop-blur-xl transition-transform duration-500 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)] ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
@@ -46,7 +46,7 @@ export function CartDrawer() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {items.length === 0 ? (
             <div className="mt-20 text-center text-white/30">
               <div className="hud-label mb-3">Empty slate</div>
@@ -124,7 +124,7 @@ export function CartDrawer() {
         </div>
 
         {items.length > 0 && (
-          <div className="border-t border-white/5 px-5 py-4">
+          <div className="shrink-0 border-t border-white/5 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="flex justify-between text-sm text-white/60">
               <span>Estimated basket total</span>
               <span className="font-mono text-white/90">
@@ -156,6 +156,16 @@ export function CartDrawer() {
               Review kit
               <IconArrowRight className="h-4 w-4" />
             </Link>
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                data-testid="clear-basket"
+                onClick={clear}
+                className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/50 transition-colors hover:bg-white/10 hover:text-white/75"
+              >
+                Clear basket
+              </button>
+            </div>
           </div>
         )}
       </aside>
