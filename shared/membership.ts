@@ -34,9 +34,12 @@ export function monthlyCreditPence(paidMembershipPence:number,tierKey?:string){
  if(tierKey!==undefined&&!plan)throw Error("Unknown membership plan");
  return Math.round(paidMembershipPence*(100+(plan?.creditBonusPct??30))/100);
 }
-export function paidDepositExempt(a:any){return !a?.membershipPerksPendingBookingId&&!!a?.membershipActive&&a.membershipStatus==="active"&&!!a.membershipPaidThrough&&a.membershipPaidThrough>Date.now();}
+export function membershipTierFor(a:any){return a?.adminMembershipTier === "standard" ? undefined : a?.adminMembershipTier ?? a?.membershipTier;}
+export function paidDepositExempt(a:any){return membershipActiveNow(a)&&!a?.membershipPerksPendingBookingId&&!!a?.membershipActive&&a.membershipStatus==="active"&&!!a.membershipPaidThrough&&a.membershipPaidThrough>Date.now();}
 /** Clock-based entitlement survives a delayed lifecycle webhook without extending perks. */
 export function membershipActiveNow(a:any){
+ if(a?.blockedAt!=null)return false;
+ if(a?.adminMembershipTier)return a.adminMembershipTier!=="standard";
  if(!a?.membershipActive || a.membershipPerksPendingBookingId)return false;
  if(!a.stripeSubscriptionId||a.membershipSource==="collective-comp")return true; // Explicit owner/collective complimentary membership.
  return a.membershipStatus==="trialing"?(a.membershipTrialEnd??0)>Date.now():a.membershipStatus==="active"&&(a.membershipPaidThrough??0)>Date.now();

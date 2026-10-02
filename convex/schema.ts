@@ -497,6 +497,9 @@ export default defineSchema({
 
   // ── RMv2 availability bridge state ────────────────────────────
   accounts: defineTable({
+    blockedAt: v.optional(v.number()),
+    blockedReason: v.optional(v.string()),
+    adminMembershipTier: v.optional(v.union(v.literal("standard"), v.literal("plus"), v.literal("pro"), v.literal("studio"))),
     membershipSignupOfferUsed: v.optional(v.boolean()),
     membershipPerksPendingBookingId: v.optional(v.id("bookings")),
     referralCode:v.optional(v.string()),referralFirstUsedAt:v.optional(v.number()),firstRentalPaidAt:v.optional(v.number()),referralRewardGrantedAt:v.optional(v.number()),referralRewardUsedAt:v.optional(v.number()),paymentIdentityHashes:v.optional(v.array(v.string())),
@@ -538,6 +541,12 @@ export default defineSchema({
     stripeSubscriptionId: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_email", ["email"]).index("by_referral_code",["referralCode"]).index("by_subscription", ["stripeSubscriptionId"]),
+
+  account_admin_changes: defineTable({
+    accountId: v.id("accounts"), at: v.number(),
+    kind: v.union(v.literal("level"), v.literal("block"), v.literal("unblock")),
+    before: v.string(), after: v.string(), reason: v.string(),
+  }).index("by_account", ["accountId"]),
 
   sessions: defineTable({
     token: v.string(),

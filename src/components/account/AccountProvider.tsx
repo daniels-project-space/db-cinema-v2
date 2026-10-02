@@ -28,6 +28,8 @@ type Me = {
   loyaltyLevel:number;loyaltyPercent:number;loyaltyCelebratedLevel:number;
   membershipTier: string | null;
   membershipActive: boolean;
+  membershipAdminGranted?: boolean;
+  membershipBillingTier?: string | null;
   membershipPerksPending: boolean;
   loyaltyEligible: boolean;
   loyaltyCompleted: number;

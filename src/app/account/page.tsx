@@ -610,7 +610,8 @@ function Membership() {
     return (
       <section>
         <p className="mb-4 font-mono text-[10px] uppercase tracking-[.16em] text-accent-300">Your {tier.name} membership</p>
-        <div className="max-w-md"><MembershipPlanCard tier={tier} compact onSelect={manage} disabled={busy} label={busy ? "Opening settings…" : "Membership settings / cancel"} /></div>
+        <div className="max-w-md"><MembershipPlanCard tier={tier} compact onSelect={manage} disabled={busy || !!(account.me?.membershipAdminGranted && !account.me?.membershipBillingTier)} label={busy ? "Opening settings…" : account.me?.membershipAdminGranted && !account.me?.membershipBillingTier ? "Granted by DB Cinema" : "Membership settings / cancel"} /></div>
+        {account.me?.membershipAdminGranted && <p className="mt-3 max-w-md text-xs leading-5 text-white/50">DB Cinema has granted this plan’s access. Monthly credit is issued only for paid subscription invoices; the upfront security waiver requires a paid membership. {account.me.membershipBillingTier ? `Your paid ${tierByKey(account.me.membershipBillingTier)?.name ?? "membership"} subscription is managed separately.` : "This grant does not start a subscription or monthly charges."}</p>}
         {account.me?.membershipStatus === "trialing" && <p className="mt-3 text-xs text-amber-200">Free week: upfront security payment applies until the first paid invoice.</p>}
         {account.me?.membershipCancelAtPeriodEnd && <p className="mt-3 text-xs text-white/45">Cancellation scheduled. Your plan will not renew.</p>}
       </section>
@@ -620,6 +621,7 @@ function Membership() {
   return (
     <section className="rounded-3xl border border-white/[0.07] bg-[#141414] p-5 sm:p-6">
       <div className="hud-label !text-accent-400/90">Db Cinema Membership</div>
+      {account.me?.membershipBillingTier && <div className="my-4 max-w-md rounded-xl border border-white/10 p-4"><p className="text-xs leading-5 text-white/60">Your {tierByKey(account.me.membershipBillingTier)?.name ?? "paid"} subscription billing can still be managed here, even when membership access is inactive.</p><button type="button" onClick={manage} disabled={busy} className="mt-3 text-xs text-accent-200 underline">{busy ? "Opening settings…" : "Manage / cancel paid subscription"}</button></div>}
       <h2 className="mt-2 font-display text-3xl font-bold text-white">More room for <span className="serif-accent gradient-text">your next story.</span></h2>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/55">Turn your monthly membership into rental credit, with extra credit on top. Keep it for your next shoot or let it build towards something bigger.</p>
       <div className="mt-6 grid items-stretch gap-4 lg:grid-cols-3" data-testid="account-membership-plans">

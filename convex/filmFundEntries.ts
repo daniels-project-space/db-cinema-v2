@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { accountForToken } from "./lib/rentalChat";
 import { rounds } from "./filmFund";
 import { FILM_FUND_TERMS_VERSION,fundSubmissionErrors,fundEntryPence } from "../shared/filmFund";
-import { isProPlus,membershipActiveNow } from "../shared/membership";
+import { isProPlus,membershipActiveNow,membershipTierFor } from "../shared/membership";
 export const reserve=internalMutation({args:{token:v.string(),projectId:v.id("film_fund_projects"),roundSlug:v.string(),termsVersion:v.string()},handler:async(ctx,a)=>{
  const account=await accountForToken(ctx,a.token),p=await ctx.db.get(a.projectId);
  if(!account||!p||p.accountId!==account._id||p.state!=="draft")throw Error("Application is not available.");
@@ -12,7 +12,7 @@ export const reserve=internalMutation({args:{token:v.string(),projectId:v.id("fi
  if(a.termsVersion!==FILM_FUND_TERMS_VERSION)throw Error("Accept the current Film Fund terms.");
  const errors=fundSubmissionErrors(p);if(errors.length)throw Error(errors.join(" "));
  for(const id of [p.scriptId,p.moodboardId,p.videoId,...p.documentIds]){const f=await ctx.db.get(id!);if(!f||f.projectId!==p._id||f.accountId!==account._id||f.kind==="video"&&(!f.durationSeconds||f.durationSeconds<55||f.durationSeconds>65))throw Error("Complete and verify all application files before paying.");}
- if(isProPlus(account.membershipTier,membershipActiveNow(account)))return {included:true as const};
+ if(isProPlus(membershipTierFor(account),membershipActiveNow(account)))return {included:true as const};
  const entries=await ctx.db.query("film_fund_entries").withIndex("by_project",q=>q.eq("projectId",p._id)).collect();
  if(p.entryPaid||entries.some(e=>e.state==="paid"))throw Error("This project has already purchased its single entry. Multiple tickets are not allowed.");
  const existing=entries.find(e=>["creating","open"].includes(e.state));

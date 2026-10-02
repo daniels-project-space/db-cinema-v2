@@ -152,6 +152,8 @@ export const createPending = internalMutation({
       if (!creditAccount || creditAccount.email.trim().toLowerCase() !== customerEmail)
         throw new Error("Account credit belongs to a different customer.");
     }
+    const customerAccount = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", customerEmail)).first();
+    if (customerAccount?.blockedAt != null) throw Error("This account is blocked. Contact DB Cinema Rentals.");
     if (a.deliveryBenefitMonth) {
       const account = a.creditAccountId ? await ctx.db.get(a.creditAccountId) : null;
       if (a.deliveryBenefitMonth !== londonMonth() || a.fulfilment !== "delivery" || a.deliveryFee !== 0 || !await studioDeliveryAvailable(ctx, account, a.deliveryBenefitMonth, !!(a.membershipCheckoutId && (await ctx.db.get(a.membershipCheckoutId))?.tier === "studio")))

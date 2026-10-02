@@ -25,6 +25,7 @@ function renderQuotedHook(quote,member){
 const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:100000,components:[]});
 let account;
 const ctx={db,scheduler:{runAfter:async()=>{}},runQuery:async(ref,args)=>{
+ if(ref==='accounts._byEmail')return load('convex/accounts.ts')._byEmail.handler({db},args);
  if(ref==='accounts._byToken')return account;
  if(ref==='catalog.repriceLines')return catalog.repriceLines.handler({db},args);
  if(ref==='bookings.availableCheckoutCredit')return bookings.availableCheckoutCredit.handler({db},args);

@@ -12,6 +12,7 @@ import { RentalInbox } from "@/components/admin/RentalInbox";
 import { AdminRentalCards } from "@/components/admin/RentalCards";
 import { RentalWorkspace } from "@/components/admin/RentalWorkspace";
 import { OwnerNotificationBell } from "@/components/admin/OwnerNotificationBell";
+import { AccountAdmin } from "@/components/admin/AccountAdmin";
 import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
 import { parseOwnerConversationUrl } from "../../../shared/ownerConversationRoute";
@@ -20,7 +21,7 @@ export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<
-    "overview" | "bookings" | "inbox" | "enquiries" | "calls" | "settings" | "fund" | "stories"
+    "overview" | "bookings" | "inbox" | "enquiries" | "calls" | "settings" | "fund" | "stories" | "accounts"
   >("overview");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
@@ -140,6 +141,7 @@ export default function AdminPage() {
             [
               ["overview", "Overview"],
               ["bookings", "Rentals"],
+              ["accounts", "Accounts"],
               ["inbox", `Messages${rentalUnread ? ` (${rentalUnread})` : ""}`],
               [
                 "enquiries",
@@ -240,6 +242,7 @@ export default function AdminPage() {
         )}
 
         {tab === "fund" && <FilmFundAdmin token={token} />}
+        {tab === "accounts" && <AccountAdmin token={token} />}
         {tab === "stories" && <StoryPrizeAdmin token={token} />}
         {tab === "calls" && <AdminGafferCalls token={token} />}
 

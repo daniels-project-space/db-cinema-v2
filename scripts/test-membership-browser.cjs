@@ -148,6 +148,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   async function reload() {
     const previous = await c.evaluate("performance.timeOrigin");
+    // Release decorative media decoders before tearing down the document.
+    // Cards and their animations are tested before this navigation step.
+    await c.evaluate("document.querySelectorAll('video').forEach(v=>v.pause());true");
     await c.cmd("Page.reload");
     await until(
       `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,
@@ -157,6 +160,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // CDP navigation acknowledges before the old document is replaced. Wait
     // for the new document so an old price panel cannot satisfy readiness.
     const previous = await c.evaluate("performance.timeOrigin");
+    await c.evaluate("document.querySelectorAll('video').forEach(v=>v.pause());true");
+    console.log({ navigation: new URL(url).pathname });
     await c.cmd("Page.navigate", { url });
     await until(
       `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,

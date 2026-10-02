@@ -10,7 +10,8 @@ const {londonMonth}=load('convex/lib/memberDelivery.ts');
  const camera=put('listings',{active:true,title:'Camera',pricing:{daily:200},depositAmount:2000,quietDeal:5,itemType:'camera'});
  let london=true;
  const ctx={db,scheduler:{runAfter:async()=>{}},runQuery:async(ref,args)=>{
-  if(ref==='accounts._byToken')return args.token==='real' ? acct:null;
+  if(ref==='accounts._byEmail')return load('convex/accounts.ts')._byEmail.handler({db},args);
+ if(ref==='accounts._byToken')return args.token==='real' ? acct:null;
   if(ref==='catalog.repriceLines')return catalog.repriceLines.handler({db},args);
   if(ref==='membershipBenefits.deliveryAvailable')return benefits.deliveryAvailable.handler({db},args);
   if(ref==='bookings.availableCheckoutCredit')return 0;

@@ -95,6 +95,7 @@ export const _upsertGoogle = internalMutation({
       .query("accounts")
       .withIndex("by_email", (q) => q.eq("email", a.email))
       .first();
+    if (acct?.blockedAt != null) throw Error("This account is blocked. Contact DB Cinema Rentals.");
     if (!acct) {
       const id = await ctx.db.insert("accounts", {
         email: a.email,
