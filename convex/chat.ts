@@ -110,9 +110,9 @@ export const _gafferContext = internalQuery({
       const extensionRequests=await ctx.db.query("booking_change_requests").withIndex("by_booking",q=>q.eq("bookingId",pick._id)).order("desc").take(20);
       const extension=extensionRequests.find(r=>r.type==="extend"&&["pending","approved","awaiting_payment","refund_pending"].includes(r.status));
       booking = {
-        items:pick.lineItems.map((li:any)=>({title:li.title,qty:li.qty,start:iso(li.start),end:iso(li.end)})),
+        items:pick.lineItems.map((li:any)=>({title:li.title,qty:li.qty,start:iso(li.start),end:iso(li.end),returnTime:li.returnTime===undefined?pick.returnTime??null:li.returnTime})),
         pendingItemAddition:addition?{title:addition.title,qty:addition.qty,status:addition.status,rentalCharge:addition.lineTotal,securityCharge:addition.securityCharge,updatedHold:addition.holdTotal,applied:false}:null,
-        pendingExtension:extension?{status:extension.status,extraDays:extension.extraDays,charge:extension.priceDelta,proposedItems:extension.quoteItems?.map(i=>({title:i.title,qty:i.qty,proposedReturn:iso(i.end)})),applied:false}:null,
+        pendingExtension:extension?{status:extension.status,extraDays:extension.extraDays,charge:extension.priceDelta,requestedReturnTime:extension.requestedReturnTime,approvedReturnTime:extension.approvedReturnTime,proposedItems:extension.quoteItems?.map(i=>({title:i.title,qty:i.qty,proposedReturn:iso(i.end)})),applied:false}:null,
         rentalContents,
         stage:pick.status,
         cancellation:{policy:pick.cancellationDecision?.kind??cancelKind(rentalCancellationStart(pick),Date.now()),cardRefund:pick.refundAmount??null,creditIssued:credit?.amount??0,creditExpiresAt:credit?.expiresAt??null,rentalRefunds:refunds.map(r=>({amount:r.amountPence/100,status:r.status}))},

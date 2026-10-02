@@ -13,9 +13,9 @@ function paymentGate() {
   if (process.env.RENTAL_CHECKOUT_ENABLED !== "true" && !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "")) throw Error("Rental payments are not live yet. The request can remain pending for the team.");
 }
 
-async function ensureSession(ctx: any, requestId: any, reason: string) {
+async function ensureSession(ctx: any, requestId: any, reason: string, approvedReturnTime?: string) {
   paymentGate();
-  const r: any = await ctx.runMutation(internal.rentalExtensions.prepare, { requestId, reason });
+  const r: any = await ctx.runMutation(internal.rentalExtensions.prepare, { requestId, reason, ...(approvedReturnTime ? { approvedReturnTime } : {}) });
   if (r.status === "applied") return { applied: true };
   if (r.stripePaymentLinkId) return stripe().checkout.sessions.retrieve(r.stripePaymentLinkId);
   // Recover a lost create response before an old idempotency key or expiry can be reused.
@@ -37,8 +37,8 @@ async function ensureSession(ctx: any, requestId: any, reason: string) {
     mode: "payment", adaptive_pricing: { enabled: false },
     customer_email: state.booking.guestEmail,
     expires_at: Math.floor(r.expiresAt / 1000),
-    custom_text: { submit: { message: `Pay for the owner-approved extra rental days under our [rental terms](${origin}/legal/rental-terms). Existing security and the agreed return time remain unchanged.` } },
-    line_items: [{ quantity: 1, price_data: { currency: "gbp", unit_amount: Math.round(r.priceDelta * 100), product_data: { name: `DB Cinema · ${r.extraDays} extra rental day${r.extraDays === 1 ? "" : "s"}`, description: r.quoteItems.map((i: any) => `${i.qty}× ${i.title}: £${i.lineTotal.toFixed(2)}`).join("; ").slice(0, 500) } } }],
+    custom_text: { submit: { message: `Pay for the owner-approved extra rental days under our [rental terms](${origin}/legal/rental-terms). New return time: ${r.approvedReturnTime} London time. Existing security remains unchanged.` } },
+    line_items: [{ quantity: 1, price_data: { currency: "gbp", unit_amount: Math.round(r.priceDelta * 100), product_data: { name: `DB Cinema · ${r.extraDays} extra rental day${r.extraDays === 1 ? "" : "s"}`, description: r.quoteItems.map((i: any) => `${i.qty}× ${i.title}: return ${new Date(i.end).toISOString().slice(0, 10)} at ${r.approvedReturnTime} London time · £${i.lineTotal.toFixed(2)}`).join("; ").slice(0, 500) } } }],
     success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/account?rental=${r.bookingId}#chat`,
     metadata: { changeRequestId: requestId },
@@ -50,10 +50,10 @@ async function ensureSession(ctx: any, requestId: any, reason: string) {
 }
 
 export const approve = action({
-  args: { token: v.string(), requestId: v.id("booking_change_requests"), reason: v.string() },
-  handler: async (ctx, { token, requestId, reason }): Promise<{ ok: boolean }> => {
+  args: { token: v.string(), requestId: v.id("booking_change_requests"), reason: v.string(), approvedReturnTime: v.optional(v.string()) },
+  handler: async (ctx, { token, requestId, reason, approvedReturnTime }): Promise<{ ok: boolean }> => {
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "rentalExtensionPayments.approve" });
-    await ensureSession(ctx, requestId, reason);
+    await ensureSession(ctx, requestId, reason, approvedReturnTime);
     return { ok: true };
   },
 });

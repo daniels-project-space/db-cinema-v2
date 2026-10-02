@@ -1108,7 +1108,7 @@ export const remindersFeed = internalQuery({
         remindedPickup: b.remindedPickup ?? false,
         remindedReturn: b.remindedReturn ?? false,
         remindedReview: b.remindedReview ?? false,
-        summary: b.lineItems.map((li) => li.title).join(", "),
+        summary: b.lineItems.map((li) => `${li.title} · return ${new Date(li.end).toISOString().slice(0,10)}${(li.returnTime === undefined ? b.returnTime : li.returnTime) ? ` at ${(li.returnTime === undefined ? b.returnTime : li.returnTime)} London time` : ""}`).join("; "),
       });
     }
     return out;

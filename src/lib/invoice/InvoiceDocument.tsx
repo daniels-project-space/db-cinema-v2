@@ -11,7 +11,7 @@ export type InvoiceData = {
   fulfilment: "pickup" | "delivery";
   address: string | null;
   currency: string;
-  lineItems: { title: string; start: number; end: number; qty: number; lineTotal: number }[];
+  lineItems: { title: string; start: number; end: number; qty: number; lineTotal: number; returnTime?: string }[];
   subtotal: number;
   discount: number;
   deliveryFee: number;
@@ -30,7 +30,7 @@ export type ReturnStatementData = {
   agreedReturnTime?: string;
   supplierName: string; supplierAddress?: string;
   customerName?: string; customerEmail: string; billingAddress?: string;
-  lineItems: { title: string; start: number; end: number; qty: number; lineTotal: number }[];
+  lineItems: { title: string; start: number; end: number; qty: number; lineTotal: number; returnTime?: string }[];
   subtotal: number; discount: number; deliveryFee: number; creditApplied: number;
   checkoutPaid: number; rentalRefunded?:number; securityPaid: number; securityRefunded: number;
   holdStatus?: string; damageTotal: number; damageFromHold: number; damageNote?: string;
@@ -117,7 +117,7 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
         {data.lineItems.map((li, i) => (
           <View style={s.tRow} key={i}>
             <Text style={s.cItem}>{li.title}</Text>
-            <Text style={s.cDates}>{d(li.start)} – {d(li.end)}</Text>
+            <Text style={s.cDates}>{d(li.start)} – {d(li.end)}{li.returnTime ? `\nReturn ${li.returnTime} London` : ""}</Text>
             <Text style={s.cQty}>{li.qty}</Text>
             <Text style={s.cAmt}>{gbp(li.lineTotal)}</Text>
           </View>
@@ -180,7 +180,7 @@ export function ReturnStatementDocument({ data }: { data: ReturnStatementData })
       </View>
       <View style={s.tHead}><Text style={[s.cItem, s.strong]}>Rental item</Text><Text style={[s.cDates, s.strong]}>Dates</Text><Text style={[s.cQty, s.strong]}>Qty</Text><Text style={[s.cAmt, s.strong]}>Charge</Text></View>
       {data.lineItems.map((line, i) => <View style={s.tRow} key={i}>
-        <Text style={s.cItem}>{line.title}</Text><Text style={s.cDates}>{d(line.start)} – {d(line.end)}</Text><Text style={s.cQty}>{line.qty}</Text><Text style={s.cAmt}>{gbp(line.lineTotal)}</Text>
+        <Text style={s.cItem}>{line.title}</Text><Text style={s.cDates}>{d(line.start)} – {d(line.end)}{line.returnTime ? `\nReturn ${line.returnTime} London` : ""}</Text><Text style={s.cQty}>{line.qty}</Text><Text style={s.cAmt}>{gbp(line.lineTotal)}</Text>
       </View>)}
       <View style={s.totals}>
         <View style={s.totRow}><Text>Rental subtotal</Text><Text>{gbp(data.subtotal)}</Text></View>
@@ -198,7 +198,7 @@ export function ReturnStatementDocument({ data }: { data: ReturnStatementData })
         <Text style={s.note}>All rental card charges, less confirmed rental and security refunds, plus any hold captured for damage. Store credit used: {gbp(data.creditApplied)}. Separate late time is excluded and may be collected later.</Text>
         {data.damageNote ? <Text style={s.note}>Damage/loss detail: {data.damageNote}</Text> : null}
         {data.lateAssessed > 0 ? <Text style={s.note}>Separate late rental time assessed: {gbp(data.lateAssessed)}. Pending itemised notice, seven-day dispute period and later collection; it is not included in the checkout payment or damage deduction.</Text> : null}
-        {data.agreedReturnTime ? <Text style={s.note}>Agreed item return slot: {data.agreedReturnTime} London time on each booked end date. Actual return: {dateTime(data.actualReturnedAt)} London time.</Text> : null}
+        {data.agreedReturnTime ? <Text style={s.note}>Agreed return slots are shown against each item above (legacy default: {data.agreedReturnTime} London time). Actual return: {dateTime(data.actualReturnedAt)} London time.</Text> : null}
         {data.lateWaived > 0 ? <Text style={s.note}>Late rental time waived: {gbp(data.lateWaived)}.</Text> : null}
         {data.lateBreakdown.map((line, i) => <Text key={i} style={s.note}>{line.title}: {line.days} extra day{line.days === 1 ? "" : "s"} × {gbp(line.dailyRate)} = {gbp(line.amount)}</Text>)}
         <Text style={s.note}>Card hold status at return: {data.holdStatus || "not recorded"}. {data.damageTotal > 0 ? "The damage deduction used the hold first; a separate late charge is not taken from that same hold." : "An unused active hold may be applied to a late charge after notice; the issuer controls expiry."}</Text>
