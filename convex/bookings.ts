@@ -911,6 +911,7 @@ export const lateFeeContext = internalQuery({
       stripePaymentIntentId: b.stripePaymentIntentId ?? null,
       actualReturnedAt: b.actualReturnedAt ?? null,
       agreedReturnTime: b.returnTime ?? null,
+      agreedReturns: b.lineItems.map(li => ({ title: li.title, end: li.end, time: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime })),
       stripeDepositIntentId: b.stripeDepositIntentId ?? null,
       depositHoldAmount: b.depositHoldAmount ?? 0,
       depositKept: b.depositKept ?? 0,
