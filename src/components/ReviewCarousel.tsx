@@ -31,6 +31,7 @@ export function ReviewCarousel() {
   }, []);
 
   const pages = Math.max(1, Math.ceil(reviews.length / perPage));
+  const visiblePage = Math.min(page, pages - 1);
 
   useEffect(() => {
     if (reviews.length <= perPage) return;
@@ -42,16 +43,16 @@ export function ReviewCarousel() {
   function change(next: (p: number) => number) {
     setFade(false);
     setTimeout(() => {
-      setPage((p) => next(p) % pages);
+      setPage((p) => next(Math.min(p, pages - 1)) % pages);
       setFade(true);
     }, 200);
   }
 
   if (reviews.length === 0) return null;
-  const slice = reviews.slice(page * perPage, page * perPage + perPage);
+  const slice = reviews.slice(visiblePage * perPage, visiblePage * perPage + perPage);
 
   return (
-    <div>
+    <div data-testid="review-carousel">
       <div
         className={`grid gap-4 transition-[opacity,transform] duration-300 md:grid-cols-3 ${
           fade ? "translate-y-0 opacity-100" : "translate-y-1.5 opacity-0"
@@ -60,6 +61,8 @@ export function ReviewCarousel() {
         {slice.map((r) => (
           <figure
             key={r._id}
+            data-testid="review-card"
+            data-review-source={r.source}
             className="spot gradient-border relative flex flex-col gap-3 rounded-2xl p-5"
           >
             <span className="serif-accent pointer-events-none absolute right-4 top-1 text-6xl leading-none text-accent-400/15" aria-hidden>
@@ -99,7 +102,7 @@ export function ReviewCarousel() {
                 onClick={() => change(() => i)}
                 aria-label={`Page ${i + 1}`}
                 className={`h-1.5 rounded-full transition-all duration-300 ${
-                  i === page ? "w-6 bg-accent-400" : "w-1.5 bg-white/20 hover:bg-white/40"
+                  i === visiblePage ? "w-6 bg-accent-400" : "w-1.5 bg-white/20 hover:bg-white/40"
                 }`}
               />
             ))}
