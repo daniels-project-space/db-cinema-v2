@@ -338,7 +338,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `(()=>{let d=document.querySelector('[role="dialog"][aria-label="Subscription benefits"]'),r=d.getBoundingClientRect();return {outsideCard:!d.closest('[data-testid="membership-upsell"]'),onScreen:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight}})()`,
   );
   assert(modal.outsideCard && modal.onScreen);
-  assert.equal(await c.evaluate(`document.querySelector('[role="dialog"] h2').innerText`),`Subscribe to save £${paid.membershipNetSaving.toFixed(2)}`,'The chooser also leads with actual rental savings');
+  assert.equal(await c.evaluate(`document.querySelector('[role="dialog"] h2').innerText`),`Subscribe to save £${paid.membershipNetSaving.toFixed(2)}`,'The recommended-plan benefits also lead with actual rental savings');
+  assert.equal(await c.evaluate(`document.querySelectorAll('[role="dialog"] [data-testid^="membership-benefit-"]').length`),1,'Benefits overlay describes only the recommendation');
+  assert.equal(await c.evaluate(`document.querySelector('[role="dialog"]').innerText.includes('Choose ')`),false,'No alternate plan choices in the booking flow');
   await shot("benefits-mobile");
   await c.cmd("Input.dispatchKeyEvent", {
     type: "keyDown",
@@ -489,17 +491,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     false,
     "Do not upsell a membership when this order has no net saving",
   );
-  await nativeClick(`document.querySelector('[data-testid="membership-chooser"]')`);
-  await until(`!!document.querySelector('[role="dialog"]')`);
-  assert.equal(await c.evaluate(`document.querySelector('[role="dialog"] h2').innerText`),'Choose your membership','No saving means no invented amount in the manual chooser');
-  await nativeClick(`document.querySelector('[data-testid="membership-plan-pro"] button')`);
-  await until(`!!document.querySelector('[data-testid="remove-membership"]')`);
-  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').dataset.membershipSelected`),undefined,'Choosing a plan still requires fresh recurring-payment consent');
-  await nativeClick(`document.querySelector('[data-testid="remove-membership"]')`);
-  await until(`!document.querySelector('[data-testid="membership-upsell"]')&&!!document.querySelector('[data-testid="membership-chooser"]')`);
-  await nativeClick(`document.querySelector('[data-testid="membership-chooser"]')`);
-  await until(`!!document.querySelector('[role="dialog"]')`);
-  await nativeClick(`document.querySelector('button[aria-label="Close subscription benefits"]')`);
+  assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-chooser"], [data-testid="membership-benefits"]')`),false,'No positive savings means no fallback chooser or benefits entry point');
   // A plan already chosen on an earlier basket remains visible/manageable
   // when the renter changes to dates without a discount. This is a persisted
   // checkout preference, not an active subscription or stored legal consent.

@@ -166,16 +166,6 @@ export function CheckoutMembership({
   ];
   return (
     <>
-    {variant !== "checkout" && !showMembershipCard && !current && (
-      <button
-        type="button"
-        data-testid="membership-chooser"
-        onClick={() => setOpen(true)}
-        className="my-3 flex w-full items-center justify-between rounded-xl border border-white/10 px-4 py-3 text-xs text-white/65 transition-colors hover:border-accent-300/40 hover:text-white"
-      >
-        <span>Add membership</span><span aria-hidden="true">＋</span>
-      </button>
-    )}
     {showMembershipCard && <section
       data-testid="membership-upsell"
       data-membership-compact={compact || undefined}
@@ -398,7 +388,7 @@ export function CheckoutMembership({
         )}
         {variant !== "checkout" && <button
           type="button"
-          data-testid="membership-chooser"
+          data-testid="membership-benefits"
           onClick={() => setOpen(true)}
           className="mt-2 text-[10px] text-white/55 underline underline-offset-4"
         >
@@ -432,28 +422,20 @@ export function CheckoutMembership({
                 Monthly subscriptions · keep the momentum
               </p>
               <h2 className="mt-3 font-display text-3xl text-white">
-                {savingsHook ?? "Choose your membership"}
+                {savingsHook ?? `${displayTier.name} subscription`}
               </h2>
               <p className="mt-3 text-sm leading-6 text-white/50">
-                Your paid fee becomes rental credit with 10% extra on Starter,
-                20% on Pro or 30% on Studio, stacking for a year. Pro and Studio
-                include Film Fund application entry when it opens. One project,
-                one entry.
+                Your £{displayTier.monthlyGbp} monthly fee becomes £{displayTier.monthlyCredit.toFixed(2)} in rental credit,
+                stacking for a year.
               </p>
-              <div className="mt-6 grid gap-3 md:grid-cols-3">
-                {TIERS.map((t) => {
-                  const offer = suggestions?.find((offer) => offer.tier === t.key);
+              <div className="mt-6">
+                {[displayTier].map((t) => {
                   return (
                   <div
                     key={t.key}
-                    data-testid={`membership-plan-${t.key}`}
+                    data-testid={`membership-benefit-${t.key}`}
                     className={`rounded-2xl border p-4 ${t.key === recommend?.tier ? "border-accent-300/40 bg-accent-300/[.05]" : "border-white/10"}`}
                   >
-                    {offer && offer.netSaving > 0 && (
-                      <h3 className="mb-3 text-xl font-semibold leading-tight text-white">
-                        Subscribe to save £{offer.netSaving.toFixed(2)}
-                      </h3>
-                    )}
                     <p className="text-lg text-white">{t.name}</p>
                     <p className="mt-1 text-[10px] text-white/40">
                       Monthly subscription
@@ -477,20 +459,21 @@ export function CheckoutMembership({
                       ))}
                     </ul>
                     {!current && (
+                      <>
+                      <p className="mt-4 text-[10px] leading-4 text-white/55">
+                        Selecting confirms the <Link href="/legal/membership" target="_blank" className="underline">membership terms</Link> and £{t.monthlyGbp}/month renewal. Cancel in account settings.
+                      </p>
                       <button
                         type="button"
                         onClick={() => {
-                          onChange({
-                            tier: t.key,
-                            intro: "none",
-                            termsAccepted: false,
-                          });
+                          confirmSelection();
                           setOpen(false);
                         }}
                         className="btn-ghost mt-4 w-full py-2 text-xs"
                       >
-                        Choose {t.name}
+                        {confirmed ? "Membership selected" : "Start my membership now"}
                       </button>
+                      </>
                     )}
                   </div>
                 );})}
