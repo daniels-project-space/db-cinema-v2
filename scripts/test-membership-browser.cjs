@@ -249,7 +249,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`!document.querySelector('[data-testid="membership-celebration"]')`);
   await nativeClick(`document.querySelector('[data-testid="membership-benefits"]')`);
   await until(`!!document.querySelector('[role="dialog"] [data-testid="membership-benefit-studio"]')`);
-  assert.equal(await c.evaluate(`(()=>{const dialog=document.querySelector('[role="dialog"]');return dialog.innerText.includes('Your £99 monthly fee becomes £128.70')&&dialog.innerText.includes('Weekend 2-for-1 / 3-for-2')&&dialog.querySelectorAll('[data-testid^="membership-benefit-"]').length===1;})()`),true,'Full credit and exclusive weekend benefits remain available in the one-plan overlay');
+  assert.equal(await c.evaluate(`(()=>{const dialog=document.querySelector('[data-testid="membership-benefit-studio"]').closest('[role="dialog"]'),text=dialog.textContent.replace(/\\s+/g,' ');return text.includes('Your £99 monthly fee becomes £128.70')&&text.includes('Weekend 2-for-1 / 3-for-2')&&dialog.querySelectorAll('[data-testid^="membership-benefit-"]').length===1;})()`),true,'Full credit and exclusive weekend benefits remain available in the one-plan overlay');
   await nativeClick(`document.querySelector('button[aria-label="Close subscription benefits"]')`);
   await c.evaluate(`document.querySelector('[data-testid="confirm-membership-card"]').click()`);
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')`),false,'Clicking a confirmed card never replays confetti');
