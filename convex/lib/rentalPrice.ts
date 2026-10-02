@@ -8,7 +8,8 @@ import { checkoutMembershipCredit, membershipSignupOffer } from "../../shared/ch
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
-import { depositFor } from "./pricing";
+import { depositFor, depositChargeFor } from "./pricing";
+import { SECURITY_POLICY_VERSION } from "../../shared/rentalSecurity";
 import { londonMonth } from "./memberDelivery";
 import { tierByKey, paidDepositExempt } from "./membership";
 
@@ -36,6 +37,7 @@ export type RentalPriceInput = {
 
 type PricedItem = RentalPriceInput["items"][number] & { dailyRate: number };
 export type RentalPrice = {
+  securityPolicyVersion: string;
   pricingVersion: string;
   benefitKind: BenefitKind;
   refundCreditApplied: number;
@@ -114,7 +116,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     }
   }
   let securityWaiverReason = !selected && paidDepositExempt(acct) ? "paid_membership" : repeatSourceBookingId ? "safe_repeat_kit" : undefined;
-  let depositAmount = securityWaiverReason ? 0 : Math.round(depositHoldAmount * 50) / 100;
+  let depositAmount = securityWaiverReason ? 0 : depositChargeFor(protection, replacementSum);
   const month = londonMonth();
   const freedCount = 0;
   const discountable = items.filter(i => !i.offerType).reduce((n, i) => n + i.total, 0);
@@ -173,7 +175,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const benefitKind=chosen.kind;
   if(benefitKind==="referral_friend"||benefitKind==="referral_reward"){
     securityWaiverReason=undefined;repeatSourceBookingId=undefined;repeatSourceFingerprint=undefined;
-    depositAmount=Math.round(depositHoldAmount*50)/100;
+    depositAmount=depositChargeFor(protection,replacementSum);
   }
   const deliveryReduction=benefitKind==="delivery"?chosen.savingPence/100:0;
   const deliveryFee=quotedDeliveryFee-deliveryReduction;
@@ -194,7 +196,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     referralCode:benefitKind==="referral_friend"?referral.friend.code:undefined,
     referralRewardId:benefitKind==="referral_reward"?referral.reward.id:undefined,
     items,customerEmail,acct,month,freedCount,subtotal,replacementSum,protection,
-    depositHoldAmount,depositAmount,appliedCode,totalReduction,reductionLabel:chosen.kind==="none"?undefined:chosen.label,
+    securityPolicyVersion:SECURITY_POLICY_VERSION,depositHoldAmount,depositAmount,appliedCode,totalReduction,reductionLabel:chosen.kind==="none"?undefined:chosen.label,
     quotedDeliveryFee,deliveryFee,deliveryBenefitMonth,deliveryReduction,securityWaiverReason,weekendSaving,
     rentalSaving:totalReduction,loyaltySaving,membershipSignupOfferSaving,repeatSourceBookingId,repeatSourceFingerprint,
     membershipFee,membershipCreditApplied,combinedTotalDue:Math.round((totalDue+membershipFee)*100)/100,totalBeforeCredit,creditApplied,totalDue,

@@ -10,7 +10,8 @@ import {
   ownedBooking,
   postRentalMessage,
 } from "./lib/rentalChat";
-import { quote, depositFor } from "./lib/pricing";
+import { quote, depositFor, depositChargeFor } from "./lib/pricing";
+import { SECURITY_POLICY_VERSION, legacyDepositFor } from "../shared/rentalSecurity";
 
 async function note(ctx: any, b: any, text: string, meta?: any) {
   const a = await ctx.db
@@ -162,11 +163,11 @@ export const prepare = internalMutation({
       l.depositAmount * a.qty;
     const holdTotal = Math.max(
       b.depositHoldAmount ?? 0,
-      depositFor(b.protection === "deposit" ? "deposit" : "verify", value),
+      (b.securityPolicyVersion === SECURITY_POLICY_VERSION ? depositFor : legacyDepositFor)(b.protection === "deposit" ? "deposit" : "verify", value),
     );
     const securityCharge = ["paid_membership","new_paid_membership"].includes(b.securityWaiverReason??"") ? 0 : Math.max(
       0,
-      Math.round(holdTotal * 50) / 100 - b.depositAmount,
+      (b.securityPolicyVersion === SECURITY_POLICY_VERSION ? depositChargeFor(b.protection === "deposit" ? "deposit" : "verify", value) : Math.round(holdTotal * 50) / 100) - b.depositAmount,
     );
     const membership=b.status==="pending_payment"&&b.membershipCheckoutId?await ctx.db.get(b.membershipCheckoutId):null;
     if(membership&&(!membership.sessionParams||!["creating","open"].includes(membership.state)||membership.bookingId!==b._id))throw Error("Refresh the initial membership checkout before changing its order.");

@@ -20,7 +20,7 @@ const pricing={...ctx,runQuery:async(ref,args)=>{
  if(ref==='promo.validate')return {valid:true,code:'SALE',discount:30};
  throw Error('unexpected query '+ref);
 }};
-const pendingArgs=(p,a)=>({pricingVersion:p.pricingVersion,benefitKind:p.benefitKind,refundCreditApplied:p.refundCreditApplied,earnedCreditApplied:p.earnedCreditApplied,referralCode:p.referralCode,referralRewardId:p.referralRewardId,customerEmail:a.email,creditAccountId:a._id,fulfilment:'pickup',deliveryFee:0,quotedDeliveryFee:0,lineItems:p.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:1,lineTotal:i.total})),subtotal:p.subtotal,total:p.totalBeforeCredit,expectedTotalDue:p.totalDue,depositAmount:p.depositAmount,depositHoldAmount:p.depositHoldAmount,discount:p.totalReduction,membershipCreditApplied:p.membershipCreditApplied,loyaltySaving:p.loyaltySaving,currency:'GBP'});
+const pendingArgs=(p,a)=>({securityPolicyVersion:p.securityPolicyVersion,protection:p.protection,pricingVersion:p.pricingVersion,benefitKind:p.benefitKind,refundCreditApplied:p.refundCreditApplied,earnedCreditApplied:p.earnedCreditApplied,referralCode:p.referralCode,referralRewardId:p.referralRewardId,customerEmail:a.email,creditAccountId:a._id,fulfilment:'pickup',deliveryFee:0,quotedDeliveryFee:0,lineItems:p.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:1,lineTotal:i.total})),subtotal:p.subtotal,total:p.totalBeforeCredit,expectedTotalDue:p.totalDue,depositAmount:p.depositAmount,depositHoldAmount:p.depositHoldAmount,discount:p.totalReduction,membershipCreditApplied:p.membershipCreditApplied,loyaltySaving:p.loyaltySaving,currency:'GBP'});
 (async()=>{
  const owner=await account('owner@example.invalid','owner@example.invalid'),friend=await account('friend@example.invalid','friend@example.invalid');
  assert.match(owner.referralCode,/^DBC-[A-Z0-9]{14}$/);assert.notEqual(friend.referralCode,owner.referralCode);
@@ -29,6 +29,14 @@ const pendingArgs=(p,a)=>({pricingVersion:p.pricingVersion,benefitKind:p.benefit
  assert.equal((await ledger.referralEligibility(ctx,owner,owner.referralCode)).valid,false);
  const freeHistory=await account('prior-free@example.invalid','prior-free@example.invalid');put('bookings',{guestEmail:freeHistory.email,status:'cancelled',accountCreatedAtCheckout:true});assert.equal((await ledger.referralEligibility(ctx,freeHistory,owner.referralCode)).valid,false,'a previously settled free/setup rental still counts as the first rental');
  await assert.rejects(calculateRentalPrice(pricing,{...input(friend),token:undefined,promoCode:owner.referralCode}),/Sign in/);
+ camera.depositAmount=150;
+ const small=await calculateRentalPrice(pricing,{...input(friend),promoCode:owner.referralCode});
+ assert.equal(small.depositAmount,100);assert.equal(small.depositHoldAmount,0);
+ const smallArgs=pendingArgs(small,friend);
+ await assert.rejects(bookings.createPending.handler(ctx,{...smallArgs,depositAmount:0}),/normal upfront security/);
+ const smallBooking=await bookings.createPending.handler(ctx,smallArgs);
+ await bookings.expireUnpaidPending.handler(ctx,{bookingId:smallBooking.bookingId});
+ camera.depositAmount=2000;
  let p=await calculateRentalPrice(pricing,{...input(friend),promoCode:owner.referralCode});assert.equal(p.benefitKind,'referral_friend');assert.equal(p.totalReduction,10);assert(p.depositAmount>0);
  const args=pendingArgs(p,friend),created=await bookings.createPending.handler(ctx,args),b=await db.get(created.bookingId);
  await assert.rejects(bookings.createPending.handler(ctx,args),/first rental|claimed/,'a second serializable reservation is rejected');

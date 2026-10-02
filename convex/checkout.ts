@@ -23,6 +23,7 @@ const pence = (gbp: number) => Math.round(gbp * 100);
 const subActive = (status: string) => status === "active" || status === "trialing";
 
 type PriceQuoteResult = {
+  replacementValue: number;
   benefitKind:string;refundCreditApplied:number;earnedCreditApplied:number;
   items: { title: string; total: number }[];
   subtotal: number;
@@ -101,6 +102,7 @@ export const priceQuote = action({
     recommendations.sort((x,y)=>Number(y.netSaving>0)-Number(x.netSaving>0)||MEMBERSHIP_BASKET_MINIMUM[y.tier]-MEMBERSHIP_BASKET_MINIMUM[x.tier]);
     return {
       recommendations,
+      replacementValue: price.replacementSum,
       membershipNetSaving: a.selectedMembership ? netSaving(price) : price.rentalSaving + price.deliveryReduction,
       membershipCreditApplied: price.membershipCreditApplied,
       membershipSignupOfferSaving: price.membershipSignupOfferSaving,
@@ -310,6 +312,7 @@ export const start = action({
       subtotal,
       depositAmount,
       depositHoldAmount,
+      securityPolicyVersion: price.securityPolicyVersion,
       promoCode: appliedCode,
       discount: totalReduction,
       total,
@@ -374,7 +377,7 @@ export const start = action({
           unit_amount: pence(depositAmount),
           product_data: {
             name:
-              "Refundable security payment (50% of card hold; refunded after safe return)",
+              "Refundable security deposit (refunded after safe return and settlement)",
           },
         },
       });

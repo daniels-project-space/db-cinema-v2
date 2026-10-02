@@ -150,7 +150,7 @@ export function CheckoutMembership({
         )}
         {tier && appliedSavings?.securityWaiverReason && (
           <p className="mt-3 text-xs text-accent-200">
-            £0 upfront security · full hold remains
+            £0 upfront security · any required hold remains
           </p>
         )}
         {!tier && recommend && potentialNetSaving > 0 && (
@@ -183,7 +183,7 @@ export function CheckoutMembership({
         {current ? (
           <p className="mt-2 text-xs leading-6 text-white/55">
             Your membership perks are included in the confirmed price below.
-            Full card hold still applies.
+            Any required card hold still applies.
             {me?.membershipStatus === "trialing"
               ? " The free week alone does not waive the upfront security payment."
               : ""}
@@ -249,7 +249,7 @@ export function CheckoutMembership({
                   {selected.intro === "trial"
                     ? "The free week alone does not waive the upfront security payment."
                     : "This first rental still requires verification and the upfront refundable security payment."}{" "}
-                  Full card hold still applies. {selected.intro === "trial"
+                  Any required card hold still applies. {selected.intro === "trial"
                     ? "The free week earns no monthly credit."
                     : `£${(appliedSavings?.membershipCreditApplied ?? 0).toFixed(2)} of your first-month credit is used on this rental. Any unused balance is issued after successful payment, lasts one year and stacks with future monthly credit.`}
                 </p>
@@ -287,7 +287,7 @@ export function CheckoutMembership({
               ...((chosen ?? recommendedTier).filmFund ? ["Film Fund entry included · coming soon"] : []),
             ].map((benefit, index) => <li key={benefit} className="flex items-start gap-2"><SubscriptionBenefitSymbol benefit={benefit} index={index} /><span>{benefit}</span></li>)}
           </ul>
-          <p className="mt-3 text-[10px] leading-5 text-white/40">This checkout applies the best single saving: credit or an eligible offer. Verification, the upfront refundable security payment and the full card hold still apply. Other perks start after this booking is confirmed, for future rentals.</p>
+          <p className="mt-3 text-[10px] leading-5 text-white/40">This checkout applies the best single saving: credit or an eligible offer. Verification, the upfront refundable security payment and any required card hold still apply. Other perks start after this booking is confirmed, for future rentals.</p>
         </>}
         <button
           onClick={() => setOpen(true)}

@@ -294,7 +294,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('This first rental still requires verification')`,
   );
   await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(paid.combinedTotalDue))}`);
-  assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]');const rows=[...secondary.children].filter(e=>e.querySelector('.font-mono'));return rows.length===3&&rows.every(e=>getComputedStyle(e).fontSize==='11px')&&[...s.querySelectorAll('div')].some(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied'&&e.classList.contains('text-emerald-300'))})()`),true,"Checkout separates small subscription/security rows and green applied credit while retaining the full payment total");
+  assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]');const rows=[...secondary.querySelectorAll('[data-secondary-charge]')];return rows.length===3&&rows.every(e=>getComputedStyle(e).fontSize==='11px')&&[...s.querySelectorAll('div')].some(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied'&&e.classList.contains('text-emerald-300'))})()`),true,"Checkout separates small subscription/security rows and green applied credit while retaining the full payment total");
   await c.evaluate(`document.querySelector('[data-testid="checkout-summary"]').scrollIntoView({block:'center'})`);
   await shot("checkout-summary-mobile");
   await shot("selected-checkout-mobile");
@@ -475,11 +475,33 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`document.querySelector('aside[aria-hidden="false"] [data-cart-dates]').textContent.includes('available with your kit')`);
   await wait(300);
   await shot("date-drawer-mobile");
+  await c.evaluate(`document.querySelector('aside[aria-hidden="false"] button[aria-label="Close"]').click()`);
+  for(const band of ['deposit-only','deposit-and-hold']){
+    const fixture=rows.filter(l=>l.pricing&&!l.displayOnly&&l.depositAmount>0&&(band==='deposit-only'?l.depositAmount<300:l.depositAmount>=300&&l.depositAmount<1000)).sort((a,b)=>a.pricing.daily-b.pricing.daily)[0];
+    assert(fixture,`Need a real catalog item in the ${band} value band`);
+    const bandArgs={...args,items:[{...args.items[0],listingId:fixture._id,title:fixture.title,start:weekdayStart,end:weekdayStart}]};
+    const bandQuote=await cv.action(api.checkout.priceQuote,bandArgs);
+    assert.equal(bandQuote.depositAmount,100);assert.equal(bandQuote.depositHoldAmount,band==='deposit-only'?0:100);
+    const bandItem={...weekdayItem,key:fixture._id+':security-band',listingId:fixture._id,title:fixture.title,slug:fixture.slug,heroImage:fixture.heroImage,deposit:fixture.depositAmount,total:bandQuote.items[0].total};
+    await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([bandItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`);
+    await c.cmd('Page.navigate',{url:root+'/checkout'});
+    const bandDue=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(bandQuote.combinedTotalDue);
+    await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(bandDue)}`);
+    assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="rental-consent"] input[type="checkbox"]').length`),1,'One combined rental consent checkbox');
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes('Fully refundable security')&&document.querySelector('[data-testid="refundable-security"]').textContent.includes('£100.00')`),true);
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').innerText.includes('No card hold required.')`),band==='deposit-only');
+    await c.evaluate(`document.querySelector('[data-testid="rental-agreement-checkbox"]').click()`);
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="rental-agreement-checkbox"]').checked`),true);
+    await c.evaluate(`document.querySelector('[data-testid="rental-consent"]').scrollIntoView({block:'center'})`);await wait(200);await shot('consent-'+band+'-mobile');
+    await c.evaluate(`document.querySelector('[data-testid="checkout-summary"]').scrollIntoView({block:'center'})`);await wait(200);await shot('security-'+band+'-mobile');
+  }
   console.log({
     root,
     individualDatesPersistAndReprice:true,
     basketExcludesSecurity:true,
     checkoutFullTotalAndSecondaryCharges:true,
+    canonicalSmallRentalSecurityBands:true,
+    oneRentalConsentCheckbox:true,
     guestOfferVisibleBeforeContact: true,
     oneClickCarry: true,
     reloadConsentReset: true,
