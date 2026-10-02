@@ -240,7 +240,7 @@ export default function CheckoutPage() {
       <CheckoutLoopBanner />
       <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
-        <CheckoutMembership appliedSavings={currentQuote ? {rentalSaving:currentQuote.rentalSaving,weekendSaving:currentQuote.weekendSaving,deliveryReduction:currentQuote.deliveryReduction,membershipFee:currentQuote.membershipFee,membershipCreditApplied:currentQuote.membershipCreditApplied,membershipNetSaving:currentQuote.membershipNetSaving,securityWaiverReason:currentQuote.securityWaiverReason} : undefined} suggestions={currentQuote?.recommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
+        <CheckoutMembership variant="checkout" appliedSavings={currentQuote ? {rentalSaving:currentQuote.rentalSaving,weekendSaving:currentQuote.weekendSaving,deliveryReduction:currentQuote.deliveryReduction,membershipFee:currentQuote.membershipFee,membershipCreditApplied:currentQuote.membershipCreditApplied,membershipSignupOfferSaving:currentQuote.membershipSignupOfferSaving,membershipNetSaving:currentQuote.membershipNetSaving,securityWaiverReason:currentQuote.securityWaiverReason} : undefined} suggestions={currentQuote?.recommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <div className="mb-5 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
           <span className="inline-flex items-center gap-1.5">
@@ -458,13 +458,14 @@ export default function CheckoutPage() {
             <hr className="receipt-sep" />
             <div className="text-sm">
               <Row label="Rental subtotal" value={currentQuote?.subtotal ?? subtotal} />
-              {!!currentQuote && currentQuote.totalReduction > 0 && (
+              {!!currentQuote && currentQuote.totalReduction - currentQuote.membershipSignupOfferSaving > 0 && (
                 <div className="flex justify-between text-emerald-300">
                   <span>{currentQuote.reductionLabel ?? "Rental discount"}</span>
-                  <span className="font-mono">−{formatGbp(currentQuote.totalReduction)}</span>
+                  <span className="font-mono">−{formatGbp(currentQuote.totalReduction - currentQuote.membershipSignupOfferSaving)}</span>
                 </div>
               )}
               {(currentQuote?.deliveryFee ?? deliveryFee) > 0 && <Row label="Delivery (round trip)" value={currentQuote?.deliveryFee ?? deliveryFee} />}
+              {!!currentQuote?.membershipSignupOfferSaving && <Row label="One-time joining credit" value={-currentQuote.membershipSignupOfferSaving} saving />}
               {!!currentQuote?.membershipCreditApplied && <Row label="Subscription credit applied" value={-currentQuote.membershipCreditApplied} saving />}
               {!!currentQuote && currentQuote.creditApplied - currentQuote.membershipCreditApplied > 0 && (
                 <div className="flex justify-between text-emerald-300">

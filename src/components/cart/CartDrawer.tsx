@@ -63,14 +63,6 @@ export function CartDrawer() {
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {isOpen && (
-                <CheckoutMembership
-                  suggestions={quote?.recommendations}
-                  appliedSavings={quote ?? undefined}
-                  selected={membership}
-                  onChange={setMembership}
-                />
-              )}
               {items.map((it, i) => (
                 <div
                   key={it.key}
@@ -118,6 +110,15 @@ export function CartDrawer() {
                   <div className="col-span-3"><CartItemDates item={it} /></div>
                 </div>
               ))}
+              {isOpen && (
+                <CheckoutMembership
+                  suggestions={quote?.recommendations}
+                  appliedSavings={quote ?? undefined}
+                  selected={membership}
+                  onChange={setMembership}
+                />
+              )}
+
             </div>
           )}
         </div>
@@ -130,11 +131,12 @@ export function CartDrawer() {
                 {quote ? formatGbp(Math.round((quote.combinedTotalDue - quote.depositAmount) * 100) / 100) : "Calculating…"}
               </span>
             </div>
+            {!!quote?.membershipSignupOfferSaving && <p data-testid="joining-credit-applied" className="mt-1 text-xs text-emerald-300">One-time joining credit · −{formatGbp(quote.membershipSignupOfferSaving)}</p>}
             {!!quote?.membershipCreditApplied && <p className="mt-1 text-xs text-emerald-300">Subscription credit applied · −{formatGbp(quote.membershipCreditApplied)}</p>}
-            {!!quote?.totalReduction && (
+            {!!quote && quote.totalReduction - quote.membershipSignupOfferSaving > 0 && (
               <p className="mt-1 text-xs text-accent-300">
                 {quote.reductionLabel ?? "Rental discount"} · −
-                {formatGbp(quote.totalReduction)}
+                {formatGbp(quote.totalReduction - quote.membershipSignupOfferSaving)}
               </p>
             )}
             {!!membership && <div className="mt-2 flex justify-between gap-3 text-[11px] text-white/40"><span>{membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"}</span><span className="font-mono">{quote ? formatGbp(quote.membershipFee) : "…"}</span></div>}

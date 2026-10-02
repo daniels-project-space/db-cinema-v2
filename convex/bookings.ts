@@ -131,17 +131,17 @@ export const createPending = internalMutation({
     let friend:any=null,reward:any=null;
     if(single){
       if((a.earnedCreditApplied??0)>0&&a.benefitKind!=="earned_credit")throw Error("Earned credit cannot stack with another benefit.");
-      if(a.benefitKind==="earned_credit"&&((a.discount??0)>0||a.deliveryFee!==(a.quotedDeliveryFee??a.deliveryFee)))throw Error("Only one price benefit can apply.");
+      if(a.benefitKind==="earned_credit"&&((a.discount??0)!==(a.membershipSignupOfferSaving??0)||a.deliveryFee!==(a.quotedDeliveryFee??a.deliveryFee)))throw Error("Only one price benefit can apply, plus the one-time joining credit.");
       if(["referral_friend","referral_reward"].includes(a.benefitKind??"")){
         const value = a.securityPolicyVersion === SECURITY_POLICY_VERSION ? (await Promise.all(a.lineItems.map(line=>ctx.db.get(line.listingId)))).reduce((n,item,i)=>n+(item?.depositAmount??0)*a.lineItems[i].qty,0) : undefined;
         const normalDeposit = value === undefined ? Math.round((a.depositHoldAmount??0)*50)/100 : depositChargeFor(a.protection === "deposit" ? "deposit" : "verify",value);
         if(a.securityWaiverReason||a.depositAmount!==normalDeposit)throw Error("Referral offers require normal upfront security.");
         if(a.benefitKind==="referral_friend"){
           friend=await referralEligibility(ctx,account,a.referralCode??"");if(!friend.valid)throw Error(friend.reason);
-          if(Math.round((a.discount??0)*100)!==Math.round(Math.min(10,a.subtotal)*100))throw Error("Referral price changed.");
+          if(Math.round(((a.discount??0)-(a.membershipSignupOfferSaving??0))*100)!==Math.round(Math.min(10,a.subtotal)*100))throw Error("Referral price changed.");
         }else{
           reward=await availableReferralReward(ctx,account);
-          if(!reward||reward._id!==a.referralRewardId||Math.round((a.discount??0)*100)!==Math.round(a.subtotal*40))throw Error("Your referral reward is no longer available.");
+          if(!reward||reward._id!==a.referralRewardId||Math.round(((a.discount??0)-(a.membershipSignupOfferSaving??0))*100)!==Math.round(a.subtotal*40))throw Error("Your referral reward is no longer available.");
         }
       }
     }
@@ -212,7 +212,8 @@ export const createPending = internalMutation({
       const checkout = (await ctx.db.get(a.membershipCheckoutId))!;
       if (checkout.bookingId) throw Error("Membership credit is already reserved for another rental.");
       const account = await ctx.db.get(checkout.accountId);
-      const expectedOffer = (single&&a.benefitKind!=="joining")||(a.weekendSaving ?? 0) > 0 ? 0 : membershipSignupOffer(checkout.tier,checkout.intro,a.subtotal-(a.discount??0)+(a.membershipSignupOfferSaving??0)+(a.quotedDeliveryFee??a.deliveryFee),!!(account?.membershipSignupOfferUsed || account?.starterRentalOfferUsed));
+      const primaryReduction=(a.discount??0)-(a.membershipSignupOfferSaving??0);
+      const expectedOffer = Math.min(membershipSignupOffer(checkout.tier,checkout.intro,a.subtotal+(a.quotedDeliveryFee??a.deliveryFee),!!(account?.membershipSignupOfferUsed || account?.starterRentalOfferUsed)),Math.max(0,a.subtotal-primaryReduction));
       if ((a.membershipSignupOfferSaving ?? 0) !== expectedOffer) throw Error("Your Membership welcome offer changed. Review the updated total before paying.");
       const immediate = checkoutMembershipCredit(checkout.tier, checkout.intro,
         Math.round(Math.max(0, a.subtotal - (a.discount ?? 0) - creditApplied) * 100), account?.membershipCreditDebtPence);

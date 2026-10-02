@@ -1,9 +1,10 @@
 "use client";
+import { listingMentions, createSpokenListingTracker, type Alignment } from "./spokenListings";
 import { contentsText } from "../../../shared/rentalContents";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useConvex } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { GAFFER_PRICE_CODE } from "@cvx/lib/gafferDiscount";
 import { asksForBetterPrice } from "./priceRequest";
@@ -81,7 +82,29 @@ export function useGafferTools() {
   const cart = useCart();
   const account = useAccount();
   const convex = useConvex();
-  const { focus, suggest } = useGafferFocus();
+  const { focus, suggest, suggestedIds, focusedId } = useGafferFocus();
+  const catalog = useQuery(api.catalog.listListings, {});
+  const spokenState = useRef<any>(null);
+  spokenState.current = { catalog, preferred: [focusedId,...suggestedIds].filter(Boolean), focus, router, cart };
+  const spokenTracker = useRef<ReturnType<typeof createSpokenListingTracker> | null>(null);
+  if (!spokenTracker.current) spokenTracker.current = createSpokenListingTracker(id=>{
+    const state=spokenState.current;
+    const onScreen=document.querySelector(`[data-listing-id="${CSS.escape(id)}"]`);
+    if(onScreen)void state.focus(id,0);
+    else { state.cart.close();const route="/gear?gaffer=1";state.router.push(route,{scroll:false});void state.focus(id,0,route); }
+  });
+  const resetSpokenFocus = useCallback(()=>{spokenTracker.current?.reset();void spokenState.current.focus(null);},[]);
+  const noteAgentAlignment = useCallback((alignment:Alignment)=>{
+    const state=spokenState.current;const rows=Array.isArray(state.catalog)?state.catalog:(state.catalog?.items??state.catalog?.listings??[]);
+    spokenTracker.current?.alignment(alignment,rows,state.preferred);
+  },[]);
+  const noteAgentMessage = useCallback((message:string)=>{
+    // Transcript fallback is deterministic; audio timings replace it once received.
+    const state=spokenState.current;const rows=Array.isArray(state.catalog)?state.catalog:(state.catalog?.items??state.catalog?.listings??[]);
+    const first=listingMentions(message,rows,state.preferred)[0];
+    if(first){const onScreen=document.querySelector(`[data-listing-id="${CSS.escape(first.id)}"]`);if(onScreen)void state.focus(first.id,0);}
+  },[]);
+  useEffect(()=>()=>spokenTracker.current?.reset(),[]);
   /**
    * Has the customer been shown the basket breakdown yet this basket?
    * Reset whenever the basket changes, so adding something after reviewing
@@ -844,5 +867,5 @@ export function useGafferTools() {
     };
   }, [account, cart]);
 
-  return { clientTools, dynamicVariables, noteCustomerMessage, resetPriceRequest };
+  return { clientTools, dynamicVariables, noteCustomerMessage, resetPriceRequest, noteAgentAlignment, noteAgentMessage, resetSpokenFocus };
 }

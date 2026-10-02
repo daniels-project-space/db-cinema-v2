@@ -103,6 +103,8 @@ import type * as reviewActions from "../reviewActions.js";
 import type * as reviewFollowUp from "../reviewFollowUp.js";
 import type * as reviewFollowUpState from "../reviewFollowUpState.js";
 import type * as reviewInvitations from "../reviewInvitations.js";
+import type * as reviewPrize from "../reviewPrize.js";
+import type * as reviewPrizeMail from "../reviewPrizeMail.js";
 import type * as reviews from "../reviews.js";
 import type * as rmv2_sync from "../rmv2_sync.js";
 import type * as rmv2_webhook from "../rmv2_webhook.js";
@@ -215,6 +217,8 @@ declare const fullApi: ApiFromModules<{
   reviewFollowUp: typeof reviewFollowUp;
   reviewFollowUpState: typeof reviewFollowUpState;
   reviewInvitations: typeof reviewInvitations;
+  reviewPrize: typeof reviewPrize;
+  reviewPrizeMail: typeof reviewPrizeMail;
   reviews: typeof reviews;
   rmv2_sync: typeof rmv2_sync;
   rmv2_webhook: typeof rmv2_webhook;

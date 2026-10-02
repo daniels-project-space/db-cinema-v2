@@ -11,7 +11,7 @@ export const candidates = internalQuery({
     .filter(q => q.and(q.neq(q.field("remindedReview"), true),
       q.neq(q.field("reviewFollowUpStatus"), "sent"),
       q.neq(q.field("reviewFollowUpStatus"), "sending")))
-    .take(50);return Promise.all(rows.map(b => reviewContext(ctx, b)));},
+    .take(50);return Promise.all(rows.map(async b => { const account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",(b.guestEmail??"").trim().toLowerCase())).first();return {...await reviewContext(ctx,b),prizeOffersAllowed:!!account?.marketingEmails}; }));},
 });
 export const context = internalQuery({
   args: { bookingId: v.id("bookings") },

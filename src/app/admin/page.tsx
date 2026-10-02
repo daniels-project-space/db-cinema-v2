@@ -5,6 +5,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ReferralCampaignAdmin } from "@/components/admin/ReferralCampaignAdmin";
+import { StoryPrizeAdmin } from "@/components/admin/StoryPrizeAdmin";
 import { FilmFundAdmin } from "@/components/admin/FilmFundAdmin";
 import { AdminGafferCalls } from "@/components/admin/GafferCalls";
 import { RentalInbox } from "@/components/admin/RentalInbox";
@@ -19,7 +20,7 @@ export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<
-    "overview" | "bookings" | "inbox" | "enquiries" | "calls" | "settings" | "fund"
+    "overview" | "bookings" | "inbox" | "enquiries" | "calls" | "settings" | "fund" | "stories"
   >("overview");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
@@ -146,6 +147,7 @@ export default function AdminPage() {
               ],
               ["calls", "Gaffer calls"],
               ["fund", "Film Fund"],
+              ["stories", "Story Prize"],
               ["settings", "Settings"],
             ] as const
           ).map(([key, label]) => (
@@ -238,6 +240,7 @@ export default function AdminPage() {
         )}
 
         {tab === "fund" && <FilmFundAdmin token={token} />}
+        {tab === "stories" && <StoryPrizeAdmin token={token} />}
         {tab === "calls" && <AdminGafferCalls token={token} />}
 
         {tab === "settings" && (

@@ -171,7 +171,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   const cart={items:[],count:2,subtotal:550,eligibleSubtotal:500,promo:null,close(){},setPromo(code){this.promo=code;}};
   const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts',{
     react:{useRef:current=>({current}),useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{}},
-    'next/navigation':{useRouter:()=>({push(){}})},'convex/react':{useConvex:()=>({query:async(ref,args)=>{
+    'next/navigation':{useRouter:()=>({push(){}})},'convex/react':{useQuery:()=>[],useConvex:()=>({query:async(ref,args)=>{
       if(ref==='voiceCatalog:search')return {matches:[{id:'fx3',title:'Sony FX3',daily:47}]};
       if(ref==='availability:forListing')return {available:1};
       return args.code==='better15'?{valid:true,discount:75}:validate.handler({},args);
@@ -179,7 +179,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     '@cvx/_generated/api':{api:refs},'@cvx/lib/gafferDiscount':{GAFFER_PRICE_CODE:'gaffer10'},
     '@/components/cart/CartProvider':{useCart:()=>cart},'@/components/account/AccountProvider':{useAccount:()=>({})},
     '@/lib/pricing':{},'@/lib/voiceDates':{londonToday:()=> '2026-09-13',resolveDate:()=>({ok:true,date:'2026-09-14'}),inclusiveDays:()=>1},'@/lib/dates':{dayMs:()=>0},
-    '@/components/gaffer/GafferFocus':{useGafferFocus:()=>({suggest:async()=>false}),scrollToId:async()=>false},
+    '@/components/gaffer/GafferFocus':{useGafferFocus:()=>({focusedId:null,suggestedIds:[],focus:()=>{},suggest:async()=>false}),scrollToId:async()=>false},
   });
   const priceTool=useGafferTools();
   priceTool.noteCustomerMessage('My budget is £550');
@@ -204,11 +204,11 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     useRef:(initial)=>{const i=cursor++;if(!(i in slots))slots[i]={current:initial};return slots[i];},
     useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{},
   };
-  let priceAllowed=false;
+  let priceAllowed=false,alignments=0;
   const {GafferSessionProvider}=load('src/components/gaffer/GafferSession.tsx',{
     react:React,'react/jsx-runtime':{jsx:(_type,props)=>props},
     'next/navigation':{usePathname:()=>'/gear'},
-    '@/components/gaffer/useGafferTools':{useGafferTools:()=>({clientTools:{add_to_basket:async()=> 'Added FX3'},dynamicVariables:variables,noteCustomerMessage:message=>{priceAllowed=asksForBetterPrice(message);},resetPriceRequest:()=>{priceAllowed=false;}})},
+    '@/components/gaffer/useGafferTools':{useGafferTools:()=>({clientTools:{add_to_basket:async()=> 'Added FX3'},dynamicVariables:variables,noteCustomerMessage:message=>{priceAllowed=asksForBetterPrice(message);},noteAgentAlignment:()=>{alignments++;},noteAgentMessage:()=>{},resetSpokenFocus:()=>{},resetPriceRequest:()=>{priceAllowed=false;}})},
     '@/components/gaffer/callContext':{pageBrief:()=>({intent:'gear',mode:'sales',brief:'Gear page',opening:'Hello there'}),isSignOff:text=>text==='goodbye'},
     '@/components/gaffer/hintTiming':{createHintController:()=>({reset(){},noteTalking(){}})},
     '@/components/gaffer/micPermission':{micState:async()=> 'granted',requestMic:async()=>({ok:true})},
@@ -216,14 +216,14 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   },{Date:{now:()=>now},navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})}},localStorage:{getItem:()=>null,removeItem(){},setItem(){}},setTimeout:()=>1,clearTimeout:()=>{},console:{warn(){},error(){}}});
   const render=()=>{cursor=0;return GafferSessionProvider({children:null}).value;};
   await render().toggle();assert.equal(render().state,'live');
-  const first=sessions[0];
+  const first=sessions[0];assert.equal(first.cfg.connectionType,"websocket");first.cfg.onAudioAlignment({chars:["F"],char_start_times_ms:[0],char_durations_ms:[100]});assert.equal(alignments,1,"Current audio alignment reaches the catalog tracker");
   first.cfg.onMessage({source:'user',message:'My name is Alex; FX3 next Friday.'});
   await first.cfg.clientTools.add_to_basket({item:'FX3'});
   first.cfg.onMessage({source:'user',message:'Could you do a better price?'});assert.equal(priceAllowed,true);
   variables={basket_count:'1',basket_items:'FX3 next Friday'};render();
   now+=600_000;first.cfg.onDisconnect();await new Promise(resolve=>setImmediate(resolve));
   assert.equal(sessions.length,2);assert.equal(render().state,'live');
-  const resumed=sessions[1];
+  const resumed=sessions[1];first.cfg.onAudioAlignment({chars:["X"],char_start_times_ms:[0],char_durations_ms:[100]});assert.equal(alignments,1,"Stale audio cannot refocus the new call");
   assert.equal(resumed.cfg.dynamicVariables.basket_count,'1','reconnect uses fresh basket');
   assert.match(resumed.cfg.overrides.agent.firstMessage,/carry on/);
   assert.match(resumed.updates.join(' '),/Alex/);assert.match(resumed.updates.join(' '),/Added FX3/);

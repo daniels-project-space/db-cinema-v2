@@ -15,6 +15,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { useAccount } from "@/components/account/AccountProvider";
 import { GoogleSignIn } from "@/components/account/GoogleSignIn";
 import { GearCard } from "@/components/GearCard";
+import { AccountFrame, AccountProfilePill } from "@/components/account/AccountFrame";
 import { ChatAvatar } from "@/components/rentals/ChatIdentity";
 import { RenterChat } from "@/components/RenterChat";
 import { tierByKey, TIERS } from "@/lib/membership";
@@ -219,9 +220,10 @@ function Dashboard() {
 
   return (
     <div className="page-in">
+      <Link href="/rental-stories" className="mb-4 inline-flex items-center gap-2 text-xs text-amber-200/80">Your set story could win £250 · enter & track →</Link>
       {/* account bar — identity + key info, always on top */}
-      <header className="flex flex-wrap items-center gap-4 rounded-3xl border border-white/[0.07] bg-[#141414] p-5 sm:p-7">
-        <ChatAvatar sender="renter" photo={me.avatarUrl} name={me.name || me.email} className="!h-12 !w-12 ring-2 ring-white/10" />
+      <AccountProfilePill tier={me.membershipActive ? me.membershipTier : null}>
+        <AccountFrame tier={me.membershipActive ? me.membershipTier : null}><ChatAvatar sender="renter" photo={me.avatarUrl} name={me.name || me.email} className="!h-12 !w-12" /></AccountFrame>
         <div className="min-w-0 flex-1">
           <div className="hud-label !text-accent-400/90">
             Your rental workspace
@@ -254,7 +256,7 @@ function Dashboard() {
         >
           Sign out
         </button>
-      </header>
+      </AccountProfilePill>
 
       {/* tabs */}
       <nav className="mt-6 flex gap-2 overflow-x-auto rounded-2xl bg-white/[0.025] p-2">

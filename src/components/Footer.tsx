@@ -72,6 +72,7 @@ export async function Footer() {
             ["/guides", "Guides"],
             ["/faq", "FAQ"],
             ["/how-it-works", "How it works"],
+            ["/rental-stories", "£250 set-story prize"],
             ["/about", "About us"],
             ["/contact", "Contact us"],
           ]}

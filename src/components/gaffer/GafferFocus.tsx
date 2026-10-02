@@ -61,13 +61,17 @@ export function GafferFocusProvider({ children }: { children: ReactNode }) {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [suggestedIds, setSuggestedIds] = useState<string[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const request = useRef(0);
 
   const focus = useCallback(async (listingId: string | null, ms: number = FOCUS_MS, route?: string) => {
+    const mine = ++request.current;
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     setFocusedId(listingId);
     if (!listingId) return false;
+    setSuggestedIds([]);
     const shown = await scrollToCard(listingId, route);
-    timer.current = setTimeout(() => {
+    if (mine !== request.current) return false;
+    if (ms > 0) timer.current = setTimeout(() => {
       setFocusedId(null);
       timer.current = null;
     }, ms);
