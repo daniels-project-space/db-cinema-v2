@@ -3,7 +3,7 @@
 import Stripe from "stripe";
 import { bestBenefit, SINGLE_BENEFIT_VERSION, type BenefitKind, loyaltyPercent } from "../../shared/rentalBenefits";
 import { providerRepeatGate } from "./repeatRentalProvider";
-import { membershipActiveNow } from "../../shared/membership";
+import { membershipActiveNow, membershipTierFor } from "../../shared/membership";
 import { checkoutMembershipCredit, membershipSignupOffer } from "../../shared/checkoutMembershipCredit";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
@@ -89,13 +89,15 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const acct: any = a.token ? await ctx.runQuery(internal.accounts._byToken, { token: a.token }) : null;
   if (acct && customerEmail !== acct.email.trim().toLowerCase())
     throw new Error("Use your signed-in account email for this booking, or sign out to book as a guest.");
+  const emailAccount: any = customerEmail ? await ctx.runQuery(internal.accounts._byEmail, {email: customerEmail}) : null;
+  if (emailAccount?.blockedAt != null) throw Error("This account is blocked. Contact DB Cinema Rentals.");
   if (a.selectedMembership && membershipActiveNow(acct)) throw Error("Manage your existing membership in account settings.");
   const selected = a.selectedMembership ? tierByKey(a.selectedMembership.tier) : undefined;
   if (a.selectedMembership && !selected) throw Error("Unknown membership plan.");
   if (a.selectedMembership && a.selectedMembership.intro !== "none" && acct?.membershipIntroUsed) throw Error("Your introductory offer has already been used.");
   const membershipFee = selected && a.selectedMembership?.intro !== "trial" ? selected.monthlyGbp : 0;
   // A membership added here earns credit now; recurring perks start after this booking.
-  const member = !selected && membershipActiveNow(acct) ? tierByKey(acct.membershipTier) : null;
+  const member = !selected && membershipActiveNow(acct) ? tierByKey(membershipTierFor(acct)) : null;
   const raw: any[] = await ctx.runQuery(internal.catalog.repriceLines, {
     items: a.items.map(i => ({ listingId: i.listingId, start: i.start, end: i.end, offerType: i.offerType })), undiscounted: true,
   });
@@ -129,7 +131,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   if (a.promoCode && !a.promoCode.trim().toUpperCase().startsWith("DBC-")) {
     const res: any = await ctx.runQuery(api.promo.validate, {
       code:a.promoCode,eligibleSubtotal:discountable,rentalSubtotal:subtotal,
-      tier:acct?.membershipTier ?? undefined,membershipActive:membershipActiveNow(acct),email:customerEmail,token:a.token,
+      tier:membershipTierFor(acct),membershipActive:membershipActiveNow(acct),email:customerEmail,token:a.token,
     });
     if (res?.valid) {promoDiscount=res.discount;promoCode=res.code;}
   }

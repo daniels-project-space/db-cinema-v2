@@ -20,6 +20,7 @@ const lens=put('listings',{active:true,title:'Lens',depositAmount:150,pricing:{d
 let member=false;
 const ctx={db,runQuery:async(ref,args)=>{
  if(ref==='catalog.repriceLines')return catalog.repriceLines.handler({db},args);
+ if(ref==='accounts._byEmail')return load('convex/accounts.ts')._byEmail.handler({db},args);
  if(ref==='accounts._byToken')return member ? {_id:'account',email:'renter@example.invalid',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+86400000,membershipTier:'plus'} : null;
  if(ref==='bookings.availableCheckoutCredit')return 0;
  if(ref==='membershipBenefits.deliveryAvailable')return true;

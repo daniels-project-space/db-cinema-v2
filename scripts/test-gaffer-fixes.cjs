@@ -66,6 +66,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
         if(ref==='catalog:repriceLines') return prices.map((total,i)=>({title:`Real item ${i}`,total,deposit:1000}));
         if(ref==='availability:forListing') return {available:10};
         if(ref==='accounts:_byToken') return {_id:'acct-1',email:'owner@example.invalid',membershipActive:false};
+        if(ref==='accounts:_byEmail') return args.email==='owner@example.invalid'?{_id:'acct-1',email:args.email,membershipActive:false}:null;
         if(ref==='bookings:availableCheckoutCredit') return args.kind==='refund'?0:availableCredit;
         if(ref==='repeatRentals:candidate') return null;
         if(ref==='promo:validate') return validate.handler({},args);
@@ -128,6 +129,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   let savedBooking;
   const checkoutCtx = {
     runQuery: async (ref) => {
+      if(ref==='accounts:_byEmail') return null; // Guest fixture has no stored account.
       if(ref==='settings:get') return {acceptingOrders:true};
       if(ref==='catalog:repriceLines') return [{title:'Real camera',total:200,deposit:1000,dailyRate:40}];
       if(ref==='availability:forListing') return {available:1};

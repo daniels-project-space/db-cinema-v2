@@ -9,6 +9,7 @@
  */
 
 import type * as accountAccess from "../accountAccess.js";
+import type * as accountAdmin from "../accountAdmin.js";
 import type * as accountClaims from "../accountClaims.js";
 import type * as accounts from "../accounts.js";
 import type * as adminAuth from "../adminAuth.js";
@@ -123,6 +124,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   accountAccess: typeof accountAccess;
+  accountAdmin: typeof accountAdmin;
   accountClaims: typeof accountClaims;
   accounts: typeof accounts;
   adminAuth: typeof adminAuth;

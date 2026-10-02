@@ -13,6 +13,7 @@ async function account(email,token){const a=put('accounts',{email,emailVerifiedA
 const start=Date.UTC(2027,0,4),camera=put('listings',{title:'Camera',active:true,pricing:{daily:100},depositAmount:2000,components:[]});
 const input=a=>({items:[{listingId:camera._id,title:'wrong',start,end:start,qty:1,total:1,deposit:1}],token:a.email,customer:{email:a.email},fulfilment:'pickup'});
 const pricing={...ctx,runQuery:async(ref,args)=>{
+ if(ref==='accounts._byEmail')return load('convex/accounts.ts')._byEmail.handler({db},args);
  if(ref==='accounts._byToken')return accounts._byToken.handler(ctx,args);
  if(ref==='catalog.repriceLines')return catalog.repriceLines.handler(ctx,args);
  if(ref==='bookings.availableCheckoutCredit')return bookings.availableCheckoutCredit.handler(ctx,args);

@@ -17,7 +17,7 @@ import { cancelKind, cancellationSettlement } from "../src/lib/cancellationPolic
 import { MEMBERSHIP_BASKET_MINIMUM } from "../shared/checkoutMembershipCredit";
 import { calculateRentalPrice } from "./lib/rentalPrice";
 import { paidRecurringMembership } from "./lib/membershipBilling";
-import { MEMBERSHIP_TERMS_VERSION,membershipActiveNow } from "../shared/membership";
+import { MEMBERSHIP_TERMS_VERSION,membershipActiveNow,membershipTierFor } from "../shared/membership";
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 const subActive = (status: string) => status === "active" || status === "trialing";
@@ -103,7 +103,7 @@ export const priceQuote = action({
     recommendations.sort((x,y)=>Number(y.netSaving>0)-Number(x.netSaving>0)||MEMBERSHIP_BASKET_MINIMUM[y.tier]-MEMBERSHIP_BASKET_MINIMUM[x.tier]);
     const membershipNetSaving = a.selectedMembership ? netSaving(price) : Math.round((price.rentalSaving + price.deliveryReduction + (membershipActiveNow(price.acct) ? price.earnedCreditApplied : 0))*100)/100;
     const recommended = recommendations.find(offer => offer.netSaving > 0);
-    const activeTier = membershipActiveNow(price.acct) ? TIERS.find(tier => tier.key === price.acct.membershipTier) : undefined;
+    const activeTier = membershipActiveNow(price.acct) ? TIERS.find(tier => tier.key === membershipTierFor(price.acct)) : undefined;
     // Keep the exact displayed offer attached to the quote that calculated it.
     // The client must not infer quote identity from the monthly fee or account hydration.
     const membershipOffer: PriceQuoteResult["membershipOffer"] = a.selectedMembership

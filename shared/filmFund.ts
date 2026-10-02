@@ -1,4 +1,4 @@
-import { membershipActiveNow } from "./membership";
+import { membershipActiveNow, membershipTierFor } from "./membership";
 export const FILM_FUND_TERMS_VERSION = "2026-10-film-fund-v2";
 export const FILM_FUND_ENTRY_PENCE = 3000;
 export const FUND_ROUNDS = [
@@ -20,4 +20,4 @@ export function fundSubmissionErrors(p: {title:string;synopsis:string;letter:str
  return errors;
 }
 
-export function fundEntryPence(account:any){return account?.membershipTier==="plus"&&membershipActiveNow(account)?1500:FILM_FUND_ENTRY_PENCE;}
+export function fundEntryPence(account:any){return membershipTierFor(account)==="plus"&&membershipActiveNow(account)?1500:FILM_FUND_ENTRY_PENCE;}

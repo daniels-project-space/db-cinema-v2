@@ -32,7 +32,8 @@ assert.equal(qualifyingRentalCount([row('a',DAY,'cs-a'),row('a2',DAY*4,'cs-a'),r
  assert.equal((await accounts.me.handler(ctx,{token:'owned'})).loyaltyCelebrated,true);
  const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:2000,components:[]});
  const pricingCtx={...ctx,runQuery:async(ref,args)=>{
-  if(ref==='accounts._byToken')return accounts._byToken.handler(ctx,args);
+  if(ref==='accounts._byEmail')return load('convex/accounts.ts')._byEmail.handler({db},args);
+ if(ref==='accounts._byToken')return accounts._byToken.handler(ctx,args);
   if(ref==='catalog.repriceLines')return catalog.repriceLines.handler(ctx,args);
   if(ref==='bookings.availableCheckoutCredit')return 0;
   throw Error('unexpected '+ref);

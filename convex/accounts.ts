@@ -1,7 +1,7 @@
 import { ensureReferralCode } from "./lib/referrals";
 import { creditKind } from "./lib/checkoutCredit";
 import { loyaltyProgress } from "./lib/loyalty";
-import { membershipActiveNow } from "../shared/membership";
+import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { usableCredit } from "./lib/creditLedger";
 import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import {
@@ -123,6 +123,8 @@ export async function _applyPendingCollectiveGrant(ctx: any, accountId: any, ema
 export const _session = internalMutation({
   args: { accountId: v.id("accounts"), token: v.string() },
   handler: async (ctx, { accountId, token }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account || account.blockedAt != null) throw Error("This account is blocked. Contact DB Cinema Rentals.");
     const now = Date.now();
     await ctx.db.insert("sessions", { token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
   },
@@ -171,6 +173,7 @@ export const signIn = action({
     const e = email.trim().toLowerCase();
     const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: e });
     if (!acct) throw new Error("No account found for that email.");
+    if (acct.blockedAt != null) throw Error("This account is blocked. Contact DB Cinema Rentals.");
     if(acct.emailVerificationRequired&&!acct.emailVerifiedAt)throw Error("Confirm your signup email or request a private sign-in link first.");
     if (!acct.hash || !acct.salt)
       throw new Error("Use an email sign-in link or Continue with Google for this account.");
@@ -189,7 +192,7 @@ async function resolve(ctx: any, token: string) {
     .withIndex("by_token", (q: any) => q.eq("token", token))
     .first();
   if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
-  const account=await ctx.db.get(s.accountId);return account?.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
+  const account=await ctx.db.get(s.accountId);return account?.blockedAt!=null||account?.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
 }
 
 export const me = query({
@@ -226,7 +229,9 @@ export const me = query({
       idVerified: a.rentalVerification ? a.rentalVerification.expiresAt > now : (a.idVerified ?? false),
       verificationValidUntil: a.rentalVerification?.expiresAt ?? null,
       hasPassword: !!a.hash,
-      membershipTier: a.membershipTier ?? null,
+      membershipTier: membershipTierFor(a) ?? null,
+      membershipAdminGranted: !!a.adminMembershipTier && a.adminMembershipTier !== "standard",
+      membershipBillingTier: a.stripeSubscriptionId ? a.membershipTier ?? null : null,
       membershipActive: membershipActiveNow(a),
       membershipStatus: a.membershipStatus ?? null,
       membershipPaidThrough: a.membershipPaidThrough ?? null,
@@ -515,7 +520,7 @@ export const _authFor = internalQuery({
       .first();
     if (!s||(s.expiresAt!=null&&s.expiresAt<=Date.now())) return null;
     const a: any = await ctx.db.get(s.accountId);
-    if (!a||a.emailVerificationRequired&&!a.emailVerifiedAt) return null;
+    if (!a||a.blockedAt!=null||a.emailVerificationRequired&&!a.emailVerifiedAt) return null;
     return { accountId: a._id, salt: a.salt, hash: a.hash, emailVerified:!!a.emailVerifiedAt||!!a.googleId };
   },
 });
