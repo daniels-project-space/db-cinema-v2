@@ -21,7 +21,7 @@ for (const tier of ["plus", "pro", "studio"])
         termsAccepted: true,
         membershipActive: true,
       }),
-      { tier, intro, termsAccepted: false },
+      { tier, intro: "none", termsAccepted: false },
       "stored preferences cannot carry financial consent or confer membership",
     );
 console.log(

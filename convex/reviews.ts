@@ -23,6 +23,7 @@ export const listPublished = query({
       author: r.author,
       authorImage: photo ?? account?.googleAvatarUrl ?? r.authorImage ?? null,
       rating: r.rating,
+      incentivized: r.incentivized ?? false,
       text: r.text,
       product: r.product ?? null,
     }); }));
@@ -36,12 +37,13 @@ export const stats = query({
       .query("reviews")
       .withIndex("by_published", (q) => q.eq("published", true))
       .collect();
-    if (rows.length === 0) return { count: 0, average: 0, withText: 0 };
-    const sum = rows.reduce((n, r) => n + r.rating, 0);
+    const ordinary = rows.filter(r=>!r.incentivized);
+    if (ordinary.length === 0) return { count: 0, average: 0, withText: 0 };
+    const sum = ordinary.reduce((n, r) => n + r.rating, 0);
     return {
-      count: rows.length,
-      average: Math.round((sum / rows.length) * 100) / 100,
-      withText: rows.filter((r) => r.text && r.text.trim().length > 8).length,
+      count: ordinary.length,
+      average: Math.round((sum / ordinary.length) * 100) / 100,
+      withText: ordinary.filter((r) => r.text && r.text.trim().length > 8).length,
     };
   },
 });

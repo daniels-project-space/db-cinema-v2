@@ -5,9 +5,9 @@ function load(file,extra={}) {
  new Function('require','module','exports',code)(p=>extra[p]??(p==='./_generated/server'?{internalAction:x=>x,internalMutation:x=>x,internalQuery:x=>x}:p==='./_generated/api'?{internal:refs,api:refs}:p==='convex/values'?{v:new Proxy({},{get:()=>()=>0})}:{}),mod,mod.exports);return mod.exports;
 }
 const rules=load('convex/lib/reviewEligibility.ts');const state=load('convex/reviewFollowUpState.ts',{'./lib/reviewEligibility':rules});
-let refunds=[],hold={status:'canceled',amount_received:0},providerFails=false,mailOk=true,emails=0;
+let refunds=[],hold={status:'canceled',amount_received:0},providerFails=false,mailOk=true,emails=0,lastMail;
 class Stripe {constructor(){this.refunds={list:()=>({async *[Symbol.asyncIterator](){if(providerFails)throw Error('offline');for(const r of refunds)yield r}})};this.paymentIntents={retrieve:async()=>hold};}}
-const actions=load('convex/reviewFollowUp.ts',{'./lib/reviewEligibility':rules,'stripe':{default:Stripe},'./lib/mailer':{sendMail:async()=>{emails++;return mailOk}}});
+const actions=load('convex/reviewFollowUp.ts',{'../shared/reviewPrize':load('shared/reviewPrize.ts'),'./referralMail':{unsubscribeToken:()=> 'signed-opt-out'},'./lib/reviewEligibility':rules,'stripe':{default:Stripe},'./lib/mailer':{sendMail:async m=>{emails++;lastMail=m;return mailOk}}});
 let now=1700000000000;const realNow=Date.now;Date.now=()=>now;const oldKey=process.env.STRIPE_SECRET_KEY;process.env.STRIPE_SECRET_KEY='fixture';
 const base=()=>({_id:'booking',status:'returned',guestEmail:'renter@example.com',depositAmount:100,depositRefunded:true,depositRefundAmount:100,depositKept:0,stripePaymentIntentId:'pi_fixture',stripeDepositIntentId:'pi_hold',depositHoldAmount:200,depositHoldStatus:'released',returnedAt:now-86400000,lineItems:[{end:now-86400000,title:'Fixture camera'}]});
 function ctxFor(b){const ctx={db:{get:async()=>b,patch:async(_,p)=>Object.assign(b,p)}};return {runQuery:async ref=>ref==='settings.get'?{googleReviewUrl:'https://example.com/review'}:[b],runMutation:(ref,args)=>ref==='reviewInvitations.recordEligibility'?Promise.resolve(false):ref.endsWith('recordCheck')?state.recordCheck.handler(ctx,args):state.recordSent.handler(ctx,args)};}
@@ -36,5 +36,7 @@ function ctxFor(b){const ctx={db:{get:async()=>b,patch:async(_,p)=>Object.assign
  const offline={...base(),reviewFollowUpDueAt:now-1};providerFails=true;await actions.processDue.handler(ctxFor(offline),{});assert.equal(offline.reviewFollowUpReason,'provider_unavailable');assert.equal(emails,1);providerFails=false;
  const fail={...base(),reviewFollowUpDueAt:now-1};mailOk=false;await actions.processDue.handler(ctxFor(fail),{});assert.equal(fail.reviewFollowUpStatus,'waiting');assert.equal(fail.remindedReview,false);assert.equal(emails,2);
  const dry=base();await actions.processDue.handler(ctxFor(dry),{dryRun:true});assert.equal(dry.reviewFollowUpStatus,undefined);assert.equal(emails,2);
+ mailOk=true;const ordinary={...base(),reviewFollowUpDueAt:now-1};await actions.processDue.handler(ctxFor(ordinary),{});assert.doesNotMatch(lastMail.html,/£250/,'no marketing consent means ordinary review email');
+ const promo={...base(),prizeOffersAllowed:true,reviewFollowUpDueAt:now-1};await actions.processDue.handler(ctxFor(promo),{});assert.match(lastMail.subject,/£250/);assert.match(lastMail.html,/@dbcinemarentalslondon/);assert.match(lastMail.html,/Unsubscribe from offers/);assert.match(lastMail.html,/independent judge/);assert.match(lastMail.html,/23:59 UK/);assert.doesNotMatch(lastMail.html,/Google/);
  console.log('PASS real review queue: partial/retained/pending/failed refunds and unreleased holds blocked; later full refund sends once; stale/concurrent claims, provider outages, failed email and dry-run covered');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{Date.now=realNow;if(oldKey===undefined)delete process.env.STRIPE_SECRET_KEY;else process.env.STRIPE_SECRET_KEY=oldKey});

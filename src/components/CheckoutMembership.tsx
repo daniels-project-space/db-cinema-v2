@@ -26,7 +26,9 @@ export function CheckoutMembership({
   selected,
   onChange,
   appliedSavings,
+  variant = "basket",
 }: {
+  variant?: "basket" | "checkout";
   suggestions?: Suggestion[];
   selected: MembershipSelection | null;
   onChange: (s: MembershipSelection | null) => void;
@@ -36,6 +38,7 @@ export function CheckoutMembership({
     deliveryReduction: number;
     membershipFee: number;
     membershipCreditApplied: number;
+    membershipSignupOfferSaving?: number;
     membershipNetSaving: number;
     securityWaiverReason?: string;
   };
@@ -95,206 +98,40 @@ export function CheckoutMembership({
     };
   }, [open]);
   if (!showMembershipCard) return null;
+  const displayTier = tier ?? recommendedTier;
+  const saving = tier ? appliedNetSaving : potentialNetSaving;
+  const welcome = selected ? appliedSavings?.membershipSignupOfferSaving ?? 0 : recommend?.membershipSignupOfferSaving ?? 0;
+  const add = (accepted = false) => onChange({ tier: recommendedTier.key, intro: "none", termsAccepted: accepted });
+  const compact = variant === "checkout" && !selected && !current;
+  const benefits = [
+    `£${displayTier.monthlyCredit.toFixed(2)} monthly credit · stacks for a year`,
+    displayTier.key === "studio" ? "One London delivery / month" : `${displayTier.deliveryPct}% off future delivery`,
+    displayTier.weekend ? "Future weekend deals · up to £100 saved" : "Future rentals · no upfront security",
+  ];
   return (
-    <section
-      data-testid="membership-upsell"
-      aria-label="Subscription for your rental"
-      className={`relative my-5 overflow-hidden rounded-2xl border p-5 ${tier ? "border-accent-300/30 bg-gradient-to-br from-accent-300/10 via-white/[.035] to-transparent shadow-[0_0_40px_#acd17c0d]" : "border-white/15 bg-gradient-to-br from-white/[.07] to-white/[.015] shadow-[0_0_30px_#ffffff05]"}`}
-    >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-white/[.06] blur-3xl"
-      />
-      <div className="relative">
-        <p className="font-mono text-[9px] uppercase tracking-[.2em] text-white/40">
-          {tier
-            ? `${tier.name} subscription · your creative edge`
-            : "A subscription for your next chapter"}
-        </p>
-        <h3 className="mt-2 text-lg font-medium text-white">
-          {tier
-            ? `£${tier.monthlyCredit.toFixed(2)} credit every paid month`
-            : "Get more from the kit you love."}
-        </h3>
-        {tier && appliedSavings && appliedNetSaving > 0 && (
-          <div
-            data-testid="applied-membership-savings"
-            className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-accent-300/15 bg-black/10 p-4"
-          >
-            <div>
-              <p className="font-poster text-3xl text-accent-200">
-                £{appliedNetSaving.toFixed(2)}
-              </p>
-              <p className="mt-1 text-[10px] text-white/45">
-                {appliedSavings.membershipFee > 0
-                  ? "Net savings after today’s membership fee"
-                  : "Lower rental / delivery charges"}
-              </p>
-            </div>
-            <div className="space-y-2 text-[11px] text-white/60">
-              {appliedSavings.membershipCreditApplied > 0 && <p>First-month credit used · £{appliedSavings.membershipCreditApplied.toFixed(2)}</p>}
-
-              {tier.weekend && appliedSavings.weekendSaving > 0 && (
-                <p>
-                  Weekend savings · £{appliedSavings.weekendSaving.toFixed(2)}
-                </p>
-              )}
-              {appliedSavings.deliveryReduction > 0 && (
-                <p>
-                  Delivery benefit · £
-                  {appliedSavings.deliveryReduction.toFixed(2)}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-        {tier && appliedSavings?.securityWaiverReason && (
-          <p className="mt-3 text-xs text-accent-200">
-            £0 upfront security · any required hold remains
-          </p>
-        )}
-        {!tier && recommend && potentialNetSaving > 0 && (
-          <div
-            data-testid="potential-membership-savings"
-            className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-white/15 bg-white/[.035] p-4"
-          >
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-white/45">
-                Your basket could save
-              </p>
-              <p className="mt-1 font-poster text-3xl text-white">
-                £{potentialNetSaving.toFixed(2)}
-              </p>
-              <p className="text-[10px] text-white/40">
-                {recommend.initialFee > 0
-                  ? "Includes today’s membership fee"
-                  : `Rental + delivery with ${recommend.name}`}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-white/80">
-                £{(recommend.membershipCreditApplied || recommend.monthlyCredit).toFixed(2)}
-              </p>
-              <p className="text-[10px] text-white/45">{recommend.membershipCreditApplied > 0 ? "credit used on this rental" : "credit / paid month"}</p>
-            </div>
-          </div>
-        )}
-        {!tier && !!recommend?.membershipSignupOfferSaving && <p className="mt-3 text-xs text-accent-200">Includes a one-time £{recommend.membershipSignupOfferSaving} {recommend.name} welcome discount.</p>}
-        {current ? (
-          <p className="mt-2 text-xs leading-6 text-white/55">
-            Your membership perks are included in the confirmed price below.
-            Any required card hold still applies.
-            {me?.membershipStatus === "trialing"
-              ? " The free week alone does not waive the upfront security payment."
-              : ""}
-          </p>
-        ) : (
-          <>
-            <p className="mt-2 text-xs leading-6 text-white/55">
-              {chosen
-                ? `${chosen.name} is included in this checkout. Pay £${chosen.monthlyGbp}/month and receive £${chosen.monthlyCredit.toFixed(2)} credit each paid month.${selected?.intro === "trial" ? " The free week earns no monthly credit." : " Your first paid month’s credit is applied to this rental."}`
-                : recommend && potentialNetSaving > 0
-                  ? `${recommend.name} is recommended for today’s basket: save £${potentialNetSaving.toFixed(2)} on this order${recommend.initialFee > 0 ? " after today’s membership fee" : " with the free first week"}. Then £${recommend.monthlyFee}/month, earning £${recommend.monthlyCredit.toFixed(2)} credit each paid month.`
-                  : `From £${recommendedTier.monthlyGbp}/month. Earn £${recommendedTier.monthlyCredit.toFixed(2)} rental credit every paid month. Choose a plan now; your basket savings update automatically.`}
-            </p>
-            {!selected && (
-              <button
-                data-testid="add-membership"
-                onClick={() =>
-                  onChange({
-                    tier: recommendedTier.key,
-                    intro: recommend?.intro ?? "none",
-                    termsAccepted: false,
-                  })
-                }
-                className="mt-4 inline-flex min-h-11 items-center gap-3 rounded-full border border-white/25 bg-white/10 px-5 py-2.5 text-sm font-medium text-white transition hover:border-accent-300/50 hover:bg-accent-300/10"
-              >
-                Add {recommendedTier.name} subscription · one checkout
-              </button>
-            )}
-            {selected && chosen && (
-              <div className="mt-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-accent-200">
-                    {selected.intro === "trial"
-                      ? `7 days free, then £${chosen.monthlyGbp}/month`
-                      : `£${chosen.monthlyGbp} today, then monthly`}
-                  </p>
-                  <button
-                    onClick={() => onChange(null)}
-                    className="text-[11px] text-white/45 underline"
-                  >
-                    Remove membership
-                  </button>
-                </div>
-                {!me?.membershipIntroUsed && (
-                  <div className="flex flex-wrap gap-2">
-                    {(["trial", "none"] as const).map((intro) => (
-                      <button
-                        key={intro}
-                        aria-pressed={selected.intro === intro}
-                        onClick={() =>
-                          onChange({ ...selected, intro, termsAccepted: false })
-                        }
-                        className={`rounded-lg border px-3 py-2 text-[11px] ${selected.intro === intro ? "border-accent-300/40 text-accent-200" : "border-white/10 text-white/40"}`}
-                      >
-                        {intro === "trial"
-                          ? "First week free"
-                          : "Start paid membership now"}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <p className="text-[11px] leading-5 text-white/45">
-                  {selected.intro === "trial"
-                    ? "The free week alone does not waive the upfront security payment."
-                    : "This first rental still requires verification and the upfront refundable security payment."}{" "}
-                  Any required card hold still applies. {selected.intro === "trial"
-                    ? "The free week earns no monthly credit."
-                    : `£${(appliedSavings?.membershipCreditApplied ?? 0).toFixed(2)} of your first-month credit is used on this rental. Any unused balance is issued after successful payment, lasts one year and stacks with future monthly credit.`}
-                </p>
-                <label className="flex items-start gap-2 text-[11px] text-white/55">
-                  <input
-                    type="checkbox"
-                    checked={selected.termsAccepted}
-                    onChange={(e) =>
-                      onChange({ ...selected, termsAccepted: e.target.checked })
-                    }
-                  />
-                  <span>
-                    I accept the{" "}
-                    <Link
-                      href="/legal/membership"
-                      className="text-accent-300 underline"
-                    >
-                      membership terms
-                    </Link>
-                    , selected offer and monthly renewal. Cancel in account
-                    settings.
-                  </span>
-                </label>
-              </div>
-            )}
-          </>
-        )}
-        {!current && <>
-          <ul className="mt-3 grid gap-1.5 text-[11px] text-white/55" aria-label="Future subscription benefits">
-            {[
-              "Monthly rental credit · stacks for one year",
-              "Future paid-member rentals · no upfront security payment",
-              (chosen ?? recommendedTier).key === "studio" ? "One London delivery each month" : `${(chosen ?? recommendedTier).deliveryPct}% off future delivery`,
-              ...((chosen ?? recommendedTier).weekend ? ["Future weekend deals · save up to £100"] : []),
-              ...((chosen ?? recommendedTier).filmFund ? ["Film Fund entry included · coming soon"] : []),
-            ].map((benefit, index) => <li key={benefit} className="flex items-start gap-2"><SubscriptionBenefitSymbol benefit={benefit} index={index} /><span>{benefit}</span></li>)}
-          </ul>
-          <p className="mt-3 text-[10px] leading-5 text-white/40">This checkout applies the best single saving: credit or an eligible offer. Verification, the upfront refundable security payment and any required card hold still apply. Other perks start after this booking is confirmed, for future rentals.</p>
+    <section data-testid="membership-upsell" data-membership-compact={compact || undefined} aria-label="Subscription for your rental"
+      className={`membership-pitch relative my-3 rounded-2xl border border-white/15 ${compact ? "p-3" : "p-4"}`}>
+      <div className="membership-pitch-rim" aria-hidden="true" />
+      <div className="relative z-[1]">
+        <p className="font-mono text-[9px] uppercase tracking-[.15em] text-white/50">{displayTier.name} subscription · £{displayTier.monthlyGbp}/month</p>
+        {compact ? <>
+          <label className="mt-2 flex cursor-pointer items-start gap-3 text-white">
+            <input data-testid="add-membership" type="checkbox" className="mt-1 h-4 w-4 accent-[#acd17c]" checked={false} onChange={e=>{if(e.target.checked)add(true);}} />
+            <span data-testid="potential-membership-savings" className="font-display text-base font-semibold">Subscribe and save £{potentialNetSaving.toFixed(2)} on this rental now</span>
+          </label>
+          <p className="mt-2 text-[10px] leading-4 text-white/45">Ticking confirms the <Link href="/legal/membership" target="_blank" className="underline">subscription terms</Link> and monthly renewal. Cancel in account settings.</p>
+        </> : <>
+          <h3 data-testid={saving > 0 ? (tier ? "applied-membership-savings" : "potential-membership-savings") : undefined} className="mt-2 font-display text-2xl font-semibold leading-tight text-white">{saving > 0 ? `Save £${saving.toFixed(2)} on this rental now!` : `£${displayTier.monthlyCredit.toFixed(2)} credit every paid month`}</h3>
+          <p className="mt-1 text-[10px] text-white/45">{saving>0 ? "Net saving includes today’s membership fee." : "Your membership is reflected in the price below."}{welcome>0 ? ` Includes £${welcome} one-time joining credit.` : ""}</p>
+          {!current && <ul aria-label="Future subscription benefits" className="mt-3 grid gap-1.5 text-[11px] text-white/70">{benefits.map((benefit,index)=><li key={benefit} className="flex items-center gap-2"><SubscriptionBenefitSymbol benefit={benefit} index={index}/><span>{benefit}</span></li>)}</ul>}
+          {!current && !selected && <button data-testid="add-membership" onClick={()=>add()} className="btn-primary mt-3 w-full py-2.5 text-xs">Start my membership now</button>}
+          {selected && <div className="mt-3 space-y-2">
+            <label className="flex items-start gap-2 text-[11px] leading-5 text-white/65"><input type="checkbox" className="mt-1 accent-[#acd17c]" checked={selected.termsAccepted} onChange={e=>onChange({...selected,intro:"none",termsAccepted:e.target.checked})}/><span>I accept the <Link href="/legal/membership" target="_blank" className="text-accent-300 underline">membership terms</Link> and £{displayTier.monthlyGbp} monthly renewal. Cancel in account settings.</span></label>
+            <div className="flex items-center justify-between gap-2"><span className="text-[10px] text-emerald-300">{selected.termsAccepted ? "Membership added · consent confirmed" : "Membership added · confirm terms"}</span><button onClick={()=>onChange(null)} className="text-[10px] text-white/45 underline">Remove membership</button></div>
+          </div>}
         </>}
-        <button
-          onClick={() => setOpen(true)}
-          className="mt-3 text-[11px] text-white/55 underline underline-offset-4"
-        >
-          See the subscription benefits
-        </button>
+        {!current && <p className="mt-2 text-[10px] leading-4 text-white/45">{compact ? "First rental: normal verification & refundable security. Other perks start next booking." : "This first rental still requires verification and normal upfront refundable security. Other perks start on future bookings. The one-time joining credit stacks with your best single saving."}</p>}
+        <button onClick={()=>setOpen(true)} className="mt-2 text-[10px] text-white/55 underline underline-offset-4">See the subscription benefits</button>
       </div>
       {open &&
         createPortal(
@@ -355,9 +192,7 @@ export function CheckoutMembership({
                         onClick={() => {
                           onChange({
                             tier: t.key,
-                            intro: me?.membershipIntroUsed
-                              ? "none"
-                              : (selected?.intro ?? recommend?.intro ?? "none"),
+                            intro: "none",
                             termsAccepted: false,
                           });
                           setOpen(false);
@@ -371,8 +206,7 @@ export function CheckoutMembership({
                 ))}
               </div>
               <p className="mt-5 text-xs text-white/40">
-                Free week: security payment still applies; no monthly credit
-                until a fee is paid. Cancel renewal in account settings.
+                Paid monthly membership. This first rental still requires verification and normal refundable security. Cancel renewal in account settings.
               </p>
             </div>
           </div>,

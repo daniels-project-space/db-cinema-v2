@@ -18,7 +18,7 @@ export function restoreMembershipSelection(
     return null;
   return {
     tier: v.tier,
-    intro: v.intro as "trial" | "none",
+    intro: "none",
     termsAccepted: false,
   };
 }

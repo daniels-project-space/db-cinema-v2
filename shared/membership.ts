@@ -42,6 +42,6 @@ export function membershipActiveNow(a:any){
  return a.membershipStatus==="trialing"?(a.membershipTrialEnd??0)>Date.now():a.membershipStatus==="active"&&(a.membershipPaidThrough??0)>Date.now();
 }
 
-export const MEMBERSHIP_TERMS_VERSION = "2026-10-membership-v8";
+export const MEMBERSHIP_TERMS_VERSION = "2026-10-membership-v9";
 
 export const MEMBERSHIP_CREDIT_START = Date.UTC(2026,9,1);

@@ -90,7 +90,7 @@ export const priceQuote = action({
     const base = a.selectedMembership ? await calculateRentalPrice(ctx, {...a, customer:{email:a.customerEmail}, selectedMembership:undefined}) : price;
     const netSaving = (preview: typeof price) => Math.round(((base.totalDue-base.depositAmount) - (preview.totalDue-preview.depositAmount+preview.membershipFee))*100)/100;
     const recommendations = membershipActiveNow(price.acct) ? [] : await Promise.all(TIERS.filter(tier => Math.round((base.subtotal-base.totalReduction+base.deliveryFee)*100) >= MEMBERSHIP_BASKET_MINIMUM[tier.key]*100).map(async tier => {
-      const intros: ("trial"|"none")[] = a.selectedMembership ? [a.selectedMembership.intro === "trial" ? "trial" : "none"] : price.acct?.membershipIntroUsed ? ["none"] : ["none","trial"];
+      const intros: ("trial"|"none")[] = ["none"];
       const offers = await Promise.all(intros.map(async intro => {
         const preview = await calculateRentalPrice(ctx, {...a, customer:{email:a.customerEmail}, selectedMembership:{tier:tier.key,intro}});
         const rentalSaving = Math.round((base.subtotal-base.totalReduction-preview.subtotal+preview.totalReduction)*100)/100;

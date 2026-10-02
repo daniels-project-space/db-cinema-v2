@@ -209,14 +209,14 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
  */
 // "no" is filler in "no, that's everything" but load-bearing in "no more
 // questions" — don't eat it there.
-const LEAD = /^(ok(ay)?|alright|right|yeah|yep|yes|no(?!\s+more)|nope|erm|um|uh|well|cool|great|perfect|brilliant|lovely|nice|super)\b\s*/;
+const LEAD = /^(ok(ay)?|alright|right|yeah|yep|yes|no(?!\s+more)|nope|erm|um|uh|well|cool|great|perfect|brilliant|lovely|nice|super|thanks|thx|thankyou|thank you)\b\s*/;
 const TAIL =
-  /\s*\b(thanks|thank you|thanks a lot|cheers|mate|then|so much|very much|bye bye|bye|goodbye|see you|see ya|take care|have a (good|great|nice) (one|day|evening|weekend))\b\s*$/;
+  /\s*\b(thanks|thx|thankyou|thank you|thanks a lot|cheers|mate|then|so much|very much|bye bye|bye|goodbye|see you|see ya|take care|have a (good|great|nice) (one|day|evening|weekend))\b\s*$/;
 const FAREWELL = /\b(bye|goodbye|see you|see ya|take care|have a (good|great|nice) (one|day|evening|weekend))\b/;
 
 /** What's left after the filler comes off, matched whole. */
 const CORE =
-  /^(thats (all|it|everything|us)|that is (all|it|everything)|thatll be all|that will be all|nothing else|no more questions|im (all )?(good|done|sorted|set)|i am (all )?(good|done|sorted|set)|were (all )?done|we are (all )?done|all (done|good|set)|thats me)$/;
+  /^(thats (all|it|everything|us)( i (need|wanted))?|that is (all|it|everything)|thatll be all|that will be all|nothing else|no more questions|im (all )?(good|done|sorted|set)|i am (all )?(good|done|sorted|set)|were (all )?done|we are (all )?done|all (done|good|set)|thats me|you can (hang up|end the call)|end (the )?call|nothing more|no thats all)$/;
 
 export function isSignOff(message: string): boolean {
   // normalise away punctuation and apostrophes: "That's all, thanks!" -> "thats all thanks"

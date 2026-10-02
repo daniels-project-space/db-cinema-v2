@@ -1,8 +1,10 @@
 "use node";
 import Stripe from "stripe";
 import { internalAction } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { unsubscribeToken } from "./referralMail";
+import { reviewPrizeRound,prizeDate,REVIEW_SOCIAL } from "../shared/reviewPrize";
 import { sendMail } from "./lib/mailer";
 import { reviewFingerprint, reviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
 
@@ -37,7 +39,6 @@ export const processDue = internalAction({
   args: { dryRun: v.optional(v.boolean()) },
   handler: async (ctx, { dryRun }): Promise<{checked: number; sent: number; reasons: Record<string, number>}> => {
     const rows: any[] = await ctx.runQuery(internal.reviewFollowUpState.candidates, {});
-    const cfg: any = await ctx.runQuery(api.settings.get, {});
     const result = {checked: rows.length, sent: 0, reasons: {} as Record<string, number>};
     for (const b of rows) {
       let reason = reviewGate(b);
@@ -55,12 +56,16 @@ export const processDue = internalAction({
       });
       const claimed = await ctx.runMutation(internal.reviewFollowUpState.recordCheck, {
         bookingId: b._id, fingerprint: reviewFingerprint(b), reason: reason ?? undefined,
-        claim: !!cfg.googleReviewUrl,
+        claim: true,
       });
       if (!claimed) continue;
       // Account review messages no longer bypass the settlement gate: review follow-ups use email only.
-      const sent = await sendMail({to: b.guestEmail, subject: "How was your Db Cinema rental? ⭐",
-        html: `<p>Thanks for renting with us! A quick Google review really helps us out:</p><p><a href="${esc(cfg.googleReviewUrl)}">Leave a review →</a></p><p>${esc(b.lineItems.map((li: any) => li.title).join(", "))}</p>`});
+      const app=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
+      const round=reviewPrizeRound();
+      let promotion="";
+      if(b.prizeOffersAllowed){try{const optout=unsubscribeToken(b.guestEmail);promotion=`<h2>Your set story could win £250.</h2><p>Leave an honest website review and tell us about your shoot. Follow @${REVIEW_SOCIAL.handle}, share a public set-experience post, tag us and clearly disclose #ad / prize entry. Submit your evidence by ${prizeDate(round.deadline)}, 23:59 UK time.</p><p>One £250 cash prize twice a year, judged for originality (50%), craft insight (30%) and clarity (20%) by an independent judge. Star rating and praise do not affect the result. UK residents aged 18+. One entry per rental; security must be fully refunded and every hold released with no deductions. Winner announced within 14 days, payment by ${prizeDate(round.payBy)}.</p><p><a href="${app}/rental-stories">Enter and track your steps</a> · <a href="${app}/legal/review-prize">Competition terms</a></p><p>You opted into offers. <a href="${app}/referrals/unsubscribe#${optout}">Unsubscribe from offers</a>.</p>`;}catch{/* Without a working unsubscribe link send the ordinary review request only. */}}
+      const sent = await sendMail({to:b.guestEmail,subject:promotion?"Your rental story could win £250 · DB Cinema":"How was your DB Cinema rental?",
+        html:`<p>Thanks for renting with us. Your refundable security is fully settled. We welcome your honest review, whatever your experience.</p><p><a href="${app}/account#chat">Leave your website review</a></p>${promotion}<p>${esc(b.lineItems.map((li:any)=>li.title).join(", "))}</p>`});
       await ctx.runMutation(internal.reviewFollowUpState.recordSent, {bookingId: b._id, sent});
       if (sent) result.sent++;
     }

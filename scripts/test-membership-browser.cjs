@@ -206,6 +206,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(
     `!![...document.querySelectorAll('aside[aria-hidden="false"] button')].find(b=>b.innerText==='Remove membership')`,
   );
+  assert.equal(await c.evaluate(`(()=>{const a=document.querySelector('aside[aria-hidden="false"]'),u=a.querySelector('[data-testid="membership-upsell"]'),cards=[...a.querySelectorAll('[data-cart-dates]')];return cards.length>0&&cards.every(el=>!!(el.compareDocumentPosition(u)&Node.DOCUMENT_POSITION_FOLLOWING))&&!u.innerText.includes('first week free')})()`),true,'Subscription pitch follows all gear and has no rental trial offer');
+  await until(`!!document.querySelector('aside[aria-hidden="false"] [data-testid="joining-credit-applied"]')`);
   await shot("drawer-mobile");
   await c.evaluate(
     `document.querySelector('aside[aria-hidden="false"] button[aria-label="Close"]').click()`,
@@ -215,9 +217,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   assert(preferred?.tier);
   assert.equal(preferred.termsAccepted, undefined);
-  await c.evaluate(
-    `[...document.querySelectorAll('button')].find(b=>b.innerText==='Start paid membership now').click()`,
-  );
+  assert.equal(preferred.intro, 'none', 'rental checkout only offers paid membership');
   await until(
     `document.querySelector('[data-testid="basket-due"]')?.textContent.includes('£')`,
   );
@@ -316,7 +316,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
   );
   await until(
-    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('recommended for')`,
+    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Subscribe and save')`,
   );
   await c.cmd("Emulation.setDeviceMetricsOverride", {
     width: 390,
@@ -334,6 +334,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     "Checkout membership CTA must be visible in the first mobile viewport",
   );
   await shot("checkout-offer-mobile");
+  await c.evaluate(`document.querySelector('[data-testid="add-membership"]').click()`);
+  await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')?.checked===true`);
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('consent confirmed')`),true,'One-click checkout opt-in confirms monthly terms');
+  await until(`document.querySelector('[data-testid="checkout-summary"]').innerText.includes('One-time joining credit')`);
   // The homepage placement is checked against the actual rendered sections.
   await c.cmd("Page.navigate", { url: root + "/" });
   await until(`!!document.querySelector('.fund-invite')`);
@@ -359,6 +363,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`!!document.querySelector('[data-testid="potential-membership-savings"]')`);
   assert((await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`)).includes(bigWeekdayQuote.recommendations[0].netSaving.toFixed(2)));
   await shot("weekday-immediate-credit-mobile");
+  // Compact checkout enrolment includes explicit recurring terms in the checkbox.
   // Below £100 there must be no unsolicited subscription offer.
   const cheap = rows.filter(l=>l.pricing && !l.displayOnly && l.pricing.daily<30).sort((a,b)=>a.pricing.daily-b.pricing.daily)[0];
   assert(cheap,"Need a small kit for the no-saving regression");

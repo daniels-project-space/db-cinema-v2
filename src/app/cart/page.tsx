@@ -194,10 +194,10 @@ export default function CartPage() {
                   )}
                   {quote &&
                     ["promo","referral_friend"].includes(quote.benefitKind) &&
-                    quote.totalReduction > 0 && (
+                    quote.totalReduction - quote.membershipSignupOfferSaving > 0 && (
                       <div className="mt-1.5 text-xs text-emerald-300">
                         Code {promo.applied?.toUpperCase()} applied — −
-                        {formatGbp(quote.totalReduction)}
+                        {formatGbp(quote.totalReduction - quote.membershipSignupOfferSaving)}
                       </div>
                     )}
                   {!!promo.applied&&promo.status?.valid&&quote&&!["promo","referral_friend"].includes(quote.benefitKind)&&<p className="mt-2 text-xs text-white/45">A larger saving is selected instead. This code has not been used.</p>}
@@ -213,12 +213,13 @@ export default function CartPage() {
                     label="Rental subtotal"
                     value={quote?.subtotal ?? subtotal}
                   />
-                  {!!quote?.totalReduction && (
+                  {!!quote && quote.totalReduction - quote.membershipSignupOfferSaving > 0 && (
                     <SummaryRow
                       label={quote.reductionLabel ?? "Rental discount"}
-                      value={-quote.totalReduction}
+                      value={-(quote.totalReduction - quote.membershipSignupOfferSaving)}
                     />
                   )}
+                  {!!quote?.membershipSignupOfferSaving && <SummaryRow label="One-time joining credit" value={-quote.membershipSignupOfferSaving} saving />}
                   {!!quote?.membershipCreditApplied && <SummaryRow label="Subscription credit applied" value={-quote.membershipCreditApplied} saving />}
                   {!!quote && quote.creditApplied-quote.membershipCreditApplied > 0 && (
                     <SummaryRow

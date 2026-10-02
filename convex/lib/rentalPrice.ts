@@ -167,12 +167,15 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     {kind:"weekend",savingPence:pence(weekendCandidate),label:"Member weekend deal · £100 cap"},
     {kind:"delivery",savingPence:pence(deliveryCandidate),label:"Member delivery saving"},
     {kind:"loyalty",savingPence:!selected&&!membershipActiveNow(acct)?pence(subtotal*(acct?.loyaltyPercent??(acct?.loyaltyEligible?loyaltyPercent(3):0))/100):0,label:`Encore · ${acct?.loyaltyPercent??10}% rental saving`},
-    {kind:"joining",savingPence:pence(joiningCandidate),label:`Membership welcome · £${joiningCandidate} off`},
     {kind:"earned_credit",savingPence:pence(existingBefore)+immediate.appliedPence,label:"Earned store credit"},
     {kind:"referral_friend",savingPence:referral?.friend?.valid?pence(Math.min(10,subtotal)):0,label:"Friend referral · £10 off your first rental"},
     {kind:"referral_reward",savingPence:referral?.reward?pence(subtotal*.4):0,label:"Referral reward · 40% off rentals"},
   ]);
-  const benefitKind=chosen.kind;
+  const primaryReduction=["none","delivery","earned_credit"].includes(chosen.kind)?0:chosen.savingPence/100;
+  // The one-time joining credit is the sole stacking exception. It can only
+  // reduce rental charges, never the membership fee or refundable security.
+  const membershipSignupOfferSaving=Math.min(joiningCandidate,Math.max(0,subtotal-primaryReduction));
+  const benefitKind=chosen.kind==="none"&&membershipSignupOfferSaving>0?"joining":chosen.kind;
   if(benefitKind==="referral_friend"||benefitKind==="referral_reward"){
     securityWaiverReason=undefined;repeatSourceBookingId=undefined;repeatSourceFingerprint=undefined;
     depositAmount=depositChargeFor(protection,replacementSum);
@@ -180,15 +183,15 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const deliveryReduction=benefitKind==="delivery"?chosen.savingPence/100:0;
   const deliveryFee=quotedDeliveryFee-deliveryReduction;
   const deliveryBenefitMonth=benefitKind==="delivery"&&studioAvailable?month:undefined;
-  const totalReduction=["none","delivery","earned_credit"].includes(benefitKind)?0:chosen.savingPence/100;
+  const totalReduction=Math.round((primaryReduction+membershipSignupOfferSaving)*100)/100;
   const appliedCode=benefitKind==="promo"?promoCode:undefined;
-  const weekendSaving=benefitKind==="weekend"?totalReduction:0;
-  const loyaltySaving=benefitKind==="loyalty"?totalReduction:0;
-  const membershipSignupOfferSaving=benefitKind==="joining"?totalReduction:0;
+  const weekendSaving=benefitKind==="weekend"?primaryReduction:0;
+  const loyaltySaving=benefitKind==="loyalty"?primaryReduction:0;
   const totalBeforeCredit=Math.round((subtotal+deliveryFee+depositAmount-totalReduction)*100)/100;
   const refundCreditApplied=Math.min(refundBalance,Math.max(0,totalBeforeCredit-depositAmount));
-  const earnedCreditApplied=benefitKind==="earned_credit"?existingBefore:0;
-  const membershipCreditApplied=benefitKind==="earned_credit"?immediate.appliedPence/100:0;
+  const earnedCreditApplied=benefitKind==="earned_credit"?Math.min(existingBefore,Math.max(0,totalBeforeCredit-depositAmount-refundCreditApplied)):0;
+  const membershipCreditApplied=benefitKind==="earned_credit"?checkoutMembershipCredit(selected?.key,a.selectedMembership?.intro,
+    pence(Math.max(0,subtotal-totalReduction-refundCreditApplied-earnedCreditApplied)),acct?.membershipCreditDebtPence).appliedPence/100:0;
   const creditApplied=Math.round((refundCreditApplied+earnedCreditApplied+membershipCreditApplied)*100)/100;
   const totalDue=Math.round((totalBeforeCredit-creditApplied)*100)/100;
   return {

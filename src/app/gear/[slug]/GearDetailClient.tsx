@@ -8,6 +8,7 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { BookingPanel } from "@/components/booking/BookingPanel";
 import { Recommendations } from "@/components/Recommendations";
+import { useGafferFocus } from "@/components/gaffer/GafferFocus";
 import { SmartImage } from "@/components/SmartImage";
 import { addDaysIso, daysInclusive } from "@/components/booking/Calendar";
 import { IconCheck, IconChevronLeft } from "@/components/icons";
@@ -64,6 +65,7 @@ function ShareButton({ title }: { title: string }) {
 }
 
 export default function GearDetailClient({ slug }: { slug: string }) {
+  const { focusedId } = useGafferFocus();
   const listing = useQuery(api.catalog.getListingBySlug, { slug });
   const reviewStats = useQuery(api.reviews.stats, {});
 
@@ -159,7 +161,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
   return (
     <>
       <SiteHeader />
-      <main className="section-window mx-auto max-w-7xl px-6 py-10">
+      <main data-listing-id={listing._id} data-gaffer-focused={focusedId === listing._id || undefined} className="section-window mx-auto max-w-7xl px-6 py-10">
         <Link
           href="/gear"
           className="group inline-flex items-center gap-1.5 text-sm text-white/40 transition-colors hover:text-white"

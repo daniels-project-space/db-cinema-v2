@@ -109,9 +109,9 @@ const SILENCE_MS = 20_000;
  * than counting seconds — a fixed window clipped any goodbye that ran long.
  * This just catches a goodbye that never comes.
  */
-const FAREWELL_MAX_MS = 14_000;
+const FAREWELL_MAX_MS = 5_000;
 /** Beat after the last word, so the audio tail isn't chopped. */
-const GOODBYE_TAIL_MS = 900;
+const GOODBYE_TAIL_MS = 400;
 /**
  * Rope before the caller has said anything at all.
  *
@@ -142,7 +142,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const [secs, setSecs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const conv = useRef<any>(null);
-  const { clientTools, dynamicVariables, noteCustomerMessage, resetPriceRequest } = useGafferTools();
+  const { clientTools, dynamicVariables, noteCustomerMessage, resetPriceRequest, noteAgentAlignment, noteAgentMessage, resetSpokenFocus } = useGafferTools();
   const memory = useRef(createCallMemory());
   const callGeneration = useRef(0);
   const variablesRef = useRef(dynamicVariables);
@@ -225,6 +225,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     callGeneration.current++;
     memory.current.clear();
     resetPriceRequest();
+    resetSpokenFocus();
     generation.current++;
     hint.current.reset();
     setDockOpen(false);
@@ -239,7 +240,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
     conv.current = null;
     setState("idle");
     setSpeaking(false);
-  }, [resetPriceRequest]);
+  }, [resetPriceRequest, resetSpokenFocus]);
 
   // Dead-air watchdog. Only runs while connected, and only counts silence the
   // caller owns — if Gaffer is mid-sentence, the caller isn't being rude.
@@ -397,6 +398,9 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       );
       const cfg: any = {
         agentId,
+        connectionType: "websocket",
+        onAudioAlignment: (alignment: any) => { if (mine()) noteAgentAlignment(alignment); },
+        onInterruption: () => { if (mine()) resetSpokenFocus(); },
         clientTools: tools,
         dynamicVariables: {
           ...variablesRef.current,
@@ -471,9 +475,10 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         onMessage: ({ message, source }: { message: string; source: "user" | "ai" }) => {
           if (!mine()) return;
           memory.current.add(source, message);
-          if (source === "user") noteCustomerMessage(message);
+          if (source === "user") { noteCustomerMessage(message); resetSpokenFocus(); }
           // Gaffer has answered, so the caller owns the silence again from here.
           if (source === "ai") {
+            noteAgentMessage(message);
             awaitingAgent.current = false;
             lastActivity.current = Date.now();
             return;

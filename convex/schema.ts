@@ -332,10 +332,27 @@ export default defineSchema({
     date: v.number(),
     verifiedBookingId: v.optional(v.id("bookings")),
     published: v.boolean(),
+    incentivized: v.optional(v.boolean()),
   })
     .index("by_listing", ["listingId"])
     .index("by_booking", ["verifiedBookingId"])
     .index("by_published", ["published"]),
+
+  // ── Crew for hire (booked THROUGH us — first name only, keep the middleman) ──
+  review_prize_evidence: defineTable({storageId:v.id("_storage"),accountId:v.id("accounts"),claimedAt:v.number()}).index("by_storage",["storageId"]),
+  review_prize_entries: defineTable({
+    accountId:v.id("accounts"),bookingId:v.id("bookings"),reviewId:v.id("reviews"),roundKey:v.string(),
+    story:v.string(),socialHandle:v.string(),postUrl:v.string(),evidenceStorageId:v.id("_storage"),
+    status:v.string(),termsVersion:v.string(),followDeclared:v.boolean(),disclosureDeclared:v.boolean(),
+    submittedAt:v.number(),updatedAt:v.number(),socialVerifiedAt:v.optional(v.number()),verificationNote:v.optional(v.string()),
+    originality:v.optional(v.number()),craft:v.optional(v.number()),clarity:v.optional(v.number()),judgeName:v.optional(v.string()),judgingNote:v.optional(v.string()),judgedAt:v.optional(v.number()),
+  }).index("by_round",["roundKey"]).index("by_booking",["bookingId"]).index("by_account",["accountId"]).index("by_post",["postUrl"]),
+  review_prize_rounds: defineTable({
+    key:v.string(),deadline:v.number(),announceBy:v.number(),payBy:v.number(),status:v.string(),
+    winnerEntryId:v.optional(v.id("review_prize_entries")),selectedAt:v.optional(v.number()),winnerNotifiedAt:v.optional(v.number()),
+    paidAt:v.optional(v.number()),paymentReference:v.optional(v.string()),
+    reminderStage:v.optional(v.string()),mailLeaseUntil:v.optional(v.number()),mailAttempts:v.optional(v.number()),mailNextAt:v.optional(v.number()),
+  }).index("by_key",["key"]),
 
   // ── Crew for hire (booked THROUGH us — first name only, keep the middleman) ──
   operators: defineTable({

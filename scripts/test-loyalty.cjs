@@ -42,7 +42,7 @@ assert.equal(qualifyingRentalCount([row('a',DAY,'cs-a'),row('a2',DAY*4,'cs-a'),r
  const pendingArgs={customerEmail:account.email,fulfilment:'pickup',deliveryFee:quote.deliveryFee,lineItems:quote.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:1,lineTotal:i.total})),subtotal:quote.subtotal,depositAmount:quote.depositAmount,discount:quote.totalReduction,total:quote.totalBeforeCredit,expectedTotalDue:quote.totalDue,creditAccountId:account._id,loyaltySaving:quote.loyaltySaving,currency:'GBP'};
  const pending=await bookings.createPending.handler(pricingCtx,pendingArgs);assert.equal((await db.get(pending.bookingId)).discount,30);
  await assert.rejects(bookings.createPending.handler(pricingCtx,{...pendingArgs,loyaltySaving:31}),/saving changed/);
- quote=await calculateRentalPrice(pricingCtx,{...input,selectedMembership:{tier:'pro',intro:'none'}});assert.equal(quote.loyaltySaving,0,'checkout-added subscription cannot stack');assert.equal(quote.membershipSignupOfferSaving,0);assert(quote.depositAmount>0);
+ quote=await calculateRentalPrice(pricingCtx,{...input,selectedMembership:{tier:'pro',intro:'none'}});assert.equal(quote.loyaltySaving,0,'checkout-added subscription cannot stack');assert.equal(quote.membershipSignupOfferSaving,10);assert(quote.depositAmount>0);
  account.membershipActive=true;account.membershipTier='pro';account.membershipStatus='active';account.membershipPaidThrough=now+DAY;
  await assert.rejects(bookings.createPending.handler(pricingCtx,pendingArgs),/Encore benefit changed/);
  quote=await calculateRentalPrice(pricingCtx,input);assert.equal(quote.loyaltySaving,0,'existing subscription cannot stack');assert.equal(quote.depositAmount,0);

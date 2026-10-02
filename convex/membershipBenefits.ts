@@ -118,7 +118,7 @@ export const grantPaidInvoice = internalMutation({
     if (signupOffer > 0) {
       const expectedSignup = checkout?.tier === "plus" ? (checkout.starterOfferSaving === 10 ? 10 : 5) : 10;
       const eligible = checkout?.tier === "plus" || checkout?.tier === "pro" || checkout?.tier === "studio";
-      if (!eligible || checkout?.intro !== "none" || signupOffer !== expectedSignup || account.membershipSignupOfferUsed || account.starterRentalOfferUsed)
+      if (!eligible || checkout?.intro !== "none" || signupOffer > expectedSignup || !booking || booking.membershipSignupOfferSaving !== signupOffer || account.membershipSignupOfferUsed || account.starterRentalOfferUsed)
         throw Error("Membership welcome offer has already been used or does not match this checkout.");
       await ctx.db.patch(account._id,{membershipSignupOfferUsed:true});
     }
