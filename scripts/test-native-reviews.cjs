@@ -28,6 +28,13 @@ const old=process.env.STRIPE_SECRET_KEY;process.env.STRIPE_SECRET_KEY='fixture';
  await reviews.submitNative.handler(ctx,args);await assert.rejects(reviews.submitNative.handler(ctx,args),/already/);
  const carousel=await reviews.listPublished.handler(ctx,{});assert.equal(carousel[0].authorImage,'https://storage.test/avatar');assert.equal(carousel[0].rating,5);
  assert.equal((await reviews.stats.handler(ctx,{})).average,5);
+ // Import dates must not crowd verified website reviews out of the homepage.
+ for(let i=0;i<22;i++)put('reviews',{source:'hygglo',published:true,author:'Imported '+i,rating:5,text:'A genuine imported rental review.',date:Date.now()+i+10000});
+ put('reviews',{source:'native',published:true,author:'Second website reviewer',authorAccountId:foreign._id,rating:2,text:'A verified rental with useful critical feedback.',date:1});
+ await db.patch(foreign._id,{googleAvatarUrl:'https://profiles.test/second.jpg'});
+ put('reviews',{source:'native',published:false,author:'Unpublished',rating:5,text:'This review must not appear.',date:Date.now()+999999});
+ const mixed=await reviews.listPublished.handler(ctx,{limit:18});assert.equal(mixed.length,18);assert.equal(mixed[0].source,'native');assert.equal(mixed[1].source,'hygglo');assert.equal(mixed[2].source,'hygglo');assert.equal(mixed[3].source,'native');assert.equal(mixed[3].rating,2,'critical website feedback uses the same selection');assert.equal(mixed[3].authorImage,'https://profiles.test/second.jpg');assert(!mixed.some(r=>r.author==='Unpublished'));assert(!('authorAccountId' in mixed[0])&&!('verifiedBookingId' in mixed[0]),'public cards contain no private identifiers');
+ await db.patch(account._id,{avatarStorageId:'updated-avatar'});assert.equal((await reviews.listPublished.handler(ctx,{limit:1}))[0].authorImage,'https://storage.test/updated-avatar','profile changes flow into live cards');
  await assert.rejects(reviews.clearHygglo.handler(ctx,{token:'invalid'}));await assert.rejects(reviews.insertChunk.handler(ctx,{token:'invalid',items:[]}));
  console.log('PASS native reviews: expired/foreign/pending/retained/partial/active-hold blocked; provider-attested invitation once; stale receipts denied; rating/text validation; avatar/carousel/score; duplicate and unauthorized imports denied.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{if(old===undefined)delete process.env.STRIPE_SECRET_KEY;else process.env.STRIPE_SECRET_KEY=old});

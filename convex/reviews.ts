@@ -14,12 +14,24 @@ export const listPublished = query({
       .collect();
     // carousel shows only reviews that actually have text
     const withText = rows.filter((r) => r.text && r.text.trim().length > 8);
-    withText.sort((a, b) => b.date - a.date);
-    return Promise.all(withText.slice(0, Math.min(50, Math.max(1, limit ?? 30))).map(async (r) => {
+    withText.sort((a, b) => b.date - a.date || b._creationTime - a._creationTime);
+    const count = Math.min(50, Math.max(1, Math.floor(limit ?? 30)));
+    // Reserve one card per desktop page for website reviews while both sources
+    // have content. Fill unused places from either source; never filter ratings.
+    const native = withText.filter(r => r.source === "native");
+    const imported = withText.filter(r => r.source !== "native");
+    const selected: typeof withText = [];
+    let n = 0, h = 0;
+    while (selected.length < count && (n < native.length || h < imported.length)) {
+      const useNative = n < native.length && (selected.length % 3 === 0 || h >= imported.length);
+      selected.push(useNative ? native[n++] : imported[h++]);
+    }
+    return Promise.all(selected.map(async (r) => {
       const account = r.authorAccountId ? await ctx.db.get(r.authorAccountId) : null;
       const photo = account?.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null;
       return ({
       _id: r._id,
+      source: r.source,
       author: r.author,
       authorImage: photo ?? account?.googleAvatarUrl ?? r.authorImage ?? null,
       rating: r.rating,
