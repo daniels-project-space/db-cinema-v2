@@ -150,7 +150,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const previous = await c.evaluate("performance.timeOrigin");
     // Release decorative media decoders before tearing down the document.
     // Cards and their animations are tested before this navigation step.
-    await c.evaluate("document.querySelectorAll('video').forEach(v=>v.pause());true");
+    await releaseMedia();
     await loadDocument("Page.reload");
     await until(
       `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState!=='loading'`,
@@ -160,12 +160,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // CDP navigation acknowledges before the old document is replaced. Wait
     // for the new document so an old price panel cannot satisfy readiness.
     const previous = await c.evaluate("performance.timeOrigin");
-    await c.evaluate("document.querySelectorAll('video').forEach(v=>v.pause());true");
+    await releaseMedia();
     console.log({ navigation: new URL(url).pathname });
     await loadDocument("Page.navigate", { url });
     await until(
       `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState!=='loading'`,
     );
+  }
+  async function releaseMedia() {
+    // Pausing leaves decoder pipelines and media requests alive. Release them
+    // after the rendered-state assertions, before Chrome tears down a page.
+    await c.evaluate("document.querySelectorAll('video').forEach(v=>{v.pause();v.removeAttribute('src');v.querySelectorAll('source').forEach(s=>s.removeAttribute('src'));v.load();});true");
+    await c.cmd('Page.stopLoading');
+    await wait(100);
   }
   async function loadDocument(method, params = {}) {
     // Runtime.evaluate sent during document teardown can be stranded in the
