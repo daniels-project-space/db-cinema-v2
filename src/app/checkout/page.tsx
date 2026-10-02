@@ -10,6 +10,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { CheckoutAccountBenefits } from "@/components/CheckoutAccountBenefits";
 import { CheckoutMembership } from "@/components/CheckoutMembership";
 import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
+import { shouldResetMembershipPreference } from "../../../shared/membershipSelection";
 import { CheckoutLoopBanner } from "@/components/CheckoutLoopBanner";
 import { CheckoutReminder } from "@/components/plans/CartPlanning";
 import { useCart } from "@/components/cart/CartProvider";
@@ -148,6 +149,11 @@ export default function CheckoutPage() {
     const timer = setTimeout(() => {
       getPriceQuote(priceArgs).then((value) => {
         if (!cancelled) {
+          if (shouldResetMembershipPreference(membership, value)) {
+            setMembership(null);
+            membershipRequest.current = null;
+            return;
+          }
           // A refreshed provider-side price needs a fresh, amount-specific consent.
           setAgreed(false);
           setQuoted({ key: quoteKey, value });

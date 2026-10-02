@@ -4,6 +4,16 @@ export type MembershipSelection = {
   intro: "trial" | "none";
   termsAccepted: boolean;
 };
+/** Reopened preferences are not consent. Let a profitable offer replace a
+ * stale, unconfirmed plan after authoritative repricing, never a confirmed one. */
+export function shouldResetMembershipPreference(
+  selection: MembershipSelection | null,
+  quote: { membershipNetSaving: number; recommendations: { netSaving: number }[] },
+): boolean {
+  return !!selection && !selection.termsAccepted &&
+    quote.membershipNetSaving <= 0 &&
+    quote.recommendations.some((offer) => offer.netSaving > 0);
+}
 /** Local storage is a preference, never subscription entitlement or consent. */
 export function restoreMembershipSelection(
   value: unknown,
