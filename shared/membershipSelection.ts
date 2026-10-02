@@ -4,6 +4,24 @@ export type MembershipSelection = {
   intro: "trial" | "none";
   termsAccepted: boolean;
 };
+/** These live account values affect quotes even when the basket stays the same. */
+export function accountPricingContext(account?: {
+  membershipActive?: boolean;
+  membershipTier?: string | null;
+  membershipIntroUsed?: boolean;
+  membershipPaidThrough?: number | null;
+  membershipTrialEnd?: number | null;
+  earnedCredit?: number;
+  refundCredit?: number;
+  loyaltyPercent?: number;
+} | null) {
+  return JSON.stringify([
+    account?.membershipActive, account?.membershipTier,
+    account?.membershipIntroUsed, account?.membershipPaidThrough,
+    account?.membershipTrialEnd, account?.earnedCredit,
+    account?.refundCredit, account?.loyaltyPercent,
+  ]);
+}
 /** Reopened preferences are not consent. Let a profitable offer replace a
  * stale, unconfirmed plan after authoritative repricing, never a confirmed one. */
 export function shouldResetMembershipPreference(

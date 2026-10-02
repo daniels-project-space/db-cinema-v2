@@ -10,7 +10,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { CheckoutAccountBenefits } from "@/components/CheckoutAccountBenefits";
 import { CheckoutMembership } from "@/components/CheckoutMembership";
 import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
-import { shouldResetMembershipPreference } from "../../../shared/membershipSelection";
+import { accountPricingContext, shouldResetMembershipPreference } from "../../../shared/membershipSelection";
 import { CheckoutLoopBanner } from "@/components/CheckoutLoopBanner";
 import { CheckoutReminder } from "@/components/plans/CartPlanning";
 import { useCart } from "@/components/cart/CartProvider";
@@ -135,7 +135,7 @@ export default function CheckoutPage() {
     promoCode: promo.applied ?? undefined,
     protection,
   };
-  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null });
+  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null, account: accountPricingContext(account.me) });
   const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
   const equipmentValue = currentQuote?.replacementValue ?? replacementSum;
   const holdAmount = currentQuote?.depositHoldAmount ?? depositFor(protection, replacementSum);

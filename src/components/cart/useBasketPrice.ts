@@ -5,7 +5,7 @@ import { api } from "@cvx/_generated/api";
 import { dayMs } from "@/lib/dates";
 import { useCart } from "./CartProvider";
 import { useAccount } from "../account/AccountProvider";
-import { shouldResetMembershipPreference } from "../../../shared/membershipSelection";
+import { accountPricingContext, shouldResetMembershipPreference } from "../../../shared/membershipSelection";
 export function useBasketPrice(enabled = true) {
   const cart = useCart(),
     account = useAccount(),
@@ -35,7 +35,7 @@ export function useBasketPrice(enabled = true) {
     promoCode: cart.promo ?? undefined,
     protection: "verify" as const,
   };
-  const key = JSON.stringify(args);
+  const key = JSON.stringify({ args, account: accountPricingContext(account.me) });
   useEffect(() => {
     if (!enabled || !args.items.length) return;
     let cancelled = false;
