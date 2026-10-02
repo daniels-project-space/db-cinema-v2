@@ -153,7 +153,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await c.evaluate("document.querySelectorAll('video').forEach(v=>v.pause());true");
     await loadDocument("Page.reload");
     await until(
-      `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,
+      `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState!=='loading'`,
     );
   }
   async function navigate(url) {
@@ -164,18 +164,20 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     console.log({ navigation: new URL(url).pathname });
     await loadDocument("Page.navigate", { url });
     await until(
-      `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,
+      `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState!=='loading'`,
     );
   }
   async function loadDocument(method, params = {}) {
     // Runtime.evaluate sent during document teardown can be stranded in the
     // old execution context (notably after Stripe's frames were loaded).
-    // Wait for the real main-document load before querying the new context.
+    // Wait for the new DOM before querying its context. Component-specific
+    // checks below still wait for hydrated UI and real prices; third-party
+    // media and Stripe subframes need not finish loading to inspect the UI.
     let finished = false, timer;
     const loaded = new Promise((resolve, reject) => {
       timer = setTimeout(() => {finished = true;reject(Error('Document load timed out: '+method));},30000);
       c.on(event => {
-        if (!finished && event.method === 'Page.loadEventFired') {
+        if (!finished && event.method === 'Page.domContentEventFired') {
           finished = true;clearTimeout(timer);resolve();
         }
       });
