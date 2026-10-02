@@ -46,6 +46,10 @@ export function CheckoutMembership({
   const { me } = useAccount(),
     [open, setOpen] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
+  const [selectionQuote, setSelectionQuote] = useState<{
+    tier: string;
+    netSaving: number;
+  } | null>(null);
   const celebrationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consentId = useId();
   useEffect(
@@ -59,7 +63,8 @@ export function CheckoutMembership({
       setCelebrating(false);
       if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
     }
-  }, [selected?.termsAccepted]);
+    if (!selected) setSelectionQuote(null);
+  }, [selected?.termsAccepted, selected]);
   const current = me?.membershipActive
       ? TIERS.find((t) => t.key === me.membershipTier)
       : undefined,
@@ -71,10 +76,12 @@ export function CheckoutMembership({
   // Keep the authoritative recommendation visible while the selected plan's
   // quote arrives; selecting must not replace the saving with monthly credit.
   const appliedNetSaving =
-    selected &&
-    selected.tier === recommend?.tier &&
-    appliedSavings?.membershipFee !== chosen?.monthlyGbp
-      ? recommend.netSaving
+    selected && appliedSavings?.membershipFee !== chosen?.monthlyGbp
+      ? selected.tier === selectionQuote?.tier
+        ? selectionQuote.netSaving
+        : selected.tier === recommend?.tier
+          ? recommend.netSaving
+          : 0
       : (appliedSavings?.membershipNetSaving ?? 0);
   const potentialNetSaving = recommend
     ? Math.round(recommend.netSaving * 100) / 100
@@ -125,6 +132,10 @@ export function CheckoutMembership({
   const confirmed = !!selected?.termsAccepted;
   const confirmSelection = () => {
     if (current || confirmed) return;
+    setSelectionQuote({
+      tier: selected?.tier ?? recommendedTier.key,
+      netSaving: saving,
+    });
     onChange({
       tier: selected?.tier ?? recommendedTier.key,
       intro: "none",
