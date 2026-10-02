@@ -258,7 +258,6 @@ export default function CheckoutPage() {
       <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
         <CheckoutMembership variant="checkout" appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
-        <div className="mb-5 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
           <span className="inline-flex items-center gap-1.5">
             <IconLock className="h-3.5 w-3.5 text-accent-400" />
@@ -517,6 +516,7 @@ export default function CheckoutPage() {
             </p>
           </aside>
         </div>
+        <div className="mt-8 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
       </main>
     </>
   );
