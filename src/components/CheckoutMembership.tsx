@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { TIERS } from "@/lib/membership";
 import { useAccount } from "./account/AccountProvider";
+import { SubscriptionBenefitSymbol } from "./SubscriptionBenefitSymbol";
 type Suggestion = {
   intro: "trial" | "none";
   membershipCreditApplied: number;
@@ -97,7 +98,7 @@ export function CheckoutMembership({
   return (
     <section
       data-testid="membership-upsell"
-      aria-label="Membership for your rental"
+      aria-label="Subscription for your rental"
       className={`relative my-5 overflow-hidden rounded-2xl border p-5 ${tier ? "border-accent-300/30 bg-gradient-to-br from-accent-300/10 via-white/[.035] to-transparent shadow-[0_0_40px_#acd17c0d]" : "border-white/15 bg-gradient-to-br from-white/[.07] to-white/[.015] shadow-[0_0_30px_#ffffff05]"}`}
     >
       <div
@@ -107,8 +108,8 @@ export function CheckoutMembership({
       <div className="relative">
         <p className="font-mono text-[9px] uppercase tracking-[.2em] text-white/40">
           {tier
-            ? `${tier.name} · your creative edge`
-            : "Make this rental go further"}
+            ? `${tier.name} subscription · your creative edge`
+            : "A subscription for your next chapter"}
         </p>
         <h3 className="mt-2 text-lg font-medium text-white">
           {tier
@@ -208,7 +209,7 @@ export function CheckoutMembership({
                 }
                 className="mt-4 inline-flex min-h-11 items-center gap-3 rounded-full border border-white/25 bg-white/10 px-5 py-2.5 text-sm font-medium text-white transition hover:border-accent-300/50 hover:bg-accent-300/10"
               >
-                Add {recommendedTier.name} · one checkout
+                Add {recommendedTier.name} subscription · one checkout
               </button>
             )}
             {selected && chosen && (
@@ -277,12 +278,14 @@ export function CheckoutMembership({
           </>
         )}
         {!current && <>
-          <ul className="mt-3 grid gap-1.5 text-[11px] text-white/55" aria-label="Future membership benefits">
-            <li>✦ Monthly rental credit · stacks for one year</li>
-            <li>✦ Future paid-member rentals · no upfront security payment</li>
-            <li>✦ {(chosen ?? recommendedTier).key === "studio" ? "One London delivery each month" : `${(chosen ?? recommendedTier).deliveryPct}% off future delivery`}</li>
-            {(chosen ?? recommendedTier).weekend && <li>✦ Future weekend deals · save up to £100</li>}
-            {(chosen ?? recommendedTier).filmFund && <li>✦ Film Fund entry included · coming soon</li>}
+          <ul className="mt-3 grid gap-1.5 text-[11px] text-white/55" aria-label="Future subscription benefits">
+            {[
+              "Monthly rental credit · stacks for one year",
+              "Future paid-member rentals · no upfront security payment",
+              (chosen ?? recommendedTier).key === "studio" ? "One London delivery each month" : `${(chosen ?? recommendedTier).deliveryPct}% off future delivery`,
+              ...((chosen ?? recommendedTier).weekend ? ["Future weekend deals · save up to £100"] : []),
+              ...((chosen ?? recommendedTier).filmFund ? ["Film Fund entry included · coming soon"] : []),
+            ].map((benefit, index) => <li key={benefit} className="flex items-start gap-2"><SubscriptionBenefitSymbol benefit={benefit} index={index} /><span>{benefit}</span></li>)}
           </ul>
           <p className="mt-3 text-[10px] leading-5 text-white/40">This checkout applies the best single saving: credit or an eligible offer. Verification, the upfront refundable security payment and the full card hold still apply. Other perks start after this booking is confirmed, for future rentals.</p>
         </>}
@@ -290,7 +293,7 @@ export function CheckoutMembership({
           onClick={() => setOpen(true)}
           className="mt-3 text-[11px] text-white/55 underline underline-offset-4"
         >
-          See the membership benefits
+          See the subscription benefits
         </button>
       </div>
       {open &&
@@ -304,19 +307,19 @@ export function CheckoutMembership({
               tabIndex={-1}
               role="dialog"
               aria-modal="true"
-              aria-label="Membership benefits"
+              aria-label="Subscription benefits"
               className="relative max-h-[85vh] w-full max-w-3xl overflow-auto rounded-3xl border border-accent-300/20 bg-[#151a17] p-6 sm:p-9"
               onClick={(e) => e.stopPropagation()}
             >
               <button
                 onClick={() => setOpen(false)}
                 className="absolute right-5 top-4 text-sm text-white/55"
-                aria-label="Close membership benefits"
+                aria-label="Close subscription benefits"
               >
                 ✕
               </button>
               <p className="text-[10px] uppercase tracking-[.2em] text-accent-300">
-                Keep the momentum
+                Monthly subscriptions · keep the momentum
               </p>
               <h2 className="mt-3 font-display text-3xl text-white">
                 More kit. More possibility.
@@ -334,6 +337,7 @@ export function CheckoutMembership({
                     className={`rounded-2xl border p-4 ${t.key === recommend?.tier ? "border-accent-300/40 bg-accent-300/[.05]" : "border-white/10"}`}
                   >
                     <h3 className="text-lg text-white">{t.name}</h3>
+                    <p className="mt-1 text-[10px] text-white/40">Monthly subscription</p>
                     <p className="mt-2 text-2xl text-accent-200">
                       £{t.monthlyGbp}
                       <span className="text-xs text-white/40"> / month</span>
@@ -342,8 +346,8 @@ export function CheckoutMembership({
                       £{t.monthlyCredit.toFixed(2)} monthly credit
                     </p>
                     <ul className="mt-4 space-y-2 text-[11px] leading-5 text-white/45">
-                      {t.perks.slice(2).map((p) => (
-                        <li key={p}>{p}</li>
+                      {t.perks.slice(2).map((p, index) => (
+                        <li key={p} className="flex items-start gap-2"><SubscriptionBenefitSymbol benefit={p} index={index} /><span>{p}</span></li>
                       ))}
                     </ul>
                     {!current && (

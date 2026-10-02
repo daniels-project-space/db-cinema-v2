@@ -20,7 +20,7 @@ type NavItem = { href: string; label: string; external?: boolean };
 // Membership / How it works move into the profile dropdown(s) instead.
 const NAV: NavItem[] = [
   { href: "/gear", label: "Gear" },
-  { href: "/membership", label: "Membership" },
+  { href: "/membership", label: "Subscriptions" },
   { href: "/how-it-works", label: "How it works" },
   { href: "/guides", label: "Guides" },
   { href: "/about", label: "About" },
@@ -284,7 +284,7 @@ export function SiteHeader() {
                         onClick={() => setMenu(false)}
                         className="block px-4 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
                       >
-                        Membership
+                        Subscriptions
                       </Link>
                       <Link
                         href="/how-it-works"
@@ -351,7 +351,7 @@ export function SiteHeader() {
                         onClick={() => setMenu(false)}
                         className="block border-t border-white/5 px-4 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
                       >
-                        Membership
+                        Subscriptions
                       </Link>
                       <Link
                         href="/how-it-works"
@@ -387,7 +387,7 @@ export function SiteHeader() {
 
             {/* Always present, at the far right.
                 It used to be md:hidden, so on a desktop the sheet — which holds
-                Membership, How it works, About, Join the Collective and the
+                Subscriptions, How it works, About, Join the Collective and the
                 FORM 7 collaboration — had no way in at all. Those pages were
                 only reachable by shrinking the window. */}
             <button
