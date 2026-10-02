@@ -20,7 +20,7 @@ new Function('require','module','exports',uiCode)(name=>{
 },uiModule,uiModule.exports);
 function renderQuotedHook(quote,member){
  renderingAccount=member;
- return renderToStaticMarkup(React.createElement(uiModule.exports.CheckoutMembership,{suggestions:quote.recommendations,selected:null,onChange:()=>{},appliedSavings:quote}));
+ return renderToStaticMarkup(React.createElement(uiModule.exports.CheckoutMembership,{suggestions:quote?.recommendations,selected:null,onChange:()=>{},appliedSavings:quote}));
 }
 const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:100000,components:[]});
 let account;
@@ -49,10 +49,19 @@ async function pay(fixture,fee=1900) {
  return {args,grant:await db.get(id),credit:await db.get((await db.get(id)).creditId)};
 }
 (async()=>{
+ assert.equal(renderQuotedHook(undefined,null),'','Initial quote loading must not crash or show an empty offer');
  account=put('accounts',{email:'thresholds@example.invalid'});
  for(const [spend,tier] of [[99,null],[100,'plus'],[199,'plus'],[200,'pro'],[299,'pro'],[300,'studio']]) {
   camera.pricing.daily=spend;
   const quote=await checkout.priceQuote.handler(ctx,input());
+  if (quote.recommendations.some(o=>o.netSaving>0)) {
+   const offer=quote.recommendations.find(o=>o.netSaving>0);
+   assert.deepEqual(quote.membershipOffer,{tier:offer.tier,netSaving:offer.netSaving,state:'join'});
+   const staleUiAccount={...account,membershipActive:true,membershipTier:'studio'};
+   const html=renderQuotedHook(quote,staleUiAccount);
+   assert(html.includes('Subscribe to save £'+offer.netSaving.toFixed(2)),'Finished server quote must keep its heading even when client account context differs');
+   assert(html.includes('data-testid="add-membership"'),'Server join offer must remain selectable rather than becoming an existing-member card');
+  }
   assert.equal(quote.recommendations[0]?.tier??null,tier,'threshold uses rental charges, not the much larger security/hold');
   if(tier)assert.equal(quote.recommendations[0].intro,'none','weekday offer starts paid membership to use credit now');
  }
@@ -76,6 +85,7 @@ async function pay(fixture,fee=1900) {
  await db.patch(renewedCredit._id,{remaining:0});
  const noRenewedCredit=await checkout.priceQuote.handler(ctx,input());
  assert.equal(noRenewedCredit.membershipNetSaving,0,'No applied earned credit or price benefit means no invented saving');
+ assert(!renderQuotedHook(noRenewedCredit,account).includes('membership-upsell'),'No blank active-member discount card after a zero-saving quote');
  assert(!renderQuotedHook(noRenewedCredit,account).includes('Subscribe to save £'),'No fabricated saving when only refund credit remains');
  // A restored Studio choice can lose money while Starter saves money after
  // refund credits. It must not blank the profitable offer or preserve consent.

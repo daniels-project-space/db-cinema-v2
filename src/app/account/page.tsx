@@ -19,6 +19,7 @@ import { GearCard } from "@/components/GearCard";
 import { AccountFrame, AccountProfilePill } from "@/components/account/AccountFrame";
 import { ChatAvatar } from "@/components/rentals/ChatIdentity";
 import { RenterChat } from "@/components/RenterChat";
+import { MembershipPlanCard } from "@/components/MembershipPlanCard";
 import { tierByKey, TIERS } from "@/lib/membership";
 
 import { AccentPicker } from "@/components/AccentPicker";
@@ -437,7 +438,7 @@ function Dashboard() {
       {/* MEMBERSHIP */}
       {tab === "membership" && (
         <div className="tab-in mt-6 space-y-6">
-          <Membership bookings={bookings} />
+          <Membership />
           <p className="mt-4 text-xs text-white/45">Pro and Studio weekend deals are applied automatically to eligible website rentals; no member coupon is needed.</p>
         </div>
       )}
@@ -582,12 +583,10 @@ function AccountSecurity() {
   );
 }
 
-function Membership({ bookings }: { bookings: any[] | null | undefined }) {
+function Membership() {
   const account = useAccount();
   const portal = useAction(api.checkout.billingPortal);
-  const subscribe = useAction(api.checkout.startMembership);
   const [busy, setBusy] = useState(false);
-  const [busyTier, setBusyTier] = useState<string | null>(null);
   const tier = account.me?.membershipActive
     ? tierByKey(account.me.membershipTier)
     : null;
@@ -608,143 +607,27 @@ function Membership({ bookings }: { bookings: any[] | null | undefined }) {
 
   // ── active member: what they're getting + manage ──
   if (tier) {
-    const mo = new Date().toISOString().slice(0, 7);
-    const used =
-      account.me?.freeAccessoryMonth === mo
-        ? (account.me?.freeAccessoryUsed ?? 0)
-        : 0;
-    const left = Math.max(0, tier.freeAccessories - used);
     return (
-      <section className="rounded-3xl border border-white/[0.07] bg-[#141414] p-6">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="font-display font-semibold text-white/80">
-            Membership
-          </h2>
-          <span className="rounded-full bg-accent-500/15 px-2.5 py-0.5 text-[11px] font-medium text-accent-300">
-            {tier.name} member
-          </span>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-white/60">
-            <span className="font-medium text-accent-300">£{tier.monthlyCredit.toFixed(2)} rental credit each paid month.</span>
-            <span className="mt-1 block">Credits stack for one year. {tier.weekend ? "Weekend deals up to £100 per rental. " : ""}{tier.key === "studio" ? "One London delivery each month." : `${tier.deliveryPct}% off delivery.`}</span>
-            {account.me?.membershipStatus === "trialing" && <span className="mt-1 block text-amber-200">Free week: upfront security payment applies until the first paid invoice.</span>}
-            {account.me?.membershipCancelAtPeriodEnd && <span className="mt-1 block text-white/45">Cancellation scheduled. Your plan will not renew.</span>}
-          </div>
-          <button
-            onClick={manage}
-            disabled={busy}
-            className="btn-ghost px-4 py-2 text-sm disabled:opacity-40"
-          >
-            {busy ? "…" : "Membership settings / cancel"}
-          </button>
-        </div>
+      <section>
+        <p className="mb-4 font-mono text-[10px] uppercase tracking-[.16em] text-accent-300">Your {tier.name} membership</p>
+        <div className="max-w-md"><MembershipPlanCard tier={tier} compact onSelect={manage} disabled={busy} label={busy ? "Opening settings…" : "Membership settings / cancel"} /></div>
+        {account.me?.membershipStatus === "trialing" && <p className="mt-3 text-xs text-amber-200">Free week: upfront security payment applies until the first paid invoice.</p>}
+        {account.me?.membershipCancelAtPeriodEnd && <p className="mt-3 text-xs text-white/45">Cancellation scheduled. Your plan will not renew.</p>}
       </section>
     );
   }
 
-  // ── non-member: the pitch ──
-  const paid = (bookings ?? []).filter((b: any) =>
-    ["confirmed", "active", "returned"].includes(b.status),
-  );
-  const spend = Math.round(
-    paid.reduce((n: number, b: any) => n + (b.subtotal ?? 0), 0),
-  );
-  const proPct = tierByKey("pro")?.pct ?? 15;
-  const wouldSave = Math.round((spend * proPct) / 100);
-
   return (
-    <section className="rounded-3xl border border-white/[0.07] bg-[#141414] p-6">
+    <section className="rounded-3xl border border-white/[0.07] bg-[#141414] p-5 sm:p-6">
       <div className="hud-label !text-accent-400/90">Db Cinema Membership</div>
-      <h2 className="mt-1 font-display text-2xl font-bold text-white">
-        Rent more,{" "}
-        <span className="serif-accent gradient-text text-[1.05em]">
-          pay less
-        </span>
-      </h2>
-
-      {spend >= 50 ? (
-        <p className="mt-3 rounded-xl border border-accent-400/25 bg-accent-500/[0.07] px-4 py-3 text-sm text-white/70">
-          You've rented{" "}
-          <span className="font-semibold text-white">
-            £{spend.toLocaleString()}
-          </span>{" "}
-          of gear with us. On{" "}
-          <span className="font-medium text-accent-300">Pro</span> you'd have
-          saved about{" "}
-          <span className="font-semibold text-emerald-300">
-            £{wouldSave.toLocaleString()}
-          </span>
-          {wouldSave >= 49
-            ? " — more than the membership costs."
-            : " — and you'd keep saving on every shoot."}
-        </p>
-      ) : (
-        <p className="mt-2 text-sm text-white/55">
-          Save <span className="text-white/80">10–20% on every rental</span>,
-          get free accessories and member-only gear — it pays for itself in a
-          shoot or two.
-        </p>
-      )}
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        {TIERS.map((t) => {
-          const popular = t.key === "pro";
-          return (
-            <div
-              key={t.key}
-              className={`relative rounded-2xl border p-4 ${
-                popular
-                  ? "border-accent-400/50 bg-accent-500/[0.06]"
-                  : "border-white/10 bg-white/[0.02]"
-              }`}
-            >
-              {popular && (
-                <span className="absolute -top-2 right-3 rounded-full bg-accent-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                  Most popular
-                </span>
-              )}
-              <div className="font-display text-lg font-bold text-white">
-                {t.name}
-              </div>
-              <div className="mt-0.5">
-                <span className="font-display text-2xl font-bold text-white">
-                  £{t.monthlyGbp}
-                </span>
-                <span className="text-xs text-white/40">/mo</span>
-              </div>
-              <div className="mt-2 text-sm font-semibold text-accent-300">
-                {t.pct}% off every rental
-              </div>
-              <ul className="mt-2 space-y-1">
-                {t.perks.slice(1, 4).map((p) => (
-                  <li
-                    key={p}
-                    className="flex items-start gap-1.5 text-xs text-white/60"
-                  >
-                    <span className="mt-0.5 shrink-0 text-accent-400">✓</span>
-                    {p}
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => join(t.key)}
-                disabled={!!busyTier}
-                className={`mt-3 w-full rounded-lg px-3 py-2 text-center text-xs font-semibold transition disabled:opacity-40 ${
-                  popular
-                    ? "bg-accent-500 text-white hover:bg-accent-600"
-                    : "border border-white/15 bg-white/[0.04] text-white/85 hover:bg-white/[0.08]"
-                }`}
-              >
-                {busyTier === t.key ? "…" : `Get ${t.name}`}
-              </button>
-            </div>
-          );
-        })}
+      <h2 className="mt-2 font-display text-3xl font-bold text-white">More room for <span className="serif-accent gradient-text">your next story.</span></h2>
+      <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/55">Turn your monthly membership into rental credit, with extra credit on top. Keep it for your next shoot or let it build towards something bigger.</p>
+      <div className="mt-6 grid items-stretch gap-4 lg:grid-cols-3" data-testid="account-membership-plans">
+        {TIERS.map(t => <MembershipPlanCard key={t.key} tier={t} compact onSelect={() => join(t.key)} label={`Explore ${t.name}`} />)}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-white/40">
-        <span>Cancel anytime · billed monthly · perks apply instantly</span>
+        <span>Monthly renewal · credits valid for one year · applicable card holds remain</span>
         <Link href="/membership" className="text-accent-300 hover:underline">
           Compare plans in detail →
         </Link>

@@ -36,6 +36,7 @@ type PriceQuoteResult = {
   creditApplied: number;
   membershipCreditApplied: number;
   membershipNetSaving: number;
+  membershipOffer: {tier:string;netSaving:number;state:"join"|"selected"|"current"}|null;
   membershipSignupOfferSaving: number;
   totalDue: number;
   deliveryReduction: number;
@@ -100,12 +101,23 @@ export const priceQuote = action({
       return offers.sort((x,y)=>y.netSaving-x.netSaving)[0];
     }));
     recommendations.sort((x,y)=>Number(y.netSaving>0)-Number(x.netSaving>0)||MEMBERSHIP_BASKET_MINIMUM[y.tier]-MEMBERSHIP_BASKET_MINIMUM[x.tier]);
+    const membershipNetSaving = a.selectedMembership ? netSaving(price) : Math.round((price.rentalSaving + price.deliveryReduction + (membershipActiveNow(price.acct) ? price.earnedCreditApplied : 0))*100)/100;
+    const recommended = recommendations.find(offer => offer.netSaving > 0);
+    const activeTier = membershipActiveNow(price.acct) ? TIERS.find(tier => tier.key === price.acct.membershipTier) : undefined;
+    // Keep the exact displayed offer attached to the quote that calculated it.
+    // The client must not infer quote identity from the monthly fee or account hydration.
+    const membershipOffer: PriceQuoteResult["membershipOffer"] = a.selectedMembership
+      ? {tier:a.selectedMembership.tier,netSaving:membershipNetSaving,state:"selected"}
+      : activeTier
+        ? {tier:activeTier.key,netSaving:membershipNetSaving,state:"current"}
+        : recommended ? {tier:recommended.tier,netSaving:recommended.netSaving,state:"join"} : null;
     return {
       recommendations,
+      membershipOffer,
       replacementValue: price.replacementSum,
       // Renewed membership credit is stored as earned credit. Count what is
       // actually applied to this rental, never the monthly allowance or refunds.
-      membershipNetSaving: a.selectedMembership ? netSaving(price) : Math.round((price.rentalSaving + price.deliveryReduction + (membershipActiveNow(price.acct) ? price.earnedCreditApplied : 0))*100)/100,
+      membershipNetSaving,
       membershipCreditApplied: price.membershipCreditApplied,
       membershipSignupOfferSaving: price.membershipSignupOfferSaving,
       items: price.items.map((item) => ({ title: item.title, total: item.total })),

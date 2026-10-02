@@ -1,31 +1,23 @@
-import type { ReactNode } from "react";
+"use client";
+import { useId, type ReactNode } from "react";
 const levelFor = (tier?: string | null) =>
   ["plus", "pro", "studio"].includes(tier ?? "") ? tier! : "standard";
-function Crest({ level }: { level: string }) {
-  if (level === "plus")
-    return (
-      <>
-        <path d="m38 4 5 6-5 6-5-6Z" />
-        <path d="M29 10h-6l-4 4m28-4h6l4 4" fill="none" />
-      </>
-    );
-  if (level === "pro")
-    return (
-      <>
-        <path d="m38 1 5 8 9-3-5 12H29L24 6l9 3Z" />
-        <path d="M32 20h12" fill="none" />
-      </>
-    );
-  if (level === "studio")
-    return (
-      <>
-        <path d="m38 0 4 7 8-3-4 10 8 3-11 3-5 9-5-9-11-3 8-3-4-10 8 3Z" />
-        <path d="m38 8 3 6-3 5-3-5Z" fill="#15121f" stroke="none" />
-      </>
-    );
-  return <path d="M30 8h16m-14-3v6m12-6v6" fill="none" />;
+
+/** Six original iris leaves; vector geometry stays crisp at navigation and profile sizes. */
+function Iris({ className = "" }: { className?: string }) {
+  return (
+    <g className={className}>
+      {Array.from({ length: 6 }, (_, i) => (
+        <path
+          key={i}
+          transform={`rotate(${i * 60} 48 48)`}
+          d="M48 23a25 25 0 0 1 21.65 12.5L56.66 43 48 38Z"
+        />
+      ))}
+    </g>
+  );
 }
-/** Original film-gate metalwork; shared by navigation, profile and preview. */
+
 export function AccountFrame({
   tier,
   children,
@@ -35,117 +27,125 @@ export function AccountFrame({
   children: ReactNode;
   className?: string;
 }) {
-  const level = levelFor(tier);
+  const level = levelFor(tier),
+    id = useId().replace(/:/g, ""),
+    metal = `${id}-metal`;
   return (
     <span className={`account-frame ${className}`} data-account-frame={level}>
+      <span className="account-frame-halo" aria-hidden="true" />
       <span className="account-frame-face">{children}</span>
       <svg
         className="account-frame-rings"
-        viewBox="0 0 76 76"
+        viewBox="0 0 96 96"
         fill="none"
         aria-hidden="true"
       >
-        <circle cx="38" cy="39" r="29.5" className="account-frame-track" />
-        <circle cx="38" cy="39" r="27.5" strokeWidth=".55" opacity=".6" />
-        {level === "standard" && (
-          <>
-            <path
-              d="M16 17 10 23v32l6 6m44-44 6 6v32l-6 6M20 65h36"
-              strokeWidth="1.6"
-            />
-            <path d="M14 30v5m0 8v5m48-18v5m0 8v5" strokeWidth="2.5" />
-            <circle
-              cx="38"
-              cy="39"
-              r="31.5"
-              strokeDasharray="18 32"
-              opacity=".35"
-            />
-          </>
-        )}
-        {level === "plus" && (
-          <>
-            <path d="m21 14-9 7-5 17 5 18 11 9m32-51 9 7 5 17-5 18-11 9" />
-            <path
-              d="M15 24 11 38l4 14m46-28 4 14-4 14M27 69h22"
-              strokeWidth=".7"
-            />
-            <circle
-              cx="38"
-              cy="39"
-              r="31"
-              strokeDasharray="8 16 2 18"
-              className="account-frame-orbit"
-            />
-            <path
-              d="m7 35 3 4-3 4-3-4Zm62 0 3 4-3 4-3-4Z"
-              className="account-frame-gem"
-            />
-            <path d="m33 68 5 5 5-5" />
-          </>
-        )}
-        {level === "pro" && (
-          <>
-            <path
-              d="M22 10 10 20 5 39l5 19 12 9m32-57 12 10 5 19-5 19-12 9"
-              strokeWidth="1.2"
-            />
-            <path
-              d="M18 19 12 30v18l6 11m40-40 6 11v18l-6 11"
-              strokeWidth=".6"
-            />
-            <path
-              d="M8 29h4m-6 7h5m-5 7h5m-3 7h4m52-21h4m-3 7h5m-5 7h5m-6 7h4"
-              strokeWidth="2.2"
-            />
-            <circle
-              cx="38"
-              cy="39"
-              r="31.5"
-              strokeDasharray="26 40 6 22"
-              className="account-frame-orbit"
-            />
-            <path d="m30 67 8 7 8-7-8 3Z" className="account-frame-gem" />
-          </>
+        <defs>
+          <linearGradient
+            id={metal}
+            x1="10"
+            y1="4"
+            x2="78"
+            y2="93"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop stopColor="var(--frame-highlight)" />
+            <stop offset=".28" stopColor="var(--frame-color)" />
+            <stop offset=".56" stopColor="var(--frame-shadow)" />
+            <stop offset=".79" stopColor="var(--frame-color)" />
+            <stop offset="1" stopColor="var(--frame-highlight)" />
+          </linearGradient>
+        </defs>
+        <circle
+          cx="48"
+          cy="48"
+          r="37"
+          stroke={`url(#${metal})`}
+          strokeWidth="2.4"
+        />
+        <circle
+          cx="48"
+          cy="48"
+          r="34"
+          stroke="var(--frame-color)"
+          strokeWidth=".7"
+          opacity=".45"
+        />
+        <path
+          d="M29 12 17 20 9 38v20l8 18 12 8M67 12l12 8 8 18v20l-8 18-12 8"
+          stroke={`url(#${metal})`}
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <path
+          d="M14 35v8m0 10v8m68-26v8m0 10v8"
+          stroke="var(--frame-highlight)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          opacity=".8"
+        />
+        <circle
+          className="account-frame-light"
+          cx="48"
+          cy="48"
+          r="37"
+          stroke="var(--frame-highlight)"
+          strokeWidth="2.7"
+          strokeLinecap="round"
+          strokeDasharray="22 211"
+        />
+        {level !== "standard" && (
+          <circle
+            className="account-frame-orbit"
+            cx="48"
+            cy="48"
+            r="41"
+            stroke="var(--frame-color)"
+            strokeWidth="1"
+            strokeLinecap="round"
+            strokeDasharray={level === "studio" ? "16 32 4 32" : "14 115"}
+            opacity=".8"
+          />
         )}
         {level === "studio" && (
-          <>
-            <path
-              d="m17 13-8 8-5 18 5 18 12 11 17 6 17-6 12-11 5-18-5-18-8-8"
-              strokeWidth=".9"
-            />
-            <path
-              d="m13 22-4 17 5 18 10 7m39-42 4 17-5 18-10 7"
-              strokeWidth=".5"
-            />
-            <path
-              d="m8 28-7 11 7 11 2-11Zm60 0 7 11-7 11-2-11Z"
-              className="account-frame-gem"
-            />
-            <path d="M19 13v6m38-6v6M19 60v6m38-6v6M29 72l9-6 9 6" />
-            <circle
-              cx="38"
-              cy="39"
-              r="32"
-              strokeDasharray="2 9"
-              className="account-frame-orbit"
-            />
-            <circle
-              cx="38"
-              cy="39"
-              r="30"
-              strokeDasharray="40 100"
-              className="account-frame-counter"
-            />
-          </>
+          <path
+            className="account-frame-spark"
+            d="m48 3 2.4 4.6L55 10l-4.6 2.4L48 17l-2.4-4.6L41 10l4.6-2.4Z"
+            fill="var(--frame-highlight)"
+          />
         )}
-        <g className="account-frame-crest" strokeWidth=".8" fill="currentColor">
-          <Crest level={level} />
+        {level === "pro" && (
+          <path
+            d="M38 9h20M41 5h14"
+            stroke={`url(#${metal})`}
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        )}
+        {level === "plus" && (
+          <path
+            d="m42 8 6-4 6 4"
+            stroke={`url(#${metal})`}
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        )}
+        <g transform="translate(36 62) scale(.25)">
+          <circle
+            cx="48"
+            cy="48"
+            r="27"
+            fill="#151513"
+            stroke={`url(#${metal})`}
+            strokeWidth="3"
+          />
+          <Iris className="account-frame-iris" />
         </g>
       </svg>
     </span>
   );
 }
+
 export function AccountProfilePill({
   tier,
   children,
@@ -160,18 +160,39 @@ export function AccountProfilePill({
       data-account-tier={level}
     >
       <span className="account-profile-rim" aria-hidden="true" />
+      <span className="account-profile-light" aria-hidden="true" />
       <svg
         className="account-profile-ornament"
-        viewBox="0 0 160 160"
+        viewBox="0 0 96 96"
         fill="none"
         aria-hidden="true"
       >
-        <path d="M35 12H18v17M12 40v62m6 29v17h17M52 148h70M139 135V78" />
-        <path d="m44 14 4-4h34m-59 24-5 5v54l5 5m18 41 5 5h43" opacity=".5" />
-        <path d="M14 50h5m-5 13h5m-5 13h5m-5 13h5m-5 13h5" strokeWidth="3" />
-        <circle cx="99" cy="64" r="30" strokeWidth=".5" strokeDasharray="2 5" />
-        <path d="m99 43 9 5 12 16-12 16-9 5-9-5-12-16 12-16Z" opacity=".3" />
+        <circle cx="48" cy="48" r="43" stroke="currentColor" strokeWidth=".5" />
+        <circle
+          className="account-profile-orbit"
+          cx="48"
+          cy="48"
+          r="39"
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeDasharray="30 18 1 18"
+        />
+        <circle cx="48" cy="48" r="29" stroke="currentColor" strokeWidth=".5" />
+        <Iris className="account-profile-iris" />
+        <path
+          d="M3 48h9m72 0h9M48 3v9m0 72v9"
+          stroke="currentColor"
+          strokeWidth="1"
+        />
       </svg>
+      <span className="account-profile-registration" aria-hidden="true">
+        DB /{" "}
+        {level === "standard"
+          ? "MEMBER"
+          : level === "plus"
+            ? "STARTER"
+            : level.toUpperCase()}
+      </span>
       {children}
     </header>
   );
