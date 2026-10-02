@@ -496,7 +496,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(transitionItems))});localStorage.removeItem('dbc_membership_selection_v1');true`);
   await navigate(root+'/cart');
   await until(`document.querySelector('[data-testid="membership-upsell"]')?.textContent.includes('Studio subscription')&&!!document.querySelector('[data-testid="potential-membership-savings"]')`);
-  for(const expectedTier of ['pro','starter']){
+  for(const expectedTier of ['pro','plus']){
     const previousHeight=await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').getBoundingClientRect().height`);
     await nativeClick(`document.querySelector('main button[aria-label^="Remove "]')`);
     await until(`document.querySelector('[data-testid="membership-upsell"]')?.getAttribute('aria-busy')==='true'`);
