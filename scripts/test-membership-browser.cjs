@@ -112,7 +112,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.cmd("Page.addScriptToEvaluateOnNewDocument", {source: `
     new MutationObserver(() => {
       const heading = document.querySelector('[data-testid="membership-upsell"] h3, [data-testid="membership-upsell"] [data-testid="potential-membership-savings"]');
-      if (heading && !/^Subscribe and save £\\d+\\.\\d{2} on this rental$/.test(heading.textContent.trim())) {
+      if (heading && !/^Subscribe to save £\\d+\\.\\d{2}$/.test(heading.textContent.trim())) {
         window.__dbcMembershipHeadlineRegression = heading.textContent;
       }
     }).observe(document, {subtree:true, childList:true, characterData:true});
@@ -124,7 +124,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     for (let i = 0; i < 100; i++) {
       try {
         if (await c.evaluate(expr)) {
-          assert.equal(await c.evaluate('window.__dbcMembershipHeadlineRegression || null'),null,'Use exactly Subscribe and save £X on this rental in all card states');
+          assert.equal(await c.evaluate('window.__dbcMembershipHeadlineRegression || null'),null,'Use exactly Subscribe to save £X in all card states');
           return;
         }
       } catch (e) {
@@ -199,7 +199,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     );
     await shot("offer-" + width);
   }
-  assert.equal(await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`),`Subscribe and save £${potential.toFixed(2)} on this rental`,'Use the exact requested hook and authoritative basket saving');
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`),`Subscribe to save £${potential.toFixed(2)}`,'Use the exact requested hook and authoritative basket saving');
+  assert.equal(await c.evaluate(`(()=>{const h=document.querySelector('[data-testid="potential-membership-savings"]');return h.tagName==='H3'&&h===h.parentElement.firstElementChild&&parseFloat(getComputedStyle(h).fontSize)>=30})()`),true,'Basket savings must be the large first heading, above plan and credit details');
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Includes £')`),false,'Joining credit is in the canonical headline saving, without an includes-credit line');
   await c.cmd("Emulation.setEmulatedMedia", {features:[{name:"prefers-reduced-motion",value:"no-preference"}]});
   await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').scrollIntoView({block:'center'})`);
@@ -211,7 +212,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.equal(await c.evaluate(`document.querySelector('.membership-confetti').getAnimations().some(a=>a.playState==='running')`),true,'Confetti is animated, not a static decoration');
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('£99/month → £128.70 credit to spend')&&document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Subscription-exclusive weekends')`),true,'Studio card explains price versus credit and exclusive weekend deals');
   await wait(350);
-  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"] h3')?.innerText`),`Subscribe and save £${potential.toFixed(2)} on this rental`,'The exact hook stays unchanged throughout the selection burst');
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"] h3')?.innerText`),`Subscribe to save £${potential.toFixed(2)}`,'The exact hook stays unchanged throughout the selection burst');
   await shot('selection-confetti-mobile');
   await until(`!document.querySelector('[data-testid="membership-celebration"]')`);
   await c.evaluate(`document.querySelector('[data-testid="confirm-membership-card"]').click()`);
@@ -245,6 +246,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   assert.equal(await c.evaluate(`(()=>{const a=document.querySelector('aside[aria-hidden="false"]'),u=a.querySelector('[data-testid="membership-upsell"]'),cards=[...a.querySelectorAll('[data-cart-dates]')];return cards.length>0&&cards.every(el=>!!(el.compareDocumentPosition(u)&Node.DOCUMENT_POSITION_FOLLOWING))&&!u.innerText.includes('first week free')})()`),true,'Subscription pitch follows all gear and has no rental trial offer');
   await until(`!!document.querySelector('aside[aria-hidden="false"] [data-testid="joining-credit-applied"]')`);
+  assert.equal(await c.evaluate(`(()=>{const h=document.querySelector('aside[aria-hidden="false"] [data-testid="membership-upsell"] h3');return h===h.parentElement.firstElementChild&&parseFloat(getComputedStyle(h).fontSize)>=30&&/^Subscribe to save £\\d+\\.\\d{2}$/.test(h.innerText)})()`),true,'Side basket uses the same large, first savings heading');
   await shot("drawer-mobile");
   await c.evaluate(
     `document.querySelector('aside[aria-hidden="false"] button[aria-label="Close"]').click()`,
@@ -359,7 +361,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
   );
   await until(
-    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Subscribe and save £')`,
+    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Subscribe to save £')`,
   );
   await c.cmd("Emulation.setDeviceMetricsOverride", {
     width: 390,
@@ -376,6 +378,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     true,
     "Checkout membership CTA must be visible in the first mobile viewport",
   );
+  assert.equal(await c.evaluate(`(()=>{const h=document.querySelector('[data-testid="potential-membership-savings"]');return h.tagName==='H3'&&h===h.parentElement.firstElementChild&&parseFloat(getComputedStyle(h).fontSize)>=24})()`),true,'Compact checkout keeps a prominent top savings heading');
   await shot("checkout-offer-mobile");
   await c.evaluate(`document.querySelector('[data-testid="add-membership"]').click()`);
   await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')?.checked===true`);

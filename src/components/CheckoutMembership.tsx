@@ -130,9 +130,7 @@ export function CheckoutMembership({
   const displayTier = tier ?? recommendedTier;
   const saving = tier ? appliedNetSaving : potentialNetSaving;
   const savingsHook =
-    saving > 0
-      ? `Subscribe and save £${saving.toFixed(2)} on this rental`
-      : null;
+    saving > 0 ? `Subscribe to save £${saving.toFixed(2)}` : null;
   const confirmed = !!selected?.termsAccepted;
   const confirmSelection = () => {
     if (current || confirmed) return;
@@ -224,26 +222,39 @@ export function CheckoutMembership({
         </div>
       )}
       <div className="membership-pitch-content pointer-events-none relative z-[2]">
-        <p className="font-mono text-[9px] uppercase tracking-[.15em] text-white/50">
+        {savingsHook ? (
+          <h3
+            data-testid={
+              tier
+                ? "applied-membership-savings"
+                : "potential-membership-savings"
+            }
+            className={`font-display font-semibold leading-tight tracking-tight text-white ${compact ? "text-2xl" : "text-3xl"}`}
+          >
+            {savingsHook}
+          </h3>
+        ) : !appliedSavings ? (
+          <div
+            role="status"
+            aria-label="Calculating savings"
+            className="h-14 rounded-lg bg-white/5 motion-safe:animate-pulse"
+          />
+        ) : null}
+        <p className="mt-2 font-mono text-[9px] uppercase tracking-[.15em] text-white/50">
           {displayTier.name} subscription · £{displayTier.monthlyGbp}/month
         </p>
         {compact ? (
           <>
-            <label className="mt-2 flex cursor-pointer items-start gap-3 text-white">
+            <label className="mt-2 flex cursor-pointer items-center gap-2 text-[11px] text-white/70">
               <input
                 type="checkbox"
-                className="mt-1 h-4 w-4 accent-[#acd17c]"
+                className="h-4 w-4 accent-[#acd17c]"
                 checked={false}
                 onChange={(e) => {
                   if (e.target.checked) confirmSelection();
                 }}
               />
-              <span
-                data-testid="potential-membership-savings"
-                className="font-display text-base font-semibold"
-              >
-                {savingsHook}
-              </span>
+              <span>Start my membership now</span>
             </label>
             <p
               id={consentId}
@@ -262,26 +273,6 @@ export function CheckoutMembership({
           </>
         ) : (
           <>
-            {savingsHook ? (
-              <h3
-                data-testid={
-                  saving > 0
-                    ? tier
-                      ? "applied-membership-savings"
-                      : "potential-membership-savings"
-                    : undefined
-                }
-                className="mt-2 font-display text-2xl font-semibold leading-tight text-white"
-              >
-                {savingsHook}
-              </h3>
-            ) : !appliedSavings ? (
-              <div
-                role="status"
-                aria-label="Calculating savings"
-                className="mt-2 h-14 rounded-lg bg-white/5 motion-safe:animate-pulse"
-              />
-            ) : null}
             {savingsHook && (
               <p className="mt-1 text-[10px] text-white/45">
                 Net saving includes today’s membership fee.

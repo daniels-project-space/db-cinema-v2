@@ -62,21 +62,21 @@ async function pay(fixture,fee=1900) {
  const renewedQuote=await checkout.priceQuote.handler(ctx,input());
  assert.equal(renewedQuote.earnedCreditApplied,128.7);
  assert.equal(renewedQuote.membershipNetSaving,128.7,'Active subscriber headline includes actual renewed credit used, not a zero discount field');
- assert.match(renderQuotedHook(renewedQuote,account),/<h3[^>]*>Subscribe and save £128\.70 on this rental<\/h3>/,'Actual signed-in card must render the savings headline');
+ assert.match(renderQuotedHook(renewedQuote,account),/<h3[^>]*>Subscribe to save £128\.70<\/h3>/,'Actual signed-in card must render the savings headline');
  assert.equal(renewedQuote.membershipFee,0,'Do not subtract or bill another membership month for an existing subscriber');
  await db.patch(renewedCredit._id,{remaining:10});
  const partialRenewedQuote=await checkout.priceQuote.handler(ctx,input());
  assert.equal(partialRenewedQuote.membershipNetSaving,10,'Show actual remaining credit applied, never the full monthly allowance');
- assert.match(renderQuotedHook(partialRenewedQuote,account),/<h3[^>]*>Subscribe and save £10\.00 on this rental<\/h3>/);
+ assert.match(renderQuotedHook(partialRenewedQuote,account),/<h3[^>]*>Subscribe to save £10\.00<\/h3>/);
  put('credits',{accountId:account._id,amount:280,remaining:280,kind:'refund',createdAt:now,expiresAt:now+86400000,status:'active'});
  const refundAndEarnedQuote=await checkout.priceQuote.handler(ctx,input());
  assert.equal(refundAndEarnedQuote.refundCreditApplied,280);
  assert.equal(refundAndEarnedQuote.membershipNetSaving,10,'Refund credit is payment, not subscription savings');
- assert.match(renderQuotedHook(refundAndEarnedQuote,account),/<h3[^>]*>Subscribe and save £10\.00 on this rental<\/h3>/);
+ assert.match(renderQuotedHook(refundAndEarnedQuote,account),/<h3[^>]*>Subscribe to save £10\.00<\/h3>/);
  await db.patch(renewedCredit._id,{remaining:0});
  const noRenewedCredit=await checkout.priceQuote.handler(ctx,input());
  assert.equal(noRenewedCredit.membershipNetSaving,0,'No applied earned credit or price benefit means no invented saving');
- assert(!renderQuotedHook(noRenewedCredit,account).includes('Subscribe and save £'),'No fabricated saving when only refund credit remains');
+ assert(!renderQuotedHook(noRenewedCredit,account).includes('Subscribe to save £'),'No fabricated saving when only refund credit remains');
  // A restored Studio choice can lose money while Starter saves money after
  // refund credits. It must not blank the profitable offer or preserve consent.
  account=put('accounts',{email:'restored-refund@example.invalid'});
