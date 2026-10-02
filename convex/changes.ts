@@ -61,7 +61,7 @@ export const requestBookingChange = mutation({
       if (newDays !== origDays) throw new Error(`A reschedule keeps the same ${origDays}-day length — use "Add day" to extend.`);
       if (ns < Date.now() - DAY) throw new Error("Pick a start date in the future.");
     }
-    if (a.type === "extend" && (!a.extraDays || a.extraDays < 1)) throw new Error("Pick how many extra days.");
+    if (a.type === "extend") throw new Error("Use Request extension in your rental chat to review the dates and price first.");
     // one open request at a time per booking
     const open = (await ctx.db.query("booking_change_requests").withIndex("by_booking", (q) => q.eq("bookingId", a.bookingId)).collect())
       .find((r) => r.status === "pending" || r.status === "awaiting_payment");
@@ -140,7 +140,7 @@ export const _applyReschedule = internalMutation({
     if (!r || r.status !== "pending" || r.type !== "reschedule") return { ok: false, reason: "gone" };
     const b = await ctx.db.get(r.bookingId);
     if (!b || r.requestedStart == null || r.requestedEnd == null) return { ok: false, reason: "gone" };
-    if(b.cancellationDecision||b.status!=="confirmed")throw Error("This rental can no longer be rescheduled");
+    if(b.cancellationDecision||b.returnDecision||b.activeAdditionId||b.activeExtensionId||b.status!=="confirmed")throw Error("This rental can no longer be rescheduled");
     const newStart = r.requestedStart, newEnd = r.requestedEnd;
     // every listing must be free over the new window (excluding this booking's own holds)
     for (const li of b.lineItems) {
@@ -160,103 +160,6 @@ export const _applyReschedule = internalMutation({
     await ctx.db.patch(requestId, { status: "applied", resolvedAt: Date.now() });
     await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Done — your rental is rescheduled to ${iso(newStart)} → ${iso(newEnd)}. ✓`, });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: r.bookingId, kind: "rescheduled", detail: `${iso(newStart)} → ${iso(newEnd)}` });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId: r.bookingId });
-    return { ok: true };
-  },
-});
-
-/** Extend approval — the Stripe pay-link is built in the next slice; for now acknowledge. */
-export const _approveExtendPending = internalMutation({
-  args: { requestId: v.id("booking_change_requests") },
-  handler: async (ctx, { requestId }) => {
-    const r = await ctx.db.get(requestId);
-    if (!r || r.status !== "pending") return { ok: false };
-    await ctx.db.patch(requestId, { status: "approved", resolvedAt: Date.now() });
-    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Your extension is approved — we'll send a secure payment link here for the extra day${(r.extraDays ?? 1) > 1 ? "s" : ""} shortly.`, });
-    return { ok: true };
-  },
-});
-
-/** Availability + price quote for an extend request (per targeted item, excluding self). */
-export const _extendQuote = internalQuery({
-  args: { requestId: v.id("booking_change_requests") },
-  handler: async (ctx, { requestId }) => {
-    const r = await ctx.db.get(requestId);
-    if (!r || r.type !== "extend") return { ok: false as const, reason: "gone" };
-    const b = await ctx.db.get(r.bookingId);
-    if (!b) return { ok: false as const, reason: "gone" };
-    if(b.cancellationDecision||!["confirmed","active"].includes(b.status))throw Error("This rental can no longer be extended");
-    const extra = r.extraDays ?? 0;
-    const idxs = r.lineItemIndexes?.length ? r.lineItemIndexes : b.lineItems.map((_, i) => i);
-    let priceDelta = 0;
-    const names: string[] = [];
-    for (const i of idxs) {
-      const li = b.lineItems[i];
-      if (!li) continue;
-      const l: any = await ctx.db.get(li.listingId);
-      if (!l) continue;
-      // the NEW days are [oldEnd+1 … oldEnd+extra]; must be free on that unit, excluding this booking
-      const free = await listingFree(ctx, li.listingId, li.end + DAY, li.end + extra * DAY, r.bookingId);
-      if (!free) return { ok: false as const, reason: "unavailable", item: li.title };
-      priceDelta += Math.round((l.pricing?.daily ?? 0) * extra * (li.qty || 1));
-      names.push(li.title);
-    }
-    return { ok: true as const, priceDelta, summary: names.join(", "), extra };
-  },
-});
-
-/** Extend was approved + priced → store the pay link and post a pay-tile in the rental chat. */
-export const _setAwaitingPayment = internalMutation({
-  args: { requestId: v.id("booking_change_requests"), url: v.string(), sessionId: v.string(), priceDelta: v.number() },
-  handler: async (ctx, { requestId, url, sessionId, priceDelta }) => {
-    const r = await ctx.db.get(requestId);
-    if (!r || r.status !== "pending") return;
-    await ctx.db.patch(requestId, { status: "awaiting_payment", paymentLinkUrl: url, stripePaymentLinkId: sessionId, priceDelta });
-    await postRentalMessage(ctx, {
-      accountId: r.accountId, bookingId: r.bookingId, sender: "system",
-      text: `Your extension is approved! Pay £${priceDelta} for the extra ${r.extraDays} day${(r.extraDays ?? 1) > 1 ? "s" : ""} to lock it in:`,
-      meta: { kind: "paylink", url, amount: priceDelta },
-    });
-  },
-});
-
-export const _declineUnavailable = internalMutation({
-  args: { requestId: v.id("booking_change_requests"), item: v.optional(v.string()) },
-  handler: async (ctx, { requestId, item }) => {
-    const r = await ctx.db.get(requestId);
-    if (!r) return;
-    await ctx.db.patch(requestId, { status: "declined", resolvedAt: Date.now(), note: "unavailable" });
-    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Sorry — ${item ?? "that item"} isn't available for the extra day(s). Your rental is unchanged; reply here and we'll find an option.`, });
-  },
-});
-
-/** Apply a paid (or free) extend: push the targeted items' end + their reservations + total. Idempotent. */
-export const _applyExtendPaid = internalMutation({
-  args: { requestId: v.id("booking_change_requests") },
-  handler: async (ctx, { requestId }) => {
-    const r = await ctx.db.get(requestId);
-    if (!r || r.status === "applied") return { ok: true, already: true };
-    const b = await ctx.db.get(r.bookingId);
-    if (!b||b.cancellationDecision||!["confirmed","active"].includes(b.status)||r.status==="declined") return {ok:false,closed:true};
-    const extra = r.extraDays ?? 0;
-    const idxs = r.lineItemIndexes?.length ? r.lineItemIndexes : b.lineItems.map((_, i) => i);
-    const idxSet = new Set(idxs);
-    const newLines = b.lineItems.map((li, i) => (idxSet.has(i) ? { ...li, end: li.end + extra * DAY } : li));
-    await ctx.db.patch(r.bookingId, { lineItems: newLines, total: b.total + (r.priceDelta ?? 0) });
-    // match reservations to the SPECIFIC targeted line items by (listing, window) — matching by
-    // listingId alone would wrongly extend a duplicate of the same listing in another line item.
-    const targetKeys = new Set(
-      idxs.map((i) => { const li = b.lineItems[i]; return li ? `${li.listingId}|${li.start}|${li.end}` : ""; }).filter(Boolean),
-    );
-    const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q) => q.eq("bookingId", r.bookingId)).collect();
-    for (const res of reservations) {
-      if ((res.status === "confirmed" || res.status === "active") && targetKeys.has(`${res.listingId}|${res.start}|${res.end}`)) {
-        await ctx.db.patch(res._id, { end: res.end + extra * DAY });
-      }
-    }
-    await ctx.db.patch(requestId, { status: "applied", paidAt: Date.now(), resolvedAt: Date.now() });
-    await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Done — your rental is extended by ${extra} day${extra > 1 ? "s" : ""}. ✓`, });
-    await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: r.bookingId, kind: "extended", detail: `+${extra} day(s)` });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId: r.bookingId });
     return { ok: true };
   },
@@ -282,7 +185,7 @@ export const resolveChange = internalAction({
         const res: any = await ctx.runMutation(internal.changes._applyReschedule, { requestId });
         result = res?.ok ? "Rescheduled ✓" : "Unavailable — declined";
       } else {
-        await ctx.runAction(internal.changes_node.createExtendPayLink, { requestId });
+        await ctx.runAction(internal.rentalExtensionPayments.approveFromOwnerWebhook, { requestId });
         result = "Approved — pay link sent to chat";
       }
     }

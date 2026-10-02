@@ -88,8 +88,8 @@ export const prepare = internalMutation({
       b.returnDecision
     )
       throw Error("This rental cannot accept items");
-    if (b.activeAdditionId)
-      throw Error("Finish or withdraw the current item addition first");
+    if (b.activeAdditionId || b.activeExtensionId)
+      throw Error("Finish or withdraw the current item addition or approved extension first");
     if (
       ["starting", "requires_action", "failed"].includes(
         b.depositHoldRenewalStatus ?? "",

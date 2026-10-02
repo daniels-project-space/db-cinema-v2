@@ -11,6 +11,7 @@ export async function rentalPaymentSources(ctx: any, b: any) {
     (sum: number, r: any) => sum + r.securityCharge,
     0,
   );
+  const extensions = await ctx.db.query("booking_change_requests").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
   const sources = [
     ...(b.stripePaymentIntentId
       ? [
@@ -27,6 +28,7 @@ export async function rentalPaymentSources(ctx: any, b: any) {
       paymentIntentId: r.paymentIntentId,
       securityPence: Math.round(r.securityCharge * 100),
     })),
+    ...extensions.filter((r: any) => r.type === "extend" && r.status === "applied" && r.paymentIntentId).map((r: any) => ({ paymentIntentId:r.paymentIntentId, maxPaidPence:Math.round(r.priceDelta*100), securityPence:0 })),
   ];
   const seen = new Set<string>();
   return sources.filter((p) => {

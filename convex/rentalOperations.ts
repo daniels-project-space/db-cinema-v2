@@ -52,8 +52,8 @@ export const reschedule = mutation({
     const b = await ctx.db.get(bookingId);
     if (!b || b.status !== "confirmed")
       throw Error("Only an upcoming rental can be rescheduled");
-    if (b.cancellationDecision || b.activeAdditionId || b.returnDecision)
-      throw Error("Finish the open cancellation or item addition first");
+    if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
+      throw Error("Finish the open cancellation, item addition or approved extension first");
     const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
     if (refunds.some(r => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
     if (reason.trim().length < 5)
@@ -128,7 +128,7 @@ export const removeItem = mutation({
       return { ok: true };
     }
     if (b.status !== "confirmed") throw Error("Only an unstarted confirmed rental can have kit removed.");
-    if (b.cancellationDecision || b.activeAdditionId || b.returnDecision) throw Error("Finish the open rental operation first.");
+    if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision) throw Error("Finish the open rental operation first.");
     const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
     if (refunds.some(r => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId) || args.reason.trim().length < 5 || args.reason.trim().length > 400) throw Error("Record a valid removal request and reason.");
@@ -183,8 +183,8 @@ export const prepareRefund = internalMutation({
     const b = await ctx.db.get(bookingId);
     if (!b || b.status !== "confirmed" || !b.stripePaymentIntentId)
       throw Error("Only a paid upcoming rental can receive a rental refund");
-    if (b.cancellationDecision || b.activeAdditionId || b.returnDecision)
-      throw Error("Finish the open cancellation or item addition first");
+    if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
+      throw Error("Finish the open cancellation, item addition or approved extension first");
     if (
       cancelKind(rentalCancellationStart(b), Date.now()) !==
       "full_refund"

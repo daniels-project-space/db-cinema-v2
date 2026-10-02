@@ -192,22 +192,22 @@ export function RentalOrderTools({
     <div data-testid="owner-rental-tools">
       <p className="mb-2 text-[10px] uppercase tracking-[.16em] text-white/35">Manage rental · owner only</p>
       <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Owner rental controls">
-        {b.status === "confirmed" && <button disabled={busy || !!processing || !!b.activeAdditionId || !!b.cancellationDecision || !!b.returnDecision} onClick={async () => {
+        {b.status === "confirmed" && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision || !!b.returnDecision} onClick={async () => {
           setBusy(true); setError(""); setResult("");
           try { await setStatus({ token, bookingId: bookingId as any, status: "active" }); setResult("Pickup recorded. Rental is now out."); }
           catch (e: any) { setError(e.message ?? "Pickup could not be recorded."); }
           finally { setBusy(false); }
         }} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">Mark picked up</button>}
-        {(b.status === "active" || !!b.returnDecision && b.status !== "returned") && <button disabled={busy || !!processing || !!b.activeAdditionId || !!b.cancellationDecision} onClick={() => setReturnOpen(v => !v)} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">{b.returnDecision ? "Resume return settlement" : "Record return"}</button>}
+        {(b.status === "active" || !!b.returnDecision && b.status !== "returned") && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision} onClick={() => setReturnOpen(v => !v)} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">{b.returnDecision ? "Resume return settlement" : "Record return"}</button>}
 
-        {b.status === "confirmed" && <button disabled={busy || !!processing || !!b.activeAdditionId || !!b.cancellationDecision} onClick={() => { setMode("remove"); setRemoveIndex(null); removeSelection.current = null; request.current = null; setError(""); }} className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35">Remove items</button>}
+        {b.status === "confirmed" && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision} onClick={() => { setMode("remove"); setRemoveIndex(null); removeSelection.current = null; request.current = null; setError(""); }} className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35">Remove items</button>}
         {["pending_payment", "confirmed", "active"].includes(b.status) && (
           <button
             disabled={
               busy ||
               !!b.returnDecision ||
               !!processing ||
-              !!b.activeAdditionId ||
+              !!(b.activeAdditionId || b.activeExtensionId) ||
               !!b.cancellationDecision
             }
             onClick={() => {
@@ -227,7 +227,7 @@ export function RentalOrderTools({
               !!b.returnDecision ||
               !!processing ||
               !!b.cancellationDecision ||
-              !!b.activeAdditionId
+              !!(b.activeAdditionId || b.activeExtensionId)
             }
             onClick={() => {
               setDate(new Date(Math.min(...b.lineItems.map(l => l.start))).toISOString().slice(0, 10));
@@ -243,7 +243,7 @@ export function RentalOrderTools({
         )}
         {["confirmed", "pending_payment"].includes(b.status) && (
           <button
-            disabled={busy || !!b.returnDecision || !!processing || !!b.activeAdditionId}
+            disabled={busy || !!b.returnDecision || !!processing || !!(b.activeAdditionId || b.activeExtensionId)}
             onClick={() => {
               setMode("cancel");
               setError("");
@@ -261,7 +261,7 @@ export function RentalOrderTools({
                 busy ||
                 !!processing ||
                 !!b.cancellationDecision ||
-                !!b.activeAdditionId
+                !!(b.activeAdditionId || b.activeExtensionId)
               }
               onClick={() => {
                 setMode("refund");
