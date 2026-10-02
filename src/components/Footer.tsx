@@ -1,3 +1,4 @@
+import { REVIEW_PRIZE_GBP } from "../../shared/reviewPrize";
 import Link from "next/link";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
@@ -72,7 +73,7 @@ export async function Footer() {
             ["/guides", "Guides"],
             ["/faq", "FAQ"],
             ["/how-it-works", "How it works"],
-            ["/rental-stories", "£250 set-story prize"],
+            ["/rental-stories", `£${REVIEW_PRIZE_GBP} set-story prize`],
             ["/about", "About us"],
             ["/contact", "Contact us"],
           ]}

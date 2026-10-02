@@ -1,3 +1,4 @@
+import { REVIEW_PRIZE_GBP } from "../shared/reviewPrize";
 import {
   query,
   mutation,
@@ -464,7 +465,7 @@ export const recordPaid = mutation({
     if (round.paidAt) return { paidAt: round.paidAt };
     if (a.reference.trim().length < 6)
       throw Error(
-        "Enter the actual £250 transfer reference. This records payment; it does not move funds.",
+        `Enter the actual £${REVIEW_PRIZE_GBP} transfer reference. This records payment; it does not move funds.`,
       );
     await ctx.db.patch(round._id, {
       paidAt: Date.now(),
