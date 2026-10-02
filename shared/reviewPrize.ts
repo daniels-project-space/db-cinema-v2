@@ -1,5 +1,5 @@
-export const REVIEW_PRIZE_GBP = 250;
-export const REVIEW_PRIZE_TERMS = "review-stories-2026-10-v1";
+export const REVIEW_PRIZE_GBP = 150;
+export const REVIEW_PRIZE_TERMS = "review-stories-2026-10-v2";
 export const REVIEW_SOCIAL = {
   platform: "Instagram",
   handle: "dbcinemarentalslondon",

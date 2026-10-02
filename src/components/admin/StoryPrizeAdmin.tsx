@@ -1,4 +1,5 @@
 "use client";
+import { REVIEW_PRIZE_GBP } from "../../../shared/reviewPrize";
 import { useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -219,7 +220,7 @@ export function StoryPrizeAdmin({ token }: { token: string }) {
     <section className="mt-8 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-display text-2xl">£250 set-story prize</h2>
+          <h2 className="font-display text-2xl">£{REVIEW_PRIZE_GBP} set-story prize</h2>
           <p className="mt-2 text-xs text-white/50">
             Persistent evidence, independent judging and cash-payment tracking.
           </p>
@@ -256,7 +257,7 @@ export function StoryPrizeAdmin({ token }: { token: string }) {
               {prizeDate(selected.announceBy)}
             </p>
             <p>
-              £250 payment by
+              £{REVIEW_PRIZE_GBP} payment by
               <br />
               {prizeDate(selected.payBy)}
             </p>
@@ -278,7 +279,7 @@ export function StoryPrizeAdmin({ token }: { token: string }) {
                   )
                 }
               >
-                Confirm top-scoring story as £250 winner
+                Confirm top-scoring story as £{REVIEW_PRIZE_GBP} winner
               </button>
             )}
           {!selected.winnerEntryId &&
@@ -301,8 +302,8 @@ export function StoryPrizeAdmin({ token }: { token: string }) {
           {selected.winnerEntryId && !selected.paidAt && (
             <div className="mt-4 flex flex-wrap gap-3">
               <input
-                aria-label="Actual £250 transfer reference"
-                placeholder="Actual £250 transfer reference"
+                aria-label={`Actual £${REVIEW_PRIZE_GBP} transfer reference`}
+                placeholder={`Actual £${REVIEW_PRIZE_GBP} transfer reference`}
                 value={reference}
                 onChange={(e) => setReference(e.target.value)}
                 className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-white"
@@ -313,7 +314,7 @@ export function StoryPrizeAdmin({ token }: { token: string }) {
                   run(() => paid({ token, roundKey: selected.key, reference }))
                 }
               >
-                Record £250 as paid
+                Record £{REVIEW_PRIZE_GBP} as paid
               </button>
               <p className="w-full text-[10px] text-white/45">
                 Record only after making the actual transfer. This control does
@@ -323,7 +324,7 @@ export function StoryPrizeAdmin({ token }: { token: string }) {
           )}
           {selected.paidAt && (
             <p className="mt-3 text-xs text-emerald-300">
-              £250 payment recorded · {selected.paymentReference}
+              £{REVIEW_PRIZE_GBP} payment recorded · {selected.paymentReference}
             </p>
           )}
         </div>

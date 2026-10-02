@@ -1,4 +1,5 @@
 "use client";
+import { REVIEW_PRIZE_GBP } from "../../../shared/reviewPrize";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -37,8 +38,8 @@ const steps = [
   ],
   [
     "06",
-    "£250 for the next shot",
-    "One filmmaker receives £250 cash each round. Two rounds every year.",
+    `£${REVIEW_PRIZE_GBP} for the next shot`,
+    `One filmmaker receives £${REVIEW_PRIZE_GBP} cash each round. Two rounds every year.`,
   ],
 ];
 export default function RentalStories() {
@@ -61,12 +62,12 @@ export default function RentalStories() {
             <p className="mt-6 max-w-lg text-sm leading-7 text-white/60">
               The last-minute fix. The crew that kept going. That take you still
               think about. Share your real rental experience for a chance to win{" "}
-              <strong className="text-amber-200">£250 cash</strong> towards
+              <strong className="text-amber-200">£{REVIEW_PRIZE_GBP} cash</strong> towards
               whatever comes next.
             </p>
             <div className="mt-6 flex flex-wrap gap-2 text-[10px] text-white/65">
               {[
-                "£250 · twice a year",
+                `£${REVIEW_PRIZE_GBP} · twice a year`,
                 "Honest reviews · any rating",
                 "Independent story judging",
               ].map((t) => (
@@ -112,7 +113,7 @@ export default function RentalStories() {
             <p className="mt-6 text-[10px] uppercase tracking-[.25em] text-amber-100/60">
               The set-story prize
             </p>
-            <p className="mt-3 font-display text-7xl text-amber-100">£250</p>
+            <p className="mt-3 font-display text-7xl text-amber-100">£{REVIEW_PRIZE_GBP}</p>
             <p className="mt-2 text-xs text-white/55">
               Cash. One winner. A story worth telling.
             </p>
@@ -158,7 +159,7 @@ export default function RentalStories() {
             </p>
           </div>
           <div>
-            <p className="text-white">£250 payment deadline</p>
+            <p className="text-white">£{REVIEW_PRIZE_GBP} payment deadline</p>
             <p className="mt-2">
               Within 30 days of closing
               <br />
@@ -181,7 +182,7 @@ export default function RentalStories() {
                   className="rounded-2xl border border-amber-200/15 p-6"
                 >
                   <p className="text-xs text-amber-200">
-                    {w.key} · {w.name} · £250 winner
+                    {w.key} · {w.name} · £{REVIEW_PRIZE_GBP} winner
                   </p>
                   <p className="mt-3 text-sm leading-7 text-white/65">
                     {w.story}

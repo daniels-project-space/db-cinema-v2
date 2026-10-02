@@ -1,4 +1,5 @@
 "use client";
+import { REVIEW_PRIZE_GBP } from "../../../shared/reviewPrize";
 import Link from "next/link";
 import { useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
@@ -104,9 +105,9 @@ export function StoryEntry() {
             <h3 className="text-sm font-medium">Your {e.roundKey} story</h3>
             <span className="text-xs text-amber-200">
               {e.round?.paid
-                ? "£250 payment recorded"
+                ? `£${REVIEW_PRIZE_GBP} payment recorded`
                 : e.status === "winner"
-                  ? "Winner · £250 payment due"
+                  ? `Winner · £${REVIEW_PRIZE_GBP} payment due`
                   : e.status.replaceAll("_", " ")}
             </span>
           </div>
@@ -314,7 +315,7 @@ export function StoryEntry() {
               className="mt-1 accent-amber-200"
             />
             <span>
-              My post clearly starts with #ad and states it is a DB Cinema £250
+              My post clearly starts with #ad and states it is a DB Cinema £{REVIEW_PRIZE_GBP}{" "}
               story-prize entry.
             </span>
           </label>

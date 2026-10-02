@@ -1,4 +1,5 @@
 "use client";
+import { REVIEW_PRIZE_GBP } from "../../../shared/reviewPrize";
 import { ReferralPanel } from "@/components/account/ReferralPanel";
 import { EncoreCrest } from "@/components/account/LoyaltyCelebration";
 
@@ -220,7 +221,7 @@ function Dashboard() {
 
   return (
     <div className="page-in">
-      <Link href="/rental-stories" className="mb-4 inline-flex items-center gap-2 text-xs text-amber-200/80">Your set story could win £250 · enter & track →</Link>
+      <Link href="/rental-stories" className="mb-4 inline-flex items-center gap-2 text-xs text-amber-200/80">Your set story could win £{REVIEW_PRIZE_GBP} · enter & track →</Link>
       {/* account bar — identity + key info, always on top */}
       <AccountProfilePill tier={me.membershipActive ? me.membershipTier : null}>
         <AccountFrame tier={me.membershipActive ? me.membershipTier : null}><ChatAvatar sender="renter" photo={me.avatarUrl} name={me.name || me.email} className="!h-12 !w-12" /></AccountFrame>

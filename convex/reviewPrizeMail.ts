@@ -1,4 +1,5 @@
 "use node";
+import { REVIEW_PRIZE_GBP } from "../shared/reviewPrize";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { sendMail, OWNER_EMAIL } from "./lib/mailer";
@@ -33,11 +34,11 @@ export const processDue = internalAction({
         ok = await sendMail({
           to: winner ? c.email : OWNER_EMAIL(),
           subject: winner
-            ? "Your set story won £250 · DB Cinema"
+            ? `Your set story won £${REVIEW_PRIZE_GBP} · DB Cinema`
             : `DB Cinema story prize · ${c.stage.replaceAll("_", " ")}`,
           html: winner
-            ? `<h2>Your story won the £250 set-story prize.</h2><p>The independent judge selected your entry for round ${esc(c.key)}. We will contact you securely to arrange the £250 cash payment by ${prizeDate(c.payBy)}. We never ask winners to pay a fee or send card details.</p><p><a href="${app}/rental-stories">View your entry status</a></p>`
-            : `<h2>£250 story prize · ${esc(c.key)}</h2><p>Round deadline: ${prizeDate(c.deadline)}. Payment due by ${prizeDate(c.payBy)}. Current task: ${esc(c.stage.replaceAll("_", " "))}. Judge all verified entries, select the top-scoring story and record the actual transfer reference after payment.</p><p><a href="${app}/admin">Open the Story Prize admin tab</a></p>`,
+            ? `<h2>Your story won the £${REVIEW_PRIZE_GBP} set-story prize.</h2><p>The independent judge selected your entry for round ${esc(c.key)}. We will contact you securely to arrange the £${REVIEW_PRIZE_GBP} cash payment by ${prizeDate(c.payBy)}. We never ask winners to pay a fee or send card details.</p><p><a href="${app}/rental-stories">View your entry status</a></p>`
+            : `<h2>£${REVIEW_PRIZE_GBP} story prize · ${esc(c.key)}</h2><p>Round deadline: ${prizeDate(c.deadline)}. Payment due by ${prizeDate(c.payBy)}. Current task: ${esc(c.stage.replaceAll("_", " "))}. Judge all verified entries, select the top-scoring story and record the actual transfer reference after payment.</p><p><a href="${app}/admin">Open the Story Prize admin tab</a></p>`,
         });
       } catch {}
       await ctx.runMutation(internal.reviewPrize.finishMail, {
