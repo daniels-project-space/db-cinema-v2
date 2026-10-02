@@ -34,7 +34,7 @@ async function connect(url, existingId) {
       const id = ++serial;
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(Error('Browser command timed out: '+method));
+        reject(Error('Browser command timed out: '+method+(method==='Runtime.evaluate'?' '+params.expression?.slice(0,240):'')));
       }, 30000);
       pending.set(id, { resolve, reject, timer });
       ws.send(JSON.stringify({ id, method, params }));
@@ -150,22 +150,47 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const previous = await c.evaluate("performance.timeOrigin");
     // Release decorative media decoders before tearing down the document.
     // Cards and their animations are tested before this navigation step.
-    await c.evaluate("document.querySelectorAll('video').forEach(v=>v.pause());true");
-    await c.cmd("Page.reload");
+    await releaseMedia();
+    await loadDocument("Page.reload");
     await until(
-      `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,
+      `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState!=='loading'`,
     );
   }
   async function navigate(url) {
     // CDP navigation acknowledges before the old document is replaced. Wait
     // for the new document so an old price panel cannot satisfy readiness.
     const previous = await c.evaluate("performance.timeOrigin");
-    await c.evaluate("document.querySelectorAll('video').forEach(v=>v.pause());true");
+    await releaseMedia();
     console.log({ navigation: new URL(url).pathname });
-    await c.cmd("Page.navigate", { url });
+    await loadDocument("Page.navigate", { url });
     await until(
-      `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState==='complete'`,
+      `performance.timeOrigin!==${JSON.stringify(previous)}&&document.readyState!=='loading'`,
     );
+  }
+  async function releaseMedia() {
+    // Pausing leaves decoder pipelines and media requests alive. Release them
+    // after the rendered-state assertions, before Chrome tears down a page.
+    await c.evaluate("document.querySelectorAll('video').forEach(v=>{v.pause();v.removeAttribute('src');v.querySelectorAll('source').forEach(s=>s.removeAttribute('src'));v.load();});true");
+    await c.cmd('Page.stopLoading');
+    await wait(100);
+  }
+  async function loadDocument(method, params = {}) {
+    // Runtime.evaluate sent during document teardown can be stranded in the
+    // old execution context (notably after Stripe's frames were loaded).
+    // Wait for the new DOM before querying its context. Component-specific
+    // checks below still wait for hydrated UI and real prices; third-party
+    // media and Stripe subframes need not finish loading to inspect the UI.
+    let finished = false, timer;
+    const loaded = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {finished = true;reject(Error('Document load timed out: '+method));},30000);
+      c.on(event => {
+        if (!finished && event.method === 'Page.domContentEventFired') {
+          finished = true;clearTimeout(timer);resolve();
+        }
+      });
+    });
+    await c.cmd(method, params);
+    await loaded;
   }
   async function shot(name) {
     let s = await c.cmd("Page.captureScreenshot", { format: "png" });
@@ -189,6 +214,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // scrolling to it hid the disappearing-card defect in the older test.
     await c.evaluate(`(()=>{window.__missingMembershipOffer=false;window.__membershipOfferObserver=new MutationObserver(()=>{const card=(${card});if(!card||card.querySelector('h3')?.innerText!==${JSON.stringify(hook)})window.__missingMembershipOffer=true});window.__membershipOfferObserver.observe(document.body,{childList:true,subtree:true,characterData:true})})()`);
     await nativeClick(`(${card}).querySelector('[data-testid="remove-membership"]')`);
+    if (name === 'checkout') {
+      await until(`!!document.querySelector('[data-testid="membership-remove-dialog"]')`);
+      assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-remove-dialog"]').innerText.includes(${JSON.stringify(hook.match(/£[\d.]+/)[0])})`),true,'Removal confirmation quotes the exact current net saving');
+      await nativeClick(`document.querySelector('[data-testid="keep-membership"]')`);
+      await until(`!document.querySelector('[data-testid="membership-remove-dialog"]')`);
+      assert.equal(await c.evaluate(`(${card}).dataset.membershipSelected`),'true','Keeping savings leaves membership and consent unchanged');
+      await nativeClick(`(${card}).querySelector('[data-testid="remove-membership"]')`);
+      await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
+      await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
+    }
     await until(`!!(${card})?.querySelector('[data-testid="add-membership"]')`);
     await shot(name+'-removed-no-rescroll');
     await wait(1200);
@@ -238,18 +273,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.equal(await c.evaluate(`(()=>{const h=document.querySelector('[data-testid="potential-membership-savings"]');return h.tagName==='H3'&&h===h.parentElement.firstElementChild&&parseFloat(getComputedStyle(h).fontSize)>=30})()`),true,'Basket savings must be the large first heading, above plan and credit details');
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Includes £')`),false,'Joining credit is in the canonical headline saving, without an includes-credit line');
   await c.cmd("Emulation.setEmulatedMedia", {features:[{name:"prefers-reduced-motion",value:"no-preference"}]});
-  await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').scrollIntoView({block:'center'})`);
-  const point=await c.evaluate(`(()=>{const r=document.querySelector('[data-testid="potential-membership-savings"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
-  await c.cmd('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
-  await c.cmd('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point});
+  await nativeClick(`document.querySelector('[data-testid="potential-membership-savings"]')`);
   await until(`document.querySelector('[data-testid="membership-upsell"]').dataset.membershipSelected==='true'`);
   assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="membership-celebration"] .membership-confetti').length`),36,'Whole headline click starts one real confetti burst');
   assert.equal(await c.evaluate(`document.querySelector('.membership-confetti').getAnimations().some(a=>a.playState==='running')`),true,'Confetti is animated, not a static decoration');
-  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('£99/month → £128.70 credit to spend')&&document.querySelector('[data-testid="membership-upsell"]').innerText.includes('Subscription-exclusive weekends')`),true,'Studio card explains price versus credit and exclusive weekend deals');
+  assert.equal(await c.evaluate(`(()=>{const card=document.querySelector('[data-testid="membership-upsell"]');return card.dataset.membershipCompact==='true'&&card.getBoundingClientRect().height<300&&card.querySelector('input[type="checkbox"]').checked;})()`),true,'The smaller tile stays compact after selection and confirms recurring consent');
   await wait(350);
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"] h3')?.innerText`),`Subscribe to save £${potential.toFixed(2)}`,'The exact hook stays unchanged throughout the selection burst');
   await shot('selection-confetti-mobile');
   await until(`!document.querySelector('[data-testid="membership-celebration"]')`);
+  await nativeClick(`document.querySelector('[data-testid="membership-benefits"]')`);
+  await until(`!!document.querySelector('[role="dialog"] [data-testid="membership-benefit-studio"]')`);
+  assert.equal(await c.evaluate(`(()=>{const dialog=document.querySelector('[data-testid="membership-benefit-studio"]').closest('[role="dialog"]'),text=dialog.textContent.replace(/\\s+/g,' ');return text.includes('Your £99 monthly fee becomes £128.70')&&text.includes('Weekend 2-for-1 / 3-for-2')&&dialog.querySelectorAll('[data-testid^="membership-benefit-"]').length===1;})()`),true,'Full credit and exclusive weekend benefits remain available in the one-plan overlay');
+  await nativeClick(`document.querySelector('button[aria-label="Close subscription benefits"]')`);
   await c.evaluate(`document.querySelector('[data-testid="confirm-membership-card"]').click()`);
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')`),false,'Clicking a confirmed card never replays confetti');
   await c.cmd("Emulation.setEmulatedMedia", {features:[{name:"prefers-reduced-motion",value:"reduce"}]});
@@ -368,7 +404,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     true,
   );
   await until(
-    `document.querySelector('[data-testid="membership-upsell"]').innerText.includes('This first rental still requires verification')`,
+    `(()=>{const text=document.querySelector('[data-testid="membership-upsell"]').innerText;return text.includes('First rental: normal verification & refundable security.')&&text.includes('Other perks start next booking.')})()`,
   );
   await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(paid.combinedTotalDue))}`);
   assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]');const rows=[...secondary.querySelectorAll('[data-secondary-charge]')];return rows.length===3&&rows.every(e=>getComputedStyle(e).fontSize==='11px')&&[...s.querySelectorAll('div')].some(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied'&&e.classList.contains('text-emerald-300'))})()`),true,"Checkout separates small subscription/security rows and green applied credit while retaining the full payment total");
@@ -393,6 +429,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.equal(await c.evaluate(`getComputedStyle(document.querySelector('[data-testid="membership-celebration"]')).display`),'none','Reduced motion keeps the selection state without the burst');
   await removeAndReadd('', 'checkout');
   await nativeClick(`document.querySelector('[data-testid="remove-membership"]')`);
+  await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
+  await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
   await until(`!!document.querySelector('[data-testid="add-membership"]')`);
   await c.evaluate(
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
@@ -459,6 +497,27 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`!!document.querySelector('[data-testid="potential-membership-savings"]')`);
   assert((await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]').innerText`)).includes(bigWeekdayQuote.recommendations[0].netSaving.toFixed(2)));
   await shot("weekday-immediate-credit-mobile");
+  // Removing real £100 lines crosses Studio → Pro → Starter. Preserve the
+  // card space while pricing, with no stale saving or selectable stale plan.
+  const transitionGear=rows.filter(g=>g.pricing?.daily===100&&!g.displayOnly&&!g.quietDeal).slice(0,3);
+  assert.equal(transitionGear.length,3);
+  let transitionItems=transitionGear.map((g,n)=>({...bigWeekdayItem,key:'tier-transition-'+n,listingId:g._id,title:g.title,slug:g.slug,heroImage:g.heroImage,deposit:g.depositAmount,total:100,perDay:100}));
+  await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(transitionItems))});localStorage.removeItem('dbc_membership_selection_v1');true`);
+  await navigate(root+'/cart');
+  await until(`document.querySelector('[data-testid="membership-upsell"]')?.textContent.includes('Studio subscription')&&!!document.querySelector('[data-testid="potential-membership-savings"]')`);
+  for(const expectedTier of ['pro','plus']){
+    const previousHeight=await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').getBoundingClientRect().height`);
+    await nativeClick(`document.querySelector('main button[aria-label^="Remove "]')`);
+    await until(`document.querySelector('[data-testid="membership-upsell"]')?.getAttribute('aria-busy')==='true'`);
+    assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="potential-membership-savings"],main [data-testid="add-membership"]')`),false,'Pending repricing never shows an old amount or lets an old plan be selected');
+    assert(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').getBoundingClientRect().height>=${previousHeight}`),'The tile keeps its space while recalculating');
+    transitionItems=transitionItems.slice(1);
+    const transitionQuote=await cv.action(api.checkout.priceQuote,{...bigWeekdayArgs,items:transitionItems.map(i=>({...bigWeekdayArgs.items[0],listingId:i.listingId,title:i.title}))});
+    const offer=transitionQuote.recommendations.find(r=>r.netSaving>0);
+    assert.equal(offer.tier,expectedTier);
+    await until(`document.querySelector('[data-testid="potential-membership-savings"]')?.innerText===${JSON.stringify('Subscribe to save £'+offer.netSaving.toFixed(2))}`);
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').textContent.includes(${JSON.stringify(offer.name+' subscription')})`),true,'The lower plan and savings update together from the new quote');
+  }
   // Compact checkout enrolment includes explicit recurring terms in the checkbox.
   // Below £100 there must be no unsolicited subscription offer.
   const cheap = rows.filter(l=>l.pricing && !l.displayOnly && l.pricing.daily<30).sort((a,b)=>a.pricing.daily-b.pricing.daily)[0];
@@ -613,8 +672,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`document.querySelector('main')?.innerText.includes('Your kit is empty.')`);
   // The side basket must expose the same real action in its fixed footer,
   // without scrolling through items or the membership pitch.
-  await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(clearKit))});localStorage.setItem('dbc_promo_v1','GAFFER10');localStorage.setItem('dbc_membership_selection_v1',JSON.stringify({tier:'studio',intro:'none'}));true`);
+  // Seed the next document before hydration. Writing into the just-reloaded
+  // empty shell races its initial persistence effect and can erase fixtures.
+  const restoreClearKit=await c.cmd('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(clearKit))});localStorage.setItem('dbc_promo_v1','GAFFER10');localStorage.setItem('dbc_membership_selection_v1',JSON.stringify({tier:'studio',intro:'none'}));`});
   await reload();
+  await until(`document.querySelectorAll('main [data-cart-dates]').length===2&&document.querySelector('[data-testid="basket-due"]')?.textContent.includes('£')`);
+  await c.cmd('Page.removeScriptToEvaluateOnNewDocument',{identifier:restoreClearKit.identifier});
   await nativeClick(`document.querySelector('button[aria-label="Open kit"]')`);
   await until(`!!document.querySelector('aside[aria-hidden="false"] [data-testid="clear-basket"]')`);
   assert.equal(await c.evaluate(`(()=>{const r=document.querySelector('aside[aria-hidden="false"] [data-testid="clear-basket"]').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})()`),true,'Clear basket remains on screen at the bottom of the drawer');

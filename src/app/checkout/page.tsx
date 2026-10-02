@@ -257,14 +257,8 @@ export default function CheckoutPage() {
       <CheckoutLoopBanner />
       <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
-        <CheckoutMembership variant="checkout" appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
-        <div className="mb-5 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
+        <CheckoutMembership variant="checkout" loading={rentalPreview.loading && !quoteError} appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
-          <span className="inline-flex items-center gap-1.5">
-            <IconLock className="h-3.5 w-3.5 text-accent-400" />
-            Encrypted checkout by Stripe
-          </span>
-          <span className="text-white/20">·</span>
           <span>Any upfront refundable security payment is returned after safe return; the card hold is released separately</span>
           <span className="text-white/20">·</span>
           <span>Need a hand? Message us any time</span>
@@ -517,6 +511,7 @@ export default function CheckoutPage() {
             </p>
           </aside>
         </div>
+        <div className="mt-8 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
       </main>
     </>
   );
