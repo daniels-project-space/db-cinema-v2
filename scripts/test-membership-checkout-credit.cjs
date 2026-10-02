@@ -18,9 +18,9 @@ new Function('require','module','exports',uiCode)(name=>{
  if(name==='next/link')return {__esModule:true,default:({children,...props})=>React.createElement('a',props,children)};
  return require(name);
 },uiModule,uiModule.exports);
-function renderQuotedHook(quote,member){
+function renderQuotedHook(quote,member,variant='basket'){
  renderingAccount=member;
- return renderToStaticMarkup(React.createElement(uiModule.exports.CheckoutMembership,{suggestions:quote?.recommendations,selected:null,onChange:()=>{},appliedSavings:quote}));
+ return renderToStaticMarkup(React.createElement(uiModule.exports.CheckoutMembership,{variant,suggestions:quote?.recommendations,selected:null,onChange:()=>{},appliedSavings:quote}));
 }
 const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:100000,components:[]});
 let account;
@@ -52,10 +52,14 @@ async function pay(fixture,fee=1900) {
 (async()=>{
  assert(!renderQuotedHook(undefined,null).includes('membership-upsell'),'Initial loading must not show an empty savings card');
  assert(renderQuotedHook(undefined,null).includes('membership-chooser'),'The membership chooser stays available without a savings quote');
+ assert.equal(renderQuotedHook(undefined,null,'checkout'),'','Checkout offers nothing before a positive authoritative quote');
  account=put('accounts',{email:'thresholds@example.invalid'});
  for(const [spend,tier] of [[99,null],[100,'plus'],[199,'plus'],[200,'pro'],[299,'pro'],[300,'studio']]) {
   camera.pricing.daily=spend;
   const quote=await checkout.priceQuote.handler(ctx,input());
+  const checkoutHtml=renderQuotedHook(quote,account,'checkout');
+  assert(!checkoutHtml.includes('membership-chooser'),'Checkout must never offer a manual plan chooser');
+  assert(!checkoutHtml.includes('membership-plan-'),'Checkout must show one recommended plan, not plan choices');
   if (quote.recommendations.some(o=>o.netSaving>0)) {
    const offer=quote.recommendations.find(o=>o.netSaving>0);
    assert.deepEqual(quote.membershipOffer,{tier:offer.tier,netSaving:offer.netSaving,state:'join'});
@@ -63,6 +67,12 @@ async function pay(fixture,fee=1900) {
    const html=renderQuotedHook(quote,staleUiAccount);
    assert(html.includes('Subscribe to save £'+offer.netSaving.toFixed(2)),'Finished server quote must keep its heading even when client account context differs');
    assert(html.includes('data-testid="add-membership"'),'Server join offer must remain selectable rather than becoming an existing-member card');
+   assert(checkoutHtml.includes('Subscribe to save £'+offer.netSaving.toFixed(2)));
+   assert.equal((checkoutHtml.match(/data-testid="add-membership"/g)||[]).length,1);
+   assert(checkoutHtml.includes('Selecting this card confirms the'),'One-click recurring-payment consent must be visible');
+   assert(checkoutHtml.includes('text-3xl'),'Checkout savings hook must be prominent');
+  } else {
+   assert.equal(checkoutHtml,'','No actual net saving means no checkout offer or fallback button');
   }
   assert.equal(quote.recommendations[0]?.tier??null,tier,'threshold uses rental charges, not the much larger security/hold');
   if(tier)assert.equal(quote.recommendations[0].intro,'none','weekday offer starts paid membership to use credit now');
