@@ -42,7 +42,7 @@ export function AccountAdmin({ token }: { token: string }) {
   return <section data-testid="admin-accounts" className="mt-6">
     <div className="mb-6"><p className="hud-label">People & access</p><h2 className="mt-2 font-display text-3xl text-white">Accounts</h2></div>
     <label className="block max-w-xl text-xs text-white/60">Search by email address
-      <input type="search" value={input} onChange={e => { setInput(e.target.value); setSelectedId(null); }} placeholder="Full email or the beginning of an email…" data-testid="account-email-search" className="input mt-2 w-full" />
+      <input type="search" maxLength={254} value={input} onChange={e => { setInput(e.target.value); setSelectedId(null); }} placeholder="Full email or the beginning of an email…" data-testid="account-email-search" className="input mt-2 w-full" />
     </label>
     <p className="mt-2 text-[11px] text-white/40">{result?.more ? "Showing the first 50 matches. Refine the email to find a specific account." : email ? `${result?.items.length ?? 0} matches` : "Latest accounts · search to find an older account"}</p>
     <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
