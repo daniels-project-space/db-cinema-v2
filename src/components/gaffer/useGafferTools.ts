@@ -9,7 +9,7 @@ import { GAFFER_PRICE_CODE } from "@cvx/lib/gafferDiscount";
 import { asksForBetterPrice } from "./priceRequest";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
-import { quote, depositFor } from "@/lib/pricing";
+import { quote, depositFor, depositChargeFor } from "@/lib/pricing";
 import { resolveDate, inclusiveDays, londonToday } from "@/lib/voiceDates";
 import { dayMs } from "@/lib/dates";
 import { useGafferFocus, scrollToId } from "@/components/gaffer/GafferFocus";
@@ -670,7 +670,7 @@ export function useGafferTools() {
         const holding = depositFor("verify", cart.depositTotal);
         const summary =
           `Basket breakdown is on screen: ${cart.items.length} line${cart.items.length > 1 ? "s" : ""}, ` +
-          `${await rentalSummary()} plus a £${holding} refundable holding deposit.` +
+          `${await rentalSummary()}. At checkout, normal security is a £${depositChargeFor("verify",cart.depositTotal)} refundable deposit${holding ? ` plus a separate £${holding} card hold` : ", with no card hold"}; the confirmed quote records any deposit waiver.` +
           speakCompat(compat.warnings ?? []);
         return bad.length
           ? `${summary} Heads up — ${bad.map((b) => b.title).join(" and ")} won't be free for those dates. ` +
@@ -803,7 +803,7 @@ export function useGafferTools() {
             .join("; ");
           return (
             `Full breakdown is on screen and everything in it is available.${speakCompat(compat.warnings ?? [])} ${lines}. ` +
-            `That's ${await rentalSummary()} plus a £${holding} refundable holding deposit. ` +
+            `That's ${await rentalSummary()}. Normal checkout security is a £${depositChargeFor("verify",cart.depositTotal)} refundable deposit${holding ? ` plus a separate £${holding} card hold` : ", with no card hold"}; confirm any waiver in checkout. ` +
             `Read it back to them, then ask if they're happy to go through to payment — ` +
             `call go_to_checkout again only once they say yes.`
           );
@@ -816,7 +816,7 @@ export function useGafferTools() {
         // through depositFor — quoting it raw would tell the customer an FX3
         // needs £3,200 down instead of a £160 hold. Mirror the checkout default.
         const holding = depositFor("verify", cart.depositTotal);
-        return `Taking them to checkout, ${await rentalSummary()} plus a £${holding} refundable holding deposit.`;
+        return `Taking them to checkout, ${await rentalSummary()}. Normal security is a £${depositChargeFor("verify",cart.depositTotal)} refundable deposit${holding ? ` plus a separate £${holding} card hold` : ", with no card hold"}; the confirmed quote records any waiver.`;
       },
     }),
     [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest, rentalSummary],

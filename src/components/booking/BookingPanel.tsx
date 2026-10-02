@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { useAccount } from "@/components/account/AccountProvider";
 import { api } from "@cvx/_generated/api";
-import { quote as computeQuote, smallDamageHold, type Pricing } from "@/lib/pricing";
+import { quote as computeQuote, depositChargeFor, depositFor, type Pricing } from "@/lib/pricing";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
 import { dayMs } from "@/lib/dates";
 import { useCart } from "@/components/cart/CartProvider";
@@ -179,16 +179,14 @@ export function BookingPanel({
                 multi-day discount applied — save £{q.saved} ({q.savedPct}%)
               </div>
             )}
-            {/* depositAmount is the gear's replacement value. What the customer
-                actually pays is the ID+insurance hold that checkout defaults to
-                — showing the replacement value here read as a charge and made a
-                £32 hire look like it needed £1,200 up front. */}
+            {/* Security uses replacement value rather than the rental price.
+                The whole-kit quote and any waiver are confirmed at checkout. */}
             <div className="mt-2 flex justify-between font-mono text-xs text-white/35">
-              <span>+ refundable hold</span>
-              <span>£{smallDamageHold(listing.depositAmount)}</span>
+              <span>Refundable deposit from</span>
+              <span>£{depositChargeFor("verify", listing.depositAmount)}</span>
             </div>
             <p className="mt-1 text-right text-[11px] text-white/25">
-              refunded after return
+              {depositFor("verify", listing.depositAmount) > 0 ? `+ £${depositFor("verify", listing.depositAmount)} separate hold · final security uses whole-kit value` : "No hold below £300 whole-kit value · confirmed at checkout"}
             </p>
           </div>
         ) : (

@@ -3,7 +3,7 @@
 export type MemberTier={key:string;name:string;monthlyGbp:number;monthlyCredit:number;creditBonusPct:number;deliveryPct:number;weekend:boolean;filmFund:boolean;pct:number;freeDelivery:boolean;freeAccessories:number;exclusiveOffers:boolean;perks:string[]};
 const tier=(key:string,name:string,monthlyGbp:number,deliveryPct:number,weekend:boolean,filmFund:boolean):MemberTier=>({
  key,name,monthlyGbp,creditBonusPct:key==="plus"?10:key==="pro"?20:30,monthlyCredit:Math.round(monthlyGbp*(key==="plus"?110:key==="pro"?120:130))/100,deliveryPct,weekend,filmFund,pct:0,freeDelivery:false,freeAccessories:0,exclusiveOffers:false,
- perks:[`£${(Math.round(monthlyGbp*(key==="plus"?110:key==="pro"?120:130))/100).toFixed(2)} rental credit each paid month`,"Credits stack · valid for one year","Use first-month credit when it beats other offers","Future rentals: no upfront security · full card hold remains",...(key==="studio"?["One London delivery included each calendar month"]:[`${deliveryPct}% off delivery`]),...(weekend?["Weekend 2-for-1 / 3-for-2 · save up to £100 per rental"]:[]),...(filmFund?["Film Fund application entry included"]:["Film Fund entry available for £15 per project"])]
+ perks:[`£${(Math.round(monthlyGbp*(key==="plus"?110:key==="pro"?120:130))/100).toFixed(2)} rental credit each paid month`,"Credits stack · valid for one year","Use first-month credit when it beats other offers","Future rentals: no upfront security · any required hold remains",...(key==="studio"?["One London delivery included each calendar month"]:[`${deliveryPct}% off delivery`]),...(weekend?["Weekend 2-for-1 / 3-for-2 · save up to £100 per rental"]:[]),...(filmFund?["Film Fund application entry included"]:["Film Fund entry available for £15 per project"])]
 });
 export const TIERS=[tier("plus","Starter",19,10,false,false),tier("pro","Pro",49,30,true,true),tier("studio","Studio",99,0,true,true)];
 export const tierByKey=(key?:string|null)=>TIERS.find(t=>t.key===key);
@@ -14,7 +14,7 @@ export const isProPlus=(key?:string|null,active?:boolean)=>!!active&&(TIER_RANK[
 export const BENEFITS:{label:string;get:(t:MemberTier)=>boolean|string}[]=[
  {label:"Monthly rental credit (plan bonus)",get:t=>`£${t.monthlyCredit.toFixed(2)}`},
  {label:"No upfront security on future rentals",get:()=>true},
- {label:"Separate card hold remains",get:()=>true},
+ {label:"Applicable card hold remains",get:()=>true},
  {label:"Delivery benefit",get:t=>t.key==="studio"?"1 London delivery / month":`${t.deliveryPct}% off`},
  {label:"Weekend deals · £100 saving cap",get:t=>t.weekend},
  {label:"Film Fund application entry",get:t=>t.filmFund?"Included":"£15 / project"},
@@ -42,6 +42,6 @@ export function membershipActiveNow(a:any){
  return a.membershipStatus==="trialing"?(a.membershipTrialEnd??0)>Date.now():a.membershipStatus==="active"&&(a.membershipPaidThrough??0)>Date.now();
 }
 
-export const MEMBERSHIP_TERMS_VERSION = "2026-10-membership-v7";
+export const MEMBERSHIP_TERMS_VERSION = "2026-10-membership-v8";
 
 export const MEMBERSHIP_CREDIT_START = Date.UTC(2026,9,1);

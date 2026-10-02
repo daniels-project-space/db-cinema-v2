@@ -8,11 +8,11 @@ type Doc = { title: string; updated: string; sections: { h: string; p: string }[
 const DOCS: Record<string, Doc> = {
   terms: {
     title: "Terms & Conditions",
-    updated: "September 2026",
+    updated: "October 2026",
     sections: [
       { h: "1. About us", p: "Db Cinema Rentals (\"we\", \"us\") hires professional film and photography equipment to customers in the UK. By using this site or placing a booking you agree to these terms." },
       { h: "2. Bookings", p: "A booking is confirmed once payment is taken. You are responsible for ensuring the rental dates and equipment are correct before paying. We reserve the right to decline or cancel a booking where stock is unavailable or identity/payment cannot be verified." },
-      { h: "3. Pricing & payment", p: "All prices are in GBP. At checkout you pay the rental price and ordinarily a refundable security payment equal to 50% of the displayed card-hold amount. An active membership with a confirmed paid billing period waives that upfront security payment; the free trial does not. An authenticated account with a safely completed, fully settled previous rental of the same exact item set and quantities may also qualify. The confirmed checkout quote states any waiver. We also request a separate card authorisation for the full displayed hold amount. The hold is not a charge and reduces available card funds while active. Your bank may decline it or require further authentication. We do not store your full card number." },
+      { h: "3. Pricing & payment", p: "All prices are in GBP. Security is based on the combined catalog replacement value of all equipment in the booking, not the rental charge. Below £300, the refundable deposit is £100 and no card hold is required. From £300 to below £1,000, the refundable deposit is £100 and a separate £100 card hold applies. At £1,000 and above, the selected protection category determines the displayed hold, with a refundable payment equal to 50% of that hold. A qualifying paid membership or safely completed same-kit account rental may waive the upfront deposit, as shown in the checkout quote; the free trial does not. Referral price benefits require the normal deposit. Any required hold is a separate authorisation, not a charge; your bank may decline it or require authentication. Existing bookings keep their agreed policy. We do not store your full card number." },
       { h: "3A. Later charges", p: "By signing at checkout, you separately agree to documented late rental time at the booked item daily rate, and to documented missing items, damage or insurance excess owed under the Rental Agreement. After itemised notice, an unused active security hold may be captured toward a late fee if no damage amount is due; any balance may be attempted as a new saved-card transaction. We will never collect the same amount twice. A new card transaction may be declined or require authentication." },
       { h: "4. Use of equipment", p: "Equipment must be used lawfully and only for its intended purpose. You must not sub-hire, modify, or take equipment outside the UK without written consent." },
       { h: "5. Liability", p: "Our liability for any loss is limited to the value of the rental. We are not liable for indirect or consequential loss, including lost footage or missed productions." },
@@ -22,10 +22,10 @@ const DOCS: Record<string, Doc> = {
   },
   "rental-terms": {
     title: "Rental Terms",
-    updated: "September 2026",
+    updated: "October 2026",
     sections: [
       { h: "1. Rental period", p: "The rental period ends at the agreed return date and London local return time on your booking. If an item is returned late without an agreed extension, each additional commenced rental day after that local return time is charged at that item's daily rental rate shown when you booked. There is no separate flat penalty. We will provide a calculation before charging." },
-      { h: "2. Security payment and hold", p: "Unless the checkout quote records a paid membership or safely completed same-kit account exemption, you pay a refundable security amount equal to half the displayed card hold; a separate authorisation is requested for the full displayed hold. The card hold expires according to your issuer and may need a fresh authorisation on long rentals. Handover requires an active hold." },
+      { h: "2. Security payment and hold", p: "Security is calculated from the combined catalog replacement value of the equipment. Below £300: £100 refundable deposit, no hold. From £300 to below £1,000: £100 refundable deposit plus a £100 hold. At £1,000 and above: the selected hold category and a refundable payment equal to half that hold. Eligible deposit exemptions are recorded in the confirmed checkout quote; referral price benefits require normal upfront security. A hold, where required, may expire and require a new authorisation on long rentals. Handover requires verification and an active hold only when the confirmed booking requires one. Existing bookings retain their agreed amounts and policy." },
       { h: "3. Condition & care", p: "You must return equipment clean, complete (all cables, batteries, cases) and in the condition supplied. Loss or damage will be charged against the deposit, up to the equipment's replacement value." },
       { h: "4. Identity & agreement", p: "An automatic identity document, selfie/liveness and proof-of-address check is required before handover. A fully approved automatic check may be reused on the same account for up to 90 days, capped by the identity document expiry, if the rental starts within that period and the name and billing address are unchanged. We recheck the original provider decision before reuse. Changed details, expiry, a revoked result or a risk concern requires a fresh check. Manual or legacy approvals do not qualify for automatic reuse. If a document fails, the verification provider may ask you to resubmit that document. An authorised member of our team may make a documented manual decision." },
       { h: "5. Collection & delivery", p: "Pickup is from our London location during agreed hours. Local delivery is available within our service radius for a fee shown at checkout." },
@@ -34,7 +34,7 @@ const DOCS: Record<string, Doc> = {
   },
   privacy: {
     title: "Privacy Policy",
-    updated: "September 2026",
+    updated: "October 2026",
     sections: [
       { h: "1. What we collect", p: "We collect your booking details and verification result. Didit processes your ID, selfie/liveness and proof-of-address documents. Stripe processes card payments and authorisations. We do not store your full card number or raw identity documents." },
       { h: "2. How we use it", p: "To process bookings, arrange fulfilment, provide support, send booking-related messages, and meet legal obligations." },
@@ -47,7 +47,7 @@ const DOCS: Record<string, Doc> = {
   },
   cancellation: {
     title: "Cancellation & Refund Policy",
-    updated: "September 2026",
+    updated: "October 2026",
     sections: [
       { h: "Full card refund", p: `If you cancel at least ${CANCELLATION_FULL_REFUND_DAYS} London calendar days before the earliest item starts, we refund the amount paid for the rental booking, including any refundable security payment, to the original card. A separately identified recurring membership fee is governed by the Membership Terms and is not included in a rental cancellation refund. Any account credit redeemed for that booking is restored for ${CANCELLATION_CREDIT_DAYS} days.` },
       { h: "Optional full-value account credit", p: "At least three London calendar days before the rental starts, we may offer cancellation for the full remaining paid value as account credit, valid for one year. This includes any remaining paid security payment and replaces a card refund only if you explicitly accept the displayed offer. Unused card holds are released. Credit is automatically applied to eligible future rental charges and is not withdrawable as cash under this commercial policy. Your rights under applicable law are unaffected." },
@@ -60,7 +60,7 @@ const DOCS: Record<string, Doc> = {
   },
   "rental-agreement": {
     title: "Rental Agreement",
-    updated: "September 2026",
+    updated: "October 2026",
     sections: [
       { h: "1. Parties & equipment", p: "This agreement is between Db Cinema Rentals (\"Owner\") and the person named at checkout (\"Renter\") for the equipment listed in the booking, for the dates booked." },
       { h: "2. Possession & care", p: "The Renter takes possession of the equipment for the rental period and agrees to keep it secure, use it only for its intended purpose, and not sub-hire, sell, or take it outside the UK without written consent." },
@@ -75,9 +75,9 @@ const DOCS: Record<string, Doc> = {
   },
   "deposit-agreement": {
     title: "Card Hold & Refundable Security Payment Agreement",
-    updated: "September 2026",
+    updated: "October 2026",
     sections: [
-      { h: "1. Two separate amounts", p: "At checkout you pay a refundable security amount equal to 50% of the displayed hold category. Separately, your card is authorised for 100% of that category's displayed amount. The hold is not a charge. Both amounts appear separately in the checkout summary." },
+      { h: "1. Refundable deposit and optional hold", p: "The security band uses the combined catalog replacement value of all equipment in your booking, not the rental price or an individual item's value in isolation. Below £300, we charge a £100 refundable deposit and create no hold. From £300 to below £1,000, we charge a £100 refundable deposit and request a separate £100 card authorisation. At £1,000 and above, the selected protection category determines the displayed hold, with a refundable payment equal to 50% of that hold. An eligible security-payment waiver applies only where shown in the confirmed quote; referral price benefits require the normal deposit. Any hold is not a charge. The subscription fee is separate and is not a refundable security deposit. Existing bookings keep their agreed policy." },
       { h: "2. Safe return", p: "After the equipment is returned and inspected, we refund the security payment in full and cancel any uncaptured hold. Card networks and issuers control how quickly a released hold disappears from your available balance." },
       { h: "3. Documented deductions", p: "If the Renter owes an evidenced amount for missing items, damage or applicable insurance excess, we may capture no more than that amount from an active hold, up to the authorised hold amount. The refundable payment is applied only to any remaining documented balance. We provide an itemised account and evidence." },
       { h: "4. Hold expiry and later payments", p: "An authorisation may expire before a long rental ends. We will attempt a replacement authorisation for the same displayed hold amount shortly before expiry and release the old hold after the new one succeeds. For a brief period, your bank may show both holds. A replacement is a new issuer decision: it can fail or require you to approve it in your rental account. We will notify you when action is needed. A saved-card payment is also a separate issuer decision and is not guaranteed." },
@@ -88,7 +88,7 @@ const DOCS: Record<string, Doc> = {
   },
   insurance: {
     title: "Equipment Protection & Liability Policy",
-    updated: "September 2026",
+    updated: "October 2026",
     sections: [
       { h: "1. Scope", p: "This policy sets out the Renter's responsibility for the equipment and the protection that applies during the rental period. It supplements, and does not replace, any insurance the Renter holds." },
       { h: "2. Renter responsibility", p: "While in the Renter's possession the equipment is at the Renter's risk. The Renter must take reasonable care, never leave equipment unattended in a public place or visible in a vehicle, and follow manufacturer guidance." },
@@ -100,7 +100,7 @@ const DOCS: Record<string, Doc> = {
   },
   "data-processing": {
     title: "Data Processing Terms",
-    updated: "September 2026",
+    updated: "October 2026",
     sections: [
       { h: "1. Controller", p: "Db Cinema Rentals is the data controller for personal data collected to provide the rental service." },
       { h: "2. What we process", p: "Contact and booking details; delivery address; Stripe payment and card-authorisation references; and Didit's verification result, review status and resubmission explanation. We do not store raw identity documents or full card details in our application database." },

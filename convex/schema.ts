@@ -220,6 +220,7 @@ export default defineSchema({
     depositRefunded: v.optional(v.boolean()),
     agreementSignedAt: v.optional(v.number()),
     securityHoldConsentAt: v.optional(v.number()),
+    securityPolicyVersion: v.optional(v.string()),
     laterChargeConsentAt: v.optional(v.number()),
     agreementName: v.optional(v.string()),
     agreementDocs: v.optional(

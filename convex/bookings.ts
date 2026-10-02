@@ -1,6 +1,7 @@
 import { availableCreditRows,creditPlan,creditKind } from "./lib/checkoutCredit";
 import { referralEligibility,availableReferralReward } from "./lib/referrals";
 import { SINGLE_BENEFIT_VERSION } from "../shared/rentalBenefits";
+import { SECURITY_POLICY_VERSION, depositChargeFor } from "../shared/rentalSecurity";
 import { unlockLoyalty, loyaltyProgress } from "./lib/loyalty";
 import { creditDebit,usableCredit } from "./lib/creditLedger";
 import { safeRepeatRental,repeatRentalFingerprint } from "./lib/repeatRental";
@@ -92,6 +93,7 @@ export const createPending = internalMutation({
     subtotal: v.number(),
     depositAmount: v.number(),
     depositHoldAmount: v.optional(v.number()),
+    securityPolicyVersion: v.optional(v.string()),
     promoCode: v.optional(v.string()),
     discount: v.optional(v.number()),
     total: v.number(),
@@ -122,6 +124,7 @@ export const createPending = internalMutation({
     returnTime: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
+    if(a.securityPolicyVersion && a.securityPolicyVersion!==SECURITY_POLICY_VERSION)throw Error("Unsupported security policy.");
     const single=a.pricingVersion===SINGLE_BENEFIT_VERSION;
     if(a.pricingVersion&&!single)throw Error("Unsupported pricing version.");
     const account=a.creditAccountId?await ctx.db.get(a.creditAccountId):null;
@@ -130,7 +133,9 @@ export const createPending = internalMutation({
       if((a.earnedCreditApplied??0)>0&&a.benefitKind!=="earned_credit")throw Error("Earned credit cannot stack with another benefit.");
       if(a.benefitKind==="earned_credit"&&((a.discount??0)>0||a.deliveryFee!==(a.quotedDeliveryFee??a.deliveryFee)))throw Error("Only one price benefit can apply.");
       if(["referral_friend","referral_reward"].includes(a.benefitKind??"")){
-        if(a.securityWaiverReason||a.depositAmount!==Math.round((a.depositHoldAmount??0)*50)/100)throw Error("Referral offers require normal upfront security.");
+        const value = a.securityPolicyVersion === SECURITY_POLICY_VERSION ? (await Promise.all(a.lineItems.map(line=>ctx.db.get(line.listingId)))).reduce((n,item,i)=>n+(item?.depositAmount??0)*a.lineItems[i].qty,0) : undefined;
+        const normalDeposit = value === undefined ? Math.round((a.depositHoldAmount??0)*50)/100 : depositChargeFor(a.protection === "deposit" ? "deposit" : "verify",value);
+        if(a.securityWaiverReason||a.depositAmount!==normalDeposit)throw Error("Referral offers require normal upfront security.");
         if(a.benefitKind==="referral_friend"){
           friend=await referralEligibility(ctx,account,a.referralCode??"");if(!friend.valid)throw Error(friend.reason);
           if(Math.round((a.discount??0)*100)!==Math.round(Math.min(10,a.subtotal)*100))throw Error("Referral price changed.");
@@ -240,6 +245,7 @@ export const createPending = internalMutation({
       promoCode: a.promoCode,
       depositAmount: a.depositAmount,
       depositHoldAmount: a.depositHoldAmount,
+      securityPolicyVersion: a.securityPolicyVersion,
       depositHoldStatus: a.depositHoldAmount ? "awaiting_payment" : undefined,
       total: chargedTotal,
       creditApplied,

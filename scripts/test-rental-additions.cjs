@@ -51,6 +51,10 @@ const request = (b) => ({
   reason: "Customer requested lens",
 });
 (async () => {
+  const small=booking();Object.assign(small,{securityPolicyVersion:'2026-10-value-bands-v1',depositAmount:100,depositHoldAmount:0,total:160,stripeDepositIntentId:undefined});
+  const proposed=await state.prepare.handler(ctx,{...request(small),qty:2});
+  assert.equal(proposed.holdTotal,100,'Adding items across £300 requires the new £100 hold');
+  assert.equal(proposed.securityCharge,0,'The paid £100 deposit is preserved, not charged again as half the hold');
   const b = booking();
   await assert.rejects(
     state.prepare.handler(ctx, { ...request(b), token: "foreign" }),
