@@ -335,36 +335,6 @@ export function CheckoutMembership({
             )}
             {selected && (
               <div className="mt-3 space-y-2">
-                {variant === "checkout" && (
-                  <label className="flex items-start gap-2 text-[11px] leading-5 text-white/65">
-                    <input
-                      type="checkbox"
-                      className="mt-1 accent-[#acd17c]"
-                      checked={selected.termsAccepted}
-                      onChange={(e) => {
-                        if (e.target.checked) confirmSelection();
-                        else
-                          onChange({
-                            ...selected,
-                            intro: "none",
-                            termsAccepted: false,
-                          });
-                      }}
-                    />
-                    <span>
-                      I accept the{" "}
-                      <Link
-                        href="/legal/membership"
-                        target="_blank"
-                        className="text-accent-300 underline"
-                      >
-                        membership terms
-                      </Link>{" "}
-                      and £{displayTier.monthlyGbp} monthly renewal. Cancel in
-                      account settings.
-                    </span>
-                  </label>
-                )}
                 <div className="flex items-center justify-between gap-2">
                   <span role="status" className="text-[10px] text-emerald-300">
                     {selected.termsAccepted
