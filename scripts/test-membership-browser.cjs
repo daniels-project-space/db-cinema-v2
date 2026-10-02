@@ -413,10 +413,15 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     true,
     "Checkout membership CTA must be visible in the first mobile viewport",
   );
-  assert.equal(await c.evaluate(`(()=>{const h=document.querySelector('[data-testid="potential-membership-savings"]');return h.tagName==='H3'&&h===h.parentElement.firstElementChild&&parseFloat(getComputedStyle(h).fontSize)>=24})()`),true,'Compact checkout keeps a prominent top savings heading');
+  assert.equal(await c.evaluate(`(()=>{const h=document.querySelector('[data-testid="potential-membership-savings"]');return h.tagName==='H3'&&h===h.parentElement.firstElementChild&&parseFloat(getComputedStyle(h).fontSize)>=30})()`),true,'Checkout keeps a large top savings heading');
+  assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="membership-chooser"], [data-testid^="membership-plan-"]').length`),0,'Checkout offers only its recommendation, never a plan chooser');
   await shot("checkout-offer-mobile");
-  await c.evaluate(`document.querySelector('[data-testid="add-membership"]').click()`);
+  await c.cmd("Emulation.setEmulatedMedia", {features: [{name:"prefers-reduced-motion",value:"no-preference"}]});
+  await nativeClick(`document.querySelector('[data-testid="add-membership"]')`);
   await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')?.checked===true`);
+  assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')&&getComputedStyle(document.querySelector('[data-testid="membership-celebration"]')).display!=='none'`),true,'One card click visibly celebrates selection');
+  await shot('checkout-selection-confetti-mobile');
+  await c.cmd("Emulation.setEmulatedMedia", {features: [{name:"prefers-reduced-motion",value:"reduce"}]});
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('consent confirmed')`),true,'One-click checkout opt-in confirms monthly terms');
   await until(`document.querySelector('[data-testid="checkout-summary"]').innerText.includes('One-time joining credit')`);
   // The homepage placement is checked against the actual rendered sections.
@@ -584,6 +589,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await navigate(root+'/checkout');
     const bandDue=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(bandQuote.combinedTotalDue);
     await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(bandDue)}`);
+    assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-chooser"]')`),false,'No checkout fallback chooser even when the recommendation is absent');
+    if(!bandQuote.recommendations.some(r=>r.netSaving>0)) assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-upsell"]')`),false,'No positive savings means no membership card on checkout');
     assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="rental-consent"] input[type="checkbox"]').length`),1,'One combined rental consent checkbox');
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes('Fully refundable security')&&document.querySelector('[data-testid="refundable-security"]').textContent.includes('£100.00')`),true);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').innerText.includes('No card hold required.')`),band==='deposit-only');

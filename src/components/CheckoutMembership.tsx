@@ -166,7 +166,7 @@ export function CheckoutMembership({
   ];
   return (
     <>
-    {!showMembershipCard && !current && (
+    {variant !== "checkout" && !showMembershipCard && !current && (
       <button
         type="button"
         data-testid="membership-chooser"
@@ -240,7 +240,7 @@ export function CheckoutMembership({
                 ? "applied-membership-savings"
                 : "potential-membership-savings"
             }
-            className={`font-display font-semibold leading-tight tracking-tight text-white ${compact ? "text-2xl" : "text-3xl"}`}
+            className="font-display text-3xl font-semibold leading-tight tracking-tight text-white"
           >
             {savingsHook}
           </h3>
@@ -396,14 +396,14 @@ export function CheckoutMembership({
               : "This first rental still requires verification and normal upfront refundable security. Other perks start on future bookings."}
           </p>
         )}
-        <button
+        {variant !== "checkout" && <button
           type="button"
           data-testid="membership-chooser"
           onClick={() => setOpen(true)}
           className="mt-2 text-[10px] text-white/55 underline underline-offset-4"
         >
           See the subscription benefits
-        </button>
+        </button>}
       </div>
     </section>}
       {open &&
