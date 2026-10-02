@@ -1,6 +1,11 @@
 const assert = require("node:assert/strict");
 const { load } = require("./lib/rentalTestHarness.cjs");
-const { restoreMembershipSelection } = load("shared/membershipSelection.ts");
+const { restoreMembershipSelection, accountPricingContext } = load("shared/membershipSelection.ts");
+const member={membershipActive:true,membershipTier:'studio',earnedCredit:0,refundCredit:0,loyaltyPercent:0};
+assert.notEqual(accountPricingContext(member),accountPricingContext({...member,earnedCredit:128.7}),'A renewal credit must invalidate the open basket quote');
+assert.notEqual(accountPricingContext(member),accountPricingContext({...member,refundCredit:100}),'Returned credit must reprice checkout');
+assert.notEqual(accountPricingContext(member),accountPricingContext({...member,membershipActive:false}),'Membership expiry must reprice the basket');
+assert.equal(accountPricingContext(member),accountPricingContext({...member,avatarUrl:'new-photo',name:'Changed profile'}),'Cosmetic profile updates must not reset financial consent');
 for (const bad of [
   null,
   false,
