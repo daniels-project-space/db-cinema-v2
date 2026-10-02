@@ -5,6 +5,23 @@ const billing=load('convex/membershipBenefits.ts'),bookings=load('convex/booking
 const {calculateRentalPrice}=load('convex/lib/rentalPrice.ts'),catalog=load('convex/catalog.ts');
 const {MEMBERSHIP_TERMS_VERSION}=load('shared/membership.ts');
 const {shouldResetMembershipPreference}=load('shared/membershipSelection.ts');
+// Render the actual card with a signed-in account and actual handler quotes.
+// Only the account context and decorative leaves are isolated for this test.
+const React=require('react'),{renderToStaticMarkup}=require('react-dom/server'),ts=require('typescript'),fs=require('node:fs'),path=require('node:path');
+let renderingAccount=null;
+const uiModule={exports:{}};
+const uiCode=ts.transpileModule(fs.readFileSync(path.join(__dirname,'../src/components/CheckoutMembership.tsx'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
+new Function('require','module','exports',uiCode)(name=>{
+ if(name==='@/lib/membership')return load('shared/membership.ts');
+ if(name==='./account/AccountProvider')return {useAccount:()=>({me:renderingAccount})};
+ if(name==='./SubscriptionBenefitSymbol')return {SubscriptionBenefitSymbol:()=>null};
+ if(name==='next/link')return {__esModule:true,default:({children,...props})=>React.createElement('a',props,children)};
+ return require(name);
+},uiModule,uiModule.exports);
+function renderQuotedHook(quote,member){
+ renderingAccount=member;
+ return renderToStaticMarkup(React.createElement(uiModule.exports.CheckoutMembership,{suggestions:quote.recommendations,selected:null,onChange:()=>{},appliedSavings:quote}));
+}
 const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:100000,components:[]});
 let account;
 const ctx={db,scheduler:{runAfter:async()=>{}},runQuery:async(ref,args)=>{
@@ -40,6 +57,26 @@ async function pay(fixture,fee=1900) {
   if(tier)assert.equal(quote.recommendations[0].intro,'none','weekday offer starts paid membership to use credit now');
  }
  camera.pricing.daily=300;
+ account=put('accounts',{email:'renewed-studio-headline@example.invalid',membershipTier:'studio',membershipActive:true});
+ const renewedCredit=put('credits',{accountId:account._id,amount:128.7,remaining:128.7,kind:'earned',createdAt:now,expiresAt:now+86400000,status:'active'});
+ const renewedQuote=await checkout.priceQuote.handler(ctx,input());
+ assert.equal(renewedQuote.earnedCreditApplied,128.7);
+ assert.equal(renewedQuote.membershipNetSaving,128.7,'Active subscriber headline includes actual renewed credit used, not a zero discount field');
+ assert.match(renderQuotedHook(renewedQuote,account),/<h3[^>]*>Subscribe and save £128\.70 on this rental<\/h3>/,'Actual signed-in card must render the savings headline');
+ assert.equal(renewedQuote.membershipFee,0,'Do not subtract or bill another membership month for an existing subscriber');
+ await db.patch(renewedCredit._id,{remaining:10});
+ const partialRenewedQuote=await checkout.priceQuote.handler(ctx,input());
+ assert.equal(partialRenewedQuote.membershipNetSaving,10,'Show actual remaining credit applied, never the full monthly allowance');
+ assert.match(renderQuotedHook(partialRenewedQuote,account),/<h3[^>]*>Subscribe and save £10\.00 on this rental<\/h3>/);
+ put('credits',{accountId:account._id,amount:280,remaining:280,kind:'refund',createdAt:now,expiresAt:now+86400000,status:'active'});
+ const refundAndEarnedQuote=await checkout.priceQuote.handler(ctx,input());
+ assert.equal(refundAndEarnedQuote.refundCreditApplied,280);
+ assert.equal(refundAndEarnedQuote.membershipNetSaving,10,'Refund credit is payment, not subscription savings');
+ assert.match(renderQuotedHook(refundAndEarnedQuote,account),/<h3[^>]*>Subscribe and save £10\.00 on this rental<\/h3>/);
+ await db.patch(renewedCredit._id,{remaining:0});
+ const noRenewedCredit=await checkout.priceQuote.handler(ctx,input());
+ assert.equal(noRenewedCredit.membershipNetSaving,0,'No applied earned credit or price benefit means no invented saving');
+ assert(!renderQuotedHook(noRenewedCredit,account).includes('Subscribe and save £'),'No fabricated saving when only refund credit remains');
  // A restored Studio choice can lose money while Starter saves money after
  // refund credits. It must not blank the profitable offer or preserve consent.
  account=put('accounts',{email:'restored-refund@example.invalid'});
