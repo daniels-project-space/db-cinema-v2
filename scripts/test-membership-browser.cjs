@@ -107,13 +107,26 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.cmd("Page.enable");
   await c.cmd("Network.enable");
   await c.cmd("Network.setCacheDisabled", { cacheDisabled: true });
+  // Watch transient states too: a restored selection must never replace the
+  // rental-saving hook with a monthly-credit headline while quotes load.
+  await c.cmd("Page.addScriptToEvaluateOnNewDocument", {source: `
+    new MutationObserver(() => {
+      const heading = document.querySelector('[data-testid="membership-upsell"] h3');
+      if (heading && /credit every paid month/i.test(heading.textContent)) {
+        window.__dbcMembershipHeadlineRegression = heading.textContent;
+      }
+    }).observe(document, {subtree:true, childList:true, characterData:true});
+  `});
   await c.cmd("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-reduced-motion", value: "reduce" }],
   });
   async function until(expr) {
     for (let i = 0; i < 100; i++) {
       try {
-        if (await c.evaluate(expr)) return;
+        if (await c.evaluate(expr)) {
+          assert.equal(await c.evaluate('window.__dbcMembershipHeadlineRegression || null'),null,'The savings hook must never revert to a monthly-credit headline, including quote loading and restored selections');
+          return;
+        }
       } catch (e) {
         // A reload replaces Chrome's execution context. Retry only read-only
         // readiness checks; never suppress a failed assertion or browser action.

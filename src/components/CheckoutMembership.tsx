@@ -275,12 +275,24 @@ export function CheckoutMembership({
                   : confirmed
                     ? `Subscription added · save £${saving.toFixed(2)} on this rental!`
                     : `Add a subscription and save £${saving.toFixed(2)} on this rental!`
-                : `£${displayTier.monthlyCredit.toFixed(2)} credit every paid month`}
+                : !appliedSavings
+                  ? current
+                    ? "Calculating your subscription saving…"
+                    : confirmed
+                      ? "Subscription added · calculating your saving…"
+                      : "Add a subscription and save on this rental!"
+                  : current
+                    ? "Your subscription is applied to this rental"
+                    : confirmed
+                      ? "Subscription added to this rental"
+                      : "Add a subscription to this rental"}
             </h3>
             <p className="mt-1 text-[10px] text-white/45">
               {saving > 0
                 ? "Net saving includes today’s membership fee."
-                : "Your membership is reflected in the price below."}
+                : !appliedSavings
+                  ? "Calculating the exact saving for your kit…"
+                  : "Your membership is reflected in the price below."}
             </p>
             {!current && (
               <ul
