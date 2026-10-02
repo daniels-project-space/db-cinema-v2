@@ -665,9 +665,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`document.querySelector('main')?.innerText.includes('Your kit is empty.')`);
   // The side basket must expose the same real action in its fixed footer,
   // without scrolling through items or the membership pitch.
-  await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(clearKit))});localStorage.setItem('dbc_promo_v1','GAFFER10');localStorage.setItem('dbc_membership_selection_v1',JSON.stringify({tier:'studio',intro:'none'}));true`);
+  // Seed the next document before hydration. Writing into the just-reloaded
+  // empty shell races its initial persistence effect and can erase fixtures.
+  const restoreClearKit=await c.cmd('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(clearKit))});localStorage.setItem('dbc_promo_v1','GAFFER10');localStorage.setItem('dbc_membership_selection_v1',JSON.stringify({tier:'studio',intro:'none'}));`});
   await reload();
   await until(`document.querySelectorAll('main [data-cart-dates]').length===2&&document.querySelector('[data-testid="basket-due"]')?.textContent.includes('£')`);
+  await c.cmd('Page.removeScriptToEvaluateOnNewDocument',{identifier:restoreClearKit.identifier});
   await nativeClick(`document.querySelector('button[aria-label="Open kit"]')`);
   await until(`!!document.querySelector('aside[aria-hidden="false"] [data-testid="clear-basket"]')`);
   assert.equal(await c.evaluate(`(()=>{const r=document.querySelector('aside[aria-hidden="false"] [data-testid="clear-basket"]').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})()`),true,'Clear basket remains on screen at the bottom of the drawer');
