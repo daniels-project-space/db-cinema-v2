@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { MembershipHero } from "@/components/MembershipHero";
-import { SubscriptionBenefitSymbol } from "@/components/SubscriptionBenefitSymbol";
+import { MembershipPlanCard } from "@/components/MembershipPlanCard";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -64,47 +64,7 @@ export default function MembershipPage() {
             return (
               <Reveal key={t.key} delay={i * 80}>
                 <Tilt max={featured ? 5 : 4} className="h-full">
-                  <div
-                    className={`relative flex h-full flex-col overflow-hidden rounded-3xl p-6 ${
-                      featured
-                        ? "spot border-beam accent-glow-lg bg-white/[0.045] ring-1 ring-accent-400/30"
-                        : "spot"
-                    }`}
-                  >
-                    {featured && (
-                      <div
-                        className="pointer-events-none absolute -top-20 left-1/2 h-40 w-64 -translate-x-1/2 rounded-full bg-accent-500/20 blur-[70px]"
-                        aria-hidden
-                      />
-                    )}
-                    {featured && (
-                      <div className="mb-3 w-fit rounded-full bg-accent-500/20 px-3 py-0.5 font-mono text-[10px] uppercase tracking-[0.15em] text-accent-300">
-                        Most popular
-                      </div>
-                    )}
-                    <h2 className="font-display text-2xl font-bold text-white">{t.name}</h2>
-                    <p className="mt-1 font-mono text-[9px] uppercase tracking-[.16em] text-white/40">Monthly subscription</p>
-                    <div className="mt-2 flex items-baseline gap-1">
-                      <span className="font-poster gradient-text text-5xl">£{t.monthlyGbp}</span>
-                      <span className="text-sm text-white/40">/mo</span>
-                    </div>
-                    <div className="mt-1.5 text-sm font-medium text-emerald-300">£{t.monthlyCredit.toFixed(2)} credit every paid month</div>
-                    <ul className="mt-5 flex-1 space-y-2.5 text-sm text-white/55">
-                      {t.perks.map((p, index) => (
-                        <li key={p} className="flex gap-2.5">
-                          <SubscriptionBenefitSymbol benefit={p} index={index + i * 3} />
-                          <span>{p}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <button
-                      onClick={() => subscribe(t.key)}
-                      disabled={!!current || busy !== null || !accepted}
-                      className={`mt-6 w-full py-3 ${featured ? "btn-primary" : "btn-ghost"}`}
-                    >
-                      {isCurrent ? "Your subscription" : busy === t.key ? "…" : `Subscribe to ${t.name}`}
-                    </button>
-                  </div>
+                  <MembershipPlanCard tier={t} onSelect={() => subscribe(t.key)} disabled={!!current || busy !== null || !accepted} label={isCurrent ? "Your subscription" : busy === t.key ? "…" : `Subscribe to ${t.name}`} />
                 </Tilt>
               </Reveal>
             );

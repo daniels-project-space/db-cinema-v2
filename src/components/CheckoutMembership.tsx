@@ -40,6 +40,11 @@ export function CheckoutMembership({
     membershipCreditApplied: number;
     membershipSignupOfferSaving?: number;
     membershipNetSaving: number;
+    membershipOffer?: {
+      tier: string;
+      netSaving: number;
+      state: "join" | "selected" | "current";
+    } | null;
     securityWaiverReason?: string;
   };
 }) {
@@ -65,28 +70,37 @@ export function CheckoutMembership({
     }
     if (!selected) setSelectionQuote(null);
   }, [selected?.termsAccepted, selected]);
-  const current = me?.membershipActive
-      ? TIERS.find((t) => t.key === me.membershipTier)
-      : undefined,
+  const quotedOffer = appliedSavings?.membershipOffer;
+  const current =
+      appliedSavings && "membershipOffer" in appliedSavings
+        ? quotedOffer?.state === "current"
+          ? TIERS.find((t) => t.key === quotedOffer.tier)
+          : undefined
+        : me?.membershipActive
+          ? TIERS.find((t) => t.key === me.membershipTier)
+          : undefined,
     chosen = selected ? TIERS.find((t) => t.key === selected.tier) : undefined,
     recommend = suggestions?.[0],
     recommendedTier = TIERS.find((t) => t.key === recommend?.tier) ?? TIERS[0],
     tier = chosen ?? current;
-  // Only credit actually used in this checkout counts as an immediate saving.
-  // Keep the authoritative recommendation visible while the selected plan's
-  // quote arrives; selecting must not replace the saving with monthly credit.
-  const appliedNetSaving =
-    selected && appliedSavings?.membershipFee !== chosen?.monthlyGbp
-      ? selected.tier === selectionQuote?.tier
-        ? selectionQuote.netSaving
-        : selected.tier === recommend?.tier
-          ? recommend.netSaving
-          : 0
-      : (appliedSavings?.membershipNetSaving ?? 0);
+  const quotedTier = TIERS.find((t) => t.key === quotedOffer?.tier);
+  // Callers fence quotes by the full basket/account request key. A finished
+  // quote owns its offer and amount; monthly fees are not a quote identifier.
+  const appliedNetSaving = appliedSavings
+    ? appliedSavings.membershipNetSaving
+    : selected && selected.tier === selectionQuote?.tier
+      ? selectionQuote!.netSaving
+      : 0;
   const potentialNetSaving = recommend
     ? Math.round(recommend.netSaving * 100) / 100
     : 0;
-  const showMembershipCard = !!tier || potentialNetSaving > 0;
+  const saving = quotedOffer
+    ? quotedOffer.netSaving
+    : tier
+      ? appliedNetSaving
+      : potentialNetSaving;
+  const showMembershipCard =
+    !!selected || saving > 0 || (!!current && !appliedSavings);
   const dialog = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!showMembershipCard) setOpen(false);
@@ -127,8 +141,7 @@ export function CheckoutMembership({
     };
   }, [open]);
   if (!showMembershipCard) return null;
-  const displayTier = tier ?? recommendedTier;
-  const saving = tier ? appliedNetSaving : potentialNetSaving;
+  const displayTier = quotedTier ?? tier ?? recommendedTier;
   const savingsHook =
     saving > 0 ? `Subscribe to save £${saving.toFixed(2)}` : null;
   const confirmed = !!selected?.termsAccepted;
