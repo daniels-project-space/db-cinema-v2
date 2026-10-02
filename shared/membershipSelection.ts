@@ -4,6 +4,22 @@ export type MembershipSelection = {
   intro: "trial" | "none";
   termsAccepted: boolean;
 };
+/** An offer preview can survive only a membership toggle. Changes to the kit,
+ * dates, identity, benefits, delivery or promotion invalidate it immediately.
+ * This key is never used to accept a billing quote or enable payment. */
+export function membershipOfferContext(args: Record<string, unknown>) {
+  const { selectedMembership: _selection, ...context } = args;
+  return JSON.stringify(context);
+}
+export function membershipRecommendationPreview<T>(
+  previous: { offerContext: string; recommendations: T[] } | null,
+  context: string,
+  unavailable: boolean,
+): T[] | undefined {
+  return !unavailable && previous?.offerContext === context
+    ? previous.recommendations
+    : undefined;
+}
 /** These live account values affect quotes even when the basket stays the same. */
 export function accountPricingContext(account?: {
   membershipActive?: boolean;

@@ -29,7 +29,7 @@ export default function CartPage() {
     membership,
     setMembership,
   } = useCart();
-  const { quote, error: quoteError } = useBasketPrice();
+  const { quote, recommendations, error: quoteError } = useBasketPrice();
   const promo = usePromo(eligibleSubtotal);
 
   const avail =
@@ -71,7 +71,7 @@ export default function CartPage() {
         ) : (
           <>
             <CheckoutMembership
-              suggestions={quote?.recommendations}
+              suggestions={recommendations}
               appliedSavings={quote ?? undefined}
               selected={membership}
               onChange={setMembership}

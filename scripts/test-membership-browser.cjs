@@ -24,6 +24,7 @@ async function connect(url, existingId) {
     if (m.id) {
       const p = pending.get(m.id);
       pending.delete(m.id);
+      if (p) clearTimeout(p.timer);
       if (m.error) p?.reject(Error(m.error.message));
       else p?.resolve(m.result);
     } else for (const fn of listeners) fn(m);
@@ -31,7 +32,11 @@ async function connect(url, existingId) {
   const cmd = (method, params = {}) =>
     new Promise((resolve, reject) => {
       const id = ++serial;
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(Error('Browser command timed out: '+method));
+      }, 30000);
+      pending.set(id, { resolve, reject, timer });
       ws.send(JSON.stringify({ id, method, params }));
     });
   return {
@@ -164,6 +169,31 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       Buffer.from(s.data, "base64"),
     );
   }
+  async function nativeClick(expression) {
+    await c.evaluate(`(${expression}).scrollIntoView({block:'center',behavior:'instant'})`);
+    await wait(80);
+    const point = await c.evaluate(`(()=>{const r=(${expression}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+    await c.cmd('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
+    await c.cmd('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point});
+  }
+  async function removeAndReadd(scope, name) {
+    const card = `document.querySelector(${JSON.stringify(scope+'[data-testid="membership-upsell"]')})`;
+    await until(`!!(${card})?.querySelector('[data-testid="applied-membership-savings"]')`);
+    const hook = await c.evaluate(`(${card}).querySelector('h3').innerText`);
+    // Observe the entire transition. Waiting for the card to return and then
+    // scrolling to it hid the disappearing-card defect in the older test.
+    await c.evaluate(`(()=>{window.__missingMembershipOffer=false;window.__membershipOfferObserver=new MutationObserver(()=>{const card=(${card});if(!card||card.querySelector('h3')?.innerText!==${JSON.stringify(hook)})window.__missingMembershipOffer=true});window.__membershipOfferObserver.observe(document.body,{childList:true,subtree:true,characterData:true})})()`);
+    await nativeClick(`(${card}).querySelector('[data-testid="remove-membership"]')`);
+    await until(`!!(${card})?.querySelector('[data-testid="add-membership"]')`);
+    await shot(name+'-removed-no-rescroll');
+    await wait(1200);
+    assert.equal(await c.evaluate('window.__missingMembershipOffer'),false, name+': the exact savings hook must stay present throughout removal and repricing');
+    await nativeClick(`(${card}).querySelector('h3')`);
+    await until(`(${card})?.dataset.membershipSelected==='true'`);
+    await wait(1200);
+    assert.equal(await c.evaluate('window.__missingMembershipOffer'),false,name+': re-adding must retain the real savings heading');
+    await c.evaluate('window.__membershipOfferObserver.disconnect()');
+  }
   await navigate(root + "/cart");
   await wait(1500);
   await c.evaluate(
@@ -222,9 +252,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`,
   );
   // The same one-click flow is also reachable from the header's slide-out basket.
-  await c.evaluate(
-    `[...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership').click()`,
-  );
+  await removeAndReadd('', 'cart');
+  await nativeClick(`document.querySelector('[data-testid="remove-membership"]')`);
   await until(`!!document.querySelector('[data-testid="add-membership"]')`);
   await c.evaluate(
     `document.querySelector('button[aria-label="Open kit"]').click()`,
@@ -248,6 +277,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`!!document.querySelector('aside[aria-hidden="false"] [data-testid="joining-credit-applied"]')`);
   assert.equal(await c.evaluate(`(()=>{const h=document.querySelector('aside[aria-hidden="false"] [data-testid="membership-upsell"] h3');return h===h.parentElement.firstElementChild&&parseFloat(getComputedStyle(h).fontSize)>=30&&/^Subscribe to save £\\d+\\.\\d{2}$/.test(h.innerText)})()`),true,'Side basket uses the same large, first savings heading');
   await shot("drawer-mobile");
+  await removeAndReadd('aside[aria-hidden="false"] ', 'drawer');
   await c.evaluate(
     `document.querySelector('aside[aria-hidden="false"] button[aria-label="Close"]').click()`,
   );
@@ -303,6 +333,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `(()=>{let d=document.querySelector('[role="dialog"][aria-label="Subscription benefits"]'),r=d.getBoundingClientRect();return {outsideCard:!d.closest('[data-testid="membership-upsell"]'),onScreen:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight}})()`,
   );
   assert(modal.outsideCard && modal.onScreen);
+  assert.equal(await c.evaluate(`document.querySelector('[role="dialog"] h2').innerText`),`Subscribe to save £${paid.membershipNetSaving.toFixed(2)}`,'The chooser also leads with actual rental savings');
   await shot("benefits-mobile");
   await c.cmd("Input.dispatchKeyEvent", {
     type: "keyDown",
@@ -353,9 +384,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
   await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]').checked===true`);
   assert.equal(await c.evaluate(`getComputedStyle(document.querySelector('[data-testid="membership-celebration"]')).display`),'none','Reduced motion keeps the selection state without the burst');
-  await c.evaluate(
-    `[...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership').click()`,
-  );
+  await removeAndReadd('', 'checkout');
+  await nativeClick(`document.querySelector('[data-testid="remove-membership"]')`);
   await until(`!!document.querySelector('[data-testid="add-membership"]')`);
   await c.evaluate(
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
@@ -449,6 +479,17 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     false,
     "Do not upsell a membership when this order has no net saving",
   );
+  await nativeClick(`document.querySelector('[data-testid="membership-chooser"]')`);
+  await until(`!!document.querySelector('[role="dialog"]')`);
+  assert.equal(await c.evaluate(`document.querySelector('[role="dialog"] h2').innerText`),'Choose your membership','No saving means no invented amount in the manual chooser');
+  await nativeClick(`document.querySelector('[data-testid="membership-plan-pro"] button')`);
+  await until(`!!document.querySelector('[data-testid="remove-membership"]')`);
+  assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').dataset.membershipSelected`),undefined,'Choosing a plan still requires fresh recurring-payment consent');
+  await nativeClick(`document.querySelector('[data-testid="remove-membership"]')`);
+  await until(`!document.querySelector('[data-testid="membership-upsell"]')&&!!document.querySelector('[data-testid="membership-chooser"]')`);
+  await nativeClick(`document.querySelector('[data-testid="membership-chooser"]')`);
+  await until(`!!document.querySelector('[role="dialog"]')`);
+  await nativeClick(`document.querySelector('button[aria-label="Close subscription benefits"]')`);
   // A plan already chosen on an earlier basket remains visible/manageable
   // when the renter changes to dates without a discount. This is a persisted
   // checkout preference, not an active subscription or stored legal consent.
