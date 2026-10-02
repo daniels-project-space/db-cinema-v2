@@ -5,13 +5,14 @@ import { api } from "@cvx/_generated/api";
 import { dayMs } from "@/lib/dates";
 import { useCart } from "./CartProvider";
 import { useAccount } from "../account/AccountProvider";
-import { accountPricingContext, shouldResetMembershipPreference } from "../../../shared/membershipSelection";
+import { accountPricingContext, shouldResetMembershipPreference, membershipOfferContext, membershipRecommendationPreview } from "../../../shared/membershipSelection";
 export function useBasketPrice(enabled = true) {
   const cart = useCart(),
     account = useAccount(),
     priceQuote = useAction(api.checkout.priceQuote);
   const [result, setResult] = useState<{
       key: string;
+      offerContext: string;
       quote: Awaited<ReturnType<typeof priceQuote>>;
     } | null>(null),
     [error, setError] = useState<string | null>(null);
@@ -36,6 +37,7 @@ export function useBasketPrice(enabled = true) {
     protection: "verify" as const,
   };
   const key = JSON.stringify({ args, account: accountPricingContext(account.me) });
+  const offerContext = membershipOfferContext({ ...args, account: accountPricingContext(account.me) });
   useEffect(() => {
     if (!enabled || !args.items.length) return;
     let cancelled = false;
@@ -44,11 +46,11 @@ export function useBasketPrice(enabled = true) {
       priceQuote(args)
         .then((quote) => {
           if (!cancelled) {
+            setResult({ key, offerContext, quote });
             if (shouldResetMembershipPreference(cart.membership, quote)) {
               cart.setMembership(null);
               return;
             }
-            setResult({ key, quote });
           }
         })
         .catch((e) => {
@@ -63,6 +65,9 @@ export function useBasketPrice(enabled = true) {
   }, [key, enabled, priceQuote]);
   return {
     quote: result?.key === key ? result.quote : null,
+    recommendations: membershipRecommendationPreview(result ? {
+      offerContext: result.offerContext, recommendations: result.quote.recommendations,
+    } : null, offerContext, !!error),
     error,
     loading: enabled && !!cart.items.length && result?.key !== key && !error,
   };

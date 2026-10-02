@@ -51,10 +51,6 @@ export function CheckoutMembership({
   const { me } = useAccount(),
     [open, setOpen] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
-  const [selectionQuote, setSelectionQuote] = useState<{
-    tier: string;
-    netSaving: number;
-  } | null>(null);
   const celebrationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consentId = useId();
   useEffect(
@@ -68,7 +64,6 @@ export function CheckoutMembership({
       setCelebrating(false);
       if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
     }
-    if (!selected) setSelectionQuote(null);
   }, [selected?.termsAccepted, selected]);
   const quotedOffer = appliedSavings?.membershipOffer;
   const current =
@@ -80,7 +75,7 @@ export function CheckoutMembership({
           ? TIERS.find((t) => t.key === me.membershipTier)
           : undefined,
     chosen = selected ? TIERS.find((t) => t.key === selected.tier) : undefined,
-    recommend = suggestions?.[0],
+    recommend = suggestions?.find((offer) => offer.netSaving > 0),
     recommendedTier = TIERS.find((t) => t.key === recommend?.tier) ?? TIERS[0],
     tier = chosen ?? current;
   const quotedTier = TIERS.find((t) => t.key === quotedOffer?.tier);
@@ -88,8 +83,8 @@ export function CheckoutMembership({
   // quote owns its offer and amount; monthly fees are not a quote identifier.
   const appliedNetSaving = appliedSavings
     ? appliedSavings.membershipNetSaving
-    : selected && selected.tier === selectionQuote?.tier
-      ? selectionQuote!.netSaving
+    : selected
+      ? suggestions?.find((offer) => offer.tier === selected.tier)?.netSaving ?? 0
       : 0;
   const potentialNetSaving = recommend
     ? Math.round(recommend.netSaving * 100) / 100
@@ -102,9 +97,6 @@ export function CheckoutMembership({
   const showMembershipCard =
     !!selected || saving > 0 || (!!current && !appliedSavings);
   const dialog = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!showMembershipCard) setOpen(false);
-  }, [showMembershipCard]);
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -140,17 +132,12 @@ export function CheckoutMembership({
       previous?.focus();
     };
   }, [open]);
-  if (!showMembershipCard) return null;
   const displayTier = quotedTier ?? tier ?? recommendedTier;
   const savingsHook =
     saving > 0 ? `Subscribe to save £${saving.toFixed(2)}` : null;
   const confirmed = !!selected?.termsAccepted;
   const confirmSelection = () => {
     if (current || confirmed) return;
-    setSelectionQuote({
-      tier: selected?.tier ?? recommendedTier.key,
-      netSaving: saving,
-    });
     onChange({
       tier: selected?.tier ?? recommendedTier.key,
       intro: "none",
@@ -178,7 +165,18 @@ export function CheckoutMembership({
       : "Film Fund entry £15/project when applications open",
   ];
   return (
-    <section
+    <>
+    {!showMembershipCard && !current && (
+      <button
+        type="button"
+        data-testid="membership-chooser"
+        onClick={() => setOpen(true)}
+        className="my-3 flex w-full items-center justify-between rounded-xl border border-white/10 px-4 py-3 text-xs text-white/65 transition-colors hover:border-accent-300/40 hover:text-white"
+      >
+        <span>Add membership</span><span aria-hidden="true">＋</span>
+      </button>
+    )}
+    {showMembershipCard && <section
       data-testid="membership-upsell"
       data-membership-compact={compact || undefined}
       aria-label="Subscription for your rental"
@@ -379,6 +377,8 @@ export function CheckoutMembership({
                       : "Membership added · confirm terms"}
                   </span>
                   <button
+                    type="button"
+                    data-testid="remove-membership"
                     onClick={() => onChange(null)}
                     className="text-[10px] text-white/45 underline"
                   >
@@ -397,12 +397,15 @@ export function CheckoutMembership({
           </p>
         )}
         <button
+          type="button"
+          data-testid="membership-chooser"
           onClick={() => setOpen(true)}
           className="mt-2 text-[10px] text-white/55 underline underline-offset-4"
         >
           See the subscription benefits
         </button>
       </div>
+    </section>}
       {open &&
         createPortal(
           <div
@@ -429,7 +432,7 @@ export function CheckoutMembership({
                 Monthly subscriptions · keep the momentum
               </p>
               <h2 className="mt-3 font-display text-3xl text-white">
-                More kit. More possibility.
+                {savingsHook ?? "Choose your membership"}
               </h2>
               <p className="mt-3 text-sm leading-6 text-white/50">
                 Your paid fee becomes rental credit with 10% extra on Starter,
@@ -438,12 +441,20 @@ export function CheckoutMembership({
                 one entry.
               </p>
               <div className="mt-6 grid gap-3 md:grid-cols-3">
-                {TIERS.map((t) => (
+                {TIERS.map((t) => {
+                  const offer = suggestions?.find((offer) => offer.tier === t.key);
+                  return (
                   <div
                     key={t.key}
+                    data-testid={`membership-plan-${t.key}`}
                     className={`rounded-2xl border p-4 ${t.key === recommend?.tier ? "border-accent-300/40 bg-accent-300/[.05]" : "border-white/10"}`}
                   >
-                    <h3 className="text-lg text-white">{t.name}</h3>
+                    {offer && offer.netSaving > 0 && (
+                      <h3 className="mb-3 text-xl font-semibold leading-tight text-white">
+                        Subscribe to save £{offer.netSaving.toFixed(2)}
+                      </h3>
+                    )}
+                    <p className="text-lg text-white">{t.name}</p>
                     <p className="mt-1 text-[10px] text-white/40">
                       Monthly subscription
                     </p>
@@ -467,6 +478,7 @@ export function CheckoutMembership({
                     </ul>
                     {!current && (
                       <button
+                        type="button"
                         onClick={() => {
                           onChange({
                             tier: t.key,
@@ -481,7 +493,7 @@ export function CheckoutMembership({
                       </button>
                     )}
                   </div>
-                ))}
+                );})}
               </div>
               <p className="mt-5 text-xs text-white/40">
                 Paid monthly membership. This first rental still requires
@@ -492,6 +504,6 @@ export function CheckoutMembership({
           </div>,
           document.body,
         )}
-    </section>
+    </>
   );
 }

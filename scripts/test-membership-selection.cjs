@@ -1,6 +1,20 @@
 const assert = require("node:assert/strict");
 const { load } = require("./lib/rentalTestHarness.cjs");
-const { restoreMembershipSelection, accountPricingContext } = load("shared/membershipSelection.ts");
+const { restoreMembershipSelection, accountPricingContext, membershipOfferContext, membershipRecommendationPreview } = load("shared/membershipSelection.ts");
+const contextArgs = { items: [{ listingId: 'lens', start: 1, end: 7 }], customerEmail: 'guest', fulfilment: 'pickup', account: accountPricingContext(null) };
+const context = membershipOfferContext(contextArgs);
+const recommendations = [{ tier: 'pro', netSaving: 19.8 }];
+const previous = { offerContext: context, recommendations };
+for (const selectedMembership of [undefined, {tier:'pro',intro:'none'}, {tier:'studio',intro:'none'}]) {
+  const toggledContext = membershipOfferContext({...contextArgs, selectedMembership});
+  assert.equal(toggledContext, context);
+  assert.equal(membershipRecommendationPreview(previous, toggledContext, false), recommendations, 'A real offer stays visible while membership is toggled');
+}
+for (const change of [{items:[{listingId:'lens',start:2,end:8}]}, {customerEmail:'another'}, {fulfilment:'delivery'}, {promoCode:'NEW'}, {account:accountPricingContext({earnedCredit:10})}]) {
+  assert.equal(membershipRecommendationPreview(previous, membershipOfferContext({...contextArgs,...change}), false), undefined, 'Never display an old offer for changed pricing inputs');
+}
+assert.equal(membershipRecommendationPreview(previous, context, true), undefined, 'Failed quotes cannot continue advertising a prior offer');
+assert.equal(membershipRecommendationPreview(null, context, false), undefined);
 const member={membershipActive:true,membershipTier:'studio',earnedCredit:0,refundCredit:0,loyaltyPercent:0};
 assert.notEqual(accountPricingContext(member),accountPricingContext({...member,earnedCredit:128.7}),'A renewal credit must invalidate the open basket quote');
 assert.notEqual(accountPricingContext(member),accountPricingContext({...member,refundCredit:100}),'Returned credit must reprice checkout');

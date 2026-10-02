@@ -10,7 +10,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { CheckoutAccountBenefits } from "@/components/CheckoutAccountBenefits";
 import { CheckoutMembership } from "@/components/CheckoutMembership";
 import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
-import { accountPricingContext, shouldResetMembershipPreference } from "../../../shared/membershipSelection";
+import { accountPricingContext, shouldResetMembershipPreference, membershipOfferContext, membershipRecommendationPreview } from "../../../shared/membershipSelection";
 import { CheckoutLoopBanner } from "@/components/CheckoutLoopBanner";
 import { CheckoutReminder } from "@/components/plans/CartPlanning";
 import { useCart } from "@/components/cart/CartProvider";
@@ -100,6 +100,7 @@ export default function CheckoutPage() {
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [quoted, setQuoted] = useState<{
     key: string;
+    offerContext: string;
     value: Awaited<ReturnType<typeof getPriceQuote>>;
   } | null>(null);
 
@@ -136,7 +137,11 @@ export default function CheckoutPage() {
     protection,
   };
   const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null, account: accountPricingContext(account.me) });
+  const offerContext = membershipOfferContext({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null, account: accountPricingContext(account.me) });
   const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
+  const membershipRecommendations = membershipRecommendationPreview(quoted ? {
+    offerContext: quoted.offerContext, recommendations: quoted.value.recommendations,
+  } : null, offerContext, !!quoteError);
   const equipmentValue = currentQuote?.replacementValue ?? replacementSum;
   const holdAmount = currentQuote?.depositHoldAmount ?? depositFor(protection, replacementSum);
   const depositAmount = currentQuote?.depositAmount ?? depositChargeFor(protection, replacementSum);
@@ -149,6 +154,7 @@ export default function CheckoutPage() {
     const timer = setTimeout(() => {
       getPriceQuote(priceArgs).then((value) => {
         if (!cancelled) {
+          setQuoted({ key: quoteKey, offerContext, value });
           if (shouldResetMembershipPreference(membership, value)) {
             setMembership(null);
             membershipRequest.current = null;
@@ -156,7 +162,6 @@ export default function CheckoutPage() {
           }
           // A refreshed provider-side price needs a fresh, amount-specific consent.
           setAgreed(false);
-          setQuoted({ key: quoteKey, value });
         }
       }).catch((e: any) => {
         if (!cancelled) setQuoteError(e?.message ?? "Could not calculate this rental total.");
@@ -246,7 +251,7 @@ export default function CheckoutPage() {
       <CheckoutLoopBanner />
       <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
-        <CheckoutMembership variant="checkout" appliedSavings={currentQuote ? {rentalSaving:currentQuote.rentalSaving,weekendSaving:currentQuote.weekendSaving,deliveryReduction:currentQuote.deliveryReduction,membershipFee:currentQuote.membershipFee,membershipCreditApplied:currentQuote.membershipCreditApplied,membershipSignupOfferSaving:currentQuote.membershipSignupOfferSaving,membershipNetSaving:currentQuote.membershipNetSaving,membershipOffer:currentQuote.membershipOffer,securityWaiverReason:currentQuote.securityWaiverReason} : undefined} suggestions={currentQuote?.recommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
+        <CheckoutMembership variant="checkout" appliedSavings={currentQuote ? {rentalSaving:currentQuote.rentalSaving,weekendSaving:currentQuote.weekendSaving,deliveryReduction:currentQuote.deliveryReduction,membershipFee:currentQuote.membershipFee,membershipCreditApplied:currentQuote.membershipCreditApplied,membershipSignupOfferSaving:currentQuote.membershipSignupOfferSaving,membershipNetSaving:currentQuote.membershipNetSaving,membershipOffer:currentQuote.membershipOffer,securityWaiverReason:currentQuote.securityWaiverReason} : undefined} suggestions={membershipRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <div className="mb-5 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
           <span className="inline-flex items-center gap-1.5">

@@ -49,7 +49,8 @@ async function pay(fixture,fee=1900) {
  return {args,grant:await db.get(id),credit:await db.get((await db.get(id)).creditId)};
 }
 (async()=>{
- assert.equal(renderQuotedHook(undefined,null),'','Initial quote loading must not crash or show an empty offer');
+ assert(!renderQuotedHook(undefined,null).includes('membership-upsell'),'Initial loading must not show an empty savings card');
+ assert(renderQuotedHook(undefined,null).includes('membership-chooser'),'The membership chooser stays available without a savings quote');
  account=put('accounts',{email:'thresholds@example.invalid'});
  for(const [spend,tier] of [[99,null],[100,'plus'],[199,'plus'],[200,'pro'],[299,'pro'],[300,'studio']]) {
   camera.pricing.daily=spend;

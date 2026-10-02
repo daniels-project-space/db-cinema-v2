@@ -10,7 +10,7 @@ import { CartItemDates } from "./CartItemDates";
 
 export function CartDrawer() {
   const { items, remove, isOpen, close, membership, setMembership } = useCart();
-  const { quote, error } = useBasketPrice(isOpen);
+  const { quote, recommendations, error } = useBasketPrice(isOpen);
 
   return (
     <>
@@ -112,7 +112,7 @@ export function CartDrawer() {
               ))}
               {isOpen && (
                 <CheckoutMembership
-                  suggestions={quote?.recommendations}
+                  suggestions={recommendations}
                   appliedSavings={quote ?? undefined}
                   selected={membership}
                   onChange={setMembership}
