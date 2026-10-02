@@ -103,7 +103,9 @@ export const priceQuote = action({
     return {
       recommendations,
       replacementValue: price.replacementSum,
-      membershipNetSaving: a.selectedMembership ? netSaving(price) : price.rentalSaving + price.deliveryReduction,
+      // Renewed membership credit is stored as earned credit. Count what is
+      // actually applied to this rental, never the monthly allowance or refunds.
+      membershipNetSaving: a.selectedMembership ? netSaving(price) : Math.round((price.rentalSaving + price.deliveryReduction + (membershipActiveNow(price.acct) ? price.earnedCreditApplied : 0))*100)/100,
       membershipCreditApplied: price.membershipCreditApplied,
       membershipSignupOfferSaving: price.membershipSignupOfferSaving,
       items: price.items.map((item) => ({ title: item.title, total: item.total })),
