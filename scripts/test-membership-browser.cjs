@@ -603,17 +603,33 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   clearKit.push({...weekdayItem,key:'clear-second-item'});
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(clearKit))});true`);
   await navigate(root+'/cart');
-  await until(`!!document.querySelector('[data-testid="clear-basket"]')`);
+  await until(`!!document.querySelector('main [data-testid="clear-basket"]')`);
   await until(`document.querySelectorAll('main [data-cart-dates]').length===2`);
-  await nativeClick(`document.querySelector('[data-testid="clear-basket"]')`);
+  await nativeClick(`document.querySelector('main [data-testid="clear-basket"]')`);
   await until(`document.querySelector('main')?.innerText.includes('Your kit is empty.')`);
   assert.equal(await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1')).length`),0,'Clear basket removes all persisted items');
   assert.equal(await c.evaluate(`localStorage.getItem('dbc_membership_selection_v1')`),null,'Clear basket also removes a selected membership');
   await reload();
   await until(`document.querySelector('main')?.innerText.includes('Your kit is empty.')`);
+  // The side basket must expose the same real action in its fixed footer,
+  // without scrolling through items or the membership pitch.
+  await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(clearKit))});localStorage.setItem('dbc_promo_v1','GAFFER10');localStorage.setItem('dbc_membership_selection_v1',JSON.stringify({tier:'studio',intro:'none'}));true`);
+  await reload();
+  await nativeClick(`document.querySelector('button[aria-label="Open kit"]')`);
+  await until(`!!document.querySelector('aside[aria-hidden="false"] [data-testid="clear-basket"]')`);
+  assert.equal(await c.evaluate(`(()=>{const r=document.querySelector('aside[aria-hidden="false"] [data-testid="clear-basket"]').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})()`),true,'Clear basket remains on screen at the bottom of the drawer');
+  await shot('clear-drawer-mobile');
+  await nativeClick(`document.querySelector('aside[aria-hidden="false"] [data-testid="clear-basket"]')`);
+  await until(`document.querySelector('aside[aria-hidden="false"]')?.innerText.includes('Your kit is empty.')`);
+  assert.equal(await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1')).length`),0);
+  assert.equal(await c.evaluate(`localStorage.getItem('dbc_membership_selection_v1')`),null);
+  assert.equal(await c.evaluate(`localStorage.getItem('dbc_promo_v1')`),null);
+  await reload();
+  await until(`document.querySelector('main')?.innerText.includes('Your kit is empty.')`);
   console.log({
     root,
     individualDatesPersistAndReprice:true,
+    clearBasketPageAndDrawer:true,
     basketExcludesSecurity:true,
     checkoutFullTotalAndSecondaryCharges:true,
     canonicalSmallRentalSecurityBands:true,
