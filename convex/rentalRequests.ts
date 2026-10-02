@@ -15,7 +15,7 @@ export const context = query({
       cancellationKind: cancelKind(rentalCancellationStart(b), Date.now()),
       direct: reservations.every(r => r.source === "site"),
       selfService: process.env.CUSTOMER_BOOKING_ACTIONS === "true",
-      locked: !!(b.cancellationDecision || b.activeAdditionId || b.returnDecision) };
+      locked: !!(b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision) };
   },
 });
 

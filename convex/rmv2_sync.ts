@@ -65,6 +65,7 @@ export function mapBookingForSync(
       qty: li.qty ?? 1,
       start: li.start,
       end: li.end,
+      returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime,
       units: unitsOut,
     };
   });

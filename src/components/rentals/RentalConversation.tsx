@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalAdditionApproval } from "./RentalAdditionApproval";
+import { RentalExtensionPanel } from "./RentalExtensionPanel";
 import { RENTAL_STAGE_LABELS } from "@/lib/rentalPresentation";
 import { ChatAvatar, GafferIcon } from "./ChatIdentity";
 import { RentalCreditOffer } from "./RentalCreditOffer";
@@ -230,6 +231,7 @@ export function RentalConversation({
       {tools && (
         <div className="border-b border-white/[0.06] px-5 py-3">{tools}</div>
       )}
+      {bookingId && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
       <div
         ref={body}
         className="flex h-[320px] sm:h-[440px] min-h-0 shrink-0 flex-col gap-4 overflow-y-auto px-5 py-6"

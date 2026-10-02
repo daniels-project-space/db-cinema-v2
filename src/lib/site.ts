@@ -14,6 +14,10 @@ export const CONTACT_EMAIL = "dbcinemarentals@gmail.com";
 export const HOURS_WINDOWS: readonly { opens: string; closes: string }[] = [
   { opens: "09:00", closes: "22:00" },
 ];
+/** Used by both the form and the server; all agreed slots use London local time. */
+export function isAllowedReturnTime(time: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(time) && HOURS_WINDOWS.some(w => time >= w.opens && time <= w.closes);
+}
 export const HOURS_LABEL = "09:00–22:00, daily";
 export const HOURS_SENTENCE = "09:00–22:00, every day";
 export const PICKUP_SLOTS = HOURS_WINDOWS.flatMap(({ opens, closes }) => {

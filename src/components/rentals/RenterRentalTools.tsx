@@ -40,7 +40,7 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
   }
   return <div className="mt-3" data-testid="renter-rental-tools">
     <div className="flex flex-wrap gap-2" aria-label="Rental requests">
-      {(context.status === "active" ? [["extension", "Request extension"], ["items", "Request kit change"]] : [["dates", "Request dates"], ["items", "Request kit change"], ["cancel", "Cancel rental"]]).map(([kind, label]) => <button key={kind} disabled={busy || context.locked} onClick={() => open(kind as typeof mode)} className={`rounded-full border px-3 py-2 text-xs ${mode === kind ? "border-accent-400/50 bg-accent-500/10 text-white" : "border-white/10 text-white/60 hover:text-white"} disabled:opacity-35`}>{label}</button>)}
+      {(context.status === "active" ? [["items", "Request kit change"]] : [["dates", "Request dates"], ["items", "Request kit change"], ["cancel", "Cancel rental"]]).map(([kind, label]) => <button key={kind} disabled={busy || context.locked} onClick={() => open(kind as typeof mode)} className={`rounded-full border px-3 py-2 text-xs ${mode === kind ? "border-accent-400/50 bg-accent-500/10 text-white" : "border-white/10 text-white/60 hover:text-white"} disabled:opacity-35`}>{label}</button>)}
     </div>
     {mode && <form onSubmit={e => { e.preventDefault(); void submit(); }} className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
       <div className="flex justify-between gap-3"><h3 className="text-sm font-medium text-white">{mode === "cancel" ? "Cancellation terms" : "Ask the team"}</h3><button type="button" disabled={busy} onClick={() => setMode(null)} className="text-xs text-white/50">Close</button></div>

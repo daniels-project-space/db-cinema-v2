@@ -110,6 +110,7 @@ export default defineSchema({
       v.literal("cancelled"),
     ),
     holdExpiresAt: v.optional(v.number()),
+    extensionRequestId: v.optional(v.id("booking_change_requests")),
     externalRef: v.optional(v.string()), // Hygglo order id when source=hygglo
   })
     .index("by_unit", ["inventoryUnitId"])
@@ -154,6 +155,8 @@ export default defineSchema({
     pickedUpAt: v.optional(v.number()),
     checkoutExpiredAt: v.optional(v.number()),
     activeAdditionId:v.optional(v.id("rental_additions")),
+    activeExtensionId:v.optional(v.id("booking_change_requests")),
+    extensionCharges:v.optional(v.array(v.object({requestId:v.id("booking_change_requests"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),lineTotal:v.number(),returnTime:v.optional(v.string())}))),
     chatConfirmationMessageId: v.optional(v.id("messages")),
     chatUpdatedAt:v.optional(v.number()),chatUnreadOwner:v.optional(v.number()),chatUnreadRenter:v.optional(v.number()),
     cancellationDecision:v.optional(v.object({
@@ -179,6 +182,7 @@ export default defineSchema({
         qty: v.number(),
         lineTotal: v.number(),
         dailyRate: v.optional(v.number()),
+        returnTime: v.optional(v.union(v.string(), v.null())),
       }),
     ),
     removedItems: v.optional(v.array(v.object({ listingId: v.id("listings"), title: v.string(), start: v.number(), end: v.number(), qty: v.number(), lineTotal: v.number(), removedAt: v.number(), reason: v.string(), requestId: v.string() }))),
@@ -284,7 +288,7 @@ export default defineSchema({
       agreedReturnTime: v.optional(v.string()),
       supplierName: v.string(), supplierAddress: v.optional(v.string()),
       customerName: v.optional(v.string()), customerEmail: v.string(), billingAddress: v.optional(v.string()),
-      lineItems: v.array(v.object({ title: v.string(), start: v.number(), end: v.number(), qty: v.number(), lineTotal: v.number() })),
+      lineItems: v.array(v.object({ title: v.string(), start: v.number(), end: v.number(), qty: v.number(), lineTotal: v.number(), returnTime: v.optional(v.string()) })),
       subtotal: v.number(), discount: v.number(), deliveryFee: v.number(), creditApplied: v.number(),
       checkoutPaid: v.number(), rentalRefunded:v.optional(v.number()), securityPaid: v.number(), securityRefunded: v.number(),
       holdStatus: v.optional(v.string()),
@@ -694,7 +698,21 @@ export default defineSchema({
       v.literal("awaiting_payment"), // extend — pay-link issued
       v.literal("declined"),
       v.literal("applied"), // extend paid + applied
+      v.literal("expired"),
+      v.literal("withdrawn"),
+      v.literal("refund_pending"),
+      v.literal("refunded"),
     ),
+    requestKey:v.optional(v.string()),
+    baseLines:v.optional(v.string()),
+    requestedReturnTime:v.optional(v.string()),
+    approvedReturnTime:v.optional(v.string()),
+    quoteItems:v.optional(v.array(v.object({lineIndex:v.number(),listingId:v.id("listings"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number()}))),
+    approvedAt:v.optional(v.number()),
+    approvalReason:v.optional(v.string()),
+    expiresAt:v.optional(v.number()),
+    paymentIntentId:v.optional(v.string()),
+    refundId:v.optional(v.string()),
     priceDelta: v.optional(v.number()),
     stripePaymentLinkId: v.optional(v.string()),
     paymentLinkUrl: v.optional(v.string()),

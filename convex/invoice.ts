@@ -69,7 +69,7 @@ export const returnSettlementEmail = internalAction({
       if (!res.ok) throw new Error(`Return PDF responded ${res.status}`);
       const pdf = Buffer.from(await res.arrayBuffer());
       if (!pdf.length || pdf.length > 10_000_000) throw new Error("Return PDF size is invalid");
-      const lines = s.lineItems.map((line: any) => `<li>${esc(line.title)} × ${line.qty}: ${amount(line.lineTotal)}</li>`).join("");
+      const lines = s.lineItems.map((line: any) => `<li>${esc(line.title)} × ${line.qty}: ${amount(line.lineTotal)}${line.returnTime ? ` · return ${new Date(line.end).toISOString().slice(0,10)} at ${esc(line.returnTime)} London time` : ""}</li>`).join("");
       const late = s.lateAssessed > 0
         ? `<p><b>Separate late rental time assessed: ${amount(s.lateAssessed)}.</b> This is not yet collected. An itemised notice and seven-day dispute period follow separately.</p>`
         : s.lateWaived > 0 ? `<p>Late rental time of ${amount(s.lateWaived)} was waived.</p>` : "";

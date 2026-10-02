@@ -395,7 +395,7 @@ export const expireUnpaidPending = internalMutation({
   args: { bookingId: v.id("bookings"), sessionId: v.optional(v.string()) },
   handler: async (ctx, { bookingId, sessionId }) => {
     const booking = await ctx.db.get(bookingId);
-    if (!booking || booking.activeAdditionId || booking.status !== "pending_payment" ||
+    if (!booking || (booking.activeAdditionId || booking.activeExtensionId) || booking.status !== "pending_payment" ||
         (booking.stripeCheckoutSessionId ?? undefined) !== sessionId) return false;
     const res = await ctx.db.query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId)).collect();
@@ -560,7 +560,7 @@ export const attachAddon = internalMutation({
   const prior=await ctx.db.query("rental_additions").withIndex("by_session",q=>q.eq("sessionId",a.sessionId)).first();
   if(prior)return {closed:prior.status!=="applied",already:true};
   const b=await ctx.db.get(a.bookingId);
-  if(!b||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||b.activeAdditionId)return {closed:true};
+  if(!b||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||(b.activeAdditionId || b.activeExtensionId))return {closed:true};
   const listing=await ctx.db.get(a.listingId);if(!listing)return {closed:true};
   const line={listingId:a.listingId,title:listing.title,start:a.start,end:a.end,qty:1,lineTotal:a.total,dailyRate:listing.pricing.daily};
   if(!Number.isFinite(a.total)||a.total<=0||a.start%86400000!==0||a.end%86400000!==0)return {closed:true};
@@ -641,7 +641,7 @@ export const adminSetStatus = mutation({
     const booking = await ctx.db.get(bookingId);
     if (!booking) throw new Error("Booking not found");
     if(booking.returnDecision)throw Error("Return settlement is in progress; finish it before changing this rental.");
-    if(booking.activeAdditionId)throw Error("Finish or withdraw the item addition before handover.");
+    if((booking.activeAdditionId || booking.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before handover.");
     if(booking.cancellationDecision)throw Error("Cancellation is in progress; resume its settlement before changing this rental.");
     if (["cancelled", "returned"].includes(booking.status) && booking.status !== status)
       throw new Error("A closed booking cannot be reopened by changing its status.");
@@ -687,7 +687,7 @@ export const beginReturnDecision = internalMutation({
   handler: async (ctx, { bookingId, actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active", "returned"].includes(b.status)) throw new Error("Booking is not available for return.");
-    if(b.activeAdditionId)throw Error("Finish or withdraw the item addition before returning this rental");
+    if((b.activeAdditionId || b.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before returning this rental");
     if(b.cancellationDecision)throw Error("Cancellation settlement is in progress; resume it first.");
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("Wait for the rental refund to settle before recording the return.");
@@ -911,6 +911,7 @@ export const lateFeeContext = internalQuery({
       stripePaymentIntentId: b.stripePaymentIntentId ?? null,
       actualReturnedAt: b.actualReturnedAt ?? null,
       agreedReturnTime: b.returnTime ?? null,
+      agreedReturns: b.lineItems.map(li => ({ title: li.title, end: li.end, time: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime })),
       stripeDepositIntentId: b.stripeDepositIntentId ?? null,
       depositHoldAmount: b.depositHoldAmount ?? 0,
       depositKept: b.depositKept ?? 0,
@@ -1108,7 +1109,7 @@ export const remindersFeed = internalQuery({
         remindedPickup: b.remindedPickup ?? false,
         remindedReturn: b.remindedReturn ?? false,
         remindedReview: b.remindedReview ?? false,
-        summary: b.lineItems.map((li) => li.title).join(", "),
+        summary: b.lineItems.map((li) => `${li.title} · return ${new Date(li.end).toISOString().slice(0,10)}${(li.returnTime === undefined ? b.returnTime : li.returnTime) ? ` at ${(li.returnTime === undefined ? b.returnTime : li.returnTime)} London time` : ""}`).join("; "),
       });
     }
     return out;
@@ -1521,7 +1522,7 @@ export const getForCancel = internalQuery({
 
 /** Freeze cancellation policy and order edits before any external payment call. */
 export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers"))},handler:async(ctx,{bookingId,fullCreditOfferId})=>{
- const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if(b?.activeAdditionId)throw Error("Finish or withdraw the item addition before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
+ const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeAdditionId || b?.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
  if(!b.cancellationDecision && (["starting","processing"].includes(b.depositHoldRenewalStatus ?? "") ||
   (b.status === "confirmed" && b.depositHoldAmount && b.depositHoldStatus === "awaiting_payment"))) throw Error("Security hold setup or renewal is still processing. Please retry once it is resolved.");
  if(b.cancellationDecision){

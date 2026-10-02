@@ -849,9 +849,7 @@ export const finalize = action({
 
     // extend payment → apply the extra days to the targeted item(s)
     if (paid && m.changeRequestId) {
-      const result=await ctx.runMutation(internal.changes._applyExtendPaid, { requestId: m.changeRequestId as any });
-      if(result.closed&&session.payment_intent)await stripe().refunds.create({payment_intent:typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent.id},{idempotencyKey:`dbc-closed-change-${m.changeRequestId}`});
-      return { bookingId: null, paid };
+      return ctx.runAction(internal.rentalExtensionPayments.finalize, { sessionId: session.id });
     }
 
     const bookingId = (m.bookingId as string) ?? null;
@@ -995,8 +993,7 @@ export const stripeWebhook = internalAction({
         } else if (m.membershipTier) {
           await fulfillMembership(ctx, await stripe().checkout.sessions.retrieve(s.id));
         } else if (m.changeRequestId) {
-          const result=await ctx.runMutation(internal.changes._applyExtendPaid, { requestId: m.changeRequestId as any });
-          if(result.closed&&pi)await stripe().refunds.create({payment_intent:pi},{idempotencyKey:`dbc-closed-change-${m.changeRequestId}`});
+          await ctx.runAction(internal.rentalExtensionPayments.finalize, { sessionId: s.id });
         }
       }
     }

@@ -58,7 +58,7 @@ export function ReturnRentalForm({ booking, token, onClose }: { booking: any; to
     <label className="mt-3 block">Actual physical return time<input type="datetime-local" value={returnedAt} onChange={(e) => setReturnedAt(e.target.value)} className="input mt-1 w-full [color-scheme:dark]" /></label>
     <div className="mt-3 rounded-lg border border-white/10 p-2.5">
       <div className="font-semibold text-white">Late rental time · {quote ? formatGbp(quote.amount) : "—"}</div>
-      {!booking.returnTime && <p className="mt-1 text-amber-200">No agreed return time is stored for this booking, so no automatic late charge can be assessed.</p>}
+      {!booking.returnTime && !booking.lineItems.some((li: { returnTime?: string | null }) => li.returnTime) && <p className="mt-1 text-amber-200">No agreed return time is stored for this booking, so no automatic late charge can be assessed.</p>}
       {quote?.breakdown.map((line, i) => <div key={i} className="mt-1 flex justify-between gap-2"><span>{line.title} · {line.days} commenced day{line.days === 1 ? "" : "s"} × {formatGbp(line.dailyRate)}</span><span>{formatGbp(line.amount)}</span></div>)}
       {quote?.breakdown.some((line) => line.dailyRate === 0) && <p className="mt-1 text-amber-200">A booked daily rate is missing for at least one item; it will not be charged automatically.</p>}
       {quote && quote.amount > 0 && <label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={chargeLate} onChange={(e) => setChargeLate(e.target.checked)} /> Apply this separately agreed late rental charge</label>}
