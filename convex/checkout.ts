@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { assertCreditOffer, creditOfferFingerprint } from "./lib/rentalCreditPolicy";
 import { cancellationPaymentPlan,rentalRefundPlan,securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { lateFeeQuote } from "./lib/lateFee";
-import { AGREEMENTS } from "../src/lib/legal";
+import { assertCurrentAgreement } from "../shared/rentalAgreement";
 import { sendMail } from "./lib/mailer";
 import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
 import { tierByKey, allocateSaving, TIERS } from "./lib/membership";
@@ -178,6 +178,7 @@ export const start = action({
     agreement: v.optional(
       v.object({
         name: v.string(),
+        requestId: v.optional(v.string()),
         securityHoldConsent: v.boolean(),
         laterChargeConsent: v.boolean(),
         documents: v.array(v.object({ kind: v.string(), version: v.string() })),
@@ -213,9 +214,8 @@ export const start = action({
     const slot = /^([01]\d|2[0-3]):[0-5]\d$/;
     if (!a.pickupTime || !slot.test(a.pickupTime) || !a.returnTime || !slot.test(a.returnTime))
       throw new Error("Choose the agreed pickup and return times before paying.");
-    if (!AGREEMENTS.every((expected) => a.agreement!.documents.some((accepted) =>
-      accepted.kind === expected.kind && accepted.version === expected.version)))
-      throw new Error("Please review and accept the current rental agreements before paying.");
+    assertCurrentAgreement(a.agreement, a.fulfilment);
+    if (!a.agreement?.requestId) throw Error("Review and sign this booking before paying.");
 
     await assertDiditCheckoutCapacity(
       process.env.DIDIT_API_KEY!,
@@ -303,7 +303,7 @@ export const start = action({
     // Reserved transactionally inside createPending (double-spend-safe): it caps to the account's
     // available balance minus credit already reserved by its other pending checkouts, and returns
     // the amount actually applied, which drives the Stripe discount below.
-    const { bookingId, creditApplied } = await ctx.runMutation(internal.bookings.createPending, {
+    const { bookingId, creditApplied, reused, sessionId: existingSessionId } = await ctx.runMutation(internal.bookings.createPending, {
       pricingVersion:price.pricingVersion,benefitKind:price.benefitKind,
       refundCreditApplied:price.refundCreditApplied,earnedCreditApplied:price.earnedCreditApplied,
       referralCode:price.referralCode,referralRewardId:price.referralRewardId,
@@ -345,6 +345,7 @@ export const start = action({
       repeatSourceFingerprint: price.repeatSourceFingerprint,
       currency: "GBP",
       agreementName: a.agreement?.name,
+      agreementRequestId: a.agreement?.requestId,
       securityHoldConsent: a.agreement?.securityHoldConsent,
       laterChargeConsent: a.agreement?.laterChargeConsent,
       agreementDocs: a.agreement?.documents,
@@ -354,6 +355,12 @@ export const start = action({
       pickupTime: a.pickupTime,
       returnTime: a.returnTime,
     });
+    if (reused) {
+      if (!existingSessionId) throw Error("This checkout is still pending reconciliation. Do not submit a second acceptance or payment.");
+      const existingSession = await sb.checkout.sessions.retrieve(existingSessionId);
+      if (existingSession.status !== "open" || !existingSession.url) throw Error("This checkout has completed or expired. Use the existing booking or contact us.");
+      return {url:existingSession.url};
+    }
 
     // Reserve the units while Stripe resolves payment. The 35-minute marker is
     // only for cleaning up orphaned rows after a terminal provider outcome;

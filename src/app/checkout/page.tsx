@@ -19,6 +19,7 @@ import { usePromo } from "@/components/cart/usePromo";
 import { useBasketPrice } from "@/components/cart/useBasketPrice";
 import { useAccount } from "@/components/account/AccountProvider";
 import { AGREEMENTS } from "@/lib/legal";
+import { DELIVERY_TERMS_VERSION, DELIVERY_ACCEPTANCE_TEXT } from "../../../shared/rentalAgreement";
 import { depositFor, depositChargeFor, smallDamageHold, formatGbp, type Protection } from "@/lib/pricing";
 
 import { dayMs as ms } from "@/lib/dates";
@@ -96,6 +97,11 @@ export default function CheckoutPage() {
   const [deliveryAgreed, setDeliveryAgreed] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState("");
+  const agreementRequest = useRef<string | null>(null);
+  useEffect(() => {
+    setAgreed(false);
+    agreementRequest.current = null;
+  }, [signature, name, email, billingAddress, pickupTime, returnTime, address]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -154,6 +160,7 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     setAgreed(false);
+    agreementRequest.current = null;
     setQuoteError(null);
     if (!priceArgs.items.length || (fulfilment === "delivery" && (!dq?.ok || !quotedPostcode))) return;
     let cancelled = false;
@@ -201,7 +208,7 @@ export default function CheckoutPage() {
     track({ type: "checkout_start", sessionId: getSessionId() }).catch(() => {});
     try {
       const docs: { kind: string; version: string }[] = AGREEMENTS.map((d) => ({ kind: d.kind, version: d.version }));
-      if (fulfilment === "delivery") docs.push({ kind: "delivery-disclaimer", version: "2026-06-v1" });
+      if (fulfilment === "delivery") docs.push({ kind: "delivery-disclaimer", version: DELIVERY_TERMS_VERSION });
       const { url } = await start({
         items: items.map((i) => ({
           listingId: i.listingId as any,
@@ -225,7 +232,7 @@ export default function CheckoutPage() {
         protection,
         pickupTime,
         returnTime,
-        agreement: { name: signature.trim(), securityHoldConsent: agreed, laterChargeConsent: agreed, documents: docs },
+        agreement: { name: signature.trim(), requestId: agreementRequest.current ?? (agreementRequest.current = crypto.randomUUID()), securityHoldConsent: agreed, laterChargeConsent: agreed, documents: docs },
       });
       window.location.href = url;
     } catch (e: any) {
@@ -352,7 +359,7 @@ export default function CheckoutPage() {
                     <p className="text-xs text-amber-200">Include the same postcode in your delivery address as the quote above.</p>}
                   <label className="flex items-start gap-2 text-xs leading-relaxed text-white/55">
                     <input type="checkbox" checked={deliveryAgreed} onChange={(e) => setDeliveryAgreed(e.target.checked)} className="mt-0.5 accent-accent-500" />
-                    <span>I understand delivery uses a third-party courier (Addison Lee). Times are estimates only — no exact time is guaranteed and delivery may be affected by traffic. Estimates are accurate within ~15%; the final price is confirmed by the courier. No refunds for courier delays.</span>
+                    <span>{DELIVERY_ACCEPTANCE_TEXT}</span>
                   </label>
                 </div>
               )}
@@ -396,7 +403,7 @@ export default function CheckoutPage() {
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <span className="flex min-w-0 flex-wrap items-center gap-2.5 text-sm font-medium text-white/85">
                       <IconShield className={`h-4.5 w-4.5 shrink-0 ${protection === "verify" ? "text-accent-400" : "text-white/40"}`} />
-                      ID verification + insurance
+                      ID verification & security
                       <span className="rounded bg-accent-500/20 px-1.5 py-0.5 font-mono text-[10px] uppercase text-accent-300">
                         recommended
                       </span>
@@ -429,13 +436,13 @@ export default function CheckoutPage() {
             </StepCard>
 
             {/* 04 — agreements */}
-            <StepCard n="04" title="Agreements & signature" sub="Required for your booking, deposit and insurance cover." done={signDone} delay={210}>
+            <StepCard n="04" title="Agreements & signature" sub="Required before hire. Security does not cap your responsibility." done={signDone} delay={210}>
               <div data-testid="rental-consent" className="rounded-xl border border-white/10 bg-black/10 p-4">
                 <p className="text-xs leading-5 text-white/60">{depositAmount > 0 ? `${formatGbp(depositAmount)} refundable deposit is charged with this booking.` : "Your upfront refundable deposit is waived."} {holdAmount > 0 ? `I authorise a separate ${formatGbp(holdAmount)} card hold. It is not charged; renewal may need bank approval.` : "No separate card hold is required."}</p>
-                <p className="mt-2 text-xs leading-5 text-white/60">I agree to separately itemised late rental time at each booked item’s daily rate, and documented loss, damage or insurance excess. After notice, an unused active hold may cover late fees if no damage is due; any balance may be attempted on my saved card. No amount is collected twice. A new charge may need bank authentication.</p>
-                <details className="mt-3 text-xs text-white/55"><summary className="cursor-pointer text-accent-300">Read the rental agreements</summary><ul className="mt-2 space-y-1.5">{AGREEMENTS.map(d=><li key={d.kind}><a href={`/legal/${d.kind}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{d.title}</a></li>)}</ul></details>
+                <p className="mt-2 text-xs leading-5 text-white/60">I remain responsible for evidenced loss, theft, missing items, non-return and damage under the Rental Agreement, excluding fair wear, pre-existing defects and loss attributable to DB. Security and DB’s insurance excess are not automatic liability caps. My own insurance is optional for currently declared company-owned or declared leased kit; rental charges do not buy comprehensive renter cover. Separately itemised late time and properly owed loss/damage follow notice, evidence and a dispute opportunity. An unused active hold may cover late time if no damage is due; a remaining saved-card payment may require authentication. No amount is collected twice.</p>
+                <details className="mt-3 text-xs text-white/55"><summary className="cursor-pointer text-accent-300">Read the rental agreements</summary><ul className="mt-2 space-y-1.5">{AGREEMENTS.map(d=><li key={d.kind}><a href={`/legal/${d.kind}?version=${encodeURIComponent(d.version)}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{d.title} · {d.version}</a></li>)}</ul></details>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">
-                  <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreed} disabled={!currentQuote} onChange={e=>setAgreed(e.target.checked)} className="mt-1 accent-accent-500 disabled:opacity-40"/>
+                  <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreed} disabled={!currentQuote} onChange={e=>{setAgreed(e.target.checked);agreementRequest.current=null;}} className="mt-1 accent-accent-500 disabled:opacity-40"/>
                   <span>I have read and accept the rental agreements, the security amounts above and the separate later-charge authority.</span>
                 </label>
               </div>

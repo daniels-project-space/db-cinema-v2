@@ -28,6 +28,8 @@ import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
 import { rentalCancellationStart, cancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
+import { LEGAL_VERSION } from "../src/lib/legal";
+import { assertAgreementBeforeRelease, snapshotAgreement, readAgreementSnapshot, agreementRequestFingerprint as fingerprintAgreement } from "../shared/rentalAgreement";
 
 
 /** Only an attested Stripe create rejection may release an unbound checkout.
@@ -112,6 +114,7 @@ export const createPending = internalMutation({
     repeatSourceFingerprint: v.optional(v.string()),
     currency: v.string(),
     agreementName: v.optional(v.string()),
+    agreementRequestId: v.optional(v.string()),
     securityHoldConsent: v.optional(v.boolean()),
     laterChargeConsent: v.optional(v.boolean()),
     agreementDocs: v.optional(
@@ -124,6 +127,18 @@ export const createPending = internalMutation({
     returnTime: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
+    const newAgreement = a.agreementDocs?.some(d => d.version === LEGAL_VERSION);
+    const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
+    if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
+    if (a.agreementRequestId) {
+      if (!/^[a-zA-Z0-9-]{16,80}$/.test(a.agreementRequestId)) throw Error("Invalid acceptance attempt.");
+      const previous = await ctx.db.query("bookings").withIndex("by_agreement_request", q => q.eq("agreementRequestId", a.agreementRequestId)).unique();
+      if (previous) {
+        if (previous.agreementRequestFingerprint !== agreementRequestFingerprint) throw Error("This acceptance attempt already belongs to different booking particulars. Review and accept again.");
+        if (previous.status !== "pending_payment") throw Error("This acceptance attempt has already completed or closed. Use the existing booking.");
+        return {bookingId:previous._id,creditApplied:previous.creditApplied??0,reused:true,sessionId:previous.stripeCheckoutSessionId};
+      }
+    }
     if(a.securityPolicyVersion && a.securityPolicyVersion!==SECURITY_POLICY_VERSION)throw Error("Unsupported security policy.");
     const single=a.pricingVersion===SINGLE_BENEFIT_VERSION;
     if(a.pricingVersion&&!single)throw Error("Unsupported pricing version.");
@@ -231,6 +246,8 @@ export const createPending = internalMutation({
     if (Math.round(chargedTotal * 100) !== Math.round(a.expectedTotalDue * 100))
       throw new Error("Your available credit changed. Review the updated total before paying.");
 
+    const acceptedAt = Date.now();
+    const agreementSnapshot = newAgreement ? snapshotAgreement(a, acceptedAt, chargedTotal, creditApplied) : undefined;
     const bookingId = await ctx.db.insert("bookings", {
       pricingVersion:a.pricingVersion,benefitKind:a.benefitKind,
       refundCreditApplied:a.refundCreditApplied,earnedCreditApplied:a.earnedCreditApplied,creditAllocations:allocations,
@@ -264,7 +281,10 @@ export const createPending = internalMutation({
       rentalPaidPence: a.membershipCheckoutId ? Math.round(chargedTotal * 100) : undefined,
       currency: a.currency,
       agreementName: a.agreementName,
-      agreementSignedAt: a.agreementName ? Date.now() : undefined,
+      agreementSignedAt: a.agreementName ? acceptedAt : undefined,
+      agreementSnapshot,
+      agreementRequestId: a.agreementRequestId,
+      agreementRequestFingerprint,
       securityHoldConsentAt: a.securityHoldConsent ? Date.now() : undefined,
       laterChargeConsentAt: a.laterChargeConsent ? Date.now() : undefined,
       agreementDocs: a.agreementDocs,
@@ -652,6 +672,7 @@ export const adminSetStatus = mutation({
     if (status === "active" && booking.depositHoldAmount &&
         (booking.depositHoldStatus !== "held" || (booking.depositHoldExpiresAt ?? 0) <= Date.now()))
       throw new Error("The card hold must be active before handover.");
+    if (status === "active") assertAgreementBeforeRelease(booking);
     await ctx.db.patch(bookingId, { status, ...(status === "active" ? { pickedUpAt: booking.pickedUpAt ?? Date.now(), deliveryBenefitConsumed: !!booking.deliveryBenefitMonth } : {}) });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
   },
@@ -1188,6 +1209,8 @@ export const invoiceData = query({
       rentalRefunds:rentalRefunds.map(r=>({amount:r.amountPence/100,status:r.status,reason:r.reason})),
       cancellationRefund:b.refundAmount??0,accountCreditIssued:issuedCredit?.amount??0,
       number: `DBC-${String(b._id).slice(-8).toUpperCase()}`,
+      agreementSnapshot: readAgreementSnapshot(b.agreementSnapshot),
+      acceptedAgreementEvidence: {name:b.agreementName??null,signedAt:b.agreementSignedAt??null,documents:b.agreementDocs??[]},
       issuedAt: b._creationTime,
       supplierName: process.env.BUSINESS_LEGAL_NAME || "Db Cinema Rentals",
       supplierAddress: process.env.BUSINESS_INVOICE_ADDRESS || undefined,

@@ -263,7 +263,7 @@ const FORM_SEVEN_URL = "https://form7.net";
 const FORM_SEVEN_SAMPLE_URL = `${FORM_SEVEN_URL}/?samplePlan=Free%20six-second%20sample`;
 
 const PARTNER_FACTS: string[] = [
-  `FORM / SEVEN is our creative collaboration — an AI advertising agency founded by Daniel. Their site describes AI-enabled production for UGC-style ads and product films. Say explicitly that their ads are AI-produced. Do not portray them as a conventional film crew, studio for hire, or real creators filming testimonials; UGC-style describes the ad style, not a real customer experience. Fact-checked against https://form7.net on 13 September 2026 and the owner's correction.`,
+  `FORM / SEVEN is our creative collaboration — an AI advertising agency. Their site describes AI-enabled production for UGC-style ads and product films. Say explicitly that their ads are AI-produced. Do not portray them as a conventional film crew, studio for hire, or real creators filming testimonials; UGC-style describes the ad style, not a real customer experience. Fact-checked against https://form7.net on 13 September 2026 and the owner's correction.`,
   `What they make: single ready-to-post ads, multi-variant campaign packs for a launch, and — optionally — ongoing Instagram management (content calendar, captions, scheduled publishing, agreed reply windows).`,
   `THE FREE AD: customers can request a free six-second sample of their product. Briefs are reviewed before production; never promise an instant or guaranteed render. This is the easiest thing to point an interested customer at, so lead with it.`,
   `Db Cinema Rentals customers get 10% off FORM / SEVEN work — a genuine saving, and the reason the collaboration exists.`,

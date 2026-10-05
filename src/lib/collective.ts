@@ -70,11 +70,11 @@ export const GEAR_PROVIDER_TERMS: { h: string; p: string }[] = [
   },
   {
     h: "Custody during the leasing period",
-    p: "While an item is out on a rental, Db Cinema is responsible for handover, condition checks and return. Renters are ID-verified and covered by a damage hold plus insurance. For loss or damage beyond fair wear, we manage the claim and you're compensated per the agreed item value.",
+    p: "Db Cinema manages handover, condition checks and return. Renter security is not comprehensive insurance. This third-party owner programme is not expressly underwritten under the current quotation, which declared £0 cross-hire exposure. Before an item is hired, its replacement value, hire period, insurance arrangements and any compensation commitment need separate written review. Personally owned equipment leased to the company is separately declared to its insurer. Listing does not establish automatic cover or guaranteed claim payment.",
   },
   {
     h: "Condition, maintenance & valuation",
-    p: "Items must be fully working, clean and complete with their standard accessories. We agree a documented replacement value per item up front, which sets insurance cover and any compensation.",
+    p: "Items must be fully working, clean and complete with their standard accessories. We agree a documented replacement value per item up front for underwriting review and reasonable valuation; it does not alone establish insurance cover or guaranteed compensation.",
   },
   {
     h: "Paid out monthly",

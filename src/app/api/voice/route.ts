@@ -1,8 +1,9 @@
+import { rentalSecurity } from "../../../../shared/rentalSecurity";
 import { contentsText } from "../../../../shared/rentalContents";
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
-import { quote, depositFor } from "@/lib/pricing";
+import { quote } from "@/lib/pricing";
 import { dayMs } from "@/lib/dates";
 import { rateLimit } from "@/lib/ratelimit";
 import { londonToday, resolveDate, inclusiveDays, speak } from "@/lib/voiceDates";
@@ -49,21 +50,10 @@ const say = (result: string, extra: Record<string, unknown> = {}) =>
 
 const money = (n: number | null | undefined) => (n == null ? "" : `£${Math.round(n)}`);
 
-/**
- * What the customer actually pays up front to hold the gear.
- *
- * A listing's `depositAmount` is its REPLACEMENT VALUE, not a charge — the
- * checkout runs it through `depositFor` against the customer's protection
- * choice, which defaults to "verify" (ID + insurance) and yields a small
- * refundable hold of 5%, floored at £50 and capped at £200. Quoting the raw
- * figure had Gaffer telling callers an FX3 needed £3,200 down when the real
- * hold is £160 — the kind of number that ends a call.
- *
- * The full replacement deposit only applies if the customer declines the
- * insurance route, so it's mentioned as the alternative, never the headline.
- */
-function hold(replacementValue: number | null | undefined): number {
-  return depositFor("verify", Math.max(0, Number(replacementValue) || 0));
+/** Per-item estimate only. Final combined-basket security is quoted at checkout. */
+function securitySummary(replacementValue: number | null | undefined): string {
+  const {deposit, hold}=rentalSecurity("verify",Math.max(0,Number(replacementValue)||0));
+  return `, with ${money(deposit)} refundable security before any exemption${hold ? ` and a separate ${money(hold)} card hold` : " and no separate hold"}. Final basket security is shown at checkout; security is not a liability cap`;
 }
 
 /** Read prices as a range the way a person would, not as a list. */
@@ -219,7 +209,7 @@ export async function POST(req: NextRequest) {
           return say(
             `The ${shorten(top.title)} is ${money(qt.perDay)} a day` +
             (days > 1 ? `, ${money(qt.total)} for ${days} days` : "") +
-            `${top.deposit ? `, plus a ${money(hold(top.deposit))} refundable holding deposit` : ""}. ` +
+            `${securitySummary(top.deposit)}. ` +
             `${packed} Shall I check it's free for your dates?${alt}`,
             { items: hits },
           );
@@ -268,7 +258,7 @@ export async function POST(req: NextRequest) {
           return say(
             `Good news — the ${shorten(top.title)} is free ${days > 1 ? `from ${speak(start.date)} to ${speak(endDate)}` : `on ${speak(start.date)}`}, ` +
             `at ${money(qt.perDay)} a day${days > 1 ? `, ${money(qt.total)} for the ${days} days` : ""}` +
-            `${top.deposit ? `, plus a ${money(hold(top.deposit))} refundable holding deposit` : ""}. ` +
+            `${securitySummary(top.deposit)}. ` +
             `${contentsText(top)} We deliver across London. Shall I take your details and hold it?`,
             { items: hits, start: start.date, end: endDate, days },
           );

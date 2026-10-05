@@ -39,8 +39,8 @@ export default function JoinPage() {
                 onClick={() => setPath("gear-provider")}
                 eyebrow="Earn from your kit"
                 title="List your gear"
-                body={`Put idle equipment on our catalogue. We handle listing, bookings, vetting and insurance — you keep ${GEAR_SPLIT.provider}% of every rental.`}
-                bullets={[`${GEAR_SPLIT.provider}% of rental revenue to you`, "You keep full ownership", "We manage renters & insurance", "Free Plus membership included"]}
+                body={`Put idle equipment on our catalogue. We handle listing, bookings and vetting; insurance arrangements require separate review — you keep ${GEAR_SPLIT.provider}% of every rental.`}
+                bullets={[`${GEAR_SPLIT.provider}% of rental revenue to you`, "You keep full ownership", "We manage renters; cover needs separate review", "Free Plus membership included"]}
               />
               <ChoiceCard
                 onClick={() => setPath("professional")}

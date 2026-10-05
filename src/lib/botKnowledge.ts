@@ -8,7 +8,7 @@ OPENING HOURS: pickups & returns run ${HOURS_SENTENCE}. Delivery times are arran
 
 DELIVERY: collect from central London, or have it delivered. Delivery is quoted both ways (there and back) by distance and load — larger kit (speakers, lighting, DJ rigs) travels by van. The customer picks pickup or delivery and a time window at checkout.
 
-PROTECTION: at checkout the renter chooses either (a) ID verification + insurance with a small refundable damage hold (£50–£200) — this is the default — or (b) a larger refundable security deposit. ID verification is saved to the account after the first time, so verified renters skip it next time.
+SECURITY AND LIABILITY: use the current checkout quote for refundable security and any separate hold. Security is not a liability cap or insurance purchase; the company insurance excess is not an automatic renter cap or charge. Own insurance is optional for currently declared company-owned or declared leased equipment. Renter responsibility follows evidenced repair/equivalent replacement costs, excluding fair wear, pre-existing defects and DB-caused loss, with no double recovery. Verification checks identity AND address; a provider pass alone is not two-source evidence. Current reuse has a 90-day/earlier-ID-expiry cap, unchanged details and provider recheck; Didit/reuse approval remains under broker review. Do not claim active cover, automatic third-party-owner cover, overseas cover or drone aviation liability. Escalate insurance, incidents and disputes to the team promptly.
 
 BOOKING: browse the catalogue, pick dates on the calendar, add gear to the "kit", and check out securely (Stripe). Confirmation arrives by email. Add-on gear can be added to an existing booking up to 1 hour before the rental start.
 
