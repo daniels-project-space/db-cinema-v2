@@ -223,6 +223,9 @@ export default defineSchema({
     verificationReusedFrom: v.optional(v.id("bookings")),
     depositRefunded: v.optional(v.boolean()),
     agreementSignedAt: v.optional(v.number()),
+    agreementSnapshot: v.optional(v.string()),
+    agreementRequestId: v.optional(v.string()),
+    agreementRequestFingerprint: v.optional(v.string()),
     securityHoldConsentAt: v.optional(v.number()),
     securityPolicyVersion: v.optional(v.string()),
     laterChargeConsentAt: v.optional(v.number()),
@@ -308,6 +311,7 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_verificationProvider_status", ["verificationProvider", "status"])
     .index("by_verification_reused", ["verificationReusedFrom"])
+    .index("by_agreement_request", ["agreementRequestId"])
     .index("by_stripePaymentIntentId", ["stripePaymentIntentId"])
     .index("by_guestEmail", ["guestEmail"])
     .index("by_review_check", ["status", "reviewFollowUpCheckedAt"]),

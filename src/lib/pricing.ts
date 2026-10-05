@@ -133,11 +133,11 @@ export function quote(p: Pricing, days: number): Quote {
   };
 }
 
-// ── Protection model: ID+insurance (small damage hold) vs full deposit ──
+// Security amounts are separate from renter liability and company insurance.
 import type { Protection } from "../../shared/rentalSecurity";
 export { depositFor, depositChargeFor, smallDamageHold, type Protection } from "../../shared/rentalSecurity";
 
 export const PROTECTION_LABEL: Record<Protection, string> = {
-  verify: "Refundable damage hold (covers minor damage)",
+  verify: "Refundable security payment and any quoted card hold",
   deposit: "Refundable security deposit",
 };

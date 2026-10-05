@@ -36,7 +36,7 @@ export default function AboutPage() {
           </Reveal>
           <Reveal delay={120}>
             <p>
-              Every item is owned, maintained and tested by us. Whether you&apos;re
+              Our rental equipment includes company equipment and equipment leased to the company and declared to its insurer. We manage its maintenance and testing. Whether you&apos;re
               shooting a short film, a music video, a wedding or a brand campaign,
               you get pro gear at fair daily rates — and the longer you rent, the
               more you save.
