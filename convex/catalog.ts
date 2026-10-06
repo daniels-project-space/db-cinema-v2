@@ -62,7 +62,7 @@ const card = (l: any) => ({
   demandScore: l.demandScore ?? 0,
   marketingOnly: isMarketingOnly(l),
   quietDeal: l.quietDeal ?? null,
-  displayOnly: !!l.suppressed, // marketing-only / display item — not bookable, "register interest" only
+  displayOnly: !!l.suppressed && !isMarketingOnly(l),
 });
 
 export const allBasic = query({
@@ -284,7 +284,8 @@ export const getListingBySlug = query({
       depositAmount: l.depositAmount,
       minimumRentalDays: l.minimumRentalDays ?? 1,
       unavailableDates: l.unavailableDates ?? [],
-      displayOnly: !!l.suppressed,
+      marketingOnly: isMarketingOnly(l),
+      displayOnly: !!l.suppressed && !isMarketingOnly(l),
       demandScore: l.demandScore ?? 0,
     };
   },
