@@ -115,13 +115,6 @@ export function SiteHeader() {
 
   const avatar = me?.avatarUrl ?? null;
 
-  const gearClick = (e: React.MouseEvent, href: string) => {
-    if (href === "/gear" && pathname === "/" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      e.preventDefault();
-      window.dispatchEvent(new CustomEvent("dbc:gear-turn"));
-    }
-  };
-
   const mobileLinks: NavItem[] = [
     ...NAV,
     { href: "/account", label: me ? "My account" : "Account" },
@@ -220,7 +213,6 @@ export function SiteHeader() {
                   <Link
                     key={n.href}
                     href={n.href}
-                    onClick={(e) => gearClick(e, n.href)}
                     className={`nav-link transition-colors ${
                       active ? "active text-white" : "text-white/55 hover:text-white"
                     }`}
@@ -257,7 +249,7 @@ export function SiteHeader() {
                     </span>
                   </button>
                   {menu && (
-                    <div className="absolute right-0 top-full mt-2 w-60 overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900 shadow-2xl shadow-black/60">
+                    <div className="absolute right-0 top-full mt-2 max-h-[calc(100dvh-96px)] w-60 max-w-[calc(100vw-24px)] overflow-y-auto rounded-2xl border border-white/10 bg-charcoal-900 shadow-2xl shadow-black/60">
                       <div className="flex items-center gap-3 border-b border-white/5 p-4">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <AccountFrame tier={memberTier?.key}><ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-10 !w-10" /></AccountFrame>
@@ -332,7 +324,7 @@ export function SiteHeader() {
                     <IconUser className="h-4 w-4" />
                   </button>
                   {menu && (
-                    <div className="absolute right-0 mt-2 w-52 overflow-hidden rounded-2xl border border-white/10 bg-charcoal-900 shadow-2xl shadow-black/60">
+                    <div className="absolute right-0 top-full mt-2 max-h-[calc(100dvh-96px)] w-52 max-w-[calc(100vw-24px)] overflow-y-auto rounded-2xl border border-white/10 bg-charcoal-900 shadow-2xl shadow-black/60">
                       <Link
                         href="/account"
                         onClick={() => setMenu(false)}
@@ -458,10 +450,7 @@ export function SiteHeader() {
               <Link
                 key={n.href + n.label}
                 href={n.href}
-                onClick={(e) => {
-                  setMobile(false);
-                  gearClick(e, n.href);
-                }}
+                onClick={() => setMobile(false)}
                 className="group flex items-center justify-between border-b border-white/[0.06] py-4"
                 style={style}
               >

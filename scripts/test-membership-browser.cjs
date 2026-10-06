@@ -58,6 +58,7 @@ async function connect(url, existingId) {
 
 const { ConvexHttpClient } = require("convex/browser"),
   { api } = require("../convex/_generated/api.js");
+const { marketingRedirect } = require("./lib/rentalTestHarness.cjs").load("convex/lib/marketingInventory.ts");
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   const root = process.env.DBC_BROWSER_ROOT || "http://127.0.0.1:41795",
@@ -65,7 +66,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       process.env.DBC_CONVEX_URL || "https://veracious-wombat-196.convex.cloud",
     );
   const r = await cv.query(api.catalog.listListings, {}),
-    rows = Array.isArray(r) ? r : (r.items ?? r.listings ?? []),
+    rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !marketingRedirect(l)),
     l = rows.filter(l=>l.pricing && !l.displayOnly).sort((a,b)=>b.pricing.daily-a.pricing.daily)[0];
   const future = new Date(Date.now() + 60 * 86400000);
   const start =
@@ -213,18 +214,20 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // Observe the entire transition. Waiting for the card to return and then
     // scrolling to it hid the disappearing-card defect in the older test.
     await c.evaluate(`(()=>{window.__missingMembershipOffer=false;window.__membershipOfferObserver=new MutationObserver(()=>{const card=(${card});if(!card||card.querySelector('h3')?.innerText!==${JSON.stringify(hook)})window.__missingMembershipOffer=true});window.__membershipOfferObserver.observe(document.body,{childList:true,subtree:true,characterData:true})})()`);
-    await nativeClick(`(${card}).querySelector('[data-testid="remove-membership"]')`);
+    await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
     if (name === 'checkout') {
       await until(`!!document.querySelector('[data-testid="membership-remove-dialog"]')`);
       assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-remove-dialog"]').innerText.includes(${JSON.stringify(hook.match(/£[\d.]+/)[0])})`),true,'Removal confirmation quotes the exact current net saving');
       await nativeClick(`document.querySelector('[data-testid="keep-membership"]')`);
       await until(`!document.querySelector('[data-testid="membership-remove-dialog"]')`);
       assert.equal(await c.evaluate(`(${card}).dataset.membershipSelected`),'true','Keeping savings leaves membership and consent unchanged');
-      await nativeClick(`(${card}).querySelector('[data-testid="remove-membership"]')`);
+      await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
       await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
       await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
     }
     await until(`!!(${card})?.querySelector('[data-testid="add-membership"]')`);
+    await until(`localStorage.getItem('dbc_membership_selection_v1')===null&&!document.body.innerText.includes('Subscription credit applied')&&!document.body.innerText.includes('One-time joining credit')`);
+    assert.equal(await c.evaluate(`(${card}).querySelector('input[type="checkbox"]')?.checked??false`),false,name+': unticking removes the selected subscription and its credits');
     await shot(name+'-removed-no-rescroll');
     await wait(1200);
     assert.equal(await c.evaluate('window.__missingMembershipOffer'),false, name+': the exact savings hook must stay present throughout removal and repricing');

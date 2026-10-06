@@ -1,5 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
+import { rentalUnavailable } from "./lib/marketingInventory";
 
 const DAY = 86400000;
 
@@ -111,10 +112,15 @@ export const forCart = query({
 
     // resolve each cart line's components
     const lines: { listingId: string; start: number; end: number; comps: any[] }[] = [];
+    const invalid = new Set<string>();
     for (const it of items) {
       const l = await ctx.db.get(it.listingId);
-      if (l && (l as any).active)
-        lines.push({ listingId: it.listingId, start: it.start, end: it.end, comps: (l as any).components });
+      if (!l || rentalUnavailable(l) || !l.components.length ||
+          dayRange(it.start, it.end).some(d => blockedSet(l.unavailableDates ?? []).has(d))) {
+        invalid.add(it.listingId);
+      } else {
+        lines.push({ listingId: it.listingId, start: it.start, end: it.end, comps: l.components });
+      }
     }
 
     // per-unit: owned, reservation intervals, standalone free
@@ -148,7 +154,9 @@ export const forCart = query({
       else groups.set(ln.listingId, { comps: ln.comps, demanded: 1 });
     }
     const result: Record<string, { available: number; demanded: number; ok: boolean }> = {};
+    for (const id of invalid) result[id] = { available: 0, demanded: items.filter(i => i.listingId === id).length, ok: false };
     for (const [listingId, g] of groups) {
+      if (invalid.has(listingId)) continue;
       const ok = g.comps.every((c) => !unitOver[c.inventoryUnitId]);
       const available = Math.min(
         ...g.comps.map((c) => Math.floor((unitFree[c.inventoryUnitId] ?? 0) / (c.qty || 1))),

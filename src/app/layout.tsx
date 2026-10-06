@@ -12,8 +12,6 @@ import { MicPermission } from "@/components/gaffer/MicPermission";
 import { GafferDock } from "@/components/gaffer/GafferDock";
 import { Footer } from "@/components/Footer";
 import { AmbientBackground } from "@/components/AmbientBackground";
-import { GearTurnOverlay } from "@/components/GearTurnOverlay";
-import { CheckoutTurnOverlay } from "@/components/CheckoutTurnOverlay";
 import { CursorGlow } from "@/components/CursorGlow";
 import { SpotlightEffect } from "@/components/SpotlightEffect";
 import { ScrollProgress } from "@/components/ScrollProgress";
@@ -181,8 +179,6 @@ export default function RootLayout({
                   <CartDrawer />
                   <CartToast />
                   <BotBubble />
-                  <GearTurnOverlay />
-                  <CheckoutTurnOverlay />
                   <GafferDock />
                   <MicPermission />
                   <FormSevenPrewarm />
