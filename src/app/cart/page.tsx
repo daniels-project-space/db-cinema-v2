@@ -256,17 +256,6 @@ export default function CartPage() {
                 ) : (
                   <Link
                     href="/checkout"
-                    onClick={(e) => {
-                      if (
-                        !window.matchMedia("(prefers-reduced-motion: reduce)")
-                          .matches
-                      ) {
-                        e.preventDefault();
-                        window.dispatchEvent(
-                          new CustomEvent("dbc:checkout-turn"),
-                        );
-                      }
-                    }}
                     className="btn-primary mt-5 w-full py-3"
                   >
                     Secure checkout

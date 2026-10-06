@@ -1,7 +1,5 @@
 /**
- * Top-of-gear-page banner: the gear-station loop playing full-bleed behind the
- * page title. Its first frame is the turn transition's last frame, so arriving
- * from the Home->Gear turn is seamless.
+ * Static catalogue header: navigation and page content do not autoplay media.
  */
 export function GearLoopBanner({
   eyebrow = "The catalogue",
@@ -16,17 +14,11 @@ export function GearLoopBanner({
 } = {}) {
   return (
     <section className="section-window relative h-[46vh] min-h-[320px] w-full overflow-hidden">
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-      <video
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
         className="absolute inset-0 h-full w-full object-cover object-center"
-        src="/gear-loop.mp4"
-        poster="/gear-loop-poster.jpg"
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
-        tabIndex={-1}
+        src="/gear-loop-poster.jpg"
+        alt=""
         aria-hidden
       />
       <div

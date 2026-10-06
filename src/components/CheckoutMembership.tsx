@@ -292,7 +292,7 @@ export function CheckoutMembership({
                 checked={confirmed}
                 onChange={(e) => {
                   if (e.target.checked) confirmSelection();
-                  else if (selected) onChange({ ...selected, termsAccepted: false });
+                  else if (selected) removeSelection();
                 }}
               />
               <span id={consentId}>

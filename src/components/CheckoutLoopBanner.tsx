@@ -4,17 +4,11 @@ import { IconLock } from "./icons";
 export function CheckoutLoopBanner() {
   return (
     <section className="section-window relative h-[24vh] min-h-[200px] max-h-[280px] sm:h-[30vh] sm:max-h-[320px] w-full overflow-hidden">
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-      <video
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
         className="absolute inset-0 h-full w-full object-cover object-center"
-        src="/checkout-loop.mp4"
-        poster="/checkout-loop-poster.jpg"
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
-        tabIndex={-1}
+        src="/checkout-loop-poster.jpg"
+        alt=""
         aria-hidden
       />
       <div

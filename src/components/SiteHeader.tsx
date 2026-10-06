@@ -115,13 +115,6 @@ export function SiteHeader() {
 
   const avatar = me?.avatarUrl ?? null;
 
-  const gearClick = (e: React.MouseEvent, href: string) => {
-    if (href === "/gear" && pathname === "/" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      e.preventDefault();
-      window.dispatchEvent(new CustomEvent("dbc:gear-turn"));
-    }
-  };
-
   const mobileLinks: NavItem[] = [
     ...NAV,
     { href: "/account", label: me ? "My account" : "Account" },
@@ -220,7 +213,6 @@ export function SiteHeader() {
                   <Link
                     key={n.href}
                     href={n.href}
-                    onClick={(e) => gearClick(e, n.href)}
                     className={`nav-link transition-colors ${
                       active ? "active text-white" : "text-white/55 hover:text-white"
                     }`}
@@ -458,10 +450,7 @@ export function SiteHeader() {
               <Link
                 key={n.href + n.label}
                 href={n.href}
-                onClick={(e) => {
-                  setMobile(false);
-                  gearClick(e, n.href);
-                }}
+                onClick={() => setMobile(false)}
                 className="group flex items-center justify-between border-b border-white/[0.06] py-4"
                 style={style}
               >
