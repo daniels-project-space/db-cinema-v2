@@ -1,4 +1,5 @@
 import { peak, blockedSet } from "../availability";
+import { rentalUnavailable } from "./marketingInventory";
 /** Check the whole proposed order together, including overlapping bundles and quantities. */
 export async function assertRentalInventory(
   ctx: any,
@@ -16,7 +17,7 @@ export async function assertRentalInventory(
     )
       throw Error("Invalid rental dates or quantity");
     const listing = await ctx.db.get(line.listingId);
-    if (!listing?.active || listing.suppressed)
+    if (!listing || rentalUnavailable(listing))
       throw Error("An item is no longer available");
     // Explicit day blocks from the live catalogue are independent of reservations.
     const blocked = blockedSet(listing.unavailableDates ?? []);

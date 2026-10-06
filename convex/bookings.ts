@@ -12,6 +12,7 @@ import { checkoutMembershipCredit, membershipSignupOffer } from "../shared/check
 import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRentalInventory } from "./lib/rentalInventory";
+import { rentalUnavailable } from "./lib/marketingInventory";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
 import { postRentalMessage } from "./lib/rentalChat";
@@ -319,7 +320,8 @@ export const placeHolds = internalMutation({
     const toInsert: { unitId: any; listingId: any; start: number; end: number; qty: number }[] = [];
     for (const li of booking.lineItems) {
       const listing = await ctx.db.get(li.listingId);
-      if (!listing) continue;
+      if (!listing || rentalUnavailable(listing) || !listing.components.length)
+        throw Error("An item is unavailable. Review your basket and choose an alternative.");
       for (const comp of listing.components) {
         const uid = String(comp.inventoryUnitId);
         const qty = (comp.qty || 1) * (li.qty || 1);

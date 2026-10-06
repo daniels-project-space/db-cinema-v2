@@ -40,6 +40,7 @@ type CartCtx = {
   items: CartItem[];
   add: (item: Omit<CartItem, "key">) => void;
   replace: (items: CartItem[]) => void;
+  switchItem: (key: string, item: Omit<CartItem, "key">) => void;
   updateDates: (key: string, start: string, end: string, total: number) => void;
   reminderEnabled: boolean;
   setReminderEnabled: (enabled: boolean) => void;
@@ -70,6 +71,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
     null,
   );
   const [items, setItems] = useState<CartItem[]>([]);
+  const latestItems = useRef(items);
+  latestItems.current = items;
   const [promo, setPromoState] = useState<string | null>(null);
   const [isOpen, setOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -214,6 +217,22 @@ export function CartProvider({ children }: { children: ReactNode }) {
     [track],
   );
 
+  const switchItem = useCallback((key: string, replacement: Omit<CartItem, "key">) => {
+    const original = latestItems.current.find(i => i.key === key);
+    if (!original || original.start !== replacement.start || original.end !== replacement.end)
+      throw Error("Your basket changed. Choose an alternative for the current dates.");
+    if (latestItems.current.some(i => i.key !== key && i.listingId === replacement.listingId && i.start === replacement.start && i.end === replacement.end))
+      throw Error("That alternative is already in your basket for these dates.");
+    const nextKey = `${replacement.listingId}|${replacement.start}|${replacement.days}|`;
+    setItems(prev => {
+      const original = prev.find(i => i.key === key);
+      if (!original || original.start !== replacement.start || original.end !== replacement.end || prev.some(i => i.key !== key && i.listingId === replacement.listingId && i.start === replacement.start && i.end === replacement.end)) return prev;
+      return prev.map(i => i.key === key ? { ...replacement, key: nextKey } : i);
+    });
+    setMembership(v => v ? { ...v, termsAccepted: false } : v);
+    setToast("Gear switched — your rental dates are unchanged");
+  }, []);
+
   const remove = useCallback(
     (key: string) => setItems((prev) => prev.filter((p) => p.key !== key)),
     [],
@@ -251,6 +270,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         add,
         replace,
         updateDates,
+        switchItem,
         reminderEnabled,
         setReminderEnabled,
         reminderError,

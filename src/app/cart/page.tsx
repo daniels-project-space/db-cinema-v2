@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { Fragment } from "react";
+import { CartReplacements } from "@/components/cart/CartReplacements";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -43,8 +45,8 @@ export default function CartPage() {
             })),
           }
         : "skip",
-    ) ?? {};
-  const blocked = Object.values(avail).some((a: any) => !a.ok);
+    );
+  const blocked = !!items.length && (!avail || items.some(i => !avail[i.listingId]?.ok));
 
   const first = items[0];
 
@@ -80,13 +82,13 @@ export default function CartPage() {
             <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_330px]">
               <div className="flex flex-col gap-3">
                 {items.map((it, idx) => {
-                  const a: any = (avail as any)[it.listingId];
+                  const a = avail?.[it.listingId];
                   const unavailable = a && a.available === 0;
                   const over = a && !a.ok && a.available > 0;
                   const dim = unavailable || over;
                   return (
+                    <Fragment key={it.key}>
                     <div
-                      key={it.key}
                       className={`spot grid grid-cols-[64px_minmax(0,1fr)_auto] gap-x-3 rounded-2xl p-4 sm:grid-cols-[80px_minmax(0,1fr)_auto] ${dim ? "opacity-50 ring-1 ring-rec-500/40" : ""}`}
                       style={{
                         animation: `card-in 0.5s var(--ease-out-expo) ${idx * 60}ms both`,
@@ -117,7 +119,7 @@ export default function CartPage() {
                         </div>
                         {unavailable ? (
                           <div className="mt-1.5 text-xs text-red-300">
-                            Unavailable — change dates or remove this item
+                            Unavailable for your selected dates — choose an alternative below
                           </div>
                         ) : over ? (
                           <div className="mt-1.5 text-xs text-red-300">
@@ -140,6 +142,8 @@ export default function CartPage() {
                       </div>
                       <div className="col-span-3"><CartItemDates item={it} /></div>
                     </div>
+                    {dim && <CartReplacements item={it} />}
+                    </Fragment>
                   );
                 })}
               </div>
@@ -247,7 +251,7 @@ export default function CartPage() {
                     disabled
                     className="mt-5 w-full cursor-not-allowed rounded-full bg-white/10 py-3 text-center font-medium text-white/40"
                   >
-                    Resolve availability to checkout
+                    {avail ? "Resolve availability to checkout" : "Checking availability…"}
                   </button>
                 ) : (
                   <Link

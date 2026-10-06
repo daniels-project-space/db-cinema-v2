@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { IconLock, IconShield, IconCheck, IconTruck, IconPin, IconArrowRight } from "@/components/icons";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
 import Link from "next/link";
@@ -71,6 +71,8 @@ function StepCard({
 export default function CheckoutPage() {
   const { items, subtotal, eligibleSubtotal, membership, setMembership } = useCart();
   const account = useAccount();
+  const availability = useQuery(api.availability.forCart, items.length ? { items: items.map(i => ({ listingId: i.listingId as any, start: ms(i.start), end: ms(i.end) })) } : "skip");
+  const availabilityBlocked = !!items.length && (!availability || items.some(i => !availability[i.listingId]?.ok));
   const promo = usePromo(eligibleSubtotal);
   const start = useAction(api.checkout.start);
   const getPriceQuote = useAction(api.checkout.priceQuote);
@@ -202,6 +204,7 @@ export default function CheckoutPage() {
   }
 
   async function pay() {
+    if (availabilityBlocked) { setErr("Review your basket and choose available alternatives before checkout."); return; }
     if (!valid) return;
     setBusy(true);
     setErr(null);
@@ -509,7 +512,8 @@ export default function CheckoutPage() {
             </div>
             {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
             {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
-            <button onClick={pay} disabled={!valid || busy} className="btn-primary mt-5 w-full py-3">
+            {availabilityBlocked && <p role="status" className="mt-4 text-sm text-red-300">{availability ? <>Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</> : "Checking kit availability…"}</p>}
+            <button onClick={pay} disabled={!valid || busy || availabilityBlocked} className="btn-primary mt-5 w-full py-3">
               {busy ? "Redirecting…" : "Pay with card"}
               {!busy && <IconLock className="h-4 w-4" />}
             </button>
