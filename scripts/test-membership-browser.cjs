@@ -410,7 +410,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `(()=>{const text=document.querySelector('[data-testid="membership-upsell"]').innerText;return text.includes('First rental: normal verification & refundable security.')&&text.includes('Other perks start next booking.')})()`,
   );
   await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(paid.combinedTotalDue))}`);
-  await until(`document.querySelector('[data-testid="checkout-rental-after-credits"]')?.textContent.includes(${JSON.stringify(new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(Math.round((paid.totalDue-paid.depositAmount)*100)/100))})`);
+  assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="checkout-rental-after-credits"]')`),false,'Checkout shows a single final total');
   assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]');const rows=[...secondary.querySelectorAll('[data-secondary-charge]')];return rows.length===3&&rows.every(e=>getComputedStyle(e).fontSize==='11px')&&[...s.querySelectorAll('div')].some(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied'&&e.classList.contains('text-emerald-300'))})()`),true,"Checkout separates small subscription/security rows and green applied credit while retaining the full payment total");
   await c.evaluate(`document.querySelector('[data-testid="checkout-summary"]').scrollIntoView({block:'center'})`);
   await shot("checkout-summary-mobile");

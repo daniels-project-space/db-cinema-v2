@@ -7,6 +7,17 @@ const listing=(title,u,extra={})=>put('listings',{title,slug:title.toLowerCase()
 const lines=l=>[{key:'source',listingId:l._id,start,end}];
 (async()=>{
  const phantom=listing('Sony FX6 camera kit',unit('fake')),fx3=listing('Sony FX3 camera kit',unit('FX3')),a7=listing('Sony A7 V camera kit',unit('A7V'));
+ const catalog=load('convex/catalog.ts');
+ await db.patch(phantom._id,{suppressed:true});
+ const marketingDetail=await catalog.getListingBySlug.handler(ctx,{slug:phantom.slug});
+ assert.equal(marketingDetail.marketingOnly,true);
+ assert.equal(marketingDetail.displayOnly,false,'Legacy suppressed marketing listings must offer date selection and cart demand logging');
+ await db.patch(phantom._id,{suppressed:false});
+ const ordinaryDisplay=listing('Reference accessory',unit('reference'),{suppressed:true});
+ assert.equal((await catalog.getListingBySlug.handler(ctx,{slug:ordinaryDisplay.slug})).displayOnly,true,'Unrelated reference-only listings keep their existing flow');
+ await load('convex/analytics.ts').track.handler(ctx,{type:'add_to_cart',listingId:phantom._id,title:phantom.title,path:phantom.slug,sessionId:'marketing-demand-fixture',qty:1});
+ const demandEvents=await db.query('events').collect();
+ assert(demandEvents.some(e=>e.type==='add_to_cart'&&e.listingId===phantom._id&&e.qty===1),'Marketing additions retain real first-party demand records');
  const activeMarketing=await availability.forCart.handler(ctx,{items:lines(phantom)});assert.equal(activeMarketing[phantom._id].ok,false);assert.equal(activeMarketing[phantom._id].available,0);
  await assert.rejects(assertRentalInventory(ctx,[{...lines(phantom)[0],qty:1}]),/no longer available/);
  assert.equal(marketingRedirect({title:'Sony FX 3 Cinema Camera Full Frame Mirrorless 4k Sony fx3 (same sensor as a7siii',itemType:'camera-body'}),undefined);

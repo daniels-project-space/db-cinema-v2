@@ -496,11 +496,6 @@ export default function CheckoutPage() {
                   <span className="font-mono">−{formatGbp(currentQuote.creditApplied-currentQuote.membershipCreditApplied)}</span>
                 </div>
               )}
-              {!!currentQuote && (
-                <div data-testid="checkout-rental-after-credits" className="mt-3 border-t border-white/10 pt-3 font-medium">
-                  <Row label={currentQuote.deliveryFee > 0 ? "Rental & delivery after credits" : "Rental after credits"} value={Math.round((currentQuote.totalDue-currentQuote.depositAmount)*100)/100} />
-                </div>
-              )}
               <hr className="receipt-sep" />
               <div data-testid="checkout-secondary-charges" className="space-y-2">
                 {!!membership && <Row label={membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"} value={currentQuote?.membershipFee ?? 0} muted />}
@@ -516,7 +511,7 @@ export default function CheckoutPage() {
                 <span>Total due</span>
                 <span data-testid="checkout-due" className="font-mono">{currentQuote ? formatGbp(currentQuote.combinedTotalDue) : "Calculating…"}</span>
               </div>
-              {!!membership && currentQuote && <p className="mt-2 text-[11px] leading-5 text-white/50">Includes the rental after credits, {currentQuote.membershipFee > 0 ? "your first subscription month and " : ""}the refundable deposit shown above. The card authorisation is excluded.</p>}
+              {!!membership && currentQuote && <p className="mt-2 text-[11px] leading-5 text-white/50">Includes the rental with credits applied, {currentQuote.membershipFee > 0 ? "your first subscription month and " : ""}the refundable deposit shown above. The card authorisation is excluded.</p>}
             </div>
             {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
             {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}

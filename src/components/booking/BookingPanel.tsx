@@ -70,6 +70,7 @@ type Listing = {
   pricing: Pricing;
   depositAmount: number;
   minimumRentalDays: number;
+  marketingOnly?: boolean;
 };
 
 export function BookingPanel({
@@ -111,10 +112,12 @@ export function BookingPanel({
       : [];
   const fit = useQuery(
     api.availability.forCart,
-    start && end ? { items: prospective } : "skip",
+    start && end && !listing.marketingOnly ? { items: prospective } : "skip",
   );
   const cand: any = fit ? (fit as any)[listing._id] : undefined;
-  const canAdd = !!(start && end && q && cand?.ok);
+  // Marketing requests are recorded by cart.add; the basket checks stock and
+  // offers replacements before checkout rather than blocking demand collection.
+  const canAdd = !!(start && end && q && (listing.marketingOnly || cand?.ok));
 
   function addToKit() {
     if (!canAdd || !q || !start || !end) return;
@@ -139,7 +142,7 @@ export function BookingPanel({
         onMonthChange={onMonthChange}
         start={start}
         end={end}
-        unavailable={unavailable}
+        unavailable={listing.marketingOnly ? new Set<string>() : unavailable}
         onPick={onPick}
       />
 
@@ -196,7 +199,7 @@ export function BookingPanel({
         )}
 
         {/* availability (unit-aware, whole-cart) */}
-        {start && end && (
+        {start && end && !listing.marketingOnly && (
           <div className="mt-3 flex justify-center text-xs">
             {fit === undefined ? (
               <span className="text-white/30">Checking availability…</span>
@@ -216,7 +219,7 @@ export function BookingPanel({
           </div>
         )}
 
-        {start && end && cand && cand.available === 0 && (
+        {start && end && !listing.marketingOnly && cand && cand.available === 0 && (
           <WaitlistForm listingId={listing._id} start={startMs} end={endMs} />
         )}
 
