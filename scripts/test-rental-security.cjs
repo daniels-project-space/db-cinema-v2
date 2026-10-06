@@ -8,6 +8,7 @@ assert.deepEqual(security.rentalSecurity('verify',1000),{deposit:25,hold:100});
 assert.deepEqual(security.rentalSecurity('deposit',1000),{deposit:25,hold:100});
 assert.throws(()=>security.rentalSecurity('verify',NaN),/Invalid/);
 assert.deepEqual(security.securityForPolicy('2026-10-value-bands-v1','verify',2500),{deposit:62.5,hold:125});
+assert.deepEqual(security.securityForPolicy('2026-10-value-bands-v1','deposit',2500),{deposit:1250,hold:2500});
 assert.deepEqual(security.securityForPolicy(undefined,'verify',2500),{deposit:62.5,hold:125});
 let intentCalls=0;
 class StripeFixture {

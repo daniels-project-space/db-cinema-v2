@@ -25,7 +25,8 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  const saved=b.agreementSnapshot,signed=b.agreementSignedAt;
  assert.equal(count(),1);const snapshot=JSON.parse(saved);
  assert.equal(snapshot.version,LEGAL_VERSION);assert.equal(LEGAL_VERSION,'2026-10-v10');
- const current=load('shared/legalDocuments.ts').LEGAL_DOCS['deposit-agreement'];assert.match(JSON.stringify(current),/10%/);assert.match(JSON.stringify(current),/£250/);assert.match(JSON.stringify(current),/within 24 hours/);assert.match(JSON.stringify(current),/authentication/i);assert.equal(snapshot.particulars.total,200);
+ const current=load('shared/legalDocuments.ts').LEGAL_DOCS['deposit-agreement'];assert.match(JSON.stringify(current),/10%/);assert.match(JSON.stringify(current),/£250/);assert.match(JSON.stringify(current),/within 24 hours/);assert.match(JSON.stringify(current),/authentication/i);
+ const v9=load('shared/legal-history/2026-10-v9.ts').default;const legal=load('shared/legalDocuments.ts');assert.equal(legal.RENTAL_DRAFT_RELEASE_READY,false);assert(legal.LEGAL_DOCS['rental-agreement'].sections.find(s=>s.h.startsWith('5.')).p.includes(v9['rental-agreement'].sections.find(s=>s.h.startsWith('5.')).p),'Existing identity and verification terms must remain intact');assert.deepEqual(legal.LEGAL_ARCHIVE['2026-10-v9'],v9);assert.equal(snapshot.particulars.total,200);
  assert.equal(snapshot.particulars.securityHold,0);assert.equal(snapshot.particulars.timeZone,'Europe/London');
  assert.equal(snapshot.particulars.serialConditionSchedule,'pending-agreed-handover');
  assert.match(snapshot.documents.find(d=>d.kind==='rental-agreement').text.sections.find(s=>s.h==='4. Loss & damage').p,/theft.*non-return/);
