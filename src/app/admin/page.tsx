@@ -40,7 +40,7 @@ export default function AdminPage() {
       setDetailId(null);
       setTab("inbox");
     };
-    const fromLocation = () => { if (window.location.hash === "#marketing") setTab("marketing"); else open(window.location.href); };
+    const fromLocation = () => { if (window.location.hash === "#marketing") setTab("marketing"); else if (window.location.hash === "#settings") setTab("settings"); else open(window.location.href); };
     const fromPush = (event: MessageEvent) => {
       if (event.data?.type !== "dbc:open-owner-conversation" || typeof event.data.url !== "string") return;
       const route = parseOwnerConversationUrl(event.data.url, window.location.origin);
@@ -157,7 +157,7 @@ export default function AdminPage() {
           ).map(([key, label]) => (
             <button
               key={key}
-              onClick={() => { setTab(key); if (key === "marketing") window.history.replaceState(null, "", "#marketing"); else if (window.location.hash === "#marketing") window.history.replaceState(null, "", window.location.pathname); }}
+              onClick={() => { setTab(key); if (key === "marketing" || key === "settings") window.history.replaceState(null, "", `#${key}`); else if (window.location.hash === "#marketing" || window.location.hash === "#settings") window.history.replaceState(null, "", window.location.pathname); }}
               className={`shrink-0 whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-medium transition ${
                 tab === key
                   ? "bg-white text-black"
@@ -251,6 +251,7 @@ export default function AdminPage() {
 
         {tab === "settings" && (
           <div className="mt-6 space-y-4">
+            <MarketingListingsAdmin token={token} />
             <AdminSettings token={token} />
             {[
               ["Community", <AdminCollective key="collective" token={token} />],
