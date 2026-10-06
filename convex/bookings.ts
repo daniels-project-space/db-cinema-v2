@@ -1,4 +1,5 @@
 import { availableCreditRows,creditPlan,creditKind } from "./lib/checkoutCredit";
+import { ensurePaidBookingAccount } from "./accountClaims";
 import { referralEligibility,availableReferralReward } from "./lib/referrals";
 import { SINGLE_BENEFIT_VERSION } from "../shared/rentalBenefits";
 import { SECURITY_POLICY_VERSION, depositChargeFor } from "../shared/rentalSecurity";
@@ -255,6 +256,8 @@ export const createPending = internalMutation({
       referralCode:friend?.code,referralRewardId:reward?._id,
       customerId: customer!._id,
       guestEmail: customerEmail,
+      guestName: a.customerName?.trim(),
+      guestPhone: a.phone?.trim(),
       status: "pending_payment",
       lineItems: a.lineItems,
       fulfilment: a.fulfilment,
@@ -442,6 +445,7 @@ export const confirm = internalMutation({
       return { closed: true, duplicatePayment: false };
     if (booking.status === "confirmed" || booking.status === "active") {
       if(paymentIntentId&&booking.stripePaymentIntentId&&paymentIntentId!==booking.stripePaymentIntentId)return {closed:true,duplicatePayment:true};
+      await ensurePaidBookingAccount(ctx,booking);
       return { already: true };
     }
     if ((booking.membershipCreditApplied ?? 0) > 0) {
@@ -462,6 +466,7 @@ export const confirm = internalMutation({
       status: "confirmed",
       stripePaymentIntentId: paymentIntentId,
     });
+    await ensurePaidBookingAccount(ctx,{...booking,status:"confirmed"});
     const membershipAccount = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", booking.guestEmail ?? "")).first();
     if(membershipAccount&&!membershipAccount.firstRentalPaidAt)await ctx.db.patch(membershipAccount._id,{firstRentalPaidAt:Date.now()});
     if (membershipAccount?.membershipPerksPendingBookingId === bookingId)

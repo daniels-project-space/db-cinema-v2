@@ -1,0 +1,27 @@
+const assert=require('node:assert/strict');
+const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
+process.env.ADMIN_TOKEN='fixture-marketing-admin';
+const admin=load('convex/marketingAdmin.ts'),sync=load('convex/sync.ts'),availability=load('convex/availability.ts'),replacements=load('convex/cartReplacements.ts'),catalog=load('convex/catalog.ts'),{assertRentalInventory}=load('convex/lib/rentalInventory.ts');
+const ctx={db},start=Date.UTC(2030,1,1),end=start+2*86400000;
+const unit=put('inventory_units',{name:'FX3',quantityOwned:10});
+const listing=(title,slug)=>put('listings',{title,slug,category:'Cameras',itemType:'camera-body',active:true,depositAmount:1000,pricing:{daily:40},components:[{inventoryUnitId:unit._id,qty:1}]});
+const owned=listing('Sony FX3 camera kit','fx3'),alt=listing('Sony A7 V camera kit','a7v'),marketing=listing('Cannon R5 C cinema camera','r5');
+const lines=l=>({items:[{listingId:l._id,start,end}]});
+const save=(l,marketingOnly,token=process.env.ADMIN_TOKEN,expectedUpdatedAt=l.marketingOnlyUpdatedAt)=>admin.save.handler(ctx,{token,changes:[{listingId:l._id,marketingOnly,expectedUpdatedAt}]});
+const importItem=(l,title=l.title)=>({hyggloProductId:l===owned?10:20,masterQty:10,slug:l.slug,title,category:'Cameras',itemType:'camera-body',componentQty:1,sizeScore:1,weightKg:1,sourceImages:[],pricing:{daily:40},depositAmount:1000,replacementCost:1000,minimumRentalDays:1,unavailableDates:[]});
+(async()=>{
+ assert.deepEqual(await admin.list.handler(ctx,{token:'wrong'}),{authorized:false,items:[]});await assert.rejects(save(owned,true,'wrong'),/unauthorized/);assert.equal(owned.marketingOnly,undefined);
+ const seed=await admin.seedIdentified.handler(ctx,{});assert.equal(seed.tagged,1);assert.equal(marketing.marketingOnly,true);assert.equal(marketing.marketingOnlySource,'auto');assert.equal((await admin.seedIdentified.handler(ctx,{})).updated,0);
+ assert.equal((await availability.forCart.handler(ctx,lines(owned)))[owned._id].ok,true);
+ await save(owned,true);assert.equal((await availability.forCart.handler(ctx,lines(owned)))[owned._id].ok,false);await assert.rejects(assertRentalInventory(ctx,[{listingId:owned._id,start,end,qty:1}]),/no longer available/);
+ const choices=await replacements.forCart.handler(ctx,{items:[{key:'owned',listingId:owned._id,start,end}]});assert(choices.owned.length>0);assert(!choices.owned.some(c=>c.listingId===marketing._id));assert((await catalog.listListings.handler(ctx,{})).some(l=>l._id===owned._id),'Tagging must preserve browse selection');
+ const stamp=owned.marketingOnlyUpdatedAt;await assert.rejects(admin.save.handler(ctx,{token:process.env.ADMIN_TOKEN,changes:[{listingId:alt._id,marketingOnly:true,expectedUpdatedAt:alt.marketingOnlyUpdatedAt},{listingId:owned._id,marketingOnly:false,expectedUpdatedAt:stamp-1}]}),/another session/);assert.equal(alt.marketingOnly,false,'Batch validation cannot partially save');
+ await save(marketing,false);assert.equal((await availability.forCart.handler(ctx,lines(marketing)))[marketing._id].ok,true,'Explicit owner untag overrides automatic family classification');
+ await sync.applyCatalog.handler(ctx,{items:[importItem(owned),importItem(marketing)]});assert.equal(owned.marketingOnly,true);assert.equal(owned.marketingOnlySource,'admin');assert.equal(marketing.marketingOnly,false);assert.equal(marketing.marketingOnlySource,'admin');
+ const fresh={...importItem(owned,'Sony FX6 new camera kit'),slug:'new-fx6',hyggloProductId:30};await sync.applyCatalog.handler(ctx,{items:[importItem(owned),importItem(marketing),fresh]});const added=await db.query('listings').withIndex('by_slug',q=>q.eq('slug','new-fx6')).unique();assert.equal(added.marketingOnly,true);assert.equal(added.marketingOnlySource,'auto');assert((await admin.list.handler(ctx,{token:process.env.ADMIN_TOKEN})).items.some(l=>l._id===added._id),'New imports automatically appear in admin');
+ await admin.seedIdentified.handler(ctx,{});assert.equal(marketing.marketingOnly,false,'Seeding never overwrites manual exemptions');
+ await save(marketing,null);assert.equal(marketing.marketingOnly,true);assert.equal(marketing.marketingOnlySource,'auto');await save(owned,false);assert.equal((await availability.forCart.handler(ctx,lines(owned)))[owned._id].ok,true);
+ await assert.rejects(admin.save.handler(ctx,{token:process.env.ADMIN_TOKEN,changes:[{listingId:owned._id,marketingOnly:true},{listingId:owned._id,marketingOnly:false}]}),/distinct/);
+ assert(tables.get('admin_audit_log').some(l=>l.success&&l.fn==='marketingAdmin.save'));
+ console.log('PASS marketing admin: protected reads/writes, seeded aliases, preserved browse selection, cart/checkout guards and replacements, untag/reset, conflict-safe batches, import persistence and new-listing auto-tagging.');
+})().catch(e=>{console.error(e);process.exitCode=1});

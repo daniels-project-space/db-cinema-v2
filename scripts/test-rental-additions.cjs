@@ -55,6 +55,11 @@ const request = (b) => ({
   const proposed=await state.prepare.handler(ctx,{...request(small),qty:2});
   assert.equal(proposed.holdTotal,100,'Adding items across £300 requires the new £100 hold');
   assert.equal(proposed.securityCharge,0,'The paid £100 deposit is preserved, not charged again as half the hold');
+  const modern=booking();Object.assign(modern,{securityPolicyVersion:'2026-10-ten-percent-hold-v2',depositAmount:100,depositHoldAmount:10});
+  const extraUnit=put('inventory_units',{name:'Modern addition',quantityOwned:10});
+  const extraListing=put('listings',{title:'Modern lens',active:true,pricing:{daily:30},depositAmount:200,components:[{inventoryUnitId:extraUnit._id,qty:1}]});
+  const modernProposal=await state.prepare.handler(ctx,{...request(modern),listingId:extraListing._id,qty:2});
+  assert.equal(modernProposal.holdTotal,50,'A new-policy addition uses 10% of the complete £500 equipment value');assert.equal(modernProposal.securityCharge,0,'The upfront payment is separate and already paid');
   const b = booking();
   await assert.rejects(
     state.prepare.handler(ctx, { ...request(b), token: "foreign" }),

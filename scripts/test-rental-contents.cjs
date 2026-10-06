@@ -22,7 +22,7 @@ for(const row of rows){for(const fact of [...row.contents.included,...row.conten
 function loadBoundary(file){
  const compiled=ts.transpileModule(fs.readFileSync(require.resolve('../'+file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  const module={exports:{}};const refs=new Proxy({},{get:()=>new Proxy({},{get:()=> 'reference'})});
- new Function('require','module','exports',compiled)(p=>p==='./_generated/server'?{mutation:x=>x,internalMutation:x=>x,action:x=>x}:p==='convex/values'?{v:new Proxy({},{get:()=>()=>0})}:p==='./_generated/api'?{internal:refs,api:refs}:p==='./adminAuth'?{checkAdminToken:()=>true}: {},module,module.exports);return module.exports;
+ new Function('require','module','exports',compiled)(p=>p==='./_generated/server'?{mutation:x=>x,internalMutation:x=>x,action:x=>x}:p==='convex/values'?{v:new Proxy({},{get:()=>()=>0})}:p==='./_generated/api'?{internal:refs,api:refs}:p==='./adminAuth'?{checkAdminToken:()=>true}:p==='./lib/marketingInventory'?require('./lib/rentalTestHarness.cjs').load('convex/lib/marketingInventory.ts'): {},module,module.exports);return module.exports;
 }
 async function configurationGuards(){
  const {apply}=loadBoundary('convex/rentalContents.ts');let writes=0;

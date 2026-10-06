@@ -114,6 +114,22 @@ async function pay(fixture,fee=1900) {
  assert.equal(shouldResetMembershipPreference({tier:'studio',intro:'none',termsAccepted:false},{...restoredQuote,membershipNetSaving:1}),false,'Profitable selected plans stay selected');
  assert.equal(shouldResetMembershipPreference({tier:'studio',intro:'none',termsAccepted:false},{...restoredQuote,recommendations:[]}),false,'No substitute offer means the old plan remains manageable');
  assert.equal(shouldResetMembershipPreference(null,restoredQuote),false);
+ // The reported £375 rental must deduct both credits before adding the
+ // first month and refundable deposit. Authorisation is never a charge.
+ account=put('accounts',{email:'reported-checkout-total@example.invalid'});
+ camera.pricing.daily=375;camera.depositAmount=1620;
+ const reportedBase=await checkout.priceQuote.handler(ctx,input());
+ const reportedSelected=await checkout.priceQuote.handler(ctx,{...input(),selectedMembership:{tier:'studio',intro:'none'}});
+ assert.equal(reportedBase.combinedTotalDue,415.5);
+ assert.equal(reportedSelected.membershipSignupOfferSaving,10);
+ assert.equal(reportedSelected.membershipCreditApplied,128.7);
+ assert.equal(reportedSelected.totalDue-reportedSelected.depositAmount,236.3);
+ assert.equal(reportedSelected.membershipFee,99);
+ assert.equal(reportedSelected.depositAmount,40.5);
+ assert.equal(reportedSelected.depositHoldAmount,162);
+ assert.equal(reportedSelected.combinedTotalDue,375.8);
+ assert.equal(Math.round((reportedBase.combinedTotalDue-reportedSelected.combinedTotalDue)*100)/100,39.7);
+ camera.depositAmount=100000;
  // Regression for the real five-line £1,905 basket: a retired £45 gear
  // offer must no longer suppress the actual £39.70 Studio net saving.
  account=put('accounts',{email:'retired-gear-offer@example.invalid'});

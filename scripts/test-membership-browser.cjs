@@ -66,7 +66,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       process.env.DBC_CONVEX_URL || "https://veracious-wombat-196.convex.cloud",
     );
   const r = await cv.query(api.catalog.listListings, {}),
-    rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !marketingRedirect(l)),
+    rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !(l.marketingOnly ?? !!marketingRedirect(l))),
     l = rows.filter(l=>l.pricing && !l.displayOnly).sort((a,b)=>b.pricing.daily-a.pricing.daily)[0];
   const future = new Date(Date.now() + 60 * 86400000);
   const start =
@@ -410,6 +410,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `(()=>{const text=document.querySelector('[data-testid="membership-upsell"]').innerText;return text.includes('First rental: normal verification & refundable security.')&&text.includes('Other perks start next booking.')})()`,
   );
   await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(paid.combinedTotalDue))}`);
+  await until(`document.querySelector('[data-testid="checkout-rental-after-credits"]')?.textContent.includes(${JSON.stringify(new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(Math.round((paid.totalDue-paid.depositAmount)*100)/100))})`);
   assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]');const rows=[...secondary.querySelectorAll('[data-secondary-charge]')];return rows.length===3&&rows.every(e=>getComputedStyle(e).fontSize==='11px')&&[...s.querySelectorAll('div')].some(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied'&&e.classList.contains('text-emerald-300'))})()`),true,"Checkout separates small subscription/security rows and green applied credit while retaining the full payment total");
   await c.evaluate(`document.querySelector('[data-testid="checkout-summary"]').scrollIntoView({block:'center'})`);
   await shot("checkout-summary-mobile");
@@ -425,7 +426,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     false,
   );
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')`),false,'Reload never replays a selection celebration');
-  await c.evaluate(`document.querySelector('[data-testid="confirm-membership-card"]').focus()`);
+  await c.evaluate(`document.querySelector('[data-testid="add-membership"]').focus()`);
   await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13});
   await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
   await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]').checked===true`);
@@ -562,42 +563,15 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     "Do not upsell a membership when this order has no net saving",
   );
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-chooser"], [data-testid="membership-benefits"]')`),false,'No positive savings means no fallback chooser or benefits entry point');
-  // A plan already chosen on an earlier basket remains visible/manageable
-  // when the renter changes to dates without a discount. This is a persisted
-  // checkout preference, not an active subscription or stored legal consent.
-  await c.evaluate(
-    `localStorage.setItem('dbc_membership_selection_v1',JSON.stringify({tier:'pro',intro:'none'}));true`,
-  );
+  // A stored subscription preference is not a fresh checkout opt-in.
+  await c.evaluate(`localStorage.setItem('dbc_membership_selection_v1',JSON.stringify({tier:'pro',intro:'none'}));true`);
   await reload();
-  const noSavingPaid = await cv.action(api.checkout.priceQuote, {
-    ...weekdayArgs,
-    selectedMembership: { tier: "pro", intro: "none" },
-  });
-  assert(
-    noSavingPaid.membershipNetSaving <
-      0,
-  );
-  const noSavingDue = new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-  }).format(Math.round((noSavingPaid.combinedTotalDue-noSavingPaid.depositAmount)*100)/100);
-  await until(
-    `document.querySelector('[data-testid="basket-due"]').textContent===${JSON.stringify(noSavingDue)}`,
-  );
-  assert.equal(
-    await c.evaluate(
-      `!!document.querySelector('[data-testid="applied-membership-savings"]')`,
-    ),
-    false,
-    "Fee exceeding savings must hide the discount panel",
-  );
-  assert.equal(
-    await c.evaluate(
-      `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`,
-    ),
-    true,
-    "Selected plan remains manageable",
-  );
+  const noSavingBase = await cv.action(api.checkout.priceQuote, weekdayArgs);
+  const noSavingDue = new Intl.NumberFormat("en-GB", {style:"currency",currency:"GBP"}).format(Math.round((noSavingBase.combinedTotalDue-noSavingBase.depositAmount)*100)/100);
+  await until(`document.querySelector('[data-testid="basket-due"]').textContent===${JSON.stringify(noSavingDue)}`);
+  assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="applied-membership-savings"]')`),false,"Stored preference must not apply subscription credit");
+  assert.equal(await c.evaluate(`localStorage.getItem('dbc_membership_selection_v1')`),null,"Stale preference is removed");
+  assert.equal(await c.evaluate(`!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`),false,"No subscription selected after reload");
   await shot("no-savings-mobile");
   // Edit one of two independently dated copies of a listing. Other lines must
   // survive, and the stored base price must come from the real pricing action.
@@ -645,7 +619,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert(fixture,`Need a real catalog item in the ${band} value band`);
     const bandArgs={...args,items:[{...args.items[0],listingId:fixture._id,title:fixture.title,start:weekdayStart,end:weekdayStart}]};
     const bandQuote=await cv.action(api.checkout.priceQuote,bandArgs);
-    assert.equal(bandQuote.depositAmount,100);assert.equal(bandQuote.depositHoldAmount,band==='deposit-only'?0:100);
+    assert.equal(bandQuote.depositAmount,100);assert.equal(bandQuote.depositHoldAmount,Math.round(fixture.depositAmount*10)/100);
     const bandItem={...weekdayItem,key:fixture._id+':security-band',listingId:fixture._id,title:fixture.title,slug:fixture.slug,heroImage:fixture.heroImage,deposit:fixture.depositAmount,total:bandQuote.items[0].total};
     await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([bandItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`);
     await navigate(root+'/checkout');
@@ -655,7 +629,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     if(!bandQuote.recommendations.some(r=>r.netSaving>0)) assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-upsell"]')`),false,'No positive savings means no membership card on checkout');
     assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="rental-consent"] input[type="checkbox"]').length`),1,'One combined rental consent checkbox');
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes('Fully refundable security')&&document.querySelector('[data-testid="refundable-security"]').textContent.includes('£100.00')`),true);
-    assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').innerText.includes('No card hold required.')`),band==='deposit-only');
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').innerText.includes('No card hold required.')`),false);
     await c.evaluate(`document.querySelector('[data-testid="rental-agreement-checkbox"]').click()`);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="rental-agreement-checkbox"]').checked`),true);
     await c.evaluate(`document.querySelector('[data-testid="rental-consent"]').scrollIntoView({block:'center'})`);await wait(200);await shot('consent-'+band+'-mobile');

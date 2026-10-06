@@ -186,7 +186,7 @@ export function BookingPanel({
               <span>£{depositChargeFor("verify", listing.depositAmount)}</span>
             </div>
             <p className="mt-1 text-right text-[11px] text-white/25">
-              {depositFor("verify", listing.depositAmount) > 0 ? `+ £${depositFor("verify", listing.depositAmount)} separate hold · final security uses whole-kit value` : "No hold below £300 whole-kit value · confirmed at checkout"}
+              {depositFor("verify", listing.depositAmount) > 0 ? `+ £${depositFor("verify", listing.depositAmount)} separate hold · final security uses whole-kit value` : "10% whole-kit card authorisation · confirmed at checkout"}
             </p>
           </div>
         ) : (

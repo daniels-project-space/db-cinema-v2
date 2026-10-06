@@ -82,6 +82,7 @@ import type * as lib_reviewContext from "../lib/reviewContext.js";
 import type * as lib_reviewEligibility from "../lib/reviewEligibility.js";
 import type * as lib_taxonomy from "../lib/taxonomy.js";
 import type * as lib_verificationReuse from "../lib/verificationReuse.js";
+import type * as marketingAdmin from "../marketingAdmin.js";
 import type * as membershipBenefits from "../membershipBenefits.js";
 import type * as notify from "../notify.js";
 import type * as offers from "../offers.js";
@@ -200,6 +201,7 @@ declare const fullApi: ApiFromModules<{
   "lib/reviewEligibility": typeof lib_reviewEligibility;
   "lib/taxonomy": typeof lib_taxonomy;
   "lib/verificationReuse": typeof lib_verificationReuse;
+  marketingAdmin: typeof marketingAdmin;
   membershipBenefits: typeof membershipBenefits;
   notify: typeof notify;
   offers: typeof offers;

@@ -72,6 +72,9 @@ export default defineSchema({
     demandScore: v.optional(v.number()), // rental-history demand (set by sync.applyDemand)
     quietDeal: v.optional(v.number()), // % off — auto-set on genuinely-idle items (catalog.refreshQuietDeals)
     suppressed: v.optional(v.boolean()), // local marketing-only override — kept inactive every sync
+    marketingOnly: v.optional(v.boolean()),
+    marketingOnlySource: v.optional(v.union(v.literal("auto"), v.literal("admin"))),
+    marketingOnlyUpdatedAt: v.optional(v.number()),
     unavailableDates: v.optional(v.array(v.string())),
     publicUrl: v.optional(v.string()),
     minimumRentalDays: v.optional(v.number()),
@@ -137,6 +140,8 @@ export default defineSchema({
     .index("by_guestToken", ["guestToken"]),
 
   bookings: defineTable({
+    guestName: v.optional(v.string()),
+    guestPhone: v.optional(v.string()),
     pricingVersion: v.optional(v.string()),benefitKind:v.optional(v.string()),
     refundCreditApplied:v.optional(v.number()),earnedCreditApplied:v.optional(v.number()),
     creditAllocations:v.optional(v.array(v.object({creditId:v.id("credits"),amount:v.number(),kind:v.union(v.literal("refund"),v.literal("earned"))}))),

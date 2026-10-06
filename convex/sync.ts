@@ -3,6 +3,7 @@ import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE, categoryFor, isGenuineBundle } from "./lib/taxonomy";
 import { assertAdmin } from "./adminAuth";
+import { automaticMarketingFields } from "./lib/marketingInventory";
 
 /**
  * Canonical camera-MODEL identity for inventory reconciliation against the rental
@@ -334,9 +335,9 @@ export const applyCatalog = internalMutation({
         // A retitled/replaced configuration must not inherit the old package's packing list.
         if (existing.title !== it.title || existing.hyggloProductId !== it.hyggloProductId)
           patch.rentalContents = undefined;
-        await ctx.db.patch(existing._id, patch);
+        await ctx.db.patch(existing._id, { ...patch, ...automaticMarketingFields(synced, existing) });
       } else {
-        await ctx.db.insert("listings", { ...synced, specs: it.specs ?? {} });
+        await ctx.db.insert("listings", { ...synced, ...automaticMarketingFields(synced), specs: it.specs ?? {} });
         listingCount++;
       }
     }

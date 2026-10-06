@@ -83,7 +83,7 @@ const {expire:expireCredits}=load('convex/credits.ts');
   const patches=[];
   const db={
     get:async id=>id==='booking-credit'?booking:id==='owner-account'?{_id:'owner-account',email:'owner@example.invalid'}:null,
-    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:[],first:async()=>table==='accounts'?{_id:'owner-account'}:null})}),
+    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:[],first:async()=>table==='accounts'?{_id:'owner-account'}:null,unique:async()=>table==='accounts'?{_id:'owner-account'}:null})}),
     patch:async(id,patch)=>patches.push({id,patch}),
   };
   const bookingCtx={db,scheduler:{runAfter:async()=>{}}};

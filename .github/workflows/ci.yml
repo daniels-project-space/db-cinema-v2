@@ -13,6 +13,10 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    # PRs exercise the staged backend; main exercises the published backend.
+    env:
+      NEXT_PUBLIC_CONVEX_URL: ${{ github.event_name == 'pull_request' && 'https://deafening-stoat-340.convex.cloud' || 'https://veracious-wombat-196.convex.cloud' }}
+      DBC_CONVEX_URL: ${{ github.event_name == 'pull_request' && 'https://deafening-stoat-340.convex.cloud' || 'https://veracious-wombat-196.convex.cloud' }}
     steps:
       - uses: actions/checkout@v4
       - name: Detect package manager
@@ -48,12 +52,9 @@ jobs:
             echo "no test script — skipping"
           fi
       - name: Build production app for browser regression
-        env:
-          NEXT_PUBLIC_CONVEX_URL: https://veracious-wombat-196.convex.cloud
         run: npm run build
       - name: Membership basket and checkout browser regression
         env:
-          NEXT_PUBLIC_CONVEX_URL: https://veracious-wombat-196.convex.cloud
           DBC_BROWSER_ROOT: http://127.0.0.1:41795
           DBC_CDP_URL: http://127.0.0.1:9224
         run: |
