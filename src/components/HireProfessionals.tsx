@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { Calendar } from "@/components/booking/Calendar";
@@ -120,22 +120,9 @@ export function HireProfessionals() {
 }
 
 function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () => void }) {
-  const ref = useRef<HTMLVideoElement>(null);
   const neon = NEON[g.neon] || "var(--color-accent-400)";
   const hrs = g.pros.map((p) => p.rateHourly).filter((n): n is number => n != null);
   const fromHr = hrs.length ? Math.min(...hrs) : null;
-
-  // permanent playback — play while on screen, pause when scrolled away (perf only, not hover)
-  useEffect(() => {
-    const v = ref.current;
-    if (!v) return;
-    const io = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) v.play().catch(() => {}); else v.pause(); },
-      { threshold: 0.15 },
-    );
-    io.observe(v);
-    return () => io.disconnect();
-  }, []);
 
   return (
     <article
@@ -143,16 +130,11 @@ function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () =>
       style={{ ["--neon" as string]: neon }}
       className="crew-card crew-card--vid group w-44 shrink-0 snap-start"
     >
-      <video
-        ref={ref}
+      <img
         className="crew-video"
-        src={`/crew/${g.role}.mp4`}
-        poster={`/crew/${g.role}.jpg`}
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="metadata"
+        src={`/crew/${g.role}.jpg`}
+        alt=""
+        loading="lazy"
         aria-hidden
       />
       <div className={`crew-scrim${g.role === "videographer" ? " crew-scrim--strong" : ""}`} />
