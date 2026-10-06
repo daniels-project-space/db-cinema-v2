@@ -1,4 +1,5 @@
 import { queueOwnerNotification } from "./adminPush";
+import { belongsToRentalAccount } from "./rentalAccount";
 /** Shared boundaries for customer and owner rental conversations. */
 export async function accountForToken(ctx: any, token: string) {
   const s = await ctx.db
@@ -6,15 +7,12 @@ export async function accountForToken(ctx: any, token: string) {
     .withIndex("by_token", (q: any) => q.eq("token", token))
     .first();
   if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
-  const account=await ctx.db.get(s.accountId);return account?.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
+  const account=await ctx.db.get(s.accountId);return !account||account.blockedAt!=null||account.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
 }
 export async function ownedBooking(ctx: any, account: any, bookingId: any) {
   const b = await ctx.db.get(bookingId);
   if (
-    !account ||
-    !b ||
-    (b.guestEmail ?? "").trim().toLowerCase() !==
-      account.email.trim().toLowerCase()
+    !belongsToRentalAccount(b,account)
   )
     throw new Error("This rental is not available to your account.");
   return b;

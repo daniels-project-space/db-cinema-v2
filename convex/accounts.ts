@@ -1,4 +1,5 @@
 import { ensureReferralCode } from "./lib/referrals";
+import { rentalsForAccount } from "./lib/rentalAccount";
 import { creditKind } from "./lib/checkoutCredit";
 import { loyaltyProgress } from "./lib/loyalty";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
@@ -423,11 +424,7 @@ export const myBookings = query({
   handler: async (ctx, { token }) => {
     const a: any = await resolve(ctx, token);
     if (!a) return null;
-    const rows = await ctx.db
-      .query("bookings")
-      .withIndex("by_guestEmail", (q) => q.eq("guestEmail", a.email))
-      .order("desc")
-      .take(50);
+    const rows = await rentalsForAccount(ctx,a,50);
     return enrichBookings(ctx,rows);
   },
 });
@@ -506,7 +503,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
 }
 export const myBookingsPage=query({args:{token:v.string(),paginationOpts:paginationOptsValidator},handler:async(ctx,{token,paginationOpts})=>{
  const a:any=await resolve(ctx,token);if(!a)return {page:[],isDone:true,continueCursor:""};
- const page=await ctx.db.query("bookings").withIndex("by_guestEmail",q=>q.eq("guestEmail",a.email)).order("desc").paginate({...paginationOpts,numItems:Math.min(50,paginationOpts.numItems)});
+ const page=await ctx.db.query("bookings").withIndex("by_guestEmail",q=>q.eq("guestEmail",a.email)).filter(q=>q.or(q.eq(q.field("accountId"),undefined),q.eq(q.field("accountId"),a._id))).order("desc").paginate({...paginationOpts,numItems:Math.min(50,paginationOpts.numItems)});
  return {...page,page:await enrichBookings(ctx,page.page)};
 }});
 

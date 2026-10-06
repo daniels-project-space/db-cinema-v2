@@ -338,6 +338,7 @@ export const start = action({
       quotedDeliveryFee: price.quotedDeliveryFee,
       membershipCheckoutId: membershipCheckout?._id,
       accountAccessRequired: !pricedAccount,
+      accountId: acct?._id,
       creditAccountId: acct?._id,
       deliveryBenefitMonth: price.deliveryBenefitMonth,
       securityWaiverReason: price.securityWaiverReason,

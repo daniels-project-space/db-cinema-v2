@@ -13,6 +13,7 @@ crons.interval("reconcile-rental-extensions",{minutes:5},internal.rentalExtensio
 
 crons.interval("reconcile-rental-additions",{minutes:5},internal.rentalAdditions.reconcile,{});
 crons.interval("retry-owner-phone-alerts", { minutes: 5 }, internal.adminPushDelivery.retryDue, {});
+crons.interval("retry-rental-account-links", { minutes: 5 }, internal.accountAccess.retryRentalAccess, {});
 
 // Lapse membership perks with the real Stripe subscription (deactivates cancelled/unpaid members).
 crons.interval("reconcile-memberships", { hours: 6 }, internal.checkout.reconcileMemberships, {});

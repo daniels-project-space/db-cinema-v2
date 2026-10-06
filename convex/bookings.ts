@@ -112,6 +112,7 @@ export const createPending = internalMutation({
     securityWaiverReason: v.optional(v.string()),
     membershipCheckoutId: v.optional(v.id("membership_checkouts")),
     accountAccessRequired: v.optional(v.boolean()),
+    accountId: v.optional(v.id("accounts")),
     repeatSourceBookingId: v.optional(v.id("bookings")),
     repeatSourceFingerprint: v.optional(v.string()),
     currency: v.string(),
@@ -129,6 +130,10 @@ export const createPending = internalMutation({
     returnTime: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
+    if(a.accountId){
+      const owner=await ctx.db.get(a.accountId);
+      if(!owner||owner.blockedAt!=null||owner.email!==a.customerEmail.trim().toLowerCase())throw Error("Rental account does not match the checkout customer.");
+    }
     const newAgreement = a.agreementDocs?.some(d => d.version === LEGAL_VERSION);
     const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
     if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
@@ -256,6 +261,7 @@ export const createPending = internalMutation({
       referralCode:friend?.code,referralRewardId:reward?._id,
       customerId: customer!._id,
       guestEmail: customerEmail,
+      accountId: a.accountId,
       guestName: a.customerName?.trim(),
       guestPhone: a.phone?.trim(),
       status: "pending_payment",
@@ -446,6 +452,10 @@ export const confirm = internalMutation({
     if (booking.status === "confirmed" || booking.status === "active") {
       if(paymentIntentId&&booking.stripePaymentIntentId&&paymentIntentId!==booking.stripePaymentIntentId)return {closed:true,duplicatePayment:true};
       await ensurePaidBookingAccount(ctx,booking);
+      if(booking.accountAccessRequired&&!booking.accountAccessEmailSentAt){
+        if(!booking.accountAccessEmailRetryAt)await ctx.db.patch(bookingId,{accountAccessEmailRetryAt:Date.now()});
+        await ctx.scheduler.runAfter(0,internal.accountAccess.sendForRental,{bookingId});
+      }
       return { already: true };
     }
     if ((booking.membershipCreditApplied ?? 0) > 0) {
@@ -454,8 +464,10 @@ export const confirm = internalMutation({
         throw Error("The paid first-month credit receipt has not settled yet.");
     }
     // Email ownership must be proved before an automatically created account gains a session.
-    if (booking.accountAccessRequired || !await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", booking.guestEmail ?? "")).first())
+    if (booking.accountAccessRequired || !await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", booking.guestEmail ?? "")).first()) {
+      await ctx.db.patch(bookingId,{accountAccessEmailRetryAt:Date.now()});
       await ctx.scheduler.runAfter(0, internal.accountAccess.sendForRental, { bookingId });
+    }
     // clear this booking's soft holds before writing the real reservations
     const holds = await ctx.db
       .query("reservations")
