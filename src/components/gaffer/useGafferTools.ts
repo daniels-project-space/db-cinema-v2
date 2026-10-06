@@ -82,6 +82,12 @@ export function useGafferTools() {
   const cart = useCart();
   const account = useAccount();
   const convex = useConvex();
+  const emailedCart = useRef<{email:string;shareKey:string;signature:string}|null>(null);
+  const cartAlternatives = useQuery(api.cartReplacements.forCart, cart.items.length ? {items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)})),limit:6} : "skip");
+  const replacementBrief = useCallback(async()=>{
+    const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)})),limit:6});
+    return cart.items.filter(i=>Object.prototype.hasOwnProperty.call(rows,i.key)).map(i=>`${i.title} is unavailable for ${i.start} to ${i.end}. Available replacements for those same dates: ${(rows[i.key]??[]).map(c=>`${c.title} (£${c.total})`).join("; ")||"none found"}. The cart shows two initially; Show more replacements reveals more. Ask before changing their selection.`).join(" ");
+  },[cart.items,convex]);
   const { focus, suggest, suggestedIds, focusedId } = useGafferFocus();
   const catalog = useQuery(api.catalog.listListings, {});
   const spokenState = useRef<any>(null);
@@ -246,7 +252,7 @@ export function useGafferTools() {
       });
       return cart.items.filter((i) => res?.[i.listingId] && !res[i.listingId].ok);
     } catch {
-      return [];
+      return cart.items; // Do not promise availability when its check failed.
     }
   }, [convex, cart]);
 
@@ -555,6 +561,8 @@ export function useGafferTools() {
 
       /** Same-category substitutes that are genuinely free for those dates. */
       suggest_alternatives: async ({ item, start, end }: { item: string; start?: string; end?: string }) => {
+        const basketItem=cart.items.find(i=>i.title.toLowerCase()===String(item).trim().toLowerCase());
+        if(basketItem){const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)})),limit:10});const alts=rows[basketItem.key];return alts?`${basketItem.title} is unavailable for ${basketItem.start} to ${basketItem.end}. Available alternatives: ${alts.map(c=>`${c.title} (£${c.total})`).join("; ")||"none"}. Use Show more replacements on the cart or ask which they prefer before switching.`:"This basket item is currently available. Ask before changing it.";}
         const hit = await findOne(item);
         if (!hit) return `Couldn't find ${item} to match against.`;
         const { startIso, endIso } = resolveWindow(start, end, hit.minDays ?? 1);
@@ -649,6 +657,37 @@ export function useGafferTools() {
        * The pitch is the point: a registered customer gets a thread Gaffer
        * replies in directly, instead of waiting on email round-trips.
        */
+      email_checkout_cart: async ({email}:{email?:string}) => {
+        const to=(email??account.me?.email??"").trim().toLowerCase();
+        if(!to)return "Ask for their email address and permission to email the discussed cart.";
+        try{const result=await convex.action(api.checkoutCarts.email,{email:to,token:account.me?.email===to?account.token??undefined:undefined,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)}))});
+          emailedCart.current={email:to,shareKey:result.shareKey,signature:cart.items.map(i=>`${i.listingId}:${i.start}:${i.end}`).join("|")};
+          return `The discussed cart was emailed to ${to}. Its private link restores the items and selected dates; availability is rechecked and unavailable items show replacements. It does not reserve gear or take payment.`;
+        }catch(e){return e instanceof Error?e.message:"The cart email could not be sent.";}
+      },
+      switch_unavailable: async ({item,replacement}:{item:string;replacement:string}) => {
+        const source=cart.items.find(i=>i.title.toLowerCase()===String(item).trim().toLowerCase());
+        if(!source)return "Name the exact unavailable basket item before switching it.";
+        const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)})),limit:100});
+        const choice=rows[source.key]?.find(i=>i.title.toLowerCase()===String(replacement).trim().toLowerCase());
+        if(!choice)return "That replacement is not currently available for this basket. Use check_basket for the current alternatives.";
+        cart.switchItem(source.key,{...choice,start:source.start,end:source.end});return `Switched ${source.title} to ${choice.title}, keeping ${source.start} to ${source.end}. Recheck the basket before checkout.`;
+      },
+      setup_account: async ({email,name,phone}:{email:string;name:string;phone:string}) => {
+        if(!email?.trim()||!name?.trim()||!phone?.trim())return "Ask for their name, phone number and email address, and confirm they want an account.";
+        try{const to=email.trim().toLowerCase(),signature=cart.items.map(i=>`${i.listingId}:${i.start}:${i.end}`).join("|");
+          if(cart.count&&(!emailedCart.current||emailedCart.current.email!==to||emailedCart.current.signature!==signature)){
+            const result=await convex.action(api.checkoutCarts.email,{email:to,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)}))});emailedCart.current={email:to,shareKey:result.shareKey,signature};
+          }
+          const result=await convex.action(api.accountCodes.request,{email:to,name,phone,purpose:"setup",cartKey:emailedCart.current?.email===to?emailedCart.current.shareKey:undefined});
+          router.push(`/account/setup?challenge=${result.challenge}`);
+          return "The email code entry page is open. Ask them to enter the one-time code themselves, then choose a new password. Never ask them to say or send you the code or password. Their saved cart will reopen after setup. An existing profile is preserved.";
+        }catch(e){return e instanceof Error?e.message:"Account setup could not start.";}
+      },
+      reset_password: async ({email}:{email:string}) => {
+        if(!email?.trim())return "Ask for the account email address.";
+        try{const result=await convex.action(api.accountCodes.request,{email,purpose:"reset"});router.push(`/account/setup?purpose=reset&challenge=${result.challenge}`);return "Forgot password is open. If an eligible account uses this address, a code was emailed. Ask them to enter the code themselves and choose a new password. Never ask them to share either.";}catch(e){return e instanceof Error?e.message:"Password reset could not start.";}
+      },
       offer_account: async () => {
         if ((account as any)?.me) {
           instant();
@@ -656,7 +695,7 @@ export function useGafferTools() {
           return "They're already signed in — their chat is open on screen.";
         }
         instant();
-        router.push("/account");
+        router.push("/account/setup");
         return (
           "Sign-up is on screen. Tell them it takes a moment and means I can answer them directly " +
           "in their own chat instead of going back and forth by email."
@@ -696,8 +735,7 @@ export function useGafferTools() {
           `${await rentalSummary()}. At checkout, normal security is a £${depositChargeFor("verify",cart.depositTotal)} refundable deposit${holding ? ` plus a separate £${holding} card hold` : ", with no card hold"}; the confirmed quote records any deposit waiver.` +
           speakCompat(compat.warnings ?? []);
         return bad.length
-          ? `${summary} Heads up — ${bad.map((b) => b.title).join(" and ")} won't be free for those dates. ` +
-              `Offer alternatives, or offer to take it off.`
+          ? `${summary} ${await replacementBrief()}`
           : `${summary} Happy to go through to checkout?`;
       },
 
@@ -709,7 +747,7 @@ export function useGafferTools() {
         return (
           `${bad.map((b) => `${b.title} (${b.start} to ${b.end})`).join(" and ")} ` +
           `${bad.length > 1 ? "aren't" : "isn't"} available for those dates. ` +
-          `I can swap for something similar, or take ${bad.length > 1 ? "them" : "it"} off the basket.`
+          await replacementBrief()
         );
       },
 
@@ -801,7 +839,7 @@ export function useGafferTools() {
           return (
             `Can't check out yet — ${bad.map((b) => b.title).join(" and ")} ` +
             `${bad.length > 1 ? "aren't" : "isn't"} available for those dates. ` +
-            `Shall I swap ${bad.length > 1 ? "them" : "it"} for something free, or take ${bad.length > 1 ? "them" : "it"} off?`
+            await replacementBrief()
           );
 
         /**
@@ -842,7 +880,7 @@ export function useGafferTools() {
         return `Taking them to checkout, ${await rentalSummary()}. Normal security is a £${depositChargeFor("verify",cart.depositTotal)} refundable deposit${holding ? ` plus a separate £${holding} card hold` : ", with no card hold"}; the confirmed quote records any waiver.`;
       },
     }),
-    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest, rentalSummary],
+    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest, rentalSummary, replacementBrief],
   );
 
   /**
@@ -862,10 +900,11 @@ export function useGafferTools() {
       membership_tier: me?.membershipActive ? (me?.membershipTier ?? "") : "",
       basket_count: String(cart.count),
       basket_items: cart.items.map((i) => `${i.title} (${i.days}d, £${i.total})`).join("; "),
+      basket_availability: cartAlternatives===undefined&&cart.count ? "checking" : cart.items.map(i=>cartAlternatives&&Object.prototype.hasOwnProperty.call(cartAlternatives,i.key)?`${i.title}: unavailable; same-date alternatives: ${cartAlternatives[i.key].map(c=>`${c.title} £${c.total}`).join(", ")||"none"}`:`${i.title}: available`).join("; "),
       basket_subtotal: String(cart.subtotal),
       current_page: typeof window !== "undefined" ? window.location.pathname : "",
     };
-  }, [account, cart]);
+  }, [account, cart, cartAlternatives]);
 
   return { clientTools, dynamicVariables, noteCustomerMessage, resetPriceRequest, noteAgentAlignment, noteAgentMessage, resetSpokenFocus };
 }

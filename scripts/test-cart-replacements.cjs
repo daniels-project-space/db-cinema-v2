@@ -36,6 +36,8 @@ for(const title of ['Cannon r5 c cinema camera','Sigma art 24-70mm f2.8 lens','S
  const held=put('reservations',{inventoryUnitId:fx3.components[0].inventoryUnitId,start,end,qty:1,status:'hold',holdExpiresAt:Date.now()+60000});assert(!(await replacements.forCart.handler(ctx,{items:lines(phantom)})).source.some(c=>c.listingId===fx3._id));await db.patch(held._id,{holdExpiresAt:Date.now()-1});assert.equal((await replacements.forCart.handler(ctx,{items:lines(phantom)})).source[0].listingId,fx3._id);
  const competing=listing('Another FX3 kit',await db.get(fx3.components[0].inventoryUnitId));const basket=[...lines(phantom),{key:'keep',listingId:competing._id,start,end}];assert(!(await replacements.forCart.handler(ctx,{items:basket})).source.some(c=>c.listingId===fx3._id));
  await db.patch(a7._id,{minimumRentalDays:4});assert.equal((await replacements.forCart.handler(ctx,{items:basket})).source.length,0);await db.patch(a7._id,{minimumRentalDays:1});
+ const extra=listing('Another available camera',unit('extra-body'));
+ const expanded=await replacements.forCart.handler(ctx,{items:lines(phantom),limit:8});assert(expanded.source.length>2,'Show more returns additional genuinely available replacements');assert.equal((await replacements.forCart.handler(ctx,{items:lines(phantom)})).source.length,2,'Initial result stays at two');await db.patch(extra._id,{active:false});
  // Fresh recheck removes a choice when a reservation wins the race.
  put('reservations',{inventoryUnitId:fx3.components[0].inventoryUnitId,start,end,qty:1,status:'confirmed'});assert(!(await replacements.forCart.handler(ctx,{items:lines(phantom)})).source.some(c=>c.listingId===fx3._id));
  // Do not substitute a known incompatible body into a kit with E glass.

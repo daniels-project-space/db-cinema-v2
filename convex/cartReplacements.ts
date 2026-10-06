@@ -12,15 +12,17 @@ import { bestCompat, parseMounts } from "./lib/mount";
  * Each switch is rechecked by the client, and final checkout checks the full kit.
  */
 export const forCart = query({
-  args: { items: v.array(v.object({ key: v.string(), listingId: v.id("listings"), start: v.number(), end: v.number() })) },
-  handler: async (ctx, { items }) => {
+  args: { items: v.array(v.object({ key: v.string(), listingId: v.id("listings"), start: v.number(), end: v.number() })), limit: v.optional(v.number()) },
+  handler: async (ctx, { items, limit = 2 }) => {
+    if (!Number.isFinite(limit)) throw Error("Invalid replacement limit");
+    limit = Math.max(2, Math.min(100, Math.floor(limit)));
     if (items.length > 100) throw Error("Basket is too large");
     const originals = await Promise.all(items.map(i => ctx.db.get(i.listingId)));
     const result: Record<string, { listingId: string; slug: string; title: string; heroImage: string | null; days: number; perDay: number; total: number; deposit: number }[]> = {};
     const categories = new Map<string, any[]>();
     for (let index = 0; index < items.length; index++) {
       const source = originals[index], line = items[index];
-      if (!source || !Number.isSafeInteger(line.start) || !Number.isSafeInteger(line.end) || line.end < line.start) continue;
+      if (!source || !Number.isSafeInteger(line.start) || !Number.isSafeInteger(line.end) || line.end < line.start || line.end-line.start > 365*86400000) continue;
       const retained = originals.flatMap((l, j) => j !== index && l && !rentalUnavailable(l) ? [{ listing: l, line: items[j] }] : []);
       const sourceUnits = new Set(source.components.map(c => String(c.inventoryUnitId)));
       try {
@@ -62,7 +64,7 @@ export const forCart = query({
         const total = candidate.quietDeal ? Math.round(price.total * (1-candidate.quietDeal/100)) : price.total;
         result[line.key].push({ listingId: candidate._id, slug: candidate.slug, title: candidate.title, heroImage: listingImages(candidate)[0] ?? null, days, perDay: Math.round(total/days*100)/100, total, deposit: candidate.depositAmount });
         seen.add(signature);
-        if (result[line.key].length === 2) break;
+        if (result[line.key].length >= limit) break;
       }
     }
     return result;

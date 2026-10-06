@@ -170,12 +170,15 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   memory.add('user','Could you do a better price?');
   assert.match(memory.context(),/Alex/);assert.match(memory.context(),/enquiry saved/);assert.match(memory.context(),/do not repeat completed basket changes/);
   memory.clear();assert.equal(memory.context(),'');
-  const cart={items:[],count:2,subtotal:550,eligibleSubtotal:500,promo:null,close(){},setPromo(code){this.promo=code;}};
+  const toolActions=[],toolRoutes=[];
+  const cart={items:[],switchItem(key,item){this.items=this.items.map(i=>i.key===key?{...item,key}:i);},count:2,subtotal:550,eligibleSubtotal:500,promo:null,close(){},setPromo(code){this.promo=code;}};
   const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts',{
     react:{useRef:current=>({current}),useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{}},
-    'next/navigation':{useRouter:()=>({push(){}})},'convex/react':{useQuery:()=>[],useConvex:()=>({query:async(ref,args)=>{
+    'next/navigation':{useRouter:()=>({push(route){toolRoutes.push(route);}})},'convex/react':{useQuery:()=>[],useConvex:()=>({action:async(ref,args)=>{toolActions.push({ref,args});return ref==='checkoutCarts:email'?{url:'https://example.invalid/cart/quote/opaque',shareKey:'opaque'}:{challenge:'challenge'};},query:async(ref,args)=>{
       if(ref==='voiceCatalog:search')return {matches:[{id:'fx3',title:'Sony FX3',daily:47}]};
       if(ref==='availability:forListing')return {available:1};
+      if(ref==='availability:forCart')return {unavailable:{ok:false}};
+      if(ref==='cartReplacements:forCart')return {source:[{listingId:'fx3',title:'Sony FX3',slug:'fx3',total:100,perDay:50,days:2,deposit:3200,heroImage:null}]};
       return args.code==='better15'?{valid:true,discount:75}:validate.handler({},args);
     }})},
     '@cvx/_generated/api':{api:refs},'@cvx/lib/gafferDiscount':{GAFFER_PRICE_CODE:'gaffer10'},
@@ -196,6 +199,13 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   }
   const delayedBrowse=await priceTool.clientTools.browse_for({item:'Sony FX3'});
   assert.match(delayedBrowse,/not finished loading on screen/);assert.doesNotMatch(delayedBrowse,/On screen now/);
+
+  cart.items=[{key:'source',listingId:'unavailable',title:'Unavailable Camera',slug:'unavailable',start:'2026-12-07',end:'2026-12-09',days:3,total:300}];cart.count=1;
+  assert.match(await priceTool.clientTools.check_basket(),/Sony FX3.*Show more replacements/);
+  assert.match(await priceTool.clientTools.switch_unavailable({item:'Unavailable Camera',replacement:'Sony FX3'}),/keeping 2026-12-07 to 2026-12-09/);assert.equal(cart.items[0].start,'2026-12-07');assert.equal(cart.items[0].end,'2026-12-09');
+  assert.match(await priceTool.clientTools.email_checkout_cart({email:'person@example.invalid'}),/was emailed/);assert.equal(toolActions.at(-1).ref,'checkoutCarts:email');assert.equal(toolActions.at(-1).args.lines[0].listingId,'fx3');
+  assert.match(await priceTool.clientTools.setup_account({email:'person@example.invalid',name:'Person',phone:'07700123456'}),/Never ask.*code or password/);assert.equal(toolActions.at(-1).args.cartKey,'opaque');assert(toolRoutes.at(-1).startsWith('/account/setup?challenge='));
+  assert.match(await priceTool.clientTools.reset_password({email:'person@example.invalid'}),/choose a new password/);assert.equal(toolActions.at(-1).args.purpose,'reset');
 
   // Execute the real provider's SDK callbacks through a deterministic hook harness.
   // No paid calls: verify the handover supplied to the transport and its lifecycle.

@@ -1,0 +1,22 @@
+"use client";
+import { useState, useEffect } from "react";
+import { useAction } from "convex/react";
+import { api } from "@cvx/_generated/api";
+import { useAccount } from "@/components/account/AccountProvider";
+import { SiteHeader } from "@/components/SiteHeader";
+import Link from "next/link";
+export default function AccountSetup(){
+ const account=useAccount(),request=useAction(api.accountCodes.request),verify=useAction(api.accountCodes.verify),complete=useAction(api.accountCodes.complete);
+ const [purpose,setPurpose]=useState<"setup"|"reset">("setup"),[challenge,setChallenge]=useState(""),[setupToken,setSetupToken]=useState(""),[email,setEmail]=useState(""),[name,setName]=useState(""),[phone,setPhone]=useState(""),[code,setCode]=useState(""),[password,setPassword]=useState(""),[confirm,setConfirm]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ useEffect(()=>{const p=new URLSearchParams(window.location.search);setPurpose(p.get("purpose")==="reset"?"reset":"setup");setChallenge(p.get("challenge")??"");window.history.replaceState({},"",window.location.pathname);},[]);
+ async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError("");try{
+  if(setupToken){if(password!==confirm)throw Error("Passwords do not match.");const result=await complete({setupToken,password});account.acceptSession(result.token);window.location.replace(result.cartKey?`/cart/quote/${result.cartKey}`:"/account");}
+  else if(challenge){const result=await verify({challenge,code});setSetupToken(result.setupToken);setCode("");}
+  else{const result=await request({email,purpose,...(purpose==="setup"?{name,phone}:{})});setChallenge(result.challenge);}
+ }catch(e){setError(e instanceof Error?e.message:"Please try again.");}finally{setBusy(false);}}
+ return <><SiteHeader/><main className="section-window mx-auto max-w-sm px-6 py-12"><h1 className="font-display text-3xl text-white">{setupToken?"Choose your new password":purpose==="reset"?"Forgot password":"Set up your account"}</h1>
+ <p className="mt-3 text-sm text-white/60">{setupToken?"Your email is verified. Set your password now to finish and sign in.":challenge?"Enter the six-digit code from your email. It expires in 15 minutes. If this email has an eligible account, its code is on the way.":purpose==="reset"?"We’ll email a one-time code so you can choose a new password.":"Enter your details, then verify the code sent to your email and choose a password."}</p>
+ <form onSubmit={submit} className="mt-6 flex flex-col gap-3">{setupToken?<><input aria-label="New password" className="input" type="password" autoComplete="new-password" minLength={8} maxLength={256} placeholder="New password (8+ characters)" value={password} onChange={e=>setPassword(e.target.value)} required/><input aria-label="Confirm password" className="input" type="password" autoComplete="new-password" placeholder="Confirm password" value={confirm} onChange={e=>setConfirm(e.target.value)} required/></>:challenge?<input aria-label="One-time code" className="input" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} placeholder="Six-digit code" value={code} onChange={e=>setCode(e.target.value)} required/>:<><input aria-label="Email" className="input" type="email" autoComplete="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required/>{purpose==="setup"&&<><input aria-label="Name" className="input" autoComplete="name" placeholder="Full name" value={name} onChange={e=>setName(e.target.value)} required/><input aria-label="Phone" className="input" type="tel" autoComplete="tel" placeholder="Phone number" value={phone} onChange={e=>setPhone(e.target.value)} required/></>}</>}
+ {error&&<p role="alert" className="text-sm text-red-300">{error}</p>}<button disabled={busy} className="btn-primary py-3">{busy?"Please wait…":setupToken?"Save password and sign in":challenge?"Verify code":"Email my code"}</button>
+ {challenge&&!setupToken&&<button type="button" className="btn-secondary py-3" onClick={()=>{setChallenge("");setCode("");setError("");}}>Request a new code</button>}</form><Link className="mt-6 block text-sm text-accent-300" href="/account">Back to sign in</Link></main></>;
+}
