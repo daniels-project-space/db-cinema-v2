@@ -137,7 +137,7 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <div className="mt-6 flex gap-2 overflow-x-auto rounded-2xl bg-white/[0.025] p-2">
+        <div className="mt-6 grid grid-cols-2 gap-2 rounded-2xl bg-white/[0.025] p-2 sm:grid-cols-3 lg:grid-cols-5">
           {(
             [
               ["overview", "Overview"],
@@ -157,8 +157,9 @@ export default function AdminPage() {
           ).map(([key, label]) => (
             <button
               key={key}
+              aria-pressed={tab === key}
               onClick={() => { setTab(key); if (key === "marketing" || key === "settings") window.history.replaceState(null, "", `#${key}`); else if (window.location.hash === "#marketing" || window.location.hash === "#settings") window.history.replaceState(null, "", window.location.pathname); }}
-              className={`shrink-0 whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+              className={`rounded-xl border border-white/10 px-3 py-3 text-sm font-medium transition ${
                 tab === key
                   ? "bg-white text-black"
                   : "text-white/45 hover:text-white/75"

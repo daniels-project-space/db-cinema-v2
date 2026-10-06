@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import type { Id } from "@cvx/_generated/dataModel";
+import { SmartImage } from "@/components/SmartImage";
 
 type Draft = { marketingOnly: boolean | null; expectedUpdatedAt?: number };
 export function MarketingListingsAdmin({ token }: { token: string }) {
@@ -39,27 +40,31 @@ export function MarketingListingsAdmin({ token }: { token: string }) {
     </div>
     <div className="sticky top-20 z-10 flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-[#141414] p-3">
       <input aria-label="Search listings" placeholder="Search any listing…" value={search} onChange={e => setSearch(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none" />
-      <select aria-label="Filter listings" value={filter} onChange={e => setFilter(e.target.value)} className="rounded-lg border border-white/10 bg-[#141414] px-3 py-2 text-sm text-white">
-        <option value="all">All listings</option><option value="marketing">Marketing only</option><option value="other">Not marketing only</option>
-      </select>
+      <div role="group" aria-label="Filter listings" className="flex w-full flex-wrap gap-2 sm:w-auto">
+        {[["all", "All listings"], ["marketing", "Marketing only"], ["other", "Not marketing only"]].map(([value,label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className={`rounded-lg px-3 py-2 text-xs ${filter === value ? "bg-white text-black" : "bg-white/5 text-white/60"}`}>{label}</button>)}
+      </div>
       <button data-testid="save-marketing-tags" disabled={!dirty || busy} onClick={save} className="btn-primary px-4 py-2 text-sm disabled:opacity-40">{busy ? "Saving…" : `Save${dirty ? ` ${dirty} ${dirty === 1 ? "change" : "changes"}` : " changes"}`}</button>
       {dirty > 0 && <button disabled={busy} onClick={() => { setDrafts({}); setError(""); }} className="text-xs text-white/60 underline">Discard changes</button>}
     </div>
     {message && <p role="status" className="text-sm text-emerald-300">{message}</p>}
     {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
-    <div className="space-y-2">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {visible.map(l => {
         const draft = drafts[l._id];
         const selected = draft ? (draft.marketingOnly ?? l.automaticMatch) : l.marketingOnly;
-        return <div key={l._id} data-marketing-listing={l._id} className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4">
-          <label className="flex w-full min-w-0 cursor-pointer items-start gap-3 sm:w-auto sm:flex-1">
+        return <div key={l._id} data-marketing-listing={l._id} className={`flex min-w-0 flex-col overflow-hidden rounded-xl border transition ${selected ? "border-amber-500/60 bg-amber-500/[.06]" : "border-white/10 bg-white/[0.02]"}`}>
+          <label className="flex flex-1 cursor-pointer flex-col p-4 hover:bg-white/[.04]">
+            <SmartImage src={l.heroImage} alt={l.title} className="mb-4 aspect-[4/3] w-full rounded-lg bg-black/30" imgClassName="!object-contain" />
+            <span className="mb-3 block break-words text-sm font-medium text-white/85">{l.title}</span>
+            <span className="mb-4 block text-xs text-white/45">{l.category} · {l.source === "admin" ? "Manual choice" : "Automatic"}{!l.active ? " · Inactive listing" : ""}{draft ? " · Unsaved" : ""}</span>
+            <span className="mt-auto flex items-center gap-3">
             <input data-testid="marketing-toggle" type="checkbox" aria-label={`Marketing only: ${l.title}`} checked={selected} disabled={busy} onChange={e => {
               setMessage(""); setDrafts(prev => ({ ...prev, [l._id]: { marketingOnly: e.target.checked, expectedUpdatedAt: prev[l._id] ? prev[l._id].expectedUpdatedAt : l.updatedAt } }));
             }} className="mt-1 h-5 w-5 shrink-0 accent-[#ff7a00]" />
-            <span className="min-w-0"><span className="block break-words text-sm text-white/85">{l.title}</span><span className="mt-1 block text-xs text-white/45">{l.category} · {l.source === "admin" ? "Manual choice" : "Automatic"}{!l.active ? " · Inactive listing" : ""}{draft ? " · Unsaved" : ""}</span></span>
+              <span className={`rounded-full px-3 py-1 text-xs ${selected ? "bg-amber-500/10 text-amber-300" : "bg-white/5 text-white/45"}`}>{selected ? "Marketing only" : "Not marketing only"}</span>
+            </span>
           </label>
-          <span className={`rounded-full px-3 py-1 text-xs ${selected ? "bg-amber-500/10 text-amber-300" : "bg-white/5 text-white/45"}`}>{selected ? "Marketing only" : "Not marketing only"}</span>
-          {l.source === "admin" && <button disabled={busy} onClick={() => setDrafts(prev => ({ ...prev, [l._id]: { marketingOnly: null, expectedUpdatedAt: prev[l._id] ? prev[l._id].expectedUpdatedAt : l.updatedAt } }))} className="text-xs text-white/55 underline">Use automatic tagging</button>}
+          {l.source === "admin" && <button disabled={busy} onClick={() => setDrafts(prev => ({ ...prev, [l._id]: { marketingOnly: null, expectedUpdatedAt: prev[l._id] ? prev[l._id].expectedUpdatedAt : l.updatedAt } }))} className="border-t border-white/10 p-3 text-xs text-white/55 underline">Use automatic tagging</button>}
         </div>;
       })}
       {!visible.length && <p className="p-4 text-sm text-white/45">No listings match this search.</p>}

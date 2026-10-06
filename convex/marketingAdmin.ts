@@ -2,6 +2,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { automaticMarketingFields, isMarketingOnly, marketingRedirect } from "./lib/marketingInventory";
+import { listingImages } from "./lib/catalogImages";
 
 export const list = query({
   args: { token: v.string() },
@@ -10,6 +11,7 @@ export const list = query({
     const rows = await ctx.db.query("listings").collect();
     return { authorized: true, items: rows.map(l => ({
       _id: l._id, title: l.title, category: l.category, active: l.active,
+      heroImage: listingImages(l)[0] ?? null,
       marketingOnly: isMarketingOnly(l), source: l.marketingOnlySource ?? "auto",
       automaticMatch: !!marketingRedirect(l), updatedAt: l.marketingOnlyUpdatedAt,
     })).sort((a,b) => a.title.localeCompare(b.title)) };
