@@ -137,6 +137,8 @@ export default defineSchema({
     .index("by_guestToken", ["guestToken"]),
 
   bookings: defineTable({
+    guestName: v.optional(v.string()),
+    guestPhone: v.optional(v.string()),
     pricingVersion: v.optional(v.string()),benefitKind:v.optional(v.string()),
     refundCreditApplied:v.optional(v.number()),earnedCreditApplied:v.optional(v.number()),
     creditAllocations:v.optional(v.array(v.object({creditId:v.id("credits"),amount:v.number(),kind:v.union(v.literal("refund"),v.literal("earned"))}))),

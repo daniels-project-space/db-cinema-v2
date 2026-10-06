@@ -185,12 +185,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (account.me?.membershipIntroUsed)
       setMembership((v) =>
         v?.intro === "trial"
-          ? { ...v, intro: "none", termsAccepted: false }
+          ? null
           : v,
       );
   }, [account.me?.membershipActive, account.me?.membershipIntroUsed]);
   useEffect(() => {
-    setMembership((v) => (v ? { ...v, termsAccepted: false } : v));
+    setMembership(null);
   }, [account.token]);
   const setPromo = useCallback((code: string | null) => {
     setPromoState(code);
@@ -229,7 +229,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (!original || original.start !== replacement.start || original.end !== replacement.end || prev.some(i => i.key !== key && i.listingId === replacement.listingId && i.start === replacement.start && i.end === replacement.end)) return prev;
       return prev.map(i => i.key === key ? { ...replacement, key: nextKey } : i);
     });
-    setMembership(v => v ? { ...v, termsAccepted: false } : v);
+    setMembership(null);
     setToast("Gear switched — your rental dates are unchanged");
   }, []);
 
@@ -244,7 +244,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (items.some(i => i.key !== key && i.listingId === item.listingId && i.start === start && i.end === end && i.offerType === item.offerType)) throw Error("This item is already in your kit for those dates.");
     const days = daysInclusive(start, end);
     setItems(prev => prev.map(i => i.key === key ? { ...i, key: `${i.listingId}|${start}|${days}|${i.offerType ?? ""}`, start, end, days, total, perDay: Math.round(total / days * 100) / 100 } : i));
-    setMembership(v => v ? { ...v, termsAccepted: false } : v);
+    setMembership(null);
     setToast("Rental dates and price updated");
   }, [items]);
   const clear = useCallback(() => {

@@ -417,31 +417,15 @@ export default function CheckoutPage() {
                     {formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("verify", equipmentValue))} refundable deposit at checkout{smallDamageHold(equipmentValue) > 0 ? `, plus a separate ${formatGbp(smallDamageHold(equipmentValue))} card hold.` : ". No separate card hold is required."} Automatic ID, selfie and address check before handover.
                   </p>
                 </button>
-                {equipmentValue >= 1000 && <button
-                  onClick={() => setProtection("deposit")}
-                  className={`rounded-xl border p-4 text-left transition-all ${
-                    protection === "deposit"
-                      ? "border-accent-400 bg-accent-400/10 accent-glow"
-                      : "border-white/10 hover:border-white/25"
-                  }`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                    <span className="flex min-w-0 flex-wrap items-center gap-2.5 text-sm font-medium text-white/85">
-                      <IconLock className={`h-4.5 w-4.5 shrink-0 ${protection === "deposit" ? "text-accent-400" : "text-white/40"}`} />
-                      Full-value card hold
-                    </span>
-                    <span className="shrink-0 font-mono text-sm text-accent-300">{formatGbp(equipmentValue)} hold</span>
-                  </div>
-                  <p className="mt-1.5 text-xs text-white/40">{formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("deposit", equipmentValue))} refundable security payment at checkout, plus a separate {formatGbp(equipmentValue)} card hold. Automatic ID, selfie and address check before handover.</p>
-                </button>}
+
               </div>
-              <p className="mt-3 text-[11px] leading-5 text-white/45">Security is based on the combined replacement value of your gear{currentQuote ? ` (${formatGbp(equipmentValue)})` : ""}. Below £300: £100 refundable deposit, no hold. £300–£999.99: £100 refundable deposit + £100 hold. Any eligible deposit waiver is shown in your confirmed quote.</p>
+              <p className="mt-3 text-[11px] leading-5 text-white/45">Security is based on the combined replacement value of your gear{currentQuote ? ` (${formatGbp(equipmentValue)})` : ""}. The card authorisation is 10% of that value — £100 per £1,000, or £250 for £2,500 — rounded to the nearest penny. It reserves funds rather than charging them. The refundable upfront payment and any eligible waiver are quoted separately.</p>
             </StepCard>
 
             {/* 04 — agreements */}
             <StepCard n="04" title="Agreements & signature" sub="Required before hire. Security does not cap your responsibility." done={signDone} delay={210}>
               <div data-testid="rental-consent" className="rounded-xl border border-white/10 bg-black/10 p-4">
-                <p className="text-xs leading-5 text-white/60">{depositAmount > 0 ? `${formatGbp(depositAmount)} refundable deposit is charged with this booking.` : "Your upfront refundable deposit is waived."} {holdAmount > 0 ? `I authorise a separate ${formatGbp(holdAmount)} card hold. It is not charged; renewal may need bank approval.` : "No separate card hold is required."}</p>
+                <p className="text-xs leading-5 text-white/60">{depositAmount > 0 ? `${formatGbp(depositAmount)} refundable deposit is charged with this booking.` : "Your upfront refundable deposit is waived."} {holdAmount > 0 ? `I authorise a separate ${formatGbp(holdAmount)} card hold, equal to 10% of the equipment value. I authorise an attempted replacement hold of the same agreed amount within 24 hours of bank expiry if still required. It is not charged; bank approval may be needed, and both holds may briefly appear before the earlier one is released.` : "No separate card hold is required."}</p>
                 <p className="mt-2 text-xs leading-5 text-white/60">I remain responsible for evidenced loss, theft, missing items, non-return and damage under the Rental Agreement, excluding fair wear, pre-existing defects and loss attributable to DB. Security and DB’s insurance excess are not automatic liability caps. My own insurance is optional for currently declared company-owned or declared leased kit; rental charges do not buy comprehensive renter cover. Separately itemised late time and properly owed loss/damage follow notice, evidence and a dispute opportunity. An unused active hold may cover late time if no damage is due; a remaining saved-card payment may require authentication. No amount is collected twice.</p>
                 <details className="mt-3 text-xs text-white/55"><summary className="cursor-pointer text-accent-300">Read the rental agreements</summary><ul className="mt-2 space-y-1.5">{AGREEMENTS.map(d=><li key={d.kind}><a href={`/legal/${d.kind}?version=${encodeURIComponent(d.version)}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{d.title} · {d.version}</a></li>)}</ul></details>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">

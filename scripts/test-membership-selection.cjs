@@ -40,9 +40,9 @@ for (const tier of ["plus", "pro", "studio"])
         termsAccepted: true,
         membershipActive: true,
       }),
-      { tier, intro: "none", termsAccepted: false },
+      null,
       "stored preferences cannot carry financial consent or confer membership",
     );
 console.log(
-  "Basket membership preference: valid plans restored, retired/invalid offers rejected, consent always requires fresh acceptance.",
+  "Basket membership preference: saved selections cleared, no subscription benefit without fresh opt-in.",
 );

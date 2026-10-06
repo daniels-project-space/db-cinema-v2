@@ -2,6 +2,28 @@ import { ensureReferralCode } from "./lib/referrals";
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { bump } from "./rateLimit";
+/** Runs inside the attested paid-booking transaction, independently of email delivery. */
+export async function ensurePaidBookingAccount(ctx: any, booking: any) {
+ if(!["confirmed","active"].includes(booking.status))return null;
+ const email=booking.guestEmail?.trim().toLowerCase();if(!email)return null;
+ let account=await ctx.db.query("accounts").withIndex("by_email",(q:any)=>q.eq("email",email)).unique();
+ if(account?.blockedAt!=null)return null;
+ const customer=booking.customerId?await ctx.db.get(booking.customerId):null;
+ const details={name:booking.guestName??customer?.name??booking.agreementName,phone:booking.guestPhone??customer?.phone,address:booking.billingAddress??booking.address};
+ if(!account){
+  const id=await ctx.db.insert("accounts",{email,...details,emailVerificationRequired:true,firstRentalPaidAt:Date.now(),createdAt:Date.now()});
+  await ensureReferralCode(ctx,id);account=await ctx.db.get(id);
+  await ctx.db.patch(booking._id,{accountCreatedAtCheckout:true});
+ }else{
+  // A checkout seed has no login identity yet. Never overwrite an established
+  // profile or confer email ownership from a successful card payment.
+  const seeded=account.checkoutSeedHash&&!account.hash&&!account.googleId&&!account.emailVerifiedAt&&!account.firstRentalPaidAt;
+  await ctx.db.patch(account._id,{...(!account.firstRentalPaidAt?{firstRentalPaidAt:Date.now()}:{}),...(seeded?details:{})});
+  if(seeded)await ctx.db.patch(booking._id,{accountCreatedAtCheckout:true});
+  account=await ctx.db.get(account._id);
+ }
+ return account;
+}
 export const prepareSignup=internalMutation({args:{email:v.string(),credentialHash:v.string(),secretHash:v.string()},handler:async(ctx,a)=>{
  const account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",a.email)).unique();
  if(!account||account.blockedAt!=null||!account.emailVerificationRequired||account.emailVerifiedAt||account.hash!==a.credentialHash)return null;
@@ -23,8 +45,7 @@ export const prepareSignIn=internalMutation({args:{email:v.string(),secretHash:v
 export const prepare=internalMutation({args:{bookingId:v.id("bookings"),secretHash:v.string()},handler:async(ctx,a)=>{
  const b=await ctx.db.get(a.bookingId);if(!b||!["confirmed","active"].includes(b.status)||b.accountAccessEmailSentAt)return null;
  const email=b.guestEmail?.trim().toLowerCase();if(!email)return null;
- let account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",email)).unique();
- if(!account){const id=await ctx.db.insert("accounts",{email,name:b.agreementName,emailVerificationRequired:true,firstRentalPaidAt:Date.now(),createdAt:Date.now()});await ensureReferralCode(ctx,id);account=await ctx.db.get(id);await ctx.db.patch(b._id,{accountCreatedAtCheckout:true});}
+ const account=await ensurePaidBookingAccount(ctx,b);if(!account)return null;
  if(account!.blockedAt!=null)return null;
  const previous=await ctx.db.query("account_access_links").withIndex("by_booking",q=>q.eq("bookingId",b._id)).collect();for(const link of previous)if(!link.usedAt)await ctx.db.patch(link._id,{expiresAt:Date.now()});
  await ctx.db.insert("account_access_links",{accountId:account!._id,bookingId:b._id,secretHash:a.secretHash,expiresAt:Date.now()+3600000,createdAt:Date.now()});return{email,bookingId:b._id};

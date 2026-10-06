@@ -32,7 +32,7 @@ const pendingArgs=(p,a)=>({securityPolicyVersion:p.securityPolicyVersion,protect
  await assert.rejects(calculateRentalPrice(pricing,{...input(friend),token:undefined,promoCode:owner.referralCode}),/Sign in/);
  camera.depositAmount=150;
  const small=await calculateRentalPrice(pricing,{...input(friend),promoCode:owner.referralCode});
- assert.equal(small.depositAmount,100);assert.equal(small.depositHoldAmount,0);
+ assert.equal(small.depositAmount,100);assert.equal(small.depositHoldAmount,15);
  const smallArgs=pendingArgs(small,friend);
  await assert.rejects(bookings.createPending.handler(ctx,{...smallArgs,depositAmount:0}),/normal upfront security/);
  const smallBooking=await bookings.createPending.handler(ctx,smallArgs);

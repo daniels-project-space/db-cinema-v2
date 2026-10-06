@@ -283,6 +283,7 @@ export function CheckoutMembership({
           </p>
           {compact && selected && <button type="button" data-testid="remove-membership" onClick={removeSelection} className="shrink-0 text-[10px] text-white/45 underline">Remove membership</button>}
         </div>
+        {!me && <p className="mt-2 text-[10px] leading-4 text-white/55">Membership requires an account. After successful payment, we create one using your booking details and email you a secure sign-in link.</p>}
         {compact ? (
           <>
             {!current && <label className="mt-1 flex cursor-pointer items-start gap-2 text-[9px] leading-[14px] text-white/55">

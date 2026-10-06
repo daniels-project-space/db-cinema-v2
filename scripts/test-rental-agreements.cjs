@@ -24,7 +24,8 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  const created=await bookings.createPending.handler(ctx,args),b=await db.get(created.bookingId);
  const saved=b.agreementSnapshot,signed=b.agreementSignedAt;
  assert.equal(count(),1);const snapshot=JSON.parse(saved);
- assert.equal(snapshot.version,LEGAL_VERSION);assert.equal(snapshot.particulars.total,200);
+ assert.equal(snapshot.version,LEGAL_VERSION);assert.equal(LEGAL_VERSION,'2026-10-v10');
+ const current=load('shared/legalDocuments.ts').LEGAL_DOCS['deposit-agreement'];assert.match(JSON.stringify(current),/10%/);assert.match(JSON.stringify(current),/£250/);assert.match(JSON.stringify(current),/within 24 hours/);assert.match(JSON.stringify(current),/authentication/i);assert.equal(snapshot.particulars.total,200);
  assert.equal(snapshot.particulars.securityHold,0);assert.equal(snapshot.particulars.timeZone,'Europe/London');
  assert.equal(snapshot.particulars.serialConditionSchedule,'pending-agreed-handover');
  assert.match(snapshot.documents.find(d=>d.kind==='rental-agreement').text.sections.find(s=>s.h==='4. Loss & damage').p,/theft.*non-return/);

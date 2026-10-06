@@ -150,7 +150,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   });
   assert.equal(checkoutResult.url,'https://checkout.stripe.test/session');
   assert.equal(savedBooking.lineItems[0].title,'Real camera');
-  assert.equal(savedBooking.depositHoldAmount,50);
+  assert.equal(savedBooking.depositHoldAmount,100);
   assert.equal(savedBooking.depositAmount,25);
   assert.equal(StripeStub.lastCheckout.line_items[0].price_data.unit_amount,20000);
   assert.equal(StripeStub.lastCheckout.line_items[1].price_data.unit_amount,2500);
