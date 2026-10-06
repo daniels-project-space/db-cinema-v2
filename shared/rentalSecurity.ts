@@ -17,8 +17,9 @@ export function valueBandSecurity(protection: Protection, replacementSum: number
 
 /** New card authorisations are 10% of authoritative equipment value, in pence.
  * The standard upfront payment is a separate amount and keeps its prior rule. */
-export function rentalSecurity(_protection: Protection, replacementSum: number) {
+export function rentalSecurity(protection: Protection, replacementSum: number) {
   const previous = valueBandSecurity("verify", replacementSum);
+  if (protection === "deposit" && replacementSum >= 1000) return valueBandSecurity("deposit", replacementSum);
   return { deposit: previous.deposit, hold: Math.round(replacementSum * 10) / 100 };
 }
 
