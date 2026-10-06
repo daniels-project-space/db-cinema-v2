@@ -1,6 +1,7 @@
 /** Explicit marketing-only models from rental-manager's pricing-catalog.ts and
  * marketing-redirects.ts; verified against RMv2 items:listActive 2026-10-06.
  * hygglo_products.isMarketingOnly also marks owned kits, so cannot be used here.
+ * The now-owned DZOFilm Vespid set supersedes its historical marketing redirect.
  * Storefront selection is deliberately independent of checkout eligibility.
  */
 import { deriveItemType } from "./taxonomy";
@@ -25,7 +26,7 @@ const redirects: { match: RegExp; types: string[]; alternative: RegExp }[] = [
   { match: /\b135\s*mm.*f\s*1[.,]8\b/i, types: ["lens"], alternative: /\b90\s*mm\b/i },
   { match: /\b50\s*mm.*f\s*1[.,]2\b|\b35\s*mm.*f\s*1[.,]4\b/i, types: ["lens"], alternative: /24[ -]?70/i },
   { match: /\b14\s*mm.*f\s*1[.,]8\b|\bsigma\s*14[ -]?24\b|\bsony\b.*12[ -]?24/i, types: ["lens"], alternative: /16[ -]?35/i },
-  { match: /\b(vespid|great\s*joy|zeiss\s*prime)\b/i, types: ["lens"], alternative: /\b(blazar|remus)\b/i },
+  { match: /\b(great\s*joy|zeiss\s*prime)\b/i, types: ["lens"], alternative: /\b(blazar|remus)\b/i },
   { match: /\bcanon\s*rf\s*24[ -]?70/i, types: ["lens"], alternative: /\bcanon\s*ef\s*24[ -]?105/i },
   { match: /\bsmallhd\s*cine\s*7\b/i, types: ["monitor"], alternative: /\batomos\s*ninja\b/i },
   { match: /\bxdj[ -]?rx2\b/i, types: ["dj-deck"], alternative: /\brx3\b/i },

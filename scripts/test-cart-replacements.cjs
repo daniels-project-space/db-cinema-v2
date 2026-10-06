@@ -9,6 +9,7 @@ const lines=l=>[{key:'source',listingId:l._id,start,end}];
  const phantom=listing('Sony FX6 camera kit',unit('fake')),fx3=listing('Sony FX3 camera kit',unit('FX3')),a7=listing('Sony A7 V camera kit',unit('A7V'));
  const activeMarketing=await availability.forCart.handler(ctx,{items:lines(phantom)});assert.equal(activeMarketing[phantom._id].ok,false);assert.equal(activeMarketing[phantom._id].available,0);
  await assert.rejects(assertRentalInventory(ctx,[{...lines(phantom)[0],qty:1}]),/no longer available/);
+ assert(!marketingRedirect({title:'DZOFilm Vespid 3-Lens Set'}));
  assert(!marketingRedirect({title:'Sony FX3 camera body'}));assert(!marketingRedirect({title:'Battery for Sony FX6',itemType:'battery'}));assert(!marketingRedirect({title:'Sony A7 IV compatible cage',itemType:'accessory'}));
  const booking=put('bookings',{lineItems:[{...lines(phantom)[0],qty:1,title:phantom.title}],status:'pending_payment'});
  await assert.rejects(load('convex/bookings.ts').placeHolds.handler(ctx,{bookingId:booking._id,ttlMs:60000}),/unavailable/);assert.equal((tables.get('reservations')??[]).length,0);
