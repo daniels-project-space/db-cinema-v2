@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { CAROUSEL_ITEMS } from "@/components/FormSevenCarousel";
 
 /**
@@ -19,7 +20,11 @@ import { CAROUSEL_ITEMS } from "@/components/FormSevenCarousel";
  *     prefers-reduced-motion, where the reel doesn't autoplay anyway
  */
 export function FormSevenPrewarm() {
+  const pathname = usePathname();
   useEffect(() => {
+    // Rental browsing and payment use still images; do not fetch background
+    // films there. Route changes also cancel any pending prewarm work.
+    if (!pathname || /^\/(?:gear|cart|checkout)(?:\/|$)/.test(pathname)) return;
     const conn = (navigator as any).connection;
     if (conn?.saveData) return;
     if (conn?.effectiveType && /(^|-)2g$/.test(conn.effectiveType)) return;
@@ -63,7 +68,7 @@ export function FormSevenPrewarm() {
       else window.clearTimeout(idle);
       links.forEach((l) => l.remove());
     };
-  }, []);
+  }, [pathname]);
 
   return null;
 }
