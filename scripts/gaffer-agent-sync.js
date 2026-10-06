@@ -67,6 +67,10 @@ const DATES = {
 };
 
 const NEW_TOOLS = [
+  clientTool("email_checkout_cart", "After the customer asks for or agrees to an email, save and email their exact current cart and hire dates as a private checkout link. It rechecks availability and offers replacements; it does not reserve or charge. Never claim it was emailed unless this tool succeeds.", {email:str("Customer email; omit when signed in.")}),
+  clientTool("setup_account", "After they agree to create an account, collect name, phone and email. Emails a one-time code and opens the private code form; the customer must enter it themselves and immediately set a new password. Never ask for their code or password. Keeps their discussed cart linked.", {name:str("Full name"),phone:str("Phone number"),email:str("Email address")}, ["name","phone","email"]),
+  clientTool("reset_password", "When asked to reset a forgotten password, email a one-time code and open the reset form. Customer enters the code privately and chooses a new password. Never ask for either; don't reveal whether an account exists.", {email:str("Account email address")}, ["email"]),
+  clientTool("switch_unavailable", "Only after the customer chooses and confirms a replacement, replace one unavailable basket item with the exact currently available alternative, keeping its hire dates. Use exact titles from check_basket. Rechecks stock before switching.", {item:str("Exact unavailable basket item title"),replacement:str("Exact available replacement title")}, ["item","replacement"]),
   clientTool("request_better_price", "ONLY after the caller explicitly asks for a better price or discount. Applies 10% when the rental subtotal is strictly above £400, excluding already-discounted add-ons, deposits and delivery. Never offer it proactively; report the tool result."),
   clientTool(
     "recommend_gear",

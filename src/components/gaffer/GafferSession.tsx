@@ -148,6 +148,10 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
   const variablesRef = useRef(dynamicVariables);
   variablesRef.current = dynamicVariables;
   const pathname = usePathname();
+  useEffect(()=>{
+    if(state!=="live")return;
+    try{conv.current?.sendContextualUpdate?.(`[Current page and basket — not caller speech] Page: ${pathname}. ${JSON.stringify(dynamicVariables)}. At cart/checkout, explain any unavailable item and offer only its actual same-date alternatives. Use check_basket before promising availability. Mention Show more replacements if the first two do not suit. Ask before switching. For emailed carts use email_checkout_cart; for account setup collect name, phone and email then setup_account. Never ask for a code or password.`);}catch{/* Refresh on the next basket update. */}
+  },[state,dynamicVariables,pathname]);
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
 
@@ -587,7 +591,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
         try {
           const currentBrief = continuity ? pageBrief(pathnameRef.current ?? "/").brief : brief;
           session.sendContextualUpdate?.(currentBrief);
-          if (continuity) session.sendContextualUpdate?.(memory.current.context() + "\nCurrent customer and basket: " + JSON.stringify(variablesRef.current));
+          session.sendContextualUpdate?.((continuity ? memory.current.context() + "\n" : "") + "Current customer and basket: " + JSON.stringify(variablesRef.current));
         } catch { /* non-fatal */ }
       } catch (err: any) {
         if (!mine()) return;

@@ -11,6 +11,8 @@
 import type * as accountAccess from "../accountAccess.js";
 import type * as accountAdmin from "../accountAdmin.js";
 import type * as accountClaims from "../accountClaims.js";
+import type * as accountCodeClaims from "../accountCodeClaims.js";
+import type * as accountCodes from "../accountCodes.js";
 import type * as accounts from "../accounts.js";
 import type * as adminAuth from "../adminAuth.js";
 import type * as adminNotifications from "../adminNotifications.js";
@@ -24,6 +26,8 @@ import type * as catalog from "../catalog.js";
 import type * as changes from "../changes.js";
 import type * as chat from "../chat.js";
 import type * as checkout from "../checkout.js";
+import type * as checkoutCartData from "../checkoutCartData.js";
+import type * as checkoutCarts from "../checkoutCarts.js";
 import type * as checkoutRecovery from "../checkoutRecovery.js";
 import type * as checkoutRecoveryMail from "../checkoutRecoveryMail.js";
 import type * as collective from "../collective.js";
@@ -131,6 +135,8 @@ declare const fullApi: ApiFromModules<{
   accountAccess: typeof accountAccess;
   accountAdmin: typeof accountAdmin;
   accountClaims: typeof accountClaims;
+  accountCodeClaims: typeof accountCodeClaims;
+  accountCodes: typeof accountCodes;
   accounts: typeof accounts;
   adminAuth: typeof adminAuth;
   adminNotifications: typeof adminNotifications;
@@ -144,6 +150,8 @@ declare const fullApi: ApiFromModules<{
   changes: typeof changes;
   chat: typeof chat;
   checkout: typeof checkout;
+  checkoutCartData: typeof checkoutCartData;
+  checkoutCarts: typeof checkoutCarts;
   checkoutRecovery: typeof checkoutRecovery;
   checkoutRecoveryMail: typeof checkoutRecoveryMail;
   collective: typeof collective;

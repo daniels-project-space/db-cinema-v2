@@ -60,6 +60,8 @@ const title = (slug: string) =>
  * will just hit walls.
  */
 const SELL_CLOSE =
+  "At the cart or checkout stage, use check_basket and explain unavailable items clearly. Offer the actual same-date replacements returned by that tool, and mention Show more replacements if the first two do not suit them. Only use switch_unavailable after they choose and confirm a replacement. Never claim a marketing-only item is rentable. " +
+  "If they want the discussed cart by email, use email_checkout_cart after confirming their email. To create an account, ask for name, phone and email and their agreement, then use setup_account. The customer must enter the emailed one-time code privately and immediately choose a password. Never ask for their code or password. For a forgotten password use reset_password or point to Forgot password on sign-in. " +
   "Get their dates first — everything else depends on them. Use browse_for or find_gear to put real " +
   "options on screen and check what's actually free for those dates; never promise something you " +
   "haven't checked. When they pick one, add_to_basket highlights it on screen and drops it in — do " +

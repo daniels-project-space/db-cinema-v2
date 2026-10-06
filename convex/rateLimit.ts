@@ -24,7 +24,7 @@ export const hit = mutation({
   handler: async (ctx, { key, limit, windowMs }) => {
     // These counters belong to server-owned account/application workflows. A
     // caller must not reset their windows through the public API-route limiter.
-    if (/^(account-signin:|account-signup:|fund-signup:|fund-upload:)/.test(key))
+    if (/^(account-signin:|account-signup:|account-code:|checkout-cart:|fund-signup:|fund-upload:)/.test(key))
       throw new Error("Reserved rate-limit key.");
     return bump(ctx, key, limit, windowMs);
   },
