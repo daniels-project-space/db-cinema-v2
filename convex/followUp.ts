@@ -1,4 +1,4 @@
-import { postRentalMessage } from "./lib/rentalChat";
+import { accountForToken, postRentalMessage } from "./lib/rentalChat";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -143,6 +143,8 @@ export const inbound = mutation({
       .withIndex("by_replyKey", (q) => q.eq("replyKey", replyKey))
       .first();
 
+    if(!original||original.email.trim().toLowerCase()!==email.trim().toLowerCase())return {routed:"ignored" as const};
+
     await ctx.db.insert("gaffer_follow_ups", {
       at: Date.now(),
       email,
@@ -157,12 +159,12 @@ export const inbound = mutation({
 
     // If they have an account, the reply belongs in the chat Gaffer already
     // answers — same conversation, not a second one in a different channel.
-    const account = await ctx.db
+    const account = original.accountId ? await ctx.db.get(original.accountId) : await ctx.db
       .query("accounts")
       .withIndex("by_email", (q: any) => q.eq("email", email.toLowerCase()))
       .first();
 
-    if (account) {
+    if (account && account.blockedAt==null && account.email.trim().toLowerCase()===email.trim().toLowerCase()) {
       await postRentalMessage(ctx, {
         accountId: account._id,
         sender: "renter",
@@ -192,16 +194,13 @@ export const adminList = query({
 export const claimForAccount = mutation({
   args: { token: v.string(), email: v.string() },
   handler: async (ctx, { token, email }) => {
-    const session = await ctx.db
-      .query("sessions")
-      .withIndex("by_token", (q: any) => q.eq("token", token))
-      .first();
-    if (!session) return { ok: false };
+    const account = await accountForToken(ctx,token);
+    if (!account || account.blockedAt!=null || email.trim().toLowerCase()!==account.email.trim().toLowerCase()) return { ok: false };
     const rows = await ctx.db
       .query("gaffer_follow_ups")
-      .withIndex("by_email", (q) => q.eq("email", email.toLowerCase()))
+      .withIndex("by_email", (q) => q.eq("email", account.email.trim().toLowerCase()))
       .collect();
-    for (const r of rows) if (!r.accountId) await ctx.db.patch(r._id, { accountId: session.accountId });
+    for (const r of rows) if (!r.accountId) await ctx.db.patch(r._id, { accountId: account._id });
     return { ok: true, linked: rows.length };
   },
 });

@@ -1,4 +1,5 @@
 import { postRentalMessage } from "./lib/rentalChat";
+import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { mutation, internalMutation, internalQuery, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -44,7 +45,7 @@ export const requestBookingChange = mutation({
     const acct: any = s ? await ctx.db.get(s.accountId) : null;
     const b = await ctx.db.get(a.bookingId);
     if(!s||(s.expiresAt??0)<=Date.now())throw Error("Please sign in again");
-    if (!acct || !b || (b.guestEmail ?? "").trim().toLowerCase() !== acct.email) throw new Error("unauthorized");
+    if (!acct || !b || acct.blockedAt!=null || !belongsToRentalAccount(b,acct)) throw new Error("unauthorized");
     if(b.cancellationDecision)throw Error("Cancellation is in progress");
     if (!["confirmed", "active"].includes(b.status)) throw new Error("This booking can't be changed online.");
     if (a.type === "reschedule" && (a.requestedStart == null || a.requestedEnd == null)) throw new Error("Pick new dates.");

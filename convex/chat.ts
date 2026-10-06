@@ -1,4 +1,5 @@
 import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "./lib/rentalChat";
+import { accountForRental } from "./lib/rentalAccount";
 import { rentalCancellationStart, cancelKind } from "../src/lib/cancellationPolicy";
 import { contentsText } from "../shared/rentalContents";
 import { query, mutation, internalQuery, internalMutation, internalAction } from "./_generated/server";
@@ -239,7 +240,7 @@ export const postBookingMessages = internalMutation({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active"].includes(b.status) || b.chatConfirmationMessageId) return;
-    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    const account = await accountForRental(ctx,b);
     if (!account) return;
     const settings = await ctx.db.query("settings").first();
     const day = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" });

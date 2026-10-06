@@ -67,6 +67,7 @@ import type * as lib_mount from "../lib/mount.js";
 import type * as lib_mp4Duration from "../lib/mp4Duration.js";
 import type * as lib_pricing from "../lib/pricing.js";
 import type * as lib_referrals from "../lib/referrals.js";
+import type * as lib_rentalAccount from "../lib/rentalAccount.js";
 import type * as lib_rentalBillingLines from "../lib/rentalBillingLines.js";
 import type * as lib_rentalChat from "../lib/rentalChat.js";
 import type * as lib_rentalCreditPolicy from "../lib/rentalCreditPolicy.js";
@@ -186,6 +187,7 @@ declare const fullApi: ApiFromModules<{
   "lib/mp4Duration": typeof lib_mp4Duration;
   "lib/pricing": typeof lib_pricing;
   "lib/referrals": typeof lib_referrals;
+  "lib/rentalAccount": typeof lib_rentalAccount;
   "lib/rentalBillingLines": typeof lib_rentalBillingLines;
   "lib/rentalChat": typeof lib_rentalChat;
   "lib/rentalCreditPolicy": typeof lib_rentalCreditPolicy;

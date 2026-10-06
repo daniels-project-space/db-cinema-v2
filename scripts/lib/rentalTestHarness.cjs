@@ -92,6 +92,7 @@ const db = {
             return q;
           },
           lte(k,v) { rows=rows.filter(r=>r[k]<=v); return q; },
+          gt(k,v) { rows=rows.filter(r=>r[k]>v); return q; },
           gte(k, v) {
             rows = rows.filter((r) => r[k] >= v);
             return q;
@@ -101,7 +102,10 @@ const db = {
         return query;
       },
       filter(fn) {
-        const q = { field: (k) => k, eq: (k, v) => (r) => r[k] === v };
+        const q = { field: (k) => k, eq: (k, v) => (r) => r[k] === v,
+          or: (...conditions) => r => conditions.some(c=>c(r)),
+          and: (...conditions) => r => conditions.every(c=>c(r)),
+        };
         rows = rows.filter(fn(q));
         return query;
       },

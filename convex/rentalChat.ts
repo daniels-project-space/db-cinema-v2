@@ -6,6 +6,7 @@ import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { listingImages } from "./lib/catalogImages";
 import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
 import { acknowledgeOwnerNotifications } from "./lib/adminPush";
+import { accountForRental, rentalsForAccount } from "./lib/rentalAccount";
 import {
   accountForToken,
   ownedBooking,
@@ -17,12 +18,7 @@ async function ownerAccount(ctx: any, bookingId?: any, accountId?: any) {
   if (bookingId) {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
-    return ctx.db
-      .query("accounts")
-      .withIndex("by_email", (q: any) =>
-        q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
-      )
-      .first();
+    return accountForRental(ctx,b);
   }
   return accountId ? ctx.db.get(accountId) : null;
 }
@@ -66,11 +62,7 @@ export const mine = query({
   handler: async (ctx, { token }) => {
     const a = await accountForToken(ctx, token);
     if (!a) return null;
-    const bookings = await ctx.db
-      .query("bookings")
-      .withIndex("by_guestEmail", (q) => q.eq("guestEmail", a.email))
-      .order("desc")
-      .take(200);
+    const bookings = await rentalsForAccount(ctx,a,200);
     return Promise.all(bookings.map((b) => bookingView(ctx, b, a)));
   },
 });
@@ -81,12 +73,7 @@ export const adminInbox = query({
     const bookings = await ctx.db.query("bookings").order("desc").take(200);
     const items = await Promise.all(
       bookings.map(async (b) => {
-        const a = await ctx.db
-          .query("accounts")
-          .withIndex("by_email", (q) =>
-            q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
-          )
-          .first();
+        const a = await accountForRental(ctx,b);
         return bookingView(ctx, b, a);
       }),
     );
@@ -269,6 +256,7 @@ export const minePage = query({
     const page = await ctx.db
       .query("bookings")
       .withIndex("by_guest_chat_updated", (q) => q.eq("guestEmail", a.email))
+      .filter(q=>q.or(q.eq(q.field("accountId"),undefined),q.eq(q.field("accountId"),a._id)))
       .order("desc")
       .paginate({
         ...paginationOpts,

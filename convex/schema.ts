@@ -140,6 +140,7 @@ export default defineSchema({
     .index("by_guestToken", ["guestToken"]),
 
   bookings: defineTable({
+    accountId: v.optional(v.id("accounts")),
     guestName: v.optional(v.string()),
     guestPhone: v.optional(v.string()),
     pricingVersion: v.optional(v.string()),benefitKind:v.optional(v.string()),
@@ -150,6 +151,10 @@ export default defineSchema({
     rentalPaidPence: v.optional(v.number()),
     accountCreatedAtCheckout: v.optional(v.boolean()),
     accountAccessEmailSentAt: v.optional(v.number()),
+    accountAccessEmailAttempts: v.optional(v.number()),
+    accountAccessEmailRetryAt: v.optional(v.number()),
+    accountAccessEmailLeaseUntil: v.optional(v.number()),
+    accountAccessEmailClaimId: v.optional(v.id("account_access_links")),
     accountAccessRequired: v.optional(v.boolean()),
     deliveryBenefitAccountId: v.optional(v.id("accounts")),
     deliveryBenefitMonth: v.optional(v.string()),
@@ -319,6 +324,8 @@ export default defineSchema({
     .index("by_agreement_request", ["agreementRequestId"])
     .index("by_stripePaymentIntentId", ["stripePaymentIntentId"])
     .index("by_guestEmail", ["guestEmail"])
+    .index("by_account", ["accountId"])
+    .index("by_account_access_retry", ["accountAccessEmailRetryAt"])
     .index("by_review_check", ["status", "reviewFollowUpCheckedAt"]),
 
   customers: defineTable({
