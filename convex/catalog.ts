@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { quote } from "./lib/pricing";
 import { weekendDays } from "../shared/membership";
 import { listingImages } from "./lib/catalogImages";
+import { isMarketingOnly } from "./lib/marketingInventory";
 
 /**
  * SERVER-AUTHORITATIVE line pricing for checkout (anti-tamper). Recomputes each line's
@@ -59,6 +60,7 @@ const card = (l: any) => ({
   depositAmount: l.depositAmount,
   minimumRentalDays: l.minimumRentalDays ?? 1,
   demandScore: l.demandScore ?? 0,
+  marketingOnly: isMarketingOnly(l),
   quietDeal: l.quietDeal ?? null,
   displayOnly: !!l.suppressed, // marketing-only / display item — not bookable, "register interest" only
 });

@@ -72,6 +72,9 @@ export default defineSchema({
     demandScore: v.optional(v.number()), // rental-history demand (set by sync.applyDemand)
     quietDeal: v.optional(v.number()), // % off — auto-set on genuinely-idle items (catalog.refreshQuietDeals)
     suppressed: v.optional(v.boolean()), // local marketing-only override — kept inactive every sync
+    marketingOnly: v.optional(v.boolean()),
+    marketingOnlySource: v.optional(v.union(v.literal("auto"), v.literal("admin"))),
+    marketingOnlyUpdatedAt: v.optional(v.number()),
     unavailableDates: v.optional(v.array(v.string())),
     publicUrl: v.optional(v.string()),
     minimumRentalDays: v.optional(v.number()),

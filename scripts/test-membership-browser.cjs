@@ -66,7 +66,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       process.env.DBC_CONVEX_URL || "https://veracious-wombat-196.convex.cloud",
     );
   const r = await cv.query(api.catalog.listListings, {}),
-    rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !marketingRedirect(l)),
+    rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !(l.marketingOnly ?? !!marketingRedirect(l))),
     l = rows.filter(l=>l.pricing && !l.displayOnly).sort((a,b)=>b.pricing.daily-a.pricing.daily)[0];
   const future = new Date(Date.now() + 60 * 86400000);
   const start =

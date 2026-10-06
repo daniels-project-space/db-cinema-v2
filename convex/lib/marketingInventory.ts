@@ -41,6 +41,18 @@ export function marketingRedirect(listing: { title: string; itemType?: string | 
   const advertised = title.split(/\b(?:like|similar to|equivalent to|compatible with|same sensor as|same as)\b/i)[0];
   return redirects.find(r => r.types.includes(type) && r.match.test(advertised));
 }
-export function rentalUnavailable(listing: { active?: boolean; suppressed?: boolean; title: string; itemType?: string | null }) {
-  return !listing.active || !!listing.suppressed || !!marketingRedirect(listing);
+type MarketingListing = { title: string; itemType?: string | null; marketingOnly?: boolean; marketingOnlySource?: "auto" | "admin"; marketingOnlyUpdatedAt?: number };
+export function isMarketingOnly(listing: MarketingListing) {
+  if (listing.marketingOnlySource === "admin") return !!listing.marketingOnly;
+  return !!listing.marketingOnly || !!marketingRedirect(listing);
+}
+/** Catalog imports classify new models without overwriting an owner's choice. */
+export function automaticMarketingFields(listing: MarketingListing, existing?: MarketingListing | null) {
+  if (existing?.marketingOnlySource === "admin") return {};
+  const marketingOnly = !!marketingRedirect(listing);
+  if (existing?.marketingOnlySource === "auto" && existing.marketingOnly === marketingOnly) return {};
+  return { marketingOnly, marketingOnlySource: "auto" as const, marketingOnlyUpdatedAt: Math.max(Date.now(), (existing?.marketingOnlyUpdatedAt ?? 0) + 1) };
+}
+export function rentalUnavailable(listing: MarketingListing & { active?: boolean; suppressed?: boolean }) {
+  return !listing.active || !!listing.suppressed || isMarketingOnly(listing);
 }
