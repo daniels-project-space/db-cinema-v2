@@ -114,3 +114,10 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Protect invoice access with permanent account ownership, preserving normalised email compatibility only for unlinked legacy rentals. A customer changing email keeps access; a different linked account with the old booking email is denied. Add actual query regression checks for owner/admin, expired/foreign sessions, private-field exclusion and unknown legacy refund amounts.
 - [x] Inspect native desktop/mobile paired/stacked panels and authenticated PDF preview/download using actual query/PDF GET/renderer with synthetic account/rental data. Build/typecheck and return/PDF regressions pass; screenshots are in `/root/dbc-invoice-layout-review`. A failed generated-font cache build was resolved by cleaning only generated Next output and rebuilding.
 - [ ] Publish compatible source/backend changes and verify actual live customer and admin document access. Full reference fidelity, remaining management screens, equipment assets and the broader goal remain open.
+
+### 7 October 2026 — ERNIE equipment pilot
+
+- [x] Validate one reviewed aircraft-only candidate with the current engine parser, preserve the full Base quality contract, recheck DB Cinema R2 binding and submit the existing workflow with deterministic idempotency.
+- [x] Verify the real job is running: `jd78hms12daqs0e34hq67ffj1h8fv0g9`. Record request/receipt and the per-attempt budget/retry semantics; do not treat submission as a dry run.
+- [x] Follow pilot to completion and terminated GPU; independently verify the 1,286,349-byte 1264×848 PNG in DB Cinema R2 and record server-revalidated native receipt. Recorded GPU cost $0.0165. Inspect output against manufacturer imagery.
+- [ ] First output rejected for wrong hardware geometry and view. Tighten appearance-specific prompt and deliberately retry one candidate before larger batches. No inaccurate image is bound to cards. Remaining batches, factual reviews and management image binding stay open.

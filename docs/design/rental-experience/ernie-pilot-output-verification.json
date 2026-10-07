@@ -1,0 +1,37 @@
+{
+  "checkedAt": "2026-10-07T22:30:08.944Z",
+  "jobId": "jd78hms12daqs0e34hq67ffj1h8fv0g9",
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "imageContractSha256": "2dbdf2fe0708c21eb4ec4828ba50244dca2369bc6fb9f0dbd5b7ac61166f570f",
+  "status": "completed",
+  "usage": {
+    "complete": true,
+    "costUsd": 0.01650188611111111,
+    "gpuSeconds": 207
+  },
+  "candidates": [
+    {
+      "candidateId": "kn79mc5rgqhsr64hbn58z737hs86b5ks",
+      "bucket": "re-db-cinema-rentals-1f518ftgxs",
+      "key": "projects/db-cinema-rentals/workflows/jn727e21bczgbhymp0xkdhb3398fvtf3/jobs/jd78hms12daqs0e34hq67ffj1h8fv0g9/outputs/candidates/kn79mc5rgqhsr64hbn58z737hs86b5ks.png",
+      "bytes": 1286349,
+      "sha256": "e7319439e18060b1bd8acd3ad820171f160899ef50cd5fee397cd78fa51deab3",
+      "width": 1264,
+      "height": 848,
+      "nativeReceiptSha256": "586894a597aa587072c5c566686a43c54aa16f1b20f664f4b48c1bf909f9eb0a",
+      "pngIndependentlyStreamVerified": true,
+      "nativeReceiptServerRevalidated": true,
+      "visualAccepted": false
+    }
+  ],
+  "acceptedForTiles": false,
+  "visualReview": {
+    "checkedAt": "2026-10-07T22:33:00Z",
+    "status": "rejected",
+    "reason": "Does not reliably match DJI Mini 4 Pro hardware: chunky dark body, front sensor bar/layout and tall landing legs differ from manufacturer imagery. View is front three-quarter rather than the requested side hero. Lighting style passed; exact model accuracy did not.",
+    "manufacturerSource": "https://store.dji.com/uk/product/dji-mini-4-pro",
+    "manufacturerImage": "https://se-cdn.djiits.com/tpc/uploads/in_the_box/cover/f255909c0783c37eb297b38f96b21729%40retina_small.png",
+    "reviewScreenshot": "/root/dbc-equipment-render-review/mini4pro-browser.png",
+    "manufacturerReviewScreenshot": "/root/dbc-equipment-render-review/mini4pro-manufacturer-browser.png"
+  }
+}
