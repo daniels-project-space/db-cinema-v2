@@ -20,7 +20,7 @@ This checklist extends the original goal; no original integration requirement is
 - [ ] Request and verify an Earnie image-render lane through Render Engine in parallel with interface development; inspect current admission, provider and cost state before spending.
 - [x] Create the dedicated `db-cinema-rentals` Render Engine workspace/R2 bucket and a real ERNIE Base workflow; live readiness verified. See `EQUIPMENT-RENDERS.md` and `ernie-workspace-receipt.json`. Image batches, price/release checks and completed output verification remain outstanding.
 - [x] Export actual individual inventory items, canonical identifiers and quantities from the Rental Manager master inventory (`master-inventory.json`, 108 records).
-- [ ] Enrich and verify factual descriptions from actual listing data and reference photos.
+- [ ] Enrich and verify factual descriptions from actual listing data and reference photos. Current live snapshot: 82 owned/active items among 108 master rows; 16 have reviewed descriptions/source URLs and prepared owned candidates, 66 owned items still need review. Appearance/reference checks and image generation remain outstanding.
 - [ ] Prepare a consistent image prompt per inventory item; match the actual equipment model and supplied reference photos.
 - [ ] Render each item as a side-view kit showcase, filling the absolute majority of the frame, in a dark room with a cool overhead spotlight; maintain matching framing, scale, lighting and background across the set.
 - [ ] Verify factual equipment accuracy and image quality; avoid inventing included accessories or misleading stock.

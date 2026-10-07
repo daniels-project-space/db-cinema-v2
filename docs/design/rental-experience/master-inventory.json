@@ -1,6 +1,7 @@
 {
-  "source": "Rental Manager items:listForReconcile",
-  "checkedAt": "2026-10-07T17:17:13.137Z",
+  "source": "Rental Manager items:listForReconcile + walle_inventory:lookup (exact canonical matches only)",
+  "deployment": "hearty-oyster-600",
+  "checkedAt": "2026-10-07T19:36:06.865Z",
   "items": [
     {
       "id": "kn78qjrz8qk1zxk9vqrgnbqw3s86aqpt",
@@ -10,8 +11,19 @@
       "aliases": [
         "Blazar Remus 33mm"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Blazar Remus 33mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Anamorphic Blazar Remus 33mm. Blazar Remus 33mm T1.8 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T1.8, close focus 0.49m, PL-version weight 880g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.",
+      "verifiedDescription": "Blazar Remus 33mm T1.8 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T1.8, close focus 0.49m, PL-version weight 880g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.",
+      "specVerification": {
+        "model": "Blazar Remus 33mm T1.8 1.5X",
+        "source_url": "https://blazarlens.com/remus/"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 33mm. Verified equipment description: Blazar Remus 33mm T1.8 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T1.8, close focus 0.49m, PL-version weight 880g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "9e1bf740ed7b528abf745dbefbfa97a486049bb5b0db5a02b159037489aef694",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn71y2p1ascfw2gv9snasdwhkn86b90w",
@@ -21,8 +33,19 @@
       "aliases": [
         "Blazar Remus 45mm"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Blazar Remus 45mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Anamorphic Blazar Remus 45mm. Blazar Remus 45mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.68m, PL-version weight 720g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.",
+      "verifiedDescription": "Blazar Remus 45mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.68m, PL-version weight 720g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.",
+      "specVerification": {
+        "model": "Blazar Remus 45mm T2.0 1.5X",
+        "source_url": "https://blazarlens.com/remus/"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 45mm. Verified equipment description: Blazar Remus 45mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.68m, PL-version weight 720g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "c3525bbc76f069e30dfbb32fcf70f7670e8695a235279932b04300e126306a37",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn71mytpv3d5m8nw6z1kpx2qqs86acrd",
@@ -32,8 +55,19 @@
       "aliases": [
         "Blazar Remus 65mm"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Blazar Remus 65mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Anamorphic Blazar Remus 65mm. Blazar Remus 65mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.69m, PL-version weight 782g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.",
+      "verifiedDescription": "Blazar Remus 65mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.69m, PL-version weight 782g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.",
+      "specVerification": {
+        "model": "Blazar Remus 65mm T2.0 1.5X",
+        "source_url": "https://blazarlens.com/remus/"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 65mm. Verified equipment description: Blazar Remus 65mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.69m, PL-version weight 782g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "ca70cbf42944c6457cde9552fd73a6b5b7cd4c9585fffd341d35b1b66da82da9",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn759mg9g9m7hm59btvx827cw186astx",
@@ -43,8 +77,19 @@
       "aliases": [
         "Blazar Remus 100mm"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Blazar Remus 100mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Anamorphic Blazar Remus 100mm. Blazar Remus 100mm T2.8 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.8, close focus 0.71m, PL-version weight 788g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.",
+      "verifiedDescription": "Blazar Remus 100mm T2.8 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.8, close focus 0.71m, PL-version weight 788g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.",
+      "specVerification": {
+        "model": "Blazar Remus 100mm T2.8 1.5X",
+        "source_url": "https://blazarlens.com/remus/"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 100mm. Verified equipment description: Blazar Remus 100mm T2.8 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.8, close focus 0.71m, PL-version weight 788g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "57d79ff3aba741a142140f5e9195a507a5edca9dc51db6fd4c969ba2cd319faf",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn79e6tav264zrh9zs5pvfg5kd86avn6",
@@ -54,8 +99,19 @@
       "aliases": [
         "Sony 24-70mm f2.8 GM"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony 24-70mm f2.8 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sony GM 24-70mm f2.8. Sony FE 24-70mm f/2.8 E-mount full-frame autofocus zoom. These capabilities are shared by GM and GM II. The owned generation is unconfirmed; do not claim GM II or generation-specific weight, dimensions, AF motors, performance or kit contents.",
+      "verifiedDescription": "Sony FE 24-70mm f/2.8 E-mount full-frame autofocus zoom. These capabilities are shared by GM and GM II. The owned generation is unconfirmed; do not claim GM II or generation-specific weight, dimensions, AF motors, performance or kit contents.",
+      "specVerification": {
+        "model": "Sony FE 24-70mm F2.8 GM / GM II (generation unconfirmed)",
+        "source_url": "https://www.sony.co.uk/electronics/support/lenses-e-mount-lenses/sel2470gm/specifications"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony GM 24-70mm f2.8. Verified equipment description: Sony FE 24-70mm f/2.8 E-mount full-frame autofocus zoom. These capabilities are shared by GM and GM II. The owned generation is unconfirmed; do not claim GM II or generation-specific weight, dimensions, AF motors, performance or kit contents.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "80877ae96a50638cfb301d6b75051b2a6835d420919453a4c38bcbdc4fcac3cf",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn73ga9tdczw4azpvv41qm3dw186b9pb",
@@ -65,8 +121,19 @@
       "aliases": [
         "Sony 16-35mm f2.8 GM"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony 16-35mm f2.8 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sony GM 16-35mm f2.8. Sony FE 16-35mm f/2.8 E-mount full-frame autofocus zoom. These capabilities are shared by GM and GM II. The owned generation is unconfirmed; do not claim GM II or generation-specific weight, dimensions, AF motors, performance or kit contents.",
+      "verifiedDescription": "Sony FE 16-35mm f/2.8 E-mount full-frame autofocus zoom. These capabilities are shared by GM and GM II. The owned generation is unconfirmed; do not claim GM II or generation-specific weight, dimensions, AF motors, performance or kit contents.",
+      "specVerification": {
+        "model": "Sony FE 16-35mm F2.8 GM / GM II (generation unconfirmed)",
+        "source_url": "https://www.sony.co.uk/electronics/support/lenses-e-mount-lenses/sel1635gm/specifications"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony GM 16-35mm f2.8. Verified equipment description: Sony FE 16-35mm f/2.8 E-mount full-frame autofocus zoom. These capabilities are shared by GM and GM II. The owned generation is unconfirmed; do not claim GM II or generation-specific weight, dimensions, AF motors, performance or kit contents.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "e1fd477b623ade057810ec1a026a111c93bd8a0d5f6a8b35d6a056243f219470",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn741p3xbx9e9yvby7qcmvvnj586akhv",
@@ -76,8 +143,16 @@
       "aliases": [
         "Sony 70-200mm f2.8 GM"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony 70-200mm f2.8 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sony GM 70-200mm f2.8. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony GM 70-200mm f2.8. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "62a95597a06b90d910c91dcfcc3239b67a7e738512c8ab98794c616006128b0a",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7byeb6ez8gty76rbhhb7e2t586b6wk",
@@ -88,8 +163,19 @@
         "Sony GM 90mm f2.8",
         "Sony 90mm f/2.8 Macro G OSS"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony 90mm f/2.8 Macro G OSS, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sony FE 90mm f2.8 Macro G OSS. Sony FE 90mm F2.8 Macro G OSS (SEL90M28G): Sony G-series E-mount full-frame macro lens, not a G Master model. Up to 1:1 magnification, minimum focus distance 0.28m, Optical SteadyShot, 62mm filter diameter and 602g weight. Manufacturer box contents do not establish rental inclusions. Supports autofocus and manual-focus selection.",
+      "verifiedDescription": "Sony FE 90mm F2.8 Macro G OSS (SEL90M28G): Sony G-series E-mount full-frame macro lens, not a G Master model. Up to 1:1 magnification, minimum focus distance 0.28m, Optical SteadyShot, 62mm filter diameter and 602g weight. Manufacturer box contents do not establish rental inclusions. Supports autofocus and manual-focus selection.",
+      "specVerification": {
+        "model": "SEL90M28G",
+        "source_url": "https://www.sony.co.uk/electronics/camera-lenses/sel90m28g/specifications"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony FE 90mm f2.8 Macro G OSS. Verified equipment description: Sony FE 90mm F2.8 Macro G OSS (SEL90M28G): Sony G-series E-mount full-frame macro lens, not a G Master model. Up to 1:1 magnification, minimum focus distance 0.28m, Optical SteadyShot, 62mm filter diameter and 602g weight. Manufacturer box contents do not establish rental inclusions. Supports autofocus and manual-focus selection.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "96b1baacf0242f76ebda0703b643ae1b9ba7b39eec71ef05442d8131686eaa0b",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn74ggzk8jjvpxdy0g5zh0f15h86b2hq",
@@ -97,8 +183,16 @@
       "displayName": "Sony 28-70mm",
       "quantity": 2,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony 28-70mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sony 28-70mm. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony 28-70mm. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "27225af74fa60fad7984f3102f08d5b7bdd6211678b49c14c5107912d844d6d1",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn76chbtwhyv1987y4ae3pj2dh86bw7d",
@@ -110,8 +204,19 @@
         "Sony 11mm f2.8 fisheye lens",
         "TTArtisan 11mm f/2.8 fisheye (E)"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of TTArtisan 11mm f/2.8 fisheye (E), actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "TTArtisan 11mm f2.8 Fisheye (Sony E). TTArtisan 11mm F2.8 Fisheye, Sony E-mount copy confirmed by the owner. Full-frame manual-focus fisheye lens; not a Sony-brand lens and not the Sony SEL11F18. Maximum aperture f/2.8, 180-degree diagonal field of view and 0.17m closest focusing distance. No autofocus. Manufacturer product information does not establish rental kit inclusions.",
+      "verifiedDescription": "TTArtisan 11mm F2.8 Fisheye, Sony E-mount copy confirmed by the owner. Full-frame manual-focus fisheye lens; not a Sony-brand lens and not the Sony SEL11F18. Maximum aperture f/2.8, 180-degree diagonal field of view and 0.17m closest focusing distance. No autofocus. Manufacturer product information does not establish rental kit inclusions.",
+      "specVerification": {
+        "model": "TTArtisan 11mm F2.8 Fisheye (Sony E)",
+        "source_url": "https://www.ttartisan.co.za/product/ttartisan-11mm-f2-8-manual-focus-lens-fisheye-lens-full-frame-black/"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact TTArtisan 11mm f2.8 Fisheye (Sony E). Verified equipment description: TTArtisan 11mm F2.8 Fisheye, Sony E-mount copy confirmed by the owner. Full-frame manual-focus fisheye lens; not a Sony-brand lens and not the Sony SEL11F18. Maximum aperture f/2.8, 180-degree diagonal field of view and 0.17m closest focusing distance. No autofocus. Manufacturer product information does not establish rental kit inclusions.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "5b772573b9709f0c96da04a204ea9c51f49a236fd38d2eff3a90a445e9432081",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn701tq0apy4hps33r49be6a0986a051",
@@ -119,8 +224,16 @@
       "displayName": "Canon EF 24-105mm f4",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Canon EF 24-105mm f4, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Canon EF 24-105mm f4. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Canon EF 24-105mm f4. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "402c746d2dd396287c4511da600a09bb671d6ee43c452be00b9d6b1b0f7d3b9b",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn73vyme6exjhxqnz8g5es2s5h86bg2s",
@@ -128,8 +241,16 @@
       "displayName": "Canon EF 16-35mm f2.8",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Canon EF 16-35mm f2.8, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Canon EF 16-35mm f2.8. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Canon EF 16-35mm f2.8. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "25311a084435952c3f0ee33c2db71c3311514d643188283fc691f1c005fa5c90",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7bw2cr1ye5hqj3x770b332ks86atzw",
@@ -137,8 +258,19 @@
       "displayName": "Sony FX3",
       "quantity": 4,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony FX3, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sony FX3. Sony FX3 (ILME-FX3): full-frame Exmor R CMOS sensor, approximately 12.1MP effective for still images. Sony E mount. Two CFexpress Type A/SD memory-card slots. NP-FZ100 battery. Recording formats and supported media depend on mode and firmware.",
+      "verifiedDescription": "Sony FX3 (ILME-FX3): full-frame Exmor R CMOS sensor, approximately 12.1MP effective for still images. Sony E mount. Two CFexpress Type A/SD memory-card slots. NP-FZ100 battery. Recording formats and supported media depend on mode and firmware.",
+      "specVerification": {
+        "model": "ILME-FX3",
+        "source_url": "https://www.sony.co.uk/electronics/support/camcorders-and-video-cameras-interchangeable-lens-camcorders/ilme-fx3/specifications"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony FX3. Verified equipment description: Sony FX3 (ILME-FX3): full-frame Exmor R CMOS sensor, approximately 12.1MP effective for still images. Sony E mount. Two CFexpress Type A/SD memory-card slots. NP-FZ100 battery. Recording formats and supported media depend on mode and firmware.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "75f68a576297904cbd268d5899d1a671d587d112cb7f22f10bf2407c0f022e4a",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn74p93r60ndmmb0qghjqg84yh86abvh",
@@ -146,8 +278,19 @@
       "displayName": "Sony A7 III",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony A7 III, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sony A7 III. Sony A7 III (ILCE-7M3): approximately 24.2MP effective full-frame Exmor R CMOS sensor; Sony E mount. Records 4K up to 30p and Full HD up to 120p. Recording mode, region and frame rate affect available formats.",
+      "verifiedDescription": "Sony A7 III (ILCE-7M3): approximately 24.2MP effective full-frame Exmor R CMOS sensor; Sony E mount. Records 4K up to 30p and Full HD up to 120p. Recording mode, region and frame rate affect available formats.",
+      "specVerification": {
+        "model": "ILCE-7M3",
+        "source_url": "https://www.sony.co.uk/electronics/support/e-mount-body-ilce7-series/ilce-7m3/specifications"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony A7 III. Verified equipment description: Sony A7 III (ILCE-7M3): approximately 24.2MP effective full-frame Exmor R CMOS sensor; Sony E mount. Records 4K up to 30p and Full HD up to 120p. Recording mode, region and frame rate affect available formats.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "99264cd995e3bcd6a73a29279c8dc9fa404a8a62c837273e626e7276262b3f03",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn71src7p25m5ppzkxnjwadm1s86azfk",
@@ -155,8 +298,19 @@
       "displayName": "Sony A7 II",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony A7 II, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sony A7 II. Sony A7 II (ILCE-7M2): 24.3MP full-frame sensor and Sony E mount. Internal video recording up to 1920x1080 at 60p; this is not a 4K-recording body. Uses SD media and NP-FW50 batteries.",
+      "verifiedDescription": "Sony A7 II (ILCE-7M2): 24.3MP full-frame sensor and Sony E mount. Internal video recording up to 1920x1080 at 60p; this is not a 4K-recording body. Uses SD media and NP-FW50 batteries.",
+      "specVerification": {
+        "model": "ILCE-7M2",
+        "source_url": "https://www.sony.co.uk/electronics/support/e-mount-body-ilce-7-series/ilce-7m2/specifications"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony A7 II. Verified equipment description: Sony A7 II (ILCE-7M2): 24.3MP full-frame sensor and Sony E mount. Internal video recording up to 1920x1080 at 60p; this is not a 4K-recording body. Uses SD media and NP-FW50 batteries.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "e61a097c7a71156fa637876f91e66ad82cb6ab5a099d34c0f88ad5d95f9ec138",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn737xq0jcc8a011f6x2m6srt986az25",
@@ -168,8 +322,19 @@
         "blackmagic pocket cinema camera 6k pro",
         "blackmagic pocket 6k pro"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of BMPCC 6K Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "BMPCC 6K Pro. Blackmagic Pocket Cinema Camera 6K Pro: 6144x3456 Super 35 sensor, active Canon EF mount, built-in motorized ND at 0/2/4/6 stops. Records to CFast 2.0, SD UHS-II or external USB-C storage. Native camera battery is NP-F570.",
+      "verifiedDescription": "Blackmagic Pocket Cinema Camera 6K Pro: 6144x3456 Super 35 sensor, active Canon EF mount, built-in motorized ND at 0/2/4/6 stops. Records to CFast 2.0, SD UHS-II or external USB-C storage. Native camera battery is NP-F570.",
+      "specVerification": {
+        "model": "Blackmagic Pocket Cinema Camera 6K Pro",
+        "source_url": "https://www.blackmagicdesign.com/products/blackmagicpocketcinemacamera/techspecs"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact BMPCC 6K Pro. Verified equipment description: Blackmagic Pocket Cinema Camera 6K Pro: 6144x3456 Super 35 sensor, active Canon EF mount, built-in motorized ND at 0/2/4/6 stops. Records to CFast 2.0, SD UHS-II or external USB-C storage. Native camera battery is NP-F570.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "facfe2c6ca1af3a0b8e673e4062fb4b96e1a7848b36e8003e0daf189d155e7e4",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn740n15w16172sn1qj8h89gx586b2xf",
@@ -181,8 +346,19 @@
         "blackmagic cinema camera 6k full frame",
         "blackmagic cinema camera 6k"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of BMPCC 6K Full Frame, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "BMPCC 6K Full Frame. Blackmagic Cinema Camera 6K: 6048x4032 full-frame sensor, native L mount, Blackmagic RAW recording to CFexpress Type B or external USB-C storage. Native battery is NP-F570. This is a different body from the Super 35 EF-mount Pocket 6K Pro.",
+      "verifiedDescription": "Blackmagic Cinema Camera 6K: 6048x4032 full-frame sensor, native L mount, Blackmagic RAW recording to CFexpress Type B or external USB-C storage. Native battery is NP-F570. This is a different body from the Super 35 EF-mount Pocket 6K Pro.",
+      "specVerification": {
+        "model": "Blackmagic Cinema Camera 6K",
+        "source_url": "https://www.blackmagicdesign.com/products/blackmagiccinemacamera/techspecs"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact BMPCC 6K Full Frame. Verified equipment description: Blackmagic Cinema Camera 6K: 6048x4032 full-frame sensor, native L mount, Blackmagic RAW recording to CFexpress Type B or external USB-C storage. Native battery is NP-F570. This is a different body from the Super 35 EF-mount Pocket 6K Pro.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "93b66a54d08500b3906982978bde2d900312f9ed0849bf42c735ed1e98f32adb",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn71951h7f9z8p3cea06v6zjjx86bgn4",
@@ -190,8 +366,19 @@
       "displayName": "Sony A7 V",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony A7 V, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sony A7 V. Sony Alpha 7 V (ILCE-7M5). Approximately 33MP effective still-image resolution; full-frame Exmor RS CMOS sensor. Sony E mount. Slot 1 accepts SD UHS-I/II or CFexpress Type A; slot 2 accepts SD UHS-I/II. Internal UHD 4K up to 60p in full-frame mode. At 60p/50p, use 4K angle of view Priority On for full-width recording. UHD 4K120p/100p requires APS-C/Super 35 capture and a reduced angle of view; it is not full-frame or uncropped 4K120.",
+      "verifiedDescription": "Sony Alpha 7 V (ILCE-7M5). Approximately 33MP effective still-image resolution; full-frame Exmor RS CMOS sensor. Sony E mount. Slot 1 accepts SD UHS-I/II or CFexpress Type A; slot 2 accepts SD UHS-I/II. Internal UHD 4K up to 60p in full-frame mode. At 60p/50p, use 4K angle of view Priority On for full-width recording. UHD 4K120p/100p requires APS-C/Super 35 capture and a reduced angle of view; it is not full-frame or uncropped 4K120.",
+      "specVerification": {
+        "model": "ILCE-7M5",
+        "source_url": "https://www.sony.co.uk/electronics/support/e-mount-body-ilce-7-series/ilce-7m5/specifications"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony A7 V. Verified equipment description: Sony Alpha 7 V (ILCE-7M5). Approximately 33MP effective still-image resolution; full-frame Exmor RS CMOS sensor. Sony E mount. Slot 1 accepts SD UHS-I/II or CFexpress Type A; slot 2 accepts SD UHS-I/II. Internal UHD 4K up to 60p in full-frame mode. At 60p/50p, use 4K angle of view Priority On for full-width recording. UHD 4K120p/100p requires APS-C/Super 35 capture and a reduced angle of view; it is not full-frame or uncropped 4K120.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "24a7596f7f93f416347218c0520c037db2534cd4ff4cde141288aec9d7486cf5",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn7agmkc5fav8apays0bj95d1x86azbk",
@@ -199,8 +386,16 @@
       "displayName": "Softbox 85cm",
       "quantity": 2,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Softbox 85cm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lighting",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Softbox 85cm. Master inventory category: lighting. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Softbox 85cm. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "499faf754cc22f300aec6cce5ebbbd9384ad79ab8f2896cc227874bf4f159ce0",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7a3ja3jypm2z1n04wmtfbmd186a8x3",
@@ -208,8 +403,16 @@
       "displayName": "LED light panels RGB",
       "quantity": 3,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of LED light panels RGB, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lighting",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "LED light panels RGB. Master inventory category: lighting. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact LED light panels RGB. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "c192041394297799ced56d968240686dda1238d6555d727a5c4a43d6fb9d1744",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7e3hztddjngzf3tka096mqrx86avn9",
@@ -217,8 +420,16 @@
       "displayName": "Nanlite Forza 300",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Nanlite Forza 300, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lighting",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Nanlite Forza 300. Master inventory category: lighting. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Nanlite Forza 300. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "41904b3de325352cb8655abc42aa9620400ac779e62e7d3f578dceb0eb95d97f",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7e4ecrf5fwb7sp11jger73t586ak9w",
@@ -226,8 +437,16 @@
       "displayName": "Nanlite Pavotube 30x II",
       "quantity": 4,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Nanlite Pavotube 30x II, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lighting",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Nanlite Pavotube 30x II. Master inventory category: lighting. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Nanlite Pavotube 30x II. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "21b7e2b1f580acb00bf56581924deabedaab65d11394cdf010c60b436ccae0aa",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7d621zqcxe6a26tfyzbh09ts86at0g",
@@ -235,8 +454,16 @@
       "displayName": "Nanlite 500B",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Nanlite 500B, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lighting",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Nanlite 500B. Master inventory category: lighting. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Nanlite 500B. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "59cd99093e5bd4d7d01de05881deba7d15bb7484ef8357d7e8936e2b93e3c5e8",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn76nvabr4kaj5rm90x52pxkxn86bjv2",
@@ -244,8 +471,16 @@
       "displayName": "V-mount 95Wh",
       "quantity": 2,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of V-mount 95Wh, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "power",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "V-mount 95Wh. Master inventory category: power. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact V-mount 95Wh. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "07b47bb4a84a634fd20739704c92a911f95a9e4e0829c3f880c011cfdf05893c",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7ee2cx4923bk3vmxy14ec3bs86aqmh",
@@ -253,8 +488,16 @@
       "displayName": "V-mount 150Wh",
       "quantity": 4,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of V-mount 150Wh, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "power",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "V-mount 150Wh. Master inventory category: power. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact V-mount 150Wh. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "9750e45316806433e029118702dd489c5214d3e9da2a58ad22d632339208c577",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn79kzg6j393vz9mjh7ghqx0gn86bz73",
@@ -262,8 +505,16 @@
       "displayName": "DJI gimbal battery",
       "quantity": 3,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI gimbal battery, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "power",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "DJI gimbal battery. Master inventory category: power. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI gimbal battery. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "8733331ba4a17e715dc39fbec3e8d755d22a76c4ff17e82dae4ac2544a30b128",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn71tc5enf40a1kahhanr0cjz586ak5g",
@@ -271,8 +522,16 @@
       "displayName": "Anker Power Station F2000",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Anker Power Station F2000, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "power",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Anker Power Station F2000. Master inventory category: power. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Anker Power Station F2000. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "d69fb887d6b203f6382e43552e59a4a48734a35b4697a0a47c01c14a2f35f3d3",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn76ynt7yda9s63ewbg2sab1en86a0ts",
@@ -280,8 +539,16 @@
       "displayName": "Sony NPF 970 batteries 2x sets",
       "quantity": 4,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony NPF 970 batteries 2x sets, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "power",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sony NPF 970 batteries 2x sets. Master inventory category: power. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony NPF 970 batteries 2x sets. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "6e3fca0f7c7d109047314a5dbc06bf9ba19422130599c004a589c27b77da7030",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn74kcta05c9nd5pyb9sz2vtqn86atbm",
@@ -289,8 +556,16 @@
       "displayName": "C-stand",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of C-stand, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "grip",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "C-stand. Master inventory category: grip. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact C-stand. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "8db67c0096050e4891bb737fd65294acaff4a684799ec3774477cb15cb27ce64",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn772m9zxc4p7ctb1rbeahy79h86apc6",
@@ -300,8 +575,16 @@
       "aliases": [
         "SmallRig tripod"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of SmallRig tripod, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "support",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Small rig tripod. Master inventory category: support. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Small rig tripod. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "b58ca3c6dad5f97e43979a179fca8df58760ab1d7400cf49193078991edf33eb",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn74e9yatcn6xyth4ptrp6zqr586bhrn",
@@ -309,8 +592,16 @@
       "displayName": "Sirui tripod",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sirui tripod, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "support",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sirui tripod. Master inventory category: support. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sirui tripod. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "72433fac841af45c478e45773a0cbc6379f3471192826ffe849a1884ee86a797",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn72cbk6s14jarnhvdwwrsbx3s86bgth",
@@ -320,8 +611,16 @@
       "aliases": [
         "DJI RS3 Pro"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI RS3 Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "gimbal",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "DJI RS3 Pro gimbal. Master inventory category: gimbal. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI RS3 Pro gimbal. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "5e6e943d15b4f65fc65543f5e30ec04b66c6af0ddcf66237be159a8bb48ab73a",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn70nsxs16detsje0kd1hgxbw986bn71",
@@ -329,8 +628,16 @@
       "displayName": "Motorized slider",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Motorized slider, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "motion",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Motorized slider. Master inventory category: motion. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Motorized slider. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "236d3fcfd3665510183f25c69982351b36d3b9bc462db19b1a816880e280919d",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn77jnwhcbvenk18v3qceqafh586byar",
@@ -340,8 +647,16 @@
       "aliases": [
         "Tilta Nucleus Nano II"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Tilta Nucleus Nano II, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "stabilizer",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Tilta Nucleus Nano 2 follow focus. Master inventory category: stabilizer. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Tilta Nucleus Nano 2 follow focus. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "c2a3bfaaade5abd3d9b6bf46c1a6c28d071c24d392df78ef73e7e396d3315518",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7b7hk95n8stj9f6p5n6vk49n86ahry",
@@ -349,8 +664,16 @@
       "displayName": "Tilta shoulder rig",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Tilta shoulder rig, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "support",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Tilta shoulder rig. Master inventory category: support. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Tilta shoulder rig. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "13c226d8df4d9ff303795e1789b66be14fdb28161fdd90469e077fd2e987a846",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn730pkfaq0n0dqnwjw6swepjd86b34h",
@@ -358,8 +681,16 @@
       "displayName": "Monopod arm support",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Monopod arm support, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "support",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Monopod arm support. Master inventory category: support. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Monopod arm support. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "44acd8c2c9e9b6acb3902fd324e0eb0735139eecc0761d34a5536041bdea81c4",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7dy8zf34tffmcvzvdtrnn3jn86an19",
@@ -369,8 +700,19 @@
       "aliases": [
         "DJI Osmo Action 5 Pro"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI Osmo Action 5 Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "DJI Osmo Action Pro 5. DJI Osmo Action 5 Pro: 1/1.3-inch CMOS sensor, approximately 40MP photos, 4K recording up to 120fps; fixed lens. Supports microSD up to 1TB. Manufacturer waterproof rating is 20m without a case only under its sealing/use conditions; this does not establish rental permission for underwater use.",
+      "verifiedDescription": "DJI Osmo Action 5 Pro: 1/1.3-inch CMOS sensor, approximately 40MP photos, 4K recording up to 120fps; fixed lens. Supports microSD up to 1TB. Manufacturer waterproof rating is 20m without a case only under its sealing/use conditions; this does not establish rental permission for underwater use.",
+      "specVerification": {
+        "model": "Osmo Action 5 Pro",
+        "source_url": "https://www.dji.com/osmo-action-5-pro/specs"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI Osmo Action Pro 5. Verified equipment description: DJI Osmo Action 5 Pro: 1/1.3-inch CMOS sensor, approximately 40MP photos, 4K recording up to 120fps; fixed lens. Supports microSD up to 1TB. Manufacturer waterproof rating is 20m without a case only under its sealing/use conditions; this does not establish rental permission for underwater use.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "c1be8455a5baae7a587352086428c971362252603c17ed5c42084010457ab2e7",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn79ydca5fj0e9bbh19b6egfn186a8hv",
@@ -378,8 +720,16 @@
       "displayName": "DJI Mavic 3 Pro",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI Mavic 3 Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "drone",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "DJI Mavic 3 Pro. Master inventory category: drone. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI Mavic 3 Pro. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "7f4aaf5f76817c741d3f5d032ef0c7becd7ceb6cef0e5c93bad6ca22f110b235",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn79mc5rgqhsr64hbn58z737hs86b5ks",
@@ -387,8 +737,16 @@
       "displayName": "DJI Mini 4 Pro",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI Mini 4 Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "drone",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "DJI Mini 4 Pro. Master inventory category: drone. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI Mini 4 Pro. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "ddb062e0da190d7b7a845b6c08c6529fa45e733c01b965d68dfed1ee899dc040",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn72bfr0py9rts0pwfpg2faxvs86a7m2",
@@ -398,8 +756,19 @@
       "aliases": [
         "GoPro HERO12 Black"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of GoPro HERO12 Black, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "GoPro 12 Hero. GoPro HERO12 Black: 27MP photos; 5.3K video up to 60fps, 4K up to 120fps and 2.7K up to 240fps in the supported aspect ratios. HyperSmooth 6.0 stabilization. Uses microSD media. Lens is fixed, not interchangeable.",
+      "verifiedDescription": "GoPro HERO12 Black: 27MP photos; 5.3K video up to 60fps, 4K up to 120fps and 2.7K up to 240fps in the supported aspect ratios. HyperSmooth 6.0 stabilization. Uses microSD media. Lens is fixed, not interchangeable.",
+      "specVerification": {
+        "model": "HERO12 Black",
+        "source_url": "https://gopro.com/en/gb/shop/cameras/hero12-black/CHDHX-121-master.html"
+      },
+      "descriptionStatus": "Reviewed master specification; visual reference/appearance check outstanding",
+      "heroPrompt": "Side-view hero product photograph of the exact GoPro 12 Hero. Verified equipment description: GoPro HERO12 Black: 27MP photos; 5.3K video up to 60fps, 4K up to 120fps and 2.7K up to 240fps in the supported aspect ratios. HyperSmooth 6.0 stabilization. Uses microSD media. Lens is fixed, not interchangeable.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "fee6d2dfacb4f304bc2b485e678e85246a10e63b3fec6284aad360638ac32e78",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn79qjzqzdf1hd7843v6t098yn86bavz",
@@ -407,8 +776,16 @@
       "displayName": "Suction cups",
       "quantity": 6,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Suction cups, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "accessory",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Suction cups. Master inventory category: accessory. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Suction cups. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "f901963f188e191450ccadca9604194a84f9a533a9d752ba9a2c3c30142df026",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
@@ -416,8 +793,16 @@
       "displayName": "Atomos Ninja V",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Atomos Ninja V, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "monitor",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Atomos Ninja V. Master inventory category: monitor. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Atomos Ninja V. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "b0ef20da78492f2b709f6b23e02379a51b2b8170af9ab7dd61a1f7186cf0409e",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn76mqhv1bv291x5z68fxerzg986bnmq",
@@ -425,8 +810,16 @@
       "displayName": "Hollyland Mars 4K transmitter",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Hollyland Mars 4K transmitter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "transmission",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Hollyland Mars 4K transmitter. Master inventory category: transmission. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Hollyland Mars 4K transmitter. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "0364b2c2d1a061c4664b0f800806e9eaba7ac9a8608518d3dd5562e803af4367",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7fqh3k3fqnxanqv0h7bmm8e186bn2s",
@@ -434,8 +827,16 @@
       "displayName": "Hollyland Pyro S transmitter",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Hollyland Pyro S transmitter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "transmission",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Hollyland Pyro S transmitter. Master inventory category: transmission. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Hollyland Pyro S transmitter. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "dd0b820e0dfbc12c154526266af2c3f63b10d1dd28f6a9bbdc20743b1fdc6368",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7ftrwrc0arnx7qfm7syjvy1x86b1ej",
@@ -443,8 +844,16 @@
       "displayName": "Hollyland 7-inch monitor",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Hollyland 7-inch monitor, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "monitor",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Hollyland 7-inch monitor. Master inventory category: monitor. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Hollyland 7-inch monitor. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "db52fe00a45eb7d6004679d9fa37e2eb7f92133fcb7c445a0dc38b2edfba9834",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn73k6qc2v113vh7bb9n3atkwn86bfh4",
@@ -454,8 +863,16 @@
       "aliases": [
         "RØDE VideoMic GO"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of RØDE VideoMic GO, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Rode Video Mic Go. Master inventory category: audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Rode Video Mic Go. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "d0777122fe46cc1fb7fb02d82b6524d277dabf541252268880fc194bb4207aa9",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn72f7s8b5dkspbqq2eghaxak186a61p",
@@ -465,8 +882,16 @@
       "aliases": [
         "RØDE Wireless PRO"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of RØDE Wireless PRO, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Rode Wireless Mic Pro set. Master inventory category: audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Rode Wireless Mic Pro set. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "4783c9e14d42e74421c926e35bb4a53c2b13f163bd9400a3f64511cef84c6377",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn79c4nk2mb3fpfk3yen9ame6586b8j8",
@@ -474,8 +899,16 @@
       "displayName": "Audio boom mic Sennheiser",
       "quantity": 2,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Audio boom mic Sennheiser, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Audio boom mic Sennheiser. Master inventory category: audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Audio boom mic Sennheiser. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "0560dea3bef2b5b894d814f7a7a887cbc46363d3977837cbf2e04031fdb8f5ec",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7cqfdykt0jawskn4e6dyft1186bxn3",
@@ -486,8 +919,16 @@
         "dji wireless mics",
         "dji wireless microphones"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI Wireless Mics, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "DJI Wireless Mics. Master inventory category: audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI Wireless Mics. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "f95f57c97d01c3b18c96026d9f1e2bd178a8b6c4643373aed4adb4a9f0f111f0",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn77hh2859zy0m9aetw9btz3d586a8gq",
@@ -495,8 +936,16 @@
       "displayName": "Camera flash",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Camera flash, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lighting",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Camera flash. Master inventory category: lighting. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Camera flash. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "3308253e500f0d8e547e9d828c97ce6aedcbcdad11c0cb20228538f6883a1892",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn74tzh51br8vxnynztdr657xx86by5x",
@@ -506,8 +955,16 @@
       "aliases": [
         "RØDE VideoMic Pro+"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of RØDE VideoMic Pro+, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Rode Video Mic Pro Plus. Master inventory category: audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Rode Video Mic Pro Plus. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "cca64bb462bd795c977172a533858637a9fbbb1515dbb35004f0099222d763c3",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn76xseth9fn990s4ryv5rhfx986bnxt",
@@ -518,8 +975,16 @@
         "jbl wireless mics",
         "jbl wireless microphone"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of JBL wireless microphones, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "JBL wireless microphones. Master inventory category: audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact JBL wireless microphones. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "0bf4144029821299554ad63e45ea4652d46e75b60058416fc5405f024ead3603",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn798d7b6nv7rvpcfhzek01h8h86b320",
@@ -531,8 +996,16 @@
         "dji mic2",
         "dji wireless mic 2"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI Mic 2 wireless, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "DJI Mic 2 wireless. Master inventory category: audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI Mic 2 wireless. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "99c0620fdfe4855446faf4f9dc7dfb64035ba1129ed8dfe9a558ebfdf91ea6f7",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7240nk0fs32pkn22cmwrvf4s86aps0",
@@ -540,8 +1013,16 @@
       "displayName": "Smoke machine fogger",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Smoke machine fogger, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "smoke_fx",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Smoke machine fogger. Master inventory category: smoke_fx. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Smoke machine fogger. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "3e05084a67addc275111c5d6269716f5894d7d8f91672d6dcd5415080c8c5101",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn70sapjg8gnkt330453bbbhkd86at3n",
@@ -549,8 +1030,16 @@
       "displayName": "Smoke Ninja Pro hazer",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Smoke Ninja Pro hazer, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "smoke_fx",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Smoke Ninja Pro hazer. Master inventory category: smoke_fx. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Smoke Ninja Pro hazer. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "a5da5b35f769a09703e18c76310c817f9eab63bbd038bf78b39b7ea670731ab5",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn78q8je188na64af4a96v7tkd86akg9",
@@ -558,8 +1047,16 @@
       "displayName": "Smoke Ninja",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Smoke Ninja, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "smoke_fx",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Smoke Ninja. Master inventory category: smoke_fx. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Smoke Ninja. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "59fac591aa3e9c08eea4716d83a6e663196c8e6f26e4bcfc7487203145286ffa",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn78zk30xt2dva7y6ev430x97186bqmq",
@@ -569,8 +1066,16 @@
       "aliases": [
         "Pioneer XDJ-RX3"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Pioneer XDJ-RX3, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "dj_audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "DJ RX3 Pioneer controller. Master inventory category: dj_audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJ RX3 Pioneer controller. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "342f11f25987aa1c219473b8fcc2837c68994415395445f9ef45c2699704c225",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7amjd9r3hks17nssn396s1yn86bc8q",
@@ -578,8 +1083,16 @@
       "displayName": "JBL Club 120 speaker",
       "quantity": 2,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of JBL Club 120 speaker, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "dj_audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "JBL Club 120 speaker. Master inventory category: dj_audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact JBL Club 120 speaker. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "18889a4440442f0718bdae3c7db99286d016543ad38e29a7c4e3c9521ebad307",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn75e370fh417hgv0n394b4ved86bcqc",
@@ -587,8 +1100,16 @@
       "displayName": "ND filter",
       "quantity": 3,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of ND filter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "accessory",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "ND filter. Master inventory category: accessory. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact ND filter. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "c71b17eb8579fa73fb519566430ac4769eb2f9d8ae2a72465f77cadf9509cbcd",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn71j0gjxcfvem33m6k8q8csfn86bjmp",
@@ -596,8 +1117,16 @@
       "displayName": "256GB card",
       "quantity": 3,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of 256GB card, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "storage_card",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "256GB card. Master inventory category: storage_card. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact 256GB card. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "36b2cb142c8b83f3cc4cfaa9834a514cfa9799742f265b127e9b041fdac5b685",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn754zpg9s2g5s08p4scsasngx86bnr5",
@@ -605,8 +1134,16 @@
       "displayName": "Cinebloom filter mist",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Cinebloom filter mist, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "accessory",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Cinebloom filter mist. Master inventory category: accessory. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Cinebloom filter mist. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "271470bdb9cdbfdb80bc998d2c8fa672d15fd3345ed11c810a1e8a39fe626201",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn78qeqezcrpjr12gzmynyfgb986b1rn",
@@ -616,8 +1153,16 @@
       "aliases": [
         "CFexpress Type A card"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of CFexpress Type A card, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "storage_card",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "CF Express Type A card. Master inventory category: storage_card. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact CF Express Type A card. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "56d7168512d539a4887afca32c30dfa800801e7bd079fc460f945c09c305aa37",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7dmb0g4f4sj25m6q6gyknxc986axfr",
@@ -625,8 +1170,16 @@
       "displayName": "Ambitful RGB light tubes 2x set",
       "quantity": 2,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Ambitful RGB light tubes 2x set, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lighting",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Ambitful RGB light tubes 2x set. Master inventory category: lighting. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Ambitful RGB light tubes 2x set. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "03f78c3d266e08b43202e0e48160d23bb11ddb370600c5cf383009e15c2afbb5",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn785zky4ns7msdghany5m1db186ac6h",
@@ -636,8 +1189,16 @@
       "aliases": [
         "PL → E adapter"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of PL → E adapter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "accessory",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "PL to Sony E mount. Master inventory category: accessory. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact PL to Sony E mount. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "b0cc3072d1125d88c34d3b954ea5c9c413fe0a9b7fa4734f837d849f9e5e58a6",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn777s1ct1gw4nrfsfz9xak8ns86b8wa",
@@ -647,8 +1208,16 @@
       "aliases": [
         "PL → EF adapter"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of PL → EF adapter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "accessory",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "PL to EF mount. Master inventory category: accessory. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact PL to EF mount. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "2af35757fd7a46ceb62b8507e24da6cecc128714e505094ee78da12ae91ff7d3",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn73dn42x6q85h2kyf66xg3g6586btgy",
@@ -658,8 +1227,16 @@
       "aliases": [
         "PL → RF adapter"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of PL → RF adapter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "accessory",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "PL to RF mount. Master inventory category: accessory. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact PL to RF mount. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "d83dd20192f7f19c87833e061067394e17660c04afa000bc079569c2fcd3d080",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7ce6wad1dfrsf2fxdthbynmn86bf0s",
@@ -669,8 +1246,16 @@
       "aliases": [
         "PL → L adapter"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of PL → L adapter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "accessory",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "PL to L mount. Master inventory category: accessory. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact PL to L mount. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "c70b075df340e32b3000fdb0ddacbd47cc700ea1db31d3586755ad4192347529",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7fg3tc2yndn42snr3xds8h2586a2cx",
@@ -678,8 +1263,16 @@
       "displayName": "5-in-1 reflector panel",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of 5-in-1 reflector panel, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lighting",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "5-in-1 reflector panel. Master inventory category: lighting. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact 5-in-1 reflector panel. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "3a46d09453d6924dd1979a24ed9f0cee2c63692eca02413fb49a3de7bd3804f5",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7dw0xajwt0v8nb0xw92abexx86bspf",
@@ -689,8 +1282,16 @@
       "aliases": [
         "Great Joy 35mm"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Great Joy 35mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Anamorphic Great Joy lens 35mm. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Anamorphic Great Joy lens 35mm. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "59b0bfd77682cbb27a560379f9144ec44e6d7670483116a4db7cd84c2d7e4ecf",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn70h5me7r347xwdhxbk4bc00186b70v",
@@ -700,8 +1301,16 @@
       "aliases": [
         "Great Joy 50mm"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Great Joy 50mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Anamorphic Great Joy lens 50mm. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Anamorphic Great Joy lens 50mm. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "31f72556d71196c1e977f5e0f6d8389ff536f596f7cb426c65377ee952b8c8e8",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn769vk4psfqc1t2p7hwhnt2j986acd1",
@@ -711,8 +1320,16 @@
       "aliases": [
         "Great Joy 85mm"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Great Joy 85mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Anamorphic Great Joy lens 85mm. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Anamorphic Great Joy lens 85mm. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "7c625b02d7e1ec8bd4576c00eeefdcfe7f3a8a8a5f25c712fd52b55d81b00e93",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn74nbvbga03n0k2e1crhj9yr986afq0",
@@ -720,8 +1337,16 @@
       "displayName": "Fujifilm X100 VI",
       "quantity": 0,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Fujifilm X100 VI, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": null,
+      "owned": null,
+      "isMarketingOnly": null,
+      "description": "Fujifilm X100 VI. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Inactive/unmatched master row requires review",
+      "heroPrompt": "Side-view hero product photograph of the exact Fujifilm X100 VI. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "d91847d2764dd4543825e6dc66e8b9dd327cd0eb83e7e3ec6c987d91b34029d2",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7ae54ermh21msysxwfh7hanx871gk8",
@@ -729,8 +1354,16 @@
       "displayName": "NP-FW50 batteries",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of NP-FW50 batteries, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "power",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "NP-FW50 batteries. Master inventory category: power. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact NP-FW50 batteries. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "6dcdaed4d2a6b09d381c93cbfa764d76018bb8f45656a291bc472f545fba7cfb",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn782v9vnh4w7j35b9j1repaqh870mwd",
@@ -738,8 +1371,16 @@
       "displayName": "NP-W126S batteries",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of NP-W126S batteries, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "power",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "NP-W126S batteries. Master inventory category: power. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact NP-W126S batteries. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "ab4c4bd14e8089335056c00287b14571493bd3f6ad45099b8e79b3b630db7ed1",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn72r54nkzjphnr54kkysjbxnn870cgn",
@@ -747,8 +1388,16 @@
       "displayName": "BMPCC battery pack",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of BMPCC battery pack, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "power",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "BMPCC battery pack. Master inventory category: power. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact BMPCC battery pack. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "31c09c21237e8ed7c6e68ada38dc2a1f153cd9814fb3cc24021052359e98b792",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7a0m1pgkxxma9wdhgdwrjarh871a8a",
@@ -756,8 +1405,16 @@
       "displayName": "128GB V30 SD card",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of 128GB V30 SD card, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "media",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "128GB V30 SD card. Master inventory category: media. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact 128GB V30 SD card. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "9194ac54feda91faf650f57edaa20991bc560896365271c5f5803b4f7555fe76",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn784pn91v1m5mv0994by9vt6587169t",
@@ -765,8 +1422,16 @@
       "displayName": "Sony FX6",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony FX6, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera_body",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Sony FX6. Master inventory category: camera_body. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony FX6. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "90458efd112717df8f20e8b5fbaf6b7d98aa53eeb7a1a2d89e416e2d498dcb02",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn758tccqwp1ts1qjk63ecvy0d871rne",
@@ -774,8 +1439,16 @@
       "displayName": "Sony A7S III",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony A7S III, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera_body",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Sony A7S III. Master inventory category: camera_body. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony A7S III. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "bef6615c63e1ee9479b3e8628026fec41d0254154e329c1d2c77c3207b56efef",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7e4kka2fq9djz5fherff5pwh870ggq",
@@ -783,8 +1456,16 @@
       "displayName": "Canon R5",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Canon R5, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera_body",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Canon R5. Master inventory category: camera_body. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Canon R5. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "022d4adde719d1f4f6159a8517dcd4124caac9ca9bebc9be0528bd6f1bb6efaa",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn75zwx71dd0rt5nenjknj8wks871jad",
@@ -792,8 +1473,16 @@
       "displayName": "Canon C70",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Canon C70, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera_body",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Canon C70. Master inventory category: camera_body. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Canon C70. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "fad59eb025881d0ba7c1490baf4aef7ae62092b8554af97aab46a017025eaaf9",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn767mdybj67bcnq4krxtn70jh8707c6",
@@ -801,8 +1490,16 @@
       "displayName": "RED Komodo",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of RED Komodo, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera_body",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "RED Komodo. Master inventory category: camera_body. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact RED Komodo. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "91bb1a6f2f37cb08861cd01bcf1cf306bf6a1764475f9e532b845ac93fb84333",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7chb9abhnqfm8stvc3vwt8rn870qa3",
@@ -810,8 +1507,16 @@
       "displayName": "DJI Ronin 4D",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI Ronin 4D, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera_body",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "DJI Ronin 4D. Master inventory category: camera_body. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI Ronin 4D. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "7d485718465960f807eff1f3ef3ec9b908dc6ed6177c0db5c82573153ce4364e",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn724qcrvw1621ftjfxnh4qceh871ps8",
@@ -819,8 +1524,16 @@
       "displayName": "Sony A1",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony A1, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera_body",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Sony A1. Master inventory category: camera_body. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony A1. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "bab0f37f61220735e6f9b18317cf4dcffac2f20458530f99da50dfc8bb263105",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn79f1ygyd5p9s6rx6r4t2ybn5870q7c",
@@ -828,8 +1541,16 @@
       "displayName": "Panasonic S5 II",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Panasonic S5 II, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera_body",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Panasonic S5 II. Master inventory category: camera_body. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Panasonic S5 II. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "0fe667dd37c085c356ffe7a88c199d9a7a3e92df5719b3de3e10c40d86a7ce3d",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn75pj6z7ffjh1xamzvqe1bw3n870mzg",
@@ -837,8 +1558,16 @@
       "displayName": "DJI Air 3",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI Air 3, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera_body",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "DJI Air 3. Master inventory category: camera_body. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI Air 3. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "dbedbe6dbf88b7bce0ceeb8310e1f1b1c7022bef202bf4d3d349a127cf077445",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn70q3hyx3j3ncbjzk95yx92wn870n78",
@@ -846,8 +1575,16 @@
       "displayName": "DJI Inspire 3",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI Inspire 3, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "camera_body",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "DJI Inspire 3. Master inventory category: camera_body. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI Inspire 3. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "06183d5ae34f8129b5b9c9eeb192db8c07a19e01a7c3827a21f8c584ad5c9832",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn74449d74316p3d8cc4npd7a1871dv5",
@@ -855,8 +1592,16 @@
       "displayName": "Aputure 600d Pro",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Aputure 600d Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lighting",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Aputure 600d Pro. Master inventory category: lighting. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Aputure 600d Pro. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "bce11976104aceb040c21d9040a054bc993528fdc40da8d487d0b0ad6112373d",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7295pav8wctqf3br9dqkzjen871ksy",
@@ -864,8 +1609,16 @@
       "displayName": "Aputure 300x",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Aputure 300x, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lighting",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Aputure 300x. Master inventory category: lighting. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Aputure 300x. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "fb0dd10d183b91142f660e7365c5de669f441bd352b50571c0e62a1767c68e26",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn746pmpevvgmrtmf7vnjkbhzs8714d2",
@@ -873,8 +1626,16 @@
       "displayName": "DJI RS4 Pro",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI RS4 Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "support",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "DJI RS4 Pro. Master inventory category: support. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI RS4 Pro. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "ee39f899476963b5d6f0f880b75b975490185c1fcd4302cb109586e2b0aa8e45",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn79805x5xyedwsxej5626ht5s8717hp",
@@ -882,8 +1643,16 @@
       "displayName": "Sennheiser EW 500 Wireless",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sennheiser EW 500 Wireless, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "audio",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Sennheiser EW 500 Wireless. Master inventory category: audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sennheiser EW 500 Wireless. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "eebb446e060feef7894d79307d833f77fe788dd2aa3a540412cf28dc1925da2a",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn785c25yeg5xrqhsd5frjphs9871q06",
@@ -891,8 +1660,16 @@
       "displayName": "Sigma 24-70mm f2.8 Art",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sigma 24-70mm f2.8 Art, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Sigma 24-70mm f2.8 Art. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sigma 24-70mm f2.8 Art. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "8a66ec3054f27d9e0684157b31258dc58ff0b4f2e09e1053dcd64e3161755dbb",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn77a9s1gxkpkr2n8qn2qwrapn87001m",
@@ -900,8 +1677,16 @@
       "displayName": "Sony FE 135mm f1.8 GM",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony FE 135mm f1.8 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Sony FE 135mm f1.8 GM. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony FE 135mm f1.8 GM. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "9cb48c6045a9e6769498f137620ab5b5c8d0d45b78aeb1a18548284ad2bd2c0c",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn75g2rnpcebz42zcvch5c61px8706aa",
@@ -909,8 +1694,16 @@
       "displayName": "Sony FE 50mm f1.2 GM",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony FE 50mm f1.2 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Sony FE 50mm f1.2 GM. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony FE 50mm f1.2 GM. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "37cbe102eea0a9930adcab47c9bdd268b467cb37d82c169f2a94d165eddd28bd",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn75ber4qgc62sendyzmgb347x870wwn",
@@ -918,8 +1711,16 @@
       "displayName": "Sony FE 14mm f1.8 GM",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sony FE 14mm f1.8 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Sony FE 14mm f1.8 GM. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sony FE 14mm f1.8 GM. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "e3d1ea64968e47ace9fa852a5c2ea58d671b761c7abb4644d55b3ead3d3961eb",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7bmkkkzd4dz4aehp7gm6rwhh870408",
@@ -927,8 +1728,16 @@
       "displayName": "Tilta Float Gimbal Support",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Tilta Float Gimbal Support, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "support",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Tilta Float Gimbal Support. Master inventory category: support. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Tilta Float Gimbal Support. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "a66004e0b0e24cead549ff1484458e0f228442a2d3f310fa288d804471acb186",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn736h8m12nsja45mfeekne9f5871bs1",
@@ -936,8 +1745,16 @@
       "displayName": "SmallHD Cine 7 Monitor",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of SmallHD Cine 7 Monitor, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "monitoring",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "SmallHD Cine 7 Monitor. Master inventory category: monitoring. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact SmallHD Cine 7 Monitor. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "9aa59ea37bba9cb79fa6ff755d534dd818b68347c6b50effd7d7c4b9b8c91a41",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn760v1z99tybdwkcqry8eagns87a6qq",
@@ -945,8 +1762,16 @@
       "displayName": "Pioneer XDJ-RX2",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Pioneer XDJ-RX2, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "dj_audio",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "Pioneer XDJ-RX2. Master inventory category: dj_audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Pioneer XDJ-RX2. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "e892ab153bb4512cdff15014301117dfd3e422389c5e73987b5b57257fb19717",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn721nsax9egsfs5n246b4zx6h87arbw",
@@ -954,8 +1779,16 @@
       "displayName": "DJI Fly More Kit",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DJI Fly More Kit, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "accessory",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "DJI Fly More Kit. Master inventory category: accessory. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DJI Fly More Kit. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "001d76762564466cbb2706327acfe620c133a24b426d91e19d994539bb13ad82",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7c9e2jhf35cway1221k5fzhh87becd",
@@ -963,8 +1796,16 @@
       "displayName": "DZOFilm Vespid 3-Lens Set",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of DZOFilm Vespid 3-Lens Set, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "lens",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "DZOFilm Vespid 3-Lens Set. Master inventory category: lens. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact DZOFilm Vespid 3-Lens Set. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "16039063d043f5ae8f949dbd2c8958fc81ea2d0af8e812d6caa1ba6e0e73aeb0",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn73hvhtdk1pmyyphkynfcj8an87aaav",
@@ -972,8 +1813,16 @@
       "displayName": "Manfrotto 190X Tripod",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Manfrotto 190X Tripod, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "support",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Manfrotto 190X Tripod. Master inventory category: support. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Manfrotto 190X Tripod. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "e0e1c4961eadf4700c291da18b0055f4699b91983d853315baef548f01962a45",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn72epb69by4z9khg9jxbvqqx187bjzz",
@@ -981,8 +1830,16 @@
       "displayName": "ViewSonic 4K Projector",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of ViewSonic 4K Projector, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "video",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "ViewSonic 4K Projector. Master inventory category: video. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact ViewSonic 4K Projector. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "6aa88ef26d4015f4e8b0112bc2d184def57e166ad3bfac4ec505836e83051e8d",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn74gbk1z31fnmhtk8zsgs2yss87aj38",
@@ -992,8 +1849,16 @@
       "aliases": [
         "Mackie Thump GO"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Mackie Thump GO, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "dj_audio",
+      "owned": false,
+      "isMarketingOnly": true,
+      "description": "MACKIE Thump Go speaker. Master inventory category: dj_audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact MACKIE Thump Go speaker. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "a505587ce11ad6f1b22099f78ed23edca2f0dc89ccbb63c25d8dc13f43fd53c7",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn77m0xd9gjzbt9kg6hgb1zfyn87bw3d",
@@ -1001,8 +1866,16 @@
       "displayName": "Atomos 1TB SSD",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Atomos 1TB SSD, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "storage_card",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Atomos 1TB SSD. Master inventory category: storage_card. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Atomos 1TB SSD. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "c20b5cf70b17dea32b1ee5cef42284dd8d103c98029e41e4b52f8ab0fb77430b",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7cv20cmz2k8fb3cwgt9qgdsx87advv",
@@ -1010,8 +1883,16 @@
       "displayName": "Sennheiser MKE 600",
       "quantity": 1,
       "aliases": [],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Sennheiser MKE 600, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Sennheiser MKE 600. Master inventory category: audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Sennheiser MKE 600. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "661b7ddf6cc4954333218efa5bf696ebb5ec30dbd28a5d35287baaea33096be8",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn75kqmcsgrgf8dwsxf19a427d87ez77",
@@ -1023,8 +1904,16 @@
         "zoom h5n",
         "zoom recorder h5"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of Zoom H5, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "audio",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "Zoom H5. Master inventory category: audio. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact Zoom H5. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "9863430cb6ca79fec160063325459965bb24c38cc257b2ec1ad607594d62658b",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn77ghtcyjn3xdws93s0e5cdth87f86e",
@@ -1036,8 +1925,16 @@
         "fluid head",
         "video head"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of SmallRig Fluid Head, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "support",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "SmallRig Fluid Head. Master inventory category: support. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact SmallRig Fluid Head. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "5c7870f4dba41ed6f108d754117174d2d6f27a30a957de6222d5d4e61e9b147a",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7b8ezbpk7k3c4gdrb1smn7ad89a2j0",
@@ -1051,8 +1948,16 @@
         "EF-to-L mount",
         "EF → L adapter"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of EF → L adapter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "accessory",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "EF to L mount. Master inventory category: accessory. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact EF to L mount. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "bb299e5395e8798231692513c5b7c5d5c11be4522706c12f51efb49f3212e920",
+      "renderReadiness": "requires factual/ownership review"
     },
     {
       "id": "kn7fwc3jkvtbfnkr6tfb0hgxcn8fhdp6",
@@ -1063,8 +1968,16 @@
         "NP-F570 battery",
         "Blackmagic NP-F570 batteries"
       ],
-      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
-      "heroPrompt": "Side-view hero photograph of NP-F570 batteries, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+      "kind": "power",
+      "owned": true,
+      "isMarketingOnly": false,
+      "description": "NP-F570 batteries. Master inventory category: power. Technical details await verification.",
+      "verifiedDescription": null,
+      "specVerification": null,
+      "descriptionStatus": "Technical specification needs verification",
+      "heroPrompt": "Side-view hero product photograph of the exact NP-F570 batteries. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "596c383836dc464bb738b1dc6cff7af844be8562715c056b1952d0b6cb6b1a50",
+      "renderReadiness": "requires factual/ownership review"
     }
   ]
 }

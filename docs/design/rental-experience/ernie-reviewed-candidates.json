@@ -1,0 +1,198 @@
+{
+  "projectName": "db-cinema-rentals",
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "profileRevisionSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
+  "imageContract": {
+    "version": 2,
+    "width": 1264,
+    "height": 848,
+    "steps": 50,
+    "cfg": 4,
+    "precision": "bf16",
+    "promptEnhancer": "ernie-native-v1",
+    "modelManifestSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
+    "workerSha256": "de0e6eed87a1a7568e92a78cb3b12e3f947926145eb418e317bc39ef334d66e7"
+  },
+  "sourceId": "equipment-hero-v1-45db6cb2b426d4995cad58f9",
+  "idempotencyKey": "dbc-equipment-hero-v1:45db6cb2b426d4995cad58f98a82613ae8d3d719442fd3c64c0a606022214452",
+  "candidates": [
+    {
+      "inventoryId": "kn71951h7f9z8p3cea06v6zjjx86bgn4",
+      "canonicalName": "Sony A7 V",
+      "evidenceSha256": "24a7596f7f93f416347218c0520c037db2534cd4ff4cde141288aec9d7486cf5",
+      "renderIdentitySha256": "607787cdc553a8d2a8df33a3fe02f6049a74ec94a8beade7633d027af9a1b94f",
+      "id": "kn71951h7f9z8p3cea06v6zjjx86bgn4",
+      "prompt": "Side-view hero product photograph of the exact Sony A7 V. Verified equipment description: Sony Alpha 7 V (ILCE-7M5). Approximately 33MP effective still-image resolution; full-frame Exmor RS CMOS sensor. Sony E mount. Slot 1 accepts SD UHS-I/II or CFexpress Type A; slot 2 accepts SD UHS-I/II. Internal UHD 4K up to 60p in full-frame mode. At 60p/50p, use 4K angle of view Priority On for full-width recording. UHD 4K120p/100p requires APS-C/Super 35 capture and a reduced angle of view; it is not full-frame or uncropped 4K120.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 1618446285,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn71mytpv3d5m8nw6z1kpx2qqs86acrd",
+      "canonicalName": "Anamorphic Blazar Remus 65mm",
+      "evidenceSha256": "ca70cbf42944c6457cde9552fd73a6b5b7cd4c9585fffd341d35b1b66da82da9",
+      "renderIdentitySha256": "6e87e7ddc0fbaea0ff553f76b13339d90b325a6302ebd44ec814aa447ce6ee97",
+      "id": "kn71mytpv3d5m8nw6z1kpx2qqs86acrd",
+      "prompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 65mm. Verified equipment description: Blazar Remus 65mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.69m, PL-version weight 782g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 1854400477,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn71src7p25m5ppzkxnjwadm1s86azfk",
+      "canonicalName": "Sony A7 II",
+      "evidenceSha256": "e61a097c7a71156fa637876f91e66ad82cb6ab5a099d34c0f88ad5d95f9ec138",
+      "renderIdentitySha256": "2899e9384a1a586aa4ab9d5dbd629667d85ac7f20ad9795feeea0658478fe9e3",
+      "id": "kn71src7p25m5ppzkxnjwadm1s86azfk",
+      "prompt": "Side-view hero product photograph of the exact Sony A7 II. Verified equipment description: Sony A7 II (ILCE-7M2): 24.3MP full-frame sensor and Sony E mount. Internal video recording up to 1920x1080 at 60p; this is not a 4K-recording body. Uses SD media and NP-FW50 batteries.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 681175352,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn71y2p1ascfw2gv9snasdwhkn86b90w",
+      "canonicalName": "Anamorphic Blazar Remus 45mm",
+      "evidenceSha256": "c3525bbc76f069e30dfbb32fcf70f7670e8695a235279932b04300e126306a37",
+      "renderIdentitySha256": "0ecc5881588025c6b1ba739d7ad0e58d402f249412d14b9a79743fbdec9ac675",
+      "id": "kn71y2p1ascfw2gv9snasdwhkn86b90w",
+      "prompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 45mm. Verified equipment description: Blazar Remus 45mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.68m, PL-version weight 720g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 248273025,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn72bfr0py9rts0pwfpg2faxvs86a7m2",
+      "canonicalName": "GoPro 12 Hero",
+      "evidenceSha256": "fee6d2dfacb4f304bc2b485e678e85246a10e63b3fec6284aad360638ac32e78",
+      "renderIdentitySha256": "40b9677b5bdc18122ad7ae28bac1410c339a74b1d39c2636f381a0c675cdea70",
+      "id": "kn72bfr0py9rts0pwfpg2faxvs86a7m2",
+      "prompt": "Side-view hero product photograph of the exact GoPro 12 Hero. Verified equipment description: GoPro HERO12 Black: 27MP photos; 5.3K video up to 60fps, 4K up to 120fps and 2.7K up to 240fps in the supported aspect ratios. HyperSmooth 6.0 stabilization. Uses microSD media. Lens is fixed, not interchangeable.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 1085892475,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn737xq0jcc8a011f6x2m6srt986az25",
+      "canonicalName": "BMPCC 6K Pro",
+      "evidenceSha256": "facfe2c6ca1af3a0b8e673e4062fb4b96e1a7848b36e8003e0daf189d155e7e4",
+      "renderIdentitySha256": "f3771eb642b5779247606f4070300bf838498dbcc263694cb4b05490ad714220",
+      "id": "kn737xq0jcc8a011f6x2m6srt986az25",
+      "prompt": "Side-view hero product photograph of the exact BMPCC 6K Pro. Verified equipment description: Blackmagic Pocket Cinema Camera 6K Pro: 6144x3456 Super 35 sensor, active Canon EF mount, built-in motorized ND at 0/2/4/6 stops. Records to CFast 2.0, SD UHS-II or external USB-C storage. Native camera battery is NP-F570.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 4084670134,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn73ga9tdczw4azpvv41qm3dw186b9pb",
+      "canonicalName": "Sony GM 16-35mm f2.8",
+      "evidenceSha256": "e1fd477b623ade057810ec1a026a111c93bd8a0d5f6a8b35d6a056243f219470",
+      "renderIdentitySha256": "b05d02c4f6be62addef7fe049138a74bc8900ace22851a1be660583ea6e451f3",
+      "id": "kn73ga9tdczw4azpvv41qm3dw186b9pb",
+      "prompt": "Side-view hero product photograph of the exact Sony GM 16-35mm f2.8. Verified equipment description: Sony FE 16-35mm f/2.8 E-mount full-frame autofocus zoom. These capabilities are shared by GM and GM II. The owned generation is unconfirmed; do not claim GM II or generation-specific weight, dimensions, AF motors, performance or kit contents.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 2958885572,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn740n15w16172sn1qj8h89gx586b2xf",
+      "canonicalName": "BMPCC 6K Full Frame",
+      "evidenceSha256": "93b66a54d08500b3906982978bde2d900312f9ed0849bf42c735ed1e98f32adb",
+      "renderIdentitySha256": "edeecb1106df3e54ffd06c66cff5ed677efc0a897ddcee1de07e4cab3a62d389",
+      "id": "kn740n15w16172sn1qj8h89gx586b2xf",
+      "prompt": "Side-view hero product photograph of the exact BMPCC 6K Full Frame. Verified equipment description: Blackmagic Cinema Camera 6K: 6048x4032 full-frame sensor, native L mount, Blackmagic RAW recording to CFexpress Type B or external USB-C storage. Native battery is NP-F570. This is a different body from the Super 35 EF-mount Pocket 6K Pro.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 3991849745,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn74p93r60ndmmb0qghjqg84yh86abvh",
+      "canonicalName": "Sony A7 III",
+      "evidenceSha256": "99264cd995e3bcd6a73a29279c8dc9fa404a8a62c837273e626e7276262b3f03",
+      "renderIdentitySha256": "619337389e945fb5ea30be4b3736ee8084d5ca03cfb6d3d85f6ed5bbcda1aa4f",
+      "id": "kn74p93r60ndmmb0qghjqg84yh86abvh",
+      "prompt": "Side-view hero product photograph of the exact Sony A7 III. Verified equipment description: Sony A7 III (ILCE-7M3): approximately 24.2MP effective full-frame Exmor R CMOS sensor; Sony E mount. Records 4K up to 30p and Full HD up to 120p. Recording mode, region and frame rate affect available formats.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 1637037880,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn759mg9g9m7hm59btvx827cw186astx",
+      "canonicalName": "Anamorphic Blazar Remus 100mm",
+      "evidenceSha256": "57d79ff3aba741a142140f5e9195a507a5edca9dc51db6fd4c969ba2cd319faf",
+      "renderIdentitySha256": "6933934a9ae572d126b029532e2bf45cdd5f9b4e110b582462337ffb13618565",
+      "id": "kn759mg9g9m7hm59btvx827cw186astx",
+      "prompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 100mm. Verified equipment description: Blazar Remus 100mm T2.8 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.8, close focus 0.71m, PL-version weight 788g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 1764987722,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn76chbtwhyv1987y4ae3pj2dh86bw7d",
+      "canonicalName": "TTArtisan 11mm f2.8 Fisheye (Sony E)",
+      "evidenceSha256": "5b772573b9709f0c96da04a204ea9c51f49a236fd38d2eff3a90a445e9432081",
+      "renderIdentitySha256": "4af382bc70f788184957489c2fa579d6a5e893cd9900eeceed8451844ea7ef11",
+      "id": "kn76chbtwhyv1987y4ae3pj2dh86bw7d",
+      "prompt": "Side-view hero product photograph of the exact TTArtisan 11mm f2.8 Fisheye (Sony E). Verified equipment description: TTArtisan 11mm F2.8 Fisheye, Sony E-mount copy confirmed by the owner. Full-frame manual-focus fisheye lens; not a Sony-brand lens and not the Sony SEL11F18. Maximum aperture f/2.8, 180-degree diagonal field of view and 0.17m closest focusing distance. No autofocus. Manufacturer product information does not establish rental kit inclusions.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 1257472700,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn78qjrz8qk1zxk9vqrgnbqw3s86aqpt",
+      "canonicalName": "Anamorphic Blazar Remus 33mm",
+      "evidenceSha256": "9e1bf740ed7b528abf745dbefbfa97a486049bb5b0db5a02b159037489aef694",
+      "renderIdentitySha256": "d7fa10db62fcb6ed37ddebfc53c4f19cf1ce456d10d021be1a4183d815a68433",
+      "id": "kn78qjrz8qk1zxk9vqrgnbqw3s86aqpt",
+      "prompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 33mm. Verified equipment description: Blazar Remus 33mm T1.8 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T1.8, close focus 0.49m, PL-version weight 880g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 3623489755,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn79e6tav264zrh9zs5pvfg5kd86avn6",
+      "canonicalName": "Sony GM 24-70mm f2.8",
+      "evidenceSha256": "80877ae96a50638cfb301d6b75051b2a6835d420919453a4c38bcbdc4fcac3cf",
+      "renderIdentitySha256": "16fe686d99af794a7c8072c75bb631a1c7d5d6fbdeb4105fe471e09da3203a93",
+      "id": "kn79e6tav264zrh9zs5pvfg5kd86avn6",
+      "prompt": "Side-view hero product photograph of the exact Sony GM 24-70mm f2.8. Verified equipment description: Sony FE 24-70mm f/2.8 E-mount full-frame autofocus zoom. These capabilities are shared by GM and GM II. The owned generation is unconfirmed; do not claim GM II or generation-specific weight, dimensions, AF motors, performance or kit contents.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 385771629,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn7bw2cr1ye5hqj3x770b332ks86atzw",
+      "canonicalName": "Sony FX3",
+      "evidenceSha256": "75f68a576297904cbd268d5899d1a671d587d112cb7f22f10bf2407c0f022e4a",
+      "renderIdentitySha256": "8c3968745c61e53d8064b743077667af9fa1275b9b9d452e128ba74e8b3be810",
+      "id": "kn7bw2cr1ye5hqj3x770b332ks86atzw",
+      "prompt": "Side-view hero product photograph of the exact Sony FX3. Verified equipment description: Sony FX3 (ILME-FX3): full-frame Exmor R CMOS sensor, approximately 12.1MP effective for still images. Sony E mount. Two CFexpress Type A/SD memory-card slots. NP-FZ100 battery. Recording formats and supported media depend on mode and firmware.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 2352572532,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn7byeb6ez8gty76rbhhb7e2t586b6wk",
+      "canonicalName": "Sony FE 90mm f2.8 Macro G OSS",
+      "evidenceSha256": "96b1baacf0242f76ebda0703b643ae1b9ba7b39eec71ef05442d8131686eaa0b",
+      "renderIdentitySha256": "14c59f60ab8104fba251b2cd25a418fbfd2fa31e3b5f1c796378c9ae9dc0d881",
+      "id": "kn7byeb6ez8gty76rbhhb7e2t586b6wk",
+      "prompt": "Side-view hero product photograph of the exact Sony FE 90mm f2.8 Macro G OSS. Verified equipment description: Sony FE 90mm F2.8 Macro G OSS (SEL90M28G): Sony G-series E-mount full-frame macro lens, not a G Master model. Up to 1:1 magnification, minimum focus distance 0.28m, Optical SteadyShot, 62mm filter diameter and 602g weight. Manufacturer box contents do not establish rental inclusions. Supports autofocus and manual-focus selection.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 348495712,
+      "width": 1264,
+      "height": 848
+    },
+    {
+      "inventoryId": "kn7dy8zf34tffmcvzvdtrnn3jn86an19",
+      "canonicalName": "DJI Osmo Action Pro 5",
+      "evidenceSha256": "c1be8455a5baae7a587352086428c971362252603c17ed5c42084010457ab2e7",
+      "renderIdentitySha256": "a57ae7739f7202a97f2271adaebf1ef8fef8540c66e1b171c4cef609cfe34e72",
+      "id": "kn7dy8zf34tffmcvzvdtrnn3jn86an19",
+      "prompt": "Side-view hero product photograph of the exact DJI Osmo Action Pro 5. Verified equipment description: DJI Osmo Action 5 Pro: 1/1.3-inch CMOS sensor, approximately 40MP photos, 4K recording up to 120fps; fixed lens. Supports microSD up to 1TB. Manufacturer waterproof rating is 20m without a case only under its sealing/use conditions; this does not establish rental permission for underwater use.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 2776295283,
+      "width": 1264,
+      "height": 848
+    }
+  ],
+  "readiness": "Reviewed descriptions; visual references, price/staging review and output inspection still required",
+  "submitted": false
+}
