@@ -27,7 +27,10 @@ crons.daily("review-story-prize-deadlines", { hourUTC: 8, minuteUTC: 15 }, inter
 crons.interval("settled-rental-review-emails", { hours: 12 }, internal.reviewFollowUp.processDue, {});
 crons.interval("late-fee-notices-and-collection", { hours: 1 }, internal.lateFees.processDue, {});
 crons.interval("send-return-statements", { hours: 1 }, internal.invoice.retryReturnStatements, {});
-crons.interval("renew-rental-security-holds", { hours: 1 }, internal.holdRenewal.renewDue, {});
+// This is an expiry check, not a repeated charge. A hold is replaced only when it
+// is within 24 hours of its issuer-provided expiry, so a six-hour cadence leaves
+// several opportunities to resolve any authentication request for long rentals.
+crons.interval("renew-rental-security-holds", { hours: 6 }, internal.holdRenewal.renewDue, {});
 crons.interval("reconcile-rental-verifications", { hours: 1 }, internal.didit.reconcileOpenSessions, {});
 
 crons.interval("expire-rental-verifications", { hours: 1 }, internal.bookings.expireRentalVerifications, {});
