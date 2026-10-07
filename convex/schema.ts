@@ -634,7 +634,7 @@ export default defineSchema({
     title: v.optional(v.string()), // item name at add time (incl. marketing-only items)
     qty: v.optional(v.number()), // units added
     at: v.number(),
-  }).index("by_type", ["type"]),
+  }).index("by_type", ["type"]).index("by_at", ["at"]).index("by_type_at", ["type", "at"]),
 
   settings: defineTable({
     deliveryMarginPct: v.optional(v.number()),
