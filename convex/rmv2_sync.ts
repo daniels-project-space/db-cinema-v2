@@ -201,3 +201,9 @@ export const forRmv2SyncPage = query({
     return { authorized: true, bookings, isDone: page.isDone, continueCursor: page.continueCursor };
   },
 });
+
+export const forRmv2SyncBooking = query({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,args)=>{
+  if(!checkAdminToken(args.token))throw Error("unauthorized");
+  const booking=await ctx.db.get(args.bookingId);if(!booking)throw Error("Rental not found");
+  return loadBookingProjection(ctx,booking);
+} });

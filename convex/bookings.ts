@@ -725,6 +725,7 @@ export const getForRefund = internalQuery({
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     return {
+      status:b.status,
       paymentSources:await rentalPaymentSources(ctx,b),
       paymentIntentId: b.stripePaymentIntentId ?? null,
       depositAmount: b.depositAmount,

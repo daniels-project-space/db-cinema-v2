@@ -741,9 +741,11 @@ export const markReturned = action({
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.markReturned" });
     const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId });
     if (!b) throw new Error("Booking not found.");
+    if(!["confirmed","active","returned"].includes(b.status))throw Error("Booking is not available for return.");
     const returned = actualReturnedAt ?? Date.now();
-    if (!Number.isFinite(returned) || returned > Date.now() + 60000 || returned < Date.now() - 45 * 86400000)
+    if (!Number.isFinite(returned) || returned > Date.now() + 60000 || (returned < Date.now() - 45 * 86400000 && returned !== b.returnDecision?.actualReturnedAt))
       throw new Error("Actual return time must be within the last 45 days.");
+    if(b.returnDecision && (b.returnDecision.actualReturnedAt!==returned || b.returnDecision.damageKept!==(damageKept??0) || (b.returnDecision.damageNote??"")!==(damageNote??"") || b.returnDecision.chargeLate!==chargeLate || (b.returnDecision.lateWaiverReason??"")!==(lateWaiverReason??"")))throw Error("Resume the saved return decision; its amounts and return time cannot be changed during settlement.");
     const quotedLate = lateFeeQuote(b.lineItems, b.returnTime, returned);
     if (!chargeLate && quotedLate.amount > 0 && (lateWaiverReason ?? "").trim().length < 5)
       throw new Error("Record why the calculated late rental time is being waived.");
@@ -752,6 +754,7 @@ export const markReturned = action({
       ? { waivedAmount: quotedLate.amount, waiverReason: lateWaiverReason?.trim() } : {};
     if ((damageKept ?? 0) > 0 && (!damageNote || damageNote.trim().length < 10))
       throw new Error("Record the evidence and reason for a damage deduction.");
+    if(!inspection && !b.returnDecision)throw Error("Inspect every individual item before settling this rental.");
     if (inspection) await ctx.runQuery(internal.returnInspections.validate, { bookingId, inspection, damage: damageKept ?? 0 });
     for (const oldId of b.depositHoldPreviousIntentIds ?? []) {
       try {
