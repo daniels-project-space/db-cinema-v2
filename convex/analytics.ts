@@ -41,8 +41,8 @@ export const cartDemand = query({
     const since = now - D * DAYMS;
     // demand = add-to-cart (bookable items) + register-interest (display-only items)
     const ev = [
-      ...await ctx.db.query("events").withIndex("by_type", (q) => q.eq("type", "add_to_cart")).collect(),
-      ...await ctx.db.query("events").withIndex("by_type", (q) => q.eq("type", "register_interest")).collect(),
+      ...(await ctx.db.query("events").withIndex("by_type_at", (q) => q.eq("type", "add_to_cart").gte("at", since)).collect()).sort((a, b) => a._creationTime - b._creationTime),
+      ...(await ctx.db.query("events").withIndex("by_type_at", (q) => q.eq("type", "register_interest").gte("at", since)).collect()).sort((a, b) => a._creationTime - b._creationTime),
     ];
     const adds = ev.filter((e) => e.at >= since);
 
@@ -90,7 +90,10 @@ export const adminSummary = query({
       return { authorized: false as const };
 
     const DAY = 86400000;
-    const events = await ctx.db.query("events").collect();
+    const events = (await ctx.db.query("events")
+      .withIndex("by_at", q => q.gte("at", now - 7 * DAY)).collect())
+      // Preserve original creation ordering for equally ranked pages/searches.
+      .sort((a, b) => a._creationTime - b._creationTime);
     const in24 = events.filter((e) => e.at >= now - DAY);
     const in7 = events.filter((e) => e.at >= now - 7 * DAY);
 
