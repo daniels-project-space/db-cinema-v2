@@ -113,6 +113,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.cmd("Page.enable");
   await c.cmd("Network.enable");
   await c.cmd("Network.setCacheDisabled", { cacheDisabled: true });
+  // This suite checks cart, pricing and persistence. Decorative video decoding
+  // can strand Chrome's renderer during reload even after releaseMedia(); keep
+  // real images, application scripts and backend traffic, but avoid that decoder.
+  await c.cmd("Network.setBlockedURLs", { urls: ["*.mp4*", "*.webm*", "*.mov*"] });
   // Watch transient states too: the requested hook must stay exact through
   // selection, restored baskets and quote loading. No invented alternatives.
   await c.cmd("Page.addScriptToEvaluateOnNewDocument", {source: `
@@ -503,18 +507,25 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await shot("weekday-immediate-credit-mobile");
   // Removing real £100 lines crosses Studio → Pro → Starter. Preserve the
   // card space while pricing, with no stale saving or selectable stale plan.
-  const transitionGear=rows.filter(g=>g.pricing?.daily===100&&!g.displayOnly&&!g.quietDeal).slice(0,3);
-  assert.equal(transitionGear.length,3);
+  const eligibleTransitionGear=rows.filter(g=>g.pricing?.daily===100&&!g.displayOnly&&!g.quietDeal);
+  assert(eligibleTransitionGear.length>0,"Tier transitions need real £100 equipment");
+  // Cart lines have independent keys and can contain the same listing. Keep
+  // three real £100 lines even when the live catalogue has fewer distinct kits.
+  const transitionGear=Array.from({length:3},(_,n)=>eligibleTransitionGear[n%eligibleTransitionGear.length]);
   let transitionItems=transitionGear.map((g,n)=>({...bigWeekdayItem,key:'tier-transition-'+n,listingId:g._id,title:g.title,slug:g.slug,heroImage:g.heroImage,deposit:g.depositAmount,total:100,perDay:100}));
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(transitionItems))});localStorage.removeItem('dbc_membership_selection_v1');true`);
   await navigate(root+'/cart');
   await until(`document.querySelector('[data-testid="membership-upsell"]')?.textContent.includes('Studio subscription')&&!!document.querySelector('[data-testid="potential-membership-savings"]')`);
   for(const expectedTier of ['pro','plus']){
     const previousHeight=await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').getBoundingClientRect().height`);
+    // Observe the pending render before clicking: polling after a fast real
+    // quote can miss it entirely. Retain both transient-state assertions.
+    await c.evaluate(`window.__dbcTierPending=[];window.__dbcTierObserver=new MutationObserver(()=>{const tile=document.querySelector('[data-testid="membership-upsell"]');if(tile?.getAttribute('aria-busy')==='true')window.__dbcTierPending.push({stale:!!document.querySelector('[data-testid="potential-membership-savings"],main [data-testid="add-membership"]'),height:tile.getBoundingClientRect().height});});window.__dbcTierObserver.observe(document.body,{subtree:true,childList:true,attributes:true});true`);
     await nativeClick(`document.querySelector('main button[aria-label^="Remove "]')`);
-    await until(`document.querySelector('[data-testid="membership-upsell"]')?.getAttribute('aria-busy')==='true'`);
-    assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="potential-membership-savings"],main [data-testid="add-membership"]')`),false,'Pending repricing never shows an old amount or lets an old plan be selected');
-    assert(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').getBoundingClientRect().height>=${previousHeight}`),'The tile keeps its space while recalculating');
+    await until(`window.__dbcTierPending.length>0`);
+    assert.equal(await c.evaluate(`window.__dbcTierPending.some(s=>s.stale)`),false,'Pending repricing never shows an old amount or lets an old plan be selected');
+    assert(await c.evaluate(`window.__dbcTierPending.every(s=>s.height>=${previousHeight})`),'The tile keeps its space while recalculating');
+    await c.evaluate(`window.__dbcTierObserver.disconnect();true`);
     transitionItems=transitionItems.slice(1);
     const transitionQuote=await cv.action(api.checkout.priceQuote,{...bigWeekdayArgs,items:transitionItems.map(i=>({...bigWeekdayArgs.items[0],listingId:i.listingId,title:i.title}))});
     const offer=transitionQuote.recommendations.find(r=>r.netSaving>0);
