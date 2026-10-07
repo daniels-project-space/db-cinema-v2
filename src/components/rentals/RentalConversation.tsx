@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalAdditionApproval } from "./RentalAdditionApproval";
@@ -225,16 +225,14 @@ export function RentalConversation({
             : teamHandling ? "Team notified" : "Request a human"}
         </button>
       </header>
+      <div className="management-conversation-main flex min-h-0 flex-1 flex-col">
       {!admin && bookingId && (
         <RentalAdditionApproval token={token} bookingId={bookingId} />
-      )}
-      {tools && (
-        <aside aria-label="Rental management controls" className="management-conversation-tools border-b border-white/[0.06] px-5 py-3">{tools}</aside>
       )}
       {bookingId && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
       <div
         ref={body}
-        className="flex h-[320px] sm:h-[440px] min-h-0 shrink-0 flex-col gap-4 overflow-y-auto px-5 py-6"
+        className="management-conversation-messages flex h-[320px] sm:h-[440px] min-h-0 shrink-0 flex-col gap-4 overflow-y-auto px-5 py-6"
         aria-live="polite"
         aria-label="Rental conversation"
       >
@@ -261,7 +259,9 @@ export function RentalConversation({
             </p>
           </div>
         ) : (
-          messages.map((m) => {
+          messages.map((m, index) => {
+            const date = new Date(m.at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+            const previousDate = index ? new Date(messages[index - 1].at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : null;
             const mine = admin ? m.sender === "owner" : m.sender === "renter";
             const label =
               m.sender === "bot"
@@ -273,19 +273,19 @@ export function RentalConversation({
                     : admin
                       ? "Renter"
                       : "You";
-            return (
+            return (<Fragment key={m._id}>
+              {date !== previousDate && <p className="management-conversation-date self-stretch text-center text-[10px] text-white/40"><span>{date}</span></p>}
               <div
-                key={m._id}
                 data-message-id={m._id}
                 data-sender={m.sender}
-                className={`flex flex-col ${mine ? "items-end" : "items-start"}`}
+                className={`management-conversation-message flex flex-col ${mine ? "items-end" : "items-start"}`}
               >
-                <div className={`flex max-w-full items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}>
+                <div className={`management-conversation-message-row flex max-w-full items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}>
                 <ChatAvatar key={`${m.sender}-${thread && "renter" in thread ? thread.renter?.photo : ""}`} sender={m.sender} name={thread && "renter" in thread ? thread.renter?.name : null} photo={thread && "renter" in thread ? thread.renter?.photo : null} />
                 <div
-                  className={`min-w-0 max-w-[calc(100%-2.5rem)] rounded-2xl border px-4 py-3 text-sm leading-relaxed ${m.sender === "bot" ? "border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-50" : m.sender === "owner" ? "border-accent-300/25 bg-accent-500/15 text-orange-50" : m.sender === "system" ? "border-dashed border-sky-200/20 bg-sky-300/[0.04] text-sky-100/70" : "border-violet-300/20 bg-violet-300/10 text-violet-50"}`}
+                  className={`management-conversation-message-copy min-w-0 max-w-[calc(100%-2.5rem)] rounded-2xl border px-4 py-3 text-sm leading-relaxed ${m.sender === "bot" ? "border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-50" : m.sender === "owner" ? "border-accent-300/25 bg-accent-500/15 text-orange-50" : m.sender === "system" ? "border-dashed border-sky-200/20 bg-sky-300/[0.04] text-sky-100/70" : "border-violet-300/20 bg-violet-300/10 text-violet-50"}`}
                 >
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
+                  <div className="management-conversation-sender mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
                   <p className="whitespace-pre-wrap break-words">{m.text}</p>
                   {m.meta?.kind === "full_credit_offer" && !admin && <RentalCreditOffer token={token} offerId={m.meta.offerId} />}
                   {m.meta?.kind === "review_invitation" && !admin && bookingId && <BookingReview key={bookingId} bookingId={bookingId} token={token} inline />}
@@ -306,7 +306,7 @@ export function RentalConversation({
                     minute: "2-digit",
                   })}
                 </span>
-              </div>
+              </div></Fragment>
             );
           })
         )}
@@ -360,6 +360,10 @@ export function RentalConversation({
           </button>
         </form>
       </footer>
+      </div>
+      {tools && (
+        <aside aria-label="Rental management controls" className="management-conversation-tools border-b border-white/[0.06] px-5 py-3">{tools}</aside>
+      )}
     </section>
   );
 }
