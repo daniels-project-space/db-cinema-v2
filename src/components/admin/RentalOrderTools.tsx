@@ -4,6 +4,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { ReturnRentalForm } from "./ReturnRentalForm";
 import { ReturnInspectionHistory } from "./ReturnInspectionHistory";
+import { RentalManagerDelivery } from "./RentalManagerDelivery";
 import { SmartImage } from "@/components/SmartImage";
 import { rentalTitle } from "@/lib/rentalPresentation";
 import { formatGbp } from "@/lib/pricing";
@@ -279,6 +280,7 @@ export function RentalOrderTools({
       </div>
       {showReturn && returnOpen && <ReturnRentalForm booking={b} token={token} onClose={() => setReturnOpen(false)} />}
       {showReturn && (b.returnDecision || b.status === "returned") && <ReturnInspectionHistory token={token} bookingId={bookingId} />}
+      <RentalManagerDelivery token={token} bookingId={bookingId} />
       {additions
         .filter(
           (r) =>

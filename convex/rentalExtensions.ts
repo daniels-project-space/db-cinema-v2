@@ -1,6 +1,7 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import type { Id } from "./_generated/dataModel";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "./lib/rentalChat";
@@ -232,7 +233,7 @@ export const applyPaid = internalMutation({
     await ctx.db.patch(requestId, { status: "applied", paymentIntentId, paidAt: Date.now(), resolvedAt: Date.now() });
     await postRentalMessage(ctx, { accountId: r.accountId, bookingId: b._id, sender: "system", text: `Extension confirmed · £${r.priceDelta!.toFixed(2)} paid.\n${r.quoteItems.map(i => `${i.qty}× ${i.title} → return ${iso(i.end)} at ${r.approvedReturnTime} London time`).join("\n")}\nSecurity amounts are unchanged.` });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: b._id, kind: "extended", detail: r.quoteItems.map(i => `${i.title}: return ${iso(i.end)} at ${r.approvedReturnTime} London time`).join("; ") });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId: b._id });
+    await queueRmv2Sync(ctx, b._id);
     return { ok: true, bookingId: b._id };
   },
 });

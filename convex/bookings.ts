@@ -30,6 +30,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { inspectionInput } from "./lib/returnInspectionFields";
 import { returnInspectionSchedule } from "./lib/returnInspection";
 import { normalizeReturnInspection } from "../shared/returnInspection";
@@ -567,7 +568,7 @@ export const confirm = internalMutation({
     await ctx.scheduler.runAfter(0, internal.invoice.invoiceEmail, { bookingId });
     await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
     await ctx.scheduler.runAfter(0, internal.didit.reuseVerification, { bookingId });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
+    await queueRmv2Sync(ctx, bookingId);
     return { already: false };
   },
 });
@@ -622,7 +623,7 @@ export const attachAddon = internalMutation({
   for(const comp of listing.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:a.listingId,bookingId:b._id,start:a.start,end:a.end,qty:comp.qty,source:"site",status:b.status==="active"?"active":"confirmed"});
   const account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",(b.guestEmail??"").trim().toLowerCase())).first();
   if(account)await postRentalMessage(ctx,{accountId:account._id,bookingId:b._id,sender:"system",text:`Added to your rental: ${listing.title}. Rental charge £${a.total.toFixed(2)}.`});
-  await ctx.scheduler.runAfter(0,internal.rmv2_webhook.push,{bookingId:b._id});
+  await queueRmv2Sync(ctx, b._id);
   return {closed:false};
  }
 });
@@ -714,7 +715,7 @@ export const adminSetStatus = mutation({
       if (!booking.renterPersonKey) throw Error("The verified person needs a team identity check before handover.");
     }
     await ctx.db.patch(bookingId, { status, ...(status === "active" ? { pickedUpAt: booking.pickedUpAt ?? Date.now(), deliveryBenefitConsumed: !!booking.deliveryBenefitMonth } : {}) });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
+    await queueRmv2Sync(ctx, bookingId);
   },
 });
 
@@ -909,7 +910,7 @@ export const markReturnedStatus = internalMutation({
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
       .collect();
     for (const r of res) if (["hold", "confirmed", "active"].includes(r.status)) await ctx.db.patch(r._id, { status: "returned" });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
+    await queueRmv2Sync(ctx, bookingId);
   },
 });
 
@@ -1726,7 +1727,7 @@ export const _finalizeCancellation = internalMutation({
       await postRentalMessage(ctx,{accountId,bookingId,sender:"system",text:note});
     }
     await ctx.scheduler.runAfter(0, internal.notify.cancellationEmail, { bookingId, mode, refundAmount, creditAmount });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
+    await queueRmv2Sync(ctx, bookingId);
     return { ok: true as const, creditId };
   },
 });

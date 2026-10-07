@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { assertRenterExposure } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
@@ -107,7 +108,7 @@ export const reschedule = mutation({
       kind: "rescheduled",
       detail,
     });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
+    await queueRmv2Sync(ctx, bookingId);
     return { ok: true };
   },
 });
@@ -150,7 +151,7 @@ export const removeItem = mutation({
     const detail = `${line.qty}× ${line.title} removed from your kit. Agreed charges and security are unchanged; any eligible refund is recorded separately. ${args.reason.trim()}`;
     if (account) await postRentalMessage(ctx, { accountId: account._id, bookingId: b._id, sender: "system", text: detail });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: b._id, kind: "kit updated", detail });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId: b._id });
+    await queueRmv2Sync(ctx, b._id);
     return { ok: true };
   },
 });

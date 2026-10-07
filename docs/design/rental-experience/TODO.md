@@ -47,4 +47,6 @@ This checklist extends the original goal; no original integration requirement is
 - Four initial GPT concepts saved locally. Generated financial text is illustrative only.
 - Drone licence implementation committed as `121760e`; focused ownership/review tests, TypeScript and production build passed locally. Production acceptance still outstanding.
 - Read-only live master inventory query returned 108 records, all carrying quantities.
-- Replacement-set implementation in progress; not yet validated or deployed.
+- Quantity-aware replacement sets and management shell are implemented and tested locally, including native browser checks; production acceptance remains outstanding.
+- Per-item return inspection, account-linked damage cases, email/PDF detail and case-aware document retention are implemented and tested locally; Rental Manager return bridge and live finance acceptance remain outstanding.
+- Durable lifecycle delivery, revision ordering, paged fallback and website booking notifications are implemented locally. Both builds and 43 focused manager tests pass; development API authorisation/paging checked. See `RENTAL-MANAGER-DELIVERY.md`; production integration remains outstanding.

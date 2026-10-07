@@ -299,6 +299,12 @@ export default defineSchema({
       lateWaiverReason: v.optional(v.string()), startedAt: v.number(),
       inspection: v.optional(v.array(inspectionRecord)),
     })),
+    rmv2Revision: v.optional(v.number()),
+    rmv2DeliveredRevision: v.optional(v.number()),
+    rmv2SyncStatus: v.optional(v.union(v.literal("pending"), v.literal("delivered"), v.literal("attention"))),
+    rmv2SyncAttempts: v.optional(v.number()), rmv2SyncDueAt: v.optional(v.number()),
+    rmv2SyncError: v.optional(v.string()), rmv2SyncDeliveredAt: v.optional(v.number()),
+    rmv2SyncLeaseUntil: v.optional(v.number()),
     lateFeeAmount: v.optional(v.number()),
     lateFeeWaivedAmount: v.optional(v.number()),
     lateFeeWaiverReason: v.optional(v.string()),
@@ -334,6 +340,7 @@ export default defineSchema({
   })
     .index("by_customer", ["customerId"])
     .index("by_chat_updated",["chatUpdatedAt"])
+    .index("by_rmv2_sync_due", ["rmv2SyncStatus", "rmv2SyncDueAt"])
     .index("by_status_chat_updated",["status","chatUpdatedAt"])
     .index("by_guest_chat_updated",["guestEmail","chatUpdatedAt"])
     .index("by_owner_unread_updated",["chatUnreadOwner","chatUpdatedAt"])

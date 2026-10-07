@@ -15,6 +15,7 @@ import { query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
 import { checkAdminToken } from "./adminAuth";
+import { paginationOptsValidator } from "convex/server";
 
 const PAID_STATUSES = new Set(["confirmed", "active", "returned"]);
 
@@ -76,6 +77,7 @@ export function mapBookingForSync(
 
   return {
     id: String(b._id),
+    revision: b.rmv2Revision ?? 0,
     status: b.status,
     customerName: cust?.name ?? null,
     customerEmail: cust?.email ?? b.guestEmail ?? null,
@@ -136,7 +138,11 @@ export const forRmv2SyncOne = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
+    return loadBookingProjection(ctx, b);
+  },
+});
 
+async function loadBookingProjection(ctx: any, b: Doc<"bookings">) {
     const listingById = new Map<string, Doc<"listings">>();
     const unitById = new Map<string, Doc<"inventory_units">>();
     for (const li of b.lineItems ?? []) {
@@ -160,5 +166,17 @@ export const forRmv2SyncOne = internalQuery({
     }
 
     return mapBookingForSync(b, listingById, unitById, custById);
+}
+
+/** Explicit lifecycle records in bounded pages; absence never means cancellation. */
+export const forRmv2SyncPage = query({
+  args: { token: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    if (!checkAdminToken(args.token)) throw Error("unauthorized");
+    if (args.paginationOpts.numItems > 100) throw Error("Sync pages are limited to 100 rentals");
+    const page = await ctx.db.query("bookings").order("desc").paginate(args.paginationOpts);
+    const bookings = [];
+    for (const booking of page.page) if (booking.status !== "pending_payment") bookings.push(await loadBookingProjection(ctx, booking));
+    return { authorized: true, bookings, isDone: page.isDone, continueCursor: page.continueCursor };
   },
 });

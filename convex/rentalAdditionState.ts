@@ -2,6 +2,7 @@ import { tierByKey } from "../shared/membership";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import type { Id } from "./_generated/dataModel";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { assertRenterExposure, replacementValues } from "./lib/rentalExposure";
@@ -387,9 +388,7 @@ export const apply = internalMutation({
       b,
       `Added to your rental: ${r.qty}× ${r.title}. Rental charge £${r.lineTotal.toFixed(2)}${r.securityCharge ? `; refundable security £${r.securityCharge.toFixed(2)}` : ""}.`,
     );
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, {
-      bookingId: b._id,
-    });
+    await queueRmv2Sync(ctx, b._id);
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
       bookingId: b._id,
       kind: "item added",
