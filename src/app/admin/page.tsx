@@ -17,12 +17,15 @@ import { MarketingListingsAdmin } from "@/components/admin/MarketingListingsAdmi
 import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
 import { parseOwnerConversationUrl } from "../../../shared/ownerConversationRoute";
+import { ManagementShell } from "@/components/management/ManagementShell";
+import { InvoiceLibrary } from "@/components/management/InvoiceLibrary";
+import { RentalCalendar } from "@/components/account/RentalCalendar";
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<
-    "overview" | "bookings" | "inbox" | "enquiries" | "calls" | "settings" | "fund" | "stories" | "accounts" | "marketing"
+    "overview" | "bookings" | "calendar" | "invoices" | "reports" | "inbox" | "enquiries" | "calls" | "settings" | "fund" | "stories" | "accounts" | "marketing"
   >("overview");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
@@ -116,60 +119,18 @@ export default function AdminPage() {
   }
 
   return (
-    <>
-      <SiteHeader />
-      <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs text-white/35">DB Cinema Rentals</p>
-            <h1 className="mt-2 font-display text-2xl font-semibold text-white lg:text-3xl">
-              Owner workspace
-            </h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-          <OwnerNotificationBell token={token} />
-          <button
-            onClick={lock}
-            className="rounded-full border border-white/10 px-3.5 py-1.5 text-xs font-medium text-white/55 transition hover:border-rose-400/40 hover:text-rose-300"
-          >
-            Lock panel
-          </button>
-          </div>
-        </div>
-
-        <div className="mt-6 grid grid-cols-2 gap-2 rounded-2xl bg-white/[0.025] p-2 sm:grid-cols-3 lg:grid-cols-5">
-          {(
-            [
-              ["overview", "Overview"],
-              ["bookings", "Rentals"],
-              ["accounts", "Accounts"],
-              ["marketing", "Marketing listings"],
-              ["inbox", `Messages${rentalUnread ? ` (${rentalUnread})` : ""}`],
-              [
-                "enquiries",
-                `Enquiries${contacts?.items.filter((m: any) => !m.handled).length ? ` (${contacts.items.filter((m: any) => !m.handled).length})` : ""}`,
-              ],
-              ["calls", "Gaffer calls"],
-              ["fund", "Film Fund"],
-              ["stories", "Story Prize"],
-              ["settings", "Settings"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              aria-pressed={tab === key}
-              onClick={() => { setTab(key); if (key === "marketing" || key === "settings") window.history.replaceState(null, "", `#${key}`); else if (window.location.hash === "#marketing" || window.location.hash === "#settings") window.history.replaceState(null, "", window.location.pathname); }}
-              className={`rounded-xl border border-white/10 px-3 py-3 text-sm font-medium transition ${
-                tab === key
-                  ? "bg-white text-black"
-                  : "text-white/45 hover:text-white/75"
-              }`}
-            >
-              {label}
-              {key === "inbox" && attention.length > 0 && <span aria-label={`${attention.length} owner alerts`} className="ml-2 inline-block h-2 w-2 rounded-full bg-amber-400" />}
-            </button>
-          ))}
-        </div>
+    <ManagementShell role="admin" name="DB Cinema team" title={{ overview: "Dashboard", bookings: "Rentals", calendar: "Rental calendar", invoices: "Invoices", reports: "Reports", inbox: "Messages", accounts: "Customers & members", marketing: "Inventory & marketing", enquiries: "Enquiries", calls: "Gaffer calls", fund: "Film Fund", stories: "Story Prize", settings: "Settings" }[tab]} subtitle="Manage rentals, accounts and equipment operations."
+      active={tab} nav={[
+        { key: "overview", label: "Dashboard", icon: "dashboard" }, { key: "bookings", label: "Rentals", icon: "rentals" },
+        { key: "calendar", label: "Calendar", icon: "calendar" },
+        { key: "marketing", label: "Inventory & marketing", icon: "rentals" }, { key: "accounts", label: "Customers & members", icon: "people" },
+        { key: "inbox", label: "Messages", icon: "messages", badge: rentalUnread || attention.length },
+        { key: "invoices", label: "Invoices", icon: "documents" }, { key: "reports", label: "Reports", icon: "dashboard" },
+        { key: "enquiries", label: "Enquiries", icon: "messages", badge: contacts?.items.filter((m: any) => !m.handled).length },
+        { key: "calls", label: "Gaffer calls", icon: "messages" }, { key: "fund", label: "Film Fund", icon: "dashboard" },
+        { key: "stories", label: "Story Prize", icon: "dashboard" }, { key: "settings", label: "Settings", icon: "settings" },
+      ]} onNavigate={key => { setTab(key as typeof tab); if (key === "marketing" || key === "settings") window.history.replaceState(null, "", `#${key}`); else if (["#marketing", "#settings"].includes(window.location.hash)) window.history.replaceState(null, "", window.location.pathname); }}
+      actions={<><OwnerNotificationBell token={token} /><button onClick={lock} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Lock</button></>}>
 
         {tab === "overview" && (
           <div className="mt-6">
@@ -186,6 +147,9 @@ export default function AdminPage() {
         {tab === "inbox" && (
           <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusRevision={conversationNavigation} />
         )}
+        {tab === "reports" && <div className="mt-6"><AdminAnalytics token={token} /><AdminCartDemand token={token} /></div>}
+        {tab === "invoices" && <><p className="mt-6 text-xs text-white/45">Documents for the latest 100 rental records.</p><InvoiceLibrary token={token} rentals={bookings?.items} admin /></>}
+        {tab === "calendar" && <div className="mt-6 max-w-3xl"><p className="mb-4 text-xs text-white/45">Latest 100 rental records · pickup and return times shown in London time.</p><RentalCalendar bookings={bookings?.items.filter(b => b.lineItems.length).map(b => ({ ...b, start: Math.min(...b.lineItems.map(l => l.start)), end: Math.max(...b.lineItems.map(l => l.end)) })) as any} /></div>}
         {tab === "bookings" && !detailId && (
           <AdminRentalCards
             token={token}
@@ -270,8 +234,7 @@ export default function AdminPage() {
             ))}
           </div>
         )}
-      </main>
-    </>
+    </ManagementShell>
   );
 }
 

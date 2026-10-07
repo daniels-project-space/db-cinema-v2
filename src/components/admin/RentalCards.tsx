@@ -69,7 +69,7 @@ export function AdminRentalCards({
         {rows.map((r) => (
           <article
             key={r._id}
-            className="overflow-hidden rounded-3xl border border-white/[0.07] bg-[#151515]"
+            className="management-rental-card overflow-hidden rounded-3xl border border-white/[0.07] bg-[#151515]"
           >
             <div className="p-5">
               <div className="flex items-start justify-between gap-3">

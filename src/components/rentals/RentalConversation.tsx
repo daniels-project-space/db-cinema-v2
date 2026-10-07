@@ -196,7 +196,7 @@ export function RentalConversation({
     <section
       ref={container}
       data-conversation-scope={bookingId ? `rental:${bookingId}` : `support:${accountId ?? "self"}`}
-      className="scroll-mt-24 flex min-h-[450px] sm:min-h-[540px] flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313]"
+      className={`${admin && tools ? "management-conversation-admin" : ""} scroll-mt-24 flex min-h-[450px] sm:min-h-[540px] flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313]`}
     >
       <header className={`flex items-center justify-between gap-3 border-b p-5 ${teamHandling ? "border-amber-300/20 bg-amber-300/[0.07]" : "border-emerald-300/20 bg-emerald-300/[0.05]"}`}>
         <div className="flex min-w-0 items-center gap-3">
@@ -229,7 +229,7 @@ export function RentalConversation({
         <RentalAdditionApproval token={token} bookingId={bookingId} />
       )}
       {tools && (
-        <div className="border-b border-white/[0.06] px-5 py-3">{tools}</div>
+        <aside aria-label="Rental management controls" className="management-conversation-tools border-b border-white/[0.06] px-5 py-3">{tools}</aside>
       )}
       {bookingId && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
       <div

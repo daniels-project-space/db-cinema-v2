@@ -661,6 +661,9 @@ export const adminList = query({
       returnDecision: b.returnDecision ?? null,
       returnTime: b.returnTime ?? null,
       returnStatementEmailStatus: b.returnStatementEmailStatus ?? null,
+      hasReturnStatement: !!b.returnStatement,
+      hasPayment: !!b.stripePaymentIntentId || ["confirmed", "active", "returned"].includes(b.status),
+      pickupTime: b.pickupTime ?? null,
       idVerifyStatus: b.idVerifyStatus ?? "required",
       verificationProvider: b.verificationProvider ?? "stripe",
       diditSessionId: b.diditSessionId ?? null,
@@ -1231,6 +1234,8 @@ export const invoiceData = query({
     if (!b) return null;
     let ok = false;
     if (key && process.env.INVOICE_SECRET && key === process.env.INVOICE_SECRET) {
+      ok = true;
+    } else if (token && checkAdminToken(token)) {
       ok = true;
     } else if (token) {
       const s = await ctx.db.query("sessions").withIndex("by_token", (q) => q.eq("token", token)).first();

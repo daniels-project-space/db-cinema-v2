@@ -64,7 +64,7 @@ export function BookingTile({
       : "");
 
   return (
-    <article className="overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313] p-5 sm:p-6">
+    <article className="management-rental-card overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313] p-5 sm:p-6">
 
       {showVerify && <VerificationLink booking={booking} />}
       <RentalAdditionApproval token={token} bookingId={booking._id}/>

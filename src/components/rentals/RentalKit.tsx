@@ -13,7 +13,7 @@ export function RentalKit({ items, compact = false, prices = false }: { items: R
   const visible = photos.slice(0, compact ? 1 : 3);
   return <div className="min-w-0">
     <div className={compact ? "flex items-center gap-4" : "flex gap-2"}>
-      {visible.map((item, i) => <div key={i} className={`relative overflow-hidden rounded-2xl ${compact ? "h-24 w-28 shrink-0" : "min-w-0 flex-1"}`}>
+      {visible.map((item, i) => <div key={i} className={`management-kit-image relative overflow-hidden rounded-2xl ${compact ? "h-24 w-28 shrink-0" : "min-w-0 flex-1"}`}>
         <SmartImage src={item.heroImage} fallbackSources={item.imageSources} alt={item.title} className={compact ? "h-full w-full" : visible.length === 1 ? "aspect-[16/10] w-full" : "aspect-[4/5] w-full"} />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
         {(item.qty ?? 1) > 1 && <span className="absolute right-2 top-2 rounded-full bg-black/75 px-2 py-1 text-[10px] font-semibold text-white">×{item.qty}</span>}

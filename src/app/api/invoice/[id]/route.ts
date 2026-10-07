@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const sp = req.nextUrl.searchParams;
-  const token = sp.get("token") ?? undefined;
+  const authorization = req.headers.get("authorization");
+  const token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : sp.get("token") ?? undefined;
   const key = req.headers.get("x-invoice-key") ?? undefined;
 
   const convex = process.env.NEXT_PUBLIC_CONVEX_URL;

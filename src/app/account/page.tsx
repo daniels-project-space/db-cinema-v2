@@ -28,6 +28,8 @@ import { BookingSections } from "@/components/account/BookingSections";
 import { RentalCalendar } from "@/components/account/RentalCalendar";
 import { ShootLists } from "@/components/plans/ShootLists";
 import { AvatarUpload } from "@/components/account/AvatarUpload";
+import { ManagementShell } from "@/components/management/ManagementShell";
+import { InvoiceLibrary } from "@/components/management/InvoiceLibrary";
 
 export default function AccountPage() {
   const account = useAccount();
@@ -42,10 +44,7 @@ export default function AccountPage() {
     );
   return (
     <>
-      <SiteHeader />
-      <main className="section-window mx-auto max-w-5xl px-6 py-12">
-        {account.me ? <Dashboard /> : <AuthForm />}
-      </main>
+      {account.me ? <Dashboard /> : <><SiteHeader /><main className="section-window mx-auto max-w-5xl px-6 py-12"><AuthForm /></main></>}
     </>
   );
 }
@@ -166,7 +165,7 @@ function Dashboard() {
   const [saving, setSaving] = useState(false),
     [saveError, setSaveError] = useState<string | null>(null);
   const [tab, setTab] = useState<
-    "rentals" | "chat" | "plans" | "profile" | "membership" | "security"
+    "rentals" | "calendar" | "invoices" | "chat" | "plans" | "profile" | "membership" | "security"
   >("rentals");
   const [chatBooking, setChatBooking] = useState<string | null>(null);
 
@@ -222,10 +221,12 @@ function Dashboard() {
   }
 
   return (
-    <div className="page-in">
-      <Link href="/rental-stories" className="mb-4 inline-flex items-center gap-2 text-xs text-amber-200/80">Your set story could win £{REVIEW_PRIZE_GBP} · enter & track →</Link>
+    <ManagementShell role="renter" name={me.name || "My account"} title={{ rentals: "My rentals", calendar: "Rental calendar", invoices: "Invoices", chat: "Messages", plans: "Shoot lists", profile: "Profile", membership: "Membership", security: "Account security" }[tab]} subtitle="Manage your bookings, documents and conversations in one place." active={tab}
+      nav={[{ key: "rentals", label: "My rentals", icon: "rentals" }, { key: "calendar", label: "Calendar", icon: "calendar" }, { key: "chat", label: "Messages", icon: "messages", badge: unreadMessages }, { key: "invoices", label: "Invoices", icon: "documents" }, { key: "plans", label: "Shoot lists", icon: "calendar" }, { key: "membership", label: "Membership", icon: "people" }, { key: "profile", label: "Profile", icon: "people" }, { key: "security", label: "Security", icon: "settings" }]}
+      onNavigate={key => setTab(key as typeof tab)} actions={<button onClick={() => account.signOut()} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Sign out</button>}>
+      {tab === "rentals" && <Link href="/rental-stories" className="mb-4 inline-flex items-center gap-2 text-xs text-amber-200/80">Your set story could win £{REVIEW_PRIZE_GBP} · enter & track →</Link>}
       {/* account bar — identity + key info, always on top */}
-      <AccountProfilePill tier={me.membershipActive ? me.membershipTier : null}>
+      {["rentals", "profile"].includes(tab) && <AccountProfilePill tier={me.membershipActive ? me.membershipTier : null}>
         <AccountFrame tier={me.membershipActive ? me.membershipTier : null}><ChatAvatar sender="renter" photo={me.avatarUrl} name={me.name || me.email} className="!h-12 !w-12" /></AccountFrame>
         <div className="min-w-0 flex-1">
           <div className="hud-label !text-accent-400/90">
@@ -253,43 +254,11 @@ function Dashboard() {
             )}
           </p>
         </div>
-        <button
-          onClick={() => account.signOut()}
-          className="btn-ghost shrink-0 px-4 py-2 text-sm"
-        >
-          Sign out
-        </button>
-      </AccountProfilePill>
+      </AccountProfilePill>}
 
-      {/* tabs */}
-      <nav className="mt-6 flex gap-2 overflow-x-auto rounded-2xl bg-white/[0.025] p-2">
-        {(
-          [
-            ["rentals", "Rentals"],
-            [
-              "chat",
-              unreadMessages ? `Messages (${unreadMessages})` : "Messages",
-            ],
-            ["plans", "Shoot lists"],
-            ["profile", "Profile"],
-            ["membership", "Membership"],
-            ["security", "Security"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-medium transition ${
-              tab === key
-                ? "bg-white text-black"
-                : "text-white/45 hover:text-white/80"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-
+      {tab === "calendar" && <div className="mt-6 max-w-3xl"><RentalCalendar bookings={bookings as any} /></div>}
+      {tab === "invoices" && <InvoiceLibrary rentals={bookings} token={account.token!} />}
+      {["calendar", "invoices"].includes(tab) && rentalPages.status === "CanLoadMore" && <button onClick={() => rentalPages.loadMore(30)} className="mt-5 rounded-lg border border-white/15 px-5 py-2 text-xs text-white/70">Load older rentals and documents</button>}
       {tab === "plans" && <ShootLists />}
 
       {/* RENTALS */}
@@ -450,7 +419,7 @@ function Dashboard() {
           <AccountSecurity />
         </div>
       )}
-    </div>
+    </ManagementShell>
   );
 }
 
