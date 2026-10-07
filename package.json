@@ -11,7 +11,8 @@
     "test:rental-agreements": "node scripts/test-rental-agreements.cjs",
     "test:verification-archive": "node scripts/test-verification-archive.cjs && node scripts/test-verification-archive-worker.cjs",
     "test:customer-management": "node scripts/test-customer-management.cjs && node scripts/test-admin-accounts.cjs",
-    "test:return-review": "node scripts/test-return-preview.cjs && node scripts/test-return-preview-pdf.cjs"
+    "test:return-review": "node scripts/test-return-preview.cjs && node scripts/test-return-preview-pdf.cjs",
+    "test:invoice-ownership": "node scripts/test-invoice-ownership.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1062.0",

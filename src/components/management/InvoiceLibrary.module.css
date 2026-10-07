@@ -16,7 +16,29 @@
 .document > span { display: block; color: #94958f; font-size: 11px; margin-top: 6px; overflow-wrap: anywhere; line-height: 1.6; }
 .amount { text-align: right; color: #ddd8d0; font-size: 14px; }
 .amount small { display: block; color: #8b9089; font-size: 10px; margin-top: 5px; text-transform: capitalize; }
-.list article > button { padding: 9px 13px; border: 1px solid #bd8d6c65; border-radius: 6px; color: #d4ad8c; font-size: 11px; white-space: nowrap; }
+.list article > .pdfButton, .detail > .pdfButton { padding: 9px 13px; border: 1px solid #bd8d6c65; border-radius: 6px; color: #d4ad8c; font-size: 11px; white-space: nowrap; }
+.list article > .document {text-align:left;border:0;padding:0;border-radius:0;white-space:normal;}
+.list article[data-selected=true] {border-left:2px solid #bd8d6c;padding-left:14px;background:#ffffff03;}
+.workspace {display:grid;grid-template-columns:minmax(0,1fr);}
+.workspace.withDetail {grid-template-columns:minmax(0,1.2fr) minmax(300px,1fr);gap:24px;align-items:start;}
+.detail {margin-top:20px;padding:20px;border:1px solid #ffffff18;border-radius:8px;background:#171817;min-width:0;}
+.detail header {display:flex;justify-content:space-between;gap:16px;align-items:start;}
+.detail header small {font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#a7a399;}
+.detail h3 {font-family:var(--font-instrument,Georgia),serif;font-size:23px;margin-top:6px;color:#eeeae4;overflow-wrap:anywhere;}
+.detail header button {font-size:24px;color:#b9b2a8;min-width:32px;}
+.detail section {padding:18px 0;border-bottom:1px solid #ffffff12;}
+.detail h4 {font-size:13px;font-weight:600;color:#eeeae4;margin-bottom:10px;}
+.detail p {font-size:12px;color:#a7a79f;line-height:1.7;margin-top:5px;overflow-wrap:anywhere;}
+.line {display:flex;justify-content:space-between;gap:16px;margin-top:12px;font-size:12px;color:#d5d0c7;}
+.line strong {font-weight:500;}
+.line small {display:block;font-size:10px;color:#92958c;margin-top:5px;}
+.line > span,.detail dd {white-space:nowrap;font-variant-numeric:tabular-nums;}
+.detail dl > div {display:flex;justify-content:space-between;gap:16px;margin-top:11px;font-size:12px;}
+.detail dt {color:#a7a79f;line-height:1.6;}
+.detail dd {margin:0;color:#e5ddd2;font-weight:500;}
+.detail > .pdfButton {display:block;width:100%;margin-top:18px;}
+.library :is(button,a,input,summary):focus-visible {outline:2px solid #d4ad8c;outline-offset:3px;}
+@media(max-width:1150px) {.workspace.withDetail {grid-template-columns:minmax(0,1fr);gap:0;}}
 .list article > button:disabled { opacity: .5; }
 .empty { padding: 36px 0; font-size: 13px; color: #9c9b96; }
 .error { margin-top: 20px; color: #f2b1ac; font-size: 13px; }

@@ -30,6 +30,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { belongsToRentalAccount, accountForRental } from "./lib/rentalAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { inspectionInput } from "./lib/returnInspectionFields";
 import { returnInspectionSchedule } from "./lib/returnInspection";
@@ -1251,10 +1252,11 @@ export const invoiceData = query({
     } else if (token) {
       const s = await ctx.db.query("sessions").withIndex("by_token", (q) => q.eq("token", token)).first();
       const acct: any = s && (s.expiresAt ?? 0) > Date.now() ? await ctx.db.get(s.accountId) : null;
-      if (acct && acct.email === (b.guestEmail ?? "").trim().toLowerCase()) ok = true;
+      if (belongsToRentalAccount(b, acct)) ok = true;
     }
     if (!ok) return null;
     const customer: any = b.customerId ? await ctx.db.get(b.customerId) : null;
+    const account = await accountForRental(ctx, b);
     const rentalRefunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     const issuedCredit=b.creditIssuedId?await ctx.db.get(b.creditIssuedId):null;
     return {
@@ -1269,7 +1271,7 @@ export const invoiceData = query({
       supplierName: process.env.BUSINESS_LEGAL_NAME || "Db Cinema Rentals",
       supplierAddress: process.env.BUSINESS_INVOICE_ADDRESS || undefined,
       status: b.status,
-      customerName: customer?.name ?? null,
+      customerName: b.guestName ?? customer?.name ?? account?.name ?? null,
       email: b.guestEmail ?? null,
       fulfilment: b.fulfilment,
       address: b.address ?? null,
@@ -1281,6 +1283,10 @@ export const invoiceData = query({
       creditApplied: b.creditApplied ?? 0,
       membershipCreditApplied: b.membershipCreditApplied ?? 0,
       depositAmount: b.depositAmount,
+      depositHoldAmount: b.depositHoldAmount ?? 0,
+      depositHoldStatus: b.depositHoldStatus ?? null,
+      depositRefunded: b.depositRefunded ?? false,
+      depositRefundAmount: b.depositRefundAmount ?? (b.depositRefunded ? null : 0),
       total: b.total,
       promoCode: b.promoCode ?? null,
       returnStatement: b.returnStatement ? {...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(rentalRefunds)/100} : null,
