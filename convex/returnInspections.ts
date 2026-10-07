@@ -1,6 +1,7 @@
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { checkAdminToken, assertAdmin } from "./adminAuth";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { lateFeeQuote } from "./lib/lateFee";
 import { returnInspectionSchedule } from "./lib/returnInspection";
 import { inspectionInput } from "./lib/returnInspectionFields";
@@ -21,13 +22,15 @@ export const schedule = query({ args: { token: v.string(), bookingId: v.id("book
   const items = await returnInspectionSchedule(ctx, booking);
   return { items, legacy: items.some(i => i.key.startsWith("legacy:")), inspection: booking.returnDecision?.inspection ?? [], cases: await ctx.db.query("rental_damage_cases").withIndex("by_booking", q => q.eq("bookingId", args.bookingId)).collect() };
 } });
-export const closeCase = mutation({ args: { token: v.string(), caseId: v.id("rental_damage_cases"), resolution: v.string() }, handler: async (ctx, args) => {
+export const closeCase = mutation({ args: { token: v.string(), caseId: v.id("rental_damage_cases"), resolution: v.string(), bookingId: v.optional(v.id("bookings")) }, handler: async (ctx, args) => {
   await assertAdmin(ctx, args.token, "returnInspections.closeCase");
   if (args.resolution.trim().length < 10) throw Error("Record how the case was resolved.");
   const record = await ctx.db.get(args.caseId);
   if (!record) throw Error("Case not found");
+  if (args.bookingId && record.bookingId !== args.bookingId) throw Error("Case does not belong to this rental");
   if (record.status === "closed") return;
   await ctx.db.patch(record._id, { status: "closed", resolution: args.resolution.trim().slice(0, 2000), closedAt: Date.now() });
+  await queueRmv2Sync(ctx, record.bookingId);
 } });
 
 /** Safe cross-app admin inspection context; Stripe identifiers stay server-side. */

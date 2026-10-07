@@ -767,6 +767,7 @@ export const beginReturnDecision = internalMutation({
     await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, inspection: inspected as any, startedAt: Date.now() } });
     const accountId = b.accountId ?? (await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first())?._id;
     for (const item of inspected ?? []) if (item.openCase) await ctx.db.insert("rental_damage_cases", { bookingId, accountId, itemKey: item.key, title: item.title, inventoryUnitId: item.inventoryUnitId as any, details: item.details, status: "open", openedAt: Date.now() });
+    if ((inspected ?? []).some(item => item.openCase)) await queueRmv2Sync(ctx, bookingId);
   },
 });
 

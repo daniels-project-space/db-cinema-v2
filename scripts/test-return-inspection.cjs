@@ -33,9 +33,13 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  await db.patch(unit._id,{name:'Edited catalogue name'});assert.deepEqual(await returnInspectionSchedule(ctx,b),schedule,'Saved equipment identity survives catalogue edits');
  await archives.queueVerificationArchive(ctx,b);const archive=tables.get('verification_archives')[0];await db.patch(b._id,{status:'returned',returnedAt:Date.now()-31*86400000});
  assert.equal(await archives.purgeExpired.handler(ctx,{}),0,'An actual open damage case preserves verification evidence');
- const damageCase=tables.get('rental_damage_cases')[0];await assert.rejects(()=>cases.closeCase.handler(ctx,{token:'wrong',caseId:damageCase._id,resolution:'Resolved by insurance'}),/unauthorized/);
+ const damageCase=tables.get('rental_damage_cases')[0];await assert.rejects(()=>cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:damageCase._id,bookingId:'other-rental',resolution:'Resolved by insurance'}),/does not belong/);await assert.rejects(()=>cases.closeCase.handler(ctx,{token:'wrong',caseId:damageCase._id,resolution:'Resolved by insurance'}),/unauthorized/);
  await cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:damageCase._id,resolution:'Resolved by insurance without further claim'});
- assert.equal(await archives.purgeExpired.handler(ctx,{}),1,'Closing case resumes the existing retention window');
+ const revision=b.rmv2Revision;await cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:damageCase._id,resolution:'Repeated resolution after a transport timeout'});assert.equal(b.rmv2Revision,revision,'Repeated closure cannot overwrite the first resolution or queue duplicate revisions');
+ const otherCase=put('rental_damage_cases',{bookingId:b._id,accountId:account._id,itemKey:'another-unit',title:'Second affected item',details:'Separate insurance investigation',status:'open',openedAt:Date.now()});
+ assert.equal(await archives.purgeExpired.handler(ctx,{}),0,'Resolving one case does not release documents needed by another open case');
+ await cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:otherCase._id,resolution:'Second insurance investigation resolved'});
+ assert.equal(await archives.purgeExpired.handler(ctx,{}),1,'Closing case resumes the existing retention window');assert(b.rmv2Revision>=2,'Case opening and closure queue fresh durable website revisions');
  const legacy=put('bookings',{lineItems:[{title:'Legacy camera',qty:2}]});assert.equal((await returnInspectionSchedule(ctx,legacy)).length,2);
  await bookings.markReturnedStatus.handler(ctx,{bookingId:b._id});assert.equal(removed.status,'cancelled','Return never revives cancelled inventory lines');
  const statement={number:'RETURN-FIXTURE',issuedAt:Date.now(),actualReturnedAt:Date.now(),supplierName:'DB Cinema fixture',customerEmail:account.email,

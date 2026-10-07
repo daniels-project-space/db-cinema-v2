@@ -79,3 +79,11 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Preview and execution share actual-balance/pence-based security arithmetic. Cash refunds, uncaptured authorisation releases, damage/cash splits and separate uncollected late assessments are displayed distinctly. Reduced/expired holds and insufficient captured security are covered.
 - [x] Actual handler/PDF tests, both TypeScript checks/builds and desktop/mobile native component checks pass with isolated synthetic payments/email. Development preview endpoint checks cover unauthorised access. See `RETURN-INSPECTION.md`.
 - [ ] Production rollout and actual provider/PDF-email acceptance, exact production connection/owner setup, damage-case pipeline integration, remaining operational parity, full visual fidelity and verified owned-equipment renders remain open. This checkpoint does not complete the full goal.
+
+
+### 7 October 2026 — source damage-case pipeline
+
+- [x] Local current booking feeds carry real source cases, physical item/evidence/customer bindings and closure outcomes. Opening/resolving cases queues durable revisions; manager imports deduplicate and preserve assessed payouts and pipeline progress.
+- [x] Existing manager case drawer/fullscreen panel show the source case and rental/document link with documented owner-gated resolution. Manager deletion and generic website Open Case bypass are blocked. Repair-stage stock uses mapped affected units.
+- [x] New private case imports require enforced manager owner authentication. Handler/retention/sync/stock regressions and native desktop/mobile interface/source-closure fixtures pass; both builds pass.
+- [ ] Register/verify live owner and enforce query protection, correct production binding and publish both compatible halves, then verify real source-case/retention/document/stock/notification acceptance. Complete reference visuals and owned-equipment images remain open with the rest of the full goal.
