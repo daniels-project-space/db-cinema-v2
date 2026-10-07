@@ -28,6 +28,8 @@ This checklist extends the original goal; no original integration requirement is
 
 ## Original integration requirements
 
+- [ ] Archive every Didit ID/proof-of-address upload into DB Cinema storage, linked to the same account/rental, with integrity hashes, retry recovery, visible incomplete state and authenticated/audited admin viewing for insurance purposes. User confirmed 30 days after rental closure, with open insurance/case holds and preservation while reused by active rentals. Verify actual provider downloads and deployed viewing/retention before completion.
+
 - [ ] Modern renter/admin cards and rental conversation rebuilt from the approved concepts.
 - [ ] Drone operator licence upload and an additional admin assessment, visible only for drone rentals and enforced before handover; verify deployed end to end.
 - [ ] Canonical live master-stock quantities and ongoing/upcoming reservations drive full-cart availability.

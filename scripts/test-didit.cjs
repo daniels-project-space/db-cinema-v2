@@ -17,6 +17,7 @@ function load(file) {
     './_generated/api': { internal: refs, api: refs },
     './adminAuth': { assertAdmin: () => {} },
     './availability': { peak: () => 0 },
+    './verificationArchive': { queueVerificationArchive: async () => {}, assertVerificationArchive: async () => {} },
   };
   new Function('require', 'module', 'exports', source)((name) => {
     if (name in mock) return mock[name];

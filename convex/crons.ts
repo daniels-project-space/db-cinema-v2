@@ -32,6 +32,8 @@ crons.interval("send-return-statements", { hours: 1 }, internal.invoice.retryRet
 // several opportunities to resolve any authentication request for long rentals.
 crons.interval("renew-rental-security-holds", { hours: 6 }, internal.holdRenewal.renewDue, {});
 crons.interval("reconcile-rental-verifications", { hours: 1 }, internal.didit.reconcileOpenSessions, {});
+crons.interval("archive-verification-documents", { minutes: 5 }, internal.verificationArchiveWorker.retryDue, {});
+crons.interval("purge-expired-verification-documents", { hours: 24 }, internal.verificationArchive.purgeExpired, {});
 
 crons.interval("expire-rental-verifications", { hours: 1 }, internal.bookings.expireRentalVerifications, {});
 

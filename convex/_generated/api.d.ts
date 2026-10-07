@@ -124,6 +124,8 @@ import type * as rmv2_webhook from "../rmv2_webhook.js";
 import type * as settings from "../settings.js";
 import type * as swml from "../swml.js";
 import type * as sync from "../sync.js";
+import type * as verificationArchive from "../verificationArchive.js";
+import type * as verificationArchiveWorker from "../verificationArchiveWorker.js";
 import type * as voice from "../voice.js";
 import type * as voiceCatalog from "../voiceCatalog.js";
 import type * as waitlist from "../waitlist.js";
@@ -251,6 +253,8 @@ declare const fullApi: ApiFromModules<{
   settings: typeof settings;
   swml: typeof swml;
   sync: typeof sync;
+  verificationArchive: typeof verificationArchive;
+  verificationArchiveWorker: typeof verificationArchiveWorker;
   voice: typeof voice;
   voiceCatalog: typeof voiceCatalog;
   waitlist: typeof waitlist;

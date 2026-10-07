@@ -15,6 +15,7 @@ import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRenterExposure, renterExposure, replacementValues, attachRenterPerson } from "./lib/rentalExposure";
 import { securityReady } from "../shared/verificationProgress";
 import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerification";
+import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { rentalUnavailable } from "./lib/marketingInventory";
@@ -701,6 +702,7 @@ export const adminSetStatus = mutation({
       throw new Error("The card hold must be active before handover.");
     if (status === "active") {
       await assertDroneApproval(ctx, booking);
+      await assertVerificationArchive(ctx, booking);
       assertAgreementBeforeRelease(booking);
       await assertRenterExposure(ctx, { ...booking, status: "active" });
       if (!booking.renterPersonKey) throw Error("The verified person needs a team identity check before handover.");
@@ -1424,6 +1426,7 @@ export const setDiditResult = internalMutation({
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
     if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
         (b.diditManualDecisionAt ?? 0) >= eventAt) return true;
+    if (["verified", "manual_review", "rejected", "requires_input"].includes(status)) await queueVerificationArchive(ctx, b);
     // The provider checks the bill and its holder. Also require its UK postcode
     // to match the address this renter supplied for the booking.
     const postcode = (s: string) => s.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";
@@ -1736,6 +1739,7 @@ export const reuseVerificationCandidate = internalQuery({
     if (!validReuse(account?.rentalVerification, b)) return null;
     const source = await ctx.db.get(account!.rentalVerification!.sourceBookingId);
     if (!source?.diditSessionId || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit") return null;
+    try { await assertVerificationArchive(ctx, source); } catch { return null; }
     return { source };
   },
 });
@@ -1744,6 +1748,7 @@ export const applyVerificationReuse = internalMutation({
   handler: async (ctx, { bookingId, sourceBookingId, documentExpiresAt, personKey }) => {
     const b = await ctx.db.get(bookingId), source = await ctx.db.get(sourceBookingId);
     if (!b || !source || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !securityReady(b)) return false;
+    try { await assertVerificationArchive(ctx, source); } catch { return false; }
     const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
     const record = account?.rentalVerification;
     if (!record || record.sourceBookingId !== sourceBookingId || !validReuse(record, b) || documentExpiresAt <= Date.now() || documentExpiresAt <= Math.min(...b.lineItems.map(li => li.start))) return false;

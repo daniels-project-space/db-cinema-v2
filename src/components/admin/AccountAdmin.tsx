@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { AccountDocuments } from "./AccountDocuments";
 
 const LEVELS = [
   ["automatic", "Automatic · subscription / existing grant"],
@@ -55,6 +56,7 @@ export function AccountAdmin({ token }: { token: string }) {
       </div>
       {selected && <div className="self-start rounded-2xl border border-white/10 bg-white/[.025] p-5" data-testid="admin-account-editor">
         <h3 className="font-display text-xl text-white">{selected.name || "Account access"}</h3><p className="mt-1 break-all text-sm text-white/55">{selected.email}</p>
+        <AccountDocuments key={selected.id} token={token} accountId={selected.id} />
         {selected.blocked && <p className="mt-3 rounded-xl bg-rose-500/10 p-3 text-xs text-rose-200">Blocked · {selected.blockedReason}</p>}
         <label className="mt-5 block text-xs text-white/65">Membership access level<select value={level} onChange={e => { setLevel(e.target.value as Level); setMessage(""); }} data-testid="admin-account-level" className="input mt-2 w-full">{LEVELS.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
         <p className="mt-2 text-[11px] leading-5 text-white/45">Promote or demote access without starting or changing a paid subscription. Grants do not issue monthly credit or the paid security waiver. Standard removes membership access; Automatic restores the subscription or existing grant.</p>
