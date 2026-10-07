@@ -740,6 +740,7 @@ export const getForRefund = internalQuery({
       depositRefunded: b.depositRefunded ?? false,
       depositKept: b.depositKept ?? 0,
       depositRefundAmount: b.depositRefundAmount ?? 0,
+      depositHoldCapturedForDamage: b.depositHoldCapturedForDamage ?? 0,
       damageNoticeSentAt: b.damageNoticeSentAt ?? null,
     };
   },
@@ -1256,6 +1257,8 @@ export const invoiceData = query({
     const rentalRefunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     const issuedCredit=b.creditIssuedId?await ctx.db.get(b.creditIssuedId):null;
     return {
+      rentalRefunded:confirmedRentalRefundPence(rentalRefunds)/100,
+      billingAddress:b.billingAddress??b.address??null,
       rentalRefunds:rentalRefunds.map(r=>({amount:r.amountPence/100,status:r.status,reason:r.reason})),
       cancellationRefund:b.refundAmount??0,accountCreditIssued:issuedCredit?.amount??0,
       number: `DBC-${String(b._id).slice(-8).toUpperCase()}`,

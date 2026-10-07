@@ -1,6 +1,9 @@
 "use node";
 
 import Stripe from "stripe";
+import { returnSecurityPlan } from "../shared/returnSettlement";
+import { returnStatementEmail, type ReturnStatementData } from "../shared/returnStatement";
+import type { InspectionInput } from "../shared/returnInspection";
 import { rentalRefundBalance } from "./lib/rentalRefundBalance";
 import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
@@ -729,18 +732,9 @@ export const billingPortal = action({
   },
 });
 
-/** Admin: mark a rental RETURNED and release its security deposit in one step. Pass damageKept to
- *  retain part of the deposit for damage (that portion stays captured; the rest is refunded to the
- *  card). Idempotent — the depositRefunded flag plus a Stripe idempotency key prevent a double refund. */
-export const markReturned = action({
-  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
-  handler: async (
-    ctx,
-    { token, bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection },
-  ): Promise<{ ok: boolean; released: number; kept: number; lateAmount: number; alreadyReleased: boolean }> => {
-    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.markReturned" });
-    const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId });
-    if (!b) throw new Error("Booking not found.");
+type ReturnSelection = { bookingId: any; damageKept?: number; damageNote?: string; actualReturnedAt?: number; chargeLate: boolean; lateWaiverReason?: string; inspection?: InspectionInput[] };
+async function validateReturnSelection(ctx: any, b: any, args: ReturnSelection) {
+  const { bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection } = args;
     if(!["confirmed","active","returned"].includes(b.status))throw Error("Booking is not available for return.");
     const returned = actualReturnedAt ?? Date.now();
     if (!Number.isFinite(returned) || returned > Date.now() + 60000 || (returned < Date.now() - 45 * 86400000 && returned !== b.returnDecision?.actualReturnedAt))
@@ -755,7 +749,75 @@ export const markReturned = action({
     if ((damageKept ?? 0) > 0 && (!damageNote || damageNote.trim().length < 10))
       throw new Error("Record the evidence and reason for a damage deduction.");
     if(!inspection && !b.returnDecision)throw Error("Inspect every individual item before settling this rental.");
-    if (inspection) await ctx.runQuery(internal.returnInspections.validate, { bookingId, inspection, damage: damageKept ?? 0 });
+    const inspected = inspection ? await ctx.runQuery(internal.returnInspections.validate, { bookingId, inspection, damage: damageKept ?? 0 }) : b.returnDecision?.inspection;
+    if (!Number.isFinite(damageKept ?? 0) || (damageKept ?? 0) < 0 || (damageKept ?? 0) > (b.depositAmount ?? 0) + (b.depositHoldAmount ?? 0)) throw Error("The damage amount must be within the paid security payment and full authorised hold.");
+    const sources = b.paymentSources ?? (b.paymentIntentId ? [{ paymentIntentId: b.paymentIntentId, securityPence: pence(b.depositAmount ?? 0) }] : []);
+    securityReturnPlan(sources, 0);
+    return { returned, quotedLate, late, waiver, inspected, sources };
+}
+function observedHoldAmounts(b: any, hold: Stripe.PaymentIntent | null) {
+  if (!hold || !["requires_capture", "succeeded"].includes(hold.status)) return { available: 0, uncaptured: 0 };
+  const value = hold.status === "requires_capture" ? hold.amount_capturable : hold.amount_received;
+  if (!Number.isSafeInteger(value) || value < 0) throw Error("The provider returned an invalid security balance");
+  const available = Math.min(b.depositHoldAmount ?? 0, value / 100);
+  return { available, uncaptured: hold.status === "requires_capture" ? available : 0 };
+}
+
+/** Owner review only: provider reads and a draft PDF, never financial execution or email. */
+export const previewReturned = action({
+  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
+  handler: async (ctx, args): Promise<any> => {
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token: args.token, fn: "checkout.previewReturned" });
+    const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId: args.bookingId });
+    if (!b) throw Error("Booking not found.");
+    const selection = await validateReturnSelection(ctx, b, args);
+    const invoice: any = await ctx.runQuery(api.bookings.invoiceData, { bookingId: args.bookingId, token: args.token });
+    if (!invoice) throw Error("The rental invoice details are unavailable");
+    const hold = b.depositHoldIntentId ? await stripe().paymentIntents.retrieve(b.depositHoldIntentId, {}, { timeout: 20000 }) : null;
+    const balance = observedHoldAmounts(b, hold);
+    const damage = Math.round((args.damageKept ?? 0) * 100) / 100;
+    const plan = b.depositRefunded ? { damageFromHold: invoice.returnStatement?.damageFromHold ?? b.depositHoldCapturedForDamage ?? 0, damageFromDeposit: Math.max(0, (b.depositKept ?? 0) - (invoice.returnStatement?.damageFromHold ?? b.depositHoldCapturedForDamage ?? 0)), depositRefund: b.depositRefundAmount ?? 0, holdRelease: 0, availableSecurity: 0 } : returnSecurityPlan({ deposit: b.depositAmount ?? 0, capturedSecurity: selection.sources.reduce((n: number, source: any) => n + source.securityPence, 0) / 100, damage, holdAvailable: balance.available, holdUncaptured: balance.uncaptured });
+    const retainedForLate = selection.late.amount > 0 && (b.depositRefunded || damage === 0) ? balance.uncaptured : 0;
+    const statement: ReturnStatementData = invoice.returnStatement ?? {
+      number: `DBC-R-${String(args.bookingId).toUpperCase()}`, issuedAt: Date.now(), actualReturnedAt: selection.returned,
+      ...(b.returnTime ? { agreedReturnTime: b.returnTime } : {}), supplierName: invoice.supplierName,
+      ...(invoice.supplierAddress ? { supplierAddress: invoice.supplierAddress } : {}),
+      ...(invoice.customerName ? { customerName: invoice.customerName } : {}), customerEmail: invoice.email ?? "",
+      ...((invoice.billingAddress ?? invoice.address) ? { billingAddress: invoice.billingAddress ?? invoice.address } : {}), lineItems: invoice.lineItems,
+      subtotal: invoice.subtotal, discount: invoice.discount, deliveryFee: invoice.deliveryFee, creditApplied: invoice.creditApplied,
+      checkoutPaid: invoice.total, rentalRefunded: invoice.rentalRefunded ?? 0,
+      securityPaid: b.depositAmount ?? 0, securityRefunded: plan.depositRefund,
+      holdStatus: hold?.status === "requires_capture" ? damage > 0 ? "captured" : retainedForLate ? "held" : "released" : hold?.status === "canceled" ? "released" : hold?.status === "succeeded" ? "captured" : b.depositHoldStatus ?? undefined,
+      damageTotal: b.depositRefunded ? b.depositKept ?? 0 : damage, damageFromHold: plan.damageFromHold,
+      ...(args.damageNote ? { damageNote: args.damageNote.trim() } : {}), inspection: selection.inspected ?? [],
+      lateAssessed: selection.late.amount, lateWaived: selection.waiver.waivedAmount ?? 0, lateBreakdown: selection.late.breakdown,
+    };
+    const draft = !invoice.returnStatement;
+    const secret = process.env.INVOICE_SECRET;
+    if (!secret) throw Error("Return statement PDF previews are not configured");
+    const response = await fetch(`${process.env.APP_URL ?? "https://dbcinemarentals.com"}/api/invoice/${args.bookingId}?phase=return-preview`, {
+      method: "POST", headers: { "content-type": "application/json", "x-invoice-key": secret }, body: JSON.stringify({ statement, draft }), signal: AbortSignal.timeout(20000),
+    });
+    if (!response.ok) throw Error("The return statement PDF preview is unavailable. No settlement has been executed.");
+    const pdf = Buffer.from(await response.arrayBuffer());
+    if (pdf.length > 1_000_000 || pdf.subarray(0, 5).toString() !== "%PDF-") throw Error("The return statement preview did not produce a valid PDF");
+    return { draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement, securityAlreadySettled: !!b.depositRefunded, financial: { ...plan, holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email: returnStatementEmail(statement, draft), pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
+  },
+});
+
+/** Admin: mark a rental RETURNED and release its security deposit in one step. Pass damageKept to
+ *  retain part of the deposit for damage (that portion stays captured; the rest is refunded to the
+ *  card). Idempotent — the depositRefunded flag plus a Stripe idempotency key prevent a double refund. */
+export const markReturned = action({
+  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
+  handler: async (
+    ctx,
+    { token, bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection },
+  ): Promise<{ ok: boolean; released: number; kept: number; lateAmount: number; alreadyReleased: boolean }> => {
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.markReturned" });
+    const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId });
+    if (!b) throw new Error("Booking not found.");
+    const { returned, quotedLate, late, waiver, sources } = await validateReturnSelection(ctx, b, { bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection });
     for (const oldId of b.depositHoldPreviousIntentIds ?? []) {
       try {
         const old = await stripe().paymentIntents.retrieve(oldId);
@@ -775,11 +837,9 @@ export const markReturned = action({
       let holdAvailable = 0;
       if (b.depositHoldIntentId) {
         const observed = await stripe().paymentIntents.retrieve(b.depositHoldIntentId);
-        if (observed.status === "requires_capture") holdAvailable = b.depositHoldAmount ?? 0;
-        else if (observed.status === "succeeded") holdAvailable = observed.amount_received / 100;
+        holdAvailable = observedHoldAmounts(b, observed).available;
       }
-      if (kept > deposit + holdAvailable)
-        throw new Error("The active card hold cannot cover this deduction. Record only the amount currently available and handle any further claim separately.");
+      returnSecurityPlan({ deposit, capturedSecurity: sources.reduce((n: number, source: any) => n + source.securityPence, 0) / 100, damage: kept, holdAvailable, holdUncaptured: 0 });
       if (!b.guestEmail) throw new Error("Customer email is required for an itemised damage notice.");
     }
     await ctx.runMutation(internal.bookings.beginReturnDecision, {
@@ -810,7 +870,7 @@ export const markReturned = action({
       const sb = stripe();
       const hold = await sb.paymentIntents.retrieve(b.depositHoldIntentId);
       if (hold.status === "requires_capture") {
-        capturedFromHold = Math.min(kept, b.depositHoldAmount ?? 0);
+        capturedFromHold = Math.min(kept, observedHoldAmounts(b, hold).available);
         if (capturedFromHold > 0) {
           await sb.paymentIntents.capture(hold.id, { amount_to_capture: pence(capturedFromHold) }, { idempotencyKey: `dbc-hold-capture-${bookingId}` });
         } else if (late.amount === 0) {
@@ -824,10 +884,9 @@ export const markReturned = action({
         capturedFromHold = Math.min(kept, hold.amount_received / 100);
       }
     }
-    const toRefund = Math.max(0, deposit - Math.max(0, kept - capturedFromHold));
-    const sources = b.paymentSources ?? (b.paymentIntentId ? [{paymentIntentId:b.paymentIntentId,securityPence:pence(deposit)}] : []);
     const capturedSecurity = sources.reduce((sum:number,source:any)=>sum+source.securityPence,0);
-    const refundablePence = Math.min(pence(toRefund),capturedSecurity);
+    const toRefund = returnSecurityPlan({ deposit, capturedSecurity: capturedSecurity / 100, damage: kept, holdAvailable: capturedFromHold, holdUncaptured: 0 }).depositRefund;
+    const refundablePence = pence(toRefund);
     if(refundablePence>0){for(const allocation of securityReturnPlan(sources,refundablePence))await stripe().refunds.create({payment_intent:allocation.paymentIntentId,amount:allocation.amountPence},{idempotencyKey:allocation.paymentIntentId===b.paymentIntentId?`dbc-deposit-release-${bookingId}`:`dbc-deposit-release-${bookingId}-${allocation.paymentIntentId}`});}
     const refunded = refundablePence / 100;
     await ctx.runMutation(internal.bookings.markDepositReleased, { bookingId, kept, refunded, capturedFromHold, note: damageNote?.trim() });

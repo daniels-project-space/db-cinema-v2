@@ -6,6 +6,7 @@ import { api } from "@cvx/_generated/api";
 import { lateFeeQuote } from "@cvx/lib/lateFee";
 import { formatGbp } from "@/lib/pricing";
 import { normalizeReturnInspection, type InspectionInput } from "../../../shared/returnInspection";
+import { ReturnSettlementReview } from "./ReturnSettlementReview";
 import styles from "./ReturnRentalForm.module.css";
 
 const localNow = () => {
@@ -15,6 +16,9 @@ const localNow = () => {
 
 export function ReturnRentalForm({ booking, token, onClose }: { booking: any; token: string; onClose: () => void }) {
   const submit = useAction(api.checkout.markReturned);
+  const review = useAction(api.checkout.previewReturned);
+  const [reviewed, setReviewed] = useState<{ key: string; data: any } | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
   const saved = booking.returnDecision;
   const schedule = useQuery(api.returnInspections.schedule, { token, bookingId: booking._id });
   const [conditions, setConditions] = useState<Record<string, InspectionInput>>(() => Object.fromEntries((saved?.inspection ?? []).map((i: InspectionInput) => [i.key, { key: i.key, condition: i.condition, details: i.details, openCase: i.openCase }])));
@@ -46,18 +50,28 @@ export function ReturnRentalForm({ booking, token, onClose }: { booking: any; to
     (damageAmount === 0 || damageNote.trim().length >= 10) &&
     (chargeLate || !quote?.amount || waiverReason.trim().length >= 5) && inspectionValid;
 
+  const selection = {
+        token, bookingId: booking._id, actualReturnedAt: at,
+        damageKept: damageAmount, damageNote: damageAmount ? damageNote.trim() : undefined,
+        chargeLate, lateWaiverReason: !chargeLate ? waiverReason.trim() || undefined : undefined,
+        inspection: legacyResume ? undefined : schedule?.items.map(i => conditions[i.key]),
+  };
+  const decisionKey = JSON.stringify(selection);
+  const reviewData = reviewed?.key === decisionKey ? reviewed.data : null;
+  async function inspectReview() {
+    if (!valid || reviewBusy || working) return;
+    setReviewBusy(true); setError(null);
+    try { setReviewed({ key: decisionKey, data: await review(selection) }); }
+    catch (e: any) { setError(e?.message ?? "Could not prepare the return statement. No settlement has been executed."); }
+    finally { setReviewBusy(false); }
+  }
+
   async function finish() {
-    if (!valid || working) return;
+    if (!valid || working || reviewBusy || !reviewData || reviewData.alreadySettled) return;
     setWorking(true);
     setError(null);
     try {
-      const result = await submit({
-        token, bookingId: booking._id, actualReturnedAt: at,
-        damageKept: damageAmount, damageNote: damageAmount ? damageNote.trim() : undefined,
-        chargeLate: chargeLate && !!quote?.amount,
-        lateWaiverReason: !chargeLate ? waiverReason.trim() : undefined,
-        inspection: legacyResume ? undefined : schedule!.items.map(i => conditions[i.key]),
-      });
+      const result = await submit(selection);
       alert(`Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
       onClose();
     } catch (e: any) { setError(e?.message ?? "Return could not be recorded."); }
@@ -79,22 +93,23 @@ export function ReturnRentalForm({ booking, token, onClose }: { booking: any; to
       </article>; })}</div>
     </section>}
     <p className="mt-1 text-white/45">The return time is entered in your device’s local timezone. Late days are calculated against the agreed London return time and each item’s booked daily rate.</p>
-    <label className="mt-3 block">Actual physical return time<input type="datetime-local" value={returnedAt} onChange={(e) => setReturnedAt(e.target.value)} className="input mt-1 w-full [color-scheme:dark]" /></label>
+    <label className="mt-3 block">Actual physical return time<input type="datetime-local" disabled={working || reviewBusy || !!saved} value={returnedAt} onChange={(e) => setReturnedAt(e.target.value)} className="input mt-1 w-full [color-scheme:dark]" /></label>
     <div className="mt-3 rounded-lg border border-white/10 p-2.5">
       <div className="font-semibold text-white">Late rental time · {quote ? formatGbp(quote.amount) : "—"}</div>
       {!booking.returnTime && !booking.lineItems.some((li: { returnTime?: string | null }) => li.returnTime) && <p className="mt-1 text-amber-200">No agreed return time is stored for this booking, so no automatic late charge can be assessed.</p>}
       {quote?.breakdown.map((line, i) => <div key={i} className="mt-1 flex justify-between gap-2"><span>{line.title} · {line.days} commenced day{line.days === 1 ? "" : "s"} × {formatGbp(line.dailyRate)}</span><span>{formatGbp(line.amount)}</span></div>)}
       {quote?.breakdown.some((line) => line.dailyRate === 0) && <p className="mt-1 text-amber-200">A booked daily rate is missing for at least one item; it will not be charged automatically.</p>}
-      {quote && quote.amount > 0 && <label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={chargeLate} onChange={(e) => setChargeLate(e.target.checked)} /> Apply this separately agreed late rental charge</label>}
-      {quote && quote.amount > 0 && !chargeLate && <label className="mt-2 block">Reason for waiving late time<input value={waiverReason} onChange={(e) => setWaiverReason(e.target.value)} className="input mt-1 w-full" placeholder="Required for the booking record" /></label>}
+      {quote && quote.amount > 0 && <label className="mt-2 flex items-center gap-2"><input type="checkbox" disabled={working || reviewBusy || !!saved} checked={chargeLate} onChange={(e) => setChargeLate(e.target.checked)} /> Apply this separately agreed late rental charge</label>}
+      {quote && quote.amount > 0 && !chargeLate && <label className="mt-2 block">Reason for waiving late time<input disabled={working || reviewBusy || !!saved} value={waiverReason} onChange={(e) => setWaiverReason(e.target.value)} className="input mt-1 w-full" placeholder="Required for the booking record" /></label>}
     </div>
-    <div className={styles.summary}><section><h5>Payment summary</h5><p>Paid refundable deposit <strong>{formatGbp(booking.depositAmount ?? 0)}</strong></p><p>Card authorisation <strong>{formatGbp(booking.depositHoldAmount ?? 0)}</strong></p></section><section><h5>Settlement estimate</h5><p>Damage / loss deduction <strong>{formatGbp(Number.isFinite(damageAmount) ? damageAmount : 0)}</strong></p><p>Refund from paid deposit <strong>{formatGbp(Math.max(0, (booking.depositAmount ?? 0) - Math.max(0, (Number.isFinite(damageAmount) ? damageAmount : 0) - (booking.depositHoldStatus === "held" ? booking.depositHoldAmount ?? 0 : 0))))}</strong></p><small>Authorisation release is separate from a money refund. The final amount depends on the active hold and any separately assessed late time.</small></section></div>
-    <label className="mt-3 block">Documented damage or loss to retain (£)<input type="number" min="0" max={booking.depositAmount + (booking.depositHoldAmount ?? 0)} step="0.01" value={damage} onChange={(e) => setDamage(e.target.value)} className="input mt-1 w-full" /></label>
-    {damageAmount > 0 && <label className="mt-2 block">Itemised evidence and reason<textarea value={damageNote} onChange={(e) => setDamageNote(e.target.value)} rows={3} placeholder="Describe the item, damage or loss, evidence, and calculation" className="input mt-1 w-full" /></label>}
+    <div className={styles.summary}><section><h5>Payment summary</h5><p>Paid refundable deposit <strong>{formatGbp(booking.depositAmount ?? 0)}</strong></p><p>Original card authorisation <strong>{formatGbp(booking.depositHoldAmount ?? 0)}</strong></p><small>The settlement review checks the current card balance and calculates the cash refund separately.</small></section></div>
+    <label className="mt-3 block">Documented damage or loss to retain (£)<input type="number" disabled={working || reviewBusy || !!saved} min="0" max={booking.depositAmount + (booking.depositHoldAmount ?? 0)} step="0.01" value={damage} onChange={(e) => setDamage(e.target.value)} className="input mt-1 w-full" /></label>
+    {damageAmount > 0 && <label className="mt-2 block">Itemised evidence and reason<textarea disabled={working || reviewBusy || !!saved} value={damageNote} onChange={(e) => setDamageNote(e.target.value)} rows={3} placeholder="Describe the item, damage or loss, evidence, and calculation" className="input mt-1 w-full" /></label>}
     <p className="mt-3 text-white/45">An active card hold covers damage first. If there is no damage, an unused active hold may cover the late charge after the separate notice and dispute period. Any remaining late balance is a separate saved-card attempt.</p>
     {error && <p role="alert" className="mt-2 text-rose-300">{error}</p>}
     {!inspectionValid && !legacyResume && <p className="mt-3 text-amber-200">Select a condition for every item and complete the required issue details. Any deduction must correspond to an item with an issue.</p>}
-    <button type="button" disabled={!valid || working} onClick={finish} className={styles.confirm}>{working ? "Settling…" : "Confirm settlement and email renter"}</button>
+    <ReturnSettlementReview data={reviewData} busy={reviewBusy || working} enabled={valid} onReview={inspectReview} />
+    <button type="button" disabled={!valid || working || reviewBusy || !reviewData || reviewData.alreadySettled} onClick={finish} className={styles.confirm}>{working ? "Settling…" : "Confirm settlement and email renter"}</button>
     </div>
   </dialog>;
 }

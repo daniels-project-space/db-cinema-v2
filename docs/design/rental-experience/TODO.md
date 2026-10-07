@@ -71,3 +71,11 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Corrected the safe return context to report the return-statement email status rather than an unrelated late-fee email. Manager's completed settlement refreshes that status and shows queued/sending/sent/failed separately from completed financial settlement. Late rental amounts are labelled assessed, not yet collected.
 - [x] 66 focused manager stock/calendar/geometry/bridge checks pass; DB return-context and return-inspection checks pass. Both TypeScript checks and manager Next production build pass. Native actual return-component fixture verifies the failure/retry delivery label; no live email or payment execution.
 - [ ] Still required: exact production binding and deploy acceptance, statement/invoice pre-confirmation preview, real insurance-case linkage, remaining operational Hygglo parity, complete reference UI fidelity and verified owned-equipment renders. This checkpoint does not complete the full goal.
+
+
+### 7 October 2026 — return statement review
+
+- [x] Local website and manager return controls require an up-to-date server review, with private draft PDF and renter-email preview, before confirmation. Editing the decision invalidates confirmation; saved retries preserve the exact original decision.
+- [x] Preview and execution share actual-balance/pence-based security arithmetic. Cash refunds, uncaptured authorisation releases, damage/cash splits and separate uncollected late assessments are displayed distinctly. Reduced/expired holds and insufficient captured security are covered.
+- [x] Actual handler/PDF tests, both TypeScript checks/builds and desktop/mobile native component checks pass with isolated synthetic payments/email. Development preview endpoint checks cover unauthorised access. See `RETURN-INSPECTION.md`.
+- [ ] Production rollout and actual provider/PDF-email acceptance, exact production connection/owner setup, damage-case pipeline integration, remaining operational parity, full visual fidelity and verified owned-equipment renders remain open. This checkpoint does not complete the full goal.

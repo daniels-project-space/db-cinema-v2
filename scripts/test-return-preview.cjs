@@ -1,0 +1,45 @@
+const assert=require('node:assert/strict');
+const {load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
+process.env.ADMIN_TOKEN='isolated-return-review';process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.INVOICE_SECRET='private-invoice-fixture';process.env.APP_URL='https://pdf.example.invalid';
+let status='requires_capture',capturable=8100,received=0,holdAmount=8100,reads=0,pdfCalls=0,events=[];
+class StripeFixture {
+ paymentIntents={retrieve:async id=>{reads++;return {id,status,amount_capturable:capturable,amount_received:received,amount:holdAmount}},capture:async(id,args)=>{events.push(['capture',args.amount_to_capture]);received=args.amount_to_capture;capturable=0;status='succeeded';return {id,status}},cancel:async id=>{events.push(['cancel',id]);status='canceled';capturable=0;return {id,status}}};
+ refunds={create:async args=>{events.push(['refund',args.amount]);return {id:'refund'}}};
+}
+setMock('stripe',{default:StripeFixture});setMock('./lib/mailer',{sendMail:async()=>{events.push(['email']);return true}});
+const checkout=load('convex/checkout.ts'),bookings=load('convex/bookings.ts'),inspections=load('convex/returnInspections.ts'),admin=load('convex/adminAuth.ts');
+const at=Date.now(),day=Date.UTC(new Date(at).getUTCFullYear(),new Date(at).getUTCMonth(),new Date(at).getUTCDate());
+const b=put('bookings',{status:'active',guestEmail:'client@example.invalid',guestName:'Client',fulfilment:'pickup',lineItems:[{title:'Camera <script>',qty:1,start:day,end:day,lineTotal:100}],subtotal:100,total:140.5,depositAmount:40.5,depositHoldAmount:81,depositHoldStatus:'held',stripePaymentIntentId:'pi_private_rental',stripeDepositIntentId:'pi_private_hold'});
+const ctx={db,scheduler:{runAfter:async()=>{}},runQuery:async(ref,args)=>{if(ref==='bookings.getForRefund')return bookings.getForRefund.handler({db},args);if(ref==='bookings.invoiceData')return bookings.invoiceData.handler({db},args);if(ref==='returnInspections.validate')return inspections.validate.handler({db},args);throw Error('Unexpected query '+ref)},runMutation:async(ref,args)=>{if(ref==='adminAuth.assertAdminInternal')return admin.assertAdminInternal.handler({db},args);const name=ref.split('.')[1];assert(ref.startsWith('bookings.'),ref);return bookings[name].handler(ctx,args)}};
+const args={token:process.env.ADMIN_TOKEN,bookingId:b._id,actualReturnedAt:at,damageKept:25,damageNote:'Recorded casing damage and repair evidence <script>',chargeLate:true,inspection:[{key:'legacy:0:0',condition:'issue',details:'Damaged casing with evidence <script>',openCase:true}]};
+global.fetch=async(url,options)=>{pdfCalls++;assert.equal(options.method,'POST');assert.equal(options.headers['x-invoice-key'],'private-invoice-fixture');const body=JSON.parse(options.body);assert.equal(body.statement.customerEmail,b.guestEmail);assert.equal(body.draft,!b.returnStatement);return {ok:true,arrayBuffer:async()=>Buffer.from('%PDF-1.7\nfixture')}};
+const review=(extra={})=>checkout.previewReturned.handler(ctx,{...args,...extra});
+(async()=>{
+ const before=JSON.stringify(b);const result=await review();assert.equal(result.financial.depositRefund,40.5);assert.equal(result.financial.damageFromHold,25);assert.equal(result.financial.damageFromDeposit,0);assert.equal(result.financial.holdRelease,56);assert.equal(result.draft,true);assert.equal(JSON.stringify(b),before);assert.deepEqual(events,[]);assert.equal((await db.query('rental_damage_cases').collect()).length,0);assert.equal(result.email.to,b.guestEmail);assert(result.email.html.includes('&lt;script&gt;'));assert(!result.email.html.includes('<script>'));assert(result.email.html.includes('case selected for review'));assert(!JSON.stringify(result).includes('private-invoice-fixture'));assert(!JSON.stringify(result).includes('pi_private_'));assert.equal(Buffer.from(result.pdf.base64,'base64').subarray(0,5).toString(),'%PDF-');
+ const overHold=await review({damageKept:100});assert.equal(overHold.financial.damageFromHold,81);assert.equal(overHold.financial.damageFromDeposit,19);assert.equal(overHold.financial.depositRefund,21.5);
+ capturable=2000;await assert.rejects(()=>review({damageKept:70}),/cannot cover/);assert.deepEqual(events,[]);
+ const partial=await review({damageKept:25});assert.equal(partial.financial.damageFromHold,20);assert.equal(partial.financial.damageFromDeposit,5);assert.equal(partial.financial.depositRefund,35.5);
+ status='canceled';capturable=0;const expired=await review();assert.equal(expired.financial.damageFromHold,0);assert.equal(expired.financial.depositRefund,15.5);assert.equal(expired.financial.holdRelease,0);
+ assert.equal(expired.statement.holdStatus,'released');
+ const securityPlan=load('shared/returnSettlement.ts').returnSecurityPlan;
+ assert.equal(securityPlan({deposit:40.5,capturedSecurity:10,damage:25,holdAvailable:20,holdUncaptured:20}).depositRefund,5);
+ assert.throws(()=>securityPlan({deposit:40.5,capturedSecurity:10,damage:31,holdAvailable:20,holdUncaptured:20}),/cannot cover/);
+ await db.patch(b._id,{stripePaymentIntentId:undefined});status='requires_capture';capturable=8100;
+ const noCash=await review();assert.equal(noCash.financial.depositRefund,0);assert.equal(noCash.financial.damageFromHold,25);
+ await db.patch(b._id,{stripePaymentIntentId:'pi_private_rental'});
+ await db.patch(b._id,{returnDecision:{actualReturnedAt:at,damageKept:25,damageNote:args.damageNote,chargeLate:true}});
+ const legacy=await review({inspection:undefined});assert.deepEqual(legacy.statement.inspection,[]);
+ await assert.rejects(()=>review({damageKept:26}),/saved return decision/);
+ await db.patch(b._id,{returnDecision:undefined});
+ status='requires_capture';capturable=NaN;await assert.rejects(()=>review(),/invalid security balance/);capturable=8100;
+ await assert.rejects(()=>review({inspection:[]}),/every individual item/);
+ const readsBefore=reads;await assert.rejects(()=>review({token:'wrong'}),/unauthorized/);assert.equal(reads,readsBefore);
+ await db.patch(b._id,{returnTime:'00:00',lineItems:[{...b.lineItems[0],dailyRate:25}]});const late=await review({damageKept:0,inspection:[{key:'legacy:0:0',condition:'good',details:'',openCase:false}],damageNote:undefined});assert(late.financial.lateAssessed>0);assert.equal(late.financial.holdRelease,0);assert.equal(late.financial.holdRetainedForLate,81);assert(late.email.html.includes('not yet collected'));await db.patch(b._id,{returnTime:undefined,lineItems:[{...b.lineItems[0],dailyRate:undefined}]});
+ global.fetch=async()=>({ok:true,arrayBuffer:async()=>Buffer.from('<html>invalid</html>')});await assert.rejects(()=>review(),/valid PDF/);assert.deepEqual(events,[]);
+ // Real execution shares the same available provider balance and refund arithmetic.
+ capturable=2000;status='requires_capture';const settled=await checkout.markReturned.handler(ctx,args);assert.equal(settled.released,35.5);assert.equal(settled.kept,25);assert(events.some(e=>e[0]==='capture'&&e[1]===2000));assert(events.some(e=>e[0]==='refund'&&e[1]===3550));assert(events.findIndex(e=>e[0]==='email')<events.findIndex(e=>e[0]==='capture'));assert.equal((await db.query('rental_damage_cases').collect()).length,1);
+ const returned=await inspections.context.handler({db},{token:process.env.ADMIN_TOKEN,bookingId:b._id});assert.equal(returned.returnStatement.securityRefunded,35.5);assert.equal(returned.returnStatement.damageFromHold,20);
+ global.fetch=async(_url,options)=>{const body=JSON.parse(options.body);assert.equal(body.draft,false);return {ok:true,arrayBuffer:async()=>Buffer.from('%PDF-1.7\nfixture')}};
+ const eventsBefore=events.length;const issued=await review();assert.equal(issued.draft,false);assert.equal(issued.alreadySettled,true);assert.equal(issued.securityAlreadySettled,true);assert.equal(issued.financial.holdRelease,0);assert.equal(issued.financial.depositRefund,35.5);assert.equal(events.length,eventsBefore);assert.equal((await db.query('rental_damage_cases').collect()).length,1);
+ console.log('PASS actual return review and execution: issuer balances, hold/deposit split, midnight late retention, source ownership, frozen inspection, escaped shared email, private PDF, zero preview finance/email/case writes and matching final partial-hold settlement.');
+})().catch(e=>{console.error(e);process.exitCode=1});
