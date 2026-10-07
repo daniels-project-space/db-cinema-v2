@@ -121,3 +121,10 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Verify the real job is running: `jd78hms12daqs0e34hq67ffj1h8fv0g9`. Record request/receipt and the per-attempt budget/retry semantics; do not treat submission as a dry run.
 - [x] Follow pilot to completion and terminated GPU; independently verify the 1,286,349-byte 1264×848 PNG in DB Cinema R2 and record server-revalidated native receipt. Recorded GPU cost $0.0165. Inspect output against manufacturer imagery.
 - [ ] First output rejected for wrong hardware geometry and view. Tighten appearance-specific prompt and deliberately retry one candidate before larger batches. No inaccurate image is bound to cards. Remaining batches, factual reviews and management image binding stay open.
+
+### 7 October 2026 — second equipment pilot and model identity review
+
+- [x] Run a deliberate model-specific folded Mini 4 Pro pilot under the same full-quality ERNIE Base contract. Verify completed job `jd77gbyts0phpv8gpr82r86s918ftvwh`, terminated GPU, owned R2 PNG bytes/hash/native geometry and server-revalidated native receipt. Recorded GPU cost $0.0167.
+- [x] Inspect native browser output against manufacturer page-14 aircraft diagram. Reject inaccurate camera/nose geometry and loose framing; neither pilot is bound to cards.
+- [x] Add source-linked original Ninja V and CineBloom family reviews, retaining filter-configuration uncertainty. Regenerate live inventory brief and deterministic 35-item catalog / 30-candidate drafts. Extend actual verification helper to immutable pilot revisions without losing visual-review evidence.
+- [ ] Investigate stronger model-specific/reference-guided rendering; finish accurate images and card binding. Resolve pending lens-generation/other model identities, remaining 47 factual reviews and five configuration blocks. Full UI/integration/live acceptance scope remains open.

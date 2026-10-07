@@ -5,10 +5,17 @@ const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const root = path.join(__dirname, '../docs/design/rental-experience');
 const base = 'https://jovial-camel-68.convex.site/api/v1/projects/db-cinema-rentals';
+const args = process.argv.slice(2);
+if (args.length && (args.length !== 2 || args[0] !== '--pilot' || !/^[1-9][0-9]?$/.test(args[1]))) {
+  console.error('Usage: node scripts/verify-equipment-render-output.cjs [--pilot 1..99]');
+  process.exit(1);
+}
+const pilot = args.length ? Number(args[1]) : 1;
+const prefix = pilot === 1 ? 'ernie-pilot' : `ernie-pilot-${pilot}`;
 async function main() {
   if (!process.env.DBC_RENDER_TOKEN) throw Error('Inject MANAGEMENT_API_TOKEN as DBC_RENDER_TOKEN through the vault.');
-  const submitted = JSON.parse(fs.readFileSync(path.join(root, 'ernie-pilot-receipt.json')));
-  const request = JSON.parse(fs.readFileSync(path.join(root, 'ernie-pilot-request.json')));
+  const submitted = JSON.parse(fs.readFileSync(path.join(root, `${prefix}-receipt.json`)));
+  const request = JSON.parse(fs.readFileSync(path.join(root, `${prefix}-request.json`)));
   assert.match(submitted.jobId, /^[a-z0-9]{32}$/);
   assert.equal(submitted.workflowId, request.workflowId);
   assert.equal(submitted.imageContractSha256, request.request.imageContractSha256);
@@ -63,7 +70,15 @@ async function main() {
   const evidence = { checkedAt: new Date().toISOString(), jobId: submitted.jobId, workflowId: submitted.workflowId,
     imageContractSha256: submitted.imageContractSha256, status: status.status, usage: status.usage,
     candidates: verified, acceptedForTiles: false };
-  fs.writeFileSync(path.join(root, 'ernie-pilot-output-verification.json'), JSON.stringify(evidence, null, 2) + '\n');
+  const target = path.join(root, `${prefix}-output-verification.json`);
+  if (fs.existsSync(target)) {
+    const previous = JSON.parse(fs.readFileSync(target));
+    const sameArtifacts = previous.jobId === evidence.jobId && previous.imageContractSha256 === evidence.imageContractSha256 &&
+      previous.candidates?.length === verified.length && verified.every(candidate => previous.candidates.some(old =>
+        old.candidateId === candidate.candidateId && old.bucket === candidate.bucket && old.key === candidate.key && old.sha256 === candidate.sha256));
+    if (sameArtifacts && previous.visualReview) evidence.visualReview = previous.visualReview;
+  }
+  fs.writeFileSync(target, JSON.stringify(evidence, null, 2) + '\n');
   console.log(JSON.stringify(evidence));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

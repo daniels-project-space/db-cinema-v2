@@ -1,0 +1,35 @@
+{
+  "checkedAt": "2026-10-07T22:34:45.453Z",
+  "status": 202,
+  "projectName": "db-cinema-rentals",
+  "output": {
+    "bucket": "re-db-cinema-rentals-1f518ftgxs",
+    "prefix": "projects/db-cinema-rentals"
+  },
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "idempotencyKey": "dbc-equipment-pilot-v2:5658449988b5c458480121b2c6ef195d2ece05b194160363a82ca7ed91a2b3c8",
+  "candidateIds": [
+    "kn79mc5rgqhsr64hbn58z737hs86b5ks"
+  ],
+  "maxCostUsdPerAttempt": 1,
+  "imageContractSha256": "2dbdf2fe0708c21eb4ec4828ba50244dca2369bc6fb9f0dbd5b7ac61166f570f",
+  "jobId": "jd77gbyts0phpv8gpr82r86s918ftvwh",
+  "state": "completed",
+  "manifestSha256": "6344ab29d0e81103dba7f938d6b258c4efcb9942ea1a8ad958256f007c89d315",
+  "error": null,
+  "engineSourceRevision": "2e9fbb485bcbb776b7b4c24b4eb93ce8c7cc4f09",
+  "offlineEngineParserAccepted": true,
+  "offlineImageContractHashMatched": true,
+  "engineRetryLimitAtInspectedRevision": 5,
+  "budgetScope": "Per-attempt controller threshold; up to five attempts plus watchdog/provider billing overshoot. Not an aggregate hard quote.",
+  "acceptedForTiles": false,
+  "outputVerified": true,
+  "promptRevision": "Model-specific folded Mini 4 Pro, factory pale grey, true side profile, no invented tall legs or Mavic chassis.",
+  "replacesRejectedJobId": "jd78hms12daqs0e34hq67ffj1h8fv0g9",
+  "visualAccepted": false,
+  "visualStatus": "rejected-model-accuracy",
+  "gpuTerminated": true,
+  "recordedGpuSeconds": 209,
+  "recordedGpuCostUsd": 0.016657277777777778,
+  "latestStatusCheckedAt": "2026-10-07T22:38:48.610Z"
+}

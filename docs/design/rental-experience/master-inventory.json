@@ -1,7 +1,7 @@
 {
   "source": "Rental Manager items:listForReconcile + walle_inventory:lookup (exact canonical matches only)",
   "deployment": "hearty-oyster-600",
-  "checkedAt": "2026-10-07T21:50:05.788Z",
+  "checkedAt": "2026-10-07T22:37:06.280Z",
   "items": [
     {
       "id": "kn78qjrz8qk1zxk9vqrgnbqw3s86aqpt",
@@ -1404,11 +1404,25 @@
       "kind": "monitor",
       "owned": true,
       "isMarketingOnly": false,
-      "description": "Atomos Ninja V. Master inventory category: monitor. Technical details await verification.",
-      "verifiedDescription": null,
+      "description": "Atomos Ninja V. Original Atomos Ninja V monitor-recorder with a 5.2-inch 1920 x 1080 IPS touchscreen, 16:9 aspect ratio and nominal 1000-nit brightness. Aluminium-alloy chassis with ABS/polycarbonate rear plate; 151 x 91.5 x 31 mm and 360 g without batteries or media. HDMI input and output; SDI needs an optional expansion module.",
+      "verifiedDescription": "Original Atomos Ninja V monitor-recorder with a 5.2-inch 1920 x 1080 IPS touchscreen, 16:9 aspect ratio and nominal 1000-nit brightness. Aluminium-alloy chassis with ABS/polycarbonate rear plate; 151 x 91.5 x 31 mm and 360 g without batteries or media. HDMI input and output; SDI needs an optional expansion module.",
       "specVerification": null,
-      "descriptionProvenance": null,
-      "composition": null,
+      "descriptionProvenance": {
+        "type": "local-manufacturer-review",
+        "review": {
+          "inventoryId": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
+          "canonicalName": "Atomos Ninja V",
+          "model": "Atomos Ninja V (original model)",
+          "sourceUrl": "https://support.atomos.com/hc/en-us/articles/5457635482511-Technical-Specifications",
+          "description": "Original Atomos Ninja V monitor-recorder with a 5.2-inch 1920 x 1080 IPS touchscreen, 16:9 aspect ratio and nominal 1000-nit brightness. Aluminium-alloy chassis with ABS/polycarbonate rear plate; 151 x 91.5 x 31 mm and 360 g without batteries or media. HDMI input and output; SDI needs an optional expansion module.",
+          "composition": "Show one original Ninja V monitor-recorder alone, display off. No attached battery, SSD caddy, camera, mounting arm, cables, stand or optional AtomX/CONNECT module. Do not substitute Ninja V+, newer Ninja, Ultra or Inferno.",
+          "compositionReady": true,
+          "compositionBlockers": [],
+          "checkedAt": "2026-10-07T22:37:01.220Z",
+          "verificationScope": "Manufacturer model/family facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate"
+        }
+      },
+      "composition": "Show one original Ninja V monitor-recorder alone, display off. No attached battery, SSD caddy, camera, mounting arm, cables, stand or optional AtomX/CONNECT module. Do not substitute Ninja V+, newer Ninja, Ultra or Inferno.",
       "compositionBlockers": [],
       "cachedReferenceReview": [
         {
@@ -1419,10 +1433,10 @@
           "accepted": false
         }
       ],
-      "descriptionStatus": "Technical specification needs verification",
-      "heroPrompt": "Side-view hero product photograph of the exact Atomos Ninja V. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
-      "sourceEvidenceSha256": "90bd53389a8d92d2e2b032bdc1981507ce9a4d77c8bd64d53f15fb0b468b5c6d",
-      "renderReadiness": "requires factual/ownership review"
+      "descriptionStatus": "Reviewed model facts; rental contents and visual acceptance remain separate",
+      "heroPrompt": "Side-view hero product photograph of the exact Atomos Ninja V. Reviewed model description: Original Atomos Ninja V monitor-recorder with a 5.2-inch 1920 x 1080 IPS touchscreen, 16:9 aspect ratio and nominal 1000-nit brightness. Aluminium-alloy chassis with ABS/polycarbonate rear plate; 151 x 91.5 x 31 mm and 360 g without batteries or media. HDMI input and output; SDI needs an optional expansion module.. Show one original Ninja V monitor-recorder alone, display off. No attached battery, SSD caddy, camera, mounting arm, cables, stand or optional AtomX/CONNECT module. Do not substitute Ninja V+, newer Ninja, Ultra or Inferno. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "3e8307b56405c9d6127121f0287697a51a42ef11c867e2cec1b14ff5028989cf",
+      "renderReadiness": "description-ready; references and output review required"
     },
     {
       "id": "kn76mqhv1bv291x5z68fxerzg986bnmq",
@@ -2059,12 +2073,30 @@
       "kind": "accessory",
       "owned": true,
       "isMarketingOnly": false,
-      "description": "Cinebloom filter mist. Master inventory category: accessory. Technical details await verification.",
-      "verifiedDescription": null,
+      "description": "Cinebloom filter mist. Moment CineBloom diffusion filter family for softening contrast and blooming highlights. The manufacturer offers multiple diffusion strengths and mounting sizes; the inventory name does not identify the supplied strength or diameter. Do not assume a particular size, percentage, VND or QuickLock variant.",
+      "verifiedDescription": "Moment CineBloom diffusion filter family for softening contrast and blooming highlights. The manufacturer offers multiple diffusion strengths and mounting sizes; the inventory name does not identify the supplied strength or diameter. Do not assume a particular size, percentage, VND or QuickLock variant.",
       "specVerification": null,
-      "descriptionProvenance": null,
+      "descriptionProvenance": {
+        "type": "local-manufacturer-review",
+        "review": {
+          "inventoryId": "kn754zpg9s2g5s08p4scsasngx86bnr5",
+          "canonicalName": "Cinebloom filter mist",
+          "model": "Moment CineBloom diffusion filter family; exact supplied variant unconfirmed",
+          "sourceUrl": "https://www.shopmoment.com/products/moment-cinebloom-diffusion-filters",
+          "description": "Moment CineBloom diffusion filter family for softening contrast and blooming highlights. The manufacturer offers multiple diffusion strengths and mounting sizes; the inventory name does not identify the supplied strength or diameter. Do not assume a particular size, percentage, VND or QuickLock variant.",
+          "composition": "The supplied filter diameter, strength and mount type must be confirmed before an exact product image.",
+          "compositionReady": false,
+          "compositionBlockers": [
+            "Confirm supplied filter diameter, diffusion strength and screw-in/other mount variant; do not infer these from an unrelated cached listing image."
+          ],
+          "checkedAt": "2026-10-07T22:37:01.220Z",
+          "verificationScope": "Manufacturer model/family facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate"
+        }
+      },
       "composition": null,
-      "compositionBlockers": [],
+      "compositionBlockers": [
+        "Confirm supplied filter diameter, diffusion strength and screw-in/other mount variant; do not infer these from an unrelated cached listing image."
+      ],
       "cachedReferenceReview": [
         {
           "url": "https://hygglo.imgix.net/products/987953_sony-fx3-camera-mirrorless-full-frame-24-70mm-gm-lens-dji-gimbal-rs-2-pro-sony-fx-3-alpha-gmaster-g-master.jpg?cs=strip&fm=pjpg&q=70",
@@ -2074,10 +2106,10 @@
           "accepted": false
         }
       ],
-      "descriptionStatus": "Technical specification needs verification",
-      "heroPrompt": "Side-view hero product photograph of the exact Cinebloom filter mist. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
-      "sourceEvidenceSha256": "1d86fcf26b9b2457bd8d6a58c1be4bf22b3bf3c2cc56dca4af10b53b38d7a7c4",
-      "renderReadiness": "requires factual/ownership review"
+      "descriptionStatus": "Reviewed model facts; rental contents and visual acceptance remain separate",
+      "heroPrompt": "Side-view hero product photograph of the exact Cinebloom filter mist. Reviewed model description: Moment CineBloom diffusion filter family for softening contrast and blooming highlights. The manufacturer offers multiple diffusion strengths and mounting sizes; the inventory name does not identify the supplied strength or diameter. Do not assume a particular size, percentage, VND or QuickLock variant.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "f7a1460453eca449e708660c4bfffc07599b8ad2ce844bc1210c5f0847af583e",
+      "renderReadiness": "requires kit/region configuration review"
     },
     {
       "id": "kn78qeqezcrpjr12gzmynyfgb986b1rn",

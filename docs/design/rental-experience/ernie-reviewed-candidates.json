@@ -13,8 +13,8 @@
     "modelManifestSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
     "workerSha256": "de0e6eed87a1a7568e92a78cb3b12e3f947926145eb418e317bc39ef334d66e7"
   },
-  "sourceId": "equipment-hero-v2-1b06093b54dc2914d6c6947a",
-  "idempotencyKey": "dbc-equipment-hero-v2:1b06093b54dc2914d6c6947a9f6ffcff37093dcaa6425325c1b3ce0c4b06964e",
+  "sourceId": "equipment-hero-v2-9edfc82f0d1d7097f4f0a836",
+  "idempotencyKey": "dbc-equipment-hero-v2:9edfc82f0d1d7097f4f0a836445d72766c0a68e95a6120f8ab2628f895dacedc",
   "candidates": [
     {
       "inventoryId": "kn71951h7f9z8p3cea06v6zjjx86bgn4",
@@ -37,6 +37,19 @@
       "id": "kn71mytpv3d5m8nw6z1kpx2qqs86acrd",
       "prompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 65mm. Reviewed model description: Blazar Remus 65mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.69m, PL-version weight 782g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
       "seed": 3106117715,
+      "width": 1264,
+      "height": 848,
+      "compositionBlockers": [],
+      "referenceAccepted": false
+    },
+    {
+      "inventoryId": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
+      "canonicalName": "Atomos Ninja V",
+      "evidenceSha256": "3e8307b56405c9d6127121f0287697a51a42ef11c867e2cec1b14ff5028989cf",
+      "renderIdentitySha256": "00f7b6048541648d29a5aecf299475ecfb4229d86e7c8aa04b421ec9d95fa6e8",
+      "id": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
+      "prompt": "Side-view hero product photograph of the exact Atomos Ninja V. Reviewed model description: Original Atomos Ninja V monitor-recorder with a 5.2-inch 1920 x 1080 IPS touchscreen, 16:9 aspect ratio and nominal 1000-nit brightness. Aluminium-alloy chassis with ABS/polycarbonate rear plate; 151 x 91.5 x 31 mm and 360 g without batteries or media. HDMI input and output; SDI needs an optional expansion module.. Show one original Ninja V monitor-recorder alone, display off. No attached battery, SSD caddy, camera, mounting arm, cables, stand or optional AtomX/CONNECT module. Do not substitute Ninja V+, newer Ninja, Ultra or Inferno. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 16233988,
       "width": 1264,
       "height": 848,
       "compositionBlockers": [],
@@ -200,6 +213,21 @@
       "width": 1264,
       "height": 848,
       "compositionBlockers": [],
+      "referenceAccepted": false
+    },
+    {
+      "inventoryId": "kn754zpg9s2g5s08p4scsasngx86bnr5",
+      "canonicalName": "Cinebloom filter mist",
+      "evidenceSha256": "f7a1460453eca449e708660c4bfffc07599b8ad2ce844bc1210c5f0847af583e",
+      "renderIdentitySha256": "2d9c5d9fa5fe61628569c87a89712212c2e5a032c17a855bcfd068c803e6cef2",
+      "id": "kn754zpg9s2g5s08p4scsasngx86bnr5",
+      "prompt": "Side-view hero product photograph of the exact Cinebloom filter mist. Reviewed model description: Moment CineBloom diffusion filter family for softening contrast and blooming highlights. The manufacturer offers multiple diffusion strengths and mounting sizes; the inventory name does not identify the supplied strength or diameter. Do not assume a particular size, percentage, VND or QuickLock variant.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "seed": 765222303,
+      "width": 1264,
+      "height": 848,
+      "compositionBlockers": [
+        "Confirm supplied filter diameter, diffusion strength and screw-in/other mount variant; do not infer these from an unrelated cached listing image."
+      ],
       "referenceAccepted": false
     },
     {

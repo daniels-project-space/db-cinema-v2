@@ -19,7 +19,7 @@
     "contentType": "image/png"
   },
   "ownedCount": 82,
-  "describedCount": 33,
+  "describedCount": 35,
   "remainingDescriptionReview": [
     {
       "id": "kn741p3xbx9e9yvby7qcmvvnj586akhv",
@@ -98,10 +98,6 @@
       "name": "Suction cups"
     },
     {
-      "id": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
-      "name": "Atomos Ninja V"
-    },
-    {
       "id": "kn7ftrwrc0arnx7qfm7syjvy1x86b1ej",
       "name": "Hollyland 7-inch monitor"
     },
@@ -136,10 +132,6 @@
     {
       "id": "kn71j0gjxcfvem33m6k8q8csfn86bjmp",
       "name": "256GB card"
-    },
-    {
-      "id": "kn754zpg9s2g5s08p4scsasngx86bnr5",
-      "name": "Cinebloom filter mist"
     },
     {
       "id": "kn78qeqezcrpjr12gzmynyfgb986b1rn",
@@ -234,6 +226,13 @@
       ]
     },
     {
+      "inventoryId": "kn754zpg9s2g5s08p4scsasngx86bnr5",
+      "canonicalName": "Cinebloom filter mist",
+      "blockers": [
+        "Confirm supplied filter diameter, diffusion strength and screw-in/other mount variant; do not infer these from an unrelated cached listing image."
+      ]
+    },
+    {
       "inventoryId": "kn77jnwhcbvenk18v3qceqafh586byar",
       "canonicalName": "Tilta Nucleus Nano 2 follow focus",
       "blockers": [
@@ -253,11 +252,12 @@
   "submitted": false,
   "batches": [
     {
-      "sourceId": "equipment-hero-v2-24a9602cf4e57c0ae89684dc",
-      "idempotencyKey": "dbc-equipment-hero-v2:24a9602cf4e57c0ae89684dcccb305406d51ac2a5fc7f793768cf3506de9e5d7",
+      "sourceId": "equipment-hero-v2-33771ee66a46cd9ff2fc9132",
+      "idempotencyKey": "dbc-equipment-hero-v2:33771ee66a46cd9ff2fc913222f245da8f701f2dc7523e9397ebb463a26d1dfa",
       "inventoryIds": [
         "kn71951h7f9z8p3cea06v6zjjx86bgn4",
         "kn71mytpv3d5m8nw6z1kpx2qqs86acrd",
+        "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
         "kn71src7p25m5ppzkxnjwadm1s86azfk",
         "kn71y2p1ascfw2gv9snasdwhkn86b90w",
         "kn72bfr0py9rts0pwfpg2faxvs86a7m2",
@@ -270,8 +270,7 @@
         "kn74tzh51br8vxnynztdr657xx86by5x",
         "kn759mg9g9m7hm59btvx827cw186astx",
         "kn75kqmcsgrgf8dwsxf19a427d87ez77",
-        "kn76chbtwhyv1987y4ae3pj2dh86bw7d",
-        "kn76mqhv1bv291x5z68fxerzg986bnmq"
+        "kn76chbtwhyv1987y4ae3pj2dh86bw7d"
       ],
       "candidates": [
         {
@@ -285,6 +284,13 @@
           "id": "kn71mytpv3d5m8nw6z1kpx2qqs86acrd",
           "prompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 65mm. Reviewed model description: Blazar Remus 65mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.69m, PL-version weight 782g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
           "seed": 3106117715,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
+          "prompt": "Side-view hero product photograph of the exact Atomos Ninja V. Reviewed model description: Original Atomos Ninja V monitor-recorder with a 5.2-inch 1920 x 1080 IPS touchscreen, 16:9 aspect ratio and nominal 1000-nit brightness. Aluminium-alloy chassis with ABS/polycarbonate rear plate; 151 x 91.5 x 31 mm and 360 g without batteries or media. HDMI input and output; SDI needs an optional expansion module.. Show one original Ninja V monitor-recorder alone, display off. No attached battery, SSD caddy, camera, mounting arm, cables, stand or optional AtomX/CONNECT module. Do not substitute Ninja V+, newer Ninja, Ultra or Inferno. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 16233988,
           "width": 1264,
           "height": 848
         },
@@ -378,22 +384,16 @@
           "seed": 1702658022,
           "width": 1264,
           "height": 848
-        },
-        {
-          "id": "kn76mqhv1bv291x5z68fxerzg986bnmq",
-          "prompt": "Side-view hero product photograph of the exact Hollyland Mars 4K transmitter. Reviewed model description: Wireless video transmitter in the Mars 4K system, with HDMI and SDI connectivity.. Show one transmitter, not the receiver pair, batteries, cables, monitor or camera. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
-          "seed": 1764616991,
-          "width": 1264,
-          "height": 848
         }
       ],
       "dispatchReady": false,
       "submitted": false
     },
     {
-      "sourceId": "equipment-hero-v2-a86d5c54d78f01e0457a6288",
-      "idempotencyKey": "dbc-equipment-hero-v2:a86d5c54d78f01e0457a6288283724bd5484de9d3b538706e8594ee8d1fe56a0",
+      "sourceId": "equipment-hero-v2-8932dc3689efaec7418da089",
+      "idempotencyKey": "dbc-equipment-hero-v2:8932dc3689efaec7418da089bca6b9a7d10ac82bc50710887e1ea1d6ac0fc6cd",
       "inventoryIds": [
+        "kn76mqhv1bv291x5z68fxerzg986bnmq",
         "kn78q8je188na64af4a96v7tkd86akg9",
         "kn78qjrz8qk1zxk9vqrgnbqw3s86aqpt",
         "kn78zk30xt2dva7y6ev430x97186bqmq",
@@ -409,6 +409,13 @@
         "kn7fqh3k3fqnxanqv0h7bmm8e186bn2s"
       ],
       "candidates": [
+        {
+          "id": "kn76mqhv1bv291x5z68fxerzg986bnmq",
+          "prompt": "Side-view hero product photograph of the exact Hollyland Mars 4K transmitter. Reviewed model description: Wireless video transmitter in the Mars 4K system, with HDMI and SDI connectivity.. Show one transmitter, not the receiver pair, batteries, cables, monitor or camera. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 1764616991,
+          "width": 1264,
+          "height": 848
+        },
         {
           "id": "kn78q8je188na64af4a96v7tkd86akg9",
           "prompt": "Side-view hero product photograph of the exact Smoke Ninja. Reviewed model description: Battery-powered handheld mini smoke machine intended for photography and video effects.. Show the original SmokeNINJA unit alone; no PRO/V2 substitution or unconfirmed accessories. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",

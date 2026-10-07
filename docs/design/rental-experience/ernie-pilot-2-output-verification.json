@@ -1,0 +1,39 @@
+{
+  "checkedAt": "2026-10-07T22:38:54.670Z",
+  "jobId": "jd77gbyts0phpv8gpr82r86s918ftvwh",
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "imageContractSha256": "2dbdf2fe0708c21eb4ec4828ba50244dca2369bc6fb9f0dbd5b7ac61166f570f",
+  "status": "completed",
+  "usage": {
+    "complete": true,
+    "costUsd": 0.016657277777777778,
+    "gpuSeconds": 209
+  },
+  "candidates": [
+    {
+      "candidateId": "kn79mc5rgqhsr64hbn58z737hs86b5ks",
+      "bucket": "re-db-cinema-rentals-1f518ftgxs",
+      "key": "projects/db-cinema-rentals/workflows/jn727e21bczgbhymp0xkdhb3398fvtf3/jobs/jd77gbyts0phpv8gpr82r86s918ftvwh/outputs/candidates/kn79mc5rgqhsr64hbn58z737hs86b5ks.png",
+      "bytes": 1365350,
+      "sha256": "6a1e6ea627159cab6316a927277f4095433fd969a28df719ee899076568e48bd",
+      "width": 1264,
+      "height": 848,
+      "nativeReceiptSha256": "c732c390f0bcdc0c7a25b28dbc57b8cef72e6f4236ce71dc7ecfd47000378c1c",
+      "pngIndependentlyStreamVerified": true,
+      "nativeReceiptServerRevalidated": true,
+      "visualAccepted": false
+    }
+  ],
+  "acceptedForTiles": false,
+  "visualReview": {
+    "checkedAt": "2026-10-07T22:42:36.955Z",
+    "status": "rejected",
+    "reason": "Colour, folded state and side composition improved. Camera/gimbal geometry and front nose/sensor silhouette still do not reliably match DJI manufacturer hardware diagrams. Subject occupies about two-thirds of frame width rather than the intended dominant hero framing. Do not bind to equipment cards.",
+    "manufacturerSource": "https://dl.djicdn.com/downloads/DJI_Mini_4_Pro/20240115/DJI_Mini_4_Pro_User_Manual-EN.pdf",
+    "manufacturerDiagramPage": 14,
+    "manufacturerSourceBytes": 25573353,
+    "manufacturerSourceSha256": "4f7cb4d88543c4fc15dae25062e084bbfc87e0f05abf60bc9b5fdeb66d127c9b",
+    "reviewScreenshot": "/root/dbc-equipment-render-review/mini4pro-pilot-2-browser.png",
+    "manufacturerReviewScreenshot": "/root/dbc-equipment-render-review/mini4pro-manufacturer-manual-page14.png"
+  }
+}

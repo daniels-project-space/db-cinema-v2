@@ -54,7 +54,7 @@
     {
       "inventoryId": "kn73k6qc2v113vh7bb9n3atkwn86bfh4",
       "canonicalName": "Rode Video Mic Go",
-      "model": "R\u00d8DE VideoMic GO",
+      "model": "RØDE VideoMic GO",
       "sourceUrl": "https://rode.com/en-us/products/videomic-go",
       "description": "Lightweight on-camera directional condenser microphone with an integrated Rycote Lyre shock mount; it does not require its own battery.",
       "composition": "Show the original VideoMic GO microphone and integrated shock mount alone; do not substitute VideoMic GO II.",
@@ -66,7 +66,7 @@
     {
       "inventoryId": "kn74tzh51br8vxnynztdr657xx86by5x",
       "canonicalName": "Rode Video Mic Pro Plus",
-      "model": "R\u00d8DE VideoMic Pro+",
+      "model": "RØDE VideoMic Pro+",
       "sourceUrl": "https://rode.com/en-us/products/videomic-pro-plus",
       "description": "On-camera supercardioid condenser microphone with an integrated Rycote Lyre shock mount and selectable gain/filter controls.",
       "composition": "Show the Pro+ microphone and integrated shock mount alone; no camera or extra windscreen.",
@@ -78,7 +78,7 @@
     {
       "inventoryId": "kn72f7s8b5dkspbqq2eghaxak186a61p",
       "canonicalName": "Rode Wireless Mic Pro set",
-      "model": "R\u00d8DE Wireless PRO",
+      "model": "RØDE Wireless PRO",
       "sourceUrl": "https://rode.com/en-us/products/wireless-pro",
       "description": "Compact wireless microphone system with onboard recording and timecode functionality.",
       "composition": "The exact rental-set contents need verification; no inferred transmitter count, lavaliers or charging case.",
@@ -131,12 +131,12 @@
       "model": "Anker SOLIX F2000 / PowerHouse 767",
       "sourceUrl": "https://service.anker.com/article-description/Anker-SOLIX-F2000-Portable-Power-Station-PowerHouse-767-USER-MANUAL?urlName=Anker-SOLIX-F2000-Portable-Power-Station-PowerHouse-767-USER-MANUAL",
       "description": "Portable battery power station with a display, power outlets and wheels; the manufacturer identifies the F2000/PowerHouse 767 capacity as 2048Wh.",
-      "composition": "Outlet layout varies by region and needs checking; no expansion battery or solar panels. Do not copy the listing illustration\u2019s incorrect 2000WAH label.",
+      "composition": "Outlet layout varies by region and needs checking; no expansion battery or solar panels. Do not copy the listing illustration’s incorrect 2000WAH label.",
       "checkedAt": "2026-10-07T21:40:35.242733+00:00",
       "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
       "compositionReady": false,
       "compositionBlockers": [
-        "Outlet layout varies by region and needs checking; no expansion battery or solar panels. Do not copy the listing illustration\u2019s incorrect 2000WAH label."
+        "Outlet layout varies by region and needs checking; no expansion battery or solar panels. Do not copy the listing illustration’s incorrect 2000WAH label."
       ]
     },
     {
@@ -212,6 +212,32 @@
       "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
       "compositionReady": true,
       "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
+      "canonicalName": "Atomos Ninja V",
+      "model": "Atomos Ninja V (original model)",
+      "sourceUrl": "https://support.atomos.com/hc/en-us/articles/5457635482511-Technical-Specifications",
+      "description": "Original Atomos Ninja V monitor-recorder with a 5.2-inch 1920 x 1080 IPS touchscreen, 16:9 aspect ratio and nominal 1000-nit brightness. Aluminium-alloy chassis with ABS/polycarbonate rear plate; 151 x 91.5 x 31 mm and 360 g without batteries or media. HDMI input and output; SDI needs an optional expansion module.",
+      "composition": "Show one original Ninja V monitor-recorder alone, display off. No attached battery, SSD caddy, camera, mounting arm, cables, stand or optional AtomX/CONNECT module. Do not substitute Ninja V+, newer Ninja, Ultra or Inferno.",
+      "compositionReady": true,
+      "compositionBlockers": [],
+      "checkedAt": "2026-10-07T22:37:01.220Z",
+      "verificationScope": "Manufacturer model/family facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate"
+    },
+    {
+      "inventoryId": "kn754zpg9s2g5s08p4scsasngx86bnr5",
+      "canonicalName": "Cinebloom filter mist",
+      "model": "Moment CineBloom diffusion filter family; exact supplied variant unconfirmed",
+      "sourceUrl": "https://www.shopmoment.com/products/moment-cinebloom-diffusion-filters",
+      "description": "Moment CineBloom diffusion filter family for softening contrast and blooming highlights. The manufacturer offers multiple diffusion strengths and mounting sizes; the inventory name does not identify the supplied strength or diameter. Do not assume a particular size, percentage, VND or QuickLock variant.",
+      "composition": "The supplied filter diameter, strength and mount type must be confirmed before an exact product image.",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Confirm supplied filter diameter, diffusion strength and screw-in/other mount variant; do not infer these from an unrelated cached listing image."
+      ],
+      "checkedAt": "2026-10-07T22:37:01.220Z",
+      "verificationScope": "Manufacturer model/family facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate"
     }
   ]
 }
