@@ -1,0 +1,509 @@
+{
+  "version": 2,
+  "projectName": "db-cinema-rentals",
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "profileRevisionSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
+  "imageContract": {
+    "version": 2,
+    "width": 1264,
+    "height": 848,
+    "steps": 50,
+    "cfg": 4,
+    "precision": "bf16",
+    "promptEnhancer": "ernie-native-v1",
+    "modelManifestSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
+    "workerSha256": "de0e6eed87a1a7568e92a78cb3b12e3f947926145eb418e317bc39ef334d66e7"
+  },
+  "imageContractSha256": "2dbdf2fe0708c21eb4ec4828ba50244dca2369bc6fb9f0dbd5b7ac61166f570f",
+  "output": {
+    "contentType": "image/png"
+  },
+  "ownedCount": 82,
+  "describedCount": 33,
+  "remainingDescriptionReview": [
+    {
+      "id": "kn741p3xbx9e9yvby7qcmvvnj586akhv",
+      "name": "Sony GM 70-200mm f2.8"
+    },
+    {
+      "id": "kn74ggzk8jjvpxdy0g5zh0f15h86b2hq",
+      "name": "Sony 28-70mm"
+    },
+    {
+      "id": "kn701tq0apy4hps33r49be6a0986a051",
+      "name": "Canon EF 24-105mm f4"
+    },
+    {
+      "id": "kn73vyme6exjhxqnz8g5es2s5h86bg2s",
+      "name": "Canon EF 16-35mm f2.8"
+    },
+    {
+      "id": "kn7agmkc5fav8apays0bj95d1x86azbk",
+      "name": "Softbox 85cm"
+    },
+    {
+      "id": "kn7a3ja3jypm2z1n04wmtfbmd186a8x3",
+      "name": "LED light panels RGB"
+    },
+    {
+      "id": "kn7e3hztddjngzf3tka096mqrx86avn9",
+      "name": "Nanlite Forza 300"
+    },
+    {
+      "id": "kn7d621zqcxe6a26tfyzbh09ts86at0g",
+      "name": "Nanlite 500B"
+    },
+    {
+      "id": "kn76nvabr4kaj5rm90x52pxkxn86bjv2",
+      "name": "V-mount 95Wh"
+    },
+    {
+      "id": "kn7ee2cx4923bk3vmxy14ec3bs86aqmh",
+      "name": "V-mount 150Wh"
+    },
+    {
+      "id": "kn79kzg6j393vz9mjh7ghqx0gn86bz73",
+      "name": "DJI gimbal battery"
+    },
+    {
+      "id": "kn76ynt7yda9s63ewbg2sab1en86a0ts",
+      "name": "Sony NPF 970 batteries 2x sets"
+    },
+    {
+      "id": "kn74kcta05c9nd5pyb9sz2vtqn86atbm",
+      "name": "C-stand"
+    },
+    {
+      "id": "kn772m9zxc4p7ctb1rbeahy79h86apc6",
+      "name": "Small rig tripod"
+    },
+    {
+      "id": "kn74e9yatcn6xyth4ptrp6zqr586bhrn",
+      "name": "Sirui tripod"
+    },
+    {
+      "id": "kn70nsxs16detsje0kd1hgxbw986bn71",
+      "name": "Motorized slider"
+    },
+    {
+      "id": "kn7b7hk95n8stj9f6p5n6vk49n86ahry",
+      "name": "Tilta shoulder rig"
+    },
+    {
+      "id": "kn730pkfaq0n0dqnwjw6swepjd86b34h",
+      "name": "Monopod arm support"
+    },
+    {
+      "id": "kn79qjzqzdf1hd7843v6t098yn86bavz",
+      "name": "Suction cups"
+    },
+    {
+      "id": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
+      "name": "Atomos Ninja V"
+    },
+    {
+      "id": "kn7ftrwrc0arnx7qfm7syjvy1x86b1ej",
+      "name": "Hollyland 7-inch monitor"
+    },
+    {
+      "id": "kn79c4nk2mb3fpfk3yen9ame6586b8j8",
+      "name": "Audio boom mic Sennheiser"
+    },
+    {
+      "id": "kn7cqfdykt0jawskn4e6dyft1186bxn3",
+      "name": "DJI Wireless Mics"
+    },
+    {
+      "id": "kn77hh2859zy0m9aetw9btz3d586a8gq",
+      "name": "Camera flash"
+    },
+    {
+      "id": "kn76xseth9fn990s4ryv5rhfx986bnxt",
+      "name": "JBL wireless microphones"
+    },
+    {
+      "id": "kn7240nk0fs32pkn22cmwrvf4s86aps0",
+      "name": "Smoke machine fogger"
+    },
+    {
+      "id": "kn70sapjg8gnkt330453bbbhkd86at3n",
+      "name": "Smoke Ninja Pro hazer"
+    },
+    {
+      "id": "kn75e370fh417hgv0n394b4ved86bcqc",
+      "name": "ND filter"
+    },
+    {
+      "id": "kn71j0gjxcfvem33m6k8q8csfn86bjmp",
+      "name": "256GB card"
+    },
+    {
+      "id": "kn754zpg9s2g5s08p4scsasngx86bnr5",
+      "name": "Cinebloom filter mist"
+    },
+    {
+      "id": "kn78qeqezcrpjr12gzmynyfgb986b1rn",
+      "name": "CF Express Type A card"
+    },
+    {
+      "id": "kn7dmb0g4f4sj25m6q6gyknxc986axfr",
+      "name": "Ambitful RGB light tubes 2x set"
+    },
+    {
+      "id": "kn785zky4ns7msdghany5m1db186ac6h",
+      "name": "PL to Sony E mount"
+    },
+    {
+      "id": "kn777s1ct1gw4nrfsfz9xak8ns86b8wa",
+      "name": "PL to EF mount"
+    },
+    {
+      "id": "kn73dn42x6q85h2kyf66xg3g6586btgy",
+      "name": "PL to RF mount"
+    },
+    {
+      "id": "kn7ce6wad1dfrsf2fxdthbynmn86bf0s",
+      "name": "PL to L mount"
+    },
+    {
+      "id": "kn7fg3tc2yndn42snr3xds8h2586a2cx",
+      "name": "5-in-1 reflector panel"
+    },
+    {
+      "id": "kn7ae54ermh21msysxwfh7hanx871gk8",
+      "name": "NP-FW50 batteries"
+    },
+    {
+      "id": "kn782v9vnh4w7j35b9j1repaqh870mwd",
+      "name": "NP-W126S batteries"
+    },
+    {
+      "id": "kn72r54nkzjphnr54kkysjbxnn870cgn",
+      "name": "BMPCC battery pack"
+    },
+    {
+      "id": "kn7a0m1pgkxxma9wdhgdwrjarh871a8a",
+      "name": "128GB V30 SD card"
+    },
+    {
+      "id": "kn721nsax9egsfs5n246b4zx6h87arbw",
+      "name": "DJI Fly More Kit"
+    },
+    {
+      "id": "kn7c9e2jhf35cway1221k5fzhh87becd",
+      "name": "DZOFilm Vespid 3-Lens Set"
+    },
+    {
+      "id": "kn73hvhtdk1pmyyphkynfcj8an87aaav",
+      "name": "Manfrotto 190X Tripod"
+    },
+    {
+      "id": "kn72epb69by4z9khg9jxbvqqx187bjzz",
+      "name": "ViewSonic 4K Projector"
+    },
+    {
+      "id": "kn77m0xd9gjzbt9kg6hgb1zfyn87bw3d",
+      "name": "Atomos 1TB SSD"
+    },
+    {
+      "id": "kn77ghtcyjn3xdws93s0e5cdth87f86e",
+      "name": "SmallRig Fluid Head"
+    },
+    {
+      "id": "kn7b8ezbpk7k3c4gdrb1smn7ad89a2j0",
+      "name": "EF to L mount"
+    },
+    {
+      "id": "kn7fwc3jkvtbfnkr6tfb0hgxcn8fhdp6",
+      "name": "NP-F570 batteries"
+    }
+  ],
+  "configurationBlocked": [
+    {
+      "inventoryId": "kn71tc5enf40a1kahhanr0cjz586ak5g",
+      "canonicalName": "Anker Power Station F2000",
+      "blockers": [
+        "Outlet layout varies by region and needs checking; no expansion battery or solar panels. Do not copy the listing illustration’s incorrect 2000WAH label."
+      ]
+    },
+    {
+      "inventoryId": "kn72f7s8b5dkspbqq2eghaxak186a61p",
+      "canonicalName": "Rode Wireless Mic Pro set",
+      "blockers": [
+        "The exact rental-set contents need verification; no inferred transmitter count, lavaliers or charging case."
+      ]
+    },
+    {
+      "inventoryId": "kn77jnwhcbvenk18v3qceqafh586byar",
+      "canonicalName": "Tilta Nucleus Nano 2 follow focus",
+      "blockers": [
+        "Rental-set components must be confirmed; do not add an optional control handle, extra motors or a camera."
+      ]
+    },
+    {
+      "inventoryId": "kn798d7b6nv7rvpcfhzek01h8h86b320",
+      "canonicalName": "DJI Mic 2 wireless",
+      "blockers": [
+        "Kit configuration and transmitter colour need checking before rendering; do not invent the number of transmitters or a charging case."
+      ]
+    }
+  ],
+  "readiness": "Unsubmitted draft: live price, staging/release semantics, configuration and appearance/output acceptance must be checked before execution",
+  "dispatchReady": false,
+  "submitted": false,
+  "batches": [
+    {
+      "sourceId": "equipment-hero-v2-24a9602cf4e57c0ae89684dc",
+      "idempotencyKey": "dbc-equipment-hero-v2:24a9602cf4e57c0ae89684dcccb305406d51ac2a5fc7f793768cf3506de9e5d7",
+      "inventoryIds": [
+        "kn71951h7f9z8p3cea06v6zjjx86bgn4",
+        "kn71mytpv3d5m8nw6z1kpx2qqs86acrd",
+        "kn71src7p25m5ppzkxnjwadm1s86azfk",
+        "kn71y2p1ascfw2gv9snasdwhkn86b90w",
+        "kn72bfr0py9rts0pwfpg2faxvs86a7m2",
+        "kn72cbk6s14jarnhvdwwrsbx3s86bgth",
+        "kn737xq0jcc8a011f6x2m6srt986az25",
+        "kn73ga9tdczw4azpvv41qm3dw186b9pb",
+        "kn73k6qc2v113vh7bb9n3atkwn86bfh4",
+        "kn740n15w16172sn1qj8h89gx586b2xf",
+        "kn74p93r60ndmmb0qghjqg84yh86abvh",
+        "kn74tzh51br8vxnynztdr657xx86by5x",
+        "kn759mg9g9m7hm59btvx827cw186astx",
+        "kn75kqmcsgrgf8dwsxf19a427d87ez77",
+        "kn76chbtwhyv1987y4ae3pj2dh86bw7d",
+        "kn76mqhv1bv291x5z68fxerzg986bnmq"
+      ],
+      "candidates": [
+        {
+          "id": "kn71951h7f9z8p3cea06v6zjjx86bgn4",
+          "prompt": "Side-view hero product photograph of the exact Sony A7 V. Reviewed model description: Sony Alpha 7 V (ILCE-7M5). Approximately 33MP effective still-image resolution; full-frame Exmor RS CMOS sensor. Sony E mount. Slot 1 accepts SD UHS-I/II or CFexpress Type A; slot 2 accepts SD UHS-I/II. Internal UHD 4K up to 60p in full-frame mode. At 60p/50p, use 4K angle of view Priority On for full-width recording. UHD 4K120p/100p requires APS-C/Super 35 capture and a reduced angle of view; it is not full-frame or uncropped 4K120.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 2875769358,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn71mytpv3d5m8nw6z1kpx2qqs86acrd",
+          "prompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 65mm. Reviewed model description: Blazar Remus 65mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.69m, PL-version weight 782g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 3106117715,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn71src7p25m5ppzkxnjwadm1s86azfk",
+          "prompt": "Side-view hero product photograph of the exact Sony A7 II. Reviewed model description: Sony A7 II (ILCE-7M2): 24.3MP full-frame sensor and Sony E mount. Internal video recording up to 1920x1080 at 60p; this is not a 4K-recording body. Uses SD media and NP-FW50 batteries.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 3730541022,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn71y2p1ascfw2gv9snasdwhkn86b90w",
+          "prompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 45mm. Reviewed model description: Blazar Remus 45mm T2.0 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.0, close focus 0.68m, PL-version weight 720g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 1639266947,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn72bfr0py9rts0pwfpg2faxvs86a7m2",
+          "prompt": "Side-view hero product photograph of the exact GoPro 12 Hero. Reviewed model description: GoPro HERO12 Black: 27MP photos; 5.3K video up to 60fps, 4K up to 120fps and 2.7K up to 240fps in the supported aspect ratios. HyperSmooth 6.0 stabilization. Uses microSD media. Lens is fixed, not interchangeable.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 3359165432,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn72cbk6s14jarnhvdwwrsbx3s86bgth",
+          "prompt": "Side-view hero product photograph of the exact DJI RS3 Pro gimbal. Reviewed model description: Handheld three-axis camera stabiliser with carbon-fibre axis arms.. Show the stabiliser alone without a mounted camera, lens, optional LiDAR, transmitter or carry case. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 2792832279,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn737xq0jcc8a011f6x2m6srt986az25",
+          "prompt": "Side-view hero product photograph of the exact BMPCC 6K Pro. Reviewed model description: Blackmagic Pocket Cinema Camera 6K Pro: 6144x3456 Super 35 sensor, active Canon EF mount, built-in motorized ND at 0/2/4/6 stops. Records to CFast 2.0, SD UHS-II or external USB-C storage. Native camera battery is NP-F570.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 2667560512,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn73ga9tdczw4azpvv41qm3dw186b9pb",
+          "prompt": "Side-view hero product photograph of the exact Sony GM 16-35mm f2.8. Reviewed model description: Sony FE 16-35mm f/2.8 E-mount full-frame autofocus zoom. These capabilities are shared by GM and GM II. The owned generation is unconfirmed; do not claim GM II or generation-specific weight, dimensions, AF motors, performance or kit contents.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 59106577,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn73k6qc2v113vh7bb9n3atkwn86bfh4",
+          "prompt": "Side-view hero product photograph of the exact Rode Video Mic Go. Reviewed model description: Lightweight on-camera directional condenser microphone with an integrated Rycote Lyre shock mount; it does not require its own battery.. Show the original VideoMic GO microphone and integrated shock mount alone; do not substitute VideoMic GO II. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 695439801,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn740n15w16172sn1qj8h89gx586b2xf",
+          "prompt": "Side-view hero product photograph of the exact BMPCC 6K Full Frame. Reviewed model description: Blackmagic Cinema Camera 6K: 6048x4032 full-frame sensor, native L mount, Blackmagic RAW recording to CFexpress Type B or external USB-C storage. Native battery is NP-F570. This is a different body from the Super 35 EF-mount Pocket 6K Pro.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 1965799525,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn74p93r60ndmmb0qghjqg84yh86abvh",
+          "prompt": "Side-view hero product photograph of the exact Sony A7 III. Reviewed model description: Sony A7 III (ILCE-7M3): approximately 24.2MP effective full-frame Exmor R CMOS sensor; Sony E mount. Records 4K up to 30p and Full HD up to 120p. Recording mode, region and frame rate affect available formats.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 1699991593,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn74tzh51br8vxnynztdr657xx86by5x",
+          "prompt": "Side-view hero product photograph of the exact Rode Video Mic Pro Plus. Reviewed model description: On-camera supercardioid condenser microphone with an integrated Rycote Lyre shock mount and selectable gain/filter controls.. Show the Pro+ microphone and integrated shock mount alone; no camera or extra windscreen. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 2230585011,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn759mg9g9m7hm59btvx827cw186astx",
+          "prompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 100mm. Reviewed model description: Blazar Remus 100mm T2.8 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T2.8, close focus 0.71m, PL-version weight 788g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 2931783317,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn75kqmcsgrgf8dwsxf19a427d87ez77",
+          "prompt": "Side-view hero product photograph of the exact Zoom H5. Reviewed model description: Handheld recorder with a detachable XY microphone capsule and two XLR/TRS inputs.. Show the original H5 recorder with its standard XY capsule only; not the H5studio, cables or a separate microphone. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 396014275,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn76chbtwhyv1987y4ae3pj2dh86bw7d",
+          "prompt": "Side-view hero product photograph of the exact TTArtisan 11mm f2.8 Fisheye (Sony E). Reviewed model description: TTArtisan 11mm F2.8 Fisheye, Sony E-mount copy confirmed by the owner. Full-frame manual-focus fisheye lens; not a Sony-brand lens and not the Sony SEL11F18. Maximum aperture f/2.8, 180-degree diagonal field of view and 0.17m closest focusing distance. No autofocus. Manufacturer product information does not establish rental kit inclusions.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 1702658022,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn76mqhv1bv291x5z68fxerzg986bnmq",
+          "prompt": "Side-view hero product photograph of the exact Hollyland Mars 4K transmitter. Reviewed model description: Wireless video transmitter in the Mars 4K system, with HDMI and SDI connectivity.. Show one transmitter, not the receiver pair, batteries, cables, monitor or camera. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 1764616991,
+          "width": 1264,
+          "height": 848
+        }
+      ],
+      "dispatchReady": false,
+      "submitted": false
+    },
+    {
+      "sourceId": "equipment-hero-v2-a86d5c54d78f01e0457a6288",
+      "idempotencyKey": "dbc-equipment-hero-v2:a86d5c54d78f01e0457a6288283724bd5484de9d3b538706e8594ee8d1fe56a0",
+      "inventoryIds": [
+        "kn78q8je188na64af4a96v7tkd86akg9",
+        "kn78qjrz8qk1zxk9vqrgnbqw3s86aqpt",
+        "kn78zk30xt2dva7y6ev430x97186bqmq",
+        "kn79e6tav264zrh9zs5pvfg5kd86avn6",
+        "kn79mc5rgqhsr64hbn58z737hs86b5ks",
+        "kn79ydca5fj0e9bbh19b6egfn186a8hv",
+        "kn7amjd9r3hks17nssn396s1yn86bc8q",
+        "kn7bw2cr1ye5hqj3x770b332ks86atzw",
+        "kn7byeb6ez8gty76rbhhb7e2t586b6wk",
+        "kn7cv20cmz2k8fb3cwgt9qgdsx87advv",
+        "kn7dy8zf34tffmcvzvdtrnn3jn86an19",
+        "kn7e4ecrf5fwb7sp11jger73t586ak9w",
+        "kn7fqh3k3fqnxanqv0h7bmm8e186bn2s"
+      ],
+      "candidates": [
+        {
+          "id": "kn78q8je188na64af4a96v7tkd86akg9",
+          "prompt": "Side-view hero product photograph of the exact Smoke Ninja. Reviewed model description: Battery-powered handheld mini smoke machine intended for photography and video effects.. Show the original SmokeNINJA unit alone; no PRO/V2 substitution or unconfirmed accessories. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 2390407520,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn78qjrz8qk1zxk9vqrgnbqw3s86aqpt",
+          "prompt": "Side-view hero product photograph of the exact Anamorphic Blazar Remus 33mm. Reviewed model description: Blazar Remus 33mm T1.8 1.5X: original Remus-series anamorphic lens; 1.5x squeeze. Maximum aperture T1.8, close focus 0.49m, PL-version weight 880g. Manufacturer image coverage 36x24mm; 16 iris blades; 77mm filter thread; 150-degree focus rotation. These are model specifications, not proof of supplied flare colour, accessories or compatibility with a particular adapter. Remus II and Remus-M are separate variants.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 318261883,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn78zk30xt2dva7y6ev430x97186bqmq",
+          "prompt": "Side-view hero product photograph of the exact DJ RX3 Pioneer controller. Reviewed model description: Two-channel all-in-one DJ system with two jog wheels and a central 10.1-inch touchscreen.. Use a slightly elevated side view so its controls remain visible; no laptop or external decks. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 1666942168,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn79e6tav264zrh9zs5pvfg5kd86avn6",
+          "prompt": "Side-view hero product photograph of the exact Sony GM 24-70mm f2.8. Reviewed model description: Sony FE 24-70mm f/2.8 E-mount full-frame autofocus zoom. These capabilities are shared by GM and GM II. The owned generation is unconfirmed; do not claim GM II or generation-specific weight, dimensions, AF motors, performance or kit contents.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 3584763528,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn79mc5rgqhsr64hbn58z737hs86b5ks",
+          "prompt": "Side-view hero product photograph of the exact DJI Mini 4 Pro. Reviewed model description: Compact folding camera drone with a stabilised camera gimbal and omnidirectional obstacle sensing.. Show the aircraft alone, arms unfolded; no controller or unconfirmed Fly More accessories. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 1847129294,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn79ydca5fj0e9bbh19b6egfn186a8hv",
+          "prompt": "Side-view hero product photograph of the exact DJI Mavic 3 Pro. Reviewed model description: Folding camera drone with a three-camera gimbal assembly: a Hasselblad main camera and two telephoto cameras.. Show the aircraft alone, arms unfolded; no controller, batteries or Fly More extras. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 2346670706,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn7amjd9r3hks17nssn396s1yn86bc8q",
+          "prompt": "Side-view hero product photograph of the exact JBL Club 120 speaker. Reviewed model description: Portable party speaker with a front grille, illuminated speaker rings and a handle.. Show one speaker alone; no tripod, microphone or an additional battery. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 881053441,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn7bw2cr1ye5hqj3x770b332ks86atzw",
+          "prompt": "Side-view hero product photograph of the exact Sony FX3. Reviewed model description: Sony FX3 (ILME-FX3): full-frame Exmor R CMOS sensor, approximately 12.1MP effective for still images. Sony E mount. Two CFexpress Type A/SD memory-card slots. NP-FZ100 battery. Recording formats and supported media depend on mode and firmware.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 6505943,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn7byeb6ez8gty76rbhhb7e2t586b6wk",
+          "prompt": "Side-view hero product photograph of the exact Sony FE 90mm f2.8 Macro G OSS. Reviewed model description: Sony FE 90mm F2.8 Macro G OSS (SEL90M28G): Sony G-series E-mount full-frame macro lens, not a G Master model. Up to 1:1 magnification, minimum focus distance 0.28m, Optical SteadyShot, 62mm filter diameter and 602g weight. Manufacturer box contents do not establish rental inclusions. Supports autofocus and manual-focus selection.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 2438775866,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn7cv20cmz2k8fb3cwgt9qgdsx87advv",
+          "prompt": "Side-view hero product photograph of the exact Sennheiser MKE 600. Reviewed model description: Shotgun microphone for camera use, powered by phantom power or an AA battery.. Show the microphone alone; no boom pole, recorder, shock mount or windshield. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 4163779510,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn7dy8zf34tffmcvzvdtrnn3jn86an19",
+          "prompt": "Side-view hero product photograph of the exact DJI Osmo Action Pro 5. Reviewed model description: DJI Osmo Action 5 Pro: 1/1.3-inch CMOS sensor, approximately 40MP photos, 4K recording up to 120fps; fixed lens. Supports microSD up to 1TB. Manufacturer waterproof rating is 20m without a case only under its sealing/use conditions; this does not establish rental permission for underwater use.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 2785956242,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn7e4ecrf5fwb7sp11jger73t586ak9w",
+          "prompt": "Side-view hero product photograph of the exact Nanlite Pavotube 30x II. Reviewed model description: Four-foot RGBWW LED tube light in the PavoTube II X series.. Show one tube only, horizontal side view; not a two-tube kit, bag, mounts or power supplies. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 934130984,
+          "width": 1264,
+          "height": 848
+        },
+        {
+          "id": "kn7fqh3k3fqnxanqv0h7bmm8e186bn2s",
+          "prompt": "Side-view hero product photograph of the exact Hollyland Pyro S transmitter. Reviewed model description: Wireless video transmitter in the Pyro S system, with HDMI and SDI connectivity.. Show one transmitter, not its receivers, a monitor, battery or camera. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+          "seed": 3288194208,
+          "width": 1264,
+          "height": 848
+        }
+      ],
+      "dispatchReady": false,
+      "submitted": false
+    }
+  ],
+  "maxCostUsd": null
+}

@@ -1,0 +1,639 @@
+{
+  "version": 1,
+  "sourceDeployment": "hearty-oyster-600",
+  "checkedAt": "2026-10-07T21:35:05.904Z",
+  "ownedCount": 82,
+  "ownedWithCachedPhoto": 48,
+  "ownedWithoutCachedPhoto": 34,
+  "referenceCount": 29,
+  "acceptedReferenceCount": 0,
+  "references": [
+    {
+      "url": "https://hygglo.imgix.net/products/f014f2_blazar-remus-full-frame-33mm-t18-15x-anamorphic-lens-cinema-prime-for-pl-ef-e-x-l-rf-mount-arri-pl-native-silver-flare.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn777s1ct1gw4nrfsfz9xak8ns86b8wa",
+          "name": "PL to EF mount"
+        }
+      ],
+      "sha256": "8588aff800ea54bb55487b3b22288b25d89b2a38689c2f2b5ac69a0af5ab3d08",
+      "bytes": 136998,
+      "width": 1634,
+      "height": 1208,
+      "status": "reviewed-mismatch",
+      "reviewNumber": 1,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [
+        "PL to EF mount"
+      ],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/eecbf6_blazar-remus-anamorphic-cinema-prime-full-frame-silver-flare-lens-set-4x-for-pl-ef-e-x-l-rf-mount-cannon-and-sony-compatible-arri-pl-mount-native.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn785zky4ns7msdghany5m1db186ac6h",
+          "name": "PL to Sony E mount"
+        },
+        {
+          "id": "kn759mg9g9m7hm59btvx827cw186astx",
+          "name": "Anamorphic Blazar Remus 100mm"
+        },
+        {
+          "id": "kn71mytpv3d5m8nw6z1kpx2qqs86acrd",
+          "name": "Anamorphic Blazar Remus 65mm"
+        },
+        {
+          "id": "kn71y2p1ascfw2gv9snasdwhkn86b90w",
+          "name": "Anamorphic Blazar Remus 45mm"
+        },
+        {
+          "id": "kn78qjrz8qk1zxk9vqrgnbqw3s86aqpt",
+          "name": "Anamorphic Blazar Remus 33mm"
+        }
+      ],
+      "sha256": "66a0e0972e9a64c8304e75edd6323defce46d186461f944bb84211bb8ccb99d2",
+      "bytes": 174204,
+      "width": 1621,
+      "height": 1213,
+      "status": "reviewed-mismatch",
+      "reviewNumber": 2,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [
+        "PL to Sony E mount"
+      ],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/987953_sony-fx3-camera-mirrorless-full-frame-24-70mm-gm-lens-dji-gimbal-rs-2-pro-sony-fx-3-alpha-gmaster-g-master.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn754zpg9s2g5s08p4scsasngx86bnr5",
+          "name": "Cinebloom filter mist"
+        }
+      ],
+      "sha256": "eadcdbdca468ca10d2c30cb3de292ee39a20994802a42de420c95477eab61460",
+      "bytes": 232916,
+      "width": 1627,
+      "height": 1220,
+      "status": "reviewed-mismatch",
+      "reviewNumber": 3,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [
+        "Cinebloom filter mist"
+      ],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/d555682c-5c1f-4778-9f1f-15b488cefcfe.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn75e370fh417hgv0n394b4ved86bcqc",
+          "name": "ND filter"
+        }
+      ],
+      "sha256": "b9b65a6effa765d1a86368faeb1f76f3e6516b5001742752e64fe81ba2c30387",
+      "bytes": 337043,
+      "width": 1625,
+      "height": 1206,
+      "status": "reviewed-mismatch",
+      "reviewNumber": 4,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [
+        "ND filter"
+      ],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/c052c23b-15bc-4567-9e19-be45497fe709.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn7amjd9r3hks17nssn396s1yn86bc8q",
+          "name": "JBL Club 120 speaker"
+        }
+      ],
+      "sha256": "4cc6193411b639cd7632adafbdc14f9ba4c1c7b17c183da888eb48c42d6a9998",
+      "bytes": 188899,
+      "width": 1627,
+      "height": 1210,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 5,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/79b60a_dj-deck-pioneer-rx-3-all-in-one-professional.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn78zk30xt2dva7y6ev430x97186bqmq",
+          "name": "DJ RX3 Pioneer controller"
+        }
+      ],
+      "sha256": "959bd2e466f5df5d4c683206cf39051bdbfe8c8b678d52af01cca4848c4df758",
+      "bytes": 210976,
+      "width": 1624,
+      "height": 1204,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 6,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/fbd50174-12c9-40f1-b171-eb2e3db12943.png?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn78q8je188na64af4a96v7tkd86akg9",
+          "name": "Smoke Ninja"
+        },
+        {
+          "id": "kn7e4ecrf5fwb7sp11jger73t586ak9w",
+          "name": "Nanlite Pavotube 30x II"
+        }
+      ],
+      "sha256": "5511305e8fc10150758f565e2a27132ea35d23649dd39b442e55bcd51e260a3d",
+      "bytes": 124017,
+      "width": 1004,
+      "height": 748,
+      "status": "reviewed-mismatch",
+      "reviewNumber": 7,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [
+        "Smoke Ninja"
+      ],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/e0c3ff_sony-fx-3-fx3-full-frame-4k-cinema-camera-24-70-mm-f28-zoom-lens-gmaster-gm-g-master-tripod-rode-shotgun-video-mic-pro-plus.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn74tzh51br8vxnynztdr657xx86by5x",
+          "name": "Rode Video Mic Pro Plus"
+        }
+      ],
+      "sha256": "33b9c10bbe817cc5a6e1f4908e6f46eb4fc4cfc9b771cdce9f2c7c5d52795bba",
+      "bytes": 260432,
+      "width": 1628,
+      "height": 1225,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 8,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false,
+      "variantWarning": "Kit illustration cannot establish exact component model/version or included rental accessories."
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/87bbf1a6-d6f2-493c-a9f1-772538d95296.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn77hh2859zy0m9aetw9btz3d586a8gq",
+          "name": "Camera flash"
+        },
+        {
+          "id": "kn71951h7f9z8p3cea06v6zjjx86bgn4",
+          "name": "Sony A7 V"
+        }
+      ],
+      "sha256": "ec2863fda252324ac88187c29ac6bd646ccb8a0b6ffd99e0dee697142e0c936b",
+      "bytes": 229498,
+      "width": 1621,
+      "height": 1204,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 9,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false,
+      "variantWarning": "Kit illustration cannot establish exact component model/version or included rental accessories."
+    },
+    {
+      "url": "https://hygglo.imgix.net/fat-llama/products/sony-a7ii-kit-mirorless-camera--dji-lav-kit-microphone-31056387.jpeg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn7cqfdykt0jawskn4e6dyft1186bxn3",
+          "name": "DJI Wireless Mics"
+        },
+        {
+          "id": "kn72f7s8b5dkspbqq2eghaxak186a61p",
+          "name": "Rode Wireless Mic Pro set"
+        },
+        {
+          "id": "kn71src7p25m5ppzkxnjwadm1s86azfk",
+          "name": "Sony A7 II"
+        },
+        {
+          "id": "kn74ggzk8jjvpxdy0g5zh0f15h86b2hq",
+          "name": "Sony 28-70mm"
+        }
+      ],
+      "sha256": "bf5662fe5bd602b3f0fe6d96610d8f6884a0f047f859e9087463f897d43e5f4f",
+      "bytes": 165959,
+      "width": 1300,
+      "height": 975,
+      "status": "reviewed-mismatch",
+      "reviewNumber": 10,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [
+        "Rode Wireless Mic Pro set"
+      ],
+      "renderReferenceAccepted": false,
+      "variantWarning": "Kit illustration cannot establish exact component model/version or included rental accessories."
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/3c076012-42a4-494e-ba60-0cf01367a72c.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn79c4nk2mb3fpfk3yen9ame6586b8j8",
+          "name": "Audio boom mic Sennheiser"
+        }
+      ],
+      "sha256": "076b3cc9da577c20048093751ab500ed946a7211ddb2983c74145326af9bf2c0",
+      "bytes": 304955,
+      "width": 1632,
+      "height": 1212,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 11,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false,
+      "variantWarning": "Kit illustration cannot establish exact component model/version or included rental accessories."
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/fc14f046-5aaf-40b3-bf89-c4935371c1c6.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn7ftrwrc0arnx7qfm7syjvy1x86b1ej",
+          "name": "Hollyland 7-inch monitor"
+        },
+        {
+          "id": "kn7fqh3k3fqnxanqv0h7bmm8e186bn2s",
+          "name": "Hollyland Pyro S transmitter"
+        }
+      ],
+      "sha256": "df369c318b27bfe1406c7f7aa93933fc35c8ccfd8b98693f21e793ce08a7a074",
+      "bytes": 207280,
+      "width": 1618,
+      "height": 1217,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 12,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false,
+      "variantWarning": "Kit illustration cannot establish exact component model/version or included rental accessories."
+    },
+    {
+      "url": "https://hygglo.imgix.net/fat-llama/products/hollyland-mars-4k-image-transmitter-wireless-transmission-77239128.jpeg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn76mqhv1bv291x5z68fxerzg986bnmq",
+          "name": "Hollyland Mars 4K transmitter"
+        },
+        {
+          "id": "kn70nsxs16detsje0kd1hgxbw986bn71",
+          "name": "Motorized slider"
+        }
+      ],
+      "sha256": "316c203b48c41c6eb85a85833766be684f233ad90202e28cfce2b7bf53288f19",
+      "bytes": 140727,
+      "width": 1300,
+      "height": 975,
+      "status": "reviewed-mismatch",
+      "reviewNumber": 13,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [
+        "Motorized slider"
+      ],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/cf5b73e6-5c8c-4ecb-8ab1-fa74f174c613.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
+          "name": "Atomos Ninja V"
+        }
+      ],
+      "sha256": "9447dbfe483d4ee9ae92cb3dceaf26b2d661ce6dc2a27da4cff7510e48fb387f",
+      "bytes": 267403,
+      "width": 1626,
+      "height": 1218,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 14,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/6dbe0548-45e9-4428-b302-6fda3d1ecf2e.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn79qjzqzdf1hd7843v6t098yn86bavz",
+          "name": "Suction cups"
+        },
+        {
+          "id": "kn72bfr0py9rts0pwfpg2faxvs86a7m2",
+          "name": "GoPro 12 Hero"
+        }
+      ],
+      "sha256": "b9b3a1bc6e576feaa250a2c60a1a0c8c517ac0ebf44df7f97a5f0178f09faa30",
+      "bytes": 287711,
+      "width": 1618,
+      "height": 1219,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 15,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false,
+      "variantWarning": "Kit illustration cannot establish exact component model/version or included rental accessories."
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/935823a7-ac95-4787-8a91-587404c395ba.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn79mc5rgqhsr64hbn58z737hs86b5ks",
+          "name": "DJI Mini 4 Pro"
+        }
+      ],
+      "sha256": "55f4c5c6fb1693ab470ff6c952a38f994822e1908f2f80a83e491dc61f804af4",
+      "bytes": 297410,
+      "width": 1625,
+      "height": 1223,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 16,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/c8e32210-e805-4b40-b0e4-93e881f2bf0f.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn79ydca5fj0e9bbh19b6egfn186a8hv",
+          "name": "DJI Mavic 3 Pro"
+        }
+      ],
+      "sha256": "d1e668acacccb282d5727c2387d288fede44b6f760eaf7a9a5a2a48c4cd3be99",
+      "bytes": 295005,
+      "width": 1627,
+      "height": 1225,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 17,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/869696_sony-fx3-fx-3-full-frame-4k-mirrorless-camera-24-70-mm-sony-zoom-lens-f28-24-70-gmaster-gm-g-master-tilta-shoulder-rig.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn7b7hk95n8stj9f6p5n6vk49n86ahry",
+          "name": "Tilta shoulder rig"
+        },
+        {
+          "id": "kn79e6tav264zrh9zs5pvfg5kd86avn6",
+          "name": "Sony GM 24-70mm f2.8"
+        }
+      ],
+      "sha256": "8bccd521ca00119a81c68e963e80548315a95c3ba71b416baa331fe6bec805f4",
+      "bytes": 260992,
+      "width": 1631,
+      "height": 1217,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 18,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false,
+      "variantWarning": "Kit illustration cannot establish exact component model/version or included rental accessories."
+    },
+    {
+      "url": "https://hygglo.imgix.net/fat-llama/products/follow-focus-puller-kit-nucleus-nano-2-tilta-wireless-99274694.jpeg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn77jnwhcbvenk18v3qceqafh586byar",
+          "name": "Tilta Nucleus Nano 2 follow focus"
+        }
+      ],
+      "sha256": "7ed5febe23197f64347d2c0e8bf0c4f30d0b0e52c5ecfca804562349caae67ef",
+      "bytes": 106261,
+      "width": 1300,
+      "height": 975,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 19,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/cae57d79-d423-4762-8ab4-fa83a3e821d3.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn72cbk6s14jarnhvdwwrsbx3s86bgth",
+          "name": "DJI RS3 Pro gimbal"
+        }
+      ],
+      "sha256": "9bbbc15899bebe7cbb1f4aaa8e191f39fe5a2b3cba19c87e73fc1b8d1920f12d",
+      "bytes": 285504,
+      "width": 1615,
+      "height": 1203,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 20,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/e68d63_2x-sony-fx3-fx-3-full-frame-camera-2x-tripods-small-2x-sony-24-70-mm-zoom-lens-f28-gmaster-g-master-gm.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn772m9zxc4p7ctb1rbeahy79h86apc6",
+          "name": "Small rig tripod"
+        },
+        {
+          "id": "kn7d621zqcxe6a26tfyzbh09ts86at0g",
+          "name": "Nanlite 500B"
+        },
+        {
+          "id": "kn7agmkc5fav8apays0bj95d1x86azbk",
+          "name": "Softbox 85cm"
+        },
+        {
+          "id": "kn741p3xbx9e9yvby7qcmvvnj586akhv",
+          "name": "Sony GM 70-200mm f2.8"
+        }
+      ],
+      "sha256": "5a287d68312e15b5a9106f11948189112b4630d8f3b7ca61cc7237305456c3b8",
+      "bytes": 281344,
+      "width": 1628,
+      "height": 1219,
+      "status": "reviewed-mismatch",
+      "reviewNumber": 21,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [
+        "Nanlite 500B",
+        "Softbox 85cm",
+        "Sony GM 70-200mm f2.8"
+      ],
+      "renderReferenceAccepted": false,
+      "variantWarning": "Kit illustration cannot establish exact component model/version or included rental accessories."
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/7dfda6a1-f5f2-40c7-98e2-2f1916a9623e.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn71tc5enf40a1kahhanr0cjz586ak5g",
+          "name": "Anker Power Station F2000"
+        }
+      ],
+      "sha256": "b412b033d0b32d311d86604d5d81d61f16fc7138b93965a9de7d6193d2f5354e",
+      "bytes": 307952,
+      "width": 1619,
+      "height": 1226,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 22,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false,
+      "warning": "Illustration caption says 2000WAH; use manufacturer 2048Wh facts, never generated caption text."
+    },
+    {
+      "url": "https://hygglo.imgix.net/fat-llama/products/nanlite-forza-300-lighting-kit--stand--color-gel--sandbag-07388155.jpeg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn7e3hztddjngzf3tka096mqrx86avn9",
+          "name": "Nanlite Forza 300"
+        },
+        {
+          "id": "kn7a3ja3jypm2z1n04wmtfbmd186a8x3",
+          "name": "LED light panels RGB"
+        }
+      ],
+      "sha256": "4dc0bc61f6a06cb59989f46be6a6c13e5d34ee5228e505108ab40e40d0113e42",
+      "bytes": 149475,
+      "width": 1300,
+      "height": 975,
+      "status": "reviewed-mismatch",
+      "reviewNumber": 23,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [
+        "LED light panels RGB"
+      ],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/62723f_bmpcc-6k-full-frame-blackmagic-cinema-camera-6k-bmpcc6k-cannon-24-105mm-lens-tripod-1tb-sd-card.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn740n15w16172sn1qj8h89gx586b2xf",
+          "name": "BMPCC 6K Full Frame"
+        }
+      ],
+      "sha256": "4db0ccb3e6de66c6b97d53f7f1434e8e1297f399151f710d62f2b77942177f7e",
+      "bytes": 230250,
+      "width": 1612,
+      "height": 1199,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 24,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/974b74_blackmagic-6k-pro-bmpcc-cinema-camera-2x-cannon-zoom-lenses-set-16-35mm-and-24-105mm.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn737xq0jcc8a011f6x2m6srt986az25",
+          "name": "BMPCC 6K Pro"
+        },
+        {
+          "id": "kn73vyme6exjhxqnz8g5es2s5h86bg2s",
+          "name": "Canon EF 16-35mm f2.8"
+        },
+        {
+          "id": "kn701tq0apy4hps33r49be6a0986a051",
+          "name": "Canon EF 24-105mm f4"
+        }
+      ],
+      "sha256": "baa283d5c4129afe4371a7e50d40157d7f359531b28f449535ea1830c8ec653f",
+      "bytes": 231273,
+      "width": 1625,
+      "height": 1219,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 25,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false,
+      "variantWarning": "Kit illustration cannot establish exact component model/version or included rental accessories."
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/9eee726b-0d5a-4e78-9b6e-55a640f8904d.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn74p93r60ndmmb0qghjqg84yh86abvh",
+          "name": "Sony A7 III"
+        }
+      ],
+      "sha256": "ba60e04a91a7563defb52ffa43c6574c49e5638114a6da8b4b13dde89b7f6acd",
+      "bytes": 307882,
+      "width": 1620,
+      "height": 1211,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 26,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://example.com/test.jpg",
+      "items": [
+        {
+          "id": "kn7bw2cr1ye5hqj3x770b332ks86atzw",
+          "name": "Sony FX3"
+        }
+      ],
+      "status": "failed",
+      "error": "ValueError",
+      "reviewNumber": 27,
+      "visualReview": "Image download failed; no usable source reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/36aa2ccb-1cdd-47ac-8d53-2db65fb33cfc.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn76chbtwhyv1987y4ae3pj2dh86bw7d",
+          "name": "TTArtisan 11mm f2.8 Fisheye (Sony E)"
+        }
+      ],
+      "sha256": "3b884acc3a58bb3c49fbfc4005c6a2f45f3e6e1ce818a2ea4b315a9533b79c60",
+      "bytes": 132232,
+      "width": 1619,
+      "height": 1212,
+      "status": "reviewed-listing-illustration-not-accepted",
+      "reviewNumber": 28,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [],
+      "renderReferenceAccepted": false
+    },
+    {
+      "url": "https://hygglo.imgix.net/products/eddd827d-b517-49f6-80a4-dfe40d8b4118.jpg?cs=strip&fm=pjpg&q=70",
+      "items": [
+        {
+          "id": "kn73ga9tdczw4azpvv41qm3dw186b9pb",
+          "name": "Sony GM 16-35mm f2.8"
+        }
+      ],
+      "sha256": "cd323c9cbbd177621eb16caf5183985e53d84e15140394bd4af72db92848b335",
+      "bytes": 236535,
+      "width": 1624,
+      "height": 1217,
+      "status": "reviewed-mismatch",
+      "reviewNumber": 29,
+      "visualReview": "Cached listing illustration, not an authenticated photograph of an owned physical unit. Not approved as a render reference.",
+      "mismatchedItems": [
+        "Sony GM 16-35mm f2.8"
+      ],
+      "renderReferenceAccepted": false
+    }
+  ]
+}

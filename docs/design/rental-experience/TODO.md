@@ -87,3 +87,10 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Existing manager case drawer/fullscreen panel show the source case and rental/document link with documented owner-gated resolution. Manager deletion and generic website Open Case bypass are blocked. Repair-stage stock uses mapped affected units.
 - [x] New private case imports require enforced manager owner authentication. Handler/retention/sync/stock regressions and native desktop/mobile interface/source-closure fixtures pass; both builds pass.
 - [ ] Register/verify live owner and enforce query protection, correct production binding and publish both compatible halves, then verify real source-case/retention/document/stock/notification acceptance. Complete reference visuals and owned-equipment images remain open with the rest of the full goal.
+
+### 7 October 2026 — equipment facts and reference audit
+
+- [x] Read actual inventory/photos without changing provider or customer state: 108 master entries, 82 owned, 48 owned with 29 distinct cached photos. Visually inspect 28 downloaded references; record 12 incorrect bindings and accept none as exact owned-unit reference evidence.
+- [x] Add 17 primary manufacturer fact reviews alongside 16 reviewed master descriptions. Preserve distinct local provenance and block four unconfirmed kit/region configurations. Forty-nine owned entries still need description review.
+- [x] Add reproducible offline catalog/batch preparation with stable identities, owned-only selection and the 16-candidate API limit (draft batches 16/13). No job submitted, price invented, paid lane released or image claimed complete.
+- [ ] Resolve remaining facts/configurations, check current execution pricing and stage/release semantics, obtain verified project R2 output receipts, inspect actual appearance/quality, and wire accepted assets. Full goal remains unfinished.
