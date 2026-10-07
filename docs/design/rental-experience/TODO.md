@@ -94,3 +94,9 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Add 17 primary manufacturer fact reviews alongside 16 reviewed master descriptions. Preserve distinct local provenance and block four unconfirmed kit/region configurations. Forty-nine owned entries still need description review.
 - [x] Add reproducible offline catalog/batch preparation with stable identities, owned-only selection and the 16-candidate API limit (draft batches 16/13). No job submitted, price invented, paid lane released or image claimed complete.
 - [ ] Resolve remaining facts/configurations, check current execution pricing and stage/release semantics, obtain verified project R2 output receipts, inspect actual appearance/quality, and wire accepted assets. Full goal remains unfinished.
+
+### 7 October 2026 — dark return-inspection layout
+
+- [x] Rework the actual admin conversation return drawer into distinct item condition cards, a damage-case switch, paired payment/settlement panels, and separate private PDF and renter-email preview cards. Custom deductions/evidence stay wired to the same saved decision and server review. Scope is the return drawer only; public pages are untouched.
+- [x] Verify production build/typecheck and actual preview/PDF handler regressions. Exercise native desktop/mobile inspection, issue/case selection, custom retention, review invalidation, PDF bytes and a single confirmation against real application handlers with isolated synthetic Stripe/mail. Inspect final desktop/mobile screenshots in `/root/dbc-return-layout-review`.
+- [ ] Accepted item photographs, full conversation/reference parity, remaining management screens, deployed acceptance and the rest of the goal remain outstanding. This is a local source checkpoint, not a production release.
