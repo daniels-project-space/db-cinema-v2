@@ -1,11 +1,21 @@
 import { peak, blockedSet } from "../availability";
 import { rentalUnavailable } from "./marketingInventory";
+/** Query-local cache only: all checks still use the same live database snapshot. */
+export type RentalInventoryCache = { records: Map<string, any>; reservations: Map<string, any[]> };
 /** Check the whole proposed order together, including overlapping bundles and quantities. */
 export async function assertRentalInventory(
   ctx: any,
   lines: any[],
   excludeBookingId?: any,
+  cache?: RentalInventoryCache,
 ) {
+  async function get(id: any) {
+    const key = String(id);
+    if (cache?.records.has(key)) return cache.records.get(key);
+    const record = await ctx.db.get(id);
+    cache?.records.set(key, record);
+    return record;
+  }
   const byUnit = new Map<string, { id: any; intervals: any[] }>();
   for (const line of lines) {
     if (
@@ -16,7 +26,7 @@ export async function assertRentalInventory(
       line.end < line.start
     )
       throw Error("Invalid rental dates or quantity");
-    const listing = await ctx.db.get(line.listingId);
+    const listing = await get(line.listingId);
     if (!listing || rentalUnavailable(listing))
       throw Error("An item is no longer available");
     // Explicit day blocks from the live catalogue are independent of reservations.
@@ -43,18 +53,22 @@ export async function assertRentalInventory(
     }
   }
   for (const row of byUnit.values()) {
-    const unit = await ctx.db.get(row.id);
+    const unit = await get(row.id);
     if (
       !unit ||
       !Number.isSafeInteger(unit.quantityOwned) ||
       unit.quantityOwned < 0
     )
       throw Error("Inventory capacity is missing or invalid");
-    const reservations = await ctx.db
+    let reservations = cache?.reservations.get(String(row.id));
+    if (!reservations) {
+      reservations = await ctx.db
       .query("reservations")
       .withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", row.id))
       .collect();
-    const existing = reservations
+      cache?.reservations.set(String(row.id), reservations!);
+    }
+    const existing = reservations!
       .filter(
         (r: any) =>
           (!excludeBookingId || r.bookingId !== excludeBookingId) &&

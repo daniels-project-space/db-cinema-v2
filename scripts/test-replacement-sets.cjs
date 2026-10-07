@@ -1,0 +1,45 @@
+const assert=require('node:assert/strict');
+const {load,db,put}=require('./lib/rentalTestHarness.cjs');
+const {sets}=load('convex/cartReplacements.ts');
+const {switchCartSet,addCartReplacement}=load('shared/cartReplacementSet.ts');
+const start=Date.UTC(2030,1,1),end=start+2*86400000,ctx={db};
+function make(title,capacity=1,extra={}){const unit=put('inventory_units',{name:title,quantityOwned:capacity});return put('listings',{title,slug:title,active:true,category:'Cameras',itemType:'camera-body',components:[{inventoryUnitId:unit._id,qty:1}],pricing:{daily:40},depositAmount:1000,...extra});}
+(async()=>{
+ const source=make('Unavailable camera',0),a=make('Camera A'),b=make('Camera B'),c=make('Camera C');
+ const items=Array.from({length:3},(_,i)=>({key:'request-'+i,listingId:source._id,start,end}));
+ let result=await sets.handler(ctx,{items,sourceKey:items[0].key});
+ assert.equal(result.requested,3);assert.equal(result.keys.length,3);assert(result.options.length);
+ assert.equal(result.options[0].items.length,3);assert.equal(new Set(result.options[0].items.map(i=>i.listingId)).size,3);
+ assert(result.options[0].items.every(i=>i.days===3));
+ put('reservations',{inventoryUnitId:a.components[0].inventoryUnitId,start,end,qty:1,status:'confirmed'});
+ result=await sets.handler(ctx,{items,sourceKey:items[0].key});assert.equal(result.options.length,0,'Never offer two available cameras as fulfillment of three');
+ assert.equal(result.singles.length,2,'Still offer available individual alternatives when a complete set cannot fit');
+ await db.patch(b.components[0].inventoryUnitId,{quantityOwned:2});
+ result=await sets.handler(ctx,{items,sourceKey:items[0].key});assert.equal(result.options[0].items.length,3);assert.equal(result.options[0].items.filter(i=>i.listingId===b._id).length,2);
+ const alias=put('listings',{...c,_id:'alias-c',title:'Another C kit'});
+ const retained={key:'keep',listingId:alias._id,start,end};
+ result=await sets.handler(ctx,{items:[...items,retained],sourceKey:items[0].key});assert.equal(result.options.length,0,'Retained aliased kit consumes the same physical camera');
+ await db.patch(b._id,{unavailableDates:['2030-02-02']});
+ result=await sets.handler(ctx,{items,sourceKey:items[0].key});assert.equal(result.options.length,0,'Date blocks are checked for complete sets');
+ const current=[{key:'one',start:'2030-02-01',end:'2030-02-03'},{key:'keep',start:'2030-02-01',end:'2030-02-03'}];
+ const replacement={key:'new',start:'2030-02-01',end:'2030-02-03'};
+ assert.deepEqual(switchCartSet(current,JSON.stringify(current),['one'],[replacement]),[current[1],replacement]);
+ assert.throws(()=>switchCartSet([...current,{key:'changed'}],JSON.stringify(current),['one'],[replacement]),/basket changed/);
+ assert.throws(()=>switchCartSet(current,JSON.stringify(current),['one'],[{...replacement,end:'2030-02-04'}]),/dates/);
+ assert.deepEqual(addCartReplacement(current,JSON.stringify(current),'one',replacement),[...current,replacement],'Individual additions preserve demand request');
+ assert.throws(()=>addCartReplacement(current,JSON.stringify(current),'one',{...replacement,end:'2030-02-04'}),/dates/);
+ assert.throws(()=>addCartReplacement([...current,replacement],JSON.stringify(current),'one',replacement),/basket changed/);
+ const packSource=make('7x Unavailable camera pack',0,{category:'Pack cameras'});
+ const packs=[2,3,4].map(size=>{
+  const unit=put('inventory_units',{name:`${size} camera bodies`,quantityOwned:size});
+  return put('listings',{title:`${size}x Camera pack`,slug:`pack-${size}`,active:true,category:'Pack cameras',itemType:'camera-body',components:[{inventoryUnitId:unit._id,qty:size}],pricing:{daily:40},depositAmount:1000});
+ });
+ const packed=[{key:'pack-request',listingId:packSource._id,start,end}];
+ result=await sets.handler(ctx,{items:packed,sourceKey:'pack-request'});
+ assert.equal(result.requested,7);assert.equal(result.options.length,1);
+ assert.deepEqual(result.options[0].items.map(i=>i.listingId),[packs[1]._id,packs[2]._id],'Backtrack past the tempting two-camera pack to select three plus four');
+ put('reservations',{inventoryUnitId:packs[2].components[0].inventoryUnitId,start,end,qty:1,status:'active'});
+ result=await sets.handler(ctx,{items:packed,sourceKey:'pack-request'});
+ assert.equal(result.options.length,0,'Query-local stock cache cannot hide a new reservation on the next request');
+ console.log('PASS mixed-camera sets, pack backtracking, individual additions, complete quantities, shared aliases, live reservations, date blocks, exact periods and atomic stale-basket protection.');
+})().catch(e=>{console.error(e);process.exitCode=1});

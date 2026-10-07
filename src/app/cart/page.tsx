@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment } from "react";
-import { CartReplacements } from "@/components/cart/CartReplacements";
+import { ReplacementSets } from "@/components/cart/ReplacementSets";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -24,6 +24,7 @@ export default function CartPage() {
   const {
     items,
     remove,
+    duplicateItem,
     clear,
     subtotal,
     eligibleSubtotal,
@@ -79,8 +80,8 @@ export default function CartPage() {
               selected={membership}
               onChange={setMembership}
             />
-            <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_330px]">
-              <div className="flex flex-col gap-3">
+            <div className="mt-8 grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_330px]">
+              <div className="flex min-w-0 flex-col gap-3">
                 {items.map((it, idx) => {
                   const a = avail?.[it.listingId];
                   const unavailable = a && a.available === 0;
@@ -140,9 +141,9 @@ export default function CartPage() {
                           <IconX className="h-3.5 w-3.5" />
                         </button>
                       </div>
-                      <div className="col-span-3"><CartItemDates item={it} /></div>
+                      <div className="col-span-3"><CartItemDates item={it} /><button type="button" onClick={() => duplicateItem(it.key)} className="mt-2 text-xs text-white/60 hover:text-white">+ Add another of this item</button></div>
                     </div>
-                    {dim && <CartReplacements item={it} />}
+                    {dim && <ReplacementSets item={it} />}
                     </Fragment>
                   );
                 })}
