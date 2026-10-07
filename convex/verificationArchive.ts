@@ -9,6 +9,27 @@ function rentalClosedAt(booking: any): number | undefined {
   return booking?.status === "returned" ? booking.returnedAt : booking?.status === "cancelled" ? booking.cancelledAt : undefined;
 }
 
+/** One retention decision shared by the admin screen and byte deletion. */
+async function archiveRetention(ctx: any, archive: any) {
+  if (archive.status === "deleted") return { status: "deleted" as const, expiresAt: null, activeRentals: 0, openCases: 0, viewable: false };
+  const booking = await ctx.db.get(archive.bookingId);
+  const reused = await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", archive.bookingId)).collect();
+  const rentals = [booking, ...reused].filter(Boolean);
+  const activeRentals = rentals.filter((b: any) => !["returned", "cancelled"].includes(b.status)).length;
+  let openCases = 0;
+  for (const id of [archive.bookingId, ...reused.map((b: any) => b._id)]) {
+    const cases = await ctx.db.query("rental_damage_cases").withIndex("by_booking", (q: any) => q.eq("bookingId", id)).collect();
+    openCases += cases.filter((c: any) => c.status === "open").length;
+  }
+  const base = { expiresAt: null as number | null, activeRentals, openCases, viewable: true };
+  if (activeRentals) return { ...base, status: "active-rental" as const };
+  if (openCases) return { ...base, status: "insurance-case" as const };
+  if (archive.retentionHoldReason) return { ...base, status: "manual-hold" as const };
+  if (!booking || rentals.some((b: any) => !rentalClosedAt(b))) return { ...base, status: "unknown-closure" as const };
+  const expiresAt = Math.max(...rentals.map((b: any) => rentalClosedAt(b)!)) + DOCUMENT_RETENTION_MS;
+  return { ...base, status: "expires" as const, expiresAt, viewable: expiresAt > Date.now() };
+}
+
 export async function queueVerificationArchive(ctx: any, booking: any) {
   if (!booking.diditSessionId) return;
   const existing = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", booking._id)).collect();
@@ -61,7 +82,7 @@ export const due = internalQuery({ args: {}, handler: async ctx => ctx.db.query(
 export const accountDocuments = query({ args: { token: v.string(), accountId: v.id("accounts") }, handler: async (ctx, args) => {
   if (!checkAdminToken(args.token)) throw Error("unauthorized");
   const jobs = await ctx.db.query("verification_archives").withIndex("by_account", q => q.eq("accountId", args.accountId)).collect();
-  return Promise.all(jobs.map(async archive => ({ ...archive, email: undefined, documents: (await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archive._id)).collect()).map(d => ({ id: d._id, kind: d.kind, size: d.size, sha256: d.sha256, savedAt: d.savedAt, contentType: d.contentType })) })));
+  return Promise.all(jobs.map(async archive => ({ ...archive, email: undefined, retention: await archiveRetention(ctx, archive), documents: (await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archive._id)).collect()).map(d => ({ id: d._id, kind: d.kind, size: d.size, sha256: d.sha256, savedAt: d.savedAt, contentType: d.contentType })) })));
 } });
 export const retry = mutation({ args: { token: v.string(), archiveId: v.id("verification_archives") }, handler: async (ctx, args) => {
   await assertAdmin(ctx, args.token, "verificationArchive.retry");
@@ -76,7 +97,7 @@ export const downloadAccess = internalMutation({ args: { token: v.string(), docu
   const document = await ctx.db.get(args.documentId);
   if (!document) throw Error("Document not found");
   const archive = await ctx.db.get(document.archiveId);
-  if (!archive || archive.status === "deleted") throw Error("Document retention period ended");
+  if (!archive || !(await archiveRetention(ctx, archive)).viewable) throw Error("Document retention period ended");
   return { storageId: document.storageId, kind: document.kind, contentType: document.contentType };
 } });
 
@@ -103,18 +124,8 @@ export const purgeExpired = internalMutation({ args: {}, handler: async ctx => {
   let removed = 0;
   for (const archive of archives) {
     if (removed >= 25 || archive.status === "deleted" || archive.retentionHoldReason) continue;
-    const booking = await ctx.db.get(archive.bookingId);
-    const reused = await ctx.db.query("bookings").withIndex("by_verification_reused", q => q.eq("verificationReusedFrom", archive.bookingId)).collect();
-    if (reused.some(b => !["returned", "cancelled"].includes(b.status))) continue;
-    let openCase = false;
-    for (const id of [archive.bookingId, ...reused.map(b => b._id)]) {
-      const cases = await ctx.db.query("rental_damage_cases").withIndex("by_booking", q => q.eq("bookingId", id)).collect();
-      if (cases.some(c => c.status === "open")) { openCase = true; break; }
-    }
-    if (openCase) continue;
-    const closedAt = rentalClosedAt(booking);
-    if (!closedAt || closedAt + DOCUMENT_RETENTION_MS > Date.now()) continue;
-    if (reused.some(b => !rentalClosedAt(b) || rentalClosedAt(b)! + DOCUMENT_RETENTION_MS > Date.now())) continue;
+    const retention = await archiveRetention(ctx, archive);
+    if (retention.status !== "expires" || retention.expiresAt === null || retention.expiresAt > Date.now()) continue;
     const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archive._id)).collect();
     for (const document of documents) await ctx.storage.delete(document.storageId);
     await ctx.db.patch(archive._id, { status: "deleted", deletedAt: Date.now(), error: undefined });

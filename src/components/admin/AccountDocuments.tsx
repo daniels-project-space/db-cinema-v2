@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 
+function documentTitle(kind: string) {
+  return kind.startsWith("address-") ? "Proof of address" : kind.includes("back") ? "Proof of identity · back" : "Proof of identity · front";
+}
+
 export function AccountDocumentSummary({
   token,
   accountId,
@@ -53,11 +57,7 @@ export function AccountDocumentSummary({
             </svg>
             <span className="min-w-0 flex-1">
               <strong className="block text-[10px] font-medium text-white/80">
-                {file.kind.startsWith("address-")
-                  ? "Proof of address"
-                  : file.kind.includes("back")
-                    ? "Proof of identity · back"
-                    : "Proof of identity · front"}
+                {documentTitle(file.kind)}
               </strong>
               <small className="mt-1 block text-[9px] text-white/40">
                 Saved {new Date(file.savedAt).toLocaleDateString("en-GB")}
@@ -100,18 +100,32 @@ export function AccountDocuments({
       url: string;
       type: string;
       title: string;
+      accountId: string;
+      token: string;
     } | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const activeUrl = useRef<string | null>(null);
+  const request = useRef<AbortController | null>(null);
+  const scope = useRef(0);
+  const [holdEditor, setHoldEditor] = useState<string | null>(null);
+  const [holdReason, setHoldReason] = useState("");
   useEffect(() => {
+    scope.current++;
+    request.current?.abort();
+    request.current = null;
     setPreview(null);
     setError("");
+    setBusy(false);
+    setHoldEditor(null);
+    setHoldReason("");
     if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
     activeUrl.current = null;
-  }, [accountId]);
+  }, [accountId, token]);
   useEffect(
     () => () => {
+      scope.current++;
+      request.current?.abort();
       if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
     },
     [],
@@ -121,6 +135,10 @@ export function AccountDocuments({
     kind: string;
     contentType: string;
   }) {
+    const currentScope = scope.current;
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
     setBusy(true);
     setError("");
     try {
@@ -134,21 +152,33 @@ export function AccountDocuments({
         },
         body: JSON.stringify({ documentId: document.id }),
         cache: "no-store",
+        signal: controller.signal,
       });
       if (!response.ok)
         throw Error(
           "Document could not be opened. Please retry or check admin access.",
         );
       const blob = await response.blob();
+      if (controller.signal.aborted || currentScope !== scope.current) return;
       if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
       const url = URL.createObjectURL(blob);
       activeUrl.current = url;
-      setPreview({ url, type: document.contentType, title: document.kind });
+      setPreview({ url, type: document.contentType, title: documentTitle(document.kind), accountId, token });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not open document.");
+      if (!controller.signal.aborted && currentScope === scope.current)
+        setError(e instanceof Error ? e.message : "Could not open document.");
     } finally {
-      setBusy(false);
+      if (currentScope === scope.current) setBusy(false);
+      if (request.current === controller) request.current = null;
     }
+  }
+  async function perform(action: () => Promise<unknown>) {
+    const currentScope = scope.current;
+    setBusy(true);
+    setError("");
+    try { await action(); }
+    catch (e) { if (currentScope === scope.current) setError(e instanceof Error ? e.message : "Document action failed."); }
+    finally { if (currentScope === scope.current) setBusy(false); }
   }
   return (
     <section
@@ -167,11 +197,8 @@ export function AccountDocuments({
         cases can preserve copies until the hold is removed.
       </p>
       <button
-        onClick={() =>
-          backfill({ token, accountId: accountId as any }).catch((e) =>
-            setError(e.message),
-          )
-        }
+        disabled={busy}
+        onClick={() => void perform(() => backfill({ token, accountId: accountId as any }))}
         className="mt-3 text-xs text-accent-300"
       >
         Archive existing verifications
@@ -198,27 +225,40 @@ export function AccountDocuments({
                     ? "Archive needs attention"
                     : "Saving documents"}
             </p>
+            <p className="mt-2 text-xs leading-5 text-white/50">
+              {archive.retention.status === "deleted" ? "Retention ended. File bytes have been removed." :
+                archive.retention.status === "active-rental" ? `Preserved for ${archive.retention.activeRentals} active rental${archive.retention.activeRentals === 1 ? "" : "s"}. The 30-day period begins after closure.` :
+                archive.retention.status === "insurance-case" ? `Preserved for ${archive.retention.openCases} open damage or insurance case${archive.retention.openCases === 1 ? "" : "s"}.` :
+                archive.retention.status === "manual-hold" ? "Preserved under an admin insurance hold." :
+                archive.retention.status === "unknown-closure" ? "Preserved until the rental closure date is confirmed." :
+                `${archive.retention.viewable ? "Retained until" : "Retention ended on"} ${new Date(archive.retention.expiresAt!).toLocaleString("en-GB")}.${archive.retention.viewable ? "" : " File removal is pending; document access has ended."}`}
+            </p>
+            {archive.retentionHoldReason && <p className="mt-2 rounded-lg border border-amber-200/15 bg-amber-200/5 p-3 text-xs leading-5 text-amber-100/80">Insurance hold: {archive.retentionHoldReason}</p>}
             {archive.status !== "deleted" && (
-              <button
-                onClick={() => {
-                  const reason = archive.retentionHoldReason
-                    ? ""
-                    : window.prompt(
-                        "Reason for preserving documents for an open insurance/damage case (at least 10 characters)",
-                      );
-                  if (reason != null)
-                    retentionHold({
-                      token,
-                      archiveId: archive._id,
-                      reason,
-                    }).catch((e) => setError(e.message));
-                }}
-                className="mt-2 text-xs text-white/60"
-              >
-                {archive.retentionHoldReason
-                  ? "Remove insurance retention hold"
-                  : "Preserve for open insurance case"}
-              </button>
+              <div className="mt-3">
+                {archive.retentionHoldReason ? (
+                  <button disabled={busy} onClick={() => void perform(() => retentionHold({ token, archiveId: archive._id, reason: "" }))} className="text-xs text-white/60 disabled:opacity-30">Remove admin insurance hold</button>
+                ) : holdEditor === archive._id ? (
+                  <form onSubmit={event => {
+                    event.preventDefault();
+                    const currentScope = scope.current;
+                    void perform(async () => {
+                      await retentionHold({ token, archiveId: archive._id, reason: holdReason.trim() });
+                      if (currentScope === scope.current) { setHoldEditor(null); setHoldReason(""); }
+                    });
+                  }} className="rounded-lg border border-white/10 bg-white/[.025] p-3">
+                    <label className="block text-xs text-white/70">Insurance or damage case reason
+                      <textarea required minLength={10} maxLength={500} value={holdReason} onChange={event => setHoldReason(event.target.value)} className="mt-2 block min-h-20 w-full rounded-lg border border-white/15 bg-black/20 p-3 text-xs text-white" />
+                    </label>
+                    <p className="mt-2 text-[11px] text-white/45">Copies remain preserved until this hold is removed. Active rentals and open cases preserve them separately.</p>
+                    <div className="mt-3 flex gap-4">
+                      <button disabled={busy || holdReason.trim().length < 10} className="text-xs text-accent-300 disabled:opacity-30">Save insurance hold</button>
+                      <button type="button" disabled={busy} onClick={() => { setHoldEditor(null); setHoldReason(""); }} className="text-xs text-white/50">Cancel</button>
+                    </div>
+                  </form>
+                ) : <button disabled={busy} onClick={() => { setHoldEditor(archive._id); setHoldReason(""); }} className="text-xs text-white/60 disabled:opacity-30">Preserve for an insurance case</button>}
+                {!!archive.retention.openCases && <p className="mt-2 text-[11px] text-white/45">Open cases must be closed through the rental controls before their automatic retention ends.</p>}
+              </div>
             )}
             {!["complete", "deleted"].includes(archive.status) && (
               <>
@@ -227,11 +267,8 @@ export function AccountDocuments({
                     "Provider documents are being copied. Do not rely on this archive until it is complete."}
                 </p>
                 <button
-                  onClick={() =>
-                    retry({ token, archiveId: archive._id }).catch((e) =>
-                      setError(e.message),
-                    )
-                  }
+                  disabled={busy}
+                  onClick={() => void perform(() => retry({ token, archiveId: archive._id }))}
                   className="mt-2 text-xs text-accent-300"
                 >
                   Retry document archive
@@ -245,10 +282,10 @@ export function AccountDocuments({
                   className="flex items-center justify-between gap-3 text-xs"
                 >
                   <span className="text-white/60">
-                    {document.kind.replaceAll("_", " ")} ·{" "}
+                    {documentTitle(document.kind)} ·{" "}
                     {Math.ceil(document.size / 1024)} KB
                   </span>
-                  {archive.status !== "deleted" && (
+                  {archive.retention.viewable && (
                     <button
                       disabled={busy}
                       onClick={() => void view(document)}
@@ -268,12 +305,15 @@ export function AccountDocuments({
           {error}
         </p>
       )}
-      {preview && (
+      {preview && preview.accountId === accountId && preview.token === token && (
         <div className="mt-4 rounded-xl border border-white/15 p-3">
           <div className="flex justify-between text-xs text-white">
             <span>{preview.title}</span>
             <button
               onClick={() => {
+                request.current?.abort();
+                request.current = null;
+                setBusy(false);
                 setPreview(null);
                 if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
                 activeUrl.current = null;
