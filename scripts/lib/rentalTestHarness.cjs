@@ -126,7 +126,7 @@ const db = {
           .slice(0, n),
       paginate: async ({ numItems, cursor }) => {
         const start = Number(cursor ?? 0);
-        rows.sort((a, b) => (descending ? -1 : 1) * (a.at - b.at));
+        rows.sort((a, b) => (descending ? -1 : 1) * ((a.at ?? a._creationTime) - (b.at ?? b._creationTime)));
         return {
           page: rows.slice(start, start + numItems),
           isDone: start + numItems >= rows.length,

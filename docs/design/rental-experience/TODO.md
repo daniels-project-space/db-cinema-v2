@@ -8,6 +8,12 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Run actual read-only live preflight: the public website uses `zany-wolf-18`; manager targets the older backend, has mismatched credentials and lacks a registered/enforced private owner. No private imports, financial writes or customer messages were enabled. See manager `LIVE-READINESS.md`.
 - [ ] Resolve private owner setup, pair compatible deployments/credentials, verify hosted UI and actual provider/storage/calendar/stock/settlement behavior. Draft PRs and passing local fixtures do not complete production acceptance or the remaining reference/image requirements.
 
+## Full customer-directory checkpoint
+
+- [x] Replace the recent-50 directory slice with bounded server cursors, case-insensitive name/email search and membership/verification filtering across every account. Automatically continue through sparse batches; distinguish loaded counts from complete counts and clear stale selected profiles on query/authentication changes.
+- [x] Verify real query handlers with 221 synthetic accounts, the complete existing npm test suite, Next build and native 23-page desktop/mobile interaction through actual handlers. Inspect `/root/dbc-customer-directory-review`.
+- [ ] Publish compatible directory queries/frontend and verify actual production customer search, access controls and the rest of the requested reference fidelity. The broader goal remains unfinished.
+
 ## Layout and visual scope — added 7 October 2026
 
 - [ ] Rebuild renter account, rental conversations and management screens in standard dark mode, using the approved concept's layout and visual hierarchy.

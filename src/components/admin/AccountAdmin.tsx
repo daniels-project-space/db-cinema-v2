@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, usePaginatedQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { AccountDocuments, AccountDocumentSummary } from "./AccountDocuments";
 import { SmartImage } from "@/components/SmartImage";
@@ -36,8 +36,8 @@ export function AccountAdmin({
   const [busy, setBusy] = useState(false),
     [confirmBlock, setConfirmBlock] = useState(false);
   const [message, setMessage] = useState("");
-  const [filter, setFilter] = useState("all"),
-    [tierFilter, setTierFilter] = useState("all"),
+  const [filter, setFilter] = useState<"all" | "members" | "verified" | "pending">("all"),
+    [tierFilter, setTierFilter] = useState<"all" | "standard" | "plus" | "pro" | "studio">("all"),
     [page, setPage] = useState(0);
   const [section, setSection] = useState("overview"),
     [panelClosed, setPanelClosed] = useState(false);
@@ -48,10 +48,15 @@ export function AccountAdmin({
     const timer = setTimeout(() => setEmail(input), 200);
     return () => clearTimeout(timer);
   }, [input]);
-  const result = useQuery(api.accountAdmin.search, { token, email });
-  const searchPending = input !== email || !result;
-  const selected =
-    result?.items.find((a) => a.id === selectedId) ?? result?.items[0];
+  const authorized = useQuery(api.accountAdmin.directoryAccess, { token });
+  const { results: visible, status, loadMore } = usePaginatedQuery(
+    api.accountAdmin.directory,
+    authorized ? { token, search: email, filter, tier: tierFilter } : "skip",
+    { initialNumItems: 100 },
+  );
+  const searchPending = input !== email || authorized === undefined || status === "LoadingFirstPage";
+  const selected = !authorized || searchPending ? undefined :
+    visible.find((a) => a.id === selectedId) ?? visible[0];
   const detail = useQuery(
     api.accountAdmin.detail,
     selected && !panelClosed ? { token, accountId: selected.id } : "skip",
@@ -73,17 +78,18 @@ export function AccountAdmin({
     setNote("");
   }, [selected?.id]);
   useEffect(() => setPage(0), [email, filter, tierFilter]);
-  const visible = (result?.items ?? []).filter(
-    (a) =>
-      (filter === "all" ||
-        (filter === "members" && a.tier !== "standard") ||
-        (filter === "verified" && a.verified) ||
-        (filter === "pending" && !a.verified)) &&
-      (tierFilter === "all" || a.tier === tierFilter),
-  );
   const pages = Math.max(1, Math.ceil(visible.length / 10));
-  const currentPage = Math.min(page, pages - 1);
-  const displayRows = visible.slice(currentPage * 10, currentPage * 10 + 10);
+  const currentPage = page;
+  const displayRows = searchPending ? [] : visible.slice(page * 10, page * 10 + 10);
+  const exhausted = status === "Exhausted";
+  const loading = searchPending || status === "LoadingMore" || status === "CanLoadMore" && visible.length < (page + 1) * 10 + 1;
+  useEffect(() => {
+    if (authorized && input === email && status === "CanLoadMore" && visible.length < (page + 1) * 10 + 1)
+      loadMore(100);
+  }, [authorized, input, email, status, visible.length, page, loadMore]);
+  useEffect(() => {
+    if (exhausted && page >= pages) setPage(pages - 1);
+  }, [exhausted, page, pages]);
   const date = (at: number | null) =>
     at
       ? new Date(at).toLocaleDateString("en-GB", {
@@ -231,29 +237,16 @@ export function AccountAdmin({
               type="button"
               key={key}
               aria-pressed={filter === key}
-              onClick={() => setFilter(key)}
+              onClick={() => { setFilter(key as typeof filter); setPage(0); setSelectedId(null); }}
               className={filter === key ? styles.active : ""}
             >
-              {name}{" "}
-              <span>
-                (
-                {
-                  (result?.items ?? []).filter(
-                    (a) =>
-                      key === "all" ||
-                      (key === "members" && a.tier !== "standard") ||
-                      (key === "verified" && a.verified) ||
-                      (key === "pending" && !a.verified),
-                  ).length
-                }
-                )
-              </span>
+              {name}{filter === key && !searchPending ? <span> ({visible.length}{exhausted ? "" : " loaded"})</span> : null}
             </button>
           ))}
         </nav>
         <div className={styles.filters}>
           <label>
-            <span className={styles.srOnly}>Search by email address</span>
+            <span className={styles.srOnly}>Search customers by name or email</span>
             <input
               type="search"
               maxLength={254}
@@ -263,7 +256,7 @@ export function AccountAdmin({
                 setSelectedId(null);
                 setPanelClosed(false);
               }}
-              placeholder="Search email address…"
+              placeholder="Search name or email…"
               data-testid="account-email-search"
             />
           </label>
@@ -271,7 +264,7 @@ export function AccountAdmin({
             <span className={styles.srOnly}>Membership filter</span>
             <select
               value={tierFilter}
-              onChange={(e) => setTierFilter(e.target.value)}
+              onChange={(e) => { setTierFilter(e.target.value as typeof tierFilter); setPage(0); setSelectedId(null); }}
             >
               <option value="all">All membership tiers</option>
               {LEVELS.filter(([key]) => key !== "automatic").map(
@@ -373,49 +366,41 @@ export function AccountAdmin({
             </tbody>
           </table>
         </div>
-        {!result ? (
+        {authorized === false ? (
+          <p role="alert" className={styles.empty}>Admin access required.</p>
+        ) : loading && !displayRows.length ? (
           <p role="status" className={styles.empty}>
             Loading customers…
           </p>
-        ) : !result.authorized ? (
-          <p role="alert" className={styles.empty}>
-            Admin access required.
-          </p>
-        ) : !displayRows.length ? (
+        ) : !displayRows.length && exhausted ? (
           <p className={styles.empty}>No accounts match these filters.</p>
         ) : null}
         <footer className={styles.directoryFooter}>
           <p>
-            {email ? "Email search" : "Latest accounts"} ·{" "}
-            {visible.length
-              ? `${currentPage * 10 + 1}–${Math.min((currentPage + 1) * 10, visible.length)} of ${visible.length}`
-              : "0 results"}
+            {email ? "Customer search" : "All accounts"} ·{" "}
+            {displayRows.length
+              ? `${currentPage * 10 + 1}–${Math.min((currentPage + 1) * 10, visible.length)} of ${visible.length}${exhausted ? "" : " loaded"}`
+              : loading ? "Searching…" : "0 results"}
             <small>
-              Counts and filters cover these {result?.items.length ?? 0}{" "}
-              accounts.
-              {result?.more
-                ? " Refine the email to find older matches beyond the first 50."
-                : !email
-                  ? " Search an email to find older accounts."
-                  : ""}
+              {exhausted ? "All matching accounts loaded." : "Continue through the pages to search the rest of the directory."}
             </small>
           </p>
           <div>
             <button
               type="button"
               aria-label="Previous customer page"
-              disabled={currentPage === 0}
+              disabled={currentPage === 0 || searchPending}
               onClick={() => setPage(currentPage - 1)}
             >
               ‹
             </button>
             <span>
-              {currentPage + 1} / {pages}
+              Page {currentPage + 1}{exhausted ? ` / ${pages}` : ""}
             </span>
             <button
               type="button"
               aria-label="Next customer page"
-              disabled={currentPage + 1 >= pages}
+              disabled={loading || exhausted && currentPage + 1 >= pages || authorized !== true}
               onClick={() => setPage(currentPage + 1)}
             >
               ›

@@ -5,6 +5,47 @@ import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { rentalsForAccount, belongsToRentalAccount } from "./lib/rentalAccount";
 import { availableCreditRows } from "./lib/checkoutCredit";
 import { listingImages } from "./lib/catalogImages";
+import { paginationOptsValidator } from "convex/server";
+
+export const directoryAccess = query({
+  args: { token: v.string() },
+  handler: async (_ctx, args) => checkAdminToken(args.token),
+});
+
+/** Bounded scans preserve cursor ordering across every account, including name
+ * and email substring searches. Never load customer profiles or document bytes. */
+export const directory = query({
+  args: {
+    token: v.string(), search: v.string(), paginationOpts: paginationOptsValidator,
+    filter: v.union(v.literal("all"), v.literal("members"), v.literal("verified"), v.literal("pending")),
+    tier: v.union(v.literal("all"), v.literal("standard"), v.literal("plus"), v.literal("pro"), v.literal("studio")),
+  },
+  handler: async (ctx, args) => {
+    if (!checkAdminToken(args.token)) return { page: [], isDone: true, continueCursor: "" };
+    if (args.search.length > 254) throw Error("Customer search is too long.");
+    if (!Number.isInteger(args.paginationOpts.numItems) || args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 100)
+      throw Error("Invalid customer page size.");
+    const result = await ctx.db.query("accounts").order("desc").paginate(args.paginationOpts);
+    const search = args.search.trim().toLocaleLowerCase("en-GB");
+    const now = Date.now();
+    const matches = result.page.filter(account => {
+      const tier = membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
+      const verified = account.rentalVerification ? account.rentalVerification.expiresAt > now : !!account.idVerified;
+      return (!search || `${account.name ?? ""} ${account.email}`.toLocaleLowerCase("en-GB").includes(search)) &&
+        (args.tier === "all" || tier === args.tier) &&
+        (args.filter === "all" || args.filter === "members" && tier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified);
+    });
+    return { ...result, page: await Promise.all(matches.map(async account => ({
+      id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
+      tier: membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard",
+      override: account.adminMembershipTier ?? "automatic", blocked: account.blockedAt != null,
+      blockedReason: account.blockedReason ?? "", hasSubscription: !!account.stripeSubscriptionId,
+      subscriptionTier: account.membershipTier ?? null,
+      verified: account.rentalVerification ? account.rentalVerification.expiresAt > now : !!account.idVerified,
+      avatarUrl: account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
+    }))) };
+  },
+});
 
 const level = v.union(
   v.literal("standard"),
