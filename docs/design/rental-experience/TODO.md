@@ -64,3 +64,10 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Old calendar snapshots are bypassed until compatible version-2 snapshots refresh. Search and progress use the appropriate source/period identities.
 - [x] 29 focused RM handler/item-window/grouping/geometry checks, TypeScript and Next production build pass. Actual Gantt native browser fixture checks pass at desktop/mobile widths; screenshots inspected. No live customer/financial writes or RM backend deploy for this checkpoint.
 - [ ] Roll out compatible DB feed/RM calendar source together, correct the production DB binding, refresh calendar caches and verify real production rentals, photos and stock. Remaining full-goal work stays open.
+
+### 7 October 2026 — quote clocks and return delivery status
+
+- [x] Local manager quoting uses the saved pickup/return clock of each physical website allocation, preserves explicit nulls, supports older windows and carries the one-hour return buffer across midnight. Actual chat availability now leaves equipment-window gaps free and reports the correct upcoming period/quantity across the shared account pool.
+- [x] Corrected the safe return context to report the return-statement email status rather than an unrelated late-fee email. Manager's completed settlement refreshes that status and shows queued/sending/sent/failed separately from completed financial settlement. Late rental amounts are labelled assessed, not yet collected.
+- [x] 66 focused manager stock/calendar/geometry/bridge checks pass; DB return-context and return-inspection checks pass. Both TypeScript checks and manager Next production build pass. Native actual return-component fixture verifies the failure/retry delivery label; no live email or payment execution.
+- [ ] Still required: exact production binding and deploy acceptance, statement/invoice pre-confirmation preview, real insurance-case linkage, remaining operational Hygglo parity, complete reference UI fidelity and verified owned-equipment renders. This checkpoint does not complete the full goal.

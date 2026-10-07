@@ -39,7 +39,7 @@ export const context = query({ args: {token:v.string(),bookingId:v.id("bookings"
     depositAmount:b.depositAmount,depositHoldAmount:b.depositHoldAmount??0,depositHoldStatus:b.depositHoldStatus??null,
     depositRefunded:b.depositRefunded??false,depositRefundAmount:b.depositRefundAmount??0,depositKept:b.depositKept??0,
     returnDecision:b.returnDecision??null,returnStatement:b.returnStatement??null,
-    settlementEmailStatus:b.lateFeeReceiptEmailStatus??null,
+    settlementEmailStatus:b.returnStatementEmailStatus??null,
     lateQuote:lateFeeQuote(b.lineItems,b.returnTime??null,args.actualReturnedAt??b.returnDecision?.actualReturnedAt??Date.now()),
     items,legacy:items.some(i=>i.key.startsWith("legacy:")),cases:await ctx.db.query("rental_damage_cases").withIndex("by_booking",q=>q.eq("bookingId",b._id)).collect()};
 } });
