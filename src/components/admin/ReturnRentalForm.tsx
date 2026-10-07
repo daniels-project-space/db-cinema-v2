@@ -29,6 +29,7 @@ export function ReturnRentalForm({ booking, token, onClose }: { booking: any; to
     catch { return null; }
   }, [booking.lineItems, booking.returnTime, at]);
   const damageAmount = Number(damage);
+  const condition = damageAmount > 0 ? "issue" : "good";
   const valid = !!quote && Number.isFinite(at) && at <= Date.now() + 60000 && Number.isFinite(damageAmount) && damageAmount >= 0 &&
     damageAmount <= booking.depositAmount + (booking.depositHoldAmount ?? 0) &&
     (damageAmount === 0 || damageNote.trim().length >= 10) &&
@@ -63,6 +64,14 @@ export function ReturnRentalForm({ booking, token, onClose }: { booking: any; to
       {quote?.breakdown.some((line) => line.dailyRate === 0) && <p className="mt-1 text-amber-200">A booked daily rate is missing for at least one item; it will not be charged automatically.</p>}
       {quote && quote.amount > 0 && <label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={chargeLate} onChange={(e) => setChargeLate(e.target.checked)} /> Apply this separately agreed late rental charge</label>}
       {quote && quote.amount > 0 && !chargeLate && <label className="mt-2 block">Reason for waiving late time<input value={waiverReason} onChange={(e) => setWaiverReason(e.target.value)} className="input mt-1 w-full" placeholder="Required for the booking record" /></label>}
+    </div>
+    <div className="mt-3">
+      <p className="font-medium text-white">Return condition</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button type="button" onClick={() => { setDamage("0"); setDamageNote(""); }} className={`rounded-md border px-3 py-2 ${condition === "good" ? "border-emerald-300/60 bg-emerald-300/15 text-emerald-100" : "border-white/15 text-white/65"}`}>Returned in good condition</button>
+        <button type="button" onClick={() => { if (damageAmount <= 0) setDamage("0.01"); }} className={`rounded-md border px-3 py-2 ${condition === "issue" ? "border-amber-300/60 bg-amber-300/15 text-amber-100" : "border-white/15 text-white/65"}`}>Damage or loss to review</button>
+      </div>
+      {condition === "good" ? <p className="mt-2 text-emerald-100/80">This releases the unused {formatGbp(booking.depositHoldAmount ?? 0)} card authorisation and refunds the {formatGbp(booking.depositAmount ?? 0)} paid security deposit to the original card.</p> : <p className="mt-2 text-amber-100/80">Record the documented amount and evidence below. The authorised hold is used first; any remaining paid deposit is refunded.</p>}
     </div>
     <label className="mt-3 block">Documented damage or loss to retain (£)<input type="number" min="0" max={booking.depositAmount + (booking.depositHoldAmount ?? 0)} step="0.01" value={damage} onChange={(e) => setDamage(e.target.value)} className="input mt-1 w-full" /></label>
     {damageAmount > 0 && <label className="mt-2 block">Itemised evidence and reason<textarea value={damageNote} onChange={(e) => setDamageNote(e.target.value)} rows={3} placeholder="Describe the item, damage or loss, evidence, and calculation" className="input mt-1 w-full" /></label>}
