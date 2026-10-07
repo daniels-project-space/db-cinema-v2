@@ -591,6 +591,7 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_email", ["email"]).index("by_referral_code",["referralCode"]).index("by_subscription", ["stripeSubscriptionId"]),
 
+  account_admin_notes: defineTable({ accountId: v.id("accounts"), text: v.string(), at: v.number() }).index("by_account", ["accountId"]),
   account_admin_changes: defineTable({
     accountId: v.id("accounts"), at: v.number(),
     kind: v.union(v.literal("level"), v.literal("block"), v.literal("unblock")),
@@ -786,6 +787,7 @@ export default defineSchema({
     .index("by_account", ["accountId"])
     .index("by_tgMessageId", ["tgMessageId"])
     .index("by_account_booking", ["accountId", "bookingId"])
+    .index("by_account_updated", ["accountId", "updatedAt"])
     .index("by_updated", ["updatedAt"]),
 
   // Fixed-window API rate limiting (per IP + bucket) for the public endpoints.

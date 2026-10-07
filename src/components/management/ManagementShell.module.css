@@ -1,4 +1,4 @@
-.shell { --management-copper: #bd8d6c; display: grid; grid-template-columns: 216px minmax(0, 1fr); min-height: 100vh; position: relative; isolation: isolate; background: #151515; color: #eeeae4; }
+.shell { font-family:var(--font-inter, Arial),sans-serif; --management-copper: #bd8d6c; display: grid; grid-template-columns: 216px minmax(0, 1fr); min-height: 100vh; position: relative; isolation: isolate; background: #151515; color: #eeeae4; }
 .sidebar { background: #111212; border-right: 1px solid #ffffff0f; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
 .brand { display: block; padding: 30px 24px 34px; color: var(--management-copper); border-bottom: 1px solid #ffffff0a; }
 .brand > span { font-family: var(--font-instrument), Georgia, serif; font-size: 35px; letter-spacing: -.06em; white-space: nowrap; }

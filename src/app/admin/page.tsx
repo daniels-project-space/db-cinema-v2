@@ -209,7 +209,7 @@ export default function AdminPage() {
         )}
 
         {tab === "fund" && <FilmFundAdmin token={token} />}
-        {tab === "accounts" && <AccountAdmin token={token} />}
+        {tab === "accounts" && <AccountAdmin token={token} onRental={id => { setDetailId(id); setTab("bookings"); }} onConversation={(accountId, bookingId) => { setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1); setTab("inbox"); }} />}
         {tab === "marketing" && <MarketingListingsAdmin token={token} />}
         {tab === "stories" && <StoryPrizeAdmin token={token} />}
         {tab === "calls" && <AdminGafferCalls token={token} />}

@@ -51,3 +51,5 @@ This checklist extends the original goal; no original integration requirement is
 - Quantity-aware replacement sets and management shell are implemented and tested locally, including native browser checks; production acceptance remains outstanding.
 - Per-item return inspection, account-linked damage cases, email/PDF detail and case-aware document retention are implemented and tested locally; Rental Manager return bridge and live finance acceptance remain outstanding.
 - Durable lifecycle delivery, revision ordering, paged fallback and website booking notifications are implemented locally. Both builds and 43 focused manager tests pass; development API authorisation/paging checked. See `RENTAL-MANAGER-DELIVERY.md`; production integration remains outstanding.
+
+- Customers & Members source now has a dark directory/profile layout with real credit, rental/chat navigation, account documents and internal notes. Handler tests, 1488/390 native component fixtures and authorised development API reads pass; the Next build passes. Full-directory search/pagination, complete reference fidelity and production acceptance remain outstanding. See `CUSTOMERS-MEMBERS.md`.
