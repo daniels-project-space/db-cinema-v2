@@ -3,7 +3,6 @@ import { useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalKit } from "@/components/rentals/RentalKit";
-import { ReturnRentalForm } from "./ReturnRentalForm";
 import { RentalOrderTools } from "./RentalOrderTools";
 import {
   rentalTitle,
@@ -29,7 +28,6 @@ export function RentalWorkspace({
   const setStatus = useMutation(api.bookings.adminSetStatus),
     setIdentity = useMutation(api.bookings.adminSetIdStatus),
     review = useAction(api.didit.adminReview),
-    pause = useMutation(api.bookings.adminPauseLateFee),
     reverify = useMutation(api.bookings.adminRequireReverification);
   const [section, setSection] = useState("order"),
     [note, setNote] = useState(""),
@@ -60,9 +58,6 @@ export function RentalWorkspace({
   if (!b) return <p className="mt-6 text-white/50">Rental unavailable.</p>;
   const start = Math.min(...b.lineItems.map((x) => x.start)),
     end = Math.max(...b.lineItems.map((x) => x.end));
-  const canReturn =
-    ["confirmed", "active"].includes(b.status) ||
-    (b.status === "returned" && !!b.returnDecision && !b.actualReturnedAt);
   return (
     <section
       className="mt-6 rounded-3xl border border-white/[0.08] bg-[#141414] p-5 sm:p-7"
@@ -101,7 +96,6 @@ export function RentalWorkspace({
         {[
           ["order", "Order & payments"],
           ["verification", "Verification"],
-          ["return", "Return & settlement"],
         ].map(([key, label]) => (
           <button
             key={key}
@@ -172,7 +166,7 @@ export function RentalWorkspace({
             )}
           </div>
           <div>
-            <RentalOrderTools token={token} bookingId={bookingId} />
+            <RentalOrderTools token={token} bookingId={bookingId} showReturn={false} />
           </div>
         </div>
       )}
@@ -257,60 +251,6 @@ export function RentalWorkspace({
                 )}
               </div>
             </>
-          )}
-        </div>
-      )}
-      {section === "return" && (
-        <div className="mt-6 max-w-2xl">
-          {canReturn ? (
-            <ReturnRentalForm
-              key={bookingId}
-              booking={b}
-              token={token}
-              onClose={() => setSection("order")}
-            />
-          ) : (
-            <p className="text-sm text-white/50">
-              {b.status === "returned"
-                ? "Return recorded. Settlement and receipt status are below."
-                : "Return becomes available after rental payment is confirmed."}
-            </p>
-          )}
-          <div className="mt-5 flex flex-wrap gap-5 text-xs text-white/50">
-            <span>Security refund {formatGbp(b.depositRefundAmount ?? 0)}</span>
-            <span>Damage {formatGbp(b.depositKept ?? 0)}</span>
-            <span>
-              Late fee {formatGbp(b.lateFeeAmount ?? 0)} ·{" "}
-              {b.lateFeeStatus ?? "None"}
-            </span>
-            <span>
-              Return email · {b.returnStatementEmailStatus ?? "Not sent"}
-            </span>
-          </div>
-          {["notice_pending", "notice_failed", "notice_sent"].includes(
-            b.lateFeeStatus ?? "",
-          ) && (
-            <div className="mt-5">
-              <label className="text-xs text-white/50">
-                Dispute or waiver reason
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  className="input mt-2 w-full"
-                />
-              </label>
-              <button
-                disabled={busy || note.trim().length < 5}
-                onClick={() =>
-                  void execute(() =>
-                    pause({ token, bookingId: b._id, reason: note }),
-                  )
-                }
-                className="mt-3 rounded-full border border-amber-400/20 px-4 py-2 text-xs text-amber-200 disabled:opacity-30"
-              >
-                Pause late-fee collection
-              </button>
-            </div>
           )}
         </div>
       )}

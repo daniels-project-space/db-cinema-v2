@@ -10,9 +10,12 @@ import { formatGbp } from "@/lib/pricing";
 export function RentalOrderTools({
   token,
   bookingId,
+  showReturn = true,
 }: {
   token: string;
   bookingId: string;
+  /** Return settlement belongs in the rental conversation, where the customer record is visible. */
+  showReturn?: boolean;
 }) {
   const b = useQuery(api.rentalOperations.details, {
     token,
@@ -198,7 +201,7 @@ export function RentalOrderTools({
           catch (e: any) { setError(e.message ?? "Pickup could not be recorded."); }
           finally { setBusy(false); }
         }} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">Mark picked up</button>}
-        {(b.status === "active" || !!b.returnDecision && b.status !== "returned") && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision} onClick={() => setReturnOpen(v => !v)} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">{b.returnDecision ? "Resume return settlement" : "Record return"}</button>}
+        {showReturn && (b.status === "active" || !!b.returnDecision && b.status !== "returned") && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision} onClick={() => setReturnOpen(v => !v)} className="rounded-full border border-accent-300/30 bg-accent-300/10 px-3 py-2 text-accent-200 disabled:opacity-35">{b.returnDecision ? "Resume return settlement" : "Record return"}</button>}
 
         {b.status === "confirmed" && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision} onClick={() => { setMode("remove"); setRemoveIndex(null); removeSelection.current = null; request.current = null; setError(""); }} className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35">Remove items</button>}
         {["pending_payment", "confirmed", "active"].includes(b.status) && (
@@ -273,7 +276,7 @@ export function RentalOrderTools({
             </button>
           )}
       </div>
-      {returnOpen && <ReturnRentalForm booking={b} token={token} onClose={() => setReturnOpen(false)} />}
+      {showReturn && returnOpen && <ReturnRentalForm booking={b} token={token} onClose={() => setReturnOpen(false)} />}
       {additions
         .filter(
           (r) =>
