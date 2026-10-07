@@ -29,11 +29,12 @@ function SuccessInner() {
   const [membership, setMembership] = useState<string | null>(null);
   const [holdStatus, setHoldStatus] = useState<string | null>(null);
   const [holdSecret, setHoldSecret] = useState<string | null>(null);
-  const ran = useRef(false);
+  const [attempt, setAttempt] = useState(0);
+  const ran = useRef(-1);
 
   useEffect(() => {
-    if (ran.current || !sessionId) return;
-    ran.current = true;
+    if (ran.current === attempt || !sessionId) return;
+    ran.current = attempt;
     finalize({ sessionId })
       .then((r) => {
         if (r.paid) {
@@ -50,7 +51,7 @@ function SuccessInner() {
         }
       })
       .catch(() => setState("error"));
-  }, [sessionId, finalize, clear]);
+  }, [sessionId, attempt, finalize, clear]);
 
   useEffect(() => {
     if (!sessionId || !holdSecret || holdStatus !== "requires_action") return;
@@ -82,17 +83,17 @@ function SuccessInner() {
           <span className="h-10 w-10 animate-spin rounded-full border-2 border-accent-400/20 border-t-accent-400" />
         </div>
         <div className="hud-label mt-6">Confirming payment</div>
-        <p className="mt-2 text-white/40">One moment.</p>
+        <p className="mt-2 text-white/40">We’re confirming your payment. Please don’t submit another payment.</p>
       </div>
     );
   if (state === "unpaid")
     return (
-      <Msg title="Payment not completed" body="Your card was not charged." cta />
+      <Msg title="Payment not completed" body="Your card was not charged. Your kit is still saved here, ready when you are." cta />
     );
   if (state === "cancelled")
     return <Msg title="This booking is closed" body="This checkout belongs to a cancelled booking. Please contact us if your bank shows a charge so we can confirm its refund." cta />;
   if (state === "error")
-    return <Msg title="Something went wrong" body="Please contact us." cta />;
+    return <Msg title="We’re still confirming your payment" body="Your basket is still intact. Do not pay again — check the payment status once more in a moment. If it still cannot be confirmed, contact us with your payment reference." cta onRetry={() => { setState("working"); setAttempt((value) => value + 1); }} />;
 
   if(additionId){
     const ready=holdStatus==="held";
@@ -186,15 +187,22 @@ function Msg({
   title,
   body,
   cta,
+  onRetry,
 }: {
   title: string;
   body: string;
   cta?: boolean;
+  onRetry?: () => void;
 }) {
   return (
     <div className="mx-auto max-w-xl px-6 py-24 text-center">
       <h1 className="font-display text-2xl font-bold text-white/90">{title}</h1>
       <p className="mt-2 text-white/40">{body}</p>
+      {onRetry && (
+        <button type="button" onClick={onRetry} className="btn-primary mt-6 px-6 py-3">
+          Check payment again
+        </button>
+      )}
       {cta && (
         <Link
           href="/cart"
