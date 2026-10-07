@@ -22,11 +22,14 @@ export function VerificationBar({ booking }: { booking: { status: string; idVeri
     </li>)}
   </ol>;
 }
-export function VerificationLink({ booking }: { booking: { _id: string; status: string; idVerifyStatus?: string; depositHoldAmount?: number; depositHoldStatus?: string | null } }) {
-  const label = booking.idVerifyStatus === "verified" ? "View approved verification" : booking.idVerifyStatus === "requires_input" ? "Replace documents · view progress" : "View verification progress";
-  return <section className="mb-4 rounded-2xl border border-accent-400/20 bg-accent-400/[.04] p-4">
-    <VerificationBar booking={booking} />
-    <Link href={`/account/verification/${booking._id}`} className="mt-3 inline-block text-sm font-medium text-accent-300 hover:underline">{label} ↗</Link>
+export function VerificationLink({ booking, compact = false }: { booking: { _id: string; status: string; idVerifyStatus?: string; depositHoldAmount?: number; depositHoldStatus?: string | null; requiresDroneLicence?: boolean; droneLicenceStatus?: string }; compact?: boolean }) {
+  const dronePending = booking.requiresDroneLicence && booking.droneLicenceStatus !== "approved";
+  const label = booking.idVerifyStatus === "verified" && dronePending
+    ? booking.droneLicenceStatus === "review" ? "Drone licence review · view progress" : booking.droneLicenceStatus === "requires_input" ? "Replace drone licence · view progress" : "Upload drone licence · view progress"
+    : booking.idVerifyStatus === "verified" ? "View approved verification" : booking.idVerifyStatus === "requires_input" ? "Replace documents · view progress" : "View verification progress";
+  return <section className={compact ? "mb-4" : "mb-4 rounded-2xl border border-accent-400/20 bg-accent-400/[.04] p-4"}>
+    {!compact && <VerificationBar booking={booking} />}
+    <Link href={`/account/verification/${booking._id}`} className={`${compact ? "" : "mt-3"} inline-block text-sm font-medium text-accent-300 hover:underline`}>{label} ↗</Link>
   </section>;
 }
 const checkLabels: Record<string, string> = { waiting: "Waiting for upload", processing: "Processing", approved: "Check passed", requires_input: "Upload needed", review: "Team review", rejected: "Needs attention" };

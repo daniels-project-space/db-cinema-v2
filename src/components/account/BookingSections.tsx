@@ -62,7 +62,7 @@ export function BookingSections({
             <div className="mt-3 flex flex-col gap-3">
               {list.map((b, i) => (
                 <div key={b._id} className="tile-in" style={{ ["--i" as any]: i }}>
-                  <BookingTile booking={b} token={token} onOpenChat={onOpenChat} />
+                  <BookingTile booking={b} token={token} onOpenChat={onOpenChat} featured={i === 0 && key !== "past"} />
                 </div>
               ))}
             </div>
