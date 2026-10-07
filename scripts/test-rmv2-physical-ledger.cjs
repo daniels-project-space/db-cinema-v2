@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict');const {load,db,put}=require('./lib/rentalTestHarness.cjs');
+const {mapBookingForSync,forRmv2SyncOne}=load('convex/rmv2_sync.ts');
+(async()=>{
+ const booked=put('inventory_units',{sku:'FX3',name:'Sony FX3',rmv2ItemId:'master-fx3',hyggloProductId:12});
+ const edited=put('inventory_units',{sku:'FX6',name:'Sony FX6',rmv2ItemId:'master-fx6',hyggloProductId:13});
+ const listing=put('listings',{title:'Camera kit',components:[{inventoryUnitId:edited._id,qty:1}]});
+ const booking=put('bookings',{guestName:'Saved booking name',status:'confirmed',lineItems:[{listingId:listing._id,title:'Original kit',qty:1,start:1000,end:5000}]});
+ const row=put('reservations',{bookingId:booking._id,listingId:listing._id,inventoryUnitId:booked._id,source:'site',status:'confirmed',qty:3,start:1000,end:2000});
+ put('reservations',{bookingId:booking._id,listingId:listing._id,inventoryUnitId:booked._id,source:'site',status:'confirmed',qty:3,start:3000,end:5000});
+ put('reservations',{bookingId:booking._id,inventoryUnitId:edited._id,source:'site',status:'cancelled',qty:99,start:1000,end:5000});
+ put('reservations',{bookingId:booking._id,inventoryUnitId:edited._id,source:'hygglo',status:'confirmed',qty:99,start:1000,end:5000});
+ const projection=await forRmv2SyncOne.handler({db},{bookingId:booking._id});assert.equal(projection.customerName,'Saved booking name');assert.equal(projection.physicalReservations.length,2);
+ assert.deepEqual(projection.physicalReservations.map(r=>[r.rmv2ItemId,r.qty,r.start,r.end]),[['master-fx3',3,1000,2000],['master-fx3',3,3000,5000]],'Saved components and separate extension dates survive a catalogue edit');
+ assert.equal(projection.physicalReservations[0].reservationId,row._id);
+ await db.patch(row._id,{status:'returned'});assert.equal((await forRmv2SyncOne.handler({db},{bookingId:booking._id})).physicalReservations[0].status,'returned');
+ const legacy=mapBookingForSync({...booking,_id:'legacy'},new Map(),new Map(),new Map());assert(!('physicalReservations'in legacy),'Legacy no-ledger shape remains explicit');
+ await db.patch(row._id,{status:'cancelled'});for(const r of projection.physicalReservations.slice(1))await db.patch(r.reservationId,{status:'cancelled'});
+ assert.deepEqual((await forRmv2SyncOne.handler({db},{bookingId:booking._id})).physicalReservations,[],'An existing but fully cancelled site ledger is distinguishable from no ledger');
+ console.log('PASS actual feed projection: persisted physical IDs/quantities, independent dates, catalogue edits, returned rows, ignored cancelled/external rows and legacy distinction');
+})().catch(e=>{console.error(e);process.exitCode=1});

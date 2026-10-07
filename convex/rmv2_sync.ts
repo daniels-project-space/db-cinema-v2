@@ -35,6 +35,7 @@ export function mapBookingForSync(
   listingById: Map<string, Doc<"listings">>,
   unitById: Map<string, Doc<"inventory_units">>,
   custById: Map<string, Doc<"customers">>,
+  reservations?: Doc<"reservations">[],
 ) {
   const lineItems = (b.lineItems ?? []).map((li) => {
     const listing = listingById.get(String(li.listingId));
@@ -79,7 +80,7 @@ export function mapBookingForSync(
     id: String(b._id),
     revision: b.rmv2Revision ?? 0,
     status: b.status,
-    customerName: cust?.name ?? null,
+    customerName: cust?.name ?? b.guestName ?? null,
     customerEmail: cust?.email ?? b.guestEmail ?? null,
     fulfilment: b.fulfilment,
     pickupTime: b.pickupTime ?? null,
@@ -94,6 +95,18 @@ export function mapBookingForSync(
     currency: b.currency ?? "GBP",
     createdAt: b._creationTime,
     lineItems,
+    // This ledger was allocated at confirmation/change time. Catalogue edits
+    // must not re-decompose a booked kit or extend all components to one period.
+    ...(reservations?.length ? { physicalReservations: reservations
+      .filter(r => r.source === "site" && ["confirmed", "active", "returned"].includes(r.status))
+      .map(r => {
+        const unit = unitById.get(String(r.inventoryUnitId));
+        return { reservationId: String(r._id), inventoryUnitId: String(r.inventoryUnitId),
+          rmv2ItemId: unit?.rmv2ItemId ?? null, name: unit?.name ?? "Unmapped equipment",
+          sku: unit?.sku ?? null, qty: r.qty, start: r.start, end: r.end,
+          listingId: r.listingId ? String(r.listingId) : null,
+          status: r.status, hyggloProductId: unit?.hyggloProductId ?? null };
+      }) } : {}),
   };
 }
 
@@ -159,13 +172,21 @@ async function loadBookingProjection(ctx: any, b: Doc<"bookings">) {
       }
     }
 
+    const reservations: Doc<"reservations">[] = await ctx.db.query("reservations").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
+    for (const reservation of reservations) {
+      const key = String(reservation.inventoryUnitId);
+      if (!unitById.has(key)) {
+        const unit = await ctx.db.get(reservation.inventoryUnitId);
+        if (unit) unitById.set(key, unit);
+      }
+    }
     const custById = new Map<string, Doc<"customers">>();
     if (b.customerId) {
       const cust = await ctx.db.get(b.customerId);
       if (cust) custById.set(String(b.customerId), cust);
     }
 
-    return mapBookingForSync(b, listingById, unitById, custById);
+    return mapBookingForSync(b, listingById, unitById, custById, reservations);
 }
 
 /** Explicit lifecycle records in bounded pages; absence never means cancellation. */
