@@ -10,6 +10,7 @@ import {
   RENTAL_STAGE_LABELS,
 } from "@/lib/rentalPresentation";
 import { formatGbp } from "@/lib/pricing";
+import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
 export function RentalWorkspace({
   token,
   bookingId,
@@ -172,6 +173,7 @@ export function RentalWorkspace({
       )}
       {section === "verification" && (
         <div className="mt-6 max-w-xl">
+          <AdminDroneLicence token={token} bookingId={bookingId} />
           <h3 className="text-sm font-medium text-white">
             Identity & address · {b.idVerifyStatus ?? "required"}
           </h3>

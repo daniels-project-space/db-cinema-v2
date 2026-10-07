@@ -14,6 +14,7 @@ import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecove
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRenterExposure, renterExposure, replacementValues, attachRenterPerson } from "./lib/rentalExposure";
 import { securityReady } from "../shared/verificationProgress";
+import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerification";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { rentalUnavailable } from "./lib/marketingInventory";
@@ -699,6 +700,7 @@ export const adminSetStatus = mutation({
         (booking.depositHoldStatus !== "held" || (booking.depositHoldExpiresAt ?? 0) <= Date.now()))
       throw new Error("The card hold must be active before handover.");
     if (status === "active") {
+      await assertDroneApproval(ctx, booking);
       assertAgreementBeforeRelease(booking);
       await assertRenterExposure(ctx, { ...booking, status: "active" });
       if (!booking.renterPersonKey) throw Error("The verified person needs a team identity check before handover.");
@@ -1796,6 +1798,7 @@ export const verificationProgress = query({
     let exposure = null;
     try { exposure = await renterExposure(ctx, b, ["cancelled", "returned"].includes(b.status) ? [] : b.lineItems); } catch {}
     return { _id: b._id, status: b.status, idVerifyStatus: b.idVerifyStatus ?? "required",
+      requiresDroneLicence: await requiresDroneLicence(ctx, b), droneLicenceStatus: b.droneLicenceStatus ?? "required", droneLicenceNote: b.droneLicenceNote ?? null,
       verificationNote: b.verificationNote ?? null, verificationChecks: b.verificationChecks ?? null,
       verificationUpdatedAt: b.verificationUpdatedAt ?? null, verificationReused: !!b.verificationReusedFrom,
       depositHoldAmount: b.depositHoldAmount ?? 0, depositHoldStatus: b.depositHoldStatus ?? null,
