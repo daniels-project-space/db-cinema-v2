@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "checkedAt": "2026-10-07T23:40:51.537Z",
+  "renderEngineRevision": "2e9fbb485bcbb776b7b4c24b4eb93ce8c7cc4f09",
+  "sourceFiles": [
+    {
+      "path": "src/engine/ernie-project-request.ts",
+      "sha256": "8d9ce29b9b3ac90da30a0d02f54a9efb6f115cd10eb6d4ca8e053d245a7f7e01"
+    },
+    {
+      "path": "src/engine/ernie-project-image-v2.ts",
+      "sha256": "08dccb1f3b3a0a475b9df836477cca8a77b8fe6f095f6c0885e85bf4ef3843e5"
+    },
+    {
+      "path": "workers/ernie-project-v2-bootstrap.sh",
+      "sha256": "de0e6eed87a1a7568e92a78cb3b12e3f947926145eb418e317bc39ef334d66e7"
+    },
+    {
+      "path": "workers/salad/ernie/worker.py",
+      "sha256": "b7b82aaa9f99bb3483b2779a781752e59ae02d01336c97abab6b8a1e7cf242a6"
+    }
+  ],
+  "acceptedExistingPilotRequest": true,
+  "rejectedReferenceFields": [
+    "candidate.referenceImageUrl",
+    "request.referenceImageUrl"
+  ],
+  "pinnedProjectWorkerMatched": true,
+  "currentLane": {
+    "model": "ernie-image",
+    "input": "text-only",
+    "referenceImageInput": false,
+    "initialLatent": "EmptyFlux2LatentImage",
+    "steps": 50,
+    "cfg": 4,
+    "precision": "BF16",
+    "promptEnhancer": "native"
+  },
+  "primaryReferences": [
+    "https://github.com/baidu/ERNIE-Image/blob/main/README.md",
+    "https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/ernie_image/pipeline_ernie_image.py"
+  ],
+  "conclusion": "The current strict request/worker contract cannot receive a reference image. This does not prove no future ERNIE editing extension is possible; such a route is not currently wired or qualified.",
+  "modelChanged": false,
+  "paidJobsSubmitted": false,
+  "providerWrites": false
+}

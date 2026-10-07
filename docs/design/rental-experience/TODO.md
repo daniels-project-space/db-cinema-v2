@@ -14,6 +14,12 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Verify real query handlers with 221 synthetic accounts, the complete existing npm test suite, Next build and native 23-page desktop/mobile interaction through actual handlers. Inspect `/root/dbc-customer-directory-review`.
 - [ ] Publish compatible directory queries/frontend and verify actual production customer search, access controls and the rest of the requested reference fidelity. The broader goal remains unfinished.
 
+## Equipment reference-input checkpoint
+
+- [x] Confirm current Render Engine main and the actual pinned project worker. Exercise its real parser: the existing pilot request passes, but candidate/root reference-image inputs fail. Record the current empty-latent text-only path and immutable source hashes in `ernie-reference-input-audit.json`; no model changes or paid dispatches.
+- [x] Add four source-linked manufacturer model/family reviews and revalidate live canonical ownership. Reproduce the 39-description catalog and 32-candidate 16/16 drafts, preserving seven configuration blocks and 43 pending description reviews.
+- [ ] Choose and qualify a faithful image-generation approach, resolve equipment identities/configurations, render and inspect all owned items, verify project R2 bytes/receipts and connect accepted assets. Neither rejected drone pilot is accepted; the full asset requirement remains open.
+
 ## Layout and visual scope — added 7 October 2026
 
 - [ ] Rebuild renter account, rental conversations and management screens in standard dark mode, using the approved concept's layout and visual hierarchy.
