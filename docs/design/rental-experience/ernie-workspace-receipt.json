@@ -1,0 +1,26 @@
+{
+  "checkedAt": "2026-10-07T19:07:37.989Z",
+  "status": 200,
+  "keys": [
+    "workflowId",
+    "profileRevisionSha256"
+  ],
+  "projectName": "db-cinema-rentals",
+  "bucket": "re-db-cinema-rentals-1f518ftgxs",
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "profileRevisionSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
+  "workflowSha256": null,
+  "state": null,
+  "code": null,
+  "contract": {
+    "version": 2,
+    "width": 1264,
+    "height": 848,
+    "steps": 50,
+    "cfg": 4,
+    "precision": "bf16",
+    "promptEnhancer": "ernie-native-v1",
+    "modelManifestSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
+    "workerSha256": "de0e6eed87a1a7568e92a78cb3b12e3f947926145eb418e317bc39ef334d66e7"
+  }
+}
