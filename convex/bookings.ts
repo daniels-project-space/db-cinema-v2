@@ -30,6 +30,9 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { inspectionInput } from "./lib/returnInspectionFields";
+import { returnInspectionSchedule } from "./lib/returnInspection";
+import { normalizeReturnInspection } from "../shared/returnInspection";
 import { peak, type Iv } from "./availability";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
@@ -741,8 +744,8 @@ export const getForRefund = internalQuery({
 });
 
 export const beginReturnDecision = internalMutation({
-  args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), damageKept: v.number(), damageNote: v.optional(v.string()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()) },
-  handler: async (ctx, { bookingId, actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason }) => {
+  args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), damageKept: v.number(), damageNote: v.optional(v.string()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
+  handler: async (ctx, { bookingId, actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, inspection }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active", "returned"].includes(b.status)) throw new Error("Booking is not available for return.");
     if((b.activeAdditionId || b.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before returning this rental");
@@ -750,14 +753,17 @@ export const beginReturnDecision = internalMutation({
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("Wait for the rental refund to settle before recording the return.");
     const saved = b.returnDecision;
+    const inspected = inspection ? normalizeReturnInspection(await returnInspectionSchedule(ctx, b), inspection, damageKept) : undefined;
     if (saved) {
       if (saved.actualReturnedAt !== actualReturnedAt || saved.damageKept !== damageKept ||
           (saved.damageNote ?? "") !== (damageNote ?? "") || saved.chargeLate !== chargeLate ||
-          (saved.lateWaiverReason ?? "") !== (lateWaiverReason ?? ""))
+          (saved.lateWaiverReason ?? "") !== (lateWaiverReason ?? "") || JSON.stringify(saved.inspection ?? null) !== JSON.stringify(inspected ?? null))
         throw new Error("A return settlement is already in progress with different amounts. Resume the saved decision or contact support before changing it.");
       return;
     }
-    await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, startedAt: Date.now() } });
+    await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, inspection: inspected as any, startedAt: Date.now() } });
+    const accountId = b.accountId ?? (await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first())?._id;
+    for (const item of inspected ?? []) if (item.openCase) await ctx.db.insert("rental_damage_cases", { bookingId, accountId, itemKey: item.key, title: item.title, inventoryUnitId: item.inventoryUnitId as any, details: item.details, status: "open", openedAt: Date.now() });
   },
 });
 
@@ -902,7 +908,7 @@ export const markReturnedStatus = internalMutation({
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
       .collect();
-    for (const r of res) if (r.status !== "returned") await ctx.db.patch(r._id, { status: "returned" });
+    for (const r of res) if (["hold", "confirmed", "active"].includes(r.status)) await ctx.db.patch(r._id, { status: "returned" });
     await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
   },
 });
@@ -949,6 +955,7 @@ export const recordLateFee = internalMutation({
         holdStatus: b.depositHoldStatus,
         damageTotal: b.depositKept ?? 0, damageFromHold: b.depositHoldCapturedForDamage ?? 0,
         damageNote: b.depositDeductionNote,
+        inspection: b.returnDecision?.inspection,
         lateAssessed: amount, lateWaived: waivedAmount ?? 0, lateBreakdown: breakdown,
       },
       returnStatementEmailStatus: "pending",

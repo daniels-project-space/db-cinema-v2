@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
+import { inspectionInput } from "./lib/returnInspectionFields";
 import { assertCreditOffer, creditOfferFingerprint } from "./lib/rentalCreditPolicy";
 import { cancellationPaymentPlan,rentalRefundPlan,securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { lateFeeQuote } from "./lib/lateFee";
@@ -732,10 +733,10 @@ export const billingPortal = action({
  *  retain part of the deposit for damage (that portion stays captured; the rest is refunded to the
  *  card). Idempotent — the depositRefunded flag plus a Stripe idempotency key prevent a double refund. */
 export const markReturned = action({
-  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()) },
+  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
   handler: async (
     ctx,
-    { token, bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason },
+    { token, bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection },
   ): Promise<{ ok: boolean; released: number; kept: number; lateAmount: number; alreadyReleased: boolean }> => {
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.markReturned" });
     const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId });
@@ -751,6 +752,7 @@ export const markReturned = action({
       ? { waivedAmount: quotedLate.amount, waiverReason: lateWaiverReason?.trim() } : {};
     if ((damageKept ?? 0) > 0 && (!damageNote || damageNote.trim().length < 10))
       throw new Error("Record the evidence and reason for a damage deduction.");
+    if (inspection) await ctx.runQuery(internal.returnInspections.validate, { bookingId, inspection, damage: damageKept ?? 0 });
     for (const oldId of b.depositHoldPreviousIntentIds ?? []) {
       try {
         const old = await stripe().paymentIntents.retrieve(oldId);
@@ -780,6 +782,7 @@ export const markReturned = action({
     await ctx.runMutation(internal.bookings.beginReturnDecision, {
       bookingId, actualReturnedAt: returned, damageKept: kept, damageNote: kept ? damageNote?.trim() : undefined,
       chargeLate, lateWaiverReason: !chargeLate && quotedLate.amount > 0 ? lateWaiverReason?.trim() : undefined,
+      inspection,
     });
     if (kept > 0 && !b.depositRefunded && !b.damageNoticeSentAt) {
       const detail = (damageNote ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);

@@ -1,0 +1,56 @@
+const assert=require('node:assert/strict');
+const {load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
+const {normalizeReturnInspection}=load('shared/returnInspection.ts');
+const {returnInspectionSchedule}=load('convex/lib/returnInspection.ts');
+const bookings=load('convex/bookings.ts'),cases=load('convex/returnInspections.ts'),archives=load('convex/verificationArchive.ts');
+process.env.ADMIN_TOKEN='inspection-admin-fixture';
+const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
+(async()=>{
+ const account=put('accounts',{email:'inspection@example.invalid'});
+ const unit=put('inventory_units',{name:'Sony FX3 body',sku:'FX3',quantityOwned:3});
+ const battery=put('inventory_units',{name:'V mount battery',sku:'BAT',quantityOwned:4});
+ const b=put('bookings',{status:'active',accountId:account._id,guestEmail:account.email,lineItems:[{title:'Three-camera kit',qty:1}],diditSessionId:'inspection-session'});
+ const start=Date.UTC(2030,0,1),end=start+86400000;
+ put('reservations',{bookingId:b._id,inventoryUnitId:unit._id,start,end,qty:3,status:'active'});
+ put('reservations',{bookingId:b._id,inventoryUnitId:unit._id,start:end+86400000,end:end+2*86400000,qty:3,status:'confirmed'});
+ put('reservations',{bookingId:b._id,inventoryUnitId:battery._id,start,end,qty:2,status:'active'});
+ const removed=put('reservations',{bookingId:b._id,inventoryUnitId:battery._id,start,end,qty:50,status:'cancelled'});
+ const schedule=await returnInspectionSchedule(ctx,b);assert.equal(schedule.length,5,'Inspect actual reserved components, ignore cancelled items and do not double-count non-overlapping extensions');
+ const input=schedule.map(i=>({key:i.key,condition:'good',details:'',openCase:false}));
+ assert.throws(()=>normalizeReturnInspection(schedule,input.slice(1),0),/every individual/);
+ assert.throws(()=>normalizeReturnInspection(schedule,[input[0],input[0],...input.slice(2)],0),/every individual/);
+ assert.throws(()=>normalizeReturnInspection(schedule,input,1),/deduction needs/);
+ const issue=input.map((i,index)=>index?i:{...i,condition:'issue',details:'Damaged battery casing, photograph recorded',openCase:true});
+ assert.equal(normalizeReturnInspection(schedule,issue,0)[0].condition,'issue','An issue and a case may exist with no deduction');
+ assert.throws(()=>normalizeReturnInspection(schedule,issue.map((i,index)=>index?i:{...i,details:'short'}),0),/Describe the issue/);
+ assert.throws(()=>normalizeReturnInspection(schedule,input.map((i,index)=>index?i:{...i,openCase:true}),0),/good condition/);
+ const decision={bookingId:b._id,actualReturnedAt:Date.now(),damageKept:0,chargeLate:false,inspection:issue};
+ await bookings.beginReturnDecision.handler(ctx,decision);assert.equal(b.returnDecision.inspection.length,5);
+ assert.equal(tables.get('rental_damage_cases').length,1);assert.equal(tables.get('rental_damage_cases')[0].accountId,account._id);
+ await bookings.beginReturnDecision.handler(ctx,{...decision,inspection:[...issue].reverse()});assert.equal(tables.get('rental_damage_cases').length,1,'Retries preserve order-independent inspection and create no duplicate case');
+ await assert.rejects(()=>bookings.beginReturnDecision.handler(ctx,{...decision,inspection:input}),/already in progress/);
+ await assert.rejects(()=>cases.validate.handler(ctx,{bookingId:b._id,inspection:input,damage:0}),/saved item inspection/,'Reject changed inspection before any Stripe operation');
+ await db.patch(unit._id,{name:'Edited catalogue name'});assert.deepEqual(await returnInspectionSchedule(ctx,b),schedule,'Saved equipment identity survives catalogue edits');
+ await archives.queueVerificationArchive(ctx,b);const archive=tables.get('verification_archives')[0];await db.patch(b._id,{status:'returned',returnedAt:Date.now()-31*86400000});
+ assert.equal(await archives.purgeExpired.handler(ctx,{}),0,'An actual open damage case preserves verification evidence');
+ const damageCase=tables.get('rental_damage_cases')[0];await assert.rejects(()=>cases.closeCase.handler(ctx,{token:'wrong',caseId:damageCase._id,resolution:'Resolved by insurance'}),/unauthorized/);
+ await cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:damageCase._id,resolution:'Resolved by insurance without further claim'});
+ assert.equal(await archives.purgeExpired.handler(ctx,{}),1,'Closing case resumes the existing retention window');
+ const legacy=put('bookings',{lineItems:[{title:'Legacy camera',qty:2}]});assert.equal((await returnInspectionSchedule(ctx,legacy)).length,2);
+ await bookings.markReturnedStatus.handler(ctx,{bookingId:b._id});assert.equal(removed.status,'cancelled','Return never revives cancelled inventory lines');
+ const statement={number:'RETURN-FIXTURE',issuedAt:Date.now(),actualReturnedAt:Date.now(),supplierName:'DB Cinema fixture',customerEmail:account.email,
+  lineItems:[{title:'Camera kit',start,end,qty:1,lineTotal:100}],subtotal:100,discount:0,deliveryFee:0,creditApplied:0,checkoutPaid:140.5,securityPaid:40.5,securityRefunded:40.5,damageTotal:0,damageFromHold:0,lateAssessed:0,lateWaived:0,lateBreakdown:[],
+  inspection:b.returnDecision.inspection,damageNote:'Photograph <evidence> retained; no charge while reviewed'};
+ let mail;setMock('./lib/mailer',{sendMail:async value=>{mail=value;return true}});
+ const worker=load('convex/invoice.ts'),originalFetch=global.fetch;
+ process.env.INVOICE_SECRET='isolated-invoice-test';global.fetch=async()=>({ok:true,arrayBuffer:async()=>Buffer.from('%PDF-isolated-worker-fixture')});
+ try{await worker.returnSettlementEmail.handler({runMutation:async()=>true,runQuery:async()=>({statement})},{bookingId:b._id})}finally{global.fetch=originalFetch}
+ assert(mail.html.includes('Equipment inspection'));assert(mail.html.includes('damage case opened'));assert(mail.html.includes('Damaged battery casing'));
+ assert(mail.html.includes('&lt;evidence&gt;'),'Escape evidence in customer email');assert(!mail.html.includes('<evidence>'));
+ assert.equal(mail.attachments.length,1);
+ const fs=require('node:fs'),ts=require('typescript'),renderer=await import('@react-pdf/renderer');
+ const source=ts.transpileModule(fs.readFileSync('src/lib/invoice/InvoiceDocument.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+ const module={exports:{}};new Function('require','module','exports',source)(name=>name==='@react-pdf/renderer'?renderer:require(name),module,module.exports);
+ const React=require('react');const pdf=await renderer.renderToBuffer(React.createElement(module.exports.ReturnStatementDocument,{data:statement}));assert.equal(pdf.subarray(0,5).toString(),'%PDF-','Actual return PDF renders the expanded inspection record');
+ console.log('PASS physical item schedule, quantity/extension handling, explicit conditions, zero-deduction issues, frozen retry-safe inspection, account-linked cases, admin resolution and case-aware retention.');
+})().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,5 +1,6 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { AgreementSnapshot } from "../../../shared/rentalAgreement";
+import type { InspectionInput, InspectionItem } from "../../../shared/returnInspection";
 
 export type InvoiceData = {
   number: string;
@@ -29,6 +30,7 @@ export type InvoiceData = {
 };
 
 export type ReturnStatementData = {
+  inspection?: (InspectionInput & InspectionItem)[];
   number: string; issuedAt: number; actualReturnedAt: number;
   agreedReturnTime?: string;
   supplierName: string; supplierAddress?: string;
@@ -209,6 +211,7 @@ export function ReturnStatementDocument({ data }: { data: ReturnStatementData })
       {data.lineItems.map((line, i) => <View style={s.tRow} key={i}>
         <Text style={s.cItem}>{line.title}</Text><Text style={s.cDates}>{d(line.start)} – {d(line.end)}{line.returnTime ? `\nReturn ${line.returnTime} London` : ""}</Text><Text style={s.cQty}>{line.qty}</Text><Text style={s.cAmt}>{gbp(line.lineTotal)}</Text>
       </View>)}
+      {data.inspection?.length ? <View style={s.section}><Text style={s.label}>Equipment return inspection</Text>{data.inspection.map(item => <View key={item.key} style={{ marginBottom: 8 }} wrap={false}><Text style={s.strong}>{item.title} · {item.condition === "good" ? "Good condition" : "Issue found"}</Text>{item.details ? <Text style={{ color: C.muted, marginTop: 3 }}>{item.details}</Text> : null}{item.openCase ? <Text style={{ color: C.muted, marginTop: 3 }}>Damage case opened for review.</Text> : null}</View>)}</View> : null}
       <View style={s.totals}>
         <View style={s.totRow}><Text>Rental subtotal</Text><Text>{gbp(data.subtotal)}</Text></View>
         {data.discount > 0 ? <View style={s.totRow}><Text>Rental discount</Text><Text>−{gbp(data.discount)}</Text></View> : null}

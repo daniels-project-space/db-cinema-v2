@@ -97,6 +97,12 @@ export const purgeExpired = internalMutation({ args: {}, handler: async ctx => {
     const booking = await ctx.db.get(archive.bookingId);
     const reused = await ctx.db.query("bookings").withIndex("by_verification_reused", q => q.eq("verificationReusedFrom", archive.bookingId)).collect();
     if (reused.some(b => !["returned", "cancelled"].includes(b.status))) continue;
+    let openCase = false;
+    for (const id of [archive.bookingId, ...reused.map(b => b._id)]) {
+      const cases = await ctx.db.query("rental_damage_cases").withIndex("by_booking", q => q.eq("bookingId", id)).collect();
+      if (cases.some(c => c.status === "open")) { openCase = true; break; }
+    }
+    if (openCase) continue;
     const closedAt = rentalClosedAt(booking);
     if (!closedAt || closedAt + DOCUMENT_RETENTION_MS > Date.now()) continue;
     if (reused.some(b => !rentalClosedAt(b) || rentalClosedAt(b)! + DOCUMENT_RETENTION_MS > Date.now())) continue;

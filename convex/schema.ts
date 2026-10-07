@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { inspectionRecord } from "./lib/returnInspectionFields";
 
 /**
  * Db Cinema Rentals v2 — standalone storefront schema.
@@ -15,6 +16,12 @@ import { v } from "convex/values";
  * Trigger sync job through an httpAction bridge. `rmv2_sync_state` tracks it.
  */
 export default defineSchema({
+  rental_damage_cases: defineTable({
+    bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")),
+    itemKey: v.string(), title: v.string(), inventoryUnitId: v.optional(v.id("inventory_units")),
+    details: v.string(), status: v.union(v.literal("open"), v.literal("closed")),
+    openedAt: v.number(), closedAt: v.optional(v.number()), resolution: v.optional(v.string()),
+  }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]),
   verification_archives: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), email: v.string(), status: v.string(), attempts: v.number(), dueAt: v.number(), createdAt: v.number(), completedAt: v.optional(v.number()), error: v.optional(v.string()), retentionHoldReason: v.optional(v.string()), deletedAt: v.optional(v.number()) }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]).index("by_status_due", ["status", "dueAt"]),
   verification_documents: defineTable({ archiveId: v.id("verification_archives"), bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), kind: v.string(), storageId: v.id("_storage"), sha256: v.string(), size: v.number(), contentType: v.string(), savedAt: v.number() }).index("by_archive", ["archiveId"]).index("by_account", ["accountId"]),
   // ── Layer 1: physical stock (quantity truth) ──────────────────
@@ -290,6 +297,7 @@ export default defineSchema({
       actualReturnedAt: v.number(), damageKept: v.number(),
       damageNote: v.optional(v.string()), chargeLate: v.boolean(),
       lateWaiverReason: v.optional(v.string()), startedAt: v.number(),
+      inspection: v.optional(v.array(inspectionRecord)),
     })),
     lateFeeAmount: v.optional(v.number()),
     lateFeeWaivedAmount: v.optional(v.number()),
@@ -316,6 +324,7 @@ export default defineSchema({
       checkoutPaid: v.number(), rentalRefunded:v.optional(v.number()), securityPaid: v.number(), securityRefunded: v.number(),
       holdStatus: v.optional(v.string()),
       damageTotal: v.number(), damageFromHold: v.number(), damageNote: v.optional(v.string()),
+      inspection: v.optional(v.array(inspectionRecord)),
       lateAssessed: v.number(), lateWaived: v.number(),
       lateBreakdown: v.array(v.object({ title: v.string(), days: v.number(), dailyRate: v.number(), amount: v.number() })),
     })),
