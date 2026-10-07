@@ -12,7 +12,7 @@ import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { assertRenterExposure } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { postRentalMessage } from "./lib/rentalChat";
-import { rentalCancellationStart, cancelKind, londonStartOfDay } from "../src/lib/cancellationPolicy";
+import { rentalCancellationStart, bookingCancelKind, londonStartOfDay } from "../src/lib/cancellationPolicy";
 
 export const details = query({
   args: { token: v.string(), bookingId: v.id("bookings") },
@@ -32,10 +32,7 @@ export const details = query({
         return { ...line, heroImage: imageSources[0] ?? null, imageSources };
       })),
       rentalRefunds: refunds,
-      cancellationKind: cancelKind(
-        rentalCancellationStart(b),
-        Date.now(),
-      ),
+      cancellationKind: bookingCancelKind(b, Date.now()),
     };
   },
 });
@@ -188,7 +185,7 @@ export const prepareRefund = internalMutation({
     if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
       throw Error("Finish the open cancellation, item addition or approved extension first");
     if (
-      cancelKind(rentalCancellationStart(b), Date.now()) !==
+      bookingCancelKind(b, Date.now()) !==
       "full_refund"
     )
       throw Error(

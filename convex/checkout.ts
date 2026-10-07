@@ -13,7 +13,7 @@ import { assertCurrentAgreement } from "../shared/rentalAgreement";
 import { sendMail } from "./lib/mailer";
 import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
 import { tierByKey, allocateSaving, TIERS } from "./lib/membership";
-import { cancelKind, cancellationSettlement } from "../src/lib/cancellationPolicy";
+import { cancellationSettlement } from "../src/lib/cancellationPolicy";
 import { MEMBERSHIP_BASKET_MINIMUM } from "../shared/checkoutMembershipCredit";
 import { calculateRentalPrice } from "./lib/rentalPrice";
 import { paidRecurringMembership } from "./lib/membershipBilling";

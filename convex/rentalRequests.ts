@@ -2,7 +2,7 @@ import { query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "./lib/rentalChat";
-import { rentalCancellationStart, cancelKind } from "../src/lib/cancellationPolicy";
+import { bookingCancelKind, cancellationDaysForBooking } from "../src/lib/cancellationPolicy";
 
 export const context = query({
   args: { token: v.string(), bookingId: v.id("bookings"), refreshKey: v.optional(v.number()) },
@@ -12,7 +12,8 @@ export const context = query({
     const b = await ownedBooking(ctx, a, bookingId);
     const reservations = await ctx.db.query("reservations").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
     return { status: b.status, start: Math.min(...b.lineItems.map((l: { start: number }) => l.start)), end: Math.max(...b.lineItems.map((l: { end: number }) => l.end)),
-      cancellationKind: cancelKind(rentalCancellationStart(b), Date.now()),
+      cancellationKind: bookingCancelKind(b, Date.now()), cancellationFullRefundDays: cancellationDaysForBooking(b),
+      cancellationTermsVersion: b.agreementDocs?.find((d: { kind: string; version: string }) => d.kind === "cancellation")?.version ?? "2026-10-v10",
       direct: reservations.every(r => r.source === "site"),
       selfService: process.env.CUSTOMER_BOOKING_ACTIONS === "true",
       locked: !!(b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision) };
