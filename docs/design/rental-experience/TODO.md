@@ -57,3 +57,10 @@ This checklist extends the original goal; no original integration requirement is
 - Rental Manager website revenue now has a separate emerald historical/current series, account-filtered hourly refresh and versioned cache admission, preserving aggregate totals. Build, 13 focused checks and actual native 1440/390 bars/lines/toggle fixtures pass. Mirror/pattern repository checks expose unchanged existing failures; production/cache rollout remains outstanding. See Rental Manager `docs/dbc-website-integration/REVENUE-COLOUR.md`.
 
 - Individual physical-window pickup/return clocks now survive the website feed and manager stock ledger, including distinct extension deadlines and explicit unagreed times. Timed inventory search uses those clocks with the return buffer; actual source handlers and 27 manager checks pass. Booking-wide Gantt/weekly/strip views and deployed acceptance remain outstanding. See manager `docs/dbc-website-integration/CLOCK-WINDOWS.md`.
+
+### 7 October 2026 — individual equipment calendar periods
+
+- [x] Local Rental Manager strip, weekly and fullscreen Gantt now display the saved website physical windows and per-window clocks. Exact equal periods group together; separate dates or clocks stay separate, and gap dates remain empty. Equipment quantities and source rental IDs are retained. A return for one item cannot hide another item's away event.
+- [x] Old calendar snapshots are bypassed until compatible version-2 snapshots refresh. Search and progress use the appropriate source/period identities.
+- [x] 29 focused RM handler/item-window/grouping/geometry checks, TypeScript and Next production build pass. Actual Gantt native browser fixture checks pass at desktop/mobile widths; screenshots inspected. No live customer/financial writes or RM backend deploy for this checkpoint.
+- [ ] Roll out compatible DB feed/RM calendar source together, correct the production DB binding, refresh calendar caches and verify real production rentals, photos and stock. Remaining full-goal work stays open.
