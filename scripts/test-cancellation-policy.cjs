@@ -12,19 +12,33 @@ const policy = { exports: {} };
 new Function('module', 'exports', compiled)(policy, policy.exports);
 const { cancelKind, cancellationSettlement, CANCELLATION_FULL_REFUND_DAYS, CANCELLATION_CREDIT_DAYS } = policy.exports;
 
-assert.equal(CANCELLATION_FULL_REFUND_DAYS, 3);
+assert.equal(CANCELLATION_FULL_REFUND_DAYS, 14);
 assert.equal(CANCELLATION_CREDIT_DAYS, 365);
 const at = (year, month, day, hour = 12) => Date.UTC(year, month - 1, day, hour);
 
 // Local-calendar policy must remain stable across both UK daylight-saving changes.
 for (const [now, start] of [
-  [at(2026, 3, 26), at(2026, 3, 29)],
-  [at(2026, 10, 22), at(2026, 10, 25)],
+  [at(2026, 3, 15), at(2026, 3, 29)],
+  [at(2026, 10, 11), at(2026, 10, 25)],
 ]) assert.equal(cancelKind(start, now), 'full_refund');
 for (const [now, start] of [
-  [at(2026, 3, 27), at(2026, 3, 29)],
-  [at(2026, 10, 23), at(2026, 10, 25)],
+  [at(2026, 3, 16), at(2026, 3, 29)],
+  [at(2026, 10, 12), at(2026, 10, 25)],
 ]) assert.equal(cancelKind(start, now), 'store_credit');
+
+const { bookingCancelKind, cancellationDaysForBooking } = policy.exports;
+const booking = { lineItems: [{start:at(2026,10,25)}], agreementDocs:[{kind:'cancellation',version:'2026-10-v11'}] };
+assert.equal(cancellationDaysForBooking(booking),14);
+assert.equal(bookingCancelKind(booking,at(2026,10,11,22)),'full_refund');
+assert.equal(bookingCancelKind(booking,at(2026,10,11,23)),'store_credit','London midnight, rather than UTC midnight, closes the window');
+assert.equal(bookingCancelKind(booking,at(2026,10,12)),'store_credit');
+for(const agreementDocs of [undefined,[{kind:'cancellation',version:'2026-10-v10'}]]) {
+  const older={...booking,agreementDocs};
+  assert.equal(cancellationDaysForBooking(older),3);
+  assert.equal(bookingCancelKind(older,at(2026,10,22)),'full_refund');
+  assert.equal(bookingCancelKind(older,at(2026,10,23)),'store_credit');
+}
+assert.equal(bookingCancelKind({...booking,cancellationPolicyStart:at(2026,10,24)},at(2026,10,11)),'store_credit','A fixed earlier start cannot be bypassed by removing kit');
 
 // A £250 booking: £50 refundable security, £30 redeemed account credit,
 // and £220 actually captured on the card. No path refunds more than £220.

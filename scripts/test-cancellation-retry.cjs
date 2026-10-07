@@ -6,13 +6,13 @@ let created = 0,
 class Stripe {
   constructor() {
     this.paymentIntents = {
-      retrieve: async () => ({ id: "pi_fixture", amount_received: 12000 }),
+      retrieve: async (id) => ({ id, amount_received: 12000 }),
     };
     this.refunds = {
-      list: () => ({
+      list: (args) => ({
         async *[Symbol.asyncIterator]() {
           refundListCalls++;
-          for (const r of receipts.values()) yield r;
+          for (const r of receipts.values()) if (r.payment_intent === args.payment_intent) yield r;
         },
       }),
       create: async (args, { idempotencyKey }) => {
@@ -30,6 +30,7 @@ class Stripe {
           id: "re_fixture",
           status: "succeeded",
           amount: args.amount,
+          payment_intent: args.payment_intent,
         };
         receipts.set(idempotencyKey, r);
         return r;
@@ -130,6 +131,27 @@ const ctx = {
   await bookings.checkoutCreationRejected.handler(ctx,{bookingId:rejected._id});
   assert.equal(rejected.status,"cancelled");assert.equal(held.status,"cancelled");
   assert.equal(memberReservation.state,"expired");
+  const originalNow=Date.now;
+  Date.now=()=>Date.UTC(2030,9,15,12);
+  try {
+    for(const [label,version,days,refundAmount,creditAmount] of [
+      ['fourteen','2026-10-v11',14,120,0],
+      ['thirteen','2026-10-v11',13,20,100],
+      ['accepted-old-policy','2026-10-v10',3,120,0],
+    ]) {
+      const paymentIntentId='pi_'+label;
+      const start=Date.now()+days*86400000;
+      const rental=put('bookings',{status:'confirmed',guestEmail:b.guestEmail,
+        stripePaymentIntentId:paymentIntentId,total:120,depositAmount:20,currency:'GBP',
+        agreementDocs:[{kind:'cancellation',version}],
+        lineItems:[{listingId:'fixture-listing',title:'Camera',qty:1,lineTotal:100,start,end:start+86400000}]});
+      const result=await checkout.cancelByAdmin.handler(ctx,{...args,bookingId:rental._id});
+      assert.equal(result.refundAmount,refundAmount,label);
+      assert.equal(result.creditAmount,creditAmount,label);
+      assert.equal(rental.status,'cancelled');
+      assert.equal(receipts.get(`dbc-cancel-refund-${rental._id}`).payment_intent,paymentIntentId,'Refund uses this rental’s original payment transaction');
+    }
+  } finally {Date.now=originalNow;}
   console.log(
     "PASS cancellation: Stripe succeeded/database failed; original quote reused; one cash refund; retry finalizes once.",
   );
