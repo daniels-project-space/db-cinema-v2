@@ -1013,7 +1013,7 @@ export const stripeWebhook = internalAction({
       if(id)await ctx.runMutation(refund.metadata?.rentalPaymentIntent?internal.rentalOperations.recordRefundPart:internal.rentalOperations.recordRefund,{id:id as any,...(refund.metadata?.rentalPaymentIntent?{paymentIntentId:refund.metadata.rentalPaymentIntent}:{}),stripeRefundId:refund.id,status:refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending"});
     }
     // Retrieve current state: delayed webhook snapshots must not re-enable a canceled subscription.
-    if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.type)) {
+    if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "customer.subscription.paused", "customer.subscription.resumed"].includes(event.type)) {
       const snapshot = event.data.object as Stripe.Subscription;
       const current = await stripe().subscriptions.retrieve(snapshot.id);
       await syncStripeMembership(ctx, current, current.metadata.membershipCheckoutId);
@@ -1024,14 +1024,14 @@ export const stripeWebhook = internalAction({
       const parent=invoice.parent?.subscription_details?.subscription;const subId=typeof parent==="string"?parent:parent?.id;
       if(subId)await reconcileMembershipCreditNotes(ctx,invoice,await stripe().subscriptions.retrieve(subId));
     }
-    if (event.type === "invoice.paid") {
+    if (["invoice.paid", "invoice.payment_failed", "invoice.payment_action_required"].includes(event.type)) {
       const invoice = await stripe().invoices.retrieve((event.data.object as Stripe.Invoice).id);
       const parent = invoice.parent?.subscription_details?.subscription;
       const subId = typeof parent === "string" ? parent : parent?.id;
       if (subId) {
         const sub = await stripe().subscriptions.retrieve(subId);
         await syncStripeMembership(ctx, sub, sub.metadata.membershipCheckoutId);
-        await grantStripeMembershipInvoice(ctx, invoice, sub);
+        if (event.type === "invoice.paid") await grantStripeMembershipInvoice(ctx, invoice, sub);
       }
     }
     return true;
