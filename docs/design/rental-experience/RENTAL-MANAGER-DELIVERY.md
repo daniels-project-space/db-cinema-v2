@@ -26,3 +26,9 @@ The paged/single-booking feed now includes saved site reservation rows with cano
 Rental Manager consumes that ledger, rejects missing canonical mappings rather than acknowledging invented stock, uses peak concurrent component quantities for equipment displays, and stores the separate windows. Canonical images replace the current listing decomposition's thumbnails. `bookedUnitsOnDate` now counts each website component only on its saved dates, with and without the legacy allocation argument.
 
 Additional evidence: actual feed-handler test covers catalogue edits, independent extension dates, quantities, statuses and legacy distinction. Twenty-two focused Rental Manager sync/availability/item-unit tests pass. Actual development feed query returned seven bookings, one with an empty cancelled ledger; it does not prove a live active booking's downstream windows. Remaining calendar, renter quoting and conflict consumers still need to use individual windows/time buffers, and live production acceptance remains outstanding.
+
+## Quoting and calendar search windows — follow-up
+
+Shared renter quoting now emits occupancy for each website physical allocation rather than spanning the overall booking envelope. Only the latest allocation for a component can be extended as overdue, avoiding multiplying old extension rows. Calendar item search reads the saved windows too, with collection/return times and the existing one-hour return buffer, including a buffer crossing midnight.
+
+Forty-four focused quoting/item-unit/sync tests passed and Rental Manager's Next production build passed. Tests cover a free gap between two three-camera hires, self-booking exclusion, exact daily calendar intervals and a late return carrying into the next day. No production deployment was executed. Remaining calendar bar/Gantt/chat paths, per-line time persistence, return bridging and live acceptance still require completion.
