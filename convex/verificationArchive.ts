@@ -35,12 +35,21 @@ export const context = internalQuery({ args: { archiveId: v.id("verification_arc
   if (!archive) return null;
   return { ...archive, documents: await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archiveId)).collect() };
 } });
-export const save = internalMutation({ args: { archiveId: v.id("verification_archives"), kind: v.string(), storageId: v.id("_storage"), sha256: v.string(), size: v.number(), contentType: v.string() }, handler: async (ctx, args) => {
+export const save = internalMutation({ args: { archiveId: v.id("verification_archives"), kind: v.string(), storageId: v.id("_storage"), sha256: v.string(), size: v.number(), contentType: v.string(), replaceStorageId: v.optional(v.id("_storage")) }, handler: async (ctx, args) => {
   const archive = await ctx.db.get(args.archiveId);
   if (!archive || archive.status === "deleted") { await ctx.storage.delete(args.storageId); throw Error("Archive missing or expired"); }
   const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", args.archiveId)).collect();
-  if (documents.some(d => d.kind === args.kind && d.sha256 === args.sha256)) { await ctx.storage.delete(args.storageId); return; }
-  await ctx.db.insert("verification_documents", { ...args, bookingId: archive.bookingId, accountId: archive.accountId, sessionId: archive.sessionId, savedAt: Date.now() });
+  const existing = documents.find(d => d.kind === args.kind && d.sha256 === args.sha256);
+  if (existing) {
+    if (args.replaceStorageId === existing.storageId) {
+      const replacedStorageId = existing.storageId;
+      await ctx.db.patch(existing._id, { storageId: args.storageId, size: args.size, contentType: args.contentType });
+      await ctx.storage.delete(replacedStorageId);
+    } else await ctx.storage.delete(args.storageId);
+    return;
+  }
+  const { replaceStorageId: _replaceStorageId, ...document } = args;
+  await ctx.db.insert("verification_documents", { ...document, bookingId: archive.bookingId, accountId: archive.accountId, sessionId: archive.sessionId, savedAt: Date.now() });
 } });
 export const finish = internalMutation({ args: { archiveId: v.id("verification_archives"), complete: v.boolean() }, handler: async (ctx, args) => {
   const archive = await ctx.db.get(args.archiveId);

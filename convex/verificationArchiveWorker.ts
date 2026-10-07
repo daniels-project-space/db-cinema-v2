@@ -50,12 +50,16 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
       const type = bytes.subarray(0, 5).toString() === "%PDF-" ? "application/pdf" : bytes[0] === 0xff && bytes[1] === 0xd8 ? "image/jpeg" : bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? "image/png" : bytes.subarray(0,4).toString() === "RIFF" && bytes.subarray(8,12).toString() === "WEBP" ? "image/webp" : null;
       if (!type) throw Error("Unexpected document format");
       const sha256 = createHash("sha256").update(bytes).digest("hex");
-      if (archive.documents.some(d => d.kind === file.kind && d.sha256 === sha256)) continue;
+      const previous = archive.documents.find(d => d.kind === file.kind && d.sha256 === sha256);
+      if (previous) {
+        const stored = await ctx.storage.get(previous.storageId);
+        if (stored && stored.size === size && createHash("sha256").update(Buffer.from(await stored.arrayBuffer())).digest("hex") === sha256) continue;
+      }
       const storageId = await ctx.storage.store(new Blob([bytes], { type }));
       try {
         const stored = await ctx.storage.get(storageId);
         if (!stored || stored.size !== size || createHash("sha256").update(Buffer.from(await stored.arrayBuffer())).digest("hex") !== sha256) throw Error("Stored document integrity check failed");
-        await ctx.runMutation(internal.verificationArchive.save, { archiveId, kind: file.kind, storageId, sha256, size, contentType: type });
+        await ctx.runMutation(internal.verificationArchive.save, { archiveId, kind: file.kind, storageId, sha256, size, contentType: type, ...(previous ? { replaceStorageId: previous.storageId } : {}) });
       }
       catch (error) { await ctx.storage.delete(storageId); throw error; }
     }
