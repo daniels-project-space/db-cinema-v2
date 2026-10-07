@@ -503,8 +503,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await shot("weekday-immediate-credit-mobile");
   // Removing real £100 lines crosses Studio → Pro → Starter. Preserve the
   // card space while pricing, with no stale saving or selectable stale plan.
-  const transitionGear=rows.filter(g=>g.pricing?.daily===100&&!g.displayOnly&&!g.quietDeal).slice(0,3);
-  assert.equal(transitionGear.length,3);
+  const eligibleTransitionGear=rows.filter(g=>g.pricing?.daily===100&&!g.displayOnly&&!g.quietDeal);
+  assert(eligibleTransitionGear.length>0,"Tier transitions need real £100 equipment");
+  // Cart lines have independent keys and can contain the same listing. Keep
+  // three real £100 lines even when the live catalogue has fewer distinct kits.
+  const transitionGear=Array.from({length:3},(_,n)=>eligibleTransitionGear[n%eligibleTransitionGear.length]);
   let transitionItems=transitionGear.map((g,n)=>({...bigWeekdayItem,key:'tier-transition-'+n,listingId:g._id,title:g.title,slug:g.slug,heroImage:g.heroImage,deposit:g.depositAmount,total:100,perDay:100}));
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(transitionItems))});localStorage.removeItem('dbc_membership_selection_v1');true`);
   await navigate(root+'/cart');
