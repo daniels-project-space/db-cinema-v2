@@ -101,9 +101,15 @@ export function mapBookingForSync(
       .filter(r => r.source === "site" && ["confirmed", "active", "returned"].includes(r.status))
       .map(r => {
         const unit = unitById.get(String(r.inventoryUnitId));
+        const matchingLines = (b.lineItems ?? []).filter(li => r.listingId && String(li.listingId) === String(r.listingId) && li.start <= r.start && li.end === r.end);
+        const returnTimes = matchingLines.map(li => li.returnTime === undefined ? b.returnTime ?? null : li.returnTime);
+        // No inferred time for an ambiguous/legacy allocation. Keep it occupied
+        // through the whole return day rather than releasing physical stock early.
+        const returnTime = returnTimes.length && returnTimes.every(t => typeof t === "string") ? [...returnTimes].sort().at(-1)! : null;
         return { reservationId: String(r._id), inventoryUnitId: String(r.inventoryUnitId),
           rmv2ItemId: unit?.rmv2ItemId ?? null, name: unit?.name ?? "Unmapped equipment",
           sku: unit?.sku ?? null, qty: r.qty, start: r.start, end: r.end,
+          pickupTime: b.pickupTime ?? null, returnTime,
           listingId: r.listingId ? String(r.listingId) : null,
           status: r.status, hyggloProductId: unit?.hyggloProductId ?? null };
       }) } : {}),
