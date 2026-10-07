@@ -10,4 +10,6 @@ The account management panel lists copies per rental. Opening/downloading requir
 
 The daily retention job deletes file bytes 30 days after actual return/cancellation. Active rentals, active reuse, or an explicitly recorded insurance/case hold prevent removal. Admins can remove that hold once the case closes. Integrity and archive audit metadata remain after deletion. An unknown closure timestamp fails safely by retaining documents until corrected.
 
+Expiry uses the full 30-day duration from the latest relevant rental closure. The daily cleanup removes expired copies on its next run. Deleted archives are terminal: retry cannot reopen them, and backfill skips rentals returned or cancelled outside the retention window. Regression checks cover the exact expiry boundary, recent reused rentals, missing closure timestamps, insurance holds, and expired-cancellation backfill.
+
 Remaining acceptance: check actual live Didit media host/response shape; copy actual provider evidence; verify saved bytes, authenticated admin preview and download, account mapping, incomplete-state recovery and retention on deployed endpoints. New code is not proof of production completion.

@@ -4,6 +4,11 @@ import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { rentalsForAccount } from "./lib/rentalAccount";
 
+const DOCUMENT_RETENTION_MS = 30 * 86400000;
+function rentalClosedAt(booking: any): number | undefined {
+  return booking?.status === "returned" ? booking.returnedAt : booking?.status === "cancelled" ? booking.cancelledAt : undefined;
+}
+
 export async function queueVerificationArchive(ctx: any, booking: any) {
   if (!booking.diditSessionId) return;
   const existing = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", booking._id)).collect();
@@ -52,7 +57,8 @@ export const accountDocuments = query({ args: { token: v.string(), accountId: v.
 export const retry = mutation({ args: { token: v.string(), archiveId: v.id("verification_archives") }, handler: async (ctx, args) => {
   await assertAdmin(ctx, args.token, "verificationArchive.retry");
   const archive = await ctx.db.get(args.archiveId);
-  if (!archive || archive.status === "complete") return;
+  if (!archive || archive.status === "deleted") throw Error("Document retention period ended. Expired archives cannot be reopened.");
+  if (archive.status === "complete") return;
   await ctx.db.patch(archive._id, { status: "pending", attempts: 0, dueAt: Date.now(), error: undefined });
   await ctx.scheduler.runAfter(0, internal.verificationArchiveWorker.capture, { archiveId: archive._id });
 } });
@@ -70,7 +76,10 @@ export const backfillAccount = mutation({ args: { token: v.string(), accountId: 
   const account = await ctx.db.get(args.accountId);
   if (!account) throw Error("Account not found");
   const bookings = await rentalsForAccount(ctx, account, 100);
-  for (const booking of bookings) if (booking.diditSessionId && (!booking.returnedAt || booking.returnedAt + 30 * 86400000 > Date.now())) await queueVerificationArchive(ctx, booking);
+  for (const booking of bookings) {
+    const closedAt = rentalClosedAt(booking);
+    if (booking.diditSessionId && (!closedAt || closedAt + DOCUMENT_RETENTION_MS > Date.now())) await queueVerificationArchive(ctx, booking);
+  }
 } });
 export const retentionHold = mutation({ args: { token: v.string(), archiveId: v.id("verification_archives"), reason: v.string() }, handler: async (ctx, args) => {
   await assertAdmin(ctx, args.token, "verificationArchive.retentionHold");
@@ -88,9 +97,9 @@ export const purgeExpired = internalMutation({ args: {}, handler: async ctx => {
     const booking = await ctx.db.get(archive.bookingId);
     const reused = await ctx.db.query("bookings").withIndex("by_verification_reused", q => q.eq("verificationReusedFrom", archive.bookingId)).collect();
     if (reused.some(b => !["returned", "cancelled"].includes(b.status))) continue;
-    const closedAt = booking?.status === "returned" ? booking.returnedAt : booking?.status === "cancelled" ? booking.cancelledAt : undefined;
-    if (!closedAt || closedAt + 30 * 86400000 > Date.now()) continue;
-    if (reused.some(b => !((b.status === "returned" ? b.returnedAt : b.cancelledAt) ?? 0) || ((b.status === "returned" ? b.returnedAt : b.cancelledAt) ?? 0) + 30 * 86400000 > Date.now())) continue;
+    const closedAt = rentalClosedAt(booking);
+    if (!closedAt || closedAt + DOCUMENT_RETENTION_MS > Date.now()) continue;
+    if (reused.some(b => !rentalClosedAt(b) || rentalClosedAt(b)! + DOCUMENT_RETENTION_MS > Date.now())) continue;
     const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archive._id)).collect();
     for (const document of documents) await ctx.storage.delete(document.storageId);
     await ctx.db.patch(archive._id, { status: "deleted", deletedAt: Date.now(), error: undefined });
