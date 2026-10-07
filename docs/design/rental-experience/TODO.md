@@ -2,6 +2,12 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+## Paired review checkpoint
+
+- [x] Make compatible local changes reviewable in draft [website PR #58](https://github.com/daniels-project-space/db-cinema-v2/pull/58) and [Rental Manager PR #65](https://github.com/daniels-project-space/rental-manager-v2/pull/65). Preserve the latest manager invoice-statistics/reconciliation improvements by merging current main before review.
+- [x] Run actual read-only live preflight: the public website uses `zany-wolf-18`; manager targets the older backend, has mismatched credentials and lacks a registered/enforced private owner. No private imports, financial writes or customer messages were enabled. See manager `LIVE-READINESS.md`.
+- [ ] Resolve private owner setup, pair compatible deployments/credentials, verify hosted UI and actual provider/storage/calendar/stock/settlement behavior. Draft PRs and passing local fixtures do not complete production acceptance or the remaining reference/image requirements.
+
 ## Layout and visual scope — added 7 October 2026
 
 - [ ] Rebuild renter account, rental conversations and management screens in standard dark mode, using the approved concept's layout and visual hierarchy.
