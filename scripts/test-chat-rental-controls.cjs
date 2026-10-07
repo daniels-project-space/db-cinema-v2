@@ -15,8 +15,8 @@ put('sessions', { token: 'renter', accountId: a._id, expiresAt: Date.now()+60000
 put('sessions', { token: 'foreign', accountId: foreign._id, expiresAt: Date.now()+60000 });
 put('sessions', { token: 'expired', accountId: a._id, expiresAt: Date.now()-1 });
 const unit = put('inventory_units', { name: 'Camera', quantityOwned: 5 });
-const l = put('listings', { title: 'Camera', active: true, components: [{ inventoryUnitId: unit._id, qty: 1 }] });
-const l2 = put('listings', { title: 'Lens kit', active: true, components: [{ inventoryUnitId: unit._id, qty: 1 }] });
+const l = put('listings', { title: 'Camera', depositAmount: 200, active: true, components: [{ inventoryUnitId: unit._id, qty: 1 }] });
+const l2 = put('listings', { title: 'Lens kit', depositAmount: 200, active: true, components: [{ inventoryUnitId: unit._id, qty: 1 }] });
 const start = Date.UTC(2030,9,1), end = start+86400000;
 const lines = [{listingId:l._id,title:l.title,start,end,qty:1,lineTotal:30},{listingId:l2._id,title:l2.title,start:start+86400000,end:end+86400000,qty:1,lineTotal:20}];
 const b = put('bookings', { guestEmail:a.email,status:'confirmed',lineItems:lines,total:60,subtotal:50,depositAmount:10,stripePaymentIntentId:'pi_fixture' });

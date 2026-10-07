@@ -8,7 +8,7 @@ import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
-import { IdVerify } from "@/components/IdVerify";
+import { VerificationProgress } from "@/components/rentals/VerificationProgress";
 import { tierByKey } from "@/lib/membership";
 import { loadStripe } from "@stripe/stripe-js";
 import { formatGbp } from "@/lib/pricing";
@@ -100,7 +100,7 @@ function SuccessInner() {
   }
 
   // membership subscription confirmation
-  if (membership) {
+  if (membership && !bookingId) {
     const t = tierByKey(membership);
     return (
       <div className="mx-auto max-w-2xl px-6 py-16 text-center">
@@ -139,8 +139,10 @@ function SuccessInner() {
         {holdStatus === "held" ? "Booking " : "Payment "}<span className="serif-accent gradient-text text-[1.06em]">{holdStatus === "held" ? "confirmed" : "received"}</span>
       </h1>
       <p className="mt-3 text-white/40">
-        A confirmation has been sent to {booking?.guestEmail ?? "your email"}.
+        Your rental payment was received. Keep this page open to complete security and verification.
       </p>
+
+      {bookingId && <div className="mt-8"><VerificationProgress bookingId={bookingId} checkoutSessionId={sessionId} autoStart /></div>}
 
       {booking && (
         <div className="ticket spot gradient-border mx-auto mt-8 max-w-md rounded-2xl p-5 text-left">
@@ -171,20 +173,6 @@ function SuccessInner() {
         </div>
       )}
 
-      {booking && (
-        <div className="mx-auto mt-6 max-w-md text-left">
-          {booking.idVerifyStatus === "verified" ? (
-            <IdVerify bookingId={booking._id} status="verified" />
-          ) : (
-            <>
-              <p className="mb-2 text-sm text-white/50">
-                One last step before handover — verify your identity:
-              </p>
-              <IdVerify bookingId={booking._id} status={booking.idVerifyStatus} note={booking.verificationNote} checkoutSessionId={sessionId} autoStart />
-            </>
-          )}
-        </div>
-      )}
 
       <Link href="/gear" className="btn-primary mt-8 px-7 py-3">
         Rent more gear

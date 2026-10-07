@@ -75,6 +75,7 @@ import type * as lib_rentalAccount from "../lib/rentalAccount.js";
 import type * as lib_rentalBillingLines from "../lib/rentalBillingLines.js";
 import type * as lib_rentalChat from "../lib/rentalChat.js";
 import type * as lib_rentalCreditPolicy from "../lib/rentalCreditPolicy.js";
+import type * as lib_rentalExposure from "../lib/rentalExposure.js";
 import type * as lib_rentalInventory from "../lib/rentalInventory.js";
 import type * as lib_rentalPaymentPlan from "../lib/rentalPaymentPlan.js";
 import type * as lib_rentalPaymentSources from "../lib/rentalPaymentSources.js";
@@ -199,6 +200,7 @@ declare const fullApi: ApiFromModules<{
   "lib/rentalBillingLines": typeof lib_rentalBillingLines;
   "lib/rentalChat": typeof lib_rentalChat;
   "lib/rentalCreditPolicy": typeof lib_rentalCreditPolicy;
+  "lib/rentalExposure": typeof lib_rentalExposure;
   "lib/rentalInventory": typeof lib_rentalInventory;
   "lib/rentalPaymentPlan": typeof lib_rentalPaymentPlan;
   "lib/rentalPaymentSources": typeof lib_rentalPaymentSources;

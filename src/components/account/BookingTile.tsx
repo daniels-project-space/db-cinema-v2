@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalKit } from "@/components/rentals/RentalKit";
-import { IdVerify } from "@/components/IdVerify";
+import { VerificationLink } from "@/components/rentals/VerificationProgress";
 import { formatGbp } from "@/lib/pricing";
 import { BookingReview } from "@/components/account/BookingReview";
 import { StatusPill } from "@/components/account/StatusPill";
@@ -66,6 +66,7 @@ export function BookingTile({
   return (
     <article className="overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313] p-5 sm:p-6">
 
+      {showVerify && <VerificationLink booking={booking} />}
       <RentalAdditionApproval token={token} bookingId={booking._id}/>
 
       <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
@@ -84,11 +85,6 @@ export function BookingTile({
       <div className="mt-5"><RentalKit items={booking.lineItems} compact={isHistory} prices /></div>
       {err && <div className="mt-1 text-[11px] text-rose-300">{err}</div>}
 
-      {showVerify && (
-        <div className="mt-2">
-          <IdVerify bookingId={booking._id} status={booking.idVerifyStatus} note={booking.verificationNote} compact />
-        </div>
-      )}
       {token && token !== "preview" && <HoldRenewal bookingId={booking._id} token={token} status={booking.depositHoldRenewalStatus} expiresAt={booking.depositHoldExpiresAt} />}
       {token && token !== "preview" && <LateFeeApproval bookingId={booking._id} token={token} status={booking.lateFeeStatus} amount={booking.lateFeeAmount} />}
 

@@ -33,7 +33,7 @@ function load(file) {
 
 Object.assign(process.env, {
   DIDIT_API_KEY: 'unused', DIDIT_WORKFLOW_ID: 'workflow-1', DIDIT_WEBHOOK_SECRET: 'webhook-test-secret',
-  DIDIT_APPLICATION_ID: 'application-1', DIDIT_ENVIRONMENT: 'sandbox',
+  DIDIT_APPLICATION_ID: 'application-1', DIDIT_ENVIRONMENT: 'sandbox', INVOICE_SECRET:'didit-test-identity-secret',
 });
 
 const { webhook, bookingSession, adminReview, reconcileOpenSessions } = load('convex/didit.ts');
@@ -58,7 +58,7 @@ function signed(event) {
     application_id: 'application-1', environment: 'sandbox', workflow_id: 'workflow-1',
     session_id: 'session-1', vendor_data: 'dbc-booking-booking-1', status: 'Approved',
     decision: {
-      status: 'Approved', id_verifications: [{status: 'Approved'}],
+      status: 'Approved', id_verifications: [{status: 'Approved',full_name:'Test Rental Customer',date_of_birth:'1990-01-01'}],
       liveness_checks: [{status: 'Approved'}], face_matches: [{status: 'Approved'}],
       poa_verifications: [{status: 'Approved', poa_parsed_address: {postal_code: 'SW1A 1AA'}}],
     },
@@ -97,12 +97,12 @@ function signed(event) {
     ['10 Downing Street, London SW1A 2AA', 'manual_review'],
     ['10 Downing Street, London', 'manual_review'],
   ]) {
-    const booking = { verificationProvider: 'didit', diditSessionId: 'session-1', billingAddress, idVerifyStatus: 'processing', guestEmail: 'renter@example.invalid' };
+    const booking = { _id:'booking-1',lineItems:[],verificationProvider: 'didit', diditSessionId: 'session-1', billingAddress, idVerifyStatus: 'processing', guestEmail: 'renter@example.invalid' };
     let patch;
     const db = {
       get: async () => booking,
       patch: async (_, value) => { patch = value; },
-      query: () => ({ withIndex: () => ({ first: async () => null, collect: async () => [] }) }),
+      query: () => ({ withIndex: () => ({ first: async () => null, collect: async () => [], take: async () => [] }) }),
     };
     const mutationCtx = { db, scheduler: { runAfter: async () => {} } };
     assert.equal(await setDiditResult.handler(mutationCtx, {
@@ -126,7 +126,7 @@ function signed(event) {
   const report = {session_id:'session-1',session_kind:'user',workflow_id:'workflow-1',
     vendor_data:'dbc-booking-booking-1',contact_details:{email:'renter@example.invalid'},
     session_url:sessionUrl,status:'In Review',
-    id_verifications:[{status:'Declined',node_id:'feature_ocr'}],
+    id_verifications:[{status:'Declined',node_id:'feature_ocr',full_name:'Test Rental Customer',date_of_birth:'1990-01-01'}],
     liveness_checks:[{status:'Approved',node_id:'feature_liveness'}],
     face_matches:[{status:'Approved',node_id:'feature_face'}],
     poa_verifications:[{status:'Approved',node_id:'feature_poa'}]};
@@ -144,7 +144,7 @@ function signed(event) {
       sentBody = JSON.parse(options.body);
       return new Response(JSON.stringify({session_id:'new-session', workflow_id:'workflow-1',url:'https://verify.didit.me/session/new-session'}),{status:200});
     };
-    const createCtx = {runQuery:async ref=>ref==='accounts:_byToken'
+    const createCtx = {runAction:async()=>{},runQuery:async ref=>ref==='accounts:_byToken'
       ? {email:'renter@example.invalid'} : {status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required',guestEmail:'renter@example.invalid',renterName:'Test Rental Customer',billingAddress:'25 Whitcomb Street, London WC2H 7ER'},
       runMutation:async()=>true};
     await bookingSession.handler(createCtx,{bookingId:'booking-1',accountToken:'account-token'});

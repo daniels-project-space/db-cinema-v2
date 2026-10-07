@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -29,6 +29,10 @@ export function IdVerify({ bookingId, status, note, compact, autoStart = false, 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const attempted = useRef<string | null>(null);
+  useEffect(() => { setSessionUrl(null); setErr(null); attempted.current = null; }, [bookingId]);
+  useEffect(() => { if (status === "requires_input") { setSessionUrl(null); attempted.current = null; } }, [status]);
+
   const open = useCallback(async () => {
     if (busy || sessionUrl) return;
     setBusy(true);
@@ -46,8 +50,9 @@ export function IdVerify({ bookingId, status, note, compact, autoStart = false, 
   }, [busy, sessionUrl, getSession, bookingId, account.token, checkoutSessionId]);
 
   useEffect(() => {
-    if (autoStart && !["verified", "rejected", "manual_review"].includes(status)) void open();
-  }, [autoStart, status, open]);
+    const key = bookingId;
+    if (autoStart && attempted.current !== key && !["verified", "rejected", "manual_review"].includes(status)) { attempted.current = key; void open(); }
+  }, [autoStart, status, bookingId, open]);
 
   if (status === "verified")
     return <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-300"><IconCheck className="h-3 w-3" /> Identity and address verified</span>;
