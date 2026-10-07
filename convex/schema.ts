@@ -217,6 +217,9 @@ export default defineSchema({
     stripePaymentIntentId: v.optional(v.string()),
     stripeCheckoutSessionId: v.optional(v.string()),
     stripeDepositIntentId: v.optional(v.string()),
+    renterPersonKey: v.optional(v.string()),
+    replacementValues: v.optional(v.array(v.object({ listingId: v.id("listings"), unitPence: v.number() }))),
+    verificationChecks: v.optional(v.object({ identity: v.string(), selfie: v.string(), address: v.string() })),
     diditSessionId: v.optional(v.string()),
     diditEventId: v.optional(v.string()),
     diditEventAt: v.optional(v.number()),
@@ -324,6 +327,8 @@ export default defineSchema({
     .index("by_agreement_request", ["agreementRequestId"])
     .index("by_stripePaymentIntentId", ["stripePaymentIntentId"])
     .index("by_guestEmail", ["guestEmail"])
+    .index("by_guestEmail_status", ["guestEmail", "status"])
+    .index("by_person_status", ["renterPersonKey", "status"])
     .index("by_account", ["accountId"])
     .index("by_account_access_retry", ["accountAccessEmailRetryAt"])
     .index("by_review_check", ["status", "reviewFollowUpCheckedAt"]),
@@ -517,6 +522,7 @@ export default defineSchema({
 
   // ── RMv2 availability bridge state ────────────────────────────
   accounts: defineTable({
+    renterPersonKey: v.optional(v.string()),
     blockedAt: v.optional(v.number()),
     blockedReason: v.optional(v.string()),
     adminMembershipTier: v.optional(v.union(v.literal("standard"), v.literal("plus"), v.literal("pro"), v.literal("studio"))),

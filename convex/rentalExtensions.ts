@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "./lib/rentalChat";
+import { assertRenterExposure } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { lateFeeQuote } from "./lib/lateFee";
 import { londonStartOfDay } from "../src/lib/cancellationPolicy";
@@ -60,6 +61,7 @@ async function quoteFor(ctx: any, b: any, extraDays: number, selected?: number[]
     return { lineIndex, listingId: li.listingId, title: li.title, start: li.end + DAY, end: li.end + extraDays * DAY, qty: li.qty, dailyRate, lineTotal: Math.round(dailyRate * extraDays * 100) / 100 };
   }));
   const proposed = b.lineItems.map((li: any, i: number) => chosen.includes(i) ? { ...li, end: li.end + extraDays * DAY } : li);
+  await assertRenterExposure(ctx, b, proposed);
   await assertRentalInventory(ctx, proposed, b._id);
   return { items, proposed, priceDelta: Math.round(items.reduce((sum, item) => sum + item.lineTotal, 0) * 100) / 100 };
 }
@@ -218,7 +220,7 @@ export const applyPaid = internalMutation({
     const byIndex = new Map(r.quoteItems.map(i => [i.lineIndex, i]));
     const lines = b.lineItems.map((li, i) => byIndex.has(i) ? { ...li, end: byIndex.get(i)!.end, returnTime: r.approvedReturnTime } : { ...li, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime });
     // External reservations or calendar blocks may have changed even while our hold was active.
-    try { await assertRentalInventory(ctx, lines, b._id); } catch { return { ok: false, closed: true, bookingId: r.bookingId }; }
+    try { await assertRenterExposure(ctx, b, lines); await assertRentalInventory(ctx, lines, b._id); } catch { return { ok: false, closed: true, bookingId: r.bookingId }; }
     const reservations = await ctx.db.query("reservations").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
     for (const res of reservations) if (["confirmed", "active", "hold"].includes(res.status)) await ctx.db.patch(res._id, { status: "cancelled" });
     for (const li of lines) {

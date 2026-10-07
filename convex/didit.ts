@@ -1,5 +1,7 @@
 "use node";
 
+import { verificationChecks, securityReady } from "../shared/verificationProgress";
+import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import Stripe from "stripe";
 import { action, internalAction } from "./_generated/server";
@@ -40,25 +42,33 @@ export const bookingSession = action({
     accountToken: v.optional(v.string()),
     checkoutSessionId: v.optional(v.string()),
   },
-  handler: async (ctx, a): Promise<{ url: string }> => {
+  handler: async (ctx, a): Promise<{ url: string | null; reused?: boolean }> => {
     const cfg = config();
-    const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
+    let booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
     if (!booking || booking.verificationProvider !== "didit" || !["confirmed", "active"].includes(booking.status) ||
         !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required"))
       throw new Error("This booking is not ready for verification.");
+    if (!securityReady(booking)) throw Error("Complete the rental payment and required card hold before verification.");
     let authorized = false;
     if (a.accountToken) {
       const acct: any = await ctx.runQuery(internal.accounts._byToken, { token: a.accountToken });
-      authorized = !!acct && acct.email?.trim().toLowerCase() === booking.guestEmail?.trim().toLowerCase();
+      authorized = !!acct?.email && belongsToRentalAccount(booking, acct);
     }
     if (!authorized && a.checkoutSessionId) {
       const key = process.env.STRIPE_SECRET_KEY;
       if (!key) throw new Error("Payment service unavailable");
       const session = await new Stripe(key).checkout.sessions.retrieve(a.checkoutSessionId);
-      authorized = session.payment_status === "paid" && session.metadata?.bookingId === a.bookingId;
+      authorized = session.status === "complete" && ["paid", "no_payment_required"].includes(session.payment_status) && session.metadata?.bookingId === a.bookingId && (!booking.stripeCheckoutSessionId || session.id === booking.stripeCheckoutSessionId);
     }
     if (!authorized) throw new Error("Please sign in to verify this booking.");
 
+    if (!booking.diditSessionId && booking.idVerifyStatus === "required") {
+      // Finish the eligible previous-check revalidation before starting a fresh upload workflow.
+      await ctx.runAction(internal.didit.reuseVerification, { bookingId: a.bookingId });
+      booking = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
+      if (booking?.idVerifyStatus === "verified" && securityReady(booking)) return { url: null, reused: true };
+      if (!booking || !securityReady(booking) || !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required")) throw Error("The rental changed. Refresh its verification progress.");
+    }
     if (booking.diditSessionId) {
       const existing = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
       if (existing.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
@@ -90,7 +100,7 @@ export const bookingSession = action({
         vendor_data: `dbc-booking-${a.bookingId}`,
         language: "en",
         expected_details: expectedDetails,
-        ...(process.env.APP_URL ? { callback: new URL("/account", process.env.APP_URL).toString(), callback_method: "both" } : {}),
+        ...(process.env.APP_URL ? { callback: new URL(`/account/verification/${a.bookingId}${a.checkoutSessionId ? `?session_id=${encodeURIComponent(a.checkoutSessionId)}` : ""}`, process.env.APP_URL).toString(), callback_method: "both" } : {}),
         contact_details: { email: booking.guestEmail, send_notification_emails: false },
       }),
     });
@@ -101,9 +111,16 @@ export const bookingSession = action({
         !hostedSessionUrl.test(result.url))
       throw new Error("Verification provider returned an invalid session.");
     const saved: boolean = await ctx.runMutation(internal.bookings.setDiditSession, {
-      bookingId: a.bookingId, sessionId: result.session_id,
+      bookingId: a.bookingId, sessionId: result.session_id, previousSessionId: booking.diditSessionId,
     });
-    if (!saved) throw new Error("Verification session could not be attached to the booking.");
+    if (!saved) {
+      const current: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
+      if (current?.diditSessionId && securityReady(current)) {
+        const attached = await retrieveSession(cfg.apiKey, current.diditSessionId, String(a.bookingId), current.guestEmail);
+        if (attached.workflow_id === cfg.workflowId && ["Not Started", "In Progress", "Awaiting User", "Resubmitted"].includes(attached.status) && typeof attached.session_url === "string" && hostedSessionUrl.test(attached.session_url)) return { url: attached.session_url };
+      }
+      throw new Error("The rental changed while verification opened. Refresh its progress before continuing.");
+    }
     return { url: result.url };
   },
 });
@@ -122,7 +139,7 @@ export const reuseVerification = internalAction({
     if (!mapped || mapped.status !== "verified" || !mapped.documentExpiresAt || mapped.documentExpiresAt <= Date.now()) {
       await ctx.runMutation(internal.bookings.revokeVerificationReuse, { sourceBookingId: candidate.source._id }); return;
     }
-    await ctx.runMutation(internal.bookings.applyVerificationReuse, { bookingId, sourceBookingId: candidate.source._id, documentExpiresAt: mapped.documentExpiresAt });
+    await ctx.runMutation(internal.bookings.applyVerificationReuse, { bookingId, sourceBookingId: candidate.source._id, documentExpiresAt: mapped.documentExpiresAt, personKey: mapped.personKey });
   } catch { /* Outage or mismatched case requires the normal verification flow. */ }
  }
 });
@@ -181,7 +198,7 @@ export const adminReview = action({
         throw new Error("Didit returned a different case. Check the provider decision before continuing.");
     }
     const saved: boolean = await ctx.runMutation(internal.bookings.setDiditManualReview, {
-      bookingId, sessionId: booking.diditSessionId, decision, note: reason,
+      bookingId, sessionId: booking.diditSessionId, decision, note: reason, personKey: mapDecision(session.status, session)?.personKey,
     });
     if (!saved) throw new Error("The rental changed during review. Check its current status and the Didit case.");
   },
@@ -243,6 +260,8 @@ function mapDecision(rawStatus: unknown, decision: any): {
   note?: string;
   poaPostcodes: string[];
   documentExpiresAt?: number;
+  personKey?: string;
+  checks: ReturnType<typeof verificationChecks>;
 } | null {
   let status: "processing" | "manual_review" | "verified" | "requires_input" | "rejected";
   let poaPostcodes: string[] = [];
@@ -257,7 +276,7 @@ function mapDecision(rawStatus: unknown, decision: any): {
   else if (rawStatus === "Declined" || rawStatus === "Kyc Expired") status = "rejected";
   else if (rawStatus === "Not Started" || rawStatus === "In Progress") status = "processing";
   else return null;
-  const note = status === "manual_review" && rawStatus === "Approved"
+  let note = status === "manual_review" && rawStatus === "Approved"
     ? "A required identity, selfie or address check did not pass. We will review it."
     : rawStatus === "Expired" ? "The verification link expired. Start a new check before handover."
     : rawStatus === "Abandoned" ? "The verification was not completed. Start a new check before handover."
@@ -265,7 +284,14 @@ function mapDecision(rawStatus: unknown, decision: any): {
   const expiries = (Array.isArray(decision?.id_verifications) ? decision.id_verifications : [])
     .map((item: any) => /^\d{4}-\d{2}-\d{2}$/.test(item.expiration_date ?? "") ? Date.parse(`${item.expiration_date}T00:00:00Z`) : NaN);
   const documentExpiresAt = expiries.length && expiries.every(Number.isFinite) ? Math.min(...expiries) : undefined;
-  return { status, note, poaPostcodes, ...(documentExpiresAt ? { documentExpiresAt } : {}) };
+  // Use provider-attested biographical identity across emails; never store raw DOB or ID numbers.
+  const identities = (Array.isArray(decision?.id_verifications) ? decision.id_verifications : [])
+    .filter((item: any) => item.status === "Approved" && /^\d{4}-\d{2}-\d{2}$/.test(item.date_of_birth ?? "") && typeof item.full_name === "string" && item.full_name.trim());
+  const keys = identities.map((item: any) => JSON.stringify([item.full_name.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " "), item.date_of_birth]));
+  const secret = process.env.INVOICE_SECRET;
+  const personKey = secret && keys.length && new Set(keys).size === 1 ? createHmac("sha256", secret).update(`dbc-person-v1:${keys[0]}`).digest("hex") : undefined;
+  if (status === "verified" && !personKey) { status = "manual_review"; note = "The verified identity details need a team check before the per-person equipment limit can be confirmed."; }
+  return { status, note, poaPostcodes, checks: verificationChecks(decision), ...(personKey ? { personKey } : {}), ...(documentExpiresAt ? { documentExpiresAt } : {}) };
 }
 
 /** Didit v3 webhooks sign the complete canonical JSON with X-Signature-V2.

@@ -22,7 +22,7 @@ function renderQuotedHook(quote,member,variant='basket'){
  renderingAccount=member;
  return renderToStaticMarkup(React.createElement(uiModule.exports.CheckoutMembership,{variant,suggestions:quote?.recommendations,selected:null,onChange:()=>{},appliedSavings:quote}));
 }
-const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:100000,components:[]});
+const camera=put('listings',{active:true,title:'Camera',pricing:{daily:300},depositAmount:1000,components:[]});
 let account;
 const ctx={db,scheduler:{runAfter:async()=>{}},runQuery:async(ref,args)=>{
  if(ref==='accounts._byEmail')return load('convex/accounts.ts')._byEmail.handler({db},args);
@@ -129,7 +129,7 @@ async function pay(fixture,fee=1900) {
  assert.equal(reportedSelected.depositHoldAmount,162);
  assert.equal(reportedSelected.combinedTotalDue,375.8);
  assert.equal(Math.round((reportedBase.combinedTotalDue-reportedSelected.combinedTotalDue)*100)/100,39.7);
- camera.depositAmount=100000;
+ camera.depositAmount=1000;
  // Regression for the real five-line £1,905 basket: a retired £45 gear
  // offer must no longer suppress the actual £39.70 Studio net saving.
  account=put('accounts',{email:'retired-gear-offer@example.invalid'});

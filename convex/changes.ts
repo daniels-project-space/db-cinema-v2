@@ -1,3 +1,4 @@
+import { assertRenterExposure } from "./lib/rentalExposure";
 import { postRentalMessage } from "./lib/rentalChat";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { mutation, internalMutation, internalQuery, internalAction } from "./_generated/server";
@@ -151,6 +152,7 @@ export const _applyReschedule = internalMutation({
         return { ok: false, reason: "unavailable" };
       }
     }
+    await assertRenterExposure(ctx, b, b.lineItems.map(li => ({ ...li, start: newStart, end: newEnd })));
     await ctx.db.patch(r.bookingId, { lineItems: b.lineItems.map((li) => ({ ...li, start: newStart, end: newEnd })) });
     const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q) => q.eq("bookingId", r.bookingId)).collect();
     for (const res of reservations) {

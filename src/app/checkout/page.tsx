@@ -415,7 +415,7 @@ export default function CheckoutPage() {
                     <span className="shrink-0 font-mono text-sm text-accent-300">{smallDamageHold(equipmentValue) ? `${formatGbp(smallDamageHold(equipmentValue))} hold` : "No card hold"}</span>
                   </div>
                   <p className="mt-1.5 text-xs text-white/40">
-                    {formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("verify", equipmentValue))} refundable deposit at checkout{smallDamageHold(equipmentValue) > 0 ? `, plus a separate ${formatGbp(smallDamageHold(equipmentValue))} card hold.` : ". No separate card hold is required."} Automatic ID, selfie and address check before handover.
+                    {formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("verify", equipmentValue))} refundable deposit at checkout{smallDamageHold(equipmentValue) > 0 ? `, plus a separate ${formatGbp(smallDamageHold(equipmentValue))} card hold.` : ". No separate card hold is required."} Pay first, then complete the automatic ID, selfie and address check. Approval is required before handover.
                   </p>
                 </button>
 

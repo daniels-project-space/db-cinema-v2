@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
+import { assertRenterExposure, replacementValues } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import {
   accountForToken,
@@ -151,6 +152,7 @@ export const prepare = internalMutation({
         : quote(l.pricing, Math.round((end - start) / 86400000) + 1).total *
           a.qty,
     };
+    await assertRenterExposure(ctx, b, [...b.lineItems, line]);
     await assertRentalInventory(ctx, [...b.lineItems, line], b._id);
     const catalog = await Promise.all(
       b.lineItems.map((li) => ctx.db.get(li.listingId)),
@@ -333,13 +335,15 @@ export const apply = internalMutation({
       dailyRate: r.dailyRate,
     };
     try {
+      await assertRenterExposure(ctx, b, [...b.lineItems, line]);
       await assertRentalInventory(ctx, [...b.lineItems, line], b._id);
     } catch (e) {
-      if (/unavailable|already reserved|Inventory capacity/.test(String(e)))
+      if (/unavailable|already reserved|Inventory capacity|£15,000|replacement value|overlapping rentals/.test(String(e)))
         return { closed: true };
       throw e;
     }
     const patch: any = {
+      replacementValues: await replacementValues(ctx, b, [...b.lineItems, line]),
       lineItems: [...b.lineItems, line],
       subtotal: b.subtotal + r.lineTotal,
       total: b.total + r.lineTotal + r.securityCharge,

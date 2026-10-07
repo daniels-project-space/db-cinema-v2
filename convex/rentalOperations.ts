@@ -9,6 +9,7 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
+import { assertRenterExposure } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { postRentalMessage } from "./lib/rentalChat";
 import { rentalCancellationStart, cancelKind, londonStartOfDay } from "../src/lib/cancellationPolicy";
@@ -81,6 +82,7 @@ export const reschedule = mutation({
       start: li.start + shift,
       end: li.end + shift + endShift,
     }));
+    await assertRenterExposure(ctx, b, lines);
     await assertRentalInventory(ctx, lines, bookingId);
     await ctx.db.patch(bookingId, { lineItems: lines, cancellationPolicyStart: start });
     for (const r of reservations)
