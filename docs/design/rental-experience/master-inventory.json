@@ -1,0 +1,1070 @@
+{
+  "source": "Rental Manager items:listForReconcile",
+  "checkedAt": "2026-10-07T17:17:13.137Z",
+  "items": [
+    {
+      "id": "kn78qjrz8qk1zxk9vqrgnbqw3s86aqpt",
+      "name": "Anamorphic Blazar Remus 33mm",
+      "displayName": "Blazar Remus 33mm",
+      "quantity": 1,
+      "aliases": [
+        "Blazar Remus 33mm"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Blazar Remus 33mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn71y2p1ascfw2gv9snasdwhkn86b90w",
+      "name": "Anamorphic Blazar Remus 45mm",
+      "displayName": "Blazar Remus 45mm",
+      "quantity": 1,
+      "aliases": [
+        "Blazar Remus 45mm"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Blazar Remus 45mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn71mytpv3d5m8nw6z1kpx2qqs86acrd",
+      "name": "Anamorphic Blazar Remus 65mm",
+      "displayName": "Blazar Remus 65mm",
+      "quantity": 1,
+      "aliases": [
+        "Blazar Remus 65mm"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Blazar Remus 65mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn759mg9g9m7hm59btvx827cw186astx",
+      "name": "Anamorphic Blazar Remus 100mm",
+      "displayName": "Blazar Remus 100mm",
+      "quantity": 1,
+      "aliases": [
+        "Blazar Remus 100mm"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Blazar Remus 100mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn79e6tav264zrh9zs5pvfg5kd86avn6",
+      "name": "Sony GM 24-70mm f2.8",
+      "displayName": "Sony 24-70mm f2.8 GM",
+      "quantity": 4,
+      "aliases": [
+        "Sony 24-70mm f2.8 GM"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony 24-70mm f2.8 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn73ga9tdczw4azpvv41qm3dw186b9pb",
+      "name": "Sony GM 16-35mm f2.8",
+      "displayName": "Sony 16-35mm f2.8 GM",
+      "quantity": 1,
+      "aliases": [
+        "Sony 16-35mm f2.8 GM"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony 16-35mm f2.8 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn741p3xbx9e9yvby7qcmvvnj586akhv",
+      "name": "Sony GM 70-200mm f2.8",
+      "displayName": "Sony 70-200mm f2.8 GM",
+      "quantity": 2,
+      "aliases": [
+        "Sony 70-200mm f2.8 GM"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony 70-200mm f2.8 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7byeb6ez8gty76rbhhb7e2t586b6wk",
+      "name": "Sony FE 90mm f2.8 Macro G OSS",
+      "displayName": "Sony 90mm f/2.8 Macro G OSS",
+      "quantity": 1,
+      "aliases": [
+        "Sony GM 90mm f2.8",
+        "Sony 90mm f/2.8 Macro G OSS"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony 90mm f/2.8 Macro G OSS, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn74ggzk8jjvpxdy0g5zh0f15h86b2hq",
+      "name": "Sony 28-70mm",
+      "displayName": "Sony 28-70mm",
+      "quantity": 2,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony 28-70mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn76chbtwhyv1987y4ae3pj2dh86bw7d",
+      "name": "TTArtisan 11mm f2.8 Fisheye (Sony E)",
+      "displayName": "TTArtisan 11mm f/2.8 fisheye (E)",
+      "quantity": 1,
+      "aliases": [
+        "Sony 11mm f2.8 fisheye",
+        "Sony 11mm f2.8 fisheye lens",
+        "TTArtisan 11mm f/2.8 fisheye (E)"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of TTArtisan 11mm f/2.8 fisheye (E), actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn701tq0apy4hps33r49be6a0986a051",
+      "name": "Canon EF 24-105mm f4",
+      "displayName": "Canon EF 24-105mm f4",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Canon EF 24-105mm f4, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn73vyme6exjhxqnz8g5es2s5h86bg2s",
+      "name": "Canon EF 16-35mm f2.8",
+      "displayName": "Canon EF 16-35mm f2.8",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Canon EF 16-35mm f2.8, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7bw2cr1ye5hqj3x770b332ks86atzw",
+      "name": "Sony FX3",
+      "displayName": "Sony FX3",
+      "quantity": 4,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony FX3, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn74p93r60ndmmb0qghjqg84yh86abvh",
+      "name": "Sony A7 III",
+      "displayName": "Sony A7 III",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony A7 III, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn71src7p25m5ppzkxnjwadm1s86azfk",
+      "name": "Sony A7 II",
+      "displayName": "Sony A7 II",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony A7 II, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn737xq0jcc8a011f6x2m6srt986az25",
+      "name": "BMPCC 6K Pro",
+      "displayName": "BMPCC 6K Pro",
+      "quantity": 1,
+      "aliases": [
+        "blackmagic 6k pro",
+        "blackmagic pocket cinema camera 6k pro",
+        "blackmagic pocket 6k pro"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of BMPCC 6K Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn740n15w16172sn1qj8h89gx586b2xf",
+      "name": "BMPCC 6K Full Frame",
+      "displayName": "BMPCC 6K Full Frame",
+      "quantity": 1,
+      "aliases": [
+        "blackmagic 6k full frame",
+        "blackmagic cinema camera 6k full frame",
+        "blackmagic cinema camera 6k"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of BMPCC 6K Full Frame, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn71951h7f9z8p3cea06v6zjjx86bgn4",
+      "name": "Sony A7 V",
+      "displayName": "Sony A7 V",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony A7 V, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7agmkc5fav8apays0bj95d1x86azbk",
+      "name": "Softbox 85cm",
+      "displayName": "Softbox 85cm",
+      "quantity": 2,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Softbox 85cm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7a3ja3jypm2z1n04wmtfbmd186a8x3",
+      "name": "LED light panels RGB",
+      "displayName": "LED light panels RGB",
+      "quantity": 3,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of LED light panels RGB, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7e3hztddjngzf3tka096mqrx86avn9",
+      "name": "Nanlite Forza 300",
+      "displayName": "Nanlite Forza 300",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Nanlite Forza 300, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7e4ecrf5fwb7sp11jger73t586ak9w",
+      "name": "Nanlite Pavotube 30x II",
+      "displayName": "Nanlite Pavotube 30x II",
+      "quantity": 4,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Nanlite Pavotube 30x II, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7d621zqcxe6a26tfyzbh09ts86at0g",
+      "name": "Nanlite 500B",
+      "displayName": "Nanlite 500B",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Nanlite 500B, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn76nvabr4kaj5rm90x52pxkxn86bjv2",
+      "name": "V-mount 95Wh",
+      "displayName": "V-mount 95Wh",
+      "quantity": 2,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of V-mount 95Wh, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7ee2cx4923bk3vmxy14ec3bs86aqmh",
+      "name": "V-mount 150Wh",
+      "displayName": "V-mount 150Wh",
+      "quantity": 4,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of V-mount 150Wh, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn79kzg6j393vz9mjh7ghqx0gn86bz73",
+      "name": "DJI gimbal battery",
+      "displayName": "DJI gimbal battery",
+      "quantity": 3,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI gimbal battery, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn71tc5enf40a1kahhanr0cjz586ak5g",
+      "name": "Anker Power Station F2000",
+      "displayName": "Anker Power Station F2000",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Anker Power Station F2000, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn76ynt7yda9s63ewbg2sab1en86a0ts",
+      "name": "Sony NPF 970 batteries 2x sets",
+      "displayName": "Sony NPF 970 batteries 2x sets",
+      "quantity": 4,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony NPF 970 batteries 2x sets, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn74kcta05c9nd5pyb9sz2vtqn86atbm",
+      "name": "C-stand",
+      "displayName": "C-stand",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of C-stand, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn772m9zxc4p7ctb1rbeahy79h86apc6",
+      "name": "Small rig tripod",
+      "displayName": "SmallRig tripod",
+      "quantity": 3,
+      "aliases": [
+        "SmallRig tripod"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of SmallRig tripod, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn74e9yatcn6xyth4ptrp6zqr586bhrn",
+      "name": "Sirui tripod",
+      "displayName": "Sirui tripod",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sirui tripod, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn72cbk6s14jarnhvdwwrsbx3s86bgth",
+      "name": "DJI RS3 Pro gimbal",
+      "displayName": "DJI RS3 Pro",
+      "quantity": 2,
+      "aliases": [
+        "DJI RS3 Pro"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI RS3 Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn70nsxs16detsje0kd1hgxbw986bn71",
+      "name": "Motorized slider",
+      "displayName": "Motorized slider",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Motorized slider, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn77jnwhcbvenk18v3qceqafh586byar",
+      "name": "Tilta Nucleus Nano 2 follow focus",
+      "displayName": "Tilta Nucleus Nano II",
+      "quantity": 1,
+      "aliases": [
+        "Tilta Nucleus Nano II"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Tilta Nucleus Nano II, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7b7hk95n8stj9f6p5n6vk49n86ahry",
+      "name": "Tilta shoulder rig",
+      "displayName": "Tilta shoulder rig",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Tilta shoulder rig, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn730pkfaq0n0dqnwjw6swepjd86b34h",
+      "name": "Monopod arm support",
+      "displayName": "Monopod arm support",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Monopod arm support, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7dy8zf34tffmcvzvdtrnn3jn86an19",
+      "name": "DJI Osmo Action Pro 5",
+      "displayName": "DJI Osmo Action 5 Pro",
+      "quantity": 3,
+      "aliases": [
+        "DJI Osmo Action 5 Pro"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI Osmo Action 5 Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn79ydca5fj0e9bbh19b6egfn186a8hv",
+      "name": "DJI Mavic 3 Pro",
+      "displayName": "DJI Mavic 3 Pro",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI Mavic 3 Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn79mc5rgqhsr64hbn58z737hs86b5ks",
+      "name": "DJI Mini 4 Pro",
+      "displayName": "DJI Mini 4 Pro",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI Mini 4 Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn72bfr0py9rts0pwfpg2faxvs86a7m2",
+      "name": "GoPro 12 Hero",
+      "displayName": "GoPro HERO12 Black",
+      "quantity": 3,
+      "aliases": [
+        "GoPro HERO12 Black"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of GoPro HERO12 Black, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn79qjzqzdf1hd7843v6t098yn86bavz",
+      "name": "Suction cups",
+      "displayName": "Suction cups",
+      "quantity": 6,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Suction cups, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
+      "name": "Atomos Ninja V",
+      "displayName": "Atomos Ninja V",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Atomos Ninja V, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn76mqhv1bv291x5z68fxerzg986bnmq",
+      "name": "Hollyland Mars 4K transmitter",
+      "displayName": "Hollyland Mars 4K transmitter",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Hollyland Mars 4K transmitter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7fqh3k3fqnxanqv0h7bmm8e186bn2s",
+      "name": "Hollyland Pyro S transmitter",
+      "displayName": "Hollyland Pyro S transmitter",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Hollyland Pyro S transmitter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7ftrwrc0arnx7qfm7syjvy1x86b1ej",
+      "name": "Hollyland 7-inch monitor",
+      "displayName": "Hollyland 7-inch monitor",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Hollyland 7-inch monitor, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn73k6qc2v113vh7bb9n3atkwn86bfh4",
+      "name": "Rode Video Mic Go",
+      "displayName": "RØDE VideoMic GO",
+      "quantity": 1,
+      "aliases": [
+        "RØDE VideoMic GO"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of RØDE VideoMic GO, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn72f7s8b5dkspbqq2eghaxak186a61p",
+      "name": "Rode Wireless Mic Pro set",
+      "displayName": "RØDE Wireless PRO",
+      "quantity": 2,
+      "aliases": [
+        "RØDE Wireless PRO"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of RØDE Wireless PRO, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn79c4nk2mb3fpfk3yen9ame6586b8j8",
+      "name": "Audio boom mic Sennheiser",
+      "displayName": "Audio boom mic Sennheiser",
+      "quantity": 2,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Audio boom mic Sennheiser, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7cqfdykt0jawskn4e6dyft1186bxn3",
+      "name": "DJI Wireless Mics",
+      "displayName": "DJI Wireless Mics",
+      "quantity": 1,
+      "aliases": [
+        "dji wireless mics",
+        "dji wireless microphones"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI Wireless Mics, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn77hh2859zy0m9aetw9btz3d586a8gq",
+      "name": "Camera flash",
+      "displayName": "Camera flash",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Camera flash, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn74tzh51br8vxnynztdr657xx86by5x",
+      "name": "Rode Video Mic Pro Plus",
+      "displayName": "RØDE VideoMic Pro+",
+      "quantity": 1,
+      "aliases": [
+        "RØDE VideoMic Pro+"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of RØDE VideoMic Pro+, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn76xseth9fn990s4ryv5rhfx986bnxt",
+      "name": "JBL wireless microphones",
+      "displayName": "JBL wireless microphones",
+      "quantity": 1,
+      "aliases": [
+        "jbl wireless mics",
+        "jbl wireless microphone"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of JBL wireless microphones, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn798d7b6nv7rvpcfhzek01h8h86b320",
+      "name": "DJI Mic 2 wireless",
+      "displayName": "DJI Mic 2 wireless",
+      "quantity": 1,
+      "aliases": [
+        "dji mic 2",
+        "dji mic2",
+        "dji wireless mic 2"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI Mic 2 wireless, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7240nk0fs32pkn22cmwrvf4s86aps0",
+      "name": "Smoke machine fogger",
+      "displayName": "Smoke machine fogger",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Smoke machine fogger, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn70sapjg8gnkt330453bbbhkd86at3n",
+      "name": "Smoke Ninja Pro hazer",
+      "displayName": "Smoke Ninja Pro hazer",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Smoke Ninja Pro hazer, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn78q8je188na64af4a96v7tkd86akg9",
+      "name": "Smoke Ninja",
+      "displayName": "Smoke Ninja",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Smoke Ninja, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn78zk30xt2dva7y6ev430x97186bqmq",
+      "name": "DJ RX3 Pioneer controller",
+      "displayName": "Pioneer XDJ-RX3",
+      "quantity": 1,
+      "aliases": [
+        "Pioneer XDJ-RX3"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Pioneer XDJ-RX3, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7amjd9r3hks17nssn396s1yn86bc8q",
+      "name": "JBL Club 120 speaker",
+      "displayName": "JBL Club 120 speaker",
+      "quantity": 2,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of JBL Club 120 speaker, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn75e370fh417hgv0n394b4ved86bcqc",
+      "name": "ND filter",
+      "displayName": "ND filter",
+      "quantity": 3,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of ND filter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn71j0gjxcfvem33m6k8q8csfn86bjmp",
+      "name": "256GB card",
+      "displayName": "256GB card",
+      "quantity": 3,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of 256GB card, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn754zpg9s2g5s08p4scsasngx86bnr5",
+      "name": "Cinebloom filter mist",
+      "displayName": "Cinebloom filter mist",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Cinebloom filter mist, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn78qeqezcrpjr12gzmynyfgb986b1rn",
+      "name": "CF Express Type A card",
+      "displayName": "CFexpress Type A card",
+      "quantity": 3,
+      "aliases": [
+        "CFexpress Type A card"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of CFexpress Type A card, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7dmb0g4f4sj25m6q6gyknxc986axfr",
+      "name": "Ambitful RGB light tubes 2x set",
+      "displayName": "Ambitful RGB light tubes 2x set",
+      "quantity": 2,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Ambitful RGB light tubes 2x set, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn785zky4ns7msdghany5m1db186ac6h",
+      "name": "PL to Sony E mount",
+      "displayName": "PL → E adapter",
+      "quantity": 2,
+      "aliases": [
+        "PL → E adapter"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of PL → E adapter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn777s1ct1gw4nrfsfz9xak8ns86b8wa",
+      "name": "PL to EF mount",
+      "displayName": "PL → EF adapter",
+      "quantity": 1,
+      "aliases": [
+        "PL → EF adapter"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of PL → EF adapter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn73dn42x6q85h2kyf66xg3g6586btgy",
+      "name": "PL to RF mount",
+      "displayName": "PL → RF adapter",
+      "quantity": 1,
+      "aliases": [
+        "PL → RF adapter"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of PL → RF adapter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7ce6wad1dfrsf2fxdthbynmn86bf0s",
+      "name": "PL to L mount",
+      "displayName": "PL → L adapter",
+      "quantity": 1,
+      "aliases": [
+        "PL → L adapter"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of PL → L adapter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7fg3tc2yndn42snr3xds8h2586a2cx",
+      "name": "5-in-1 reflector panel",
+      "displayName": "5-in-1 reflector panel",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of 5-in-1 reflector panel, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7dw0xajwt0v8nb0xw92abexx86bspf",
+      "name": "Anamorphic Great Joy lens 35mm",
+      "displayName": "Great Joy 35mm",
+      "quantity": 0,
+      "aliases": [
+        "Great Joy 35mm"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Great Joy 35mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn70h5me7r347xwdhxbk4bc00186b70v",
+      "name": "Anamorphic Great Joy lens 50mm",
+      "displayName": "Great Joy 50mm",
+      "quantity": 0,
+      "aliases": [
+        "Great Joy 50mm"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Great Joy 50mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn769vk4psfqc1t2p7hwhnt2j986acd1",
+      "name": "Anamorphic Great Joy lens 85mm",
+      "displayName": "Great Joy 85mm",
+      "quantity": 0,
+      "aliases": [
+        "Great Joy 85mm"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Great Joy 85mm, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn74nbvbga03n0k2e1crhj9yr986afq0",
+      "name": "Fujifilm X100 VI",
+      "displayName": "Fujifilm X100 VI",
+      "quantity": 0,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Fujifilm X100 VI, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7ae54ermh21msysxwfh7hanx871gk8",
+      "name": "NP-FW50 batteries",
+      "displayName": "NP-FW50 batteries",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of NP-FW50 batteries, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn782v9vnh4w7j35b9j1repaqh870mwd",
+      "name": "NP-W126S batteries",
+      "displayName": "NP-W126S batteries",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of NP-W126S batteries, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn72r54nkzjphnr54kkysjbxnn870cgn",
+      "name": "BMPCC battery pack",
+      "displayName": "BMPCC battery pack",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of BMPCC battery pack, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7a0m1pgkxxma9wdhgdwrjarh871a8a",
+      "name": "128GB V30 SD card",
+      "displayName": "128GB V30 SD card",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of 128GB V30 SD card, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn784pn91v1m5mv0994by9vt6587169t",
+      "name": "Sony FX6",
+      "displayName": "Sony FX6",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony FX6, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn758tccqwp1ts1qjk63ecvy0d871rne",
+      "name": "Sony A7S III",
+      "displayName": "Sony A7S III",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony A7S III, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7e4kka2fq9djz5fherff5pwh870ggq",
+      "name": "Canon R5",
+      "displayName": "Canon R5",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Canon R5, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn75zwx71dd0rt5nenjknj8wks871jad",
+      "name": "Canon C70",
+      "displayName": "Canon C70",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Canon C70, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn767mdybj67bcnq4krxtn70jh8707c6",
+      "name": "RED Komodo",
+      "displayName": "RED Komodo",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of RED Komodo, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7chb9abhnqfm8stvc3vwt8rn870qa3",
+      "name": "DJI Ronin 4D",
+      "displayName": "DJI Ronin 4D",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI Ronin 4D, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn724qcrvw1621ftjfxnh4qceh871ps8",
+      "name": "Sony A1",
+      "displayName": "Sony A1",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony A1, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn79f1ygyd5p9s6rx6r4t2ybn5870q7c",
+      "name": "Panasonic S5 II",
+      "displayName": "Panasonic S5 II",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Panasonic S5 II, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn75pj6z7ffjh1xamzvqe1bw3n870mzg",
+      "name": "DJI Air 3",
+      "displayName": "DJI Air 3",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI Air 3, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn70q3hyx3j3ncbjzk95yx92wn870n78",
+      "name": "DJI Inspire 3",
+      "displayName": "DJI Inspire 3",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI Inspire 3, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn74449d74316p3d8cc4npd7a1871dv5",
+      "name": "Aputure 600d Pro",
+      "displayName": "Aputure 600d Pro",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Aputure 600d Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7295pav8wctqf3br9dqkzjen871ksy",
+      "name": "Aputure 300x",
+      "displayName": "Aputure 300x",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Aputure 300x, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn746pmpevvgmrtmf7vnjkbhzs8714d2",
+      "name": "DJI RS4 Pro",
+      "displayName": "DJI RS4 Pro",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI RS4 Pro, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn79805x5xyedwsxej5626ht5s8717hp",
+      "name": "Sennheiser EW 500 Wireless",
+      "displayName": "Sennheiser EW 500 Wireless",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sennheiser EW 500 Wireless, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn785c25yeg5xrqhsd5frjphs9871q06",
+      "name": "Sigma 24-70mm f2.8 Art",
+      "displayName": "Sigma 24-70mm f2.8 Art",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sigma 24-70mm f2.8 Art, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn77a9s1gxkpkr2n8qn2qwrapn87001m",
+      "name": "Sony FE 135mm f1.8 GM",
+      "displayName": "Sony FE 135mm f1.8 GM",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony FE 135mm f1.8 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn75g2rnpcebz42zcvch5c61px8706aa",
+      "name": "Sony FE 50mm f1.2 GM",
+      "displayName": "Sony FE 50mm f1.2 GM",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony FE 50mm f1.2 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn75ber4qgc62sendyzmgb347x870wwn",
+      "name": "Sony FE 14mm f1.8 GM",
+      "displayName": "Sony FE 14mm f1.8 GM",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sony FE 14mm f1.8 GM, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7bmkkkzd4dz4aehp7gm6rwhh870408",
+      "name": "Tilta Float Gimbal Support",
+      "displayName": "Tilta Float Gimbal Support",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Tilta Float Gimbal Support, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn736h8m12nsja45mfeekne9f5871bs1",
+      "name": "SmallHD Cine 7 Monitor",
+      "displayName": "SmallHD Cine 7 Monitor",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of SmallHD Cine 7 Monitor, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn760v1z99tybdwkcqry8eagns87a6qq",
+      "name": "Pioneer XDJ-RX2",
+      "displayName": "Pioneer XDJ-RX2",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Pioneer XDJ-RX2, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn721nsax9egsfs5n246b4zx6h87arbw",
+      "name": "DJI Fly More Kit",
+      "displayName": "DJI Fly More Kit",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DJI Fly More Kit, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7c9e2jhf35cway1221k5fzhh87becd",
+      "name": "DZOFilm Vespid 3-Lens Set",
+      "displayName": "DZOFilm Vespid 3-Lens Set",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of DZOFilm Vespid 3-Lens Set, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn73hvhtdk1pmyyphkynfcj8an87aaav",
+      "name": "Manfrotto 190X Tripod",
+      "displayName": "Manfrotto 190X Tripod",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Manfrotto 190X Tripod, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn72epb69by4z9khg9jxbvqqx187bjzz",
+      "name": "ViewSonic 4K Projector",
+      "displayName": "ViewSonic 4K Projector",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of ViewSonic 4K Projector, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn74gbk1z31fnmhtk8zsgs2yss87aj38",
+      "name": "MACKIE Thump Go speaker",
+      "displayName": "Mackie Thump GO",
+      "quantity": 0,
+      "aliases": [
+        "Mackie Thump GO"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Mackie Thump GO, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn77m0xd9gjzbt9kg6hgb1zfyn87bw3d",
+      "name": "Atomos 1TB SSD",
+      "displayName": "Atomos 1TB SSD",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Atomos 1TB SSD, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7cv20cmz2k8fb3cwgt9qgdsx87advv",
+      "name": "Sennheiser MKE 600",
+      "displayName": "Sennheiser MKE 600",
+      "quantity": 1,
+      "aliases": [],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Sennheiser MKE 600, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn75kqmcsgrgf8dwsxf19a427d87ez77",
+      "name": "Zoom H5",
+      "displayName": "Zoom H5",
+      "quantity": 1,
+      "aliases": [
+        "zoom recorder",
+        "zoom h5n",
+        "zoom recorder h5"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of Zoom H5, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn77ghtcyjn3xdws93s0e5cdth87f86e",
+      "name": "SmallRig Fluid Head",
+      "displayName": "SmallRig Fluid Head",
+      "quantity": 1,
+      "aliases": [
+        "fluid video head",
+        "fluid head",
+        "video head"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of SmallRig Fluid Head, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7b8ezbpk7k3c4gdrb1smn7ad89a2j0",
+      "name": "EF to L mount",
+      "displayName": "EF → L adapter",
+      "quantity": 1,
+      "aliases": [
+        "EF-L adapter",
+        "Canon EF to L mount adapter",
+        "EF to L adapter",
+        "EF-to-L mount",
+        "EF → L adapter"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of EF → L adapter, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    },
+    {
+      "id": "kn7fwc3jkvtbfnkr6tfb0hgxcn8fhdp6",
+      "name": "NP-F570 batteries",
+      "displayName": "NP-F570 batteries",
+      "quantity": 12,
+      "aliases": [
+        "NP-F570 battery",
+        "Blackmagic NP-F570 batteries"
+      ],
+      "descriptionStatus": "Needs factual enrichment from master listing and reference photos",
+      "heroPrompt": "Side-view hero photograph of NP-F570 batteries, actual equipment and verified included accessories only, filling 85 percent of the frame, matte dark studio room, cool spotlight directly overhead, matching framing and lighting, crisp product details, no text or people."
+    }
+  ]
+}

@@ -1,11 +1,17 @@
 # Rental experience redesign
 
+The complete scope and added dark-management/equipment-render requirements are tracked in [TODO.md](TODO.md).
+
 Four concept renders created with the built-in GPT image-generation tool on 7 October 2026:
 
 - `renter-panel.png`: renter dashboard, equipment cards and verification timeline.
 - `admin-chat.png`: three-column rental inbox with booking controls and drone review.
 - `admin-panel.png`: operational dashboard, channel-coloured calendar and revenue.
 - `return-settlement.png`: return inspection, retained amount, case and settlement preview.
+- `dark-invoices.png`: dark invoice list, selected invoice and payment/settlement panel.
+- `dark-members.png`: dark customers/members list, account profile, rental and document history.
+
+Additional dark-mode renders used the attached approved return layout as a reference: preserve sidebar and restrained hierarchy, matte charcoal #151515, panels #1e1e1e, warm white text, copper #b98b64 accents, no light panels, glows or glassmorphism. Invoice prompt requested account-linked invoice history, PDF download and separate deposit-refund/hold-release rows. Customers/members prompt requested profiles, search, tier and verification filters, rental/conversation history and document review. Both used the built-in GPT image tool. Generated membership names, benefits, taxes and financial figures remain illustrative, not authoritative.
 
 Shared prompt: high-fidelity desktop product UI for DB Cinema Rentals; sophisticated editorial typography, matte graphite and warm ivory, muted copper DB Cinema Web accent, thin borders, disciplined spacing, equipment photography; no glows, glassmorphism or decorative AI motifs.
 
