@@ -1,3 +1,4 @@
+import {stockWindow} from "./lib/stockWindows";
 import {schedulePickupHold} from "./pickupSecurity";
 import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
@@ -111,7 +112,7 @@ export const reschedule = mutation({
     for (const r of reservations) if (["confirmed","hold"].includes(r.status)) await ctx.db.patch(r._id,{status:"cancelled"});
     for(const li of lines){
       const listing=await ctx.db.get(li.listingId);
-      const window=allocationMode==="legacy"?{start:li.start,end:li.end}:rentalWindow(li,allocationMode==="precise");
+      const window=allocationMode==="legacy"?{start:li.start,end:li.end}:stockWindow(li,allocationMode==="precise");
       for(const comp of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:li.listingId,bookingId,...window,qty:comp.qty*li.qty,source:"site",status:"confirmed"});
     }
     const a = await accountForRental(ctx, b);
@@ -165,7 +166,7 @@ export const removeItem = mutation({
     for (const r of reservations) if (["hold", "confirmed"].includes(r.status)) await ctx.db.patch(r._id, { status: "cancelled" });
     for (const remaining of lines) {
       const listing = await ctx.db.get(remaining.listingId);
-      for (const component of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: remaining.listingId, inventoryUnitId: component.inventoryUnitId, ...rentalWindow(remaining), qty: component.qty * remaining.qty, source: "site", status: "confirmed" });
+      for (const component of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: remaining.listingId, inventoryUnitId: component.inventoryUnitId, ...stockWindow(remaining,true), qty: component.qty * remaining.qty, source: "site", status: "confirmed" });
     }
     const { dailyRate: _, ...removed } = line;
     await ctx.db.patch(b._id, { lineItems: lines, cancellationPolicyStart: rentalCancellationStart(b), removedItems: [...(b.removedItems ?? []), { ...removed, removedAt: Date.now(), reason: args.reason.trim(), requestId: args.requestId }] });

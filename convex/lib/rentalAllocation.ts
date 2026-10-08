@@ -1,3 +1,4 @@
+import {stockWindow} from "./stockWindows";
 import {bookingStockLines,rentalWindow} from "../../shared/rentalWindow";
 /** Verify the current catalogue still describes the physical units reserved for this hire.
  * Aggregate equal periods/components; do not guess a replacement for missing legacy evidence. */
@@ -16,14 +17,14 @@ export async function assertRentalAllocation(ctx: any, booking: any, reservation
     for (const component of listing.components) {
       if (!Number.isSafeInteger(component.qty) || component.qty < 1) throw Error("The kit inventory mapping needs a team check.");
       add(expected, line.listingId, component.inventoryUnitId, line.start, line.end, component.qty * line.qty);
-      const precise=rentalWindow(line),full=rentalWindow(line,false);
+      const precise=stockWindow(line,true),full=stockWindow(line,false);
       add(exact,line.listingId,component.inventoryUnitId,precise.start,precise.end,component.qty*line.qty);
       add(days,line.listingId,component.inventoryUnitId,full.start,full.end,component.qty*line.qty);
     }
   }
   for (const reservation of reservations) if (!reservation.extensionRequestId && ["confirmed", "active"].includes(reservation.status)) {
     if (reservation.source !== "site") throw Error("Manage this rental through its original booking platform.");
-    add(actual, reservation.listingId, reservation.inventoryUnitId, reservation.start, reservation.end, reservation.qty);
+    add(actual, reservation.listingId, reservation.inventoryUnitId, reservation.start, reservation.end+(reservation.endExclusive&&reservation.turnaroundBufferMinutes!==60?3600000:0), reservation.qty);
   }
   const fingerprint = (map: Map<string, number>) => JSON.stringify([...map.entries()].sort(([a], [b]) => a.localeCompare(b)));
   const preciseLedger=reservations.some(r=>!r.extensionRequestId&&["confirmed","active"].includes(r.status)&&r.endExclusive);

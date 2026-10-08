@@ -115,7 +115,8 @@ export default defineSchema({
     start: v.number(), // epoch ms (UTC)
     end: v.number(),
     endExclusive: v.optional(v.boolean()), // exact half-open reservation windows
-    stockWindowVersion: v.optional(v.number()), // v2 upstream uses confirmed London instants
+    stockWindowVersion: v.optional(v.number()),
+    turnaroundBufferMinutes:v.optional(v.number()), // v2 upstream uses confirmed London instants
     qty: v.number(),
     source: v.union(
       v.literal("site"),

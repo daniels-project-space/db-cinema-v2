@@ -24,7 +24,7 @@ export function useCalendarStock(listingId:string,month:Date,items:Pick<CartItem
     }catch{if(scope.current.key===key&&scope.current.generation===generation)setState({key,phase:"error"});}
     finally{if(flight.current?.key===key&&flight.current.generation===generation)flight.current=null;}
   },[key,marketing,refresh]);
-  useEffect(()=>{if(marketing)return;void retry();const check=()=>{if(!document.hidden)void retry();};const timer=setInterval(check,60000);window.addEventListener("focus",check);return()=>{clearInterval(timer);window.removeEventListener("focus",check);scope.current.generation++;};},[retry,marketing]);
+  useEffect(()=>{if(marketing)return;void retry();const check=()=>{if(!document.hidden)void retry();};const timer=setInterval(check,60000);window.addEventListener("focus",check);document.addEventListener("visibilitychange",check);return()=>{clearInterval(timer);window.removeEventListener("focus",check);document.removeEventListener("visibilitychange",check);scope.current.generation++;};},[retry,marketing]);
   const current=state?.key===key?state:null;
   const ready=marketing||(current?.phase==="ready"&&!!live);
   const unavailable=new Set<string>();

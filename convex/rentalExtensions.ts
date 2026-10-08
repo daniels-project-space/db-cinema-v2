@@ -1,3 +1,4 @@
+import {stockWindow} from "./lib/stockWindows";
 import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
@@ -146,9 +147,9 @@ export const prepare = internalMutation({
       const original=bookingStockLines(b!)[item.lineIndex],extended=proposed[item.lineIndex];
       // Reserve continuously from the previous agreed return, including the
       // remainder of that day, through the newly approved return clock.
-      const start=rentalWindow(original).end,end=rentalWindow(extended).end;
+      const start=stockWindow(original,true).end,end=stockWindow(extended,true).end;
       const listing = await ctx.db.get(item.listingId as Id<"listings">);
-      for (const comp of listing!.components) await ctx.db.insert("reservations", { bookingId: b!._id, extensionRequestId: requestId, listingId: item.listingId, inventoryUnitId: comp.inventoryUnitId, qty: comp.qty * item.qty, start,end,endExclusive:true, source: "site", status: "hold", holdExpiresAt: expiresAt });
+      for (const comp of listing!.components) await ctx.db.insert("reservations", { bookingId: b!._id, extensionRequestId: requestId, listingId: item.listingId, inventoryUnitId: comp.inventoryUnitId, qty: comp.qty * item.qty, start,end,endExclusive:true,turnaroundBufferMinutes:60, source: "site", status: "hold", holdExpiresAt: expiresAt });
     }
     const patch = { approvedReturnTime: returnTime, status: "approved" as const, approvedAt: Date.now(), approvalReason: reason.trim(), expiresAt };
     await ctx.db.patch(requestId, patch);
@@ -222,7 +223,7 @@ export const applyPaid = internalMutation({
     for (const res of reservations) if (["confirmed", "active", "hold"].includes(res.status)) await ctx.db.patch(res._id, { status: "cancelled" });
     for (const li of lines) {
       const listing = await ctx.db.get(li.listingId);
-      for (const comp of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: li.listingId, inventoryUnitId: comp.inventoryUnitId, ...rentalWindow(li), qty: comp.qty * li.qty, source: "site", status: b.status === "active" ? "active" : "confirmed" });
+      for (const comp of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: li.listingId, inventoryUnitId: comp.inventoryUnitId, ...stockWindow(li,true), qty: comp.qty * li.qty, source: "site", status: b.status === "active" ? "active" : "confirmed" });
     }
     const charges = r.quoteItems.map(i => ({ requestId, returnTime: r.approvedReturnTime, title: `${i.title} · approved extension`, start: i.start, end: i.end, qty: i.qty, lineTotal: i.lineTotal }));
     await ctx.db.patch(b._id, { lineItems: lines, returnTime: [...lines].sort((a, b) => b.end - a.end)[0]?.returnTime ?? undefined, remindedReturn: false, total: Math.round((b.total + r.priceDelta!) * 100) / 100, subtotal: Math.round((b.subtotal + r.priceDelta!) * 100) / 100, extensionCharges: [...(b.extensionCharges ?? []), ...charges], activeExtensionId: undefined });

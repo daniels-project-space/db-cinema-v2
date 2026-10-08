@@ -499,10 +499,10 @@ export const refreshDemandFromRmv2 = action({
 /** Atomically replace shared occupancy and current capacity. Older parallel
  * responses cannot erase a newer source snapshot or release its held units. */
 export const applySharedStock = internalMutation({
-  args:{snapshot:v.object({version:v.number(),checkedAt:v.number(),units:v.array(v.object({masterItemId:v.string(),active:v.boolean(),quantityOwned:v.number(),windows:v.array(v.object({start:v.number(),end:v.number(),qty:v.number()}))}))})},
+  args:{snapshot:v.object({version:v.number(),turnaroundBufferMinutes:v.optional(v.number()),checkedAt:v.number(),units:v.array(v.object({masterItemId:v.string(),active:v.boolean(),quantityOwned:v.number(),windows:v.array(v.object({start:v.number(),end:v.number(),qty:v.number()}))}))})},
   handler:async(ctx,{snapshot})=>{
     const key="shared-stock-v1", seen=new Set<string>();
-    if(![1,2].includes(snapshot.version) || !Number.isSafeInteger(snapshot.checkedAt) || snapshot.checkedAt<1 || snapshot.checkedAt>Date.now()+60000)
+    if((snapshot.version===2&&snapshot.turnaroundBufferMinutes!==60)||![1,2].includes(snapshot.version) || !Number.isSafeInteger(snapshot.checkedAt) || snapshot.checkedAt<1 || snapshot.checkedAt>Date.now()+60000)
       throw Error("Invalid shared stock snapshot time");
     for(const unit of snapshot.units) {
       if(!unit.masterItemId.trim() || seen.has(unit.masterItemId) || !Number.isSafeInteger(unit.quantityOwned) || unit.quantityOwned<0 || (!unit.active&&unit.quantityOwned!==0))
@@ -514,7 +514,7 @@ export const applySharedStock = internalMutation({
         priorEnd=window.end;
       }
     }
-    const fingerprint=JSON.stringify({version:snapshot.version,units:snapshot.units}), state=await ctx.db.query("rmv2_sync_state").withIndex("by_key",q=>q.eq("key",key)).first();
+    const fingerprint=JSON.stringify({version:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,units:snapshot.units}), state=await ctx.db.query("rmv2_sync_state").withIndex("by_key",q=>q.eq("key",key)).first();
     const prior=state?.cursor?JSON.parse(state.cursor):null;
     if(prior && snapshot.checkedAt<prior.checkedAt)throw Error("Stale shared stock snapshot");
     if(prior && snapshot.checkedAt===prior.checkedAt) {
@@ -527,14 +527,14 @@ export const applySharedStock = internalMutation({
     }
     const removed=(await ctx.db.query("inventory_units").collect()).filter(unit=>unit.rmv2ItemId&&!seen.has(unit.rmv2ItemId));
     const old=await ctx.db.query("reservations").withIndex("by_source",q=>q.eq("source","hygglo")).collect();
-    const signature=(rows:any[])=>JSON.stringify(rows.map(r=>[String(r.inventoryUnitId),r.start,r.end,r.qty,r.endExclusive===true,r.stockWindowVersion??1,r.status]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
-    const expected=resolved.flatMap(({source,unit})=>source.windows.map(window=>({inventoryUnitId:unit._id,...window,endExclusive:true,stockWindowVersion:snapshot.version,status:"confirmed"})));
+    const signature=(rows:any[])=>JSON.stringify(rows.map(r=>[String(r.inventoryUnitId),r.start,r.end,r.qty,r.endExclusive===true,r.stockWindowVersion??1,r.turnaroundBufferMinutes??0,r.status]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
+    const expected=resolved.flatMap(({source,unit})=>source.windows.map(window=>({inventoryUnitId:unit._id,...window,endExclusive:true,stockWindowVersion:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,status:"confirmed"})));
     const intact=signature(old)===signature(expected)&&resolved.every(({source,unit})=>unit.quantityOwned===source.quantityOwned&&unit.active===source.active)&&removed.every(unit=>unit.quantityOwned===0&&unit.active===false);
     if(prior&&prior.fingerprint===fingerprint&&intact){
       // A fresh identical provider receipt must not churn hundreds of physical
       // reservations. Advance freshness only after verifying every stored pool
       // and window; a newly mapped pool or corrupt ledger still repairs below.
-      if(snapshot.checkedAt!==prior.checkedAt)await ctx.db.patch(state!._id,{lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,version:snapshot.version,fingerprint})});
+      if(snapshot.checkedAt!==prior.checkedAt)await ctx.db.patch(state!._id,{lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,version:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,fingerprint})});
       return {mirrored:0,rows:snapshot.units.length,alreadyApplied:true};
     }
     for(const row of old)await ctx.db.delete(row._id);
@@ -543,10 +543,10 @@ export const applySharedStock = internalMutation({
     for(const {source,unit} of resolved) {
       await ctx.db.patch(unit._id,{quantityOwned:source.quantityOwned,active:source.active});
       for(const [index,window] of source.windows.entries()) {
-        await ctx.db.insert("reservations",{inventoryUnitId:unit._id,...window,endExclusive:true,stockWindowVersion:snapshot.version,source:"hygglo",status:"confirmed",externalRef:`shared:${source.masterItemId}:${index}`});mirrored++;
+        await ctx.db.insert("reservations",{inventoryUnitId:unit._id,...window,endExclusive:true,stockWindowVersion:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,source:"hygglo",status:"confirmed",externalRef:`shared:${source.masterItemId}:${index}`});mirrored++;
       }
     }
-    const record={key,lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,version:snapshot.version,fingerprint})};
+    const record={key,lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,version:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,fingerprint})};
     if(state)await ctx.db.patch(state._id,record);else await ctx.db.insert("rmv2_sync_state",record);
     return {mirrored,rows:snapshot.units.length};
   },

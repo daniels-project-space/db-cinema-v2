@@ -270,8 +270,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (items.some(i => i.key !== key && i.listingId === item.listingId && i.start === start && i.end === end && i.pickupTime===pickupTime && i.returnTime===returnTime && i.offerType === item.offerType)) throw Error("This item is already in your kit for those dates.");
     const days = daysInclusive(start, end);
     setItems(prev => prev.map(i => i.key === key ? { ...i, key: `${i.listingId}|${start}|${days}|${i.offerType ?? ""}|${pickupTime??""}|${returnTime??""}`, start, end, pickupTime, returnTime, days, total, perDay: Math.round(total / days * 100) / 100 } : i));
-    setMembership(null);
-    setToast("Rental dates and price updated");
+    if(start!==item.start||end!==item.end)setMembership(null);
+    setToast(start===item.start&&end===item.end?"Collection times saved":"Rental dates and price updated");
   }, [items]);
   const clear = useCallback(() => {
     setItems([]);

@@ -2,10 +2,11 @@ const assert=require('node:assert/strict');
 const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
 const availability=load('convex/availability.ts'),sync=load('convex/sync.ts');
 const day=86400000,monthStart=Date.UTC(2030,0,1),ctx={db};
+put("rmv2_sync_state",{key:"shared-stock-v1",status:"ok",cursor:JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()})});
 const unit=put('inventory_units',{name:'PavoTube',quantityOwned:4,active:true});
 const make=(qty,title='Kit')=>put('listings',{title,slug:title+qty,active:true,components:[{inventoryUnitId:unit._id,qty}],unavailableDates:[]});
 const single=make(1),pair=make(2),four=make(4);
-const reservation=put('reservations',{source:'hygglo',inventoryUnitId:unit._id,start:monthStart+day,end:monthStart+2*day,qty:1,status:'confirmed',endExclusive:true});
+const reservation=put('reservations',{source:'hygglo',stockWindowVersion:2,turnaroundBufferMinutes:60,inventoryUnitId:unit._id,start:monthStart+day,end:monthStart+2*day,qty:1,status:'confirmed',endExclusive:true});
 const check=(id,items=[],extra={})=>availability.forCalendar.handler(ctx,{listingId:id,monthStart,items,...extra});
 (async()=>{
  let result=await check(single._id);assert.equal(Object.keys(result).length,31);assert.equal(result['2030-01-02'].available,3);assert.equal(result['2030-01-02'].ok,true,'One rented copy must not block four-owned pool');

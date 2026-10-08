@@ -265,7 +265,8 @@ export const forTimeSlots=query({
     }
     if(!precision){
       const available=windowCapacity(bands??[],window.start,window.end);
-      return {precision,pickupSlots:available?RENTAL_TIME_SLOTS:[],returnSlots:available?RENTAL_TIME_SLOTS:[],available};
+      const slots=available?rentalSlots(bands??[],{start,end,pickupTime,returnTime}):{pickup:[],return:[],available:0};
+      return {precision,pickupSlots:slots.pickup,returnSlots:slots.return,available:slots.available};
     }
     const slots=rentalSlots(bands??[],{start,end,pickupTime,returnTime});
     return {precision,pickupSlots:slots.pickup,returnSlots:slots.return,available:slots.available};

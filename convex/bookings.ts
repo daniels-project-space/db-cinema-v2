@@ -354,7 +354,7 @@ export const createPending = internalMutation({
 
 function stockAllocationFingerprint(booking:any,rows:any[]) {
  const lines=bookingStockLines<any>(booking).map(li=>[String(li.listingId),li.start,li.end,li.pickupTime??null,li.returnTime??null,li.qty]).map(line=>JSON.stringify(line)).sort();
- const physical=rows.map(r=>JSON.stringify([String(r.inventoryUnitId),String(r.listingId),r.start,r.end,r.qty,r.endExclusive===true])).sort();
+ const physical=rows.map(r=>JSON.stringify([String(r.inventoryUnitId),String(r.listingId),r.start,r.end,r.qty,r.endExclusive===true,r.turnaroundBufferMinutes??0])).sort();
  return JSON.stringify({lines,physical});
 }
 
@@ -389,7 +389,7 @@ export const placeHolds = internalMutation({
     const holds = current.filter(r => r.status === "hold");
     if (holds.length) {
       const fingerprint = (rows: { inventoryUnitId: unknown; listingId?: unknown; start: number; end: number; qty: number }[]) => JSON.stringify(rows.map(r =>
-        JSON.stringify([String(r.inventoryUnitId), r.listingId ? String(r.listingId) : null, r.start, r.end, r.qty,(r as {endExclusive?:boolean}).endExclusive===true])).sort());
+        JSON.stringify([String(r.inventoryUnitId), r.listingId ? String(r.listingId) : null, r.start, r.end, r.qty,(r as {endExclusive?:boolean}).endExclusive===true,(r as {turnaroundBufferMinutes?:number}).turnaroundBufferMinutes??0])).sort());
       if (fingerprint(holds) !== fingerprint(requested))
         throw Error("This checkout's inventory reservation has changed; reconcile or cancel the original checkout");
       return { created: 0, alreadyReserved: true };
@@ -514,7 +514,7 @@ export const confirm = internalMutation({
     if (completeAllocation) {
       for (const h of committed) await ctx.db.insert("reservations", {
         inventoryUnitId:h.inventoryUnitId,listingId:h.listingId,bookingId,
-        start:h.start,end:h.end,endExclusive:h.endExclusive,
+        start:h.start,end:h.end,endExclusive:h.endExclusive,turnaroundBufferMinutes:h.turnaroundBufferMinutes,
         qty:h.qty,source:"site",status:"confirmed",
       });
     } else {
