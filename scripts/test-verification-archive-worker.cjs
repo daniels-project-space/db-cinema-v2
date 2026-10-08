@@ -36,7 +36,8 @@ async function run(options = {}) {
     get: async id => stored.get(id) ?? null,
     delete: async id => { removed.push(id); stored.delete(id); },
   };
-  const mutationCtx = { db, storage };
+  const scheduled = [];
+  const mutationCtx = { db, storage, scheduler: { runAfter: async (delay, ref, args) => scheduled.push({delay,ref,args}) } };
   const ctx = { storage,
     runQuery: async (_, args) => archive.context.handler(mutationCtx, args),
     runMutation: async (ref, args) => archive[ref.split('.').at(-1)].handler(mutationCtx, args),
@@ -51,6 +52,7 @@ async function run(options = {}) {
   };
   await worker.capture.handler(ctx, { archiveId: job._id });
   const documents = (tables.get('verification_documents') ?? []).filter(d => d.archiveId === job._id);
+  if (job.status === "complete") { assert.equal(booking.rmv2SyncStatus, "pending"); assert(scheduled.some(call => call.ref === "rmv2_webhook.push" && call.args.bookingId === booking._id), "Archive completion must deliver fresh approval readiness"); }
   return { job, documents, stored, removed, requests };
 }
 (async () => {

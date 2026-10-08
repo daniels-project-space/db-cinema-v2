@@ -14,6 +14,7 @@ import { accountPricingContext, shouldResetMembershipPreference, membershipOffer
 import { CheckoutLoopBanner } from "@/components/CheckoutLoopBanner";
 import { CheckoutReminder } from "@/components/plans/CartPlanning";
 import { useCart } from "@/components/cart/CartProvider";
+import { useCheckoutStatus, CheckoutPauseNotice, CHECKOUT_PAUSED_MESSAGE } from "@/components/cart/CheckoutStatus";
 import { CheckoutCode } from "@/components/cart/CheckoutCode";
 import { usePromo } from "@/components/cart/usePromo";
 import { useBasketPrice } from "@/components/cart/useBasketPrice";
@@ -79,6 +80,7 @@ export default function CheckoutPage() {
   const stock=useCartStockCheck(items),availability=stock.availability;
   const availabilityBlocked = !!items.length && (!stock.ready || !availability || items.some(i => !availability[i.listingId]?.ok));
   const promo = usePromo(eligibleSubtotal);
+  const checkout = useCheckoutStatus();
   const start = useAction(api.checkout.start);
   const getPriceQuote = useAction(api.checkout.priceQuote);
   const getQuote = useAction(api.delivery.quote);
@@ -268,6 +270,7 @@ export default function CheckoutPage() {
   const recoveryKey=JSON.stringify({priceArgs,phone,billingAddress,name,email,pickupTime,returnTime,signature,agreed,deliveryAgreed,total:currentQuote?.combinedTotalDue,deliveryFee:currentQuote?.quotedDeliveryFee,membershipTermsAccepted:membership?.termsAccepted});
   const canRecover=recovery?.key===recoveryKey&&recovery.acceptance===agreementRequest.current;
   async function pay() {
+    if (!checkout.enabled) { setErr(CHECKOUT_PAUSED_MESSAGE); return; }
     if (availabilityBlocked&&!canRecover) { setErr("Review your basket and choose available alternatives before checkout."); return; }
     if (!valid) return;
     setBusy(true);
@@ -577,8 +580,9 @@ export default function CheckoutPage() {
             {!!items.length&&<div className="mt-4"><CartStockNotice checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
             {availabilityBlocked&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
             {canRecover&&<p role="status" className="mt-3 text-sm text-white/65">Your earlier checkout may already have reserved this kit. Retry securely to recover the same payment session.</p>}
-            <button onClick={pay} disabled={!valid || busy || (availabilityBlocked&&!canRecover)} className="btn-primary mt-5 w-full py-3">
-              {busy ? "Redirecting…" : canRecover ? "Retry secure checkout" : "Pay with card"}
+            {!checkout.enabled && <CheckoutPauseNotice loading={checkout.loading}/>}
+            <button data-testid="checkout-pay-button" onClick={pay} disabled={!checkout.enabled || !valid || busy || (availabilityBlocked&&!canRecover)} className="btn-primary mt-5 w-full py-3">
+              {!checkout.enabled ? "Checkout temporarily paused" : busy ? "Redirecting…" : canRecover ? "Retry secure checkout" : "Pay with card"}
               {!busy && <IconLock className="h-4 w-4" />}
             </button>
             <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">

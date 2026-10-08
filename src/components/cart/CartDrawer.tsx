@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useCheckoutStatus, CheckoutPauseNotice } from "./CheckoutStatus";
 import { useCart } from "./CartProvider";
 import { IconX, IconArrowRight } from "@/components/icons";
 import { formatGbp } from "@/lib/pricing";
@@ -10,6 +11,7 @@ import { CartItemDates } from "./CartItemDates";
 
 export function CartDrawer() {
   const { items, remove, clear, isOpen, close, membership, setMembership } = useCart();
+  const checkout = useCheckoutStatus();
   const { quote, recommendations, error, loading } = useBasketPrice(isOpen);
 
   return (
@@ -149,6 +151,7 @@ export function CartDrawer() {
                 {error}
               </p>
             )}
+            {!checkout.enabled && <CheckoutPauseNotice loading={checkout.loading}/>}
             <Link
               href="/cart"
               onClick={close}

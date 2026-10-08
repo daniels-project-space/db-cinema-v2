@@ -196,7 +196,7 @@ export const start = action({
         !Number.isSafeInteger(item.end) || item.end < item.start))
       throw new Error("Each rental line must be one item with valid dates. Please refresh your basket.");
     if (process.env.RENTAL_CHECKOUT_ENABLED !== "true")
-      throw new Error("Direct rental checkout is being prepared. Please contact us to arrange your rental.");
+      throw new ConvexError({code:"CHECKOUT_PAUSED",message:"Checkout is temporarily paused while we improve the booking experience. Your basket is saved; please check back soon."});
     if (process.env.BUSINESS_VAT_REGISTERED === "true")
       throw new Error("Rental receipt tax configuration needs updating before checkout can continue.");
     if (!process.env.DIDIT_API_KEY || !process.env.DIDIT_WORKFLOW_ID || !process.env.DIDIT_WEBHOOK_SECRET ||
@@ -604,6 +604,7 @@ async function ensurePrice(sb: Stripe, tier: { key: string; name: string; monthl
 export const startMembership = action({
   args: { token: v.string(), tier: v.string(), origin: v.string(), intro: v.optional(v.union(v.literal("trial"), v.literal("credit"), v.literal("none"))), termsVersion: v.optional(v.string()), requestId: v.optional(v.string()) },
   handler: async (ctx, a): Promise<{ url: string }> => {
+    if (process.env.RENTAL_CHECKOUT_ENABLED === "false") throw new ConvexError({code:"CHECKOUT_PAUSED",message:"Checkout is temporarily paused. Please check back soon."});
     const acct: any = await ctx.runQuery(internal.accounts._byToken, { token: a.token });
     if (!acct) throw new Error("Please sign in to subscribe.");
     const tier = tierByKey(a.tier);

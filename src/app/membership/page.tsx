@@ -1,5 +1,6 @@
 "use client";
 
+import { useCheckoutStatus, CheckoutPauseNotice } from "@/components/cart/CheckoutStatus";
 import { useState, useRef } from "react";
 import { MembershipHero } from "@/components/MembershipHero";
 import { MembershipPlanCard } from "@/components/MembershipPlanCard";
@@ -15,6 +16,7 @@ import { IconCheck } from "@/components/icons";
 
 export default function MembershipPage() {
   const account = useAccount();
+  const checkout = useCheckoutStatus();
   const start = useAction(api.checkout.startMembership);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -26,6 +28,7 @@ export default function MembershipPage() {
   const current = account.me?.membershipActive ? account.me.membershipTier : null;
 
   async function subscribe(key: string) {
+    if (!checkout.enabled) return;
     if (!account.token) {
       window.location.href = "/account";
       return;
@@ -50,6 +53,7 @@ export default function MembershipPage() {
       <SiteHeader />
       <main className="section-window mx-auto max-w-5xl px-6 py-14">
         <MembershipHero />
+      {!checkout.enabled && <div className="mx-auto max-w-5xl px-6"><CheckoutPauseNotice loading={checkout.loading}/></div>}
         <p className="mx-auto mt-5 max-w-2xl text-center text-xs leading-6 text-white/50">Rental checkout offers: Starter from £100, Pro from £200, Studio from £300. Starter includes a one-time £5 joining credit; Pro and Studio include £10 when added as paid membership in rental checkout. Thresholds use rental and delivery charges before VAT, excluding security payments and holds. Only the best single price benefit applies: earned credit or an eligible offer, never both, with the one-time joining credit added on top. Start paid membership to use your first month’s credit when it beats other offers. The first combined rental still requires verification, upfront security and any applicable card hold; other perks apply to future bookings after it is confirmed. A separately purchased paid membership activates perks once paid.</p>
         {!current && <section className="mx-auto mt-8 max-w-2xl" aria-label="Choose your welcome offer">
           {!account.me?.membershipIntroUsed && <><p className="mb-3 text-center text-sm text-white/60">Choose your first chapter</p><div className="grid gap-3 sm:grid-cols-2">
@@ -64,7 +68,7 @@ export default function MembershipPage() {
             return (
               <Reveal key={t.key} delay={i * 80}>
                 <Tilt max={featured ? 5 : 4} className="h-full">
-                  <MembershipPlanCard tier={t} onSelect={() => subscribe(t.key)} disabled={!!current || busy !== null || !accepted} label={isCurrent ? "Your subscription" : busy === t.key ? "…" : `Subscribe to ${t.name}`} />
+                  <MembershipPlanCard tier={t} onSelect={() => subscribe(t.key)} disabled={!checkout.enabled || !!current || busy !== null || !accepted} label={!checkout.enabled ? "Checkout temporarily paused" : isCurrent ? "Your subscription" : busy === t.key ? "…" : `Subscribe to ${t.name}`} />
                 </Tilt>
               </Reveal>
             );
