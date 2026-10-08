@@ -2,13 +2,21 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — private inventory bridge
+
+- [x] Replace all anonymous website source reads with the existing configured server synchronization credential, validated HTTPS manager endpoint, redirect refusal, timeout and versioned path-bound receipt. Reject errors before source writes.
+- [x] Add a registered private manager POST route with a fixed read-only allowlist and exact DB Cinema account arguments. Use actual typed internal counterparts while retaining the public owner boundary; remove unnecessary renter/private metadata from responses.
+- [x] Actual client/server handler tests and the paired native HTTP fixture pass under owner enforcement, including exact stock import, upstream occupancy blocking the cart, demand refresh and failed credentials preserving stock. See PRIVATE-INVENTORY-BRIDGE.md.
+- [x] Full local website tests/typecheck/build and manager 2144 tests/typecheck/Next build/owner audits pass; both graphs are current.
+- [ ] Complete source-matched hosted checks, manager-first paired backend rollout and live connection acceptance. Canonical kit mapping, live freshness and shared atomic claims remain required by the full goal.
+
 ### 8 October 2026 — exact master stock quantities
 
 - [x] Remove historical maximum retention and listing-demand stock inflation. Mirror exact eligible master quantities, including decreases and zero, while preserving shared pools, rental occupancy, owner tags/photos and selectable zero-stock catalogue cards.
 - [x] Validate all source quantities/conflicts before writes and version the sync fingerprint. Protect the old quantity maintenance mutation and report shortages without manufacturing units. Pair manager eligibility export and actual handler tests; see MASTER-STOCK-SYNC.md.
 - [x] Reproduce inflation with the previous actual sync handler. Full local website default tests/typecheck/build and manager 2131 tests/typecheck/Next build/owner audits pass.
 - [x] Hosted website CI 37726913850 and manager CI 37726916354 are SUCCESS; source-matched previews are READY. Read-only live source confirms 108 records still lack eligibility fields and 135 of 405 priced listings lack a known master identity. Unknown mapping is not a marketing-only classification.
-- [ ] Complete manager-first compatible rollout/real stock acceptance. Complete canonical kit mapping, an authenticated inventory bridge and shared atomic reservation claims remain required alongside the original full goal.
+- [ ] Complete manager-first compatible rollout/real stock acceptance. Complete canonical kit mapping, live authenticated bridge acceptance and shared atomic reservation claims remain required alongside the original full goal.
 
 ### 8 October 2026 — checkout stock and consent recovery
 

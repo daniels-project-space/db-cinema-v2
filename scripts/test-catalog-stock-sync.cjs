@@ -3,6 +3,7 @@ const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
 const sync=load('convex/sync.ts'),availability=load('convex/availability.ts'),catalog=load('convex/catalog.ts');
 const ctx={db},start=Date.UTC(2030,0,1),end=start+86400000;
 process.env.ADMIN_TOKEN='fixture-source-quantity-owner';
+process.env.RMV2_WEBHOOK_URL='https://fixture-manager.convex.site/dbcinema/booking-sync';process.env.RMV2_WEBHOOK_SECRET='fixture-read-service';
 const row=(extra={})=>({hyggloProductId:10,masterItemId:'source-camera',masterQty:2,slug:'fixture-body',title:'Fixture physical camera',category:'Cameras',itemType:'camera-body',componentQty:1,sizeScore:1,weightKg:1,sourceImages:['https://images.example/source-camera.png'],pricing:{daily:40},depositAmount:1000,replacementCost:1000,minimumRentalDays:1,unavailableDates:[],...extra});
 const getListing=slug=>db.query('listings').withIndex('by_slug',q=>q.eq('slug',slug)).first();
 const apply=items=>sync.applyCatalog.handler(ctx,{items});
@@ -28,7 +29,7 @@ const stock=l=>availability.forListing.handler(ctx,{listingId:l._id,start,end});
  try{
   const products=[{productId:100,name:'Fixture active camera',masterItemId:'active',prices:[{days:1,pricePerDay:40}]},{productId:101,name:'Fixture inactive camera',masterItemId:'inactive',prices:[{days:1,pricePerDay:40}]},{productId:102,name:'Fixture marketing camera',masterItemId:'marketing',prices:[{days:1,pricePerDay:40}]},{productId:103,name:'Fixture missing master',masterItemId:'absent',prices:[{days:1,pricePerDay:40}]},{productId:104,name:'Fixture unmapped listing',prices:[{days:1,pricePerDay:40}]},{productId:105,name:'Fixture missing quantity',masterItemId:'bad',prices:[{days:1,pricePerDay:40}]},{productId:106,name:'Fixture old bridge without status',masterItemId:'old',prices:[{days:1,pricePerDay:40}]}];
   const masters=[{_id:'active',qty:2,status:'active',is_marketing_only:false},{_id:'inactive',qty:4,status:'inactive',is_marketing_only:false},{_id:'marketing',qty:3,status:'active',is_marketing_only:true},{_id:'bad',status:'active',is_marketing_only:false},{_id:'old',qty:10}];
-  global.fetch=async(url,options)=>{const input=JSON.parse(options.body);calls.push(input);return {json:async()=>({status:'success',value:input.path==='hygglo_products:list'?products:masters})}};
+  global.fetch=async(url,options)=>{const input=JSON.parse(options.body);calls.push(input);assert.equal(url,'https://fixture-manager.convex.site/dbcinema/storefront-read');assert.equal(options.headers['x-dbcinema-sync-token'],process.env.RMV2_WEBHOOK_SECRET);return {ok:true,json:async()=>({protocolVersion:1,path:input.path,status:'success',value:input.path==='hygglo_products:list'?products:masters})}};
   let applied;await sync.syncFromRmv2.handler({runMutation:async(ref,args)=>{applied=args;return sync.applyCatalog.handler(ctx,args)}},{});
   assert.deepEqual(applied.items.map(i=>i.masterQty),[2,0,0,0,0,0,0],'Only a valid active owned master supplies units; missing data never defaults to one');assert.equal(calls[0].args.accountSlug,'dbcinema');
   const fingerprint=applied.fingerprint;assert((tables.get('rmv2_sync_state')??[]).some(s=>s.key==='catalog-payload-v2-exact-stock'&&s.cursor===fingerprint),'New semantics do not skip against the old inflation fingerprint');

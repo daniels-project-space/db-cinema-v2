@@ -4,6 +4,7 @@ const availability = load('convex/availability.ts'), replacements = load('convex
 const { assertRentalInventory } = load('convex/lib/rentalInventory.ts');
 const bookings = load('convex/bookings.ts'), sync = load('convex/sync.ts');
 const realNow = Date.now, realFetch = global.fetch;
+process.env.RMV2_WEBHOOK_URL='https://fixture-manager.convex.site/dbcinema/booking-sync';process.env.RMV2_WEBHOOK_SECRET='fixture-read-service';
 const now = Date.UTC(2026, 9, 8, 12), day = 86400000, start = now + 90 * day, end = start + day;
 Date.now = () => now;
 const ctx = { db }, owned = put('inventory_units', { name: 'Owned camera', quantityOwned: 1, rmv2ItemId: 'master-camera' });
@@ -37,7 +38,7 @@ async function blocked() {
       { _id: 'returned', status: 'confirmed', order_step: 'RETURNED', start_date: '2026-10-08', end_date: '2027-05-01', resolved_items: [{ item_id: 'master-camera', qty: 1 }] },
       { _id: 'completed', status: 'completed', order_step: 'DELIVERED', start_date: '2026-10-08', end_date: '2027-05-01', resolved_items: [{ item_id: 'master-camera', qty: 1 }] },
     ];
-    global.fetch = async () => ({ json: async () => ({ status: 'success', value: upstream }) });
+    global.fetch = async (_url, options) => ({ ok: true, json: async () => ({ protocolVersion: 1, path: JSON.parse(options.body).path, status: 'success', value: upstream }) });
     const result = await sync.syncHyggloReservations.handler({ ...ctx, runMutation: async (_ref, args) => sync.applyHygglo.handler(ctx, args) }, {});
     assert.equal(result.mirrored, 1);
     const mirrored = tables.get('reservations').find(r => r.source === 'hygglo');

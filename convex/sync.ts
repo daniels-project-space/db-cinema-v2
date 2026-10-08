@@ -49,31 +49,29 @@ function camModel(s: string): string | null {
   return null;
 }
 
-/**
- * RMv2 availability/catalog bridge.
- *
- * RMv2 (hearty-oyster-600) is the source of truth and allows anonymous
- * /api/query, so the storefront pulls the dbcinema catalog directly — no RMv2
- * code change. `poll-hygglo` keeps `hygglo_products` (incl. unavailableDates)
- * fresh upstream; this job mirrors it into our own listings/inventory ledger.
- *
- * Images: sync only ever writes `sourceImages` (the imgix hotlinks). The R2
- * migration owns `r2Images` and is NEVER touched here, so the 30-min cron can't
- * undo a migration. Readers prefer r2Images and fall back to sourceImages.
- */
-const RMV2_URL = "https://hearty-oyster-600.convex.cloud";
+/** Rental Manager is the stock/catalogue source. Server credentials are sent
+ * only to its configured Convex site endpoint, never to anonymous public queries.
+ * Sync owns sourceImages; accepted R2 imagery remains untouched. */
 const ACCOUNT = "dbcinema";
 
 async function rmv2Query(path: string, args: Record<string, unknown>) {
-  const res = await fetch(`${RMV2_URL}/api/query`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ path, args, format: "json" }),
+  const configured = process.env.RMV2_WEBHOOK_URL;
+  const secret = process.env.RMV2_WEBHOOK_SECRET;
+  if (!configured || !secret) throw Error("Rental Manager inventory connection is not configured");
+  let base: URL;
+  try { base = new URL(configured); } catch { throw Error("Invalid Rental Manager inventory connection"); }
+  if (base.protocol !== "https:" || !/^[a-z0-9-]+\.convex\.site$/.test(base.hostname) ||
+      base.username || base.password || base.port || base.search || base.hash || base.pathname !== "/dbcinema/booking-sync")
+    throw Error("Invalid Rental Manager inventory connection");
+  const res = await fetch(new URL("/dbcinema/storefront-read", base).href, {
+    method: "POST", redirect: "error", signal: AbortSignal.timeout(20000),
+    headers: { "content-type": "application/json", "x-dbcinema-sync-token": secret },
+    body: JSON.stringify({ path, args }),
   });
+  if (!res.ok) throw Error(`Rental Manager inventory read rejected (HTTP ${res.status})`);
   const json = await res.json();
-  if (json.status !== "success") {
-    throw new Error(`RMv2 ${path} failed: ${json.errorMessage ?? "unknown"}`);
-  }
+  if (json.protocolVersion !== 1 || json.status !== "success" || json.path !== path || !Array.isArray(json.value))
+    throw Error("Invalid Rental Manager inventory receipt");
   return json.value;
 }
 
