@@ -510,7 +510,13 @@ export const preparePickupSecurity = internalAction({args:{bookingId:v.id("booki
  try{const session=await stripe().checkout.sessions.retrieve(b.stripeCheckoutSessionId);if(session.metadata?.bookingId!==bookingId||!checkoutCompleted(session))throw Error("Checkout payment is not confirmed.");const customerId=typeof session.customer==="string"?session.customer:session.customer?.id;if(customerId)await ctx.runMutation(internal.pickupSecurity.saveCustomer,{bookingId,sessionId:session.id,customerId});await ctx.runMutation(internal.pickupSecurity.saveCard,{bookingId,sessionId:session.id,...await checkoutSavedCard(session,stripe())});}
  catch(e:any){await ctx.runMutation(internal.pickupSecurity.prepareFailed,{bookingId,retry:["StripeConnectionError","StripeAPIError","StripeRateLimitError"].includes(e?.type)});}
 }});
-async function recoverPickupCard(ctx:any,session:Stripe.Checkout.Session){const bookingId=session.metadata?.pickupCardBookingId;if(!bookingId||!checkoutCompleted(session))return;const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:bookingId as any});if(!b||b.securityHoldRecoverySessionId!==session.id)return;await ctx.runMutation(internal.pickupSecurity.recoverCard,{bookingId:bookingId as any,sessionId:session.id,...await checkoutSavedCard(session,stripe())});return bookingId;}
+async function recoverPickupCard(ctx:any,session:Stripe.Checkout.Session){const bookingId=session.metadata?.pickupCardBookingId;if(!bookingId||!checkoutCompleted(session))return;const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:bookingId as any});if(!b)return;
+ const customerId=typeof session.customer==="string"?session.customer:session.customer?.id;
+ if(customerId!==b.securityHoldCustomerId)return;
+ if(b.securityHoldRecoveredSessionId===session.id)return bookingId;
+ if(b.securityHoldRecoverySessionId!==session.id)return;
+ const applied=await ctx.runMutation(internal.pickupSecurity.recoverCard,{bookingId:bookingId as any,sessionId:session.id,...await checkoutSavedCard(session,stripe())});
+ return applied?bookingId:undefined;}
 
 /** A separate manual-capture PaymentIntent is required for an actual card hold.
  * Checkout saves the card for off-session use, then this attempts the hold immediately.
@@ -638,7 +644,7 @@ async function ensurePrice(sb: Stripe, tier: { key: string; name: string; monthl
 export const startMembership = action({
   args: { token: v.string(), tier: v.string(), origin: v.string(), intro: v.optional(v.union(v.literal("trial"), v.literal("credit"), v.literal("none"))), termsVersion: v.optional(v.string()), requestId: v.optional(v.string()) },
   handler: async (ctx, a): Promise<{ url: string }> => {
-    if (process.env.RENTAL_CHECKOUT_ENABLED === "false") throw new ConvexError({code:"CHECKOUT_PAUSED",message:"Checkout is temporarily paused. Please check back soon."});
+    if (process.env.RENTAL_CHECKOUT_ENABLED !== "true") throw new ConvexError({code:"CHECKOUT_PAUSED",message:"Checkout is temporarily paused. Please check back soon."});
     const acct: any = await ctx.runQuery(internal.accounts._byToken, { token: a.token });
     if (!acct) throw new Error("Please sign in to subscribe.");
     const tier = tierByKey(a.tier);
@@ -942,7 +948,7 @@ export const finalize = action({
     const session = await stripe().checkout.sessions.retrieve(sessionId);
     const m = session.metadata ?? {};
     const paid = checkoutCompleted(session);
-    if(m.pickupCardBookingId){const bookingId=await recoverPickupCard(ctx,session);return {bookingId:bookingId??m.pickupCardBookingId,paid,holdStatus:"scheduled",cardSaved:true};}
+    if(m.pickupCardBookingId){const bookingId=await recoverPickupCard(ctx,session);if(!bookingId)throw Error("This card update is no longer current. Refresh your rental account.");const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:bookingId as any});return {bookingId,paid,holdStatus:b?.depositHoldStatus??"none",cardSaved:true};}
     if(m.filmFundEntryId){const r=await ctx.runAction(internal.filmFundPayments.fulfill,{sessionId});return {bookingId:null,paid:r.paid};}
 
     if(paid&&m.rentalAdditionId){const r=await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:m.rentalAdditionId as any,sessionId});return {bookingId:r.bookingId,paid,closed:r.closed,holdStatus:r.status,holdClientSecret:r.clientSecret,additionId:m.rentalAdditionId};}
