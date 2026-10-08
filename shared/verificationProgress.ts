@@ -1,3 +1,4 @@
+import { PICKUP_HOLD_POLICY } from "./pickupSecurity";
 export const VERIFICATION_FEATURES = ["identity", "selfie", "address"] as const;
 export type VerificationCheck = "waiting" | "processing" | "approved" | "requires_input" | "review" | "rejected";
 export type VerificationChecks = Record<(typeof VERIFICATION_FEATURES)[number], VerificationCheck>;
@@ -17,4 +18,11 @@ export function verificationChecks(decision: any): VerificationChecks {
 }
 export function securityReady(booking: { status: string; depositHoldAmount?: number; depositHoldStatus?: string | null }) {
   return ["confirmed", "active"].includes(booking.status) && (!(booking.depositHoldAmount ?? 0) || booking.depositHoldStatus === "held");
+}
+
+/** Paid pickup-policy rentals can complete documents before the scheduled hold.
+ * This never substitutes for actual security readiness at handover. */
+export function verificationCanStart(booking: {status:string;depositHoldAmount?:number;depositHoldStatus?:string|null;securityHoldPolicyVersion?:string|null;cancellationDecision?:unknown;returnDecision?:unknown}) {
+  return !booking.cancellationDecision && !booking.returnDecision && (securityReady(booking) ||
+    (booking.securityHoldPolicyVersion === PICKUP_HOLD_POLICY && ["confirmed", "active"].includes(booking.status)));
 }

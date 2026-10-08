@@ -5,7 +5,7 @@ import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { IdVerify } from "@/components/IdVerify";
 import { formatGbp } from "@/lib/pricing";
-import { securityReady } from "../../../shared/verificationProgress";
+import { securityReady, verificationCanStart } from "../../../shared/verificationProgress";
 import { DroneLicenceUpload } from "./DroneLicence";
 import { useVerificationRefresh } from "./useVerificationRefresh";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
@@ -42,7 +42,7 @@ export function VerificationProgress({ bookingId, checkoutSessionId, autoStart =
   const refreshError = useVerificationRefresh(bookingId, account.token, checkoutSessionId, false, !!booking && !["cancelled", "returned"].includes(booking.status) && booking.idVerifyStatus !== "verified");
   if (account.loading || ((account.token || checkoutSessionId) && booking === undefined)) return <p role="status" className="py-6 text-sm text-white/50">Loading verification progress…</p>;
   if (!booking) return <div className="rounded-2xl border border-white/10 p-6"><h2 className="font-display text-xl text-white">Sign in to view this rental</h2><p className="mt-2 text-sm text-white/50">Use the account linked to your booking to see its verification and upload documents.</p><Link href={`/account?rental=${encodeURIComponent(bookingId)}`} className="btn-primary mt-4 px-5 py-2">Go to my account</Link></div>;
-  const ready = securityReady(booking);
+  const ready = verificationCanStart(booking);
   const closed = ["cancelled", "returned"].includes(booking.status);
   const approved = booking.idVerifyStatus === "verified";
   return <section aria-label="Rental verification" className="rounded-3xl border border-accent-400/20 bg-[#131713] p-5 text-left sm:p-7">

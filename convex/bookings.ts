@@ -14,7 +14,7 @@ import { checkoutMembershipCredit, membershipSignupOffer } from "../shared/check
 import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRenterExposure, renterExposure, replacementValues, attachRenterPerson } from "./lib/rentalExposure";
-import { securityReady } from "../shared/verificationProgress";
+import { securityReady, verificationCanStart } from "../shared/verificationProgress";
 import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerification";
 import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
 import { listingImages } from "./lib/catalogImages";
@@ -1386,6 +1386,7 @@ export const verificationAccess = internalQuery({
       documentExpiresAt: b.documentExpiresAt ?? null,
       renterPersonKey: b.renterPersonKey ?? null,
       accountId: b.accountId, depositHoldAmount: b.depositHoldAmount, depositHoldStatus: b.depositHoldStatus,
+      securityHoldPolicyVersion: b.securityHoldPolicyVersion, cancellationDecision:b.cancellationDecision, returnDecision:b.returnDecision,
       stripeCheckoutSessionId: b.stripeCheckoutSessionId,
       renterName: b.agreementName || customer?.name, billingAddress: b.billingAddress };
   },
@@ -1454,7 +1455,7 @@ export const setDiditSession = internalMutation({
   handler: async (ctx, { bookingId, sessionId, previousSessionId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || !["confirmed", "active"].includes(b.status) ||
-        !["required", "processing", "requires_input"].includes(b.idVerifyStatus ?? "required") || !securityReady(b)) return false;
+        !["required", "processing", "requires_input"].includes(b.idVerifyStatus ?? "required") || !verificationCanStart(b)) return false;
     if (b.diditSessionId !== previousSessionId && b.diditSessionId !== sessionId) return false;
     if (b.diditSessionId !== sessionId) {
       await ctx.db.patch(bookingId, {
@@ -1804,7 +1805,7 @@ export const revokeVerificationReuse = internalMutation({ args: { sourceBookingI
 export const reuseVerificationCandidate = internalQuery({
   args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
-    if (!b || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.idVerifyStatus !== "required" || b.diditSessionId || !securityReady(b)) return null;
+    if (!b || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.idVerifyStatus !== "required" || b.diditSessionId || !verificationCanStart(b)) return null;
     const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
     if (!validReuse(account?.rentalVerification, b)) return null;
     const source = await ctx.db.get(account!.rentalVerification!.sourceBookingId);
@@ -1817,7 +1818,7 @@ export const applyVerificationReuse = internalMutation({
   args: { bookingId: v.id("bookings"), sourceBookingId: v.id("bookings"), documentExpiresAt: v.number(), personKey: v.optional(v.string()) },
   handler: async (ctx, { bookingId, sourceBookingId, documentExpiresAt, personKey }) => {
     const b = await ctx.db.get(bookingId), source = await ctx.db.get(sourceBookingId);
-    if (!b || !source || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !securityReady(b)) return false;
+    if (!b || !source || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !verificationCanStart(b)) return false;
     try { await assertVerificationArchive(ctx, source); } catch { return false; }
     const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
     const record = account?.rentalVerification;
@@ -1878,7 +1879,7 @@ export const verificationProgress = query({
     let verificationArchiveReady = false;
     if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx, b); verificationArchiveReady = true; } catch {} }
     return { _id: b._id, status: b.status, idVerifyStatus: b.idVerifyStatus ?? "required",
-      verificationArchiveReady, verificationExpiresAt: b.verificationExpiresAt ?? null, documentExpiresAt: b.documentExpiresAt ?? null,
+      securityHoldPolicyVersion:b.securityHoldPolicyVersion??null, verificationArchiveReady, verificationExpiresAt: b.verificationExpiresAt ?? null, documentExpiresAt: b.documentExpiresAt ?? null,
       requiresDroneLicence: await requiresDroneLicence(ctx, b), droneLicenceStatus: b.droneLicenceStatus ?? "required", droneLicenceNote: b.droneLicenceNote ?? null,
       verificationNote: b.verificationNote ?? null, verificationChecks: b.verificationChecks ?? null,
       verificationUpdatedAt: b.verificationUpdatedAt ?? null, verificationReused: !!b.verificationReusedFrom,

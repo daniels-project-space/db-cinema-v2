@@ -1,6 +1,6 @@
 "use node";
 
-import { verificationChecks, securityReady } from "../shared/verificationProgress";
+import { verificationChecks, verificationCanStart } from "../shared/verificationProgress";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import Stripe from "stripe";
@@ -48,7 +48,7 @@ export const bookingSession = action({
     if (!booking || booking.verificationProvider !== "didit" || !["confirmed", "active"].includes(booking.status) ||
         !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required"))
       throw new Error("This booking is not ready for verification.");
-    if (!securityReady(booking)) throw Error("Complete the rental payment and required card hold before verification.");
+    if (!verificationCanStart(booking)) throw Error("Complete the rental payment and required card hold before verification.");
     let authorized = false;
     if (a.accountToken) {
       const acct: any = await ctx.runQuery(internal.accounts._byToken, { token: a.accountToken });
@@ -66,8 +66,8 @@ export const bookingSession = action({
       // Finish the eligible previous-check revalidation before starting a fresh upload workflow.
       await ctx.runAction(internal.didit.reuseVerification, { bookingId: a.bookingId });
       booking = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
-      if (booking?.idVerifyStatus === "verified" && securityReady(booking)) return { url: null, reused: true };
-      if (!booking || !securityReady(booking) || !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required")) throw Error("The rental changed. Refresh its verification progress.");
+      if (booking?.idVerifyStatus === "verified" && verificationCanStart(booking)) return { url: null, reused: true };
+      if (!booking || !verificationCanStart(booking) || !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required")) throw Error("The rental changed. Refresh its verification progress.");
     }
     if (booking.diditSessionId) {
       const existing = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
@@ -115,7 +115,7 @@ export const bookingSession = action({
     });
     if (!saved) {
       const current: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
-      if (current?.diditSessionId && securityReady(current)) {
+      if (current?.diditSessionId && verificationCanStart(current)) {
         const attached = await retrieveSession(cfg.apiKey, current.diditSessionId, String(a.bookingId), current.guestEmail);
         if (attached.workflow_id === cfg.workflowId && ["Not Started", "In Progress", "Awaiting User", "Resubmitted"].includes(attached.status) && typeof attached.session_url === "string" && hostedSessionUrl.test(attached.session_url)) return { url: attached.session_url };
       }
