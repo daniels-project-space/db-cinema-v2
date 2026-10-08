@@ -57,8 +57,9 @@ export function RentalConversation({
   const draftReplies = useAction(api.gaffer.ownerDrafts);
   const [drafting, setDrafting] = useState(false);
   const [drafts, setDrafts] = useState<{ messageId: string | null; drafts: { label: string; text: string }[] } | null>(null);
-  const scope = useRef("");
-  scope.current = `${bookingId ?? ""}:${accountId ?? ""}`;
+  const scopeKey = JSON.stringify([token, admin, bookingId ?? null, accountId ?? null]);
+  const scope = useRef({ key: scopeKey });
+  if (scope.current.key !== scopeKey) scope.current = { key: scopeKey };
   const sendRenter = useMutation(api.chat.send),
     sendOwner = useMutation(api.rentalChat.sendOwner),
     read = useMutation(api.rentalChat.markRead);
@@ -92,7 +93,7 @@ export function RentalConversation({
       observer.disconnect();
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [thread?.page[0]?._id]);
+  }, [thread?.page[0]?._id, scopeKey]);
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!openRevision || !thread) return;
@@ -109,8 +110,12 @@ export function RentalConversation({
     setText("");
     setError(null);
     setDrafts(null);
+    setBusy(false);
+    setDrafting(false);
+    setVisible(null);
     lastRead.current = "";
-  }, [bookingId, accountId]);
+  }, [scopeKey]);
+  useEffect(() => () => { scope.current = { key: scope.current.key }; }, []);
   useEffect(() => {
     if (older?.page)
       setHistory((h) =>
@@ -122,6 +127,7 @@ export function RentalConversation({
   useEffect(() => {
     const last = thread?.page[0]?._id;
     if (last && visible === last && last !== lastRead.current) {
+      const requestedScope = scope.current;
       lastRead.current = last;
       void read({
         token,
@@ -130,13 +136,15 @@ export function RentalConversation({
         admin,
         through: last,
       }).catch(() => {
-        lastRead.current = "";
+        if (scope.current === requestedScope) lastRead.current = "";
       });
     }
     if (body.current) body.current.scrollTop = body.current.scrollHeight;
-  }, [thread?.page[0]?._id, bookingId, token, admin, read, visible]);
+  }, [thread?.page[0]?._id, bookingId, accountId, token, admin, read, visible]);
   async function submit() {
     if (!text.trim() || busy) return;
+    const requestedScope = scope.current;
+    const submitted = text.trim();
     setBusy(true);
     setError(null);
     try {
@@ -145,22 +153,23 @@ export function RentalConversation({
           token,
           bookingId: bookingId as any,
           accountId: accountId as any,
-          text: text.trim(),
+          text: submitted,
         });
       else
         await sendRenter({
           token,
           bookingId: bookingId as any,
-          text: text.trim(),
+          text: submitted,
         });
-      setText("");
+      if (scope.current === requestedScope) setText(current => current.trim() === submitted ? "" : current);
     } catch (e: any) {
-      setError(e.message ?? "Message could not be sent.");
+      if (scope.current === requestedScope) setError(e.message ?? "Message could not be sent.");
     } finally {
-      setBusy(false);
+      if (scope.current === requestedScope) setBusy(false);
     }
   }
   async function handoff() {
+    const requestedScope = scope.current;
     setError(null);
     try {
       if (admin)
@@ -172,7 +181,7 @@ export function RentalConversation({
         });
       else await human({ token, bookingId: bookingId as any });
     } catch (e: any) {
-      setError(e.message);
+      if (scope.current === requestedScope) setError(e.message);
     }
   }
   async function suggest() {
@@ -184,7 +193,7 @@ export function RentalConversation({
       if (scope.current === requestedScope) setDrafts(result);
     } catch (e: any) {
       if (scope.current === requestedScope) setError(e.message ?? "Drafts unavailable.");
-    } finally { setDrafting(false); }
+    } finally { if (scope.current === requestedScope) setDrafting(false); }
   }
   const messages = [
     ...new Map(

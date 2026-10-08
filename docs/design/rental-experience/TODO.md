@@ -2,6 +2,13 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — conversation response isolation
+
+- [x] Bind send, handoff, suggested-reply and read-error responses to their originating conversation, account, role and session. Revisiting a conversation creates a fresh scope, so a prior request cannot erase its new draft or finish a newer pending operation. Preserve new text typed while a previous message sends.
+- [x] Native actual React component checks pass with controlled deferred transport: A/B/A switching, delayed success/error, new drafts while sending, token rotation, concurrent reply suggestions and handoff errors. Mutation payloads retain their originating rental. The previous source fails the first assertion by clearing B's draft on A's success. Desktop/mobile screenshots at `/root/dbc-conversation-scope-review` are inspected for overflow; the fixture is not a full concept-fidelity or live messaging acceptance claim.
+- [ ] Verify real authenticated conversation actions on the deployed account/admin screens. Remaining design fidelity, inventory images, paired-manager and financial/document acceptance remain open. Hosted CI 37718462957 for document linking commit 64d2c1a is terminal SUCCESS.
+
+
 ### 8 October 2026 — verification copies captured before account creation
 
 - [x] Link existing verification archives and document metadata inside paid-account creation, using permanent rental ownership. Existing archive recovery repairs unlinked copies as well. Preserve storage bytes, integrity hashes, session binding, retention dates and deletion status.
