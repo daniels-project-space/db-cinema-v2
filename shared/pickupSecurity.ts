@@ -20,3 +20,12 @@ export function pickupHoldEligible(b: any) {
     (b.depositHoldAmount ?? 0) > 0
   );
 }
+
+/** Only an untouched future pickup job may change amount without retiring an intent. */
+export function canDeferAdditionSecurity(b:any,now=Date.now()) {
+ return pickupHoldEligible(b)&&pickupHoldAt(b)>now&&
+  b.depositHoldStatus==="scheduled"&&!b.stripeDepositIntentId&&
+  !!b.securityHoldCustomerId&&!!b.securityHoldPaymentMethodId&&
+  !(b.securityHoldAttempts??0)&&!b.securityHoldLeaseUntil&&
+  !b.securityHoldRecoverySessionId;
+}

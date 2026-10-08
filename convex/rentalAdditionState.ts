@@ -1,3 +1,5 @@
+import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
+import {schedulePickupHold} from "./pickupSecurity";
 import { tierByKey } from "../shared/membership";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -100,6 +102,7 @@ export const prepare = internalMutation({
       throw Error("Resolve the existing card hold renewal before adding items");
     if (
       b.status !== "pending_payment" &&
+      !canDeferAdditionSecurity(b) &&
       (b.depositHoldExpiresAt ?? 0) <= Date.now() + 36 * 3600000
     )
       throw Error(
@@ -325,7 +328,7 @@ export const apply = internalMutation({
       return { closed: true };
     if (
       (!r.paymentIntentId && !r.complimentary) ||
-      (!r.draftReplacement && r.holdTotal > 0 && r.status !== "held")
+      (!r.draftReplacement && r.holdTotal > 0 && r.status !== "held" && !canDeferAdditionSecurity(b))
     )
       throw Error(
         "Payment and replacement card hold must be ready before items are attached",
@@ -372,7 +375,10 @@ export const apply = internalMutation({
     if (r.draftReplacement) patch.stripeCheckoutSessionId = r.sessionId;
     if(b.securityWaiverReason==="safe_repeat_kit"&&r.securityCharge>0)patch.securityWaiverReason=undefined;
     if(r.membershipCheckoutId)patch.rentalPaidPence=Math.round((b.total+r.lineTotal+r.securityCharge)*100);
+    const deferred=!r.draftReplacement&&canDeferAdditionSecurity(b);
+    if(deferred&&(r.holdIntentId||r.securityCreationParams))throw Error("Reconcile the existing addition authorisation before changing the pickup schedule");
     await ctx.db.patch(b._id, patch);
+    if(deferred)await schedulePickupHold(ctx,{...b,...patch},true);
     await ctx.db.patch(id, {
       status: r.draftReplacement ? "applied_draft" : "applied",
       updatedAt: Date.now(),
