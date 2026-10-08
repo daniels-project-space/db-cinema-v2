@@ -8,7 +8,8 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Add a registered private manager POST route with a fixed read-only allowlist and exact DB Cinema account arguments. Use actual typed internal counterparts while retaining the public owner boundary; remove unnecessary renter/private metadata from responses.
 - [x] Actual client/server handler tests and the paired native HTTP fixture pass under owner enforcement, including exact stock import, upstream occupancy blocking the cart, demand refresh and failed credentials preserving stock. See PRIVATE-INVENTORY-BRIDGE.md.
 - [x] Full local website tests/typecheck/build and manager 2144 tests/typecheck/Next build/owner audits pass; both graphs are current.
-- [ ] Complete source-matched hosted checks, manager-first paired backend rollout and live connection acceptance. Canonical kit mapping, live freshness and shared atomic claims remain required by the full goal.
+- [x] Hosted website CI 37727932219 and manager CI 37727933455 are SUCCESS; both source-matched previews are READY.
+- [ ] Complete manager-first paired backend rollout and live connection acceptance. Canonical kit mapping, live freshness and shared atomic claims remain required by the full goal.
 
 ### 8 October 2026 — exact master stock quantities
 
