@@ -529,7 +529,13 @@ export const applySharedStock = internalMutation({
     const signature=(rows:any[])=>JSON.stringify(rows.map(r=>[String(r.inventoryUnitId),r.start,r.end,r.qty,r.endExclusive===true,r.status]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
     const expected=resolved.flatMap(({source,unit})=>source.windows.map(window=>({inventoryUnitId:unit._id,...window,endExclusive:true,status:"confirmed"})));
     const intact=signature(old)===signature(expected)&&resolved.every(({source,unit})=>unit.quantityOwned===source.quantityOwned&&unit.active===source.active)&&removed.every(unit=>unit.quantityOwned===0&&unit.active===false);
-    if(prior&&snapshot.checkedAt===prior.checkedAt&&intact)return {mirrored:0,rows:snapshot.units.length,alreadyApplied:true};
+    if(prior&&prior.fingerprint===fingerprint&&intact){
+      // A fresh identical provider receipt must not churn hundreds of physical
+      // reservations. Advance freshness only after verifying every stored pool
+      // and window; a newly mapped pool or corrupt ledger still repairs below.
+      if(snapshot.checkedAt!==prior.checkedAt)await ctx.db.patch(state!._id,{lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,fingerprint})});
+      return {mirrored:0,rows:snapshot.units.length,alreadyApplied:true};
+    }
     for(const row of old)await ctx.db.delete(row._id);
     for(const unit of removed)await ctx.db.patch(unit._id,{quantityOwned:0,active:false});
     let mirrored=0;
