@@ -459,3 +459,13 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Validate real protected sends, handoff, renter request form, draft scope safety and responsive layout locally.
 - [ ] Complete pixel-accuracy acceptance of all remaining management references and production visual verification.
 See `MESSAGING-REBUILD.md` for evidence and limits.
+
+### Invoice visual rebuild and protected documents
+- [x] Rebuild admin invoice directory/detail layout against the dark render.
+- [x] Inspect five desktop and phone list/detail iterations with actual components.
+- [x] Wire loaded-record issue-date filters, catalogue thumbnails and protected PDF access.
+- [x] Fix phone navigation after authorised loading and restore selected-row focus.
+- [x] Reject blocked/unverified invoice sessions while preserving strict expiry and permanent ownership.
+- [x] Verify protected PDF rendering/download, unauthorized rejection, default tests, types/build and public-route isolation locally.
+- [ ] Complete reference and production acceptance; preserve all operational/stock/render requirements.
+See `INVOICE-REFERENCE-REBUILD.md` for evidence and limitations.

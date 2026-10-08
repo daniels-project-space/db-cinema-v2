@@ -53,3 +53,6 @@
 /* Messaging has its own conversation title and identity header. */
 .shell[data-management-screen="messages"] .heading { display:none; }
 .shell[data-management-screen="messages"] .content { padding-top:22px; }
+.shell[data-management-role="admin"][data-management-screen="invoices"] .heading { display:none; }
+.shell[data-management-role="admin"][data-management-screen="invoices"] .content { padding-top:28px; }
+@media(min-width:641px) { .shell[data-management-role="admin"][data-management-screen="invoices"] .topbar { min-height:54px; padding-block:10px; } .shell[data-management-role="admin"][data-management-screen="invoices"] .content { padding:24px 22px 50px; } }

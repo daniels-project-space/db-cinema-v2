@@ -16,6 +16,7 @@ import { assertRenterExposure, renterExposure, replacementValues, attachRenterPe
 import { securityReady } from "../shared/verificationProgress";
 import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerification";
 import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
+import { listingImages } from "./lib/catalogImages";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
 import { assertRentalInventory, type RentalInventoryCache } from "./lib/rentalInventory";
 import { reservationPaymentUnresolved } from "./lib/reservationPayment";
@@ -1267,8 +1268,7 @@ export const invoiceData = query({
     } else if (token && checkAdminToken(token)) {
       ok = true;
     } else if (token) {
-      const s = await ctx.db.query("sessions").withIndex("by_token", (q) => q.eq("token", token)).first();
-      const acct: any = s && (s.expiresAt ?? 0) > Date.now() ? await ctx.db.get(s.accountId) : null;
+      const acct = await accountForToken(ctx, token, true);
       if (belongsToRentalAccount(b, acct)) ok = true;
     }
     if (!ok) return null;
@@ -1293,6 +1293,7 @@ export const invoiceData = query({
       fulfilment: b.fulfilment,
       address: b.address ?? null,
       currency: b.currency ?? "GBP",
+      equipmentImages: await Promise.all(b.lineItems.map(async line => listingImages(await ctx.db.get(line.listingId)))),
       lineItems: rentalBillingLines(b),
       subtotal: b.subtotal,
       discount: b.discount ?? 0,
