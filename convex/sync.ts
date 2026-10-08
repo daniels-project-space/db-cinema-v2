@@ -529,7 +529,13 @@ export const applySharedStock = internalMutation({
     const signature=(rows:any[])=>JSON.stringify(rows.map(r=>[String(r.inventoryUnitId),r.start,r.end,r.qty,r.endExclusive===true,r.status]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
     const expected=resolved.flatMap(({source,unit})=>source.windows.map(window=>({inventoryUnitId:unit._id,...window,endExclusive:true,status:"confirmed"})));
     const intact=signature(old)===signature(expected)&&resolved.every(({source,unit})=>unit.quantityOwned===source.quantityOwned&&unit.active===source.active)&&removed.every(unit=>unit.quantityOwned===0&&unit.active===false);
-    if(prior&&snapshot.checkedAt===prior.checkedAt&&intact)return {mirrored:0,rows:snapshot.units.length,alreadyApplied:true};
+    if(prior&&prior.fingerprint===fingerprint&&intact){
+      // A fresh identical provider receipt must not churn hundreds of physical
+      // reservations. Advance freshness only after verifying every stored pool
+      // and window; a newly mapped pool or corrupt ledger still repairs below.
+      if(snapshot.checkedAt!==prior.checkedAt)await ctx.db.patch(state!._id,{lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,fingerprint})});
+      return {mirrored:0,rows:snapshot.units.length,alreadyApplied:true};
+    }
     for(const row of old)await ctx.db.delete(row._id);
     for(const unit of removed)await ctx.db.patch(unit._id,{quantityOwned:0,active:false});
     let mirrored=0;
@@ -710,5 +716,19 @@ export const applyKnowledge = mutation({
     let n = 0;
     for (const it of items) { await ctx.db.patch(it.id, { knowledge: it.knowledge }); n++; }
     return { updated: n };
+  },
+});
+
+/** One upstream refresh for a calendar scope, never one refresh per day. */
+export const refreshCalendarStock = action({
+  args:{listingId:v.id("listings"),monthStart:v.number(),rangeStart:v.optional(v.number()),items:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number()}))},
+  handler:async(ctx,args):Promise<{checkedAt:number;days:Record<string,{ok:boolean;available:number}>}>=>{
+    const first=new Date(args.monthStart);
+    if(!Number.isSafeInteger(args.monthStart)||first.getUTCDate()!==1||first.getUTCHours()!==0||first.getUTCMinutes()!==0||first.getUTCSeconds()!==0||first.getUTCMilliseconds()!==0||args.items.length>100||args.items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*86400000||i.start%86400000!==0||i.end%86400000!==0)||(args.rangeStart!==undefined&&(!Number.isSafeInteger(args.rangeStart)||args.rangeStart%86400000!==0||Math.abs(args.monthStart-args.rangeStart)>365*86400000)))throw Error("Invalid calendar stock request");
+    try{
+      await ctx.runAction(api.sync.syncHyggloReservations,{});
+      const days=await ctx.runQuery(api.availability.forCalendar,args);
+      return {checkedAt:Date.now(),days};
+    }catch{throw new ConvexError({code:"STOCK_CHECK_UNAVAILABLE",message:"We couldn't check these dates. Please retry."});}
   },
 });

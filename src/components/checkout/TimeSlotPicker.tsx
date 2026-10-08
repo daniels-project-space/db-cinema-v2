@@ -5,17 +5,18 @@ import { createPortal } from "react-dom";
 import { PICKUP_SLOTS } from "@/lib/site";
 import styles from "./TimeSlotPicker.module.css";
 
-export function TimeSlotPicker({ id, label, value, onChange }: {
-  id: string; label: string; value: string; onChange: (time: string) => void;
+export function TimeSlotPicker({ id, label, value, onChange, disabled=false }: {
+  id: string; label: string; value: string; onChange: (time: string) => void; disabled?: boolean;
 }) {
   const menuId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  useEffect(()=>{if(disabled)setOpen(false);},[disabled]);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 260, maxHeight: 320 });
-  function show() { setActive(Math.max(0, PICKUP_SLOTS.indexOf(value))); setOpen(true); }
-  function choose(index: number) { onChange(PICKUP_SLOTS[index]); setOpen(false); trigger.current?.focus(); }
+  function show() { if(disabled)return; setActive(Math.max(0, PICKUP_SLOTS.indexOf(value))); setOpen(true); }
+  function choose(index: number) { if(disabled)return; onChange(PICKUP_SLOTS[index]); setOpen(false); trigger.current?.focus(); }
   useLayoutEffect(() => {
     if (!open) return;
     const place = () => {
@@ -42,7 +43,7 @@ export function TimeSlotPicker({ id, label, value, onChange }: {
   }, [open]);
   return <div className={styles.field}>
     <label id={`${id}-label`} htmlFor={id} className={styles.label}>{label}</label>
-    <button ref={trigger} id={id} type="button" role="combobox" aria-required="true"
+    <button ref={trigger} id={id} type="button" disabled={disabled} role="combobox" aria-required="true"
       aria-labelledby={`${id}-label ${id}-value`} aria-haspopup="listbox" aria-expanded={open}
       aria-controls={open ? menuId : undefined} aria-activedescendant={open ? `${menuId}-${active}` : undefined}
       className={`${styles.trigger} ${value ? styles.selected : ""}`}

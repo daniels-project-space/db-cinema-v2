@@ -12,3 +12,5 @@
 .option { padding: 9px 3px; border: 1px solid #665344; border-radius: 6px; background: #28221c; color: #f8eddf; font: 13px var(--font-mono), monospace; text-align: center; cursor: pointer; }
 .active { border-color: #ffbd7b; background: #443224; outline: 1px solid #ffbd7b; }
 .chosen { background: #f0bc87; border-color: #f0bc87; color: #20150b; font-weight: 600; }
+
+.trigger:disabled{opacity:.55;cursor:not-allowed;}

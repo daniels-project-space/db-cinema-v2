@@ -442,9 +442,10 @@ export default function CheckoutPage() {
               )}
 
               {/* times (both pickup & delivery) */}
+              {availabilityBlocked && <p className="mt-4 text-sm text-amber-200">Choose available equipment and dates in your basket before choosing collection times. Your saved choices are kept.</p>}
               <div className="mt-4 flex gap-3">
-                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime}/>
-                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime}/>
+                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={availabilityBlocked}/>
+                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={availabilityBlocked}/>
               </div>
             </StepCard>
 
