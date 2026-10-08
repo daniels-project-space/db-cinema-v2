@@ -4,7 +4,6 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { RentalKit } from "@/components/rentals/RentalKit";
-import { CheckoutReminder } from "./CartPlanning";
 import Link from "next/link";
 const day = (n: number) =>
   new Date(n).toLocaleDateString("en-GB", {
@@ -128,10 +127,6 @@ export function ShootLists() {
           </p>
         )}
       </div>
-      <section className="rounded-2xl border border-white/10 p-5">
-        <h2 className="mb-4 font-medium text-white">Checkout reminder</h2>
-        <CheckoutReminder />
-      </section>
       <section>
         <h2 className="font-display text-xl text-white">Availability alerts</h2>
         <p className="mt-2 text-sm text-white/40">

@@ -70,6 +70,7 @@ function put(table, data) {
   return row;
 }
 const db = {
+  normalizeId: (table,id) => typeof id === "string" && id.startsWith(table+"-") ? id : null,
   get: async (id) => docs.get(id) ?? null,
   insert: async (table, data) => put(table, data)._id,
   patch: async (id, p) => Object.assign(docs.get(id), p),

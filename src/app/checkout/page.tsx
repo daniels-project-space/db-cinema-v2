@@ -12,7 +12,7 @@ import { CheckoutMembership } from "@/components/CheckoutMembership";
 import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
 import { accountPricingContext, shouldResetMembershipPreference, membershipOfferContext, membershipRecommendationPreview } from "../../../shared/membershipSelection";
 import { CheckoutLoopBanner } from "@/components/CheckoutLoopBanner";
-import { CheckoutReminder } from "@/components/plans/CartPlanning";
+import { BasketRecoveryStatus } from "@/components/plans/CartPlanning";
 import { useCart } from "@/components/cart/CartProvider";
 import { useCheckoutStatus, CheckoutPauseNotice, CHECKOUT_PAUSED_MESSAGE } from "@/components/cart/CheckoutStatus";
 import { CheckoutCode } from "@/components/cart/CheckoutCode";
@@ -598,7 +598,7 @@ export default function CheckoutPage() {
             </p>
           </aside>
         </div>
-        <div className="mt-8 rounded-2xl border border-white/10 p-4"><CheckoutReminder /></div>
+        <BasketRecoveryStatus />
       </main>
     </>
   );
