@@ -57,6 +57,12 @@ export function AccountAdmin({
   const searchPending = input !== email || authorized === undefined || status === "LoadingFirstPage";
   const selected = !authorized || searchPending ? undefined :
     visible.find((a) => a.id === selectedId) ?? visible[0];
+  // Replaced during render so a result cannot reach a different profile,
+  // including closing and reopening the same account or changing admin session.
+  const scope = useRef<{ token: string; accountId: string | undefined; panelClosed: boolean }>({ token, accountId: selected?.id, panelClosed });
+  if (scope.current.token !== token || scope.current.accountId !== selected?.id || scope.current.panelClosed !== panelClosed)
+    scope.current = { token, accountId: selected?.id, panelClosed };
+  const currentScope = scope.current;
   const detail = useQuery(
     api.accountAdmin.detail,
     selected && !panelClosed ? { token, accountId: selected.id } : "skip",
@@ -71,12 +77,14 @@ export function AccountAdmin({
     setLevel((selected?.override ?? "automatic") as Level);
     setReason("");
     setConfirmBlock(false);
-  }, [selected?.id, selected?.override, selected?.blocked]);
+  }, [selected?.id, selected?.override, selected?.blocked, token, panelClosed]);
   useEffect(() => {
     setMessage("");
     setSection("overview");
     setNote("");
-  }, [selected?.id]);
+    setBusy(false);
+    setNoteBusy(false);
+  }, [currentScope]);
   useEffect(() => setPage(0), [email, filter, tierFilter]);
   const pages = Math.max(1, Math.ceil(visible.length / 10));
   const currentPage = page;
@@ -99,6 +107,8 @@ export function AccountAdmin({
         })
       : "Not recorded";
   function selectAccount(id: string) {
+    if (scope.current.accountId !== id || scope.current.panelClosed)
+      scope.current = { token, accountId: id, panelClosed: false };
     setSelectedId(id);
     setPanelClosed(false);
     if (window.matchMedia("(max-width:1100px)").matches)
@@ -110,20 +120,22 @@ export function AccountAdmin({
       );
   }
   async function saveNote() {
-    if (!selected || noteBusy || !note.trim()) return;
+    if (!selected || panelClosed || searchPending || noteBusy || !note.trim()) return;
+    const origin = scope.current;
     setNoteBusy(true);
     setMessage("");
     try {
       await addNote({ token, accountId: selected.id, text: note });
-      setNote("");
+      if (scope.current === origin) setNote("");
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Could not save note.");
+      if (scope.current === origin) setMessage(e instanceof Error ? e.message : "Could not save note.");
     } finally {
-      setNoteBusy(false);
+      if (scope.current === origin) setNoteBusy(false);
     }
   }
   async function apply(kind: "level" | "block") {
-    if (!selected || busy || searchPending) return;
+    if (!selected || panelClosed || busy || searchPending) return;
+    const origin = scope.current;
     setBusy(true);
     setMessage("");
     try {
@@ -136,6 +148,7 @@ export function AccountAdmin({
           blocked: !selected.blocked,
           reason,
         });
+      if (scope.current !== origin) return;
       setMessage(
         kind === "level"
           ? "Account level updated."
@@ -145,13 +158,14 @@ export function AccountAdmin({
       );
       setConfirmBlock(false);
     } catch (error) {
+      if (scope.current !== origin) return;
       setMessage(
         error instanceof Error
           ? error.message
           : "Could not update this account.",
       );
     } finally {
-      setBusy(false);
+      if (scope.current === origin) setBusy(false);
     }
   }
   function rentalRows(limit = 100) {
@@ -440,7 +454,10 @@ export function AccountAdmin({
             <button
               type="button"
               aria-label="Close customer profile"
-              onClick={() => setPanelClosed(true)}
+              onClick={() => {
+                scope.current = { token, accountId: selected.id, panelClosed: true };
+                setPanelClosed(true);
+              }}
               className={styles.close}
             >
               ×
@@ -645,6 +662,7 @@ export function AccountAdmin({
                       Add a note
                       <textarea
                         maxLength={2000}
+                        disabled={noteBusy}
                         value={note}
                         onChange={(e) => setNote(e.target.value)}
                         placeholder="Visible to admins only"
@@ -677,6 +695,7 @@ export function AccountAdmin({
                       Membership access level
                       <select
                         value={level}
+                        disabled={busy}
                         onChange={(e) => {
                           setLevel(e.target.value as Level);
                           setMessage("");
@@ -710,6 +729,7 @@ export function AccountAdmin({
                       Reason for this change
                       <textarea
                         value={reason}
+                        disabled={busy}
                         maxLength={500}
                         onChange={(e) => setReason(e.target.value)}
                         data-testid="admin-account-reason"

@@ -190,3 +190,9 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Verify source cd2fdf9: hosted CI 37713153863 is terminal SUCCESS, including the previously failing full membership/cart/checkout clear/reload regression with unchanged assertions. Matching Vercel preview dpl_3BHuDTK6ZttqEb1VfyuEjJZWUYFT is READY. Local archive and worker fixtures also pass 30-day expiry, active-rental/insurance preservation, binding, private viewing and incomplete/corrupt-copy repair. Live Didit/private owner/integration acceptance remains pending.
 
 - [ ] Native Chrome 154 still times out at Page.reload after clear on cd2fdf9, despite the unchanged complete hosted suite passing. Preserve this exact distinction and continue diagnosis; do not mark native acceptance complete. Log /tmp/dbc-local-font-native-browser.log.
+
+### 8 October 2026 — customer profile mutation isolation
+
+- [x] Reproduce the old UI clearing a different customer's note when a prior account save completes. Scope note/access result messages, draft clearing and busy changes to the initiating account/admin session; invalidate scope on profile change/close and preserve independent concurrent saves.
+- [x] Native actual-component/actual-handler fixture passes success/error delays, original mutation account IDs, close/reopen, token revocation/restoration, pending inputs and desktop/mobile overflow. Synthetic records only; final screenshots at /root/dbc-customer-scope-review. Production build/typecheck and admin/customer/directory handler suites pass.
+- [ ] Push and verify hosted source/preview checks, then include this in compatible management publication and actual authenticated account acceptance. All original visual, equipment, manager and live document requirements remain open.
