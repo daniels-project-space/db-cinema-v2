@@ -54,17 +54,21 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   const epoch=await c.evaluate('performance.timeOrigin');await c.cmd('Page.reload');await until(`performance.timeOrigin!==${epoch}&&document.readyState==='complete'`,'Reloaded checkout document');await ready();assert.equal(await c.evaluate(`document.querySelector('[data-testid=rental-agreement-checkbox]').checked`),true);
   assert.equal(await c.evaluate(`document.getElementById('co-sig').value`),'');
   await until(`document.getElementById('co-time-out')&&!document.getElementById('co-time-out').disabled`,'Reloaded time availability settles');
-  await c.evaluate(`document.getElementById('co-time-out').focus()`);
-  for(const key of ['ArrowDown','End','Enter']){await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key});await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key});}
+  await c.cmd('Page.bringToFront');
+  await until(`!document.getElementById('co-time-out').disabled&&document.querySelector('main').innerText.includes('Equipment availability checked')`,'Focus-triggered stock refresh settles');
+  await c.evaluate(`document.getElementById('co-time-out').scrollIntoView({block:'center',behavior:'instant'});document.getElementById('co-time-out').focus()`);
+  await until(`document.activeElement?.id==='co-time-out'&&!document.getElementById('co-time-out').disabled`,'Time trigger has keyboard focus');
+  for(const key of ['ArrowDown','End','Enter']){await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key});await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key});if(key==='ArrowDown')await until(`!!document.querySelector('[role=listbox]')`,'Keyboard opens time choices');if(key==='End')await until(`document.getElementById('co-time-out').getAttribute('aria-activedescendant')?.endsWith('-13')`,'Keyboard selects final available time');if(key==='Enter')await until(`document.getElementById('co-time-out').innerText==='22:00'`,'Keyboard choice is saved');}
   assert.equal(await c.evaluate(`document.getElementById('co-time-out').innerText`),'22:00','Keyboard selection must work');
   for(const width of [1440,390]){
    await c.cmd('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<600});
    await until(`!document.getElementById('co-time-out').disabled`,'Saved time availability settles');
-   await c.evaluate(`document.getElementById('co-time-out').scrollIntoView({block:'center',behavior:'instant'});document.getElementById('co-time-out').click()`);await delay(200);
+   await c.evaluate(`document.getElementById('co-time-out').scrollIntoView({block:'center',behavior:'instant'});document.getElementById('co-time-out').focus();document.getElementById('co-time-out').click()`);await delay(200);
    assert.equal(await c.evaluate('document.documentElement.scrollWidth>innerWidth'),false);
    const geometry=await c.evaluate(`(()=>{const e=document.querySelector('[role=listbox]').parentElement,r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,w:innerWidth,h:innerHeight}})()`);assert(geometry.left>=0&&geometry.right<=geometry.w&&geometry.top>=0&&geometry.bottom<=geometry.h);
    const shot=await c.cmd('Page.captureScreenshot',{format:'png'});fs.writeFileSync(output+'/time-picker-'+width+'.png',Buffer.from(shot.data,'base64'));
    await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape'});await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape'});
+   await until(`!document.querySelector('[role=listbox]')`,'Escape closes time choices');
    assert.equal(await c.evaluate(`!!document.querySelector('[role=listbox]')`),false);
   }
   console.log('PASS real checkout: signature preserves terms; signed-detail changes invalidate signature only; basket/date change and reload preserve details/times/terms; no saved signature; custom picker keyboard/Escape/desktop/mobile placement. No payment submitted.');
