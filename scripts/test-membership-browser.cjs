@@ -439,6 +439,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (!checkoutEnabled) {
     await until(`document.querySelector('[data-testid="checkout-pay-button"]')?.disabled===true`);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-pay-button"]').textContent.includes('temporarily paused')`),true);
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]').checked`),false,'Direct navigation must require fresh membership opt-in');
+    await nativeClick(`document.querySelector('[data-testid="membership-upsell"] h3')`);
+    await until(`document.querySelector('[data-testid="membership-upsell"]')?.dataset.membershipSelected==='true'`);
   }
   await until(
     `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`,
