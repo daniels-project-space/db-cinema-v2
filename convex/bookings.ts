@@ -17,9 +17,7 @@ import { securityReady } from "../shared/verificationProgress";
 import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerification";
 import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
-import { assertRentalInventory } from "./lib/rentalInventory";
-import { reservationOccupancy } from "./lib/reservationOccupancy";
-import { rentalUnavailable } from "./lib/marketingInventory";
+import { assertRentalInventory, type RentalInventoryCache } from "./lib/rentalInventory";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
 import { postRentalMessage } from "./lib/rentalChat";
@@ -36,7 +34,6 @@ import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { inspectionInput } from "./lib/returnInspectionFields";
 import { returnInspectionSchedule } from "./lib/returnInspection";
 import { normalizeReturnInspection } from "../shared/returnInspection";
-import { peak, type Iv } from "./availability";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
@@ -328,69 +325,45 @@ export const createPending = internalMutation({
   },
 });
 
-/** Soft holds: reserve the units for a TTL while the renter is at checkout, so
- *  two people can't grab the last unit at once. Released on confirm or by cron. */
+/** Transactional stock reservation for an unpaid checkout. Replays preserve
+ * the original rows/expiry; changed or incomplete reservations need repair. */
 export const placeHolds = internalMutation({
   args: { bookingId: v.id("bookings"), ttlMs: v.number() },
   handler: async (ctx, { bookingId, ttlMs }) => {
+    if (!Number.isSafeInteger(ttlMs) || ttlMs < 1 || ttlMs > 35 * 60 * 1000)
+      throw Error("Invalid checkout reservation duration");
     const booking = await ctx.db.get(bookingId);
-    if (!booking) return;
-    const now = Date.now();
-    const expires = now + ttlMs;
+    if (!booking || booking.status !== "pending_payment" || !booking.lineItems.length)
+      throw Error("Only an unpaid rental with equipment can reserve checkout stock");
 
-    // Gather this booking's demand per physical unit (BOM-aware) + the rows to insert.
-    const demandByUnit = new Map<string, { ivs: Iv[]; title: string }>();
-    const toInsert: { unitId: any; listingId: any; start: number; end: number; qty: number }[] = [];
-    for (const li of booking.lineItems) {
-      const listing = await ctx.db.get(li.listingId);
-      if (!listing || rentalUnavailable(listing) || !listing.components.length)
-        throw Error("An item is unavailable. Review your basket and choose an alternative.");
-      for (const comp of listing.components) {
-        const uid = String(comp.inventoryUnitId);
-        const qty = (comp.qty || 1) * (li.qty || 1);
-        const d = demandByUnit.get(uid) ?? { ivs: [], title: li.title };
-        d.ivs.push({ start: li.start, end: li.end, qty });
-        demandByUnit.set(uid, d);
-        toInsert.push({ unitId: comp.inventoryUnitId, listingId: li.listingId, start: li.start, end: li.end, qty });
-      }
+    // Validate the complete order in this serializable mutation, using the same
+    // blocked dates, component quantities and real stock records as the cart.
+    const cache: RentalInventoryCache = { records: new Map(), reservations: new Map() };
+    await assertRentalInventory(ctx, booking.lineItems, bookingId, cache);
+    const requested = booking.lineItems.flatMap(li => {
+      const listing = cache.records.get(String(li.listingId));
+      return listing.components.map((comp: { inventoryUnitId: any; qty: number }) => ({
+        inventoryUnitId: comp.inventoryUnitId, listingId: li.listingId,
+        start: li.start, end: li.end, qty: comp.qty * li.qty,
+      }));
+    });
+    const current = await ctx.db.query("reservations")
+      .withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
+    if (current.some(r => r.status === "confirmed" || r.status === "active"))
+      throw Error("This checkout's stock is already committed; reconcile the original rental");
+    const holds = current.filter(r => r.status === "hold");
+    if (holds.length) {
+      const fingerprint = (rows: { inventoryUnitId: unknown; listingId?: unknown; start: number; end: number; qty: number }[]) => JSON.stringify(rows.map(r =>
+        JSON.stringify([String(r.inventoryUnitId), r.listingId ? String(r.listingId) : null, r.start, r.end, r.qty])).sort());
+      if (fingerprint(holds) !== fingerprint(requested))
+        throw Error("This checkout's inventory reservation has changed; reconcile or cancel the original checkout");
+      return { created: 0, alreadyReserved: true };
     }
-
-    // ATOMIC, unit-aware re-check: existing ACTIVE (non-expired) reservations + this booking's
-    // demand must not exceed owned stock for ANY shared unit. This runs inside the serializable
-    // hold-insert mutation, so two concurrent checkouts for the last unit cannot both pass
-    // (closes the action-level TOCTOU), and it catches cross-listing shared-unit demand.
-    for (const [uid, d] of demandByUnit) {
-      const unit: any = await ctx.db.get(uid as any);
-      const owned = unit?.quantityOwned ?? 1;
-      const lo = Math.min(...d.ivs.map((i) => i.start));
-      const hi = Math.max(...d.ivs.map((i) => i.end));
-      const existing: Iv[] = [];
-      const rows = await ctx.db.query("reservations")
-        .withIndex("by_unit", (q) => q.eq("inventoryUnitId", uid as any)).collect();
-      for (const r of rows) {
-        if (r.bookingId === bookingId) continue;
-        const interval = await reservationOccupancy(ctx, r, now);
-        if (interval && interval.start <= hi && interval.end >= lo) existing.push(interval);
-      }
-      if (peak([...existing, ...d.ivs]) > owned) {
-        throw new Error(`"${d.title}" was just taken for those dates — please adjust your dates or remove it.`);
-      }
-    }
-
-    // All clear → place the soft holds.
-    for (const ins of toInsert) {
-      await ctx.db.insert("reservations", {
-        inventoryUnitId: ins.unitId,
-        listingId: ins.listingId,
-        bookingId,
-        start: ins.start,
-        end: ins.end,
-        qty: ins.qty,
-        source: "site",
-        status: "hold",
-        holdExpiresAt: expires,
-      });
-    }
+    const expires = Date.now() + ttlMs;
+    for (const row of requested) await ctx.db.insert("reservations", {
+      ...row, bookingId, source: "site", status: "hold", holdExpiresAt: expires,
+    });
+    return { created: requested.length, alreadyReserved: false };
   },
 });
 
@@ -438,6 +411,7 @@ export const expireUnpaidPending = internalMutation({
   handler: async (ctx, { bookingId, sessionId }) => {
     const booking = await ctx.db.get(bookingId);
     if (!booking || (booking.activeAdditionId || booking.activeExtensionId) || booking.status !== "pending_payment" ||
+        (!sessionId && booking.stripePaymentIntentId) ||
         (booking.stripeCheckoutSessionId ?? undefined) !== sessionId) return false;
     const res = await ctx.db.query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId)).collect();

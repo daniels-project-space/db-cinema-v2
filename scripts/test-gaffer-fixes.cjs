@@ -163,6 +163,23 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   assert.equal(StripeStub.lastCheckout.line_items[1].price_data.unit_amount,2500,'nonmember/referral checkout protects the full upfront security line');
   assert.equal(StripeStub.lastCheckout.discounts,undefined,'no global coupon may discount security');
 
+  // An inventory rejection happens before Stripe creation. Exercise the real
+  // pending-order cleanup instead of leaving reserved credits until cron.
+  const stockHarness=require('./lib/rentalTestHarness.cjs');
+  const stockBookings=stockHarness.load('convex/bookings.ts');
+  const failedStockBooking=stockHarness.put('bookings',{status:'pending_payment',guestEmail:'test@example.invalid',lineItems:[],creditApplied:10});
+  const priorCheckout=StripeStub.lastCheckout,stockCalls=[];
+  await assert.rejects(()=>start.handler({...checkoutCtx,runMutation:async(ref,args)=>{
+    stockCalls.push({ref,args});
+    if(ref==='bookings:createPending')return {bookingId:failedStockBooking._id,creditApplied:0};
+    if(ref==='bookings:placeHolds')throw Error('Physical equipment is already reserved');
+    if(ref==='bookings:expireUnpaidPending')return stockBookings.expireUnpaidPending.handler({db:stockHarness.db},args);
+    throw Error('Unexpected stock-rejection mutation '+ref);
+  }},{items:[{listingId:'camera-1',title:'Camera',start:0,end:0,qty:1,total:1,deposit:0}],customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment:'pickup',deliveryFee:0,expectedTotalDue:225,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-stock-rejection-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}}),error=>{assert.equal(error.data.code,'CHECKOUT_STOCK_REJECTED');assert.equal(error.data.freshAcceptanceRequired,true);assert.match(error.data.message,/already reserved/);return true;});
+  assert.equal(StripeStub.lastCheckout,priorCheckout,'Stock rejection cannot create a payment session');
+  assert.equal(failedStockBooking.status,'cancelled','Actual cleanup releases the unbound pending order/credit reservation');
+  assert.deepEqual(stockCalls.map(c=>c.ref),['bookings:createPending','bookings:placeHolds','bookings:expireUnpaidPending']);
+
 
   const memory=createCallMemory();
   memory.add('user','My name is Alex. I need the FX3 next Friday.');

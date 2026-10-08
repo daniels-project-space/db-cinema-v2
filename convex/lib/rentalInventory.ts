@@ -1,6 +1,7 @@
 import { peak, blockedSet } from "../availability";
 import { rentalUnavailable } from "./marketingInventory";
 import { reservationOccupancy } from "./reservationOccupancy";
+import { inventoryCapacity } from "./inventoryCapacity";
 /** Query-local cache only: all checks still use the same live database snapshot. */
 export type RentalInventoryCache = { records: Map<string, any>; reservations: Map<string, any[]> };
 /** Check the whole proposed order together, including overlapping bundles and quantities. */
@@ -55,12 +56,8 @@ export async function assertRentalInventory(
   }
   for (const row of byUnit.values()) {
     const unit = await get(row.id);
-    if (
-      !unit ||
-      !Number.isSafeInteger(unit.quantityOwned) ||
-      unit.quantityOwned < 0
-    )
-      throw Error("Inventory capacity is missing or invalid");
+    const owned = inventoryCapacity(unit);
+    if (owned === null) throw Error("Inventory capacity is missing, inactive or invalid");
     let reservations = cache?.reservations.get(String(row.id));
     if (!reservations) {
       reservations = await ctx.db
@@ -83,7 +80,7 @@ export async function assertRentalInventory(
           start: Math.max(interval.start, window.start),
           end: Math.min(interval.end, window.end),
         }));
-      return peak(overlapping) > unit.quantityOwned;
+      return peak(overlapping) > owned;
     });
     if (over)
       throw Error(

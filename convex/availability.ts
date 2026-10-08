@@ -2,6 +2,7 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { rentalUnavailable } from "./lib/marketingInventory";
 import { reservationOccupancy } from "./lib/reservationOccupancy";
+import { inventoryCapacity } from "./lib/inventoryCapacity";
 
 const DAY = 86400000;
 
@@ -70,26 +71,27 @@ export const forListing = query({
   args: { listingId: v.id("listings"), start: v.number(), end: v.number() },
   handler: async (ctx, { listingId, start, end }) => {
     const l = await ctx.db.get(listingId);
-    if (!l || !l.active || l.suppressed) return { available: 0, owned: 0 };
+    if (!l || rentalUnavailable(l)) return { available: 0, owned: 0 };
+    if (!l.components.length || l.components.some(c => !Number.isSafeInteger(c.qty) || c.qty < 1)) return { available: 0, owned: 0 };
     const requested = dayRange(start, end);
     if (requested.some((d) => blockedSet(l.unavailableDates ?? []).has(d)))
       return { available: 0, owned: 0, blocked: true };
 
     let minAvail = Infinity;
-    let owned = 0;
+    let owned = Infinity;
     for (const comp of l.components) {
       const unit: any = await ctx.db.get(comp.inventoryUnitId);
-      const ownedQ = unit?.quantityOwned ?? 0;
-      owned = ownedQ;
+      const ownedQ = inventoryCapacity(unit) ?? 0;
+      owned = Math.min(owned, Math.floor(ownedQ / comp.qty));
       const ivs = (await unitReservations(ctx, comp.inventoryUnitId, start, end)).map((r) => ({
         start: Math.max(r.start, start),
         end: Math.min(r.end, end),
         qty: r.qty,
       }));
       const free = Math.max(0, ownedQ - peak(ivs));
-      minAvail = Math.min(minAvail, Math.floor(free / (comp.qty || 1)));
+      minAvail = Math.min(minAvail, Math.floor(free / comp.qty));
     }
-    return { available: minAvail === Infinity ? 0 : minAvail, owned };
+    return { available: minAvail === Infinity ? 0 : minAvail, owned: owned === Infinity ? 0 : owned };
   },
 });
 
@@ -114,7 +116,7 @@ export const forCart = query({
     const invalid = new Set<string>();
     for (const it of items) {
       const l = await ctx.db.get(it.listingId);
-      if (!l || rentalUnavailable(l) || !l.components.length ||
+      if (!l || rentalUnavailable(l) || !l.components.length || l.components.some(c => !Number.isSafeInteger(c.qty) || c.qty < 1) ||
           dayRange(it.start, it.end).some(d => blockedSet(l.unavailableDates ?? []).has(d))) {
         invalid.add(it.listingId);
       } else {
@@ -129,7 +131,7 @@ export const forCart = query({
     const resIvs: Record<string, Iv[]> = {};
     for (const uid of unitIds) {
       const unit: any = await ctx.db.get(uid as any);
-      owned[uid] = unit?.quantityOwned ?? 0;
+      owned[uid] = inventoryCapacity(unit) ?? 0;
       resIvs[uid] = await unitReservations(ctx, uid, lo, hi);
     }
 

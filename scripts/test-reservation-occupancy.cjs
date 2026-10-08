@@ -16,7 +16,7 @@ async function blocked() {
   assert.equal((await availability.forListing.handler(ctx, { listingId: camera._id, start, end })).available, 0);
   assert.equal((await availability.forCart.handler(ctx, { items: lines }))[camera._id].ok, false);
   await assert.rejects(() => assertRentalInventory(ctx, lines), /already reserved/);
-  await assert.rejects(() => bookings.placeHolds.handler(ctx, { bookingId: proposed._id, ttlMs: 60000 }), /just taken/);
+  await assert.rejects(() => bookings.placeHolds.handler(ctx, { bookingId: proposed._id, ttlMs: 60000 }), /already reserved/);
   assert.equal((await replacements.forCart.handler(ctx, { items: requested })).replacement.length, 0);
 }
 (async () => {

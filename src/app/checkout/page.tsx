@@ -210,6 +210,8 @@ export default function CheckoutPage() {
     setBusy(true);
     setErr(null);
     track({ type: "checkout_start", sessionId: getSessionId() }).catch(() => {});
+    const acceptanceAttempt = agreementRequest.current ?? (agreementRequest.current = crypto.randomUUID());
+    const membershipAttempt = membership ? membershipRequest.current ?? (membershipRequest.current = crypto.randomUUID()) : null;
     try {
       const docs: { kind: string; version: string }[] = AGREEMENTS.map((d) => ({ kind: d.kind, version: d.version }));
       if (fulfilment === "delivery") docs.push({ kind: "delivery-disclaimer", version: DELIVERY_TERMS_VERSION });
@@ -231,16 +233,22 @@ export default function CheckoutPage() {
         deliveryPostcode: fulfilment === "delivery" ? postcode : undefined,
         deliveryFee: currentQuote!.quotedDeliveryFee,
         expectedTotalDue: currentQuote!.combinedTotalDue,
-        selectedMembership: membership ? {tier:membership.tier,intro:membership.intro,termsVersion:MEMBERSHIP_TERMS_VERSION,requestId:membershipRequest.current ?? (membershipRequest.current = crypto.randomUUID())} : undefined,
+        selectedMembership: membership ? {tier:membership.tier,intro:membership.intro,termsVersion:MEMBERSHIP_TERMS_VERSION,requestId:membershipAttempt!} : undefined,
         promoCode: promo.applied ?? undefined,
         protection,
         pickupTime,
         returnTime,
-        agreement: { name: signature.trim(), requestId: agreementRequest.current ?? (agreementRequest.current = crypto.randomUUID()), securityHoldConsent: agreed, laterChargeConsent: agreed, documents: docs },
+        agreement: { name: signature.trim(), requestId: acceptanceAttempt, securityHoldConsent: agreed, laterChargeConsent: agreed, documents: docs },
       });
       window.location.href = url;
     } catch (e: any) {
-      setErr(e?.message ?? "Something went wrong");
+      if (e?.data?.code === "CHECKOUT_STOCK_REJECTED" && e.data.freshAcceptanceRequired === true && agreementRequest.current === acceptanceAttempt) {
+        agreementRequest.current = null;
+        if (membershipRequest.current === membershipAttempt) membershipRequest.current = null;
+        setAgreed(false);
+        setSignature("");
+      }
+      setErr(typeof e?.data?.message === "string" ? e.data.message : e?.message ?? "Something went wrong");
       setBusy(false);
     }
   }

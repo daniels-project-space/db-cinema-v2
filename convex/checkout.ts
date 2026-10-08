@@ -8,7 +8,7 @@ import { rentalRefundBalance } from "./lib/rentalRefundBalance";
 import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 import { inspectionInput } from "./lib/returnInspectionFields";
 import { assertCreditOffer, creditOfferFingerprint } from "./lib/rentalCreditPolicy";
 import { cancellationPaymentPlan,rentalRefundPlan,securityReturnPlan } from "./lib/rentalPaymentPlan";
@@ -370,10 +370,20 @@ export const start = action({
     // Reserve the units while Stripe resolves payment. The 35-minute marker is
     // only for cleaning up orphaned rows after a terminal provider outcome;
     // pending bookings keep their holds until reconciliation confirms or expires them.
-    await ctx.runMutation(internal.bookings.placeHolds, {
-      bookingId,
-      ttlMs: 35 * 60 * 1000,
-    });
+    try {
+      await ctx.runMutation(internal.bookings.placeHolds, {
+        bookingId,
+        ttlMs: 35 * 60 * 1000,
+      });
+    } catch (error) {
+      // No Stripe session creation has been attempted on this path. Release
+      // the unbound pending order/credit rather than trapping it until cron.
+      // The mutation refuses to close a bound or paid checkout.
+      const closed = await ctx.runMutation(internal.bookings.expireUnpaidPending, { bookingId });
+      if (closed) throw new ConvexError({ code: "CHECKOUT_STOCK_REJECTED", freshAcceptanceRequired: true,
+        message: `${error instanceof Error ? error.message : "The requested equipment could not be reserved."} Review your basket, then review and accept the rental terms again.` });
+      throw error;
+    }
 
     const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = a.items.map(
       (i) => ({

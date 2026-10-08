@@ -26,7 +26,7 @@ for(const title of ['Cannon r5 c cinema camera','Sigma art 24-70mm f2.8 lens','S
  assert(!marketingRedirect({title:'DZOFilm Vespid 3-Lens Set'}));
  assert(!marketingRedirect({title:'Sony FX3 camera body'}));assert(!marketingRedirect({title:'Battery for Sony FX6',itemType:'battery'}));assert(!marketingRedirect({title:'Sony A7 IV compatible cage',itemType:'accessory'}));
  const booking=put('bookings',{lineItems:[{...lines(phantom)[0],qty:1,title:phantom.title}],status:'pending_payment'});
- await assert.rejects(load('convex/bookings.ts').placeHolds.handler(ctx,{bookingId:booking._id,ttlMs:60000}),/unavailable/);assert.equal((tables.get('reservations')??[]).length,0);
+ await assert.rejects(load('convex/bookings.ts').placeHolds.handler(ctx,{bookingId:booking._id,ttlMs:60000}),/no longer available/);assert.equal((tables.get('reservations')??[]).length,0);
  const opts=await replacements.forCart.handler(ctx,{items:lines(phantom)});assert.equal(opts.source.length,2);assert.equal(opts.source[0].listingId,fx3._id);assert(opts.source.every(c=>c.days===3&&c.total>0));
  // Every unavailable line remains represented, including deleted/inactive/empty mappings.
  const dead=listing('Retired body',unit('dead'),{active:false}),empty=listing('Missing inventory',unit('unused'),{components:[]});

@@ -2,6 +2,14 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — checkout stock and consent recovery
+
+- [x] Validate full-order stock inside hold insertion, including real active inventory, shared component quantities and date blocks; count complete kits in listing availability and avoid promising marketing inventory through that query. Keep catalogue selection and demand logging unchanged.
+- [x] Preserve one exact hold allocation and original expiry on retry; reject changed/partial/duplicate allocations for reconciliation. Close a newly rejected, unbound pending order before Stripe creation, while preserving bound or ambiguous payment outcomes.
+- [x] Native actual checkout recovery verifies fresh consent/IDs after confirmed closure, original IDs on unknown outcomes, preserved customer details and protection against delayed rejection clearing newer consent. See CHECKOUT-STOCK-RECOVERY.md for handler/native evidence and boundaries.
+- [x] Full default tests, TypeScript, production build and graph update pass locally.
+- [ ] Complete source-matched hosted checks and compatible backend/live acceptance. A single authoritative cross-project stock claim, the remaining full integration, private documents, reference fidelity and accurate equipment renders are still open.
+
 ### 8 October 2026 — photographed return cards and inspection ownership
 
 - [x] Add exact rental-bound item photos beside independent condition controls, with explicit missing-photo fallback, two-column desktop and one-column mobile layouts. Exclude kit/pack/incorrect-name photos and keep photo metadata outside frozen financial records. Protected schedule/context handlers share the projection.
