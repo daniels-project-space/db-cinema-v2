@@ -166,7 +166,7 @@ async function pay(fixture,fee=1900) {
  assert.equal(receipt.credit.remaining,0,'confirm does not spend first-month credit twice');assert.equal(account.membershipPerksPendingBookingId,undefined);assert.equal(load('shared/membership.ts').paidDepositExempt(account),true);
  const mail=[];setMock('./lib/mailer',{sendMail:async m=>{mail.push(m);return true}});
  await load('convex/invoice.ts').invoiceEmail.handler({runQuery:async(ref,args)=>{assert.equal(ref,'bookings.receiptContext');return bookings.receiptContext.handler(ctx,args)}},{bookingId:f.booking._id});
- assert(mail[0].html.includes('First-month membership credit used on this rental: £20.90'),'receipt email reads the real internal credit breakdown');
+ assert(mail[0].html.includes('Account credit above includes £20.90 from your first subscription month'),'receipt email reads the real internal credit breakdown');
  await billing.grantPaidInvoice.handler(ctx,{...receipt.args,checkoutId:undefined,invoiceId:'renewal-'+account._id});
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),20.9,'renewal grants full monthly credit');
  await bookings._finalizeCancellation.handler(ctx,{bookingId:f.booking._id,accountId:account._id,mode:'refund',refundAmount:f.booking.total,creditAmount:f.booking.creditApplied,currency:'GBP'});

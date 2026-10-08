@@ -1,6 +1,6 @@
 import { ensureReferralCode } from "./lib/referrals";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { v } from "convex/values";
+import { v,ConvexError } from "convex/values";
 import { bump } from "./rateLimit";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
@@ -70,11 +70,11 @@ export const dueRentalAccess=internalQuery({args:{},handler:async(ctx)=>{
  return rows.filter(b=>!b.accountAccessEmailSentAt&&["confirmed","active"].includes(b.status)&&(b.accountAccessEmailLeaseUntil??0)<=Date.now()).map(b=>b._id);
 }});
 export const exchange=internalMutation({args:{secretHash:v.string(),sessionToken:v.string()},handler:async(ctx,a)=>{
- const link=await ctx.db.query("account_access_links").withIndex("by_hash",q=>q.eq("secretHash",a.secretHash)).unique();if(!link||link.usedAt||link.expiresAt<=Date.now())throw Error("This sign-in link has expired or has already been used.");
- const account=await ctx.db.get(link.accountId);if(!account)throw Error("Account no longer exists.");
- if(account.blockedAt!=null)throw Error("This account is blocked. Contact DB Cinema Rentals.");
- if(link.bookingId&&!belongsToRentalAccount(await ctx.db.get(link.bookingId),account))throw Error("This rental is not available to your account.");
- if(link.purpose==="signup"&&(account.emailVerifiedAt||account.hash!==link.credentialHash))throw Error("This signup link is no longer valid. Request a new sign-in link.");
+ const link=await ctx.db.query("account_access_links").withIndex("by_hash",q=>q.eq("secretHash",a.secretHash)).unique();if(!link||link.usedAt||link.expiresAt<=Date.now())throw new ConvexError({code:"ACCESS_LINK_EXPIRED",message:"This sign-in link has expired or has already been used."});
+ const account=await ctx.db.get(link.accountId);if(!account)throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});
+ if(account.blockedAt!=null)throw new ConvexError({code:"ACCOUNT_BLOCKED",message:"Please contact DB Cinema Rentals for help with your account."});
+ if(link.bookingId&&!belongsToRentalAccount(await ctx.db.get(link.bookingId),account))throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});
+ if(link.purpose==="signup"&&(account.emailVerifiedAt||account.hash!==link.credentialHash))throw new ConvexError({code:"ACCESS_LINK_EXPIRED",message:"This signup link is no longer valid. Request a new sign-in link."});
  if(account.emailVerificationRequired&&!account.emailVerifiedAt){
   // A rental/sign-in email proves ownership but must not activate a password
   // registered by somebody else before the real email owner arrived.

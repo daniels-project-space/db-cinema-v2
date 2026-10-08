@@ -60,7 +60,7 @@ const block = blocked=>admin.setBlocked.handler(ctx,{token:'fixture-admin',accou
   await assert.rejects(google._upsertGoogle.handler(ctx,{email:account.email,googleId:'qa-google',token:'google-session'}),/blocked/);
   assert.equal(await claims.prepareSignIn.handler(ctx,{email:account.email,secretHash:'new-link'}),null);
   put('account_access_links',{accountId:account._id,secretHash:'stale-link',createdAt:1,expiresAt:Date.now()+3600000});
-  await assert.rejects(claims.exchange.handler(ctx,{secretHash:'stale-link',sessionToken:'email-session'}),/blocked/);
+  await assert.rejects(claims.exchange.handler(ctx,{secretHash:'stale-link',sessionToken:'email-session'}),error=>error.data?.code==='ACCOUNT_BLOCKED');
   await assert.rejects(calculateRentalPrice(ctx,{...input,token:undefined}),/blocked/,'Signing out cannot bypass the email booking block');
   await assert.rejects(bookings.createPending.handler(ctx,{customerEmail:account.email,fulfilment:'pickup',deliveryFee:0,lineItems:[],subtotal:0,depositAmount:0,discount:0,total:0,currency:'GBP'}),/blocked/);
   assert.equal(rental.status,'confirmed','Block preserves owner-manageable rentals');

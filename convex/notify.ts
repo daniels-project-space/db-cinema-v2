@@ -1,5 +1,6 @@
 "use node";
 
+import {rentalEmail,emailRows,emailMoney,emailEscape} from "../shared/rentalEmail";
 import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -40,8 +41,8 @@ async function email(
 export const bookingAlert = internalAction({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
-    const b: any = await ctx.runQuery(api.bookings.get, { bookingId });
-    if (!b) return;
+    const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
+    if (!b||!b.guestEmail||!["confirmed","active"].includes(b.status)) return;
     const lines = b.lineItems
       .map(
         (li: any) =>
@@ -52,20 +53,10 @@ export const bookingAlert = internalAction({
       `🎬 <b>New booking</b>\n${b.guestEmail}\n${b.fulfilment}\n${lines}\n<b>£${b.total}</b> (incl £${b.depositAmount} refundable security payment; £${b.depositHoldAmount ?? 0} separate card hold)`,
     );
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
-    const secret = process.env.INVOICE_SECRET;
-    const cal = secret
-      ? [{ filename: "db-cinema-booking.ics", path: `${app}/api/booking-ics/${bookingId}?key=${encodeURIComponent(secret)}` }]
-      : undefined;
-    await email(
-      b.guestEmail,
-      "Your Db Cinema booking is confirmed",
-      `<h2>Booking confirmed 🎬</h2><p>Thanks for renting with Db Cinema.</p>
-       <pre>${lines}</pre>
-       <p>Total paid: <b>£${b.total}</b> (incl. £${b.depositAmount} refundable security payment; £${b.depositHoldAmount ?? 0} separate card hold)</p>
-       <p>Fulfilment: ${b.fulfilment}</p>
-       <p>📅 Your pickup &amp; return dates are attached — add them to your calendar.</p>`,
-      cal,
-    );
+    const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
+    const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);
+    rows.push(["Payment received",emailMoney(b.total)],["Refundable deposit included",emailMoney(b.depositAmount)]);
+    await email(b.guestEmail,"Payment received — complete your rental checks",rentalEmail({title:"Payment received",preview:"Your rental request is awaiting verification and approval.",url,button:"Complete verification",body:`<p>Thanks for renting with DB Cinema. Your rental request is awaiting verification and approval.</p>${emailRows(rows)}<p>Open your rental to complete the required checks and follow their progress. Equipment handover requires completed checks and approval.</p>`}));
   },
 });
 
@@ -84,41 +75,27 @@ export const waitlistEmail = internalAction({
 export const verificationEmail = internalAction({
   args: { bookingId: v.id("bookings"), status: v.string() },
   handler: async (ctx, { bookingId, status }) => {
-    const b: any = await ctx.runQuery(api.bookings.get, { bookingId });
-    if (!b || !b.guestEmail) return;
+    const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
+    if (!b || !b.guestEmail || b.idVerifyStatus!==status || !["confirmed","active"].includes(b.status)) return;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
-    const items = (b.lineItems ?? []).map((li: any) => li.title).join(", ");
-    if (status === "verified") {
-      await email(
-        b.guestEmail,
-        "Your identity and address check passed ✓",
-        `<h2>Identity and address verified ✓</h2><p>Thanks — your identity check passed${items ? ` for <b>${items}</b>` : ""}. You're all set; we'll be in touch about handover.</p><p>View your booking any time in <a href="${app}/account">your account</a>.</p>`,
-      );
-    } else if (status === "manual_review") {
-      await email(b.guestEmail, "Your Db Cinema verification is being reviewed",
-        `<h2>Verification review</h2><p>Your identity and address documents have been referred for a human review. We will contact you if anything else is needed. You can follow progress in <a href="${app}/account">your account</a>.</p>`);
-    } else if (status === "rejected") {
-      await email(b.guestEmail, "Your Db Cinema verification needs support",
-        `<h2>Verification needs support</h2><p>The automated check could not approve your documents. Please reply to this email so we can review the result before handover.</p>`);
-    } else {
-      const label: Record<string, string> = {
-        requires_input: "needs another try",
-        processing: "is still processing",
-        canceled: "was cancelled",
-      };
-      await email(
-        b.guestEmail,
-        "Action needed: complete your Db Cinema verification",
-        `<h2>Identity and address verification ${label[status] ?? "update"}</h2><p>Your check ${label[status] ?? "needs attention"}. The provider will explain which document to replace before handover:</p><p><a href="${app}/account">Verify your ID →</a></p>${items ? `<p style="color:#888">Booking: ${items}</p>` : ""}`,
-      );
-    }
+    const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
+    const messages:Record<string,{title:string;body:string;button:string}>={
+      verified:{title:"Your identity check passed",body:"Your identity check passed. Your rental still needs any remaining document checks and approval before handover.",button:"Follow your rental"},
+      manual_review:{title:"Your verification is being reviewed",body:"Your documents have been referred for a human review. We will contact you if anything else is needed.",button:"View verification progress"},
+      rejected:{title:"Your verification needs support",body:"The automated check could not approve your documents. Reply to this email so we can review the result before handover.",button:"View your rental"},
+      processing:{title:"Your verification is processing",body:"Your checks are still processing. You can follow their progress in your rental.",button:"View verification progress"},
+      requires_input:{title:"Complete your verification",body:"Your check needs another try. Open your rental to see which documents need updating.",button:"Continue verification"},
+      canceled:{title:"Continue your verification",body:"Your verification session was cancelled. Open your rental to continue the required checks.",button:"Continue verification"},
+    };
+    const message=messages[status];if(!message)return;
+    await email(b.guestEmail,message.title,rentalEmail({title:message.title,preview:message.body,url,button:message.button,body:`<p>${emailEscape(message.body)}</p>`}));
   },
 });
 
 export const verificationReviewAlert = internalAction({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
-    const b: any = await ctx.runQuery(api.bookings.get, { bookingId });
+    const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
     if (!b) return;
     await sendMail({ to: OWNER_EMAIL(), subject: "Db Cinema verification needs human review",
       html: `<p>Booking ${bookingId} for ${String(b.guestEmail ?? "unknown").replace(/[&<>]/g, "")} is awaiting a human identity and address review. Open the admin bookings panel to review it; do not hand over equipment until approved.</p>` });
@@ -129,20 +106,14 @@ export const verificationReviewAlert = internalAction({
 export const cancellationEmail = internalAction({
   args: { bookingId: v.id("bookings"), mode: v.string(), refundAmount: v.number(), creditAmount: v.number() },
   handler: async (ctx, { bookingId, mode, refundAmount, creditAmount }) => {
-    const b: any = await ctx.runQuery(api.bookings.get, { bookingId });
+    const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
     if (!b || !b.guestEmail) return;
-    const items = (b.lineItems ?? []).map((li: any) => li.title).join(", ");
-    const detail =
-      mode === "credit"
-        ? `<p><b>£${refundAmount}</b> is being returned to your card and <b>£${creditAmount} account credit</b> (valid ${CANCELLATION_CREDIT_DAYS} days) has been added to your account. Any account credit used for this booking is included in that amount.</p>`
-        : mode === "refund"
-          ? `<p><b>£${refundAmount}</b> is being returned to your card.</p>${creditAmount > 0 ? `<p><b>£${creditAmount}</b> of account credit used for this booking has been restored for ${CANCELLATION_CREDIT_DAYS} days.</p>` : ""}`
-          : `<p>No payment had been taken, so there's nothing to refund.</p>`;
-    await email(
-      b.guestEmail,
-      "Your Db Cinema booking is cancelled",
-      `<h2>Booking cancelled</h2><p>Your booking${items ? ` for <b>${items}</b>` : ""} has been cancelled.</p>${detail}<p style="color:#888">Questions? Just reply to this email.</p>`,
-    );
+    const app=process.env.APP_URL??"https://dbcinemarentals.com",url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
+    const rows:Array<[string,string]>=[];
+    if(refundAmount>0)rows.push(["Refund to original payment method",emailMoney(refundAmount)]);
+    if(creditAmount>0)rows.push([mode==="credit"?"Account credit added":"Account credit restored",emailMoney(creditAmount)]);
+    const detail=mode==="credit"?`<p>Account credit is available for future rentals for ${CANCELLATION_CREDIT_DAYS} days. It is separate from any cash refund shown above; no cash refund is issued for the amount converted to credit.</p>`:mode==="refund"?(refundAmount>0?"<p>Your refund is returned to the original payment method. Bank processing times vary.</p>":"<p>No cash refund is due under this cancellation.</p>"):"<p>No payment was taken, so there is no payment to refund.</p>";
+    await email(b.guestEmail,"Your DB Cinema booking is cancelled",rentalEmail({title:"Booking cancelled",preview:"Your cancellation and settlement summary.",url,button:"View cancellation",body:`<p>Your rental request has been cancelled.</p>${emailRows(rows)}${detail}<p>Any uncaptured card authorisation is released separately.</p>`}));
   },
 });
 
@@ -314,7 +285,7 @@ export const sendReminders = internalAction({
 export const renterChat = internalAction({
   args: { email: v.string(), text: v.string(),bookingId:v.optional(v.id("bookings")) },
   handler: async (ctx, { email, text,bookingId }) => {
-    const booking=bookingId?await ctx.runQuery(api.bookings.get,{bookingId}):null;
+    const booking=bookingId?await ctx.runQuery(internal.bookings.get,{bookingId}):null;
     const esc=(text:string)=>text.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]!);
     const origin=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
     await telegram(`💬 <b>Renter message</b>\nFrom: ${esc(email)}${booking?`\n${esc(booking.status)}`:""}\n\n${esc(text)}\n\n<a href="${origin}/admin${bookingId?`?rental=${bookingId}`:""}#messages">Open conversation</a>`);

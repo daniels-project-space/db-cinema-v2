@@ -65,7 +65,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (Buffer.byteLength(body) > 1_500_000) return new Response("Preview too large", { status: 413 });
   let input: any;
   try { input = JSON.parse(body); } catch { return new Response("Invalid preview", { status: 400 }); }
-  const statement = input.statement;
+  const statement = input.statement ? {...input.statement,supplierName:"DB Cinema Rentals",supplierAddress:undefined} : null;
   if (typeof input.draft !== "boolean" || !statement || statement.number !== `DBC-R-${id.toUpperCase()}` || statement.customerEmail !== (data.email ?? "")) return new Response("Invalid rental preview", { status: 400 });
   if (!input.draft) {
     if (!data.returnStatement || JSON.stringify(statement) !== JSON.stringify(data.returnStatement)) return new Response("Issued statement does not match", { status: 409 });

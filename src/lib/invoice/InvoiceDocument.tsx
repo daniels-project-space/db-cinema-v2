@@ -81,7 +81,7 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
             <Text style={s.docTitle}>RECEIPT</Text>
             <Text style={s.meta}>{data.number}</Text>
             <Text style={s.meta}>Issued {d(data.issuedAt)}</Text>
-            <Text style={s.meta}>Status: {data.status}</Text>
+            <Text style={s.meta}>Payment received</Text>
           </View>
         </View>
 
@@ -94,8 +94,7 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
             </View>
             <View style={s.col}>
               <Text style={s.label}>Supplier & fulfilment</Text>
-              <Text style={s.strong}>{data.supplierName ?? "Db Cinema Rentals"}</Text>
-              {data.supplierAddress ? <Text>{data.supplierAddress}</Text> : null}
+              <Text style={s.strong}>DB Cinema Rentals</Text>
               <Text style={s.strong}>{data.fulfilment === "delivery" ? "Delivery" : "Collection"}</Text>
               <Text>{data.fulfilment === "delivery" ? data.address ?? "—" : "Central London"}</Text>
             </View>
@@ -144,32 +143,10 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
           Thank you for renting with us.
         </Text>
       </Page>
-      {data.agreementSnapshot ? <AgreementPages snapshot={data.agreementSnapshot}/> : null}
     </Document>
   );
 }
 
-/** The immutable accepted copy, not a rendering of current public terms. */
-function AgreementPages({snapshot:s}:{snapshot:AgreementSnapshot}) {
-  const p=s.particulars;
-  return <>
-    <Page size="A4" style={sStyle.page}>
-      <Text style={sStyle.heading}>Accepted rental agreement · {s.version}</Text>
-      <Text>Signed by {s.signer} · {dateTime(s.acceptedAt)} London time</Text>
-      <Text style={sStyle.space}>Renter: {p.customerName} · {p.email}</Text><Text>{p.billingAddress}</Text>
-      <Text style={sStyle.space}>{p.fulfilment} · {p.address || "Collection arrangements to be agreed before release"}</Text>
-      <Text>Pickup {p.pickupTime}; return {p.returnTime} · Europe/London</Text>
-      {p.lineItems.map((l,i)=><Text key={i} style={sStyle.space}>{l.title} × {l.qty} · {d(l.start)} – {d(l.end)} · {gbp(l.lineTotal)}{l.dailyRate!==undefined?` · daily rate ${gbp(l.dailyRate)}`:""}</Text>)}
-      <Text style={sStyle.space}>Subtotal {gbp(p.subtotal)}; discount {gbp(p.discount)}; delivery {gbp(p.deliveryFee)}; credit {gbp(p.creditApplied)}; card total {gbp(p.total)} {p.currency}.</Text>
-      <Text>Refundable security {gbp(p.securityPayment)}; separate hold {gbp(p.securityHold)}; policy {p.securityPolicyVersion || "not recorded"}; exemption {p.securityWaiverReason || "none"}.</Text>
-      <Text style={sStyle.space}>Serial/accessory and condition schedule: pending agreement before handover. This accepted checkout copy does not certify release readiness. Material amendments require separate acceptance; this original copy remains intact.</Text>
-    </Page>
-    {s.documents.map(doc=><Page key={doc.kind} size="A4" style={sStyle.page}>
-      <Text style={sStyle.heading}>{doc.text.title} · {doc.version}</Text>
-      {doc.text.sections.map((section,i)=><View key={i} style={sStyle.space}><Text style={sStyle.strong}>{section.h}</Text><Text>{section.p}</Text></View>)}
-    </Page>)}
-  </>;
-}
 const sStyle=StyleSheet.create({page:{padding:40,fontSize:9,lineHeight:1.5,fontFamily:"Helvetica"},heading:{fontSize:16,marginBottom:15},space:{marginTop:10},strong:{fontFamily:"Helvetica-Bold"}});
 
 export function ReturnStatementDocument({ data, draft = false }: { data: ReturnStatementData; draft?: boolean }) {
@@ -187,8 +164,7 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
       <View style={s.section}>
         <View style={s.billRow}>
           <View style={s.col}>
-            <Text style={s.label}>Supplier</Text><Text style={s.strong}>{data.supplierName}</Text>
-            {data.supplierAddress ? <Text>{data.supplierAddress}</Text> : null}
+            <Text style={s.label}>Supplier</Text><Text style={s.strong}>DB Cinema Rentals</Text>
             <Text>dbcinemarentals@gmail.com</Text>
           </View>
           <View style={s.col}>
