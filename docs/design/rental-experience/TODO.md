@@ -2,11 +2,19 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — checkout/full-cart physical stock parity
+
+- [x] Reproduce prior checkout rejecting two disjoint hires of one owned camera. Replace listing-level union/count checks with the actual full-cart shared-component query, retaining each item's original period and the final transactional hold mutation.
+- [x] Actual checkout/repricing/booking/holds/provider-binding tests verify exact disjoint allocations, overlapping repeated quantity, cross-listing camera/kit components, rejection before member/account/Stripe work and upstream bookings only in the gap. Prior actual fbc6694 action fails the same disjoint fixture. See CHECKOUT-CART-STOCK-PARITY.md.
+- [x] Full default suite and final production build (including TypeScript) pass; graph updated. Provider/database/transport data is controlled and no live writes are asserted.
+- [ ] Finish current hosted checks, compatible backend rollout and real stock acceptance. Manager unpaid-hold visibility, amendment reservations and one atomic authority across upstream writers remain in the original goal; no mirror/precheck is claimed to solve that concurrency boundary.
+
 ### 8 October 2026 — exact saved checkout recovery
 
 - [x] Reproduce the prior actual checkout rejecting its own last-unit hold. Persist the exact validated submitted-request receipt and privately recover a matching pending provider session before new stock/pricing/credit/booking effects. Validate provider session ID, booking metadata and open status; retain unknown unbound outcomes.
 - [x] Connect an explicit unchanged-request retry in the actual checkout screen despite its own stock hold. Reject edited particulars and reset recovery after confirmed stock rejection; keep customer details and uncertain-outcome consent. No automatic payment retry.
 - [x] Actual first-checkout/hold/session-binding tests plus prior-source negative control pass. Full default suite/TypeScript/build pass; actual component desktop/mobile retry/consent/edited-detail checks and visual review pass. See CHECKOUT-SESSION-RECOVERY.md. Controlled provider/data only.
+- [x] fbc6694 preview dpl_AKmK2USxidTjCFMrzdpHEGE9L7Nb is READY. Hosted CI 37735912037 passes typecheck/tests/build then fails at the enabled cart-checkout wait; compatible staged stock functions are still absent. Keep that failure separate from native exact-recovery acceptance.
 - [ ] Obtain compatible staging/hosted and live backend acceptance. Older records without the submitted-input receipt keep their existing reconciliation path; do not fabricate receipts or release uncertain payments/stock. All original management, document, render and shared reservation requirements remain open.
 
 ### 8 October 2026 — fresh full-cart stock checks

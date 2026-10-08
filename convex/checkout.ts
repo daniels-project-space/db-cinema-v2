@@ -268,28 +268,11 @@ export const start = action({
     const price = await calculateRentalPrice(ctx, a);
     a.items = price.items;
 
-    // server-side availability re-check (quantity-aware, grouped by listing)
-    const demand = new Map<string, { count: number; start: number; end: number; title: string }>();
-    for (const it of a.items) {
-      const g = demand.get(it.listingId);
-      if (g) {
-        g.count += 1;
-        g.start = Math.min(g.start, it.start);
-        g.end = Math.max(g.end, it.end);
-      } else {
-        demand.set(it.listingId, { count: 1, start: it.start, end: it.end, title: it.title });
-      }
-    }
-    for (const [lid, g] of demand) {
-      const av: any = await ctx.runQuery(api.availability.forListing, {
-        listingId: lid as any,
-        start: g.start,
-        end: g.end,
-      });
-      if (!av || av.available < g.count) {
-        throw new Error(`"${g.title}" isn't available in that quantity for those dates`);
-      }
-    }
+    // Check the complete physical basket, preserving each line's own period.
+    // Separate listings can share kit components; disjoint dates do not add.
+    const availability=await ctx.runQuery(api.availability.forCart,{items:a.items.map(i=>({listingId:i.listingId,start:i.start,end:i.end}))});
+    const unavailable=a.items.find(i=>!availability[i.listingId]?.ok);
+    if(unavailable)throw Error(`"${unavailable.title}" isn't available in that quantity for those dates`);
 
     const {
       acct: pricedAccount, month, freedCount, subtotal, protection, depositHoldAmount, depositAmount,
