@@ -6,7 +6,8 @@ This checklist extends the original goal; no original integration requirement is
 
 - [x] Reproduce the complete native reload failure with passive frame/network/lifecycle events. It opens a before-unload dialog and waits unanswered. This direct evidence supersedes a renderer-hang claim for that run; do not attribute the prompt's listener without further evidence.
 - [x] Confirm before-unload only during deliberate test navigation/reload; unexpected dialogs and confirmation errors still fail. Preserve all application behavior, UI/security/membership/persistence assertions and timeouts. The full native suite passes twice, including a passive trace of the real confirmation and subsequent document load. Actual Chrome calibration verifies both native confirmation and unexpected-alert rejection using the real helper.
-- [ ] Verify the source-matched hosted CI. The preceding website stock run 37720165776 passed build/typecheck/unit checks but failed browser reload; manager 37720168821 is SUCCESS. Private, live financial/document, cross-project reservation, remaining visual and equipment-asset requirements stay open.
+- [x] Verify source-matched hosted CI 37721183227 for adc7a89: typecheck, tests, production build and complete browser regression are terminal SUCCESS. Matching Vercel preview dpl_4BTBAmqYL2xH8zKZ6KwTMw8JX2DH is READY. The preceding website stock run 37720165776 failed browser reload; manager 37720168821 is SUCCESS.
+- [ ] Complete private, live financial/document, cross-project reservation, remaining visual and equipment-asset acceptance. Preview readiness does not publish compatible backend functions or establish production integration.
 
 
 ### 8 October 2026 — physical custody and unresolved stock holds
