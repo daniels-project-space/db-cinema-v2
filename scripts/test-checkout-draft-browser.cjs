@@ -28,6 +28,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   await navigate('/checkout');
   await fill('co-email','draft-review@example.invalid');await fill('co-name','Draft Review Renter');await fill('co-phone','07000000000');await fill('co-billing-address','123 Fixture Street, London SW1A 1AA');await ready();
   for(const [id,time] of [['co-time-out','10:00'],['co-time-back','18:00']]){
+   await until(`document.getElementById(${JSON.stringify(id)})&&!document.getElementById(${JSON.stringify(id)}).disabled`,'Time availability settles');
    await c.evaluate(`document.getElementById(${JSON.stringify(id)}).click()`);
    await until(`!!document.querySelector('[role=listbox]')`,'Custom time options must open');
    await c.evaluate(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText===${JSON.stringify(time)}).click()`);
