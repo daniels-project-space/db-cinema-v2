@@ -1,3 +1,5 @@
+import {schedulePickupHold} from "./pickupSecurity";
+import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { accountForRental } from "./lib/rentalAccount";
 import { listingImages } from "./lib/catalogImages";
@@ -90,14 +92,14 @@ export const reschedule = mutation({
     if (reservations.some((r) => r.source !== "site"))
       throw Error("Manage this rental through its original booking platform");
     if (reservations.some(r => r.status === "hold")) throw Error("Resolve the open stock hold before changing this rental.");
-    await assertRentalAllocation(ctx, b, reservations);
+    const allocationMode=await assertRentalAllocation(ctx, b, reservations);
     const previous = Math.min(...b.lineItems.map((li) => li.start));
     const shift = start - previous;
     const previousEnd = Math.max(...b.lineItems.map(li => li.end));
     if (end !== undefined && (!Number.isSafeInteger(end) || end % 86400000 !== 0 || end < start)) throw Error("Choose a valid return date on or after the start.");
     const endShift = end === undefined ? 0 : end - (previousEnd + shift);
     if (endShift !== 0 && keepAgreedPrice !== true) throw Error("Confirm that the changed duration keeps the agreed charges; extra days are complimentary.");
-    const lines = b.lineItems.map((li) => ({
+    const lines = bookingStockLines(b).map((li) => ({
       ...li,
       start: li.start + shift,
       end: li.end + shift + endShift,
@@ -105,12 +107,13 @@ export const reschedule = mutation({
     await assertRenterExposure(ctx, b, lines);
     await assertRentalInventory(ctx, lines, bookingId);
     await ctx.db.patch(bookingId, { lineItems: lines, cancellationPolicyStart: start });
-    for (const r of reservations)
-      if (["confirmed", "hold"].includes(r.status))
-        await ctx.db.patch(r._id, {
-          start: r.start + shift,
-          end: r.end + shift + endShift,
-        });
+    await schedulePickupHold(ctx,{...b,lineItems:lines});
+    for (const r of reservations) if (["confirmed","hold"].includes(r.status)) await ctx.db.patch(r._id,{status:"cancelled"});
+    for(const li of lines){
+      const listing=await ctx.db.get(li.listingId);
+      const window=allocationMode==="legacy"?{start:li.start,end:li.end}:rentalWindow(li,allocationMode==="precise");
+      for(const comp of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:li.listingId,bookingId,...window,qty:comp.qty*li.qty,source:"site",status:"confirmed"});
+    }
     const a = await accountForRental(ctx, b);
     const detail = `${new Date(start).toISOString().slice(0, 10)} → ${new Date(Math.max(...lines.map((li) => li.end))).toISOString().slice(0, 10)}`;
     if (a)
@@ -157,12 +160,12 @@ export const removeItem = mutation({
     if (reservations.some(r => r.source !== "site" || r.status === "active")) throw Error("Manage external or already collected kit through its original rental flow.");
     if (reservations.some(r => r.status === "hold")) throw Error("Resolve the open stock hold before changing this rental.");
     await assertRentalAllocation(ctx, b, reservations);
-    const lines = b.lineItems.filter((_, i) => i !== args.lineIndex);
+    const lines = bookingStockLines(b).filter((_, i) => i !== args.lineIndex);
     await assertRentalInventory(ctx, lines, b._id);
     for (const r of reservations) if (["hold", "confirmed"].includes(r.status)) await ctx.db.patch(r._id, { status: "cancelled" });
     for (const remaining of lines) {
       const listing = await ctx.db.get(remaining.listingId);
-      for (const component of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: remaining.listingId, inventoryUnitId: component.inventoryUnitId, start: remaining.start, end: remaining.end, qty: component.qty * remaining.qty, source: "site", status: "confirmed" });
+      for (const component of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: remaining.listingId, inventoryUnitId: component.inventoryUnitId, ...rentalWindow(remaining), qty: component.qty * remaining.qty, source: "site", status: "confirmed" });
     }
     const { dailyRate: _, ...removed } = line;
     await ctx.db.patch(b._id, { lineItems: lines, cancellationPolicyStart: rentalCancellationStart(b), removedItems: [...(b.removedItems ?? []), { ...removed, removedAt: Date.now(), reason: args.reason.trim(), requestId: args.requestId }] });

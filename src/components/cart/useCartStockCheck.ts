@@ -8,8 +8,8 @@ import type {CartItem} from "./CartProvider";
 type Availability=Record<string,{available:number;demanded:number;ok:boolean}>;
 type Receipt={checkedAt:number;availability:Availability};
 type State={key:string;phase:"checking"|"ready"|"error";receipt:Receipt|null};
-export function useCartStockCheck(items:Pick<CartItem,"listingId"|"start"|"end">[]) {
-  const key=JSON.stringify(items.map(i=>({listingId:i.listingId,start:dayMs(i.start),end:dayMs(i.end)})));
+export function useCartStockCheck(items:Pick<CartItem,"listingId"|"start"|"end"|"pickupTime"|"returnTime">[]) {
+  const key=JSON.stringify(items.map(i=>({listingId:i.listingId,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})));
   const refresh=useAction(api.sync.refreshCartStock);
   const live=useQuery(api.availability.forCart,items.length?{items:JSON.parse(key)}:"skip");
   const [state,setState]=useState<State|null>(null);

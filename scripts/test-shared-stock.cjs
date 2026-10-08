@@ -4,7 +4,7 @@ const start=Date.UTC(2030,0,2),day=86400000,ctx={db},stamp=Date.now();
 const body=put('inventory_units',{name:'Sony FX3',sku:'mi-body',quantityOwned:2,active:true,rmv2ItemId:'body'}),alt=put('inventory_units',{name:'Sony A7 V',sku:'mi-alternative',quantityOwned:2,active:true,rmv2ItemId:'alternative'});
 const listing=unit=>put('listings',{title:unit.name,slug:unit.name,category:'Cameras',itemType:'camera-body',active:true,components:[{inventoryUnitId:unit._id,qty:1}],pricing:{daily:50},depositAmount:1000});
 const source=listing(body),alternative=listing(alt);const removed=put('inventory_units',{name:'Removed master',rmv2ItemId:'deleted-master',active:true,quantityOwned:20});let tick=0;
-const snapshot=(windows,qty=2)=>({version:1,checkedAt:stamp+(++tick),units:[{masterItemId:'body',active:true,quantityOwned:qty,windows},{masterItemId:'alternative',active:true,quantityOwned:2,windows:[]}]});
+const snapshot=(windows,qty=2)=>({version:2,checkedAt:stamp+(++tick),units:[{masterItemId:'body',active:true,quantityOwned:qty,windows},{masterItemId:'alternative',active:true,quantityOwned:2,windows:[]}]});
 const apply=s=>sync.applySharedStock.handler(ctx,{snapshot:s}),cart=async(items=[{listingId:source._id,start,end:start}])=>availability.forCart.handler(ctx,{items});
 (async()=>{
  // A legacy primary-only mirror is replaced; unrelated website holds survive.

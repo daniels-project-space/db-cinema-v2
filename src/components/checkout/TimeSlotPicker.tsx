@@ -5,9 +5,10 @@ import { createPortal } from "react-dom";
 import { PICKUP_SLOTS } from "@/lib/site";
 import styles from "./TimeSlotPicker.module.css";
 
-export function TimeSlotPicker({ id, label, value, onChange, disabled=false }: {
-  id: string; label: string; value: string; onChange: (time: string) => void; disabled?: boolean;
+export function TimeSlotPicker({ id, label, value, onChange, disabled=false, allowedSlots }: {
+  id: string; label: string; value: string; onChange: (time: string) => void; disabled?: boolean; allowedSlots?: string[];
 }) {
+  const slots=allowedSlots?PICKUP_SLOTS.filter(t=>allowedSlots.includes(t)):PICKUP_SLOTS;
   const menuId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -15,8 +16,8 @@ export function TimeSlotPicker({ id, label, value, onChange, disabled=false }: {
   const [active, setActive] = useState(0);
   useEffect(()=>{if(disabled)setOpen(false);},[disabled]);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 260, maxHeight: 320 });
-  function show() { if(disabled)return; setActive(Math.max(0, PICKUP_SLOTS.indexOf(value))); setOpen(true); }
-  function choose(index: number) { if(disabled)return; onChange(PICKUP_SLOTS[index]); setOpen(false); trigger.current?.focus(); }
+  function show() { if(disabled||!slots.length)return; setActive(Math.max(0, slots.indexOf(value))); setOpen(true); }
+  function choose(index: number) { if(disabled||!slots.length)return; onChange(slots[index]); setOpen(false); trigger.current?.focus(); }
   useLayoutEffect(() => {
     if (!open) return;
     const place = () => {
@@ -43,7 +44,7 @@ export function TimeSlotPicker({ id, label, value, onChange, disabled=false }: {
   }, [open]);
   return <div className={styles.field}>
     <label id={`${id}-label`} htmlFor={id} className={styles.label}>{label}</label>
-    <button ref={trigger} id={id} type="button" disabled={disabled} role="combobox" aria-required="true"
+    <button ref={trigger} id={id} type="button" disabled={disabled||!slots.length} role="combobox" aria-required="true"
       aria-labelledby={`${id}-label ${id}-value`} aria-haspopup="listbox" aria-expanded={open}
       aria-controls={open ? menuId : undefined} aria-activedescendant={open ? `${menuId}-${active}` : undefined}
       className={`${styles.trigger} ${value ? styles.selected : ""}`}
@@ -53,8 +54,8 @@ export function TimeSlotPicker({ id, label, value, onChange, disabled=false }: {
         if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
           event.preventDefault();
           if (!open) show();
-          else setActive(index => event.key === "Home" ? 0 : event.key === "End" ? PICKUP_SLOTS.length - 1 :
-            (index + (event.key === "ArrowDown" ? 1 : -1) + PICKUP_SLOTS.length) % PICKUP_SLOTS.length);
+          else setActive(index => event.key === "Home" ? 0 : event.key === "End" ? slots.length - 1 :
+            (index + (event.key === "ArrowDown" ? 1 : -1) + slots.length) % slots.length);
         } else if (open && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); choose(active); }
         else if (event.key === "Escape") { event.preventDefault(); setOpen(false); }
         else if (event.key === "Tab") setOpen(false);
@@ -66,7 +67,7 @@ export function TimeSlotPicker({ id, label, value, onChange, disabled=false }: {
     {open && createPortal(<div ref={menu} className={styles.menu} style={position}>
       <div className={styles.caption}>London time · 09:00–22:00</div>
       <div id={menuId} role="listbox" aria-labelledby={`${id}-label`} className={styles.slots}>
-        {PICKUP_SLOTS.map((time, index) => <div key={time} id={`${menuId}-${index}`} role="option"
+        {slots.map((time, index) => <div key={time} id={`${menuId}-${index}`} role="option"
           aria-selected={value === time} className={`${styles.option} ${active === index ? styles.active : ""} ${value === time ? styles.chosen : ""}`}
           onPointerMove={() => setActive(index)} onMouseDown={event => event.preventDefault()} onClick={() => choose(index)}>{time}</div>)}
       </div>

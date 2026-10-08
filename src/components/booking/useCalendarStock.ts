@@ -4,9 +4,9 @@ import {useAction,useQuery} from "convex/react";
 import {api} from "@cvx/_generated/api";
 import {dayMs} from "@/lib/dates";
 import type {CartItem} from "../cart/CartProvider";
-type Days=Record<string,{available:number;ok:boolean}>;
-export function useCalendarStock(listingId:string,month:Date,items:Pick<CartItem,"listingId"|"start"|"end">[],marketing:boolean,rangeStart:string|null){
-  const key=JSON.stringify({listingId,monthStart:Date.UTC(month.getFullYear(),month.getMonth(),1),items:items.map(i=>({listingId:i.listingId,start:dayMs(i.start),end:dayMs(i.end)}))});
+type Days=Record<string,{available:number;ok:boolean;partial?:boolean}>;
+export function useCalendarStock(listingId:string,month:Date,items:Pick<CartItem,"listingId"|"start"|"end"|"pickupTime"|"returnTime">[],marketing:boolean,rangeStart:string|null){
+  const key=JSON.stringify({listingId,monthStart:Date.UTC(month.getFullYear(),month.getMonth(),1),items:items.map(i=>({listingId:i.listingId,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime}))});
   const live=useQuery(api.availability.forCalendar,marketing?"skip":{...JSON.parse(key),...(rangeStart?{rangeStart:dayMs(rangeStart)}:{})});
   const refresh=useAction(api.sync.refreshCalendarStock);
   const [state,setState]=useState<{key:string;phase:"checking"|"ready"|"error";days?:Days}|null>(null);
@@ -29,5 +29,7 @@ export function useCalendarStock(listingId:string,month:Date,items:Pick<CartItem
   const ready=marketing||(current?.phase==="ready"&&!!live);
   const unavailable=new Set<string>();
   if(ready&&!marketing)for(const [day,result]of Object.entries(current?.days??{}))if(!result.ok||!live?.[day]?.ok)unavailable.add(day);
-  return {ready,error:!marketing&&current?.phase==="error",unavailable,retry};
+  const partial=new Set<string>();
+  if(ready&&!marketing)for(const [day,result]of Object.entries(live??{}))if(result.ok&&result.partial)partial.add(day);
+  return {partial,ready,error:!marketing&&current?.phase==="error",unavailable,retry};
 }

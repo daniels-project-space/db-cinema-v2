@@ -99,6 +99,8 @@ import type * as lib_returnInspectionFields from "../lib/returnInspectionFields.
 import type * as lib_reviewContext from "../lib/reviewContext.js";
 import type * as lib_reviewEligibility from "../lib/reviewEligibility.js";
 import type * as lib_rmv2SyncQueue from "../lib/rmv2SyncQueue.js";
+import type * as lib_stockRequest from "../lib/stockRequest.js";
+import type * as lib_stockWindows from "../lib/stockWindows.js";
 import type * as lib_stripeCustomer from "../lib/stripeCustomer.js";
 import type * as lib_taxonomy from "../lib/taxonomy.js";
 import type * as lib_verificationOwnership from "../lib/verificationOwnership.js";
@@ -246,6 +248,8 @@ declare const fullApi: ApiFromModules<{
   "lib/reviewContext": typeof lib_reviewContext;
   "lib/reviewEligibility": typeof lib_reviewEligibility;
   "lib/rmv2SyncQueue": typeof lib_rmv2SyncQueue;
+  "lib/stockRequest": typeof lib_stockRequest;
+  "lib/stockWindows": typeof lib_stockWindows;
   "lib/stripeCustomer": typeof lib_stripeCustomer;
   "lib/taxonomy": typeof lib_taxonomy;
   "lib/verificationOwnership": typeof lib_verificationOwnership;

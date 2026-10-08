@@ -74,6 +74,7 @@ export function mapBookingForSync(
       qty: li.qty ?? 1,
       start: li.start,
       end: li.end,
+      pickupTime:li.pickupTime===undefined?b.pickupTime??null:li.pickupTime,
       returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime,
       units: unitsOut,
     };
@@ -140,6 +141,7 @@ export function mapBookingForSync(
         return { reservationId: String(r._id), inventoryUnitId: String(r.inventoryUnitId),
           rmv2ItemId: unit?.rmv2ItemId ?? null, name: unit?.name ?? "Unmapped equipment",
           sku: unit?.sku ?? null, qty: r.qty, start: r.start, end: r.end,
+          ...(r.endExclusive?{endExclusive:true,stockWindowVersion:2}:{}),
           pickupTime: b.pickupTime ?? null, returnTime,
           listingId: r.listingId ? String(r.listingId) : null,
           status: r.status, hyggloProductId: unit?.hyggloProductId ?? null };

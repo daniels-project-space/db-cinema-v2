@@ -17,7 +17,7 @@ export type AgreementSnapshot = {
     customerName: string; email: string; billingAddress: string;
     fulfilment: string; address: string | null; pickupTime: string; returnTime: string;
     timeZone: "Europe/London";
-    lineItems: { listingId: string; title: string; start: number; end: number; qty: number; lineTotal: number; dailyRate?: number }[];
+    lineItems: { listingId: string; title: string; start: number; end: number; qty: number; lineTotal: number; dailyRate?: number;pickupTime?:string|null;returnTime?:string|null }[];
     subtotal: number; discount: number; deliveryFee: number; securityPayment: number;
     securityHold: number; total: number; creditApplied: number; currency: string;
     securityPolicyVersion: string | null; securityWaiverReason: string | null;

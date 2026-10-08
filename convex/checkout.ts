@@ -81,7 +81,7 @@ export const priceQuote = action({
   args: {
     items: v.array(v.object({
       listingId: v.id("listings"), title: v.string(), start: v.number(), end: v.number(),
-      qty: v.number(), total: v.number(), deposit: v.number(), offerType: v.optional(v.string()),
+      qty: v.number(), total: v.number(), deposit: v.number(), offerType: v.optional(v.string()),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
     })),
     token: v.optional(v.string()),
     customerEmail: v.string(),
@@ -164,6 +164,7 @@ export const start = action({
         total: v.number(),
         deposit: v.number(),
         offerType: v.optional(v.string()),
+        pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
       }),
     ),
     selectedMembership: v.optional(v.object({tier:v.string(),intro:v.union(v.literal("trial"),v.literal("credit"),v.literal("none")),termsVersion:v.string(),requestId:v.string()})),
@@ -274,7 +275,7 @@ export const start = action({
 
     // Check the complete physical basket, preserving each line's own period.
     // Separate listings can share kit components; disjoint dates do not add.
-    const availability=await ctx.runQuery(api.availability.forCart,{items:a.items.map(i=>({listingId:i.listingId,start:i.start,end:i.end}))});
+    const availability=await ctx.runQuery(api.availability.forCart,{items:a.items.map(i=>({listingId:i.listingId,start:i.start,end:i.end,qty:i.qty,pickupTime:i.pickupTime??a.pickupTime,returnTime:i.returnTime??a.returnTime}))});
     const unavailable=a.items.find(i=>!availability[i.listingId]?.ok);
     if(unavailable)throw Error(`"${unavailable.title}" isn't available in that quantity for those dates`);
 
@@ -336,6 +337,7 @@ export const start = action({
         qty: i.qty,
         lineTotal: i.total,
         dailyRate: price.items[idx]?.dailyRate,
+        pickupTime:i.pickupTime??a.pickupTime,returnTime:i.returnTime??a.returnTime,
       })),
       subtotal,
       depositAmount,

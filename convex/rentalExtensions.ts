@@ -1,3 +1,4 @@
+import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -50,7 +51,7 @@ async function quoteFor(ctx: any, b: any, extraDays: number, selected?: number[]
     const dailyRate = Math.round(unitRate * li.qty * 100) / 100;
     return { lineIndex, listingId: li.listingId, title: li.title, start: li.end + DAY, end: li.end + extraDays * DAY, qty: li.qty, dailyRate, lineTotal: Math.round(dailyRate * extraDays * 100) / 100 };
   }));
-  const proposed = b.lineItems.map((li: any, i: number) => chosen.includes(i) ? { ...li, end: li.end + extraDays * DAY } : li);
+  const proposed = bookingStockLines<any>(b).map((li: any, i: number) => chosen.includes(i) ? { ...li, end: li.end + extraDays * DAY } : li);
   await assertRenterExposure(ctx, b, proposed);
   await assertRentalInventory(ctx, proposed, b._id);
   return { items, proposed, priceDelta: Math.round(items.reduce((sum, item) => sum + item.lineTotal, 0) * 100) / 100 };
@@ -208,14 +209,14 @@ export const applyPaid = internalMutation({
     if (r.status !== "awaiting_payment" || !r.approvedAt || !r.quoteItems || !r.approvedReturnTime || !isAllowedReturnTime(r.approvedReturnTime) || (r.expiresAt ?? 0) <= Date.now() || !b || b.activeExtensionId !== requestId || r.baseLines !== baseLines(b)) return { ok: false, closed: true, bookingId: r.bookingId };
     try { await mutableRental(ctx, b, requestId); } catch { return { ok: false, closed: true, bookingId: r.bookingId }; }
     const byIndex = new Map(r.quoteItems.map(i => [i.lineIndex, i]));
-    const lines = b.lineItems.map((li, i) => byIndex.has(i) ? { ...li, end: byIndex.get(i)!.end, returnTime: r.approvedReturnTime } : { ...li, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime });
+    const lines = bookingStockLines(b).map((li, i) => byIndex.has(i) ? { ...li, end: byIndex.get(i)!.end, returnTime: r.approvedReturnTime } : { ...li, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime });
     // External reservations or calendar blocks may have changed even while our hold was active.
     try { await assertRenterExposure(ctx, b, lines); await assertRentalInventory(ctx, lines, b._id); } catch { return { ok: false, closed: true, bookingId: r.bookingId }; }
     const reservations = await ctx.db.query("reservations").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
     for (const res of reservations) if (["confirmed", "active", "hold"].includes(res.status)) await ctx.db.patch(res._id, { status: "cancelled" });
     for (const li of lines) {
       const listing = await ctx.db.get(li.listingId);
-      for (const comp of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: li.listingId, inventoryUnitId: comp.inventoryUnitId, start: li.start, end: li.end, qty: comp.qty * li.qty, source: "site", status: b.status === "active" ? "active" : "confirmed" });
+      for (const comp of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: li.listingId, inventoryUnitId: comp.inventoryUnitId, ...rentalWindow(li), qty: comp.qty * li.qty, source: "site", status: b.status === "active" ? "active" : "confirmed" });
     }
     const charges = r.quoteItems.map(i => ({ requestId, returnTime: r.approvedReturnTime, title: `${i.title} · approved extension`, start: i.start, end: i.end, qty: i.qty, lineTotal: i.lineTotal }));
     await ctx.db.patch(b._id, { lineItems: lines, returnTime: [...lines].sort((a, b) => b.end - a.end)[0]?.returnTime ?? undefined, remindedReturn: false, total: Math.round((b.total + r.priceDelta!) * 100) / 100, subtotal: Math.round((b.subtotal + r.priceDelta!) * 100) / 100, extensionCharges: [...(b.extensionCharges ?? []), ...charges], activeExtensionId: undefined });

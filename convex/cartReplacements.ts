@@ -1,3 +1,4 @@
+import { stockRequestFields } from "./lib/stockRequest";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { rentalUnavailable, marketingRedirect } from "./lib/marketingInventory";
@@ -11,14 +12,14 @@ import { bestCompat, parseMounts } from "./lib/mount";
 const packSize = (title: string) => Math.min(100, Math.max(1, Number(title.match(/^\s*(\d+)\s*[x×]/i)?.[1] ?? 1)));
 
 export const sets = query({
-  args: { items: v.array(v.object({ key: v.string(), listingId: v.id("listings"), start: v.number(), end: v.number() })), sourceKey: v.string(), limit: v.optional(v.number()) },
+  args: { items: v.array(v.object({key:v.string(),...stockRequestFields})), sourceKey: v.string(), limit: v.optional(v.number()) },
   handler: async (ctx, { items, sourceKey, limit = 2 }) => {
     if (items.length > 100 || !Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw Error("Invalid replacement request");
     const source = items.find(i => i.key === sourceKey);
     if (!source || !Number.isSafeInteger(source.start) || !Number.isSafeInteger(source.end) || source.end < source.start || source.end - source.start > 365 * 86400000) return null;
     const original = await ctx.db.get(source.listingId);
     if (!original) return null;
-    const group = items.filter(i => i.listingId === source.listingId && i.start === source.start && i.end === source.end);
+    const group = items.filter(i => i.listingId === source.listingId && i.start === source.start && i.end === source.end && i.pickupTime===source.pickupTime && i.returnTime===source.returnTime);
     const keys = group.map(i => i.key), requested = group.length * packSize(original.title);
     const cache = { records: new Map<string, any>(), reservations: new Map<string, any[]>() };
     const days = Math.round((source.end - source.start) / 86400000) + 1;
@@ -50,7 +51,7 @@ export const sets = query({
           if (availability.has(signature)) return availability.get(signature)!;
           const units = new Set(trial.flatMap(l => l.components.map(c => String(c.inventoryUnitId))));
           const keep = retained.filter(r => r.listing && !rentalUnavailable(r.listing) && r.listing.components.some(c => units.has(String(c.inventoryUnitId))));
-          try { await assertRentalInventory(ctx, [...trial.map(l => ({ listingId: l._id, start: source!.start, end: source!.end, qty: 1 })), ...keep.map(r => ({ ...r.line, qty: 1 }))], undefined, cache); }
+          try { await assertRentalInventory(ctx, [...trial.map(l => ({ listingId: l._id, start: source!.start, end: source!.end,pickupTime:source!.pickupTime,returnTime:source!.returnTime, qty: 1 })), ...keep.map(r => ({ ...r.line, qty: r.line.qty??1 }))], undefined, cache); }
           catch { availability.set(signature, false); return false; }
           availability.set(signature, true); return true;
     }
@@ -91,7 +92,7 @@ export const sets = query({
  * Each switch is rechecked by the client, and final checkout checks the full kit.
  */
 export const forCart = query({
-  args: { items: v.array(v.object({ key: v.string(), listingId: v.id("listings"), start: v.number(), end: v.number() })), limit: v.optional(v.number()) },
+  args: { items: v.array(v.object({key:v.string(),...stockRequestFields})), limit: v.optional(v.number()) },
   handler: async (ctx, { items, limit = 2 }) => {
     if (!Number.isFinite(limit)) throw Error("Invalid replacement limit");
     limit = Math.max(2, Math.min(100, Math.floor(limit)));
@@ -105,7 +106,7 @@ export const forCart = query({
       const retained = originals.flatMap((l, j) => j !== index && l && !rentalUnavailable(l) ? [{ listing: l, line: items[j] }] : []);
       const sourceUnits = new Set(source.components.map(c => String(c.inventoryUnitId)));
       try {
-        await assertRentalInventory(ctx, [ { ...line, qty: 1 }, ...retained.filter(r => r.listing.components.some(c => sourceUnits.has(String(c.inventoryUnitId)))).map(r => ({ ...r.line, qty: 1 })) ]);
+        await assertRentalInventory(ctx, [ { ...line, qty: line.qty??1 }, ...retained.filter(r => r.listing.components.some(c => sourceUnits.has(String(c.inventoryUnitId)))).map(r => ({ ...r.line, qty: r.line.qty??1 })) ]);
         continue; // available source: no substitution needed
       } catch { /* unavailable source */ }
       const days = Math.round((line.end - line.start) / 86400000) + 1;
@@ -137,7 +138,7 @@ export const forCart = query({
         if (incompatible) continue;
         const units = new Set(candidate.components.map((c: any) => String(c.inventoryUnitId)));
         try {
-          await assertRentalInventory(ctx, [{ listingId: candidate._id, start: line.start, end: line.end, qty: 1 }, ...retained.filter(r => r.listing.components.some(c => units.has(String(c.inventoryUnitId)))).map(r => ({ ...r.line, qty: 1 }))]);
+          await assertRentalInventory(ctx, [{ ...line,listingId: candidate._id,qty:line.qty??1 }, ...retained.filter(r => r.listing.components.some(c => units.has(String(c.inventoryUnitId)))).map(r => ({ ...r.line, qty: r.line.qty??1 }))]);
         } catch { continue; }
         const price = quote(candidate.pricing, days);
         const total = candidate.quietDeal ? Math.round(price.total * (1-candidate.quietDeal/100)) : price.total;

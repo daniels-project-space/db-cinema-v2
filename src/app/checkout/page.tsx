@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { IconLock, IconShield, IconCheck, IconTruck, IconPin, IconArrowRight } from "@/components/icons";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
 import Link from "next/link";
@@ -77,8 +77,6 @@ function StepCard({
 export default function CheckoutPage() {
   const { items, subtotal, eligibleSubtotal, membership, setMembership } = useCart();
   const account = useAccount();
-  const stock=useCartStockCheck(items),availability=stock.availability;
-  const availabilityBlocked = !!items.length && (!stock.ready || !availability || items.some(i => !availability[i.listingId]?.ok));
   const promo = usePromo(eligibleSubtotal);
   const checkout = useCheckoutStatus();
   const start = useAction(api.checkout.start);
@@ -103,6 +101,9 @@ export default function CheckoutPage() {
   const [protection, setProtection] = useState<Protection>("verify");
   const [pickupTime, setPickupTime] = useState("");
   const [returnTime, setReturnTime] = useState("");
+  const stock=useCartStockCheck(items.map(i=>({...i,pickupTime:i.pickupTime||pickupTime||undefined,returnTime:i.returnTime||returnTime||undefined}))),availability=stock.availability;
+  const defaultSlots=useQuery(api.availability.forCheckoutTimeSlots,items.length?{items:items.map(i=>({listingId:i.listingId as any,start:ms(i.start),end:ms(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),pickupTime:pickupTime||undefined,returnTime:returnTime||undefined}:"skip");
+  const availabilityBlocked = !!items.length && (!stock.ready || !availability || items.some(i => !availability[i.listingId]?.ok));
   const [deliveryAgreed, setDeliveryAgreed] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState("");
@@ -175,7 +176,7 @@ export default function CheckoutPage() {
   const priceArgs = {
     items: items.map((i) => ({
       listingId: i.listingId as any, title: i.title, start: ms(i.start), end: ms(i.end),
-      qty: 1, total: i.total, deposit: i.deposit, offerType: i.offerType,
+      qty: 1, total: i.total, deposit: i.deposit, offerType: i.offerType,pickupTime:i.pickupTime||pickupTime||undefined,returnTime:i.returnTime||returnTime||undefined,
     })),
     token: account.token && account.me ? account.token : undefined,
     selectedMembership: membership ? {tier:membership.tier,intro:membership.intro} : undefined,
@@ -445,10 +446,10 @@ export default function CheckoutPage() {
               )}
 
               {/* times (both pickup & delivery) */}
-              {availabilityBlocked && <p className="mt-4 text-sm text-amber-200">Choose available equipment and dates in your basket before choosing collection times. Your saved choices are kept.</p>}
+              {availabilityBlocked && <p className="mt-4 text-sm text-amber-200">Choose available equipment, dates and times in your basket. Item-specific times take priority over these default collection times. Your saved choices are kept.</p>}
               <div className="mt-4 flex gap-3">
-                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={availabilityBlocked}/>
-                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={availabilityBlocked}/>
+                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.pickupSlots}/>
+                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.returnSlots}/>
               </div>
             </StepCard>
 
