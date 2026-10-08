@@ -65,9 +65,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       process.env.DBC_CONVEX_URL || "https://veracious-wombat-196.convex.cloud",
     );
   const r = await cv.query(api.catalog.listListings, {}),
-    rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !(l.marketingOnly ?? !!marketingRedirect(l))),
-    l = rows.filter(l=>l.pricing && !l.displayOnly).sort((a,b)=>b.pricing.daily-a.pricing.daily)[0];
+    rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !(l.marketingOnly ?? !!marketingRedirect(l)));
   const future = new Date(Date.now() + 60 * 86400000);
+  const probeStart=Date.UTC(future.getUTCFullYear(),future.getUTCMonth(),future.getUTCDate())+((5-future.getUTCDay()+7)%7)*86400000;
+  const candidates=rows.filter(row=>row.pricing&&!row.displayOnly).sort((a,b)=>b.pricing.daily-a.pricing.daily);
+  let l;
+  for(const [index,candidate]of candidates.entries()){
+    const items=[{listingId:candidate._id,start:probeStart,end:probeStart+2*86400000}];
+    const availability=index===0?(await cv.action(api.sync.refreshCartStock,{items})).availability:await cv.query(api.availability.forCart,{items});
+    if(availability[candidate._id]?.ok){l=candidate;break}
+  }
+  assert(l,"Pricing/navigation fixture requires actual available equipment; stock checks must not be bypassed");
+  console.log({fixture:"available public rental kit",title:l.title});
+
   const start =
       Date.UTC(
         future.getUTCFullYear(),
