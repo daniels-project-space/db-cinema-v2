@@ -17,6 +17,8 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { listingImages } from "./lib/catalogImages";
+import { stream, mergedStream } from "convex-helpers/server/stream";
+import schema from "./schema";
 
 // ── crypto helpers (Web Crypto, available in Convex actions) ──────
 const toHex = (b: Uint8Array) =>
@@ -506,8 +508,11 @@ async function enrichBookings(ctx:any,rows:any[]) {
     return out;
 }
 export const myBookingsPage=query({args:{token:v.string(),paginationOpts:paginationOptsValidator},handler:async(ctx,{token,paginationOpts})=>{
+ if (!Number.isInteger(paginationOpts.numItems) || paginationOpts.numItems < 1) throw Error("Invalid rental page size");
  const a:any=await resolve(ctx,token);if(!a)return {page:[],isDone:true,continueCursor:""};
- const page=await ctx.db.query("bookings").withIndex("by_guestEmail",q=>q.eq("guestEmail",a.email)).filter(q=>q.or(q.eq(q.field("accountId"),undefined),q.eq(q.field("accountId"),a._id))).order("desc").paginate({...paginationOpts,numItems:Math.min(50,paginationOpts.numItems)});
+ const linked = stream(ctx.db, schema).query("bookings").withIndex("by_account", q => q.eq("accountId", a._id)).order("desc");
+ const legacy = stream(ctx.db, schema).query("bookings").withIndex("by_account_guestEmail", q => q.eq("accountId", undefined).eq("guestEmail", a.email)).order("desc");
+ const page = await mergedStream([linked, legacy], ["_creationTime"]).paginate({...paginationOpts, numItems:Math.min(50,paginationOpts.numItems), maximumRowsRead:100});
  return {...page,page:await enrichBookings(ctx,page.page)};
 }});
 

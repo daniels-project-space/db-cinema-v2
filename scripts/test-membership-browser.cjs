@@ -41,7 +41,7 @@ async function connect(url, existingId) {
     });
   return {
     cmd,
-    on: (fn) => listeners.add(fn),
+    on: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
     evaluate: async (expression, extra = {}) =>
       (
         await cmd("Runtime.evaluate", {
@@ -152,6 +152,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     throw Error("Browser condition timed out: " + expr);
   }
   async function reload() {
+    console.log({ navigation: "reload" });
     const previous = await c.evaluate("performance.timeOrigin");
     // Release decorative media decoders before tearing down the document.
     // Cards and their animations are tested before this navigation step.
@@ -185,19 +186,24 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // Wait for the new DOM before querying its context. Component-specific
     // checks below still wait for hydrated UI and real prices; third-party
     // media and Stripe subframes need not finish loading to inspect the UI.
-    let finished = false, timer;
+    let finished = false, timer, unsubscribe;
     const loaded = new Promise((resolve, reject) => {
       timer = setTimeout(() => {finished = true;reject(Error('Document load timed out: '+method));},30000);
-      c.on(event => {
+      unsubscribe = c.on(event => {
         if (!finished && event.method === 'Page.domContentEventFired') {
           finished = true;clearTimeout(timer);resolve();
         }
       });
     });
-    await c.cmd(method, params);
-    await loaded;
+    try {
+      await Promise.all([c.cmd(method, params), loaded]);
+    } finally {
+      clearTimeout(timer);
+      unsubscribe?.();
+    }
   }
   async function shot(name) {
+    console.log({ screenshot: name });
     let s = await c.cmd("Page.captureScreenshot", { format: "png" });
     fs.writeFileSync(
       "/tmp/dbc-basket-" + name + ".png",

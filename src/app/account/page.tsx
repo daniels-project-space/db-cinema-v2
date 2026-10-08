@@ -8,8 +8,8 @@ import {
   useQuery,
   useMutation,
   useAction,
-  usePaginatedQuery,
 } from "convex/react";
+import { usePaginatedQuery } from "convex-helpers/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";

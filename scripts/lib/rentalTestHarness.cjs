@@ -92,6 +92,7 @@ const db = {
             return q;
           },
           lte(k,v) { rows=rows.filter(r=>r[k]<=v); return q; },
+          lt(k,v) { rows=rows.filter(r=>r[k]<v); return q; },
           gt(k,v) { rows=rows.filter(r=>r[k]>v); return q; },
           gte(k, v) {
             rows = rows.filter((r) => r[k] >= v);
@@ -132,6 +133,10 @@ const db = {
           isDone: start + numItems >= rows.length,
           continueCursor: String(start + numItems),
         };
+      },
+      async *[Symbol.asyncIterator]() {
+        const ordered = [...rows].sort((a,b) => (descending ? -1 : 1) * (a._creationTime-b._creationTime || (a._id < b._id ? -1 : a._id > b._id ? 1 : 0)));
+        for (const row of ordered) yield row;
       },
     };
     return query;

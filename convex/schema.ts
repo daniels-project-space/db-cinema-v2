@@ -353,6 +353,7 @@ export default defineSchema({
     .index("by_guestEmail_status", ["guestEmail", "status"])
     .index("by_person_status", ["renterPersonKey", "status"])
     .index("by_account", ["accountId"])
+    .index("by_account_guestEmail", ["accountId", "guestEmail"])
     .index("by_account_access_retry", ["accountAccessEmailRetryAt"])
     .index("by_review_check", ["status", "reviewFollowUpCheckedAt"]),
 
