@@ -1,6 +1,7 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { rentalUnavailable } from "./lib/marketingInventory";
+import { reservationOccupancy } from "./lib/reservationOccupancy";
 
 const DAY = 86400000;
 
@@ -54,16 +55,14 @@ export function peak(intervals: Iv[]): number {
   return mx;
 }
 
-const ACTIVE = new Set(["confirmed", "active", "hold"]);
-
 async function unitReservations(ctx: any, unitId: any, lo: number, hi: number): Promise<Iv[]> {
   const res = await ctx.db
     .query("reservations")
     .withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", unitId))
     .collect();
-  return res
-    .filter((r: any) => ACTIVE.has(r.status) && (r.status !== "hold" || (r.holdExpiresAt ?? Infinity) > Date.now()) && r.start <= hi && r.end >= lo)
-    .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty || 1 }));
+  const intervals = await Promise.all(res.map((row: any) => reservationOccupancy(ctx, row)));
+  return intervals.filter((row): row is Iv => !!row && row.start <= hi && row.end >= lo)
+    .map(row => ({ ...row, start: Math.max(row.start, lo), end: Math.min(row.end, hi) }));
 }
 
 /** Quantity-aware availability for one listing over [start,end]. */

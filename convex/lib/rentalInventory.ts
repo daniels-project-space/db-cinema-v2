@@ -1,5 +1,6 @@
 import { peak, blockedSet } from "../availability";
 import { rentalUnavailable } from "./marketingInventory";
+import { reservationOccupancy } from "./reservationOccupancy";
 /** Query-local cache only: all checks still use the same live database snapshot. */
 export type RentalInventoryCache = { records: Map<string, any>; reservations: Map<string, any[]> };
 /** Check the whole proposed order together, including overlapping bundles and quantities. */
@@ -68,15 +69,9 @@ export async function assertRentalInventory(
       .collect();
       cache?.reservations.set(String(row.id), reservations!);
     }
-    const existing = reservations!
-      .filter(
-        (r: any) =>
-          (!excludeBookingId || r.bookingId !== excludeBookingId) &&
-          (["confirmed", "active"].includes(r.status) ||
-            (r.status === "hold" &&
-              (r.holdExpiresAt ?? Infinity) > Date.now())),
-      )
-      .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty }));
+    const occupied = await Promise.all(reservations!.filter((r: any) => !excludeBookingId || r.bookingId !== excludeBookingId)
+      .map((r: any) => reservationOccupancy(ctx, r)));
+    const existing = occupied.filter((row): row is NonNullable<typeof row> => row !== null);
     const over = row.intervals.some((window) => {
       const overlapping = [...existing, ...row.intervals]
         .filter(

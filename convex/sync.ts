@@ -448,9 +448,9 @@ export const syncHyggloReservations = action({
     const live = all.filter(
       (r) =>
         !r.is_obsolete &&
-        !["cancelled", "canceled", "declined"].includes(String(r.status)) &&
-        r.order_step !== "CANCELED" &&
-        (r.end_date || r.return_date || r.start_date || "") >= today,
+        !["cancelled", "canceled", "declined", "completed"].includes(String(r.status)) &&
+        !["CANCELED", "RETURNED", "REVIEWED"].includes(r.order_step) &&
+        ((r.status === "confirmed" && r.order_step === "DELIVERED") || (r.end_date || r.return_date || r.start_date || "") >= today),
     );
     const rows = live.map((r) => {
       const start = dms(r.start_date || r.pickup_date);
@@ -462,7 +462,7 @@ export const syncHyggloReservations = action({
             productId: typeof i.product_id === "number" ? i.product_id : undefined,
             qty: Math.round(i.qty || 1),
           }));
-      return { ref: String(r.hygglo_order_id ?? r._id), start, end, items };
+      return { ref: String(r.hygglo_order_id ?? r._id), start, end, items, physicallyOut: r.status === "confirmed" && r.order_step === "DELIVERED" };
     }).filter((r) => !isNaN(r.start) && !isNaN(r.end));
 
     return await ctx.runMutation(internal.sync.applyHygglo, { rows });
@@ -501,6 +501,7 @@ export const applyHygglo = internalMutation({
         ref: v.string(),
         start: v.number(),
         end: v.number(),
+        physicallyOut: v.optional(v.boolean()),
         items: v.array(
           v.object({
             itemId: v.optional(v.string()),
@@ -567,7 +568,7 @@ export const applyHygglo = internalMutation({
           end: row.end,
           qty: it.qty,
           source: "hygglo",
-          status: "confirmed",
+          status: row.physicallyOut ? "active" : "confirmed",
           externalRef: row.ref,
         });
         mirrored++;

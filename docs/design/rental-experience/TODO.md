@@ -2,6 +2,14 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — physical custody and unresolved stock holds
+
+- [x] Share stock occupancy semantics between full-cart availability, listing availability, replacement inventory checks and atomic checkout holds. A physically active rental overdue by date remains occupied until return; planned dates remain unchanged. An expired TTL does not free a pending-payment booking before provider reconciliation.
+- [x] Preserve DELIVERED/confirmed custody when mirroring older manager rentals. Exclude RETURNED, REVIEWED, completed, cancelled and obsolete source rows from mirrored stock. Actual source/feed/cart/replacement/hold regressions verify blocking well beyond the old return date and release after actual return or terminal payment reconciliation.
+- [ ] Publish the compatible manager feed/index and website occupancy source, then verify real source stock and deployed cart alternatives. The manager feed fix is paired in PR #65.
+- [ ] Establish and verify a single authoritative reservation claim across website and Hygglo writers. Website hold insertion serializes only against its local mirrored ledger; asynchronous cross-project mirroring alone does not establish a distributed no-double-booking guarantee. Preserve this original requirement alongside the remaining full-goal work.
+
+
 ### 8 October 2026 — management sidebar reference treatment
 
 - [x] Bring the shared account/admin sidebar to the reference's 237px desktop width, reduce excess spacing above navigation, use the copper/white serif wordmark and add the existing camera poster above the stacked brand footer. Treat the poster as decorative brand imagery, not an accepted owned-equipment ERNIE render.

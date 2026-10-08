@@ -18,6 +18,7 @@ import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerificati
 import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
 import { assertRentalInventory } from "./lib/rentalInventory";
+import { reservationOccupancy } from "./lib/reservationOccupancy";
 import { rentalUnavailable } from "./lib/marketingInventory";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
@@ -336,7 +337,6 @@ export const placeHolds = internalMutation({
     if (!booking) return;
     const now = Date.now();
     const expires = now + ttlMs;
-    const ACTIVE = new Set(["confirmed", "active", "hold"]);
 
     // Gather this booking's demand per physical unit (BOM-aware) + the rows to insert.
     const demandByUnit = new Map<string, { ivs: Iv[]; title: string }>();
@@ -368,12 +368,9 @@ export const placeHolds = internalMutation({
       const rows = await ctx.db.query("reservations")
         .withIndex("by_unit", (q) => q.eq("inventoryUnitId", uid as any)).collect();
       for (const r of rows) {
-        if (!ACTIVE.has(r.status) || r.start > hi || r.end < lo || r.bookingId === bookingId) continue;
-        if (r.status === "hold" && (r.holdExpiresAt ?? 0) < now) {
-          const pendingBooking = r.bookingId ? await ctx.db.get(r.bookingId) : null;
-          if (pendingBooking?.status !== "pending_payment") continue;
-        }
-        existing.push({ start: r.start, end: r.end, qty: r.qty || 1 });
+        if (r.bookingId === bookingId) continue;
+        const interval = await reservationOccupancy(ctx, r, now);
+        if (interval && interval.start <= hi && interval.end >= lo) existing.push(interval);
       }
       if (peak([...existing, ...d.ivs]) > owned) {
         throw new Error(`"${d.title}" was just taken for those dates — please adjust your dates or remove it.`);
