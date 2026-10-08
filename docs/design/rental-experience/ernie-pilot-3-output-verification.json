@@ -1,0 +1,42 @@
+{
+  "checkedAt": "2026-10-08T01:56:53.026Z",
+  "jobId": "jd7ekk89x7w07zach9vpj0y6058fwkw8",
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "imageContractSha256": "2dbdf2fe0708c21eb4ec4828ba50244dca2369bc6fb9f0dbd5b7ac61166f570f",
+  "status": "completed",
+  "usage": {
+    "complete": true,
+    "costUsd": 0.016533705555555556,
+    "gpuSeconds": 207
+  },
+  "candidates": [
+    {
+      "candidateId": "kn76ynt7yda9s63ewbg2sab1en86a0ts",
+      "bucket": "re-db-cinema-rentals-1f518ftgxs",
+      "key": "projects/db-cinema-rentals/workflows/jn727e21bczgbhymp0xkdhb3398fvtf3/jobs/jd7ekk89x7w07zach9vpj0y6058fwkw8/outputs/candidates/kn76ynt7yda9s63ewbg2sab1en86a0ts.png",
+      "bytes": 1363051,
+      "sha256": "d90acde7742d0ab5326b525725bf8d5f7d9e0f855e955acd35905414ef3a3510",
+      "width": 1264,
+      "height": 848,
+      "nativeReceiptSha256": "c7af9bc664b8fa61f51c574a335fd402a80c2b21086fda63920469f7a00f7604",
+      "pngIndependentlyStreamVerified": true,
+      "nativeReceiptServerRevalidated": true,
+      "visualAccepted": false
+    }
+  ],
+  "acceptedForTiles": false,
+  "visualReview": {
+    "accepted": false,
+    "reviewScreenshot": "/root/dbc-equipment-render-review/npf970-pilot-3-browser.png",
+    "comparisonSource": {
+      "url": "https://www.sony.jp/products/catalog/SPC_2NP-F970_B.pdf",
+      "sha256": "568ac4a355050dfbb7533951121bbd0704d27a06ef213be099b18a6feb8285e2",
+      "page": 1,
+      "reviewScreenshot": "/root/dbc-equipment-render-review/npf970-manufacturer-sheet.png"
+    },
+    "lighting": "Pass: cool overhead spotlight, dark studio and visible black material detail.",
+    "hardware": "Rejected: broad-side outline appears approximately 0.63 width/height versus manufacturer depth/height about 0.85; elongated oval grip is too short relative to the casing, and the rear edge details are not a reliable match. These are manual visual estimates, not a calibrated metrology claim.",
+    "framing": "Rejected: object occupies approximately 63 percent of image height rather than the requested approximately 85 percent; excessive empty space.",
+    "nextAction": "Do not bind to cards or release bulk batches. Qualify stronger model-specific/reference guidance while preserving the requested ERNIE Base quality contract."
+  }
+}

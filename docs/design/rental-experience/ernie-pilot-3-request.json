@@ -1,0 +1,34 @@
+{
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "request": {
+    "version": 2,
+    "idempotencyKey": "dbc-equipment-pilot-v3:7af80d352c5e5302cc058ee677d1e690d2527601cddb8e82ca47dfe0ca952db8",
+    "sourceId": "equipment-hero-pilot-v3-7af80d352c5e5302cc05",
+    "candidates": [
+      {
+        "id": "kn76ynt7yda9s63ewbg2sab1en86a0ts",
+        "prompt": "One genuine Sony NP-F970 L-series camera battery pack, original black casing, shown in a true broad-side profile. Preserve the exact compact casing proportions: its broad side is approximately 70.5 mm tall and 59.7 mm deep, with the narrower front face about 38.2 mm wide. The visible broad side has a single elongated vertical oval recessed textured grip near its centre; the mounting rail/contact edge is at the rear, naturally visible only at the far edge of this side view. Original rounded casing corners and moulded plastic seams. Show one battery standing naturally on the dark studio floor, fully visible, at eye level. Size the battery as large as possible within the frame, approximately 85 percent of image height, with tight consistent margins and faithful proportions; do not stretch the casing horizontally. Matte dark studio room and dark floor, cool white spotlight directly above the battery, subtle contact shadow, crisp realistic product photograph, preserved black material detail. No charger, cables, camera, additional batteries, invented accessories, USB or USB-C port, display, power bank styling, people, captions, promotional text or watermark.",
+        "seed": 1847129296,
+        "width": 1264,
+        "height": 848
+      }
+    ],
+    "output": {
+      "contentType": "image/png"
+    },
+    "maxCostUsd": 1,
+    "profileRevisionSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
+    "imageContract": {
+      "version": 2,
+      "width": 1264,
+      "height": 848,
+      "steps": 50,
+      "cfg": 4,
+      "precision": "bf16",
+      "promptEnhancer": "ernie-native-v1",
+      "modelManifestSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
+      "workerSha256": "de0e6eed87a1a7568e92a78cb3b12e3f947926145eb418e317bc39ef334d66e7"
+    },
+    "imageContractSha256": "2dbdf2fe0708c21eb4ec4828ba50244dca2369bc6fb9f0dbd5b7ac61166f570f"
+  }
+}

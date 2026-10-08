@@ -196,3 +196,13 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Reproduce the old UI clearing a different customer's note when a prior account save completes. Scope note/access result messages, draft clearing and busy changes to the initiating account/admin session; invalidate scope on profile change/close and preserve independent concurrent saves.
 - [x] Native actual-component/actual-handler fixture passes success/error delays, original mutation account IDs, close/reopen, token revocation/restoration, pending inputs and desktop/mobile overflow. Synthetic records only; final screenshots at /root/dbc-customer-scope-review. Production build/typecheck and admin/customer/directory handler suites pass.
 - [ ] Push and verify hosted source/preview checks, then include this in compatible management publication and actual authenticated account acceptance. All original visual, equipment, manager and live document requirements remain open.
+
+### 8 October 2026 — NP-F970 pilot and hosted profile checkpoint
+
+- [x] Revalidate live Base provider availability, unchanged engine revision/strict request contract and the DB Cinema output bucket. Inspect Sony's dimensional drawing, record its digest and prepare a faithful one-pack side-profile prompt with tight framing and no invented rental-set contents.
+- [x] Submit one unchanged-quality Base pilot: jd7ekk89x7w07zach9vpj0y6058fwkw8. Authoritative 202 receipt and real Jarvis A30 running attempt confirmed; 15-second job polling is active. Remaining candidate drafts stay unsubmitted.
+- [ ] Follow this exact job to terminal state, verify PNG/hash/native receipt/owned R2 binding, inspect hardware proportions/framing/lighting, then accept or reject explicitly before any card use or larger batch.
+- [ ] Hosted CI 37714731154 for customer-profile source ec03963 is terminal failed at a later membership checkout Page.reload timeout, despite passing typecheck/tests/build. Earlier cd2fdf9 hosted run passed the complete suite. Keep intermittent hosted/native reload reliability open; do not describe the profile-only source change as a proven checkout cause.
+
+- [x] Pilot 3 completed and GPU terminated; independent PNG/native receipt/R2 checks pass. Reject its hardware proportions/grip/interface and loose framing explicitly. Evidence in ernie-pilot-3-output-verification.json; no accepted card image and no bulk release. Add primary NP-FW50/NP-F570 family descriptions with unresolved OEM/casing blocks (41 descriptions, nine blocks, 32 drafts, 41 remaining reviews).
+- [x] Customer-profile preview dpl_Du2Y8ZJykAPcM6Mubg34Qgjx82CC is READY for ec03963. Hosted CI remains terminal failed at a later checkout reload, with typecheck/tests/build passing; private/live acceptance still open.

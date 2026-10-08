@@ -249,7 +249,16 @@
       "compositionReady": true,
       "compositionBlockers": [],
       "checkedAt": "2026-10-07T23:38:01.461Z",
-      "verificationScope": "Manufacturer model/family facts matched to the canonical master entry; owned-unit appearance and actual rental-set contents remain separate acceptance requirements"
+      "verificationScope": "Manufacturer model/family facts matched to the canonical master entry; owned-unit appearance and actual rental-set contents remain separate acceptance requirements",
+      "appearanceReference": {
+        "sourceUrl": "https://www.sony.jp/products/catalog/SPC_2NP-F970_B.pdf",
+        "sha256": "568ac4a355050dfbb7533951121bbd0704d27a06ef213be099b18a6feb8285e2",
+        "bytes": 23196,
+        "page": 1,
+        "scope": "Manufacturer dimensional drawing of one NP-F970/B pack. It does not attest the owned unit or rental-set contents.",
+        "reviewScreenshot": "/root/dbc-equipment-render-review/npf970-manufacturer-sheet.png",
+        "observedAppearance": "Broad side approximately 70.5 mm by 59.7 mm, narrower front about 38.2 mm, rounded casing corners, one elongated vertical oval textured side grip and rear mounting/contact edge. Preserve proportions and show one pack."
+      }
     },
     {
       "inventoryId": "kn7e3hztddjngzf3tka096mqrx86avn9",
@@ -290,6 +299,34 @@
       ],
       "checkedAt": "2026-10-07T23:38:01.462Z",
       "verificationScope": "Manufacturer model/family facts matched to the canonical master entry; owned-unit appearance and actual rental-set contents remain separate acceptance requirements"
+    },
+    {
+      "inventoryId": "kn7ae54ermh21msysxwfh7hanx871gk8",
+      "canonicalName": "NP-FW50 batteries",
+      "model": "NP-FW50 family",
+      "sourceUrl": "https://www.sony.co.uk/electronics/support/camera-camcorder-accessories-batteries-chargers/np-fw50",
+      "description": "Sony's NP-FW50 is a W-series rechargeable camera battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.",
+      "composition": "One battery pack only after manufacturer/casing confirmation; no charger or invented set contents.",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Confirm whether the owned packs are original Sony or another manufacturer and verify the exact casing/markings before rendering."
+      ],
+      "checkedAt": "2026-10-08T01:57:19.082450+00:00",
+      "verificationScope": "Primary manufacturer family facts matched to the canonical inventory label. Owned manufacturer, physical appearance and rental contents remain unverified."
+    },
+    {
+      "inventoryId": "kn7fwc3jkvtbfnkr6tfb0hgxcn8fhdp6",
+      "canonicalName": "NP-F570 batteries",
+      "model": "NP-F570 family",
+      "sourceUrl": "https://www.sony.com/electronics/support/camera-camcorder-accessories-batteries-chargers/np-f570",
+      "description": "Sony's NP-F570 is an L-series rechargeable battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.",
+      "composition": "One battery pack only after manufacturer/casing confirmation; no charger or invented set contents.",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Confirm whether the owned packs are original Sony or another manufacturer and verify the exact casing/markings before rendering."
+      ],
+      "checkedAt": "2026-10-08T01:57:19.082470+00:00",
+      "verificationScope": "Primary manufacturer family facts matched to the canonical inventory label. Owned manufacturer, physical appearance and rental contents remain unverified."
     }
   ]
 }

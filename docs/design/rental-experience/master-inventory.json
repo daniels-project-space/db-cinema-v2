@@ -1,7 +1,7 @@
 {
   "source": "Rental Manager items:listForReconcile + walle_inventory:lookup (exact canonical matches only)",
   "deployment": "hearty-oyster-600",
-  "checkedAt": "2026-10-07T23:38:06.838Z",
+  "checkedAt": "2026-10-08T01:57:22.435Z",
   "items": [
     {
       "id": "kn78qjrz8qk1zxk9vqrgnbqw3s86aqpt",
@@ -979,7 +979,16 @@
           "compositionReady": true,
           "compositionBlockers": [],
           "checkedAt": "2026-10-07T23:38:01.461Z",
-          "verificationScope": "Manufacturer model/family facts matched to the canonical master entry; owned-unit appearance and actual rental-set contents remain separate acceptance requirements"
+          "verificationScope": "Manufacturer model/family facts matched to the canonical master entry; owned-unit appearance and actual rental-set contents remain separate acceptance requirements",
+          "appearanceReference": {
+            "sourceUrl": "https://www.sony.jp/products/catalog/SPC_2NP-F970_B.pdf",
+            "sha256": "568ac4a355050dfbb7533951121bbd0704d27a06ef213be099b18a6feb8285e2",
+            "bytes": 23196,
+            "page": 1,
+            "scope": "Manufacturer dimensional drawing of one NP-F970/B pack. It does not attest the owned unit or rental-set contents.",
+            "reviewScreenshot": "/root/dbc-equipment-render-review/npf970-manufacturer-sheet.png",
+            "observedAppearance": "Broad side approximately 70.5 mm by 59.7 mm, narrower front about 38.2 mm, rounded casing corners, one elongated vertical oval textured side grip and rear mounting/contact edge. Preserve proportions and show one pack."
+          }
         }
       },
       "composition": "Show one Sony NP-F970 battery pack only, not a charger, USB-C third-party variant or invented set contents.",
@@ -987,7 +996,7 @@
       "cachedReferenceReview": [],
       "descriptionStatus": "Reviewed model facts; rental contents and visual acceptance remain separate",
       "heroPrompt": "Side-view hero product photograph of the exact Sony NPF 970 batteries 2x sets. Reviewed model description: Sony NP-F970 is an L-series rechargeable camera/camcorder battery pack. The master label describes battery sets; this manufacturer model review does not establish the number of batteries or chargers supplied in a rental set.. Show one Sony NP-F970 battery pack only, not a charger, USB-C third-party variant or invented set contents. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
-      "sourceEvidenceSha256": "4ad426f3e2139e0c3a3377a16086022497e851cbb9b8d980baeaefa5df892fc7",
+      "sourceEvidenceSha256": "fcc5b775b36a710b2970af92eae1a22ef3328478d704469b2cba911f5698fdad",
       "renderReadiness": "description-ready; references and output review required"
     },
     {
@@ -2429,17 +2438,35 @@
       "kind": "power",
       "owned": true,
       "isMarketingOnly": false,
-      "description": "NP-FW50 batteries. Master inventory category: power. Technical details await verification.",
-      "verifiedDescription": null,
+      "description": "NP-FW50 batteries. Sony's NP-FW50 is a W-series rechargeable camera battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.",
+      "verifiedDescription": "Sony's NP-FW50 is a W-series rechargeable camera battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.",
       "specVerification": null,
-      "descriptionProvenance": null,
+      "descriptionProvenance": {
+        "type": "local-manufacturer-review",
+        "review": {
+          "inventoryId": "kn7ae54ermh21msysxwfh7hanx871gk8",
+          "canonicalName": "NP-FW50 batteries",
+          "model": "NP-FW50 family",
+          "sourceUrl": "https://www.sony.co.uk/electronics/support/camera-camcorder-accessories-batteries-chargers/np-fw50",
+          "description": "Sony's NP-FW50 is a W-series rechargeable camera battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.",
+          "composition": "One battery pack only after manufacturer/casing confirmation; no charger or invented set contents.",
+          "compositionReady": false,
+          "compositionBlockers": [
+            "Confirm whether the owned packs are original Sony or another manufacturer and verify the exact casing/markings before rendering."
+          ],
+          "checkedAt": "2026-10-08T01:57:19.082450+00:00",
+          "verificationScope": "Primary manufacturer family facts matched to the canonical inventory label. Owned manufacturer, physical appearance and rental contents remain unverified."
+        }
+      },
       "composition": null,
-      "compositionBlockers": [],
+      "compositionBlockers": [
+        "Confirm whether the owned packs are original Sony or another manufacturer and verify the exact casing/markings before rendering."
+      ],
       "cachedReferenceReview": [],
-      "descriptionStatus": "Technical specification needs verification",
-      "heroPrompt": "Side-view hero product photograph of the exact NP-FW50 batteries. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
-      "sourceEvidenceSha256": "d20fae42e83a505b6a9f843f8d99242bed267002cd7407312662a9a706892532",
-      "renderReadiness": "requires factual/ownership review"
+      "descriptionStatus": "Reviewed model facts; rental contents and visual acceptance remain separate",
+      "heroPrompt": "Side-view hero product photograph of the exact NP-FW50 batteries. Reviewed model description: Sony's NP-FW50 is a W-series rechargeable camera battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "01b4b0c34af83de8a0abc03a7681e7ccf3e62a6832ce8b9a4fbef3b3e20c4583",
+      "renderReadiness": "requires kit/region configuration review"
     },
     {
       "id": "kn782v9vnh4w7j35b9j1repaqh870mwd",
@@ -3229,17 +3256,35 @@
       "kind": "power",
       "owned": true,
       "isMarketingOnly": false,
-      "description": "NP-F570 batteries. Master inventory category: power. Technical details await verification.",
-      "verifiedDescription": null,
+      "description": "NP-F570 batteries. Sony's NP-F570 is an L-series rechargeable battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.",
+      "verifiedDescription": "Sony's NP-F570 is an L-series rechargeable battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.",
       "specVerification": null,
-      "descriptionProvenance": null,
+      "descriptionProvenance": {
+        "type": "local-manufacturer-review",
+        "review": {
+          "inventoryId": "kn7fwc3jkvtbfnkr6tfb0hgxcn8fhdp6",
+          "canonicalName": "NP-F570 batteries",
+          "model": "NP-F570 family",
+          "sourceUrl": "https://www.sony.com/electronics/support/camera-camcorder-accessories-batteries-chargers/np-f570",
+          "description": "Sony's NP-F570 is an L-series rechargeable battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.",
+          "composition": "One battery pack only after manufacturer/casing confirmation; no charger or invented set contents.",
+          "compositionReady": false,
+          "compositionBlockers": [
+            "Confirm whether the owned packs are original Sony or another manufacturer and verify the exact casing/markings before rendering."
+          ],
+          "checkedAt": "2026-10-08T01:57:19.082470+00:00",
+          "verificationScope": "Primary manufacturer family facts matched to the canonical inventory label. Owned manufacturer, physical appearance and rental contents remain unverified."
+        }
+      },
       "composition": null,
-      "compositionBlockers": [],
+      "compositionBlockers": [
+        "Confirm whether the owned packs are original Sony or another manufacturer and verify the exact casing/markings before rendering."
+      ],
       "cachedReferenceReview": [],
-      "descriptionStatus": "Technical specification needs verification",
-      "heroPrompt": "Side-view hero product photograph of the exact NP-F570 batteries. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
-      "sourceEvidenceSha256": "d980f01c8b7edbadd162c6ae22168e8890e652116eabae2f128f86b72d0c2b46",
-      "renderReadiness": "requires factual/ownership review"
+      "descriptionStatus": "Reviewed model facts; rental contents and visual acceptance remain separate",
+      "heroPrompt": "Side-view hero product photograph of the exact NP-F570 batteries. Reviewed model description: Sony's NP-F570 is an L-series rechargeable battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+      "sourceEvidenceSha256": "d09f1cc1f06f6764aa901133b6c8f508ccd653c097d671f111dddf23da76b032",
+      "renderReadiness": "requires kit/region configuration review"
     }
   ]
 }

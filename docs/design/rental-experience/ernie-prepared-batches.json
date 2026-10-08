@@ -19,7 +19,7 @@
     "contentType": "image/png"
   },
   "ownedCount": 82,
-  "describedCount": 39,
+  "describedCount": 41,
   "remainingDescriptionReview": [
     {
       "id": "kn741p3xbx9e9yvby7qcmvvnj586akhv",
@@ -150,10 +150,6 @@
       "name": "5-in-1 reflector panel"
     },
     {
-      "id": "kn7ae54ermh21msysxwfh7hanx871gk8",
-      "name": "NP-FW50 batteries"
-    },
-    {
       "id": "kn72r54nkzjphnr54kkysjbxnn870cgn",
       "name": "BMPCC battery pack"
     },
@@ -188,10 +184,6 @@
     {
       "id": "kn7b8ezbpk7k3c4gdrb1smn7ad89a2j0",
       "name": "EF to L mount"
-    },
-    {
-      "id": "kn7fwc3jkvtbfnkr6tfb0hgxcn8fhdp6",
-      "name": "NP-F570 batteries"
     }
   ],
   "configurationBlocked": [
@@ -242,6 +234,20 @@
       "canonicalName": "DJI Mic 2 wireless",
       "blockers": [
         "Kit configuration and transmitter colour need checking before rendering; do not invent the number of transmitters or a charging case."
+      ]
+    },
+    {
+      "inventoryId": "kn7ae54ermh21msysxwfh7hanx871gk8",
+      "canonicalName": "NP-FW50 batteries",
+      "blockers": [
+        "Confirm whether the owned packs are original Sony or another manufacturer and verify the exact casing/markings before rendering."
+      ]
+    },
+    {
+      "inventoryId": "kn7fwc3jkvtbfnkr6tfb0hgxcn8fhdp6",
+      "canonicalName": "NP-F570 batteries",
+      "blockers": [
+        "Confirm whether the owned packs are original Sony or another manufacturer and verify the exact casing/markings before rendering."
       ]
     }
   ],
@@ -388,8 +394,8 @@
       "submitted": false
     },
     {
-      "sourceId": "equipment-hero-v2-df78d1d60362dbf76cfcf095",
-      "idempotencyKey": "dbc-equipment-hero-v2:df78d1d60362dbf76cfcf095100767c5cc8b0f10f8034945831c10daf5206e74",
+      "sourceId": "equipment-hero-v2-034be695c1449b8189292983",
+      "idempotencyKey": "dbc-equipment-hero-v2:034be695c1449b818929298339d4d4fae23e801049128b9d10d770883e339b6c",
       "inventoryIds": [
         "kn76mqhv1bv291x5z68fxerzg986bnmq",
         "kn76ynt7yda9s63ewbg2sab1en86a0ts",
@@ -419,7 +425,7 @@
         {
           "id": "kn76ynt7yda9s63ewbg2sab1en86a0ts",
           "prompt": "Side-view hero product photograph of the exact Sony NPF 970 batteries 2x sets. Reviewed model description: Sony NP-F970 is an L-series rechargeable camera/camcorder battery pack. The master label describes battery sets; this manufacturer model review does not establish the number of batteries or chargers supplied in a rental set.. Show one Sony NP-F970 battery pack only, not a charger, USB-C third-party variant or invented set contents. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
-          "seed": 619839996,
+          "seed": 255187339,
           "width": 1264,
           "height": 848
         },
