@@ -61,16 +61,15 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  const old=put('bookings',{...b,_id:'historical-agreement',agreementSnapshot:undefined,agreementRequestId:undefined,agreementDocs:args.agreementDocs.map(d=>({...d,version:'2026-10-v8'}))});
  const historic=await bookings.invoiceData.handler(ctx,{bookingId:old._id,token:'agreement-renter'});
  assert.equal(historic.agreementSnapshot,null);assert.equal(historic.acceptedAgreementEvidence.documents[0].version,'2026-10-v8');assert.equal(old.agreementSnapshot,undefined);
- // Attachment survives PDF failure; stub mail and network to prevent real side effects.
+ // PDF failure must not cause a raw agreement/code attachment; accepted evidence stays in the private account.
  let mail;setMock('./lib/mailer',{sendMail:async(m)=>{mail=m;return true;}});
  const invoiceModule=load('convex/invoice.ts'),originalFetch=global.fetch;global.fetch=async()=>({ok:false});process.env.INVOICE_SECRET='fixture-only';
  try{await invoiceModule.invoiceEmail.handler({runQuery:async()=>b},{bookingId:b._id});}finally{global.fetch=originalFetch;}
- assert.equal(mail.attachments.length,1);assert.equal(Buffer.from(mail.attachments[0].content,'base64').toString(),saved);
- assert.match(mail.html,/not automatic liability caps/);
+ assert.equal(mail.attachments.length,0);assert(!mail.html.includes('JSON agreement'));assert(!mail.html.includes('insurance excess'));assert.equal(b.agreementSnapshot,saved,'Accepted evidence is retained privately');
  global.fetch=async()=>({ok:false});
  try{await invoiceModule.invoiceEmail.handler({runQuery:async()=>old},{bookingId:old._id});}finally{global.fetch=originalFetch;}
  assert.equal(mail.attachments.length,0);assert(!mail.html.includes('not automatic liability caps'),'new liability wording must not be imposed on a historical agreement');
- assert.match(mail.html,/current terms have not been substituted/);
+ assert.match(mail.html,/payment receipt/);
  // Render the actual receipt component and inspect its decoded PDF text separately.
  const renderer=await import('@react-pdf/renderer');
  const jsx=ts.transpileModule(fs.readFileSync('src/lib/invoice/InvoiceDocument.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;

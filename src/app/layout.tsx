@@ -129,9 +129,6 @@ export default function RootLayout({
         <CursorGlow />
         <SpotlightEffect />
         <ScrollProgress />
-        <div className="relative z-20 border-b border-amber-400/20 bg-amber-500/10 py-1 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-amber-300/90">
-          Test mode — demo only · no real payments are taken
-        </div>
         <ConvexClientProvider>
           <AnalyticsTracker />
           <AccountProvider>

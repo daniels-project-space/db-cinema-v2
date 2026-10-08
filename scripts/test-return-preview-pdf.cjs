@@ -18,6 +18,13 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
  const pdf=Buffer.from(await response.arrayBuffer());assert.equal(pdf.subarray(0,5).toString(),'%PDF-');const file=path.join(dir,'draft.pdf');fs.writeFileSync(file,pdf);
  const text=execFileSync('pdftotext',[file,'-'],{encoding:'utf8'});assert(text.includes('DRAFT RETURN STATEMENT'));assert(text.includes('Expected security refund at return'));assert(text.includes('40.50'));assert(text.includes('Damage case selected'));assert(text.includes('previewing does not execute refunds'));
  invoice.returnStatement=statement;const final=await POST(request({statement,draft:false}),params);assert.equal(final.status,200);const issued=path.join(dir,'issued.pdf');fs.writeFileSync(issued,Buffer.from(await final.arrayBuffer()));const finalText=execFileSync('pdftotext',[issued,'-'],{encoding:'utf8'});assert(!finalText.includes('DRAFT RETURN STATEMENT'));assert(finalText.includes('Damage case opened'));assert.equal((await POST(request({statement:{...statement,damageTotal:999},draft:false}),params)).status,409);
+
+ const legacy={...statement,supplierName:'PRIVATE OLD SUPPLIER',supplierAddress:'PRIVATE OLD ADDRESS'};
+ invoice.returnStatement={...legacy,supplierName:'DB Cinema Rentals',supplierAddress:undefined};
+ const historical=await POST(request({statement:legacy,draft:false}),params);assert.equal(historical.status,200,'A historical immutable statement still prints after supplier-detail redaction');
+ const historicalPdf=path.join(dir,'historical.pdf');fs.writeFileSync(historicalPdf,Buffer.from(await historical.arrayBuffer()));
+ const historicalText=execFileSync('pdftotext',[historicalPdf,'-'],{encoding:'utf8'});assert(!historicalText.includes('PRIVATE OLD'));assert(historicalText.includes('25.00'),'Redaction cannot change settlement figures');
+ assert.equal(legacy.supplierAddress,'PRIVATE OLD ADDRESS','Historical input is not mutated');
  const artifacts=process.env.DBC_RETURN_PDF_ARTIFACT_DIR?path.resolve(process.env.DBC_RETURN_PDF_ARTIFACT_DIR):path.join(dir,'review');
  fs.mkdirSync(artifacts,{recursive:true});fs.copyFileSync(file,path.join(artifacts,'draft.pdf'));fs.copyFileSync(issued,path.join(artifacts,'issued-fixture.pdf'));
  execFileSync('pdftoppm',['-png','-scale-to','1500','-singlefile',file,path.join(artifacts,'draft')]);

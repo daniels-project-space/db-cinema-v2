@@ -992,8 +992,8 @@ export const recordLateFee = internalMutation({
       returnStatement: {
         number: `DBC-R-${String(bookingId).toUpperCase()}`, issuedAt, actualReturnedAt,
         agreedReturnTime: b.returnTime,
-        supplierName: process.env.BUSINESS_LEGAL_NAME || "Db Cinema Rentals",
-        supplierAddress: process.env.BUSINESS_INVOICE_ADDRESS || undefined,
+        supplierName: "DB Cinema Rentals",
+        supplierAddress: undefined,
         customerName: customer?.name || undefined,
         customerEmail: b.guestEmail ?? "",
         billingAddress: b.billingAddress ?? b.address,
@@ -1251,14 +1251,20 @@ export const markReminded = internalMutation({
 /** Full receipt data stays internal; public status reads expose only their existing fields. */
 export const receiptContext = internalQuery({
   args: {bookingId:v.id("bookings")},
-  handler: async (ctx,{bookingId}) => ctx.db.get(bookingId),
+  handler: async (ctx,{bookingId}) => {
+    const booking=await ctx.db.get(bookingId);if(!booking)return null;
+    const account=await accountForRental(ctx,booking);
+    return {...booking,guestEmail:account?.email??(booking.accountId?null:booking.guestEmail)};
+  },
 });
 
-export const get = query({
+/** Notification summary is internal: booking IDs never authorise customer-data access. */
+export const get = internalQuery({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
+    const account=await accountForRental(ctx,b);
     return {
       _id: b._id,
       status: b.status,
@@ -1271,7 +1277,7 @@ export const get = query({
       total: b.total,
       currency: b.currency,
       fulfilment: b.fulfilment,
-      guestEmail: b.guestEmail,
+      guestEmail: account?.email??(b.accountId?null:b.guestEmail),
       idVerifyStatus: b.idVerifyStatus ?? "required",
       verificationProvider: b.verificationProvider ?? "stripe",
       verificationNote: b.verificationNote ?? null,
@@ -1298,6 +1304,10 @@ export const invoiceData = query({
       if (belongsToRentalAccount(b, acct)) ok = true;
     }
     if (!ok) return null;
+    // A saved basket or unfinished checkout is not evidence of payment.
+    // Keep receipts for settled rentals even after cancellation/refund.
+    if (b.status === "pending_payment" ||
+        (!b.stripePaymentIntentId && !["confirmed", "active", "returned"].includes(b.status))) return null;
     const customer: any = b.customerId ? await ctx.db.get(b.customerId) : null;
     const account = await accountForRental(ctx, b);
     const rentalRefunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
@@ -1311,8 +1321,8 @@ export const invoiceData = query({
       agreementSnapshot: readAgreementSnapshot(b.agreementSnapshot),
       acceptedAgreementEvidence: {name:b.agreementName??null,signedAt:b.agreementSignedAt??null,documents:b.agreementDocs??[]},
       issuedAt: b._creationTime,
-      supplierName: process.env.BUSINESS_LEGAL_NAME || "Db Cinema Rentals",
-      supplierAddress: process.env.BUSINESS_INVOICE_ADDRESS || undefined,
+      supplierName: "DB Cinema Rentals",
+      supplierAddress: undefined,
       status: b.status,
       customerName: b.guestName ?? customer?.name ?? account?.name ?? null,
       email: b.guestEmail ?? null,
@@ -1333,7 +1343,7 @@ export const invoiceData = query({
       depositRefundAmount: b.depositRefundAmount ?? (b.depositRefunded ? null : 0),
       total: b.total,
       promoCode: b.promoCode ?? null,
-      returnStatement: b.returnStatement ? {...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(rentalRefunds)/100} : null,
+      returnStatement: b.returnStatement ? {...b.returnStatement,supplierName:"DB Cinema Rentals",supplierAddress:undefined,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(rentalRefunds)/100} : null,
     };
   },
 });
