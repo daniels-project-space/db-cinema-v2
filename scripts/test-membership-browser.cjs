@@ -237,6 +237,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   async function nativeClick(expression) {
     await c.evaluate(`(${expression}).scrollIntoView({block:'center',behavior:'instant'})`);
     await wait(80);
+    if(expression.includes('clear-basket')){
+      await c.evaluate('window.__dbcClickRect=null');
+      // Wait for the actual hit target and stable layout, rather than clicking an
+      // old coordinate while images or hydration are still moving the button.
+      await until(`(()=>{const el=(${expression});if(!el)return false;const r=el.getBoundingClientRect(),point={x:r.x+r.width/2,y:r.y+r.height/2};const before=window.__dbcClickRect;window.__dbcClickRect=point;const hit=document.elementFromPoint(point.x,point.y);return before&&Math.abs(before.x-point.x)<1&&Math.abs(before.y-point.y)<1&&!!hit&&(el===hit||el.contains(hit))})()`);
+    }
     const point = await c.evaluate(`(()=>{const r=(${expression}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
     await c.cmd('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
     await c.cmd('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point});
