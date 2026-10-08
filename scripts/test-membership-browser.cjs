@@ -41,16 +41,15 @@ async function connect(url, existingId) {
     });
   return {
     cmd,
-    on: (fn) => listeners.add(fn),
-    evaluate: async (expression, extra = {}) =>
-      (
-        await cmd("Runtime.evaluate", {
-          expression,
-          awaitPromise: true,
-          returnByValue: true,
-          ...extra,
-        })
-      ).result?.value,
+    on: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
+    evaluate: async (expression, extra = {}) => {
+      const response = await cmd("Runtime.evaluate", {
+        expression, awaitPromise: true, returnByValue: true, ...extra,
+      });
+      if (response.exceptionDetails)
+        throw Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
+      return response.result?.value;
+    },
     close: () => ws.close(),
     tabId: tab.id,
   };
@@ -66,9 +65,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       process.env.DBC_CONVEX_URL || "https://veracious-wombat-196.convex.cloud",
     );
   const r = await cv.query(api.catalog.listListings, {}),
-    rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !(l.marketingOnly ?? !!marketingRedirect(l))),
-    l = rows.filter(l=>l.pricing && !l.displayOnly).sort((a,b)=>b.pricing.daily-a.pricing.daily)[0];
+    rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !(l.marketingOnly ?? !!marketingRedirect(l)));
   const future = new Date(Date.now() + 60 * 86400000);
+  const probeStart=Date.UTC(future.getUTCFullYear(),future.getUTCMonth(),future.getUTCDate())+((5-future.getUTCDay()+7)%7)*86400000;
+  const candidates=rows.filter(row=>row.pricing&&!row.displayOnly).sort((a,b)=>b.pricing.daily-a.pricing.daily);
+  let l;
+  for(const [index,candidate]of candidates.entries()){
+    const items=[{listingId:candidate._id,start:probeStart,end:probeStart+2*86400000}];
+    const availability=index===0?(await cv.action(api.sync.refreshCartStock,{items})).availability:await cv.query(api.availability.forCart,{items});
+    if(availability[candidate._id]?.ok){l=candidate;break}
+  }
+  assert(l,"Pricing/navigation fixture requires actual available equipment; stock checks must not be bypassed");
+  console.log({fixture:"available public rental kit",title:l.title});
+
   const start =
       Date.UTC(
         future.getUTCFullYear(),
@@ -152,6 +161,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     throw Error("Browser condition timed out: " + expr);
   }
   async function reload() {
+    console.log({ navigation: "reload" });
     const previous = await c.evaluate("performance.timeOrigin");
     // Release decorative media decoders before tearing down the document.
     // Cards and their animations are tested before this navigation step.
@@ -185,19 +195,38 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // Wait for the new DOM before querying its context. Component-specific
     // checks below still wait for hydrated UI and real prices; third-party
     // media and Stripe subframes need not finish loading to inspect the UI.
-    let finished = false, timer;
+    let finished = false, timer, unsubscribe;
     const loaded = new Promise((resolve, reject) => {
       timer = setTimeout(() => {finished = true;reject(Error('Document load timed out: '+method));},30000);
-      c.on(event => {
+      unsubscribe = c.on(event => {
+        if (!finished && event.method === 'Page.javascriptDialogOpening') {
+          if (event.params?.type !== 'beforeunload') {
+            finished = true;clearTimeout(timer);
+            reject(Error('Unexpected browser dialog during '+method+': '+event.params?.type));
+          } else {
+            // A deliberate reload/navigation is a user decision to leave.
+            // Chrome can require confirmation after edited checkout forms.
+            // Answer the native prompt; preserve every application assertion.
+            console.log({navigationDialog:'beforeunload',method});
+            void c.cmd('Page.handleJavaScriptDialog', {accept:true}).catch(error => {
+              if (!finished) {finished=true;clearTimeout(timer);reject(error);}
+            });
+          }
+        }
         if (!finished && event.method === 'Page.domContentEventFired') {
           finished = true;clearTimeout(timer);resolve();
         }
       });
     });
-    await c.cmd(method, params);
-    await loaded;
+    try {
+      await Promise.all([c.cmd(method, params), loaded]);
+    } finally {
+      clearTimeout(timer);
+      unsubscribe?.();
+    }
   }
   async function shot(name) {
+    console.log({ screenshot: name });
     let s = await c.cmd("Page.captureScreenshot", { format: "png" });
     fs.writeFileSync(
       "/tmp/dbc-basket-" + name + ".png",
@@ -395,8 +424,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `!document.querySelector('[role="dialog"][aria-label="Subscription benefits"]')`,
   );
   // Real client navigation carries the explicit card-selection consent.
+  await until(`!![...document.querySelectorAll('button')].find(b=>b.textContent.includes('Secure checkout')&&!b.disabled)`);
   await c.evaluate(
-    `setTimeout(()=>[...document.querySelectorAll('a')].find(a=>a.textContent.includes('Secure checkout')).click(),0);true`,
+    `setTimeout(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Secure checkout')&&!b.disabled).click(),0);true`,
   );
   await until(
     `location.pathname==='/checkout'&&!!document.querySelector('#co-email')&&!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,
@@ -494,12 +524,15 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   // A large weekday kit must now offer first-month credit in this checkout.
   const weekdayStart = start + 3 * 86400000,
     weekdayEnd = weekdayStart;
-  const bigWeekdayArgs = {...args,items:args.items.map(i=>({...i,start:weekdayStart,end:weekdayEnd}))};
+  const bigWeekdayEnd = weekdayStart + 3 * 86400000;
+  const bigWeekdayArgs = {...args,items:args.items.map(i=>({...i,start:weekdayStart,end:bigWeekdayEnd}))};
+  const bigWeekdayAvailability = await cv.query(api.availability.forCart,{items:bigWeekdayArgs.items.map(i=>({listingId:i.listingId,start:i.start,end:i.end}))});
+  assert(bigWeekdayAvailability[l._id]?.ok,"The four-day weekday fixture must be available");
   const bigWeekdayQuote = await cv.action(api.checkout.priceQuote,bigWeekdayArgs);
   assert.equal(bigWeekdayQuote.recommendations[0].tier,"studio");
   assert.equal(bigWeekdayQuote.recommendations[0].intro,"none");
   assert(bigWeekdayQuote.recommendations[0].membershipCreditApplied > 0);
-  const bigWeekdayItem = {...item,key:l._id+":big-weekday",start:new Date(weekdayStart).toISOString().slice(0,10),end:new Date(weekdayEnd).toISOString().slice(0,10),days:1,total:bigWeekdayQuote.items[0].total,perDay:bigWeekdayQuote.items[0].total};
+  const bigWeekdayItem = {...item,key:l._id+":big-weekday",start:new Date(weekdayStart).toISOString().slice(0,10),end:new Date(bigWeekdayEnd).toISOString().slice(0,10),days:4,total:bigWeekdayQuote.items[0].total,perDay:bigWeekdayQuote.items[0].total/4};
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([bigWeekdayItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`);
   await navigate(root+"/cart");
   await until(`!!document.querySelector('[data-testid="potential-membership-savings"]')`);
@@ -512,7 +545,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   // Cart lines have independent keys and can contain the same listing. Keep
   // three real £100 lines even when the live catalogue has fewer distinct kits.
   const transitionGear=Array.from({length:3},(_,n)=>eligibleTransitionGear[n%eligibleTransitionGear.length]);
-  let transitionItems=transitionGear.map((g,n)=>({...bigWeekdayItem,key:'tier-transition-'+n,listingId:g._id,title:g.title,slug:g.slug,heroImage:g.heroImage,deposit:g.depositAmount,total:100,perDay:100}));
+  let transitionItems=transitionGear.map((g,n)=>({...bigWeekdayItem,key:'tier-transition-'+n,listingId:g._id,title:g.title,slug:g.slug,heroImage:g.heroImage,deposit:g.depositAmount,end:new Date(weekdayEnd).toISOString().slice(0,10),days:1,total:100,perDay:100}));
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(transitionItems))});localStorage.removeItem('dbc_membership_selection_v1');true`);
   await navigate(root+'/cart');
   await until(`document.querySelector('[data-testid="membership-upsell"]')?.textContent.includes('Studio subscription')&&!!document.querySelector('[data-testid="potential-membership-savings"]')`);
@@ -527,7 +560,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert(await c.evaluate(`window.__dbcTierPending.every(s=>s.height>=${previousHeight})`),'The tile keeps its space while recalculating');
     await c.evaluate(`window.__dbcTierObserver.disconnect();true`);
     transitionItems=transitionItems.slice(1);
-    const transitionQuote=await cv.action(api.checkout.priceQuote,{...bigWeekdayArgs,items:transitionItems.map(i=>({...bigWeekdayArgs.items[0],listingId:i.listingId,title:i.title}))});
+    const transitionQuote=await cv.action(api.checkout.priceQuote,{...bigWeekdayArgs,items:transitionItems.map(i=>({...bigWeekdayArgs.items[0],end:weekdayEnd,listingId:i.listingId,title:i.title}))});
     const offer=transitionQuote.recommendations.find(r=>r.netSaving>0);
     assert.equal(offer.tier,expectedTier);
     await until(`document.querySelector('[data-testid="potential-membership-savings"]')?.innerText===${JSON.stringify('Subscribe to save £'+offer.netSaving.toFixed(2))}`);
@@ -535,7 +568,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   // Compact checkout enrolment includes explicit recurring terms in the checkbox.
   // Below £100 there must be no unsolicited subscription offer.
-  const cheap = rows.filter(l=>l.pricing && !l.displayOnly && l.pricing.daily<30).sort((a,b)=>a.pricing.daily-b.pricing.daily)[0];
+  let cheap;
+  for(const candidate of rows.filter(l=>l.pricing&&!l.displayOnly&&l.pricing.daily<30).sort((a,b)=>a.pricing.daily-b.pricing.daily)){
+    const check=await cv.query(api.availability.forCart,{items:[{listingId:candidate._id,start:weekdayStart,end:weekdayStart+2*86400000},{listingId:candidate._id,start:weekdayStart+30*86400000,end:weekdayStart+30*86400000}]});
+    if(check[candidate._id]?.ok){cheap=candidate;break}
+  }
   assert(cheap,"Need a small kit for the no-saving regression");
   const weekdayArgs = {...args,items:args.items.map(i=>({...i,listingId:cheap._id,title:cheap.title,start:weekdayStart,end:weekdayEnd}))};
   const weekdayQuote = await cv.action(api.checkout.priceQuote, weekdayArgs);

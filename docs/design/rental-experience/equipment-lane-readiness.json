@@ -1,0 +1,64 @@
+{
+  "checkedAt": "2026-10-07T21:41:08.020Z",
+  "projectName": "db-cinema-rentals",
+  "bucket": "re-db-cinema-rentals-1f518ftgxs",
+  "status": 200,
+  "profile": {
+    "profileId": "ernie-image",
+    "executorReady": true,
+    "acceptsRequests": true,
+    "gpuCapacityFree": true,
+    "sources": [
+      {
+        "provider": "hyper",
+        "state": "missing",
+        "dispatchable": false,
+        "executorReady": false,
+        "acceptsRequests": false,
+        "gpuCapacityFree": false,
+        "blockers": [
+          "library-binding-missing"
+        ],
+        "runtimeReadyCount": 0
+      },
+      {
+        "provider": "jarvislabs",
+        "state": "prepared",
+        "dispatchable": true,
+        "executorReady": true,
+        "acceptsRequests": true,
+        "gpuCapacityFree": true,
+        "blockers": [],
+        "gpu": "A30",
+        "runtimeReadyCount": 1,
+        "physicalRuntimeReady": true
+      },
+      {
+        "provider": "openrelay",
+        "state": "prepared",
+        "dispatchable": false,
+        "executorReady": false,
+        "acceptsRequests": false,
+        "gpuCapacityFree": false,
+        "blockers": [
+          "exact-persistent-runtime-proof-missing",
+          "provider-specific-final-qualification-missing"
+        ],
+        "runtimeReadyCount": 0,
+        "physicalRuntimeReady": false
+      },
+      {
+        "provider": "salad",
+        "state": "final-qualified",
+        "dispatchable": true,
+        "executorReady": true,
+        "acceptsRequests": true,
+        "gpuCapacityFree": true,
+        "blockers": [],
+        "runtimeReadyCount": 0,
+        "physicalRuntimeReady": false
+      }
+    ]
+  },
+  "noDispatch": true
+}

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Space_Grotesk, Anton, Instrument_Serif, JetBrains_Mono } from "next/font/google";
+import { siteFontClassName, siteFontPreloads } from "@/lib/siteFonts";
+import "./fonts.css";
 import "./globals.css";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { CartProvider } from "@/components/cart/CartProvider";
@@ -19,41 +20,6 @@ import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { BotBubble } from "@/components/BotBubble";
 import { FormSevenPrewarm } from "@/components/FormSevenPrewarm";
 import { SITE_URL } from "@/lib/site";
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
-const grotesk = Space_Grotesk({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-grotesk",
-  display: "swap",
-});
-
-const anton = Anton({
-  subsets: ["latin"],
-  weight: "400",
-  variable: "--font-anton",
-  display: "swap",
-});
-
-const instrument = Instrument_Serif({
-  subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
-  variable: "--font-instrument",
-  display: "swap",
-});
-
-const jbmono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-jbmono",
-  display: "swap",
-});
 
 // Flip NEXT_PUBLIC_SITE_LIVE=true on Vercel at launch → site becomes indexable.
 const LIVE = process.env.NEXT_PUBLIC_SITE_LIVE === "true";
@@ -143,8 +109,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${grotesk.variable} ${anton.variable} ${instrument.variable} ${jbmono.variable}`}
+      className={siteFontClassName}
     >
+      <head>
+        {siteFontPreloads.map((href) => (
+          <link key={href} rel="preload" href={href} as="font" type="font/woff2" crossOrigin="anonymous" />
+        ))}
+      </head>
       <body className="font-sans antialiased bg-charcoal-950 text-white/90">
         <a href="#main-content" className="skip-link">Skip to content</a>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }} />

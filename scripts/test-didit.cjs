@@ -17,6 +17,7 @@ function load(file) {
     './_generated/api': { internal: refs, api: refs },
     './adminAuth': { assertAdmin: () => {} },
     './availability': { peak: () => 0 },
+    './verificationArchive': { queueVerificationArchive: async () => {}, assertVerificationArchive: async () => {} },
   };
   new Function('require', 'module', 'exports', source)((name) => {
     if (name in mock) return mock[name];
@@ -233,15 +234,15 @@ function signed(event) {
   await assertDiditCheckoutCapacity('key', 'workflow-1', 'live', '0.50', provider('1.0000'));
   await assert.rejects(
     assertDiditCheckoutCapacity('key', 'workflow-1', 'live', '0.50', provider('0.0000')),
-    /Identity verification is temporarily unavailable/,
+    error=>error.data?.code==='VERIFICATION_UNAVAILABLE'&&error.data?.message.includes('Identity verification is temporarily unavailable'),
   );
   await assert.rejects(
     assertDiditCheckoutCapacity('key', 'workflow-1', 'live', '0.50', provider('1.0000', { max_price: 0.75 })),
-    /Identity verification is temporarily unavailable/,
+    error=>error.data?.code==='VERIFICATION_UNAVAILABLE'&&error.data?.message.includes('Identity verification is temporarily unavailable'),
   );
   await assert.rejects(
     assertDiditCheckoutCapacity('key', 'workflow-1', 'live', '0.50', provider('1.0000', { features: 'OCR + LIVENESS + FACE_MATCH' })),
-    /Identity verification is temporarily unavailable/,
+    error=>error.data?.code==='VERIFICATION_UNAVAILABLE'&&error.data?.message.includes('Identity verification is temporarily unavailable'),
   );
   await assertDiditCheckoutCapacity('key', 'workflow-1', 'sandbox', undefined, () => { throw new Error('Sandbox must not check live credits'); });
   process.stdout.write('Didit webhook and address gates passed\n');

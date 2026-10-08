@@ -32,6 +32,9 @@ crons.interval("send-return-statements", { hours: 1 }, internal.invoice.retryRet
 // several opportunities to resolve any authentication request for long rentals.
 crons.interval("renew-rental-security-holds", { hours: 6 }, internal.holdRenewal.renewDue, {});
 crons.interval("reconcile-rental-verifications", { hours: 1 }, internal.didit.reconcileOpenSessions, {});
+crons.interval("archive-verification-documents", { minutes: 5 }, internal.verificationArchiveWorker.retryDue, {});
+crons.interval("retry-rental-manager-delivery", { minutes: 1 }, internal.rmv2_webhook.retryDue, {});
+crons.interval("purge-expired-verification-documents", { hours: 24 }, internal.verificationArchive.purgeExpired, {});
 
 crons.interval("expire-rental-verifications", { hours: 1 }, internal.bookings.expireRentalVerifications, {});
 
@@ -41,8 +44,8 @@ crons.interval("expire-credits", { hours: 24 }, internal.credits.expire, {});
 // Keep the storefront catalog fresh from RMv2 (listings, pricing, images-source).
 crons.interval("sync-rmv2-catalog", { minutes: 30 }, api.sync.syncFromRmv2, {});
 
-// Cross-check active + upcoming Hygglo rentals into the availability ledger so
-// stock reflects what's already booked on Hygglo (by unit, dates, qty).
+// Mirror all upstream shared stock, repair holds and owner blocks. Website
+// reservations stay local; their manager copies are excluded to avoid duplication.
 crons.interval(
   "sync-hygglo-reservations",
   { minutes: 15 },
@@ -69,4 +72,6 @@ crons.interval("consented-film-fund-opening", { minutes: 15 }, internal.filmFund
 crons.interval("expire-referral-vouchers",{hours:1},internal.referrals.expire,{});
 crons.interval("reconcile-completed-referrals",{hours:1},internal.referrals.reconcile,{});
 crons.interval("referral-campaign-delivery",{minutes:5},internal.referralMail.sendCampaign,{});
+crons.interval("renter-push-recovery", { minutes: 2 }, internal.renterPushDelivery.retryDue, {});
+crons.interval("admin-push-recovery", { minutes: 2 }, internal.adminPushDelivery.retryDue, {});
 export default crons;

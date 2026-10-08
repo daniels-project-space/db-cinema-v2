@@ -6,25 +6,30 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { IdVerify } from "@/components/IdVerify";
 import { formatGbp } from "@/lib/pricing";
 import { securityReady } from "../../../shared/verificationProgress";
+import { DroneLicenceUpload } from "./DroneLicence";
 
-export function VerificationBar({ booking }: { booking: { status: string; idVerifyStatus?: string; depositHoldAmount?: number; depositHoldStatus?: string | null } }) {
+export function VerificationBar({ booking }: { booking: { status: string; idVerifyStatus?: string; depositHoldAmount?: number; depositHoldStatus?: string | null; requiresDroneLicence?: boolean; droneLicenceStatus?: string } }) {
   const paid = ["confirmed", "active", "returned"].includes(booking.status);
   const ready = securityReady(booking) || booking.status === "returned";
   const verified = booking.idVerifyStatus === "verified";
-  const stages = [{ label: "Payment", done: paid }, { label: "Security", done: ready }, { label: "Documents", done: verified }, { label: "Approved", done: verified }];
+  const droneApproved = !booking.requiresDroneLicence || booking.droneLicenceStatus === "approved";
+  const stages = [{ label: "Payment", done: paid }, { label: "Security", done: ready }, { label: "Documents", done: verified }, ...(booking.requiresDroneLicence ? [{ label: "Drone licence", done: droneApproved }] : []), { label: "Approved", done: paid && ready && verified && droneApproved }];
   const current = stages.findIndex(step => !step.done);
-  return <ol aria-label="Verification progress" className="grid grid-cols-4 gap-2 border-b border-white/10 pb-4">
+  return <ol aria-label="Verification progress" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }} className="grid gap-2 border-b border-white/10 pb-4">
     {stages.map((step, i) => <li key={step.label} aria-current={i === current ? "step" : undefined} className={`min-w-0 text-center text-[10px] sm:text-xs ${step.done ? "text-accent-300" : i === current ? "text-white" : "text-white/35"}`}>
       <span aria-hidden className={`mb-2 block h-1 rounded-full ${step.done ? "bg-accent-400" : i === current ? "bg-accent-400/35" : "bg-white/10"}`} />
       {step.label}{step.done && <span className="sr-only"> complete</span>}
     </li>)}
   </ol>;
 }
-export function VerificationLink({ booking }: { booking: { _id: string; status: string; idVerifyStatus?: string; depositHoldAmount?: number; depositHoldStatus?: string | null } }) {
-  const label = booking.idVerifyStatus === "verified" ? "View approved verification" : booking.idVerifyStatus === "requires_input" ? "Replace documents · view progress" : "View verification progress";
-  return <section className="mb-4 rounded-2xl border border-accent-400/20 bg-accent-400/[.04] p-4">
-    <VerificationBar booking={booking} />
-    <Link href={`/account/verification/${booking._id}`} className="mt-3 inline-block text-sm font-medium text-accent-300 hover:underline">{label} ↗</Link>
+export function VerificationLink({ booking, compact = false }: { booking: { _id: string; status: string; idVerifyStatus?: string; depositHoldAmount?: number; depositHoldStatus?: string | null; requiresDroneLicence?: boolean; droneLicenceStatus?: string }; compact?: boolean }) {
+  const dronePending = booking.requiresDroneLicence && booking.droneLicenceStatus !== "approved";
+  const label = booking.idVerifyStatus === "verified" && dronePending
+    ? booking.droneLicenceStatus === "review" ? "Drone licence review · view progress" : booking.droneLicenceStatus === "requires_input" ? "Replace drone licence · view progress" : "Upload drone licence · view progress"
+    : booking.idVerifyStatus === "verified" ? "View approved verification" : booking.idVerifyStatus === "requires_input" ? "Replace documents · view progress" : "View verification progress";
+  return <section className={compact ? "mb-4" : "mb-4 rounded-2xl border border-accent-400/20 bg-accent-400/[.04] p-4"}>
+    {!compact && <VerificationBar booking={booking} />}
+    <Link href={`/account/verification/${booking._id}`} className={`${compact ? "" : "mt-3"} inline-block text-sm font-medium text-accent-300 hover:underline`}>{label} ↗</Link>
   </section>;
 }
 const checkLabels: Record<string, string> = { waiting: "Waiting for upload", processing: "Processing", approved: "Check passed", requires_input: "Upload needed", review: "Team review", rejected: "Needs attention" };
@@ -53,6 +58,7 @@ export function VerificationProgress({ bookingId, checkoutSessionId, autoStart =
       <p className="mt-3 text-[11px] leading-5 text-white/40">Equipment replacement value across overlapping rentals, including pending checkouts. Collected kit stays counted until its return is recorded.</p>
     </div>
     {ready && !closed && <div id="verification-upload" className="mt-5 scroll-mt-24"><IdVerify bookingId={bookingId} status={booking.idVerifyStatus} note={booking.verificationNote} checkoutSessionId={checkoutSessionId} autoStart={autoStart && !approved} /></div>}
+    {ready && !closed && booking.requiresDroneLicence && <div className="mt-5"><DroneLicenceUpload bookingId={bookingId} token={account.token ?? undefined} checkoutSessionId={checkoutSessionId ?? undefined} status={booking.droneLicenceStatus} note={booking.droneLicenceNote} /></div>}
     <Link href={`/account?rental=${encodeURIComponent(bookingId)}#chat`} className="mt-5 inline-block text-xs text-accent-300 hover:underline">Open this rental in my account ↗</Link>
   </section>;
 }

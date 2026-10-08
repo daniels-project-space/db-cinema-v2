@@ -3,6 +3,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { bump } from "./rateLimit";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
+import { linkVerificationCopies } from "./lib/verificationOwnership";
 /** Runs inside the attested paid-booking transaction, independently of email delivery. */
 export async function ensurePaidBookingAccount(ctx: any, booking: any) {
  if(!["confirmed","active"].includes(booking.status))return null;
@@ -25,6 +26,7 @@ export async function ensurePaidBookingAccount(ctx: any, booking: any) {
   account=await ctx.db.get(account._id);
  }
  await ctx.db.patch(booking._id,{accountId:account._id});
+ await linkVerificationCopies(ctx,booking._id,account._id);
  return account;
 }
 export const prepareSignup=internalMutation({args:{email:v.string(),credentialHash:v.string(),secretHash:v.string()},handler:async(ctx,a)=>{

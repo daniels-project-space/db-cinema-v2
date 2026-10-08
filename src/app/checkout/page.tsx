@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { IconLock, IconShield, IconCheck, IconTruck, IconPin, IconArrowRight } from "@/components/icons";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
 import Link from "next/link";
@@ -17,6 +17,8 @@ import { useCart } from "@/components/cart/CartProvider";
 import { CheckoutCode } from "@/components/cart/CheckoutCode";
 import { usePromo } from "@/components/cart/usePromo";
 import { useBasketPrice } from "@/components/cart/useBasketPrice";
+import { useCartStockCheck } from "@/components/cart/useCartStockCheck";
+import { CartStockNotice } from "@/components/cart/CartStockNotice";
 import { useAccount } from "@/components/account/AccountProvider";
 import { AGREEMENTS } from "@/lib/legal";
 import { DELIVERY_TERMS_VERSION, DELIVERY_ACCEPTANCE_TEXT } from "../../../shared/rentalAgreement";
@@ -71,8 +73,8 @@ function StepCard({
 export default function CheckoutPage() {
   const { items, subtotal, eligibleSubtotal, membership, setMembership } = useCart();
   const account = useAccount();
-  const availability = useQuery(api.availability.forCart, items.length ? { items: items.map(i => ({ listingId: i.listingId as any, start: ms(i.start), end: ms(i.end) })) } : "skip");
-  const availabilityBlocked = !!items.length && (!availability || items.some(i => !availability[i.listingId]?.ok));
+  const stock=useCartStockCheck(items),availability=stock.availability;
+  const availabilityBlocked = !!items.length && (!stock.ready || !availability || items.some(i => !availability[i.listingId]?.ok));
   const promo = usePromo(eligibleSubtotal);
   const start = useAction(api.checkout.start);
   const getPriceQuote = useAction(api.checkout.priceQuote);
@@ -106,6 +108,7 @@ export default function CheckoutPage() {
   }, [signature, name, email, billingAddress, pickupTime, returnTime, address]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [recovery,setRecovery]=useState<{key:string;acceptance:string}|null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [quoted, setQuoted] = useState<{
     key: string;
@@ -204,12 +207,16 @@ export default function CheckoutPage() {
     }
   }
 
+  const recoveryKey=JSON.stringify({priceArgs,phone,billingAddress,name,email,pickupTime,returnTime,signature,agreed,deliveryAgreed,total:currentQuote?.combinedTotalDue,deliveryFee:currentQuote?.quotedDeliveryFee,membershipTermsAccepted:membership?.termsAccepted});
+  const canRecover=recovery?.key===recoveryKey&&recovery.acceptance===agreementRequest.current;
   async function pay() {
-    if (availabilityBlocked) { setErr("Review your basket and choose available alternatives before checkout."); return; }
+    if (availabilityBlocked&&!canRecover) { setErr("Review your basket and choose available alternatives before checkout."); return; }
     if (!valid) return;
     setBusy(true);
     setErr(null);
     track({ type: "checkout_start", sessionId: getSessionId() }).catch(() => {});
+    const acceptanceAttempt = agreementRequest.current ?? (agreementRequest.current = crypto.randomUUID());
+    const membershipAttempt = membership ? membershipRequest.current ?? (membershipRequest.current = crypto.randomUUID()) : null;
     try {
       const docs: { kind: string; version: string }[] = AGREEMENTS.map((d) => ({ kind: d.kind, version: d.version }));
       if (fulfilment === "delivery") docs.push({ kind: "delivery-disclaimer", version: DELIVERY_TERMS_VERSION });
@@ -231,16 +238,25 @@ export default function CheckoutPage() {
         deliveryPostcode: fulfilment === "delivery" ? postcode : undefined,
         deliveryFee: currentQuote!.quotedDeliveryFee,
         expectedTotalDue: currentQuote!.combinedTotalDue,
-        selectedMembership: membership ? {tier:membership.tier,intro:membership.intro,termsVersion:MEMBERSHIP_TERMS_VERSION,requestId:membershipRequest.current ?? (membershipRequest.current = crypto.randomUUID())} : undefined,
+        selectedMembership: membership ? {tier:membership.tier,intro:membership.intro,termsVersion:MEMBERSHIP_TERMS_VERSION,requestId:membershipAttempt!} : undefined,
         promoCode: promo.applied ?? undefined,
         protection,
         pickupTime,
         returnTime,
-        agreement: { name: signature.trim(), requestId: agreementRequest.current ?? (agreementRequest.current = crypto.randomUUID()), securityHoldConsent: agreed, laterChargeConsent: agreed, documents: docs },
+        agreement: { name: signature.trim(), requestId: acceptanceAttempt, securityHoldConsent: agreed, laterChargeConsent: agreed, documents: docs },
       });
       window.location.href = url;
     } catch (e: any) {
-      setErr(e?.message ?? "Something went wrong");
+      if (e?.data?.code === "CHECKOUT_STOCK_REJECTED" && e.data.freshAcceptanceRequired === true && agreementRequest.current === acceptanceAttempt) {
+        agreementRequest.current = null;
+        if (membershipRequest.current === membershipAttempt) membershipRequest.current = null;
+        setAgreed(false);
+        setSignature("");
+        setRecovery(null);
+      } else if(agreementRequest.current===acceptanceAttempt) {
+        setRecovery({key:recoveryKey,acceptance:acceptanceAttempt});
+      }
+      setErr(typeof e?.data?.message === "string" ? e.data.message : e?.message ?? "Something went wrong");
       setBusy(false);
     }
   }
@@ -515,9 +531,11 @@ export default function CheckoutPage() {
             </div>
             {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
             {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
-            {availabilityBlocked && <p role="status" className="mt-4 text-sm text-red-300">{availability ? <>Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</> : "Checking kit availability…"}</p>}
-            <button onClick={pay} disabled={!valid || busy || availabilityBlocked} className="btn-primary mt-5 w-full py-3">
-              {busy ? "Redirecting…" : "Pay with card"}
+            {!!items.length&&<div className="mt-4"><CartStockNotice checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
+            {availabilityBlocked&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
+            {canRecover&&<p role="status" className="mt-3 text-sm text-white/65">Your earlier checkout may already have reserved this kit. Retry securely to recover the same payment session.</p>}
+            <button onClick={pay} disabled={!valid || busy || (availabilityBlocked&&!canRecover)} className="btn-primary mt-5 w-full py-3">
+              {busy ? "Redirecting…" : canRecover ? "Retry secure checkout" : "Pay with card"}
               {!busy && <IconLock className="h-4 w-4" />}
             </button>
             <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">

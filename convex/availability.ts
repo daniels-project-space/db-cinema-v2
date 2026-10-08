@@ -1,6 +1,8 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { rentalUnavailable } from "./lib/marketingInventory";
+import { reservationOccupancy } from "./lib/reservationOccupancy";
+import { inventoryCapacity } from "./lib/inventoryCapacity";
 
 const DAY = 86400000;
 
@@ -36,13 +38,21 @@ export function blockedSet(raw: string[]): Set<string> {
   return set;
 }
 
-export type Iv = { start: number; end: number; qty: number };
-/** Max concurrent qty across overlapping intervals (end inclusive). */
+export type Iv = { start: number; end: number; qty: number; endExclusive?: boolean };
+/** Clip exact upstream windows and inclusive local rental days to the same
+ * half-open requested period. A midnight release does not consume the next day. */
+export function overlappingIntervals(intervals:Iv[],start:number,end:number):Iv[] {
+  const until=end+DAY;
+  return intervals.map(i=>({...i,end:i.endExclusive?i.end:i.end+DAY,endExclusive:true}))
+    .filter(i=>i.start<until&&i.end>start)
+    .map(i=>({...i,start:Math.max(i.start,start),end:Math.min(i.end,until)}));
+}
+/** Max concurrent quantity; local ends are inclusive days unless explicitly half-open. */
 export function peak(intervals: Iv[]): number {
   const ev: [number, number][] = [];
   for (const i of intervals) {
     ev.push([i.start, i.qty]);
-    ev.push([i.end + DAY, -i.qty]); // end inclusive: frees the day after
+    ev.push([i.endExclusive ? i.end : i.end + DAY, -i.qty]);
   }
   ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   let cur = 0,
@@ -54,16 +64,13 @@ export function peak(intervals: Iv[]): number {
   return mx;
 }
 
-const ACTIVE = new Set(["confirmed", "active", "hold"]);
-
 async function unitReservations(ctx: any, unitId: any, lo: number, hi: number): Promise<Iv[]> {
   const res = await ctx.db
     .query("reservations")
     .withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", unitId))
     .collect();
-  return res
-    .filter((r: any) => ACTIVE.has(r.status) && (r.status !== "hold" || (r.holdExpiresAt ?? Infinity) > Date.now()) && r.start <= hi && r.end >= lo)
-    .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty || 1 }));
+  const intervals = await Promise.all(res.map((row: any) => reservationOccupancy(ctx, row)));
+  return overlappingIntervals(intervals.filter((row): row is Iv => !!row),lo,hi);
 }
 
 /** Quantity-aware availability for one listing over [start,end]. */
@@ -71,26 +78,23 @@ export const forListing = query({
   args: { listingId: v.id("listings"), start: v.number(), end: v.number() },
   handler: async (ctx, { listingId, start, end }) => {
     const l = await ctx.db.get(listingId);
-    if (!l || !l.active || l.suppressed) return { available: 0, owned: 0 };
+    if (!l || rentalUnavailable(l)) return { available: 0, owned: 0 };
+    if (!l.components.length || l.components.some(c => !Number.isSafeInteger(c.qty) || c.qty < 1)) return { available: 0, owned: 0 };
     const requested = dayRange(start, end);
     if (requested.some((d) => blockedSet(l.unavailableDates ?? []).has(d)))
       return { available: 0, owned: 0, blocked: true };
 
     let minAvail = Infinity;
-    let owned = 0;
+    let owned = Infinity;
     for (const comp of l.components) {
       const unit: any = await ctx.db.get(comp.inventoryUnitId);
-      const ownedQ = unit?.quantityOwned ?? 0;
-      owned = ownedQ;
-      const ivs = (await unitReservations(ctx, comp.inventoryUnitId, start, end)).map((r) => ({
-        start: Math.max(r.start, start),
-        end: Math.min(r.end, end),
-        qty: r.qty,
-      }));
+      const ownedQ = inventoryCapacity(unit) ?? 0;
+      owned = Math.min(owned, Math.floor(ownedQ / comp.qty));
+      const ivs = await unitReservations(ctx, comp.inventoryUnitId, start, end);
       const free = Math.max(0, ownedQ - peak(ivs));
-      minAvail = Math.min(minAvail, Math.floor(free / (comp.qty || 1)));
+      minAvail = Math.min(minAvail, Math.floor(free / comp.qty));
     }
-    return { available: minAvail === Infinity ? 0 : minAvail, owned };
+    return { available: minAvail === Infinity ? 0 : minAvail, owned: owned === Infinity ? 0 : owned };
   },
 });
 
@@ -115,7 +119,7 @@ export const forCart = query({
     const invalid = new Set<string>();
     for (const it of items) {
       const l = await ctx.db.get(it.listingId);
-      if (!l || rentalUnavailable(l) || !l.components.length ||
+      if (!l || rentalUnavailable(l) || !l.components.length || l.components.some(c => !Number.isSafeInteger(c.qty) || c.qty < 1) ||
           dayRange(it.start, it.end).some(d => blockedSet(l.unavailableDates ?? []).has(d))) {
         invalid.add(it.listingId);
       } else {
@@ -130,7 +134,7 @@ export const forCart = query({
     const resIvs: Record<string, Iv[]> = {};
     for (const uid of unitIds) {
       const unit: any = await ctx.db.get(uid as any);
-      owned[uid] = unit?.quantityOwned ?? 0;
+      owned[uid] = inventoryCapacity(unit) ?? 0;
       resIvs[uid] = await unitReservations(ctx, uid, lo, hi);
     }
 

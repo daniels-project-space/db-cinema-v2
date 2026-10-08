@@ -1,12 +1,13 @@
+import { queueRenterNotification } from "./renterPush";
 import { queueOwnerNotification } from "./adminPush";
 import { belongsToRentalAccount } from "./rentalAccount";
 /** Shared boundaries for customer and owner rental conversations. */
-export async function accountForToken(ctx: any, token: string) {
+export async function accountForToken(ctx: any, token: string, requireExpiry = false) {
   const s = await ctx.db
     .query("sessions")
     .withIndex("by_token", (q: any) => q.eq("token", token))
     .first();
-  if (!s || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
+  if (!s || (requireExpiry && !Number.isFinite(s.expiresAt)) || (s.expiresAt != null && s.expiresAt <= Date.now())) return null;
   const account=await ctx.db.get(s.accountId);return !account||account.blockedAt!=null||account.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
 }
 export async function ownedBooking(ctx: any, account: any, bookingId: any) {
@@ -69,6 +70,10 @@ export async function postRentalMessage(
   if (a.sender === "renter" && thread?.escalated) await queueOwnerNotification(ctx, {
     eventKey: `renter-message:${id}`, kind: "renter_message", accountId: a.accountId, bookingId: a.bookingId,
     title: "New rental message", body: "A renter has replied in a conversation handled by your team.",
+  });
+  if (a.sender === "owner" || a.sender === "system") await queueRenterNotification(ctx, {
+    eventKey: `rental-message:${id}`, kind: a.sender === "owner" ? "messages" : "booking",
+    accountId: a.accountId, bookingId: a.bookingId, messageAt: now,
   });
   return id;
 }

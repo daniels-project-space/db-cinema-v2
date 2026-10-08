@@ -6,14 +6,14 @@ import { formatGbp } from "@/lib/pricing";
 import { groupRentalKit, uniqueKitPhotos, type RentalKitItem } from "@/lib/rentalKit";
 
 /** Full image frames; quantity represents repeated items, never repeated pictures. */
-export function RentalKit({ items, compact = false, prices = false }: { items: RentalKitItem[]; compact?: boolean; prices?: boolean }) {
+export function RentalKit({ items, compact = false, prices = false, showcase = false }: { items: RentalKitItem[]; compact?: boolean; prices?: boolean; showcase?: boolean }) {
   const grouped = groupRentalKit(items);
   const units = grouped.reduce((n, item) => n + (item.qty ?? 1), 0);
   const photos = uniqueKitPhotos(grouped);
-  const visible = photos.slice(0, compact ? 1 : 3);
+  const visible = photos.slice(0, compact || showcase ? 1 : 3);
   return <div className="min-w-0">
     <div className={compact ? "flex items-center gap-4" : "flex gap-2"}>
-      {visible.map((item, i) => <div key={i} className={`relative overflow-hidden rounded-2xl ${compact ? "h-24 w-28 shrink-0" : "min-w-0 flex-1"}`}>
+      {visible.map((item, i) => <div key={i} className={`management-kit-image relative overflow-hidden rounded-2xl ${compact ? "h-24 w-28 shrink-0" : "min-w-0 flex-1"}`}>
         <SmartImage src={item.heroImage} fallbackSources={item.imageSources} alt={item.title} className={compact ? "h-full w-full" : visible.length === 1 ? "aspect-[16/10] w-full" : "aspect-[4/5] w-full"} />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
         {(item.qty ?? 1) > 1 && <span className="absolute right-2 top-2 rounded-full bg-black/75 px-2 py-1 text-[10px] font-semibold text-white">×{item.qty}</span>}
@@ -21,6 +21,12 @@ export function RentalKit({ items, compact = false, prices = false }: { items: R
       </div>)}
       {compact && <div className="min-w-0"><p className="text-sm font-medium leading-6 text-white/85">{rentalTitle(grouped[0]?.title ?? "Rental kit")}</p><p className="mt-1 text-xs text-white/40">{grouped.length > 1 ? `+${grouped.length - 1} more listings` : `${units} ${units === 1 ? "unit" : "units"}`}</p></div>}
     </div>
+    {showcase && photos.length > 1 && <div aria-label="More equipment in this rental" className="mt-2 grid grid-cols-3 gap-2">
+      {photos.slice(1, 4).map((item, i) => <div key={i} className="min-w-0">
+        <SmartImage src={item.heroImage} fallbackSources={item.imageSources} alt={item.title} className="aspect-[4/3] rounded-lg" />
+        <p title={item.title} className="mt-1 line-clamp-2 text-[10px] leading-4 text-white/55">{rentalTitle(item.title)}{(item.qty ?? 1) > 1 ? ` ×${item.qty}` : ""}</p>
+      </div>)}
+    </div>}
     <details className="group mt-3">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs text-white/45 hover:text-white">
         <span>{units} {units === 1 ? "item" : "items"} in kit{photos.length > visible.length ? ` · +${photos.length - visible.length} more` : ""}</span><span className="group-open:hidden">View all ↗</span><span className="hidden group-open:inline">Close −</span>

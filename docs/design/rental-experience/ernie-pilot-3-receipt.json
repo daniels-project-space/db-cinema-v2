@@ -1,0 +1,20 @@
+{
+  "checkedAt": "2026-10-08T01:52:29.611Z",
+  "status": 202,
+  "projectName": "db-cinema-rentals",
+  "output": {
+    "bucket": "re-db-cinema-rentals-1f518ftgxs",
+    "prefix": "projects/db-cinema-rentals"
+  },
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "idempotencyKey": "dbc-equipment-pilot-v3:7af80d352c5e5302cc058ee677d1e690d2527601cddb8e82ca47dfe0ca952db8",
+  "candidateIds": [
+    "kn76ynt7yda9s63ewbg2sab1en86a0ts"
+  ],
+  "maxCostUsdPerAttempt": 1,
+  "imageContractSha256": "2dbdf2fe0708c21eb4ec4828ba50244dca2369bc6fb9f0dbd5b7ac61166f570f",
+  "jobId": "jd7ekk89x7w07zach9vpj0y6058fwkw8",
+  "state": "queued",
+  "manifestSha256": "2ddb9a9dac4ee6feacb12034593fc03dd77ccf09ef4e8d0695493da08e1a6846",
+  "error": null
+}

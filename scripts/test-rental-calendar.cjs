@@ -1,0 +1,25 @@
+const assert = require('node:assert/strict'), h = require('./lib/rentalTestHarness.cjs');
+process.env.ADMIN_TOKEN = 'calendar-fixture-admin';
+const bookings = h.load('convex/bookings.ts'), {calendarMonth} = h.load('src/lib/rentalCalendar.ts');
+const day = (y,m,d) => Date.UTC(y,m-1,d), line = (start,end,title='Camera',qty=1,returnTime='16:00') => ({start,end,title,qty,returnTime});
+(async()=>{
+  for(let i=0;i<143;i++) h.put('bookings',{_id:'calendar-'+i,_creationTime:i,status:i%3?'confirmed':'returned',pickupTime:'09:00',returnTime:'17:00',lineItems:[line(day(2026,10,20),day(2026,10,21),'Oldest camera',3)],guestEmail:'PRIVATE EMAIL',agreementSnapshot:'PRIVATE AGREEMENT',diditResultJson:'PRIVATE ID',total:123,stripeCheckoutSessionId:'cs-private'});
+  let reads=0;const ctx={db:{...h.db,query(t){reads++;const q=h.db.query(t),paginate=q.paginate;q.paginate=async args=>{assert.equal(args.maximumRowsRead,50);assert(args.numItems<=50);return paginate(args)};return q}}};
+  let cursor=null,seen=[];do{const r=await bookings.adminCalendarPage.handler(ctx,{token:'calendar-fixture-admin',paginationOpts:{numItems:19,cursor}});seen.push(...r.page);if(r.isDone)break;assert.notEqual(r.continueCursor,cursor);cursor=r.continueCursor;}while(true);
+  assert.equal(seen.length,143);assert.equal(new Set(seen.map(x=>x._id)).size,143);assert.equal(seen.at(-1)._id,'calendar-0');assert.equal(seen.at(-1).lineItems[0].qty,3);assert.equal(seen.at(-1).lineItems[0].returnTime,'16:00');
+  assert(!JSON.stringify(seen).includes('PRIVATE'));assert(!JSON.stringify(seen).includes('cs-private'));assert(!('total' in seen[0]));
+  const before=reads;assert.deepEqual(await bookings.adminCalendarPage.handler(ctx,{token:'denied',paginationOpts:{numItems:10,cursor:null}}),{page:[],isDone:true,continueCursor:''});assert.equal(reads,before);
+  for(const n of [0,-1,0.5,Infinity])await assert.rejects(bookings.adminCalendarPage.handler(ctx,{token:'calendar-fixture-admin',paginationOpts:{numItems:n,cursor:null}}),/Invalid calendar/);
+  assert.equal((await bookings.adminCalendarPage.handler(ctx,{token:'calendar-fixture-admin',paginationOpts:{numItems:500,cursor:null}})).page.length,50);
+  const rental={_id:'separate-periods',status:'confirmed',pickupTime:'10:30',returnTime:'17:00',lineItems:[line(day(2026,10,5),day(2026,10,6),'Camera',3),line(day(2026,10,10),day(2026,10,12),'Lens',2,'12:00'),line(day(2026,10,11),day(2026,10,12),'Battery',4,null)]};
+  const cover=calendarMonth([rental,...seen],2026,9);
+  assert(!cover.has(day(2026,10,7)));assert(!cover.has(day(2026,10,9)));assert.equal(cover.get(day(2026,10,20)).length,143,'Oldest rentals survive history paging');
+  const fifth=cover.get(day(2026,10,5))[0];assert.equal(fifth.pickup,true);assert.equal(fifth.lines[0].qty,3);assert.equal(fifth.returns.length,0);
+  const sixth=cover.get(day(2026,10,6))[0];assert.equal(sixth.pickup,false);assert.equal(sixth.returns[0].returnTime,'16:00');
+  const twelfth=cover.get(day(2026,10,12));assert.equal(twelfth.length,1,'Overlapping lines do not duplicate rental');assert.equal(twelfth[0].lines.length,2);assert.equal(twelfth[0].returns[0].returnTime,'12:00');assert.equal(twelfth[0].returns[1].returnTime,null);
+  const long={...rental,lineItems:[line(day(2024,1,1),day(2026,10,31))]};assert.equal(calendarMonth([long],2026,9).size,31,'Long rentals remain visible past old 400-day loop guard');
+  const dst={...rental,lineItems:[line(Date.parse('2026-10-24T23:30:00Z'),Date.parse('2026-10-26T00:30:00Z'))]};assert.deepEqual([...calendarMonth([dst],2026,9).keys()],[day(2026,10,25),day(2026,10,26)],'London civil dates cross DST once');
+  assert.equal(calendarMonth([{...rental,lineItems:[line(day(2024,2,28),day(2024,3,1))]}],2024,1).size,2);
+  assert.equal(calendarMonth([{...rental,lineItems:[line(day(2026,10,8),day(2026,10,6)),line(NaN,Infinity)]}],2026,9).size,0);
+  console.log('PASS actual protected calendar history and month coverage: 143 records beyond old cap, bounded/denied reads and compact projection, exact disjoint/overlapping line periods, quantities and individual return times, long hires, month clipping and London DST/leap days. Synthetic database; no provider writes.');
+})().catch(e=>{console.error(e);process.exitCode=1});

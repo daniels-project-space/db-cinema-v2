@@ -11,18 +11,24 @@ import { AdminGafferCalls } from "@/components/admin/GafferCalls";
 import { RentalInbox } from "@/components/admin/RentalInbox";
 import { AdminRentalCards } from "@/components/admin/RentalCards";
 import { RentalWorkspace } from "@/components/admin/RentalWorkspace";
+import { NotificationSettings } from "@/components/admin/NotificationSettings";
 import { OwnerNotificationBell } from "@/components/admin/OwnerNotificationBell";
 import { AccountAdmin } from "@/components/admin/AccountAdmin";
 import { MarketingListingsAdmin } from "@/components/admin/MarketingListingsAdmin";
 import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
 import { parseOwnerConversationUrl } from "../../../shared/ownerConversationRoute";
+import { ManagementShell } from "@/components/management/ManagementShell";
+import { AdminInvoiceLibrary } from "@/components/management/AdminInvoiceLibrary";
+import { AdminRentalCalendar } from "@/components/management/AdminRentalCalendar";
+import { AdminInsights } from "@/components/admin/AdminInsights";
+import { AdminDashboard } from "@/components/admin/AdminDashboard";
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<
-    "overview" | "bookings" | "inbox" | "enquiries" | "calls" | "settings" | "fund" | "stories" | "accounts" | "marketing"
+    "overview" | "bookings" | "calendar" | "invoices" | "insights" | "reports" | "inbox" | "enquiries" | "calls" | "settings" | "fund" | "stories" | "accounts" | "marketing"
   >("overview");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
@@ -59,7 +65,7 @@ export default function AdminPage() {
     };
   }, []);
 
-  const bookings = useQuery(api.bookings.adminList, token ? { token } : "skip");
+  const authed=useQuery(api.bookings.adminAuthorized,token?{token}:"skip");
   const rentalUnread =
     useQuery(
       api.rentalChat.unreadTotals,
@@ -69,7 +75,6 @@ export default function AdminPage() {
   const attention = useQuery(api.adminNotifications.latest, token ? { token } : "skip") ?? [];
   const markHandled = useMutation(api.contact.adminMarkHandled);
 
-  const authed = bookings?.authorized;
 
   function save() {
     localStorage.setItem("dbc_admin", input);
@@ -116,64 +121,24 @@ export default function AdminPage() {
   }
 
   return (
-    <>
-      <SiteHeader />
-      <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs text-white/35">DB Cinema Rentals</p>
-            <h1 className="mt-2 font-display text-2xl font-semibold text-white lg:text-3xl">
-              Owner workspace
-            </h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-          <OwnerNotificationBell token={token} />
-          <button
-            onClick={lock}
-            className="rounded-full border border-white/10 px-3.5 py-1.5 text-xs font-medium text-white/55 transition hover:border-rose-400/40 hover:text-rose-300"
-          >
-            Lock panel
-          </button>
-          </div>
-        </div>
-
-        <div className="mt-6 grid grid-cols-2 gap-2 rounded-2xl bg-white/[0.025] p-2 sm:grid-cols-3 lg:grid-cols-5">
-          {(
-            [
-              ["overview", "Overview"],
-              ["bookings", "Rentals"],
-              ["accounts", "Accounts"],
-              ["marketing", "Marketing listings"],
-              ["inbox", `Messages${rentalUnread ? ` (${rentalUnread})` : ""}`],
-              [
-                "enquiries",
-                `Enquiries${contacts?.items.filter((m: any) => !m.handled).length ? ` (${contacts.items.filter((m: any) => !m.handled).length})` : ""}`,
-              ],
-              ["calls", "Gaffer calls"],
-              ["fund", "Film Fund"],
-              ["stories", "Story Prize"],
-              ["settings", "Settings"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              aria-pressed={tab === key}
-              onClick={() => { setTab(key); if (key === "marketing" || key === "settings") window.history.replaceState(null, "", `#${key}`); else if (window.location.hash === "#marketing" || window.location.hash === "#settings") window.history.replaceState(null, "", window.location.pathname); }}
-              className={`rounded-xl border border-white/10 px-3 py-3 text-sm font-medium transition ${
-                tab === key
-                  ? "bg-white text-black"
-                  : "text-white/45 hover:text-white/75"
-              }`}
-            >
-              {label}
-              {key === "inbox" && attention.length > 0 && <span aria-label={`${attention.length} owner alerts`} className="ml-2 inline-block h-2 w-2 rounded-full bg-amber-400" />}
-            </button>
-          ))}
-        </div>
+    <ManagementShell role="admin" name="DB Cinema team" title={{ overview: "Dashboard", bookings: "Rentals", calendar: "Rental calendar", invoices: "Invoices", insights: "Insights & Demand", reports: "Reports", inbox: "Messages", accounts: "Customers & members", marketing: "Inventory & marketing", enquiries: "Enquiries", calls: "Gaffer calls", fund: "Film Fund", stories: "Story Prize", settings: "Settings" }[tab]} subtitle={tab==="invoices"?"View rental receipts, payments and issued settlements.":"Manage rentals, accounts and equipment operations."}
+      active={tab} nav={[
+        { key: "overview", label: "Dashboard", icon: "dashboard" }, { key: "bookings", label: "Rentals", icon: "rentals" },
+        { key: "calendar", label: "Calendar", icon: "calendar" },
+        { key: "marketing", label: "Inventory & marketing", icon: "rentals" }, { key: "accounts", label: "Customers & members", icon: "people" },
+        { key: "inbox", label: "Messages", icon: "messages", badge: rentalUnread || attention.length },
+        { key: "invoices", label: "Invoices", icon: "documents" }, { key: "insights", label: "Insights", icon: "dashboard" }, { key: "reports", label: "Reports", icon: "dashboard" },
+        { key: "enquiries", label: "Enquiries", icon: "messages", badge: contacts?.items.filter((m: any) => !m.handled).length },
+        { key: "calls", label: "Gaffer calls", icon: "messages" }, { key: "fund", label: "Film Fund", icon: "dashboard" },
+        { key: "stories", label: "Story Prize", icon: "dashboard" }, { key: "settings", label: "Settings", icon: "settings" },
+      ]} onNavigate={key => { setTab(key as typeof tab); if (key === "marketing" || key === "settings") window.history.replaceState(null, "", `#${key}`); else if (["#marketing", "#settings"].includes(window.location.hash)) window.history.replaceState(null, "", window.location.pathname); }}
+      actions={<><OwnerNotificationBell token={token} /><button onClick={lock} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Lock</button></>}>
 
         {tab === "overview" && (
-          <div className="mt-6">
-            <AdminAnalytics token={token} />
+          <div>
+            <AdminDashboard token={token} unread={rentalUnread} alerts={attention.length}
+              onRental={id => { setDetailId(id); setTab("bookings"); }} onRentals={() => setTab("bookings")}
+              onCalendar={() => setTab("calendar")} onMessages={() => setTab("inbox")} onReports={() => setTab("reports")} />
             <details className="mt-6 rounded-3xl border border-white/[0.06] p-5">
               <summary className="cursor-pointer text-sm text-white/70">
                 Gear demand
@@ -186,6 +151,10 @@ export default function AdminPage() {
         {tab === "inbox" && (
           <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusRevision={conversationNavigation} />
         )}
+        {tab === "insights" && <AdminInsights token={token} onInventory={() => setTab("marketing")} />}
+        {tab === "reports" && <div className="mt-6"><AdminAnalytics token={token} /><AdminCartDemand token={token} /></div>}
+        {tab === "invoices" && <AdminInvoiceLibrary token={token} />}
+        {tab === "calendar" && <AdminRentalCalendar key={token} token={token} />}
         {tab === "bookings" && !detailId && (
           <AdminRentalCards
             token={token}
@@ -245,13 +214,14 @@ export default function AdminPage() {
         )}
 
         {tab === "fund" && <FilmFundAdmin token={token} />}
-        {tab === "accounts" && <AccountAdmin token={token} />}
+        {tab === "accounts" && <AccountAdmin token={token} onRental={id => { setDetailId(id); setTab("bookings"); }} onConversation={(accountId, bookingId) => { setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1); setTab("inbox"); }} />}
         {tab === "marketing" && <MarketingListingsAdmin token={token} />}
         {tab === "stories" && <StoryPrizeAdmin token={token} />}
         {tab === "calls" && <AdminGafferCalls token={token} />}
 
         {tab === "settings" && (
           <div className="mt-6 space-y-4">
+            <NotificationSettings token={token} />
             <MarketingListingsAdmin token={token} />
             <AdminSettings token={token} />
             {[
@@ -270,8 +240,7 @@ export default function AdminPage() {
             ))}
           </div>
         )}
-      </main>
-    </>
+    </ManagementShell>
   );
 }
 
@@ -505,7 +474,7 @@ function AdminAnalytics({ token }: { token: string }) {
   const s = useQuery(api.analytics.adminSummary, { token, now });
   if (!s || !(s as any).authorized) return null;
   const a: any = s;
-  const fmtDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const fmtDay = (ms: number | null) => ms == null || !Number.isFinite(ms) ? "Unconfirmed" : new Date(ms).toISOString().slice(0, 10);
 
   return (
     <section className="mt-6">

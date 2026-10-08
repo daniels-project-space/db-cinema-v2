@@ -1,0 +1,34 @@
+{
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "request": {
+    "version": 2,
+    "idempotencyKey": "dbc-equipment-pilot-v2:d0b99d862b4b1db36238017aef10650ddf367908ead86d3356582eb65f56e1f7",
+    "sourceId": "equipment-hero-pilot-v2-d0b99d862b4b1db36238017a",
+    "candidates": [
+      {
+        "id": "kn79mc5rgqhsr64hbn58z737hs86b5ks",
+        "prompt": "Side-view hero product photograph of the exact DJI Mini 4 Pro. Reviewed model description: Compact folding camera drone with a stabilised camera gimbal and omnidirectional obstacle sensing.. Show the aircraft alone, arms unfolded; no controller or unconfirmed Fly More accessories. Show one individual physical item only, no invented accessories or additional kit. The equipment fills 85 percent of the frame without cropping. Matte dark studio room and dark floor, cool overhead spotlight directly above the equipment, subtle contact shadow, crisp realistic hardware details, consistent landscape framing and lighting across the inventory series. No people, promotional lettering, captions or watermark.",
+        "seed": 1847129294,
+        "width": 1264,
+        "height": 848
+      }
+    ],
+    "output": {
+      "contentType": "image/png"
+    },
+    "maxCostUsd": 1,
+    "profileRevisionSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
+    "imageContract": {
+      "version": 2,
+      "width": 1264,
+      "height": 848,
+      "steps": 50,
+      "cfg": 4,
+      "precision": "bf16",
+      "promptEnhancer": "ernie-native-v1",
+      "modelManifestSha256": "64686e89d2d844ea5e4547861afb2a3e99489aa64d523389567ebafc57293cbc",
+      "workerSha256": "de0e6eed87a1a7568e92a78cb3b12e3f947926145eb418e317bc39ef334d66e7"
+    },
+    "imageContractSha256": "2dbdf2fe0708c21eb4ec4828ba50244dca2369bc6fb9f0dbd5b7ac61166f570f"
+  }
+}

@@ -1,0 +1,25 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{execFileSync}=require('node:child_process'),esbuild=require('esbuild');
+(async()=>{
+ const root=path.resolve(__dirname,'..'),dir=fs.mkdtempSync(path.join(os.tmpdir(),'dbc-return-pdf-'));
+ fs.symlinkSync(path.join(root,'node_modules'),path.join(dir,'node_modules'),'dir');
+ await esbuild.build({entryPoints:[path.join(root,'src/app/api/invoice/[id]/route.ts')],bundle:true,format:'esm',platform:'node',packages:'external',jsx:'automatic',alias:{'@':path.join(root,'src')},outfile:path.join(dir,'route.mjs')});
+ const {POST}=await import('file://'+path.join(dir,'route.mjs'));
+ process.env.NEXT_PUBLIC_CONVEX_URL='https://readonly-fixture.invalid';
+ const start=Date.UTC(2026,9,7),statement={number:'DBC-R-BOOKING-1',issuedAt:start,actualReturnedAt:start+43200000,supplierName:'DB Cinema Rentals',customerName:'Fixture account',customerEmail:'client@example.invalid',lineItems:[{title:'Sony FX3',start,end:start,qty:1,lineTotal:100}],subtotal:100,discount:0,deliveryFee:0,creditApplied:0,checkoutPaid:140.5,securityPaid:40.5,securityRefunded:40.5,holdStatus:'captured',damageTotal:25,damageFromHold:25,damageNote:'Recorded casing damage and repair evidence.',inspection:[{key:'camera:0',title:'Sony FX3',condition:'issue',details:'Casing damage documented in photographs.',openCase:true}],lateAssessed:0,lateWaived:0,lateBreakdown:[]};
+ const invoice={email:statement.customerEmail,lineItems:statement.lineItems,subtotal:100,discount:0,deliveryFee:0,creditApplied:0,total:140.5,depositAmount:40.5};let queries=0;
+ global.fetch=async(_url,options)=>{queries++;const body=JSON.parse(options.body);assert.equal(body.path,'bookings:invoiceData');return {json:async()=>({status:'success',value:body.args.key==='private-fixture-key'?invoice:null})}};
+ const request=(body,key='private-fixture-key')=>{const req=new Request('http://localhost/api/invoice/booking-1?phase=return-preview',{method:'POST',headers:{'content-type':'application/json',...(key?{'x-invoice-key':key}:{})},body:JSON.stringify(body)});req.nextUrl=new URL(req.url);return req};
+ const params={params:Promise.resolve({id:'booking-1'})};
+ assert.equal((await POST(request({statement,draft:true},null),params)).status,403);assert.equal(queries,0);
+ assert.equal((await POST(request({statement,draft:true},'wrong'),params)).status,403);
+ assert.equal((await POST(request({statement:{...statement,subtotal:900},draft:true}),params)).status,409);
+ assert.equal((await POST(request({statement:{...statement,securityRefunded:900},draft:true}),params)).status,400);
+ const response=await POST(request({statement,draft:true}),params);assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'application/pdf');assert.equal(response.headers.get('cache-control'),'private, no-store');assert(response.headers.get('content-disposition').includes('draft-return'));
+ const pdf=Buffer.from(await response.arrayBuffer());assert.equal(pdf.subarray(0,5).toString(),'%PDF-');const file=path.join(dir,'draft.pdf');fs.writeFileSync(file,pdf);
+ const text=execFileSync('pdftotext',[file,'-'],{encoding:'utf8'});assert(text.includes('DRAFT RETURN STATEMENT'));assert(text.includes('Expected security refund at return'));assert(text.includes('40.50'));assert(text.includes('Damage case selected'));assert(text.includes('previewing does not execute refunds'));
+ invoice.returnStatement=statement;const final=await POST(request({statement,draft:false}),params);assert.equal(final.status,200);const issued=path.join(dir,'issued.pdf');fs.writeFileSync(issued,Buffer.from(await final.arrayBuffer()));const finalText=execFileSync('pdftotext',[issued,'-'],{encoding:'utf8'});assert(!finalText.includes('DRAFT RETURN STATEMENT'));assert(finalText.includes('Damage case opened'));assert.equal((await POST(request({statement:{...statement,damageTotal:999},draft:false}),params)).status,409);
+ const artifacts=process.env.DBC_RETURN_PDF_ARTIFACT_DIR?path.resolve(process.env.DBC_RETURN_PDF_ARTIFACT_DIR):path.join(dir,'review');
+ fs.mkdirSync(artifacts,{recursive:true});fs.copyFileSync(file,path.join(artifacts,'draft.pdf'));fs.copyFileSync(issued,path.join(artifacts,'issued-fixture.pdf'));
+ execFileSync('pdftoppm',['-png','-scale-to','1500','-singlefile',file,path.join(artifacts,'draft')]);
+ console.log('PASS actual PDF route/renderer: private secret-scoped booking lookup, altered particulars/amounts rejected, draft watermarks and truthful planned amounts, exact issued statement validation and real PDF text extraction. Isolated booking-query fixtures only.');
+})().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,5 +1,6 @@
 import { ensureReferralCode } from "./lib/referrals";
 import { rentalsForAccount } from "./lib/rentalAccount";
+import { requiresDroneLicence } from "./lib/droneVerification";
 import { creditKind } from "./lib/checkoutCredit";
 import { loyaltyProgress } from "./lib/loyalty";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
@@ -16,6 +17,8 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { listingImages } from "./lib/catalogImages";
+import { stream, mergedStream } from "convex-helpers/server/stream";
+import schema from "./schema";
 
 // ── crypto helpers (Web Crypto, available in Convex actions) ──────
 const toHex = (b: Uint8Array) =>
@@ -409,7 +412,11 @@ export const signOut = mutation({
       .query("sessions")
       .withIndex("by_token", (q) => q.eq("token", token))
       .first();
-    if (s) await ctx.db.delete(s._id);
+    if (s) {
+      const devices=await ctx.db.query("renter_push_subscriptions").withIndex("by_session",q=>q.eq("sessionId",s._id)).collect();
+      for(const device of devices)await ctx.db.patch(device._id,{enabled:false,updatedAt:Math.max(Date.now(),device.updatedAt+1)});
+      await ctx.db.delete(s._id);
+    }
   },
 });
 
@@ -458,6 +465,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
           end: li.end,
           qty: li.qty,
           lineTotal: li.lineTotal,
+          returnTime: li.returnTime ?? null,
           slug: (l as any)?.slug ?? null,
           heroImage: heroOf(l),
           imageSources: listingImages(l),
@@ -483,6 +491,8 @@ async function enrichBookings(ctx:any,rows:any[]) {
         depositHoldRenewalStatus: b.depositHoldRenewalStatus ?? null,
         depositRefunded: b.depositRefunded ?? false,
         hasReturnStatement: !!b.returnStatement,
+        returnStatementIssuedAt:b.returnStatement?.issuedAt,
+        hasPayment: !!b.stripePaymentIntentId || ["confirmed", "active", "returned"].includes(b.status),
         lateFeeAmount: b.lateFeeAmount ?? 0,
         lateFeeStatus: b.lateFeeStatus ?? null,
         currency: b.currency ?? "GBP",
@@ -492,6 +502,8 @@ async function enrichBookings(ctx:any,rows:any[]) {
         returnTime: b.returnTime ?? null,
         idVerifyStatus: b.idVerifyStatus ?? "required",
         verificationNote: b.verificationNote ?? null,
+        requiresDroneLicence: await requiresDroneLicence(ctx, b),
+        droneLicenceStatus: b.droneLicenceStatus ?? "required",
         reviewed: reviewed.has(b._id),
         firstSlug: lines[0]?.slug ?? null,
         start: starts.length ? Math.min(...starts) : null,
@@ -502,8 +514,11 @@ async function enrichBookings(ctx:any,rows:any[]) {
     return out;
 }
 export const myBookingsPage=query({args:{token:v.string(),paginationOpts:paginationOptsValidator},handler:async(ctx,{token,paginationOpts})=>{
+ if (!Number.isInteger(paginationOpts.numItems) || paginationOpts.numItems < 1) throw Error("Invalid rental page size");
  const a:any=await resolve(ctx,token);if(!a)return {page:[],isDone:true,continueCursor:""};
- const page=await ctx.db.query("bookings").withIndex("by_guestEmail",q=>q.eq("guestEmail",a.email)).filter(q=>q.or(q.eq(q.field("accountId"),undefined),q.eq(q.field("accountId"),a._id))).order("desc").paginate({...paginationOpts,numItems:Math.min(50,paginationOpts.numItems)});
+ const linked = stream(ctx.db, schema).query("bookings").withIndex("by_account", q => q.eq("accountId", a._id)).order("desc");
+ const legacy = stream(ctx.db, schema).query("bookings").withIndex("by_account_guestEmail", q => q.eq("accountId", undefined).eq("guestEmail", a.email)).order("desc");
+ const page = await mergedStream([linked, legacy], ["_creationTime"]).paginate({...paginationOpts, numItems:Math.min(50,paginationOpts.numItems), maximumRowsRead:100});
  return {...page,page:await enrichBookings(ctx,page.page)};
 }});
 

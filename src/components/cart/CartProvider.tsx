@@ -18,6 +18,7 @@ import {
   type MembershipSelection,
 } from "../../../shared/membershipSelection";
 import { getSessionId } from "@/lib/session";
+import { switchCartSet, addCartReplacement } from "../../../shared/cartReplacementSet";
 
 export type CartItem = {
   key: string;
@@ -41,6 +42,9 @@ type CartCtx = {
   add: (item: Omit<CartItem, "key">) => void;
   replace: (items: CartItem[]) => void;
   switchItem: (key: string, item: Omit<CartItem, "key">) => void;
+  switchSet: (expected: string, keys: string[], replacements: Omit<CartItem, "key">[]) => void;
+  addReplacement: (expected: string, sourceKey: string, replacement: Omit<CartItem, "key">) => void;
+  duplicateItem: (key: string) => void;
   updateDates: (key: string, start: string, end: string, total: number) => void;
   reminderEnabled: boolean;
   setReminderEnabled: (enabled: boolean) => void;
@@ -233,6 +237,26 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setToast("Gear switched — your rental dates are unchanged");
   }, []);
 
+  const switchSet = useCallback((expected: string, keys: string[], replacements: Omit<CartItem, "key">[]) => {
+    const next = switchCartSet(latestItems.current, expected, keys, replacements.map(i => ({ ...i, key: `${i.listingId}|${i.start}|${i.days}|${crypto.randomUUID()}` })));
+    latestItems.current = next;
+    setItems(next);
+    setToast("Replacement set added — your rental dates are unchanged");
+  }, []);
+  const duplicateItem = useCallback((key: string) => {
+    const original = latestItems.current.find(i => i.key === key);
+    if (!original || latestItems.current.length >= 100) return;
+    const next = [...latestItems.current, { ...original, key: `${original.listingId}|${original.start}|${original.days}|${crypto.randomUUID()}` }];
+    latestItems.current = next; setItems(next);
+    setToast("Quantity increased — availability will be checked for the whole kit");
+  }, []);
+
+  const addReplacement = useCallback((expected: string, sourceKey: string, replacement: Omit<CartItem, "key">) => {
+    const next = addCartReplacement(latestItems.current, expected, sourceKey, { ...replacement, key: `${replacement.listingId}|${replacement.start}|${replacement.days}|${crypto.randomUUID()}` });
+    latestItems.current = next; setItems(next);
+    setToast("Alternative added — remove the unavailable request when you have chosen your kit");
+  }, []);
+
   const remove = useCallback(
     (key: string) => setItems((prev) => prev.filter((p) => p.key !== key)),
     [],
@@ -271,6 +295,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
         replace,
         updateDates,
         switchItem,
+        switchSet,
+        addReplacement,
+        duplicateItem,
         reminderEnabled,
         setReminderEnabled,
         reminderError,

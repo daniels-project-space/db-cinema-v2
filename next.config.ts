@@ -11,7 +11,8 @@ const csp = [
   "img-src 'self' https: data: blob:",
   "font-src 'self' https: data:",
   "connect-src 'self' https: wss:",
-  "frame-src 'self' https:",
+  // Authenticated document previews use temporary same-browser Blob URLs.
+  "frame-src 'self' blob: https:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self' https:",

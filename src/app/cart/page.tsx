@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { Fragment } from "react";
-import { CartReplacements } from "@/components/cart/CartReplacements";
-import { useQuery } from "convex/react";
-import { api } from "@cvx/_generated/api";
+import { ReplacementSets } from "@/components/cart/ReplacementSets";
+import { useCartStockCheck } from "@/components/cart/useCartStockCheck";
+import { CartStockNotice } from "@/components/cart/CartStockNotice";
+import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { GearLoopBanner } from "@/components/GearLoopBanner";
 import { CartPlanning } from "@/components/plans/CartPlanning";
@@ -18,12 +19,12 @@ import { useBasketPrice } from "@/components/cart/useBasketPrice";
 import { CartItemDates } from "@/components/cart/CartItemDates";
 import { IconX, IconArrowRight, IconLock } from "@/components/icons";
 
-import { dayMs as ms } from "@/lib/dates";
 
 export default function CartPage() {
   const {
     items,
     remove,
+    duplicateItem,
     clear,
     subtotal,
     eligibleSubtotal,
@@ -33,20 +34,12 @@ export default function CartPage() {
   const { quote, recommendations, error: quoteError, loading } = useBasketPrice();
   const promo = usePromo(eligibleSubtotal);
 
-  const avail =
-    useQuery(
-      api.availability.forCart,
-      items.length
-        ? {
-            items: items.map((i) => ({
-              listingId: i.listingId as any,
-              start: ms(i.start),
-              end: ms(i.end),
-            })),
-          }
-        : "skip",
-    );
-  const blocked = !!items.length && (!avail || items.some(i => !avail[i.listingId]?.ok));
+  const stock=useCartStockCheck(items),avail=stock.availability,router=useRouter();
+  const blocked = !!items.length && (!stock.ready || !avail || items.some(i => !avail[i.listingId]?.ok));
+  async function continueCheckout(){
+    const receipt=await stock.recheck();
+    if(receipt&&items.every(i=>receipt.availability[i.listingId]?.ok))router.push("/checkout");
+  }
 
   const first = items[0];
 
@@ -71,6 +64,7 @@ export default function CartPage() {
           </div>
         ) : (
           <>
+            <CartStockNotice checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/>
             <CheckoutMembership
               compact
               loading={loading}
@@ -79,8 +73,8 @@ export default function CartPage() {
               selected={membership}
               onChange={setMembership}
             />
-            <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_330px]">
-              <div className="flex flex-col gap-3">
+            <div className="mt-8 grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_330px]">
+              <div className="flex min-w-0 flex-col gap-3">
                 {items.map((it, idx) => {
                   const a = avail?.[it.listingId];
                   const unavailable = a && a.available === 0;
@@ -140,9 +134,9 @@ export default function CartPage() {
                           <IconX className="h-3.5 w-3.5" />
                         </button>
                       </div>
-                      <div className="col-span-3"><CartItemDates item={it} /></div>
+                      <div className="col-span-3"><CartItemDates item={it} /><button type="button" onClick={() => duplicateItem(it.key)} className="mt-2 text-xs text-white/60 hover:text-white">+ Add another of this item</button></div>
                     </div>
-                    {dim && <CartReplacements item={it} />}
+                    {dim && <ReplacementSets item={it} />}
                     </Fragment>
                   );
                 })}
@@ -251,16 +245,15 @@ export default function CartPage() {
                     disabled
                     className="mt-5 w-full cursor-not-allowed rounded-full bg-white/10 py-3 text-center font-medium text-white/40"
                   >
-                    {avail ? "Resolve availability to checkout" : "Checking availability…"}
+                    {stock.error ? "Check availability to checkout" : stock.checking ? "Checking availability…" : "Resolve availability to checkout"}
                   </button>
                 ) : (
-                  <Link
-                    href="/checkout"
+                  <button type="button" onClick={()=>void continueCheckout()}
                     className="btn-primary mt-5 w-full py-3"
                   >
                     Secure checkout
                     <IconArrowRight className="h-4 w-4" />
-                  </Link>
+                  </button>
                 )}
                 <p className="mt-3 flex items-center justify-center gap-1.5 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">
                   <IconLock className="h-3 w-3" /> Secured by Stripe · test mode

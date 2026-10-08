@@ -12,9 +12,8 @@
  * The poll stays as a reliability fallback (widened to 8h in RMv2's crons.ts) so
  * a dropped push self-heals on the next cycle.
  *
- * Fire-and-forget by design: this NEVER throws. A booking confirmation must not
- * fail because a downstream analytics/ops system is unreachable — the fallback
- * poll is what makes that safe.
+ * Delivery failures are recorded for the durable retry cron. A booking
+ * confirmation remains independent of downstream service availability.
  *
  * Env (Convex deployment vars, NOT committed):
  *   RMV2_WEBHOOK_URL     https://<rmv2-deployment>.convex.site/dbcinema/booking-sync
@@ -31,22 +30,23 @@ export const push = internalAction({
     ctx,
     { bookingId },
   ): Promise<{ ok: boolean; reason?: string }> => {
+    const booking = await ctx.runQuery(internal.rmv2_sync.forRmv2SyncOne, { bookingId });
+    if (!booking) return { ok: false, reason: "not_found" };
+    const revision = booking.revision ?? 0;
+    const claim = await ctx.runMutation(internal.rmv2Delivery.claim, { bookingId, revision });
+    if (!claim) return { ok: false, reason: "not_due_or_claimed" };
+    const generation = claim.generation;
+    async function result(ok: boolean, reason?: string) {
+      await ctx.runMutation(internal.rmv2Delivery.record, { bookingId, revision, generation, ok, ...(reason ? { reason } : {}) });
+      return { ok, ...(reason ? { reason } : {}) };
+    }
     const url = process.env.RMV2_WEBHOOK_URL;
     const secret = process.env.RMV2_WEBHOOK_SECRET;
     if (!url || !secret) {
       console.error(
         "[rmv2_webhook] missing RMV2_WEBHOOK_URL / RMV2_WEBHOOK_SECRET — skipping push",
       );
-      return { ok: false, reason: "missing_config" };
-    }
-
-    // Any status — RMv2 needs cancellations too, not just the paid set.
-    const booking = await ctx.runQuery(internal.rmv2_sync.forRmv2SyncOne, {
-      bookingId,
-    });
-    if (!booking) {
-      console.error("[rmv2_webhook] booking not found:", bookingId);
-      return { ok: false, reason: "not_found" };
+      return result(false, "missing_config");
     }
 
     try {
@@ -57,20 +57,33 @@ export const push = internalAction({
           "x-dbcinema-sync-token": secret,
         },
         body: JSON.stringify({ booking }),
+        signal: AbortSignal.timeout(20000),
       });
       if (!resp.ok) {
         console.error(
           `[rmv2_webhook] push rejected (${resp.status}) for booking ${bookingId}; fallback poll will reconcile`,
         );
-        return { ok: false, reason: `http_${resp.status}` };
+        return result(false, `http_${resp.status}`);
       }
-      return { ok: true };
+      const receipt = await resp.json();
+      const applied = receipt?.appliedRevision === revision && ["applied", "unchanged"].includes(receipt?.outcome);
+      const unpaid = booking.status === "pending_payment" && receipt?.outcome === "ignored" && receipt?.reason === "unpaid" && receipt?.appliedRevision === null;
+      if (receipt?.ok !== true || receipt.version !== 1 || receipt.bookingId !== bookingId || receipt.receivedRevision !== revision || !applied && !unpaid) return result(false, "invalid_receipt");
+      return result(true);
     } catch (err) {
       console.error(
         "[rmv2_webhook] push failed:",
         err instanceof Error ? err.message : err,
       );
-      return { ok: false, reason: "fetch_error" };
+      return result(false, "fetch_error");
     }
   },
 });
+
+export const retryDue = internalAction({ args: {}, handler: async ctx => {
+  const bookings = await ctx.runQuery(internal.rmv2Delivery.due, {});
+  for (const booking of bookings) {
+    try { await ctx.runAction(internal.rmv2_webhook.push, { bookingId: booking._id }); }
+    catch { console.error("[rmv2_webhook] retry failed; durable delivery remains pending", booking._id); }
+  }
+} });

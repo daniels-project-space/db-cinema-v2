@@ -1,6 +1,6 @@
 "use node";
 import Stripe from "stripe";
-import { checkoutPaymentIntent } from "./checkout";
+import { checkoutPaymentIntent, syncStripeMembership } from "./checkout";
 import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
@@ -89,7 +89,6 @@ async function ensureSession(ctx: any, id: any) {
       mode: "payment",
       adaptive_pricing: {enabled:false},
       expires_at: Math.floor(r.createdAt / 1000) + 24 * 60 * 60,
-      payment_method_types: ["card"],
       customer_email: b.guestEmail,
       customer_creation: "always",
       payment_intent_data: { setup_future_usage: "off_session" },
@@ -123,7 +122,6 @@ async function ensureSession(ctx: any, id: any) {
     const recurring=(original.line_items??[]).filter(line=>typeof line.price==="string");
     if(original.mode!=="subscription"||recurring.length!==1||!original.customer)throw Error("Original membership checkout is not recoverable.");
     params={...original,...params,mode:"subscription",customer:original.customer,customer_email:undefined,customer_creation:undefined,payment_intent_data:undefined,
-      payment_method_types:original.payment_method_configuration?undefined:params.payment_method_types,
       subscription_data:original.subscription_data,
       line_items:[...(params.line_items??[]),...recurring],
       metadata:{...original.metadata,...params.metadata,rentalPaidPence:String(money(amount)),membershipFeePence:String(money(r.membershipFee??0))}};
@@ -137,12 +135,36 @@ async function ensureSession(ctx: any, id: any) {
   });
   return session;
 }
-async function withdraw(ctx: any, id: any) {
+async function recoverPreparedSecurity(ctx: any, r: any): Promise<Stripe.PaymentIntent> {
+  if (!r.securityCreationParams || !r.securityCreationPreparedAt) throw Error("The pending security authorisation needs reconciliation");
+  const params: Stripe.PaymentIntentCreateParams = JSON.parse(r.securityCreationParams);
+  let intent: Stripe.PaymentIntent | undefined;
+  if (Date.now() >= r.securityCreationPreparedAt + 23 * 3600000) {
+    for await (const found of sb().paymentIntents.list({ customer: params.customer as string, created: { gte: Math.floor(r.securityCreationPreparedAt / 1000) - 5 }, limit: 100 })) {
+      if (found.metadata.rentalAdditionId === r._id && found.metadata.purpose === "replacement_rental_security_hold") { intent = await sb().paymentIntents.retrieve(found.id, { expand: ["latest_charge"] }); break; }
+    }
+    if (!intent) throw Error("The unresolved security authorisation needs provider reconciliation; no new hold was created");
+  } else {
+    try { intent = await sb().paymentIntents.create(params, { idempotencyKey: `dbc-addition-security-${r._id}` }); }
+    catch (e: any) {
+      const known = e?.raw?.payment_intent?.id ?? e?.payment_intent?.id;
+      if (!known) throw e;
+      intent = await sb().paymentIntents.retrieve(known, { expand: ["latest_charge"] });
+    }
+  }
+  const customer = typeof intent.customer === "string" ? intent.customer : intent.customer?.id;
+  const method = typeof intent.payment_method === "string" ? intent.payment_method : intent.payment_method?.id;
+  if (intent.amount !== params.amount || intent.currency !== "gbp" || intent.capture_method !== "manual" || customer !== params.customer || method !== params.payment_method || intent.metadata.rentalAdditionId !== r._id || intent.metadata.bookingId !== r.bookingId || intent.metadata.purpose !== "replacement_rental_security_hold") throw Error("Recovered security authorisation does not match its prepared request");
+  await ctx.runMutation(internal.rentalAdditionState.bindHold, { id: r._id, intentId: intent.id, status: intent.status === "requires_capture" ? "held" : intent.status === "requires_action" ? "requires_action" : "failed", expiresAt: expires(intent) });
+  return intent;
+}
+
+async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAttention?: boolean } | undefined> {
   const state: any = await ctx.runQuery(internal.rentalAdditionState.context, {
     id,
   });
   if (!state) return;
-  const r = state.addition;
+  const r: any = await ctx.runMutation(internal.rentalAdditionState.beginWithdrawal, { id });
   if (["applied", "applied_draft"].includes(r.status))
     throw Error(
       "This item is already part of the rental. Use rental refund or cancellation controls.",
@@ -161,31 +183,70 @@ async function withdraw(ctx: any, id: any) {
     return;
   }
   const session = await ensureSession(ctx, id);
+  const bound: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+  if (bound?.addition) Object.assign(r, bound.addition);
   if (session.status === "open")
-    await sb().checkout.sessions.expire(session.id);
-  else if (session.status !== "expired" && session.payment_status !== "paid")
+    Object.assign(session, await sb().checkout.sessions.expire(session.id));
+  else if (session.status !== "expired" && !(session.status === "complete" && r.membershipCheckoutId && session.payment_status === "no_payment_required") && session.payment_status !== "paid")
     throw Error(
       "The addition payment is still processing. Wait for its provider result.",
     );
   const paid = session.payment_status === "paid";
-  if(paid&&r.membershipCheckoutId&&session.subscription){const sub=typeof session.subscription==="string"?session.subscription:session.subscription.id;await sb().subscriptions.cancel(sub);}
+  const noPayment = !!r.membershipCheckoutId && session.status === "complete" && session.payment_status === "no_payment_required";
+  const complete = paid || noPayment;
+  const expected = money((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0));
+  if (session.id !== r.sessionId || complete && (session.status !== "complete" || session.currency !== "gbp" || session.amount_total !== expected || noPayment && expected !== 0)) throw Error("Withdrawal session does not match the saved order");
+  if (complete && r.membershipCheckoutId) {
+    const member = bound?.membershipCheckout, account = bound?.membershipAccount;
+    const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
+    const subId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+    if (!member || !account || member.bookingId !== r.bookingId || member.sessionId !== session.id || customer !== account.stripeCustomerId || !subId || member.subscriptionId && member.subscriptionId !== subId || r.withdrawalMembershipSubscriptionId && r.withdrawalMembershipSubscriptionId !== subId) throw Error("Membership withdrawal ownership mismatch");
+    let sub = await sb().subscriptions.retrieve(subId);
+    const assertSubscription = (candidate: Stripe.Subscription) => {
+      const subCustomer = typeof candidate.customer === "string" ? candidate.customer : candidate.customer.id;
+      if (candidate.id !== subId || subCustomer !== customer || candidate.metadata.membershipCheckoutId !== r.membershipCheckoutId || candidate.metadata.bookingId !== r.bookingId || candidate.metadata.membershipTier !== member.tier || candidate.metadata.accountEmail !== account.email || account.membershipActive && account.stripeSubscriptionId !== subId) throw Error("Membership withdrawal subscription mismatch");
+    };
+    assertSubscription(sub);
+    if (sub.status !== "canceled") {
+      try { sub = await sb().subscriptions.cancel(subId, { invoice_now: false, prorate: false }); }
+      catch (error) { const current = await sb().subscriptions.retrieve(subId); if (current.status !== "canceled") throw error; sub = current; }
+    }
+    assertSubscription(sub);
+    if (sub.status !== "canceled") throw Error("The membership cancellation is not confirmed");
+    await syncStripeMembership(ctx, sub);
+    await ctx.runMutation(internal.rentalAdditionState.recordMembershipWithdrawal, { id, subscriptionId: subId });
+  }
   const payment = await checkoutPaymentIntent(session);
   if (paid && payment) {
     await ctx.runMutation(internal.rentalAdditionState.markPaid, {
       id,
       paymentIntentId: payment,
     });
-    const refund = await sb().refunds.create(
-      { payment_intent: payment },
-      { idempotencyKey: `dbc-addition-withdraw-${id}` },
-    );
-    if (refund.status === "failed" || refund.status === "canceled")
-      throw Error(
-        "The proposal refund failed. The rental remains locked until the payment is resolved.",
-      );
+    let refund: Stripe.Refund | undefined;
+    if (r.withdrawalRefundId) refund = await sb().refunds.retrieve(r.withdrawalRefundId);
+    else {
+      // Recover an accepted refund whose response/binding was lost, including
+      // after Stripe's idempotency window, without issuing another refund.
+      for await (const found of sb().refunds.list({ payment_intent: payment, limit: 100 })) {
+        if (found.metadata?.rentalAdditionWithdrawalId === id) { refund = found; break; }
+      }
+      if (!refund) refund = await sb().refunds.create({ payment_intent: payment, metadata: { rentalAdditionWithdrawalId: id } }, { idempotencyKey: `dbc-addition-withdraw-${id}` });
+    }
+    const refundPayment = typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
+    if (refundPayment !== payment || refund.currency !== "gbp" || refund.amount !== session.amount_total) throw Error("Withdrawal refund does not match the saved payment");
+    await ctx.runMutation(internal.rentalAdditionState.recordWithdrawalRefund, { id, paymentIntentId: payment, refundId: refund.id, status: refund.status ?? "pending", amountPence: refund.amount });
+    if (refund.status !== "succeeded") return { pending: true, needsAttention: ["failed", "canceled", "requires_action"].includes(refund.status ?? "") };
+  } else if (paid) throw Error("Paid withdrawal has no confirmed payment");
+  const latest: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+  if (latest?.addition) Object.assign(r, latest.addition);
+  if (r.securityCreationPending) {
+    await recoverPreparedSecurity(ctx, r);
+    const recovered: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+    if (recovered?.addition) Object.assign(r, recovered.addition);
   }
   if (r.holdIntentId && r.holdIntentId !== r.oldHoldId) {
     const hold = await sb().paymentIntents.retrieve(r.holdIntentId);
+    if (hold.amount_received > 0) throw Error("The captured replacement security payment needs financial reconciliation before closing");
     if (
       [
         "requires_capture",
@@ -194,16 +255,17 @@ async function withdraw(ctx: any, id: any) {
         "requires_payment_method",
       ].includes(hold.status)
     )
-      await sb().paymentIntents.cancel(
-        hold.id,
-        {},
-        { idempotencyKey: `dbc-addition-hold-close-${id}` },
-      );
+      {
+        const cancelled = await sb().paymentIntents.cancel(hold.id, {}, { idempotencyKey: `dbc-addition-hold-close-${id}` });
+        if (cancelled.status !== "canceled") throw Error("The replacement security authorisation has not been released");
+      }
+    else if (hold.status !== "canceled") throw Error("The replacement security payment needs financial reconciliation before closing");
   }
   await ctx.runMutation(internal.rentalAdditionState.close, {
     id,
     refunded: paid,
   });
+  return { pending: false };
 }
 async function releaseReplacedHold(ctx: any, r: any) {
   if (!r.holdIntentId || !r.oldHoldId || r.holdIntentId === r.oldHoldId) return;
@@ -246,13 +308,17 @@ async function finish(
     throw Error("Addition payment has not completed");
   if (["refunded", "expired"].includes(r.status))
     return { bookingId: r.bookingId, status: r.status, closed: true };
+  if (r.withdrawalRequestedAt) {
+    const result = await withdraw(ctx, id);
+    return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
+  }
   if (["applied", "applied_draft"].includes(r.status)) {
     if (r.status === "applied") await releaseReplacedHold(ctx, r);
     return { bookingId: r.bookingId, status: "held" };
   }
   if (Date.now() > r.createdAt + 24 * 3600000) {
-    await withdraw(ctx, id);
-    return { bookingId: r.bookingId, status: "refunded", closed: true };
+    const result = await withdraw(ctx, id);
+    return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
   }
   const payment = await checkoutPaymentIntent(session);
   if (!payment&&!noPayment) throw Error("Paid addition has no card payment");
@@ -275,16 +341,16 @@ async function finish(
     b.returnDecision ||
     !["pending_payment", "confirmed", "active"].includes(b.status)
   ) {
-    await withdraw(ctx, id);
-    return { bookingId: r.bookingId, status: "refunded", closed: true };
+    const result = await withdraw(ctx, id);
+    return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
   }
   if (r.draftReplacement) {
     const applied = await ctx.runMutation(internal.rentalAdditionState.apply, {
       id,
     });
     if (applied.closed) {
-      await withdraw(ctx, id);
-      return { bookingId: r.bookingId, status: "refunded", closed: true };
+      const result = await withdraw(ctx, id);
+      return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
     }
     return { bookingId: r.bookingId, status: "draft_applied" };
   }
@@ -305,6 +371,7 @@ async function finish(
       if (old.status === "requires_capture" && (expires(old) ?? 0) > Date.now())
         intent = old;
     }
+    if (!intent && r.securityCreationPending) intent = await recoverPreparedSecurity(ctx, r);
     if (!intent) {
       const paid = await sb().paymentIntents.retrieve(payment);
       const customer =
@@ -317,33 +384,18 @@ async function finish(
           : paid.payment_method?.id;
       if (!customer || !method)
         throw Error("Addition card details are unavailable");
-      try {
-        intent = await sb().paymentIntents.create(
-          {
-            amount: money(r.holdTotal),
-            currency: "gbp",
-            customer,
-            payment_method: method,
-            allowed_payment_method_types: ["card"],
-            capture_method: "manual",
-            confirm: true,
-            off_session: true,
-            expand: ["latest_charge"],
-            metadata: {
-              bookingId: r.bookingId,
-              rentalAdditionId: id,
-              purpose: "replacement_rental_security_hold",
-            },
-          },
-          { idempotencyKey: `dbc-addition-security-${id}` },
-        );
-      } catch (e: any) {
-        const failed = e?.raw?.payment_intent?.id ?? e?.payment_intent?.id;
-        if (!failed) throw e;
-        intent = await sb().paymentIntents.retrieve(failed, {
-          expand: ["latest_charge"],
-        });
+      const params: Stripe.PaymentIntentCreateParams = {
+        amount: money(r.holdTotal), currency: "gbp", customer, payment_method: method,
+        allowed_payment_method_types: ["card"], capture_method: "manual", confirm: true, off_session: true, expand: ["latest_charge"],
+        metadata: { bookingId: r.bookingId, rentalAdditionId: id, purpose: "replacement_rental_security_hold" },
+      };
+      const prepared: any = await ctx.runMutation(internal.rentalAdditionState.beginSecurityAuthorization, { id, params: JSON.stringify(params) });
+      if (prepared.closed) {
+        const result = await withdraw(ctx, id);
+        return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
       }
+      const pending: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+      intent = await recoverPreparedSecurity(ctx, pending.addition);
     }
     const status =
       intent.status === "requires_capture"
@@ -374,8 +426,8 @@ async function finish(
     id,
   });
   if (result.closed) {
-    await withdraw(ctx, id);
-    return { bookingId: r.bookingId, status: "refunded", closed: true };
+    const result = await withdraw(ctx, id);
+    return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
   }
   await releaseReplacedHold(ctx, {
     ...r,
@@ -485,8 +537,8 @@ export const withdrawByOwner = action({
       token,
       fn: "rentalAdditions.withdraw",
     });
-    await withdraw(ctx, id);
-    return { ok: true };
+    const result = await withdraw(ctx, id);
+    return { ok: true, pending: !!result?.pending, needsAttention: !!result?.needsAttention };
   },
 });
 export const finalizePaid = internalAction({
@@ -520,6 +572,7 @@ export const reconcile = internalAction({
     );
     for (const r of rows) {
       try {
+        if (r.withdrawalRequestedAt) { await withdraw(ctx, r._id); continue; }
         if (Date.now() > r.createdAt + 24 * 3600000 && r.sessionId) {
           await withdraw(ctx, r._id);
           continue;

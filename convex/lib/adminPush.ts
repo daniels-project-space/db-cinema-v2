@@ -11,6 +11,10 @@ export function validatePushSubscription(endpoint: string, p256dh: string, auth:
   if (!/^[A-Za-z0-9_-]{87}$/.test(p256dh) || !/^[A-Za-z0-9_-]{22}$/.test(auth)) throw Error("Invalid push keys.");
 }
 
+export function ownerPushAllowed(subscription: {humanRequests?:boolean;renterMessages?:boolean},kind:string) {
+  return kind === "human_request" ? subscription.humanRequests !== false : kind === "renter_message" ? subscription.renterMessages !== false : true;
+}
+
 export async function queueOwnerNotification(ctx: any, args: {
   eventKey: string; kind: string; accountId: any; bookingId?: any; title: string; body: string;
 }) {
@@ -19,7 +23,8 @@ export async function queueOwnerNotification(ctx: any, args: {
   const id = await ctx.db.insert("admin_notifications", { ...args, createdAt: Date.now(), read: false });
   const subscriptions = await ctx.db.query("admin_push_subscriptions").withIndex("by_enabled", (q: any) => q.eq("enabled", true)).collect();
   for (const subscription of subscriptions) {
-    const deliveryId = await ctx.db.insert("admin_push_deliveries", { notificationId: id, subscriptionId: subscription._id,
+    if (!ownerPushAllowed(subscription,args.kind)) continue;
+    const deliveryId = await ctx.db.insert("admin_push_deliveries", { notificationId: id, subscriptionId: subscription._id, subscriptionUpdatedAt: subscription.updatedAt,
       status: "queued", attempts: 0, nextAttemptAt: Date.now(), updatedAt: Date.now() });
     await ctx.scheduler.runAfter(0, internal.adminPushDelivery.deliver, { deliveryId });
   }

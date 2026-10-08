@@ -1,5 +1,7 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import styles from "./RentalConversation.module.css";
+import { SmartImage } from "@/components/SmartImage";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalAdditionApproval } from "./RentalAdditionApproval";
@@ -19,6 +21,7 @@ export function RentalConversation({
   escalated = false,
   tools,
   openRevision = 0,
+  bookingSummary,
 }: {
   token: string;
   bookingId?: string;
@@ -29,6 +32,7 @@ export function RentalConversation({
   escalated?: boolean;
   tools?: React.ReactNode;
   openRevision?: number;
+  bookingSummary?: { image?: string | null; imageSources?: string[]; dates: string; count: number };
 }) {
   const thread = useQuery(api.rentalChat.messages, {
     token,
@@ -57,8 +61,9 @@ export function RentalConversation({
   const draftReplies = useAction(api.gaffer.ownerDrafts);
   const [drafting, setDrafting] = useState(false);
   const [drafts, setDrafts] = useState<{ messageId: string | null; drafts: { label: string; text: string }[] } | null>(null);
-  const scope = useRef("");
-  scope.current = `${bookingId ?? ""}:${accountId ?? ""}`;
+  const scopeKey = JSON.stringify([token, admin, bookingId ?? null, accountId ?? null]);
+  const scope = useRef({ key: scopeKey });
+  if (scope.current.key !== scopeKey) scope.current = { key: scopeKey };
   const sendRenter = useMutation(api.chat.send),
     sendOwner = useMutation(api.rentalChat.sendOwner),
     read = useMutation(api.rentalChat.markRead);
@@ -92,7 +97,7 @@ export function RentalConversation({
       observer.disconnect();
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [thread?.page[0]?._id]);
+  }, [thread?.page[0]?._id, scopeKey]);
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!openRevision || !thread) return;
@@ -109,8 +114,12 @@ export function RentalConversation({
     setText("");
     setError(null);
     setDrafts(null);
+    setBusy(false);
+    setDrafting(false);
+    setVisible(null);
     lastRead.current = "";
-  }, [bookingId, accountId]);
+  }, [scopeKey]);
+  useEffect(() => () => { scope.current = { key: scope.current.key }; }, []);
   useEffect(() => {
     if (older?.page)
       setHistory((h) =>
@@ -122,6 +131,7 @@ export function RentalConversation({
   useEffect(() => {
     const last = thread?.page[0]?._id;
     if (last && visible === last && last !== lastRead.current) {
+      const requestedScope = scope.current;
       lastRead.current = last;
       void read({
         token,
@@ -130,13 +140,15 @@ export function RentalConversation({
         admin,
         through: last,
       }).catch(() => {
-        lastRead.current = "";
+        if (scope.current === requestedScope) lastRead.current = "";
       });
     }
     if (body.current) body.current.scrollTop = body.current.scrollHeight;
-  }, [thread?.page[0]?._id, bookingId, token, admin, read, visible]);
+  }, [thread?.page[0]?._id, bookingId, accountId, token, admin, read, visible]);
   async function submit() {
     if (!text.trim() || busy) return;
+    const requestedScope = scope.current;
+    const submitted = text.trim();
     setBusy(true);
     setError(null);
     try {
@@ -145,22 +157,23 @@ export function RentalConversation({
           token,
           bookingId: bookingId as any,
           accountId: accountId as any,
-          text: text.trim(),
+          text: submitted,
         });
       else
         await sendRenter({
           token,
           bookingId: bookingId as any,
-          text: text.trim(),
+          text: submitted,
         });
-      setText("");
+      if (scope.current === requestedScope) setText(current => current.trim() === submitted ? "" : current);
     } catch (e: any) {
-      setError(e.message ?? "Message could not be sent.");
+      if (scope.current === requestedScope) setError(e.message ?? "Message could not be sent.");
     } finally {
-      setBusy(false);
+      if (scope.current === requestedScope) setBusy(false);
     }
   }
   async function handoff() {
+    const requestedScope = scope.current;
     setError(null);
     try {
       if (admin)
@@ -172,7 +185,7 @@ export function RentalConversation({
         });
       else await human({ token, bookingId: bookingId as any });
     } catch (e: any) {
-      setError(e.message);
+      if (scope.current === requestedScope) setError(e.message);
     }
   }
   async function suggest() {
@@ -184,7 +197,7 @@ export function RentalConversation({
       if (scope.current === requestedScope) setDrafts(result);
     } catch (e: any) {
       if (scope.current === requestedScope) setError(e.message ?? "Drafts unavailable.");
-    } finally { setDrafting(false); }
+    } finally { if (scope.current === requestedScope) setDrafting(false); }
   }
   const messages = [
     ...new Map(
@@ -196,45 +209,34 @@ export function RentalConversation({
     <section
       ref={container}
       data-conversation-scope={bookingId ? `rental:${bookingId}` : `support:${accountId ?? "self"}`}
-      className="scroll-mt-24 flex min-h-[450px] sm:min-h-[540px] flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313]"
+      data-role={admin ? "admin" : "renter"}
+      className={`${styles.conversation} ${tools ? styles.withTools : ""}`}
     >
-      <header className={`flex items-center justify-between gap-3 border-b p-5 ${teamHandling ? "border-amber-300/20 bg-amber-300/[0.07]" : "border-emerald-300/20 bg-emerald-300/[0.05]"}`}>
-        <div className="flex min-w-0 items-center gap-3">
-          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl font-display font-bold ${teamHandling ? "bg-amber-300/15 text-amber-200" : "bg-emerald-300/15 text-emerald-200"}`}>
-            {teamHandling ? <ChatAvatar sender="owner" /> : <GafferIcon className="h-7 w-7" />}
-          </span>
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold text-white">
-              {title}
-            </h3>
-            <p className="mt-1 text-xs text-white/40">
-              {RENTAL_STAGE_LABELS[stage] ?? stage} ·{" "}
-              {teamHandling ? "Human support · team notified" : "Gaffer · automatic assistant"}
-            </p>
+      <header className={styles.header}>
+        <div className={styles.identity}>
+          <ChatAvatar sender={admin ? "renter" : "owner"} name={thread && "renter" in thread ? thread.renter?.name : null} photo={thread && "renter" in thread ? thread.renter?.photo : null} />
+          <div><p className={styles.eyebrow}>{admin ? "Rental conversation" : "Your rental team"}</p>
+            <h3>{admin && thread && "renter" in thread ? thread.renter?.name || "Guest renter" : "DB Cinema Rentals"}</h3>
+            <p className={styles.supportStatus}><span />{teamHandling ? "Team handling your conversation" : "Gaffer available · team can join"}</p>
           </div>
         </div>
-        <button
-          onClick={handoff}
-          disabled={!admin && teamHandling}
-          className={`shrink-0 rounded-full border px-3 py-2 text-xs font-medium disabled:opacity-60 ${teamHandling ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200" : "border-amber-300/30 bg-amber-300/10 text-amber-200"}`}
-        >
-          {admin
-            ? (thread?.escalated ?? escalated)
-              ? "Hand to Gaffer"
-              : "Take over"
-            : teamHandling ? "Team notified" : "Request a human"}
+        <button onClick={handoff} disabled={!admin && teamHandling} className={styles.handoff}>
+          {admin ? teamHandling ? "Hand to Gaffer" : "Take over" : teamHandling ? "Team notified" : "Request a human"}
         </button>
       </header>
+      <div className={`management-conversation-main ${styles.main}`}>
+      <div className={styles.bookingStrip}>
+        {bookingSummary?.image && <SmartImage src={bookingSummary.image} fallbackSources={bookingSummary.imageSources} alt={title} className={styles.kitImage} />}
+        <div><h4>{title}</h4><p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
+        <span className={styles.stage}>{RENTAL_STAGE_LABELS[stage] ?? stage}</span>
+      </div>
       {!admin && bookingId && (
         <RentalAdditionApproval token={token} bookingId={bookingId} />
-      )}
-      {tools && (
-        <div className="border-b border-white/[0.06] px-5 py-3">{tools}</div>
       )}
       {bookingId && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
       <div
         ref={body}
-        className="flex h-[320px] sm:h-[440px] min-h-0 shrink-0 flex-col gap-4 overflow-y-auto px-5 py-6"
+        className={`management-conversation-messages ${styles.messages}`}
         aria-live="polite"
         aria-label="Rental conversation"
       >
@@ -261,7 +263,9 @@ export function RentalConversation({
             </p>
           </div>
         ) : (
-          messages.map((m) => {
+          messages.map((m, index) => {
+            const date = new Date(m.at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+            const previousDate = index ? new Date(messages[index - 1].at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : null;
             const mine = admin ? m.sender === "owner" : m.sender === "renter";
             const label =
               m.sender === "bot"
@@ -271,21 +275,23 @@ export function RentalConversation({
                   : m.sender === "system"
                   ? "Automatic rental update"
                     : admin
-                      ? "Renter"
+                      ? (thread && "renter" in thread ? thread.renter?.name || "Renter" : "Renter")
                       : "You";
-            return (
+            return (<Fragment key={m._id}>
+              {date !== previousDate && <p className="management-conversation-date self-stretch text-center text-[10px] text-white/40"><span>{date}</span></p>}
               <div
-                key={m._id}
                 data-message-id={m._id}
                 data-sender={m.sender}
-                className={`flex flex-col ${mine ? "items-end" : "items-start"}`}
+                data-mine={mine}
+                className={`management-conversation-message ${styles.message}`}
               >
-                <div className={`flex max-w-full items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}>
+                <div className={`management-conversation-message-row flex max-w-full items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}>
                 <ChatAvatar key={`${m.sender}-${thread && "renter" in thread ? thread.renter?.photo : ""}`} sender={m.sender} name={thread && "renter" in thread ? thread.renter?.name : null} photo={thread && "renter" in thread ? thread.renter?.photo : null} />
+                <div className={styles.messageContent}>
+                  <div className={styles.messageMeta}><strong>{label}</strong><time dateTime={new Date(m.at).toISOString()}>{new Date(m.at).toLocaleTimeString("en-GB", {hour:"2-digit",minute:"2-digit"})}</time></div>
                 <div
-                  className={`min-w-0 max-w-[calc(100%-2.5rem)] rounded-2xl border px-4 py-3 text-sm leading-relaxed ${m.sender === "bot" ? "border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-50" : m.sender === "owner" ? "border-accent-300/25 bg-accent-500/15 text-orange-50" : m.sender === "system" ? "border-dashed border-sky-200/20 bg-sky-300/[0.04] text-sky-100/70" : "border-violet-300/20 bg-violet-300/10 text-violet-50"}`}
+                  className={`management-conversation-message-copy min-w-0 max-w-[calc(100%-2.5rem)] rounded-2xl border px-4 py-3 text-sm leading-relaxed ${m.sender === "bot" ? "border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-50" : m.sender === "owner" ? "border-accent-300/25 bg-accent-500/15 text-orange-50" : m.sender === "system" ? "border-dashed border-sky-200/20 bg-sky-300/[0.04] text-sky-100/70" : "border-violet-300/20 bg-violet-300/10 text-violet-50"}`}
                 >
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
                   <p className="whitespace-pre-wrap break-words">{m.text}</p>
                   {m.meta?.kind === "full_credit_offer" && !admin && <RentalCreditOffer token={token} offerId={m.meta.offerId} />}
                   {m.meta?.kind === "review_invitation" && !admin && bookingId && <BookingReview key={bookingId} bookingId={bookingId} token={token} inline />}
@@ -299,19 +305,13 @@ export function RentalConversation({
                   )}
                 </div>
                 </div>
-                <span className="mt-1.5 px-1 text-[10px] text-white/30">
-                  {label} ·{" "}
-                  {new Date(m.at).toLocaleTimeString("en-GB", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              </div>
+                </div>
+              </div></Fragment>
             );
           })
         )}
       </div>
-      <footer className="border-t border-white/[0.07] p-4">
+      <footer className={styles.composer}>
         {admin && <div className="mb-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={suggest} disabled={drafting} className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"><GafferIcon className="h-4 w-4" />{drafting ? "Drafting…" : "Suggest replies"}</button>
@@ -333,7 +333,7 @@ export function RentalConversation({
             e.preventDefault();
             void submit();
           }}
-          className="flex items-end gap-2"
+          className={styles.composeForm}
         >
           <textarea
             aria-label="Message"
@@ -360,6 +360,10 @@ export function RentalConversation({
           </button>
         </form>
       </footer>
+      </div>
+      {tools && (
+        <aside aria-label={admin ? "Rental management controls" : "Your rental details"} className={`management-conversation-tools ${styles.tools}`}><div className={styles.toolsHeading}><p className={styles.eyebrow}>{admin ? "Operations" : "Your booking"}</p><h4>{admin ? "Booking details" : "Rental details"}</h4></div>{tools}</aside>
+      )}
     </section>
   );
 }

@@ -5,6 +5,7 @@ import { api } from "@cvx/_generated/api";
 import { useAccount } from "./account/AccountProvider";
 import { RentalJourney } from "./rentals/RentalJourney";
 import { RentalKit } from "./rentals/RentalKit";
+import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { RentalConversation } from "./rentals/RentalConversation";
 import { RenterRentalTools } from "./rentals/RenterRentalTools";
 import { SmartImage } from "./SmartImage";
@@ -84,8 +85,8 @@ export function RenterChat({
   )
     return <p className="text-sm text-white/40">Loading your conversations…</p>;
   return (
-    <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
-      <aside ref={sidebar} className="flex gap-2 overflow-x-auto lg:flex-col">
+    <div className={chatStyles.inbox}>
+      <aside ref={sidebar} className={`${chatStyles.directory} ${chatStyles.renterDirectory} flex gap-2 overflow-x-auto lg:flex-col`}>
         <h2 className="hidden px-2 pb-2 text-xs uppercase tracking-[.2em] text-white/35 lg:block">
           Conversations
         </h2>
@@ -153,6 +154,7 @@ export function RenterChat({
             : "General support"
         }
         stage={focus?.status ?? "Support"}
+        bookingSummary={focus ? {image: focus.items[0]?.heroImage, imageSources: focus.items[0]?.imageSources, dates: rentalDate(focus.start, focus.end), count: focus.items.length} : undefined}
         escalated={focus?.escalated}
         tools={focus ? <><RentalJourney booking={focus} /><RenterRentalTools token={token} bookingId={focus._id} /><details className="mt-3"><summary className="cursor-pointer text-xs text-white/55">Your kit · {focus.items.length} listings</summary><div className="mt-3"><RentalKit items={focus.items} compact /></div></details></> : undefined}
       />

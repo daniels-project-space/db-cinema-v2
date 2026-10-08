@@ -1,0 +1,332 @@
+{
+  "version": 1,
+  "reviews": [
+    {
+      "inventoryId": "kn79ydca5fj0e9bbh19b6egfn186a8hv",
+      "canonicalName": "DJI Mavic 3 Pro",
+      "model": "DJI Mavic 3 Pro",
+      "sourceUrl": "https://www.dji.com/mavic-3-pro/specs",
+      "description": "Folding camera drone with a three-camera gimbal assembly: a Hasselblad main camera and two telephoto cameras.",
+      "composition": "Show the aircraft alone, arms unfolded; no controller, batteries or Fly More extras.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn79mc5rgqhsr64hbn58z737hs86b5ks",
+      "canonicalName": "DJI Mini 4 Pro",
+      "model": "DJI Mini 4 Pro",
+      "sourceUrl": "https://www.dji.com/mini-4-pro/specs",
+      "description": "Compact folding camera drone with a stabilised camera gimbal and omnidirectional obstacle sensing.",
+      "composition": "Show the aircraft alone, arms unfolded; no controller or unconfirmed Fly More accessories.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn72cbk6s14jarnhvdwwrsbx3s86bgth",
+      "canonicalName": "DJI RS3 Pro gimbal",
+      "model": "DJI RS 3 Pro",
+      "sourceUrl": "https://www.dji.com/rs-3-pro",
+      "description": "Handheld three-axis camera stabiliser with carbon-fibre axis arms.",
+      "composition": "Show the stabiliser alone without a mounted camera, lens, optional LiDAR, transmitter or carry case.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn798d7b6nv7rvpcfhzek01h8h86b320",
+      "canonicalName": "DJI Mic 2 wireless",
+      "model": "DJI Mic 2",
+      "sourceUrl": "https://www.dji.com/mic-2",
+      "description": "Compact wireless microphone system with internal recording and a receiver display.",
+      "composition": "Kit configuration and transmitter colour need checking before rendering; do not invent the number of transmitters or a charging case.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Kit configuration and transmitter colour need checking before rendering; do not invent the number of transmitters or a charging case."
+      ]
+    },
+    {
+      "inventoryId": "kn73k6qc2v113vh7bb9n3atkwn86bfh4",
+      "canonicalName": "Rode Video Mic Go",
+      "model": "RØDE VideoMic GO",
+      "sourceUrl": "https://rode.com/en-us/products/videomic-go",
+      "description": "Lightweight on-camera directional condenser microphone with an integrated Rycote Lyre shock mount; it does not require its own battery.",
+      "composition": "Show the original VideoMic GO microphone and integrated shock mount alone; do not substitute VideoMic GO II.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn74tzh51br8vxnynztdr657xx86by5x",
+      "canonicalName": "Rode Video Mic Pro Plus",
+      "model": "RØDE VideoMic Pro+",
+      "sourceUrl": "https://rode.com/en-us/products/videomic-pro-plus",
+      "description": "On-camera supercardioid condenser microphone with an integrated Rycote Lyre shock mount and selectable gain/filter controls.",
+      "composition": "Show the Pro+ microphone and integrated shock mount alone; no camera or extra windscreen.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn72f7s8b5dkspbqq2eghaxak186a61p",
+      "canonicalName": "Rode Wireless Mic Pro set",
+      "model": "RØDE Wireless PRO",
+      "sourceUrl": "https://rode.com/en-us/products/wireless-pro",
+      "description": "Compact wireless microphone system with onboard recording and timecode functionality.",
+      "composition": "The exact rental-set contents need verification; no inferred transmitter count, lavaliers or charging case.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "The exact rental-set contents need verification; no inferred transmitter count, lavaliers or charging case."
+      ]
+    },
+    {
+      "inventoryId": "kn76mqhv1bv291x5z68fxerzg986bnmq",
+      "canonicalName": "Hollyland Mars 4K transmitter",
+      "model": "Hollyland Mars 4K transmitter",
+      "sourceUrl": "https://www.hollyland.com/product/mars-4k?internal_medium=7175&internal_source=blog",
+      "description": "Wireless video transmitter in the Mars 4K system, with HDMI and SDI connectivity.",
+      "composition": "Show one transmitter, not the receiver pair, batteries, cables, monitor or camera.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn7fqh3k3fqnxanqv0h7bmm8e186bn2s",
+      "canonicalName": "Hollyland Pyro S transmitter",
+      "model": "Hollyland Pyro S transmitter",
+      "sourceUrl": "https://www.hollyland.com/product/pyro-s",
+      "description": "Wireless video transmitter in the Pyro S system, with HDMI and SDI connectivity.",
+      "composition": "Show one transmitter, not its receivers, a monitor, battery or camera.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn7cv20cmz2k8fb3cwgt9qgdsx87advv",
+      "canonicalName": "Sennheiser MKE 600",
+      "model": "Sennheiser MKE 600",
+      "sourceUrl": "https://www.sennheiser.com/en-gb/catalog/products/microphones/mke-600/mke-600-505453",
+      "description": "Shotgun microphone for camera use, powered by phantom power or an AA battery.",
+      "composition": "Show the microphone alone; no boom pole, recorder, shock mount or windshield.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn71tc5enf40a1kahhanr0cjz586ak5g",
+      "canonicalName": "Anker Power Station F2000",
+      "model": "Anker SOLIX F2000 / PowerHouse 767",
+      "sourceUrl": "https://service.anker.com/article-description/Anker-SOLIX-F2000-Portable-Power-Station-PowerHouse-767-USER-MANUAL?urlName=Anker-SOLIX-F2000-Portable-Power-Station-PowerHouse-767-USER-MANUAL",
+      "description": "Portable battery power station with a display, power outlets and wheels; the manufacturer identifies the F2000/PowerHouse 767 capacity as 2048Wh.",
+      "composition": "Outlet layout varies by region and needs checking; no expansion battery or solar panels. Do not copy the listing illustration’s incorrect 2000WAH label.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Outlet layout varies by region and needs checking; no expansion battery or solar panels. Do not copy the listing illustration’s incorrect 2000WAH label."
+      ]
+    },
+    {
+      "inventoryId": "kn7e4ecrf5fwb7sp11jger73t586ak9w",
+      "canonicalName": "Nanlite Pavotube 30x II",
+      "model": "Nanlite PavoTube II 30X",
+      "sourceUrl": "https://nanliteus.com/blogs/learn/new-dmx-upgrades-for-the-nanlite-pavotube-ii-x-series-led-tube-lights",
+      "description": "Four-foot RGBWW LED tube light in the PavoTube II X series.",
+      "composition": "Show one tube only, horizontal side view; not a two-tube kit, bag, mounts or power supplies.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn77jnwhcbvenk18v3qceqafh586byar",
+      "canonicalName": "Tilta Nucleus Nano 2 follow focus",
+      "model": "Tilta Nucleus Nano II",
+      "sourceUrl": "https://tilta.com/shop/nucleus-nano-ii-wireless-lens-control-system/",
+      "description": "Wireless lens-control system with a touch-display hand wheel and a lens motor.",
+      "composition": "Rental-set components must be confirmed; do not add an optional control handle, extra motors or a camera.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Rental-set components must be confirmed; do not add an optional control handle, extra motors or a camera."
+      ]
+    },
+    {
+      "inventoryId": "kn75kqmcsgrgf8dwsxf19a427d87ez77",
+      "canonicalName": "Zoom H5",
+      "model": "Zoom H5 Handy Recorder",
+      "sourceUrl": "https://zoomcorp.com/en/us/handheld-recorders/handheld-recorders/h5/",
+      "description": "Handheld recorder with a detachable XY microphone capsule and two XLR/TRS inputs.",
+      "composition": "Show the original H5 recorder with its standard XY capsule only; not the H5studio, cables or a separate microphone.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn7amjd9r3hks17nssn396s1yn86bc8q",
+      "canonicalName": "JBL Club 120 speaker",
+      "model": "JBL PartyBox Club 120",
+      "sourceUrl": "https://www.jbl.com/PARTYBOX-CLUB-120.html",
+      "description": "Portable party speaker with a front grille, illuminated speaker rings and a handle.",
+      "composition": "Show one speaker alone; no tripod, microphone or an additional battery.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn78q8je188na64af4a96v7tkd86akg9",
+      "canonicalName": "Smoke Ninja",
+      "model": "PMI SmokeNINJA",
+      "sourceUrl": "https://pmigear.com/pages/about-smokeninja",
+      "description": "Battery-powered handheld mini smoke machine intended for photography and video effects.",
+      "composition": "Show the original SmokeNINJA unit alone; no PRO/V2 substitution or unconfirmed accessories.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn78zk30xt2dva7y6ev430x97186bqmq",
+      "canonicalName": "DJ RX3 Pioneer controller",
+      "model": "Pioneer DJ XDJ-RX3",
+      "sourceUrl": "https://www.pioneerdj.com/es/news/2021/xdj-rx3-new-2-channel-performance-all-in-one-dj-system/",
+      "description": "Two-channel all-in-one DJ system with two jog wheels and a central 10.1-inch touchscreen.",
+      "composition": "Use a slightly elevated side view so its controls remain visible; no laptop or external decks.",
+      "checkedAt": "2026-10-07T21:40:35.242733+00:00",
+      "verificationScope": "Manufacturer model facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate",
+      "compositionReady": true,
+      "compositionBlockers": []
+    },
+    {
+      "inventoryId": "kn71sgc80nc6fkqehrtghp9j9h86b9zg",
+      "canonicalName": "Atomos Ninja V",
+      "model": "Atomos Ninja V (original model)",
+      "sourceUrl": "https://support.atomos.com/hc/en-us/articles/5457635482511-Technical-Specifications",
+      "description": "Original Atomos Ninja V monitor-recorder with a 5.2-inch 1920 x 1080 IPS touchscreen, 16:9 aspect ratio and nominal 1000-nit brightness. Aluminium-alloy chassis with ABS/polycarbonate rear plate; 151 x 91.5 x 31 mm and 360 g without batteries or media. HDMI input and output; SDI needs an optional expansion module.",
+      "composition": "Show one original Ninja V monitor-recorder alone, display off. No attached battery, SSD caddy, camera, mounting arm, cables, stand or optional AtomX/CONNECT module. Do not substitute Ninja V+, newer Ninja, Ultra or Inferno.",
+      "compositionReady": true,
+      "compositionBlockers": [],
+      "checkedAt": "2026-10-07T22:37:01.220Z",
+      "verificationScope": "Manufacturer model/family facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate"
+    },
+    {
+      "inventoryId": "kn754zpg9s2g5s08p4scsasngx86bnr5",
+      "canonicalName": "Cinebloom filter mist",
+      "model": "Moment CineBloom diffusion filter family; exact supplied variant unconfirmed",
+      "sourceUrl": "https://www.shopmoment.com/products/moment-cinebloom-diffusion-filters",
+      "description": "Moment CineBloom diffusion filter family for softening contrast and blooming highlights. The manufacturer offers multiple diffusion strengths and mounting sizes; the inventory name does not identify the supplied strength or diameter. Do not assume a particular size, percentage, VND or QuickLock variant.",
+      "composition": "The supplied filter diameter, strength and mount type must be confirmed before an exact product image.",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Confirm supplied filter diameter, diffusion strength and screw-in/other mount variant; do not infer these from an unrelated cached listing image."
+      ],
+      "checkedAt": "2026-10-07T22:37:01.220Z",
+      "verificationScope": "Manufacturer model/family facts matched to the exact master entry; rental-set contents, appearance and output acceptance remain separate"
+    },
+    {
+      "inventoryId": "kn76ynt7yda9s63ewbg2sab1en86a0ts",
+      "canonicalName": "Sony NPF 970 batteries 2x sets",
+      "model": "Sony NP-F970",
+      "sourceUrl": "https://www.sony.co.uk/electronics/support/camera-camcorder-accessories-batteries-chargers/np-f970",
+      "description": "Sony NP-F970 is an L-series rechargeable camera/camcorder battery pack. The master label describes battery sets; this manufacturer model review does not establish the number of batteries or chargers supplied in a rental set.",
+      "composition": "Show one Sony NP-F970 battery pack only, not a charger, USB-C third-party variant or invented set contents.",
+      "compositionReady": true,
+      "compositionBlockers": [],
+      "checkedAt": "2026-10-07T23:38:01.461Z",
+      "verificationScope": "Manufacturer model/family facts matched to the canonical master entry; owned-unit appearance and actual rental-set contents remain separate acceptance requirements",
+      "appearanceReference": {
+        "sourceUrl": "https://www.sony.jp/products/catalog/SPC_2NP-F970_B.pdf",
+        "sha256": "568ac4a355050dfbb7533951121bbd0704d27a06ef213be099b18a6feb8285e2",
+        "bytes": 23196,
+        "page": 1,
+        "scope": "Manufacturer dimensional drawing of one NP-F970/B pack. It does not attest the owned unit or rental-set contents.",
+        "reviewScreenshot": "/root/dbc-equipment-render-review/npf970-manufacturer-sheet.png",
+        "observedAppearance": "Broad side approximately 70.5 mm by 59.7 mm, narrower front about 38.2 mm, rounded casing corners, one elongated vertical oval textured side grip and rear mounting/contact edge. Preserve proportions and show one pack."
+      }
+    },
+    {
+      "inventoryId": "kn7e3hztddjngzf3tka096mqrx86avn9",
+      "canonicalName": "Nanlite Forza 300",
+      "model": "Nanlite Forza 300, original generation",
+      "sourceUrl": "https://nanliteus.com/blogs/learn/the-nanlite-forza-300-ii-and-300b-ii-lots-of-changes-ever-more-appealing",
+      "description": "The original Nanlite Forza 300 is an LED spotlight with a separate control unit. Nanlite distinguishes its first-generation hardware from the larger second-generation heads and smaller control units of Forza 300 II and 300B II. The newer body must not be substituted for the original named model.",
+      "composition": "Show the original Forza 300 lamp head alone; do not substitute Forza 300 II or 300B II, or add an unconfirmed stand, reflector, battery or control-unit configuration.",
+      "compositionReady": true,
+      "compositionBlockers": [],
+      "checkedAt": "2026-10-07T23:38:01.462Z",
+      "verificationScope": "Manufacturer model/family facts matched to the canonical master entry; owned-unit appearance and actual rental-set contents remain separate acceptance requirements"
+    },
+    {
+      "inventoryId": "kn782v9vnh4w7j35b9j1repaqh870mwd",
+      "canonicalName": "NP-W126S batteries",
+      "model": "NP-W126S battery family",
+      "sourceUrl": "https://www.fujifilm-x.com/en-us/products/accessories/np-w126s/",
+      "description": "Fujifilm documents NP-W126S as a rechargeable lithium-ion battery for compatible X-series cameras. The inventory label establishes this battery family but does not prove the owned packs are Fujifilm-branded rather than compatible third-party versions.",
+      "composition": "Confirm the owned battery manufacturer and casing before rendering; do not invent Fujifilm branding, capacity markings or the rental-set count.",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Owned battery manufacturer and casing remain unconfirmed; the model-family name alone does not establish branded hardware."
+      ],
+      "checkedAt": "2026-10-07T23:38:01.462Z",
+      "verificationScope": "Manufacturer model/family facts matched to the canonical master entry; owned-unit appearance and actual rental-set contents remain separate acceptance requirements"
+    },
+    {
+      "inventoryId": "kn70sapjg8gnkt330453bbbhkd86at3n",
+      "canonicalName": "Smoke Ninja Pro hazer",
+      "model": "PMI SmokeNINJA PRO family",
+      "sourceUrl": "https://pmigear.com/en-gb/pages/smoke-ninja-pro",
+      "description": "PMI's SmokeNINJA PRO is a compact fog-effect device with fog, steam and haze functions, a real-time status bar and USB-C trigger control. The manufacturer lists haze nozzles and other attachments separately; these do not establish what is included with the owned rental item.",
+      "composition": "Confirm the owned PRO revision and attached haze nozzle before rendering. Do not add the optional bubble nozzle, Trident mount, remote, fluid bottles or DMX accessories without rental-set evidence.",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Owned PRO revision and haze-nozzle configuration need verification before a faithful equipment image can be accepted."
+      ],
+      "checkedAt": "2026-10-07T23:38:01.462Z",
+      "verificationScope": "Manufacturer model/family facts matched to the canonical master entry; owned-unit appearance and actual rental-set contents remain separate acceptance requirements"
+    },
+    {
+      "inventoryId": "kn7ae54ermh21msysxwfh7hanx871gk8",
+      "canonicalName": "NP-FW50 batteries",
+      "model": "NP-FW50 family",
+      "sourceUrl": "https://www.sony.co.uk/electronics/support/camera-camcorder-accessories-batteries-chargers/np-fw50",
+      "description": "Sony's NP-FW50 is a W-series rechargeable camera battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.",
+      "composition": "One battery pack only after manufacturer/casing confirmation; no charger or invented set contents.",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Confirm whether the owned packs are original Sony or another manufacturer and verify the exact casing/markings before rendering."
+      ],
+      "checkedAt": "2026-10-08T01:57:19.082450+00:00",
+      "verificationScope": "Primary manufacturer family facts matched to the canonical inventory label. Owned manufacturer, physical appearance and rental contents remain unverified."
+    },
+    {
+      "inventoryId": "kn7fwc3jkvtbfnkr6tfb0hgxcn8fhdp6",
+      "canonicalName": "NP-F570 batteries",
+      "model": "NP-F570 family",
+      "sourceUrl": "https://www.sony.com/electronics/support/camera-camcorder-accessories-batteries-chargers/np-f570",
+      "description": "Sony's NP-F570 is an L-series rechargeable battery pack. The generic master label does not establish the owned packs' manufacturer, casing, markings or supplied count.",
+      "composition": "One battery pack only after manufacturer/casing confirmation; no charger or invented set contents.",
+      "compositionReady": false,
+      "compositionBlockers": [
+        "Confirm whether the owned packs are original Sony or another manufacturer and verify the exact casing/markings before rendering."
+      ],
+      "checkedAt": "2026-10-08T01:57:19.082470+00:00",
+      "verificationScope": "Primary manufacturer family facts matched to the canonical inventory label. Owned manufacturer, physical appearance and rental contents remain unverified."
+    }
+  ]
+}

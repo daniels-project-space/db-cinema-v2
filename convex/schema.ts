@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { inspectionRecord } from "./lib/returnInspectionFields";
 
 /**
  * Db Cinema Rentals v2 — standalone storefront schema.
@@ -15,6 +16,14 @@ import { v } from "convex/values";
  * Trigger sync job through an httpAction bridge. `rmv2_sync_state` tracks it.
  */
 export default defineSchema({
+  rental_damage_cases: defineTable({
+    bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")),
+    itemKey: v.string(), title: v.string(), inventoryUnitId: v.optional(v.id("inventory_units")),
+    details: v.string(), status: v.union(v.literal("open"), v.literal("closed")),
+    openedAt: v.number(), closedAt: v.optional(v.number()), resolution: v.optional(v.string()),
+  }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]),
+  verification_archives: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), email: v.string(), status: v.string(), attempts: v.number(), dueAt: v.number(), createdAt: v.number(), completedAt: v.optional(v.number()), error: v.optional(v.string()), retentionHoldReason: v.optional(v.string()), deletedAt: v.optional(v.number()) }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]).index("by_status_due", ["status", "dueAt"]),
+  verification_documents: defineTable({ archiveId: v.id("verification_archives"), bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), kind: v.string(), storageId: v.id("_storage"), sha256: v.string(), size: v.number(), contentType: v.string(), savedAt: v.number() }).index("by_archive", ["archiveId"]).index("by_account", ["accountId"]),
   // ── Layer 1: physical stock (quantity truth) ──────────────────
   inventory_units: defineTable({
     sku: v.string(),
@@ -60,6 +69,7 @@ export default defineSchema({
       day30: v.optional(v.number()),
     }),
     depositAmount: v.number(),
+    stockMappingStatus: v.optional(v.union(v.literal("complete"), v.literal("incomplete"), v.literal("not_owned"))),
     // bill-of-materials: which physical units this bundle consumes
     components: v.array(
       v.object({
@@ -99,6 +109,7 @@ export default defineSchema({
     subscriptionId: v.optional(v.id("subscriptions")),
     start: v.number(), // epoch ms (UTC)
     end: v.number(),
+    endExclusive: v.optional(v.boolean()), // shared stock windows preserve exact return buffers
     qty: v.number(),
     source: v.union(
       v.literal("site"),
@@ -229,6 +240,11 @@ export default defineSchema({
     verificationNote: v.optional(v.string()),
     verificationUpdatedAt: v.optional(v.number()),
     idVerifyStatus: v.optional(v.string()),
+    droneLicenceStorageId: v.optional(v.id("_storage")),
+    droneLicenceStatus: v.optional(v.union(v.literal("review"), v.literal("approved"), v.literal("requires_input"))),
+    droneLicenceNote: v.optional(v.string()),
+    droneLicenceReviewedAt: v.optional(v.number()),
+    droneLicenceUploadedAt: v.optional(v.number()),
     idVerificationSource: v.optional(v.string()),
     idVerifiedAt: v.optional(v.number()),
     verificationExpiresAt: v.optional(v.number()),
@@ -239,6 +255,7 @@ export default defineSchema({
     agreementSnapshot: v.optional(v.string()),
     agreementRequestId: v.optional(v.string()),
     agreementRequestFingerprint: v.optional(v.string()),
+    checkoutInputFingerprint: v.optional(v.string()),
     securityHoldConsentAt: v.optional(v.number()),
     securityPolicyVersion: v.optional(v.string()),
     laterChargeConsentAt: v.optional(v.number()),
@@ -283,7 +300,15 @@ export default defineSchema({
       actualReturnedAt: v.number(), damageKept: v.number(),
       damageNote: v.optional(v.string()), chargeLate: v.boolean(),
       lateWaiverReason: v.optional(v.string()), startedAt: v.number(),
+      inspection: v.optional(v.array(inspectionRecord)),
     })),
+    rmv2Revision: v.optional(v.number()),
+    rmv2DeliveredRevision: v.optional(v.number()),
+    rmv2SyncStatus: v.optional(v.union(v.literal("pending"), v.literal("delivered"), v.literal("attention"))),
+    rmv2SyncAttempts: v.optional(v.number()), rmv2SyncDueAt: v.optional(v.number()),
+    rmv2SyncError: v.optional(v.string()), rmv2SyncDeliveredAt: v.optional(v.number()),
+    rmv2SyncLeaseUntil: v.optional(v.number()),
+    rmv2SyncLeaseGeneration: v.optional(v.number()),
     lateFeeAmount: v.optional(v.number()),
     lateFeeWaivedAmount: v.optional(v.number()),
     lateFeeWaiverReason: v.optional(v.string()),
@@ -309,6 +334,7 @@ export default defineSchema({
       checkoutPaid: v.number(), rentalRefunded:v.optional(v.number()), securityPaid: v.number(), securityRefunded: v.number(),
       holdStatus: v.optional(v.string()),
       damageTotal: v.number(), damageFromHold: v.number(), damageNote: v.optional(v.string()),
+      inspection: v.optional(v.array(inspectionRecord)),
       lateAssessed: v.number(), lateWaived: v.number(),
       lateBreakdown: v.array(v.object({ title: v.string(), days: v.number(), dailyRate: v.number(), amount: v.number() })),
     })),
@@ -318,6 +344,7 @@ export default defineSchema({
   })
     .index("by_customer", ["customerId"])
     .index("by_chat_updated",["chatUpdatedAt"])
+    .index("by_rmv2_sync_due", ["rmv2SyncStatus", "rmv2SyncDueAt"])
     .index("by_status_chat_updated",["status","chatUpdatedAt"])
     .index("by_guest_chat_updated",["guestEmail","chatUpdatedAt"])
     .index("by_owner_unread_updated",["chatUnreadOwner","chatUpdatedAt"])
@@ -330,6 +357,7 @@ export default defineSchema({
     .index("by_guestEmail_status", ["guestEmail", "status"])
     .index("by_person_status", ["renterPersonKey", "status"])
     .index("by_account", ["accountId"])
+    .index("by_account_guestEmail", ["accountId", "guestEmail"])
     .index("by_account_access_retry", ["accountAccessEmailRetryAt"])
     .index("by_review_check", ["status", "reviewFollowUpCheckedAt"]),
 
@@ -568,6 +596,7 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_email", ["email"]).index("by_referral_code",["referralCode"]).index("by_subscription", ["stripeSubscriptionId"]),
 
+  account_admin_notes: defineTable({ accountId: v.id("accounts"), text: v.string(), at: v.number() }).index("by_account", ["accountId"]),
   account_admin_changes: defineTable({
     accountId: v.id("accounts"), at: v.number(),
     kind: v.union(v.literal("level"), v.literal("block"), v.literal("unblock")),
@@ -596,10 +625,24 @@ export default defineSchema({
     .index("by_booking_at", ["bookingId", "at"])
     .index("by_account_at", ["accountId", "at"]),
 
+  renter_push_subscriptions: defineTable({
+    accountId: v.id("accounts"), sessionId: v.id("sessions"), deviceId: v.string(), endpoint: v.string(), p256dh: v.string(), auth: v.string(),
+    enabled: v.boolean(), messagesEnabled: v.boolean(), bookingEnabled: v.boolean(), createdAt: v.number(), updatedAt: v.number(), lastError: v.optional(v.string()),
+  }).index("by_device", ["deviceId"]).index("by_endpoint", ["endpoint"]).index("by_account_enabled", ["accountId", "enabled"]).index("by_session", ["sessionId"]),
+  renter_notifications: defineTable({
+    eventKey: v.string(), kind: v.union(v.literal("messages"), v.literal("booking")), accountId: v.id("accounts"), bookingId: v.optional(v.id("bookings")),
+    createdAt: v.number(), messageAt: v.number(),
+  }).index("by_event", ["eventKey"]),
+  renter_push_deliveries: defineTable({
+    notificationId: v.id("renter_notifications"), subscriptionId: v.id("renter_push_subscriptions"), subscriptionUpdatedAt: v.number(),
+    status: v.string(), attempts: v.number(), nextAttemptAt: v.number(), updatedAt: v.number(), claimId: v.optional(v.string()), claimedAt: v.optional(v.number()), lastError: v.optional(v.string()),
+  }).index("by_status_due", ["status", "nextAttemptAt"]),
+
   admin_push_subscriptions: defineTable({
+    label: v.optional(v.string()), humanRequests: v.optional(v.boolean()), renterMessages: v.optional(v.boolean()),
     deviceId: v.string(), endpoint: v.string(), p256dh: v.string(), auth: v.string(),
     enabled: v.boolean(), createdAt: v.number(), updatedAt: v.number(), lastError: v.optional(v.string()),
-  }).index("by_device", ["deviceId"]).index("by_enabled", ["enabled"]),
+  }).index("by_device", ["deviceId"]).index("by_endpoint", ["endpoint"]).index("by_enabled", ["enabled"]),
   admin_notifications: defineTable({
     eventKey: v.string(), kind: v.string(), accountId: v.id("accounts"), bookingId: v.optional(v.id("bookings")),
     title: v.string(), body: v.string(), createdAt: v.number(), read: v.boolean(),
@@ -692,6 +735,9 @@ export default defineSchema({
     securityCharge:v.number(),holdTotal:v.number(),oldHoldId:v.optional(v.string()),
     status:v.string(),reason:v.string(),createdAt:v.number(),updatedAt:v.number(),
     sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),
+    withdrawalRequestedAt:v.optional(v.number()),withdrawalRefundId:v.optional(v.string()),withdrawalRefundStatus:v.optional(v.string()),
+    withdrawalMembershipSubscriptionId:v.optional(v.string()),
+    securityCreationPending:v.optional(v.boolean()),securityCreationPreparedAt:v.optional(v.number()),securityCreationParams:v.optional(v.string()),
     holdIntentId:v.optional(v.string()),holdExpiresAt:v.optional(v.number()),
   }).index("by_booking",["bookingId"]).index("by_request",["requestId"]).index("by_session",["sessionId"]).index("by_status",["status"]).index("by_status_updated",["status","updatedAt"]),
 
@@ -763,6 +809,7 @@ export default defineSchema({
     .index("by_account", ["accountId"])
     .index("by_tgMessageId", ["tgMessageId"])
     .index("by_account_booking", ["accountId", "bookingId"])
+    .index("by_account_updated", ["accountId", "updatedAt"])
     .index("by_updated", ["updatedAt"]),
 
   // Fixed-window API rate limiting (per IP + bucket) for the public endpoints.

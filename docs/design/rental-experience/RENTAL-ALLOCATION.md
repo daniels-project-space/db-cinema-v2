@@ -1,0 +1,11 @@
+# Rental amendments preserve physical allocation
+
+Catalogue sync can change a kit's components after booking. Previously admin rescheduling checked availability with the new components but shifted old physical reservations; item removal could cancel and rebuild remaining kit using changed mappings. The booking/calendar and physical ledger could then describe different equipment.
+
+Rescheduling and item removal now compare the entire current kit with the existing confirmed/active reservations before any kit/date/stock changes. The shared check includes listing, inventory unit, period and aggregate quantity, accepts equivalent split rows, and rejects missing or invalid evidence. Extension handling uses the same check. Admin amendments also reject unresolved holds. Catalogue drift must be reconciled using original physical evidence; these controls do not invent a replacement allocation.
+
+Amendment chats and emails select the permanent account owner rather than another account with an old guest email. The minimal recipient query is server-only; a missing permanent owner suppresses delivery rather than falling back to the old address. Legacy bookings retain compatible email ownership. Email points to the discussed rental and escapes change text.
+
+Actual handlers run in `scripts/test-rental-allocation.cjs`, including the private recipient query and email action with controlled mail transport. Cases cover mapping/quantity/date/listing drift, invalid or missing reservations, unresolved holds, split equivalent rows, mixed-period rescheduling, removal retry, occupied dates, authorization, changed-email ownership, missing permanent owners and legacy mail. Prior actual ee23235, with matching guest/account emails to isolate allocation drift, reproduces mismatched-allocation acceptance (`/tmp/dbc-rental-allocation-negative.log`). Final full local tests, production build, TypeScript and Graphify update pass; no provider writes or live email occur.
+
+Compatible live rollout, recovery/reconciliation of existing physical allocation drift and the full shared atomic reservation authority remain separate requirements. Complete reference visuals, accurate ERNIE images and other full-goal acceptance are not implied by these amendment tests.

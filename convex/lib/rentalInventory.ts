@@ -1,11 +1,23 @@
-import { peak, blockedSet } from "../availability";
+import { peak, blockedSet, overlappingIntervals } from "../availability";
 import { rentalUnavailable } from "./marketingInventory";
+import { reservationOccupancy } from "./reservationOccupancy";
+import { inventoryCapacity } from "./inventoryCapacity";
+/** Query-local cache only: all checks still use the same live database snapshot. */
+export type RentalInventoryCache = { records: Map<string, any>; reservations: Map<string, any[]> };
 /** Check the whole proposed order together, including overlapping bundles and quantities. */
 export async function assertRentalInventory(
   ctx: any,
   lines: any[],
   excludeBookingId?: any,
+  cache?: RentalInventoryCache,
 ) {
+  async function get(id: any) {
+    const key = String(id);
+    if (cache?.records.has(key)) return cache.records.get(key);
+    const record = await ctx.db.get(id);
+    cache?.records.set(key, record);
+    return record;
+  }
   const byUnit = new Map<string, { id: any; intervals: any[] }>();
   for (const line of lines) {
     if (
@@ -16,7 +28,7 @@ export async function assertRentalInventory(
       line.end < line.start
     )
       throw Error("Invalid rental dates or quantity");
-    const listing = await ctx.db.get(line.listingId);
+    const listing = await get(line.listingId);
     if (!listing || rentalUnavailable(listing))
       throw Error("An item is no longer available");
     // Explicit day blocks from the live catalogue are independent of reservations.
@@ -43,38 +55,23 @@ export async function assertRentalInventory(
     }
   }
   for (const row of byUnit.values()) {
-    const unit = await ctx.db.get(row.id);
-    if (
-      !unit ||
-      !Number.isSafeInteger(unit.quantityOwned) ||
-      unit.quantityOwned < 0
-    )
-      throw Error("Inventory capacity is missing or invalid");
-    const reservations = await ctx.db
+    const unit = await get(row.id);
+    const owned = inventoryCapacity(unit);
+    if (owned === null) throw Error("Inventory capacity is missing, inactive or invalid");
+    let reservations = cache?.reservations.get(String(row.id));
+    if (!reservations) {
+      reservations = await ctx.db
       .query("reservations")
       .withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", row.id))
       .collect();
-    const existing = reservations
-      .filter(
-        (r: any) =>
-          (!excludeBookingId || r.bookingId !== excludeBookingId) &&
-          (["confirmed", "active"].includes(r.status) ||
-            (r.status === "hold" &&
-              (r.holdExpiresAt ?? Infinity) > Date.now())),
-      )
-      .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty }));
+      cache?.reservations.set(String(row.id), reservations!);
+    }
+    const occupied = await Promise.all(reservations!.filter((r: any) => !excludeBookingId || r.bookingId !== excludeBookingId)
+      .map((r: any) => reservationOccupancy(ctx, r)));
+    const existing = occupied.filter((row): row is NonNullable<typeof row> => row !== null);
     const over = row.intervals.some((window) => {
-      const overlapping = [...existing, ...row.intervals]
-        .filter(
-          (interval) =>
-            interval.start <= window.end && interval.end >= window.start,
-        )
-        .map((interval) => ({
-          ...interval,
-          start: Math.max(interval.start, window.start),
-          end: Math.min(interval.end, window.end),
-        }));
-      return peak(overlapping) > unit.quantityOwned;
+      const overlapping = overlappingIntervals([...existing, ...row.intervals],window.start,window.end);
+      return peak(overlapping) > owned;
     });
     if (over)
       throw Error(

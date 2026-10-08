@@ -62,9 +62,10 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     const stop = new Error('captured booking boundary');
     const ctx = {
       runQuery: async (ref,args) => {
+        if(ref==='bookings:checkoutAttempt') return null;
         if(ref==='settings:get') return {acceptingOrders:true};
         if(ref==='catalog:repriceLines') return prices.map((total,i)=>({title:`Real item ${i}`,total,deposit:1000}));
-        if(ref==='availability:forListing') return {available:10};
+        if(ref==='availability:forCart') return Object.fromEntries(args.items.map(i=>[i.listingId,{available:10,ok:true}]));
         if(ref==='accounts:_byToken') return {_id:'acct-1',email:'owner@example.invalid',membershipActive:false};
         if(ref==='accounts:_byEmail') return args.email==='owner@example.invalid'?{_id:'acct-1',email:args.email,membershipActive:false}:null;
         if(ref==='bookings:availableCheckoutCredit') return args.kind==='refund'?0:availableCredit;
@@ -72,7 +73,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
         if(ref==='promo:validate') return validate.handler({},args);
         throw Error(`Unexpected query ${ref}`);
       },
-      runAction: async (ref,args) => { assert.equal(ref,'delivery:quote'); assert.equal(args.postcode,deliveryPostcode.replace(/\s/g,'').toUpperCase()); assert.equal(args.listingIds.length,prices.length); return {ok:true,fee:quotedFee}; },
+      runAction: async (ref,args) => { if(ref==='sync:syncHyggloReservations')return {mirrored:0,rows:0}; assert.equal(ref,'delivery:quote'); assert.equal(args.postcode,deliveryPostcode.replace(/\s/g,'').toUpperCase()); assert.equal(args.listingIds.length,prices.length); return {ok:true,fee:quotedFee}; },
       runMutation: async (ref,args) => { assert.equal(ref,'bookings:createPending'); pending=args; throw stop; },
     };
     const args={items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),token,customer:{email:customerEmail,name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:fulfilment==='delivery'?[...AGREEMENTS,{kind:'delivery-disclaimer',version:'2026-10-delivery-v2'}]:AGREEMENTS}};
@@ -128,11 +129,13 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   // payment amount and return URLs cannot be supplied by the browser.
   let savedBooking;
   const checkoutCtx = {
-    runQuery: async (ref) => {
+    runAction:async(ref)=>{assert.equal(ref,'sync:syncHyggloReservations');return {mirrored:0,rows:0};},
+    runQuery: async (ref,args) => {
       if(ref==='accounts:_byEmail') return null; // Guest fixture has no stored account.
-      if(ref==='settings:get') return {acceptingOrders:true};
+      if(ref==='bookings:checkoutAttempt') return null;
+        if(ref==='settings:get') return {acceptingOrders:true};
       if(ref==='catalog:repriceLines') return [{title:'Real camera',total:200,deposit:1000,dailyRate:40}];
-      if(ref==='availability:forListing') return {available:1};
+      if(ref==='availability:forCart') return Object.fromEntries(args.items.map(i=>[i.listingId,{available:1,ok:true}]));
       throw Error(`Unexpected query ${ref}`);
     },
     runMutation: async (ref,args) => {
@@ -162,6 +165,23 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   assert.equal(StripeStub.lastCheckout.line_items[0].price_data.unit_amount,19000,'nonmember discount reduces rental only');
   assert.equal(StripeStub.lastCheckout.line_items[1].price_data.unit_amount,2500,'nonmember/referral checkout protects the full upfront security line');
   assert.equal(StripeStub.lastCheckout.discounts,undefined,'no global coupon may discount security');
+
+  // An inventory rejection happens before Stripe creation. Exercise the real
+  // pending-order cleanup instead of leaving reserved credits until cron.
+  const stockHarness=require('./lib/rentalTestHarness.cjs');
+  const stockBookings=stockHarness.load('convex/bookings.ts');
+  const failedStockBooking=stockHarness.put('bookings',{status:'pending_payment',guestEmail:'test@example.invalid',lineItems:[],creditApplied:10});
+  const priorCheckout=StripeStub.lastCheckout,stockCalls=[];
+  await assert.rejects(()=>start.handler({...checkoutCtx,runMutation:async(ref,args)=>{
+    stockCalls.push({ref,args});
+    if(ref==='bookings:createPending')return {bookingId:failedStockBooking._id,creditApplied:0};
+    if(ref==='bookings:placeHolds')throw Error('Physical equipment is already reserved');
+    if(ref==='bookings:expireUnpaidPending')return stockBookings.expireUnpaidPending.handler({db:stockHarness.db},args);
+    throw Error('Unexpected stock-rejection mutation '+ref);
+  }},{items:[{listingId:'camera-1',title:'Camera',start:0,end:0,qty:1,total:1,deposit:0}],customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment:'pickup',deliveryFee:0,expectedTotalDue:225,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-stock-rejection-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}}),error=>{assert.equal(error.data.code,'CHECKOUT_STOCK_REJECTED');assert.equal(error.data.freshAcceptanceRequired,true);assert.match(error.data.message,/already reserved/);return true;});
+  assert.equal(StripeStub.lastCheckout,priorCheckout,'Stock rejection cannot create a payment session');
+  assert.equal(failedStockBooking.status,'cancelled','Actual cleanup releases the unbound pending order/credit reservation');
+  assert.deepEqual(stockCalls.map(c=>c.ref),['bookings:createPending','bookings:placeHolds','bookings:expireUnpaidPending']);
 
 
   const memory=createCallMemory();
@@ -216,9 +236,10 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     useRef:(initial)=>{const i=cursor++;if(!(i in slots))slots[i]={current:initial};return slots[i];},
     useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{},
   };
-  let priceAllowed=false,alignments=0;
+  let priceAllowed=false,alignments=0;const usageEvents=[];
   const {GafferSessionProvider}=load('src/components/gaffer/GafferSession.tsx',{
     react:React,'react/jsx-runtime':{jsx:(_type,props)=>props},
+    'convex/react':{useMutation:()=>async args=>{usageEvents.push(args)}},'@cvx/_generated/api':{api:refs},'@/lib/session':{getSessionId:()=> 'fixture-browser'},
     'next/navigation':{usePathname:()=>'/gear'},
     '@/components/gaffer/useGafferTools':{useGafferTools:()=>({clientTools:{add_to_basket:async()=> 'Added FX3'},dynamicVariables:variables,noteCustomerMessage:message=>{priceAllowed=asksForBetterPrice(message);},noteAgentAlignment:()=>{alignments++;},noteAgentMessage:()=>{},resetSpokenFocus:()=>{},resetPriceRequest:()=>{priceAllowed=false;}})},
     '@/components/gaffer/callContext':{pageBrief:()=>({intent:'gear',mode:'sales',brief:'Gear page',opening:'Hello there'}),isSignOff:text=>text==='goodbye'},
@@ -234,7 +255,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   first.cfg.onMessage({source:'user',message:'Could you do a better price?'});assert.equal(priceAllowed,true);
   variables={basket_count:'1',basket_items:'FX3 next Friday'};render();
   now+=600_000;first.cfg.onDisconnect();await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(sessions.length,2);assert.equal(render().state,'live');
+  assert.equal(sessions.length,2);assert.equal(render().state,'live');assert.deepEqual(usageEvents,[{type:'gaffer_connected',path:'/gear',sessionId:'fixture-browser'}],'Transport reconnection does not double count a conversation');
   const resumed=sessions[1];first.cfg.onAudioAlignment({chars:["X"],char_start_times_ms:[0],char_durations_ms:[100]});assert.equal(alignments,1,"Stale audio cannot refocus the new call");
   assert.equal(resumed.cfg.dynamicVariables.basket_count,'1','reconnect uses fresh basket');
   assert.match(resumed.cfg.overrides.agent.firstMessage,/carry on/);

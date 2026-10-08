@@ -15,6 +15,7 @@ import { query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
 import { checkAdminToken } from "./adminAuth";
+import { paginationOptsValidator } from "convex/server";
 
 const PAID_STATUSES = new Set(["confirmed", "active", "returned"]);
 
@@ -34,6 +35,8 @@ export function mapBookingForSync(
   listingById: Map<string, Doc<"listings">>,
   unitById: Map<string, Doc<"inventory_units">>,
   custById: Map<string, Doc<"customers">>,
+  reservations?: Doc<"reservations">[],
+  damageCases?: Doc<"rental_damage_cases">[],
 ) {
   const lineItems = (b.lineItems ?? []).map((li) => {
     const listing = listingById.get(String(li.listingId));
@@ -76,8 +79,9 @@ export function mapBookingForSync(
 
   return {
     id: String(b._id),
+    revision: b.rmv2Revision ?? 0,
     status: b.status,
-    customerName: cust?.name ?? null,
+    customerName: cust?.name ?? b.guestName ?? null,
     customerEmail: cust?.email ?? b.guestEmail ?? null,
     fulfilment: b.fulfilment,
     pickupTime: b.pickupTime ?? null,
@@ -92,6 +96,30 @@ export function mapBookingForSync(
     currency: b.currency ?? "GBP",
     createdAt: b._creationTime,
     lineItems,
+    ...(damageCases ? { damageCases: damageCases.map(c => ({
+      id: String(c._id), itemKey: c.itemKey, title: c.title, details: c.details,
+      status: c.status, openedAt: c.openedAt, closedAt: c.closedAt ?? null,
+      resolution: c.resolution ?? null, customerAccountId: c.accountId ? String(c.accountId) : null,
+      rmv2ItemId: c.inventoryUnitId ? unitById.get(String(c.inventoryUnitId))?.rmv2ItemId ?? null : null,
+    })) } : {}),
+    // This ledger was allocated at confirmation/change time. Catalogue edits
+    // must not re-decompose a booked kit or extend all components to one period.
+    ...(reservations?.length ? { physicalReservations: reservations
+      .filter(r => r.source === "site" && ["confirmed", "active", "returned"].includes(r.status))
+      .map(r => {
+        const unit = unitById.get(String(r.inventoryUnitId));
+        const matchingLines = (b.lineItems ?? []).filter(li => r.listingId && String(li.listingId) === String(r.listingId) && li.start <= r.start && li.end === r.end);
+        const returnTimes = matchingLines.map(li => li.returnTime === undefined ? b.returnTime ?? null : li.returnTime);
+        // No inferred time for an ambiguous/legacy allocation. Keep it occupied
+        // through the whole return day rather than releasing physical stock early.
+        const returnTime = returnTimes.length && returnTimes.every(t => typeof t === "string") ? [...returnTimes].sort().at(-1)! : null;
+        return { reservationId: String(r._id), inventoryUnitId: String(r.inventoryUnitId),
+          rmv2ItemId: unit?.rmv2ItemId ?? null, name: unit?.name ?? "Unmapped equipment",
+          sku: unit?.sku ?? null, qty: r.qty, start: r.start, end: r.end,
+          pickupTime: b.pickupTime ?? null, returnTime,
+          listingId: r.listingId ? String(r.listingId) : null,
+          status: r.status, hyggloProductId: unit?.hyggloProductId ?? null };
+      }) } : {}),
   };
 }
 
@@ -136,7 +164,11 @@ export const forRmv2SyncOne = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
+    return loadBookingProjection(ctx, b);
+  },
+});
 
+async function loadBookingProjection(ctx: any, b: Doc<"bookings">) {
     const listingById = new Map<string, Doc<"listings">>();
     const unitById = new Map<string, Doc<"inventory_units">>();
     for (const li of b.lineItems ?? []) {
@@ -153,12 +185,43 @@ export const forRmv2SyncOne = internalQuery({
       }
     }
 
+    const reservations: Doc<"reservations">[] = await ctx.db.query("reservations").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
+    for (const reservation of reservations) {
+      const key = String(reservation.inventoryUnitId);
+      if (!unitById.has(key)) {
+        const unit = await ctx.db.get(reservation.inventoryUnitId);
+        if (unit) unitById.set(key, unit);
+      }
+    }
     const custById = new Map<string, Doc<"customers">>();
     if (b.customerId) {
       const cust = await ctx.db.get(b.customerId);
       if (cust) custById.set(String(b.customerId), cust);
     }
 
-    return mapBookingForSync(b, listingById, unitById, custById);
+    const damageCases = await ctx.db.query("rental_damage_cases").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
+    for (const record of damageCases) if (record.inventoryUnitId && !unitById.has(String(record.inventoryUnitId))) {
+      const unit = await ctx.db.get(record.inventoryUnitId);
+      if (unit) unitById.set(String(unit._id), unit);
+    }
+    return mapBookingForSync(b, listingById, unitById, custById, reservations, damageCases);
+}
+
+/** Explicit lifecycle records in bounded pages; absence never means cancellation. */
+export const forRmv2SyncPage = query({
+  args: { token: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    if (!checkAdminToken(args.token)) throw Error("unauthorized");
+    if (args.paginationOpts.numItems > 100) throw Error("Sync pages are limited to 100 rentals");
+    const page = await ctx.db.query("bookings").order("desc").paginate(args.paginationOpts);
+    const bookings = [];
+    for (const booking of page.page) if (booking.status !== "pending_payment") bookings.push(await loadBookingProjection(ctx, booking));
+    return { authorized: true, bookings, isDone: page.isDone, continueCursor: page.continueCursor };
   },
 });
+
+export const forRmv2SyncBooking = query({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,args)=>{
+  if(!checkAdminToken(args.token))throw Error("unauthorized");
+  const booking=await ctx.db.get(args.bookingId);if(!booking)throw Error("Rental not found");
+  return loadBookingProjection(ctx,booking);
+} });

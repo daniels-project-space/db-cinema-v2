@@ -49,6 +49,12 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  await db.patch(b._id,{idVerifyStatus:'verified'});
  const acct=put('accounts',{email:args.customerEmail});put('sessions',{token:'agreement-renter',accountId:acct._id,expiresAt:Date.now()+600000});
  assert.equal(await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:'foreign'}),null);
+ assert.equal((await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:process.env.ADMIN_TOKEN})).number,`DBC-${b._id.slice(-8).toUpperCase()}`,'Administrators can open the linked receipt');
+ const unrelated=put('accounts',{email:'someone-else@agreement.invalid'});
+ put('sessions',{token:'unrelated-invoice-renter',accountId:unrelated._id,expiresAt:Date.now()+600000});
+ put('sessions',{token:'expired-invoice-renter',accountId:acct._id,expiresAt:Date.now()-1});
+ assert.equal(await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:'unrelated-invoice-renter'}),null,'Other renters cannot read invoices');
+ assert.equal(await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:'expired-invoice-renter'}),null,'Expired sign-in cannot read invoices');
  await db.patch(b.customerId,{name:'Changed profile name'});
  await db.patch(b._id,{returnTime:'20:00'});const invoice=await bookings.invoiceData.handler(ctx,{bookingId:b._id,token:'agreement-renter'});
  assert.equal(invoice.agreementSnapshot.particulars.customerName,'Original Renter');assert.equal(invoice.agreementSnapshot.particulars.returnTime,'18:00');

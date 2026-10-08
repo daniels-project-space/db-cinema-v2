@@ -1,5 +1,7 @@
+import { ConvexError } from "convex/values";
 const diditApi = "https://verification.didit.me";
-const unavailable = "Identity verification is temporarily unavailable. Please contact us before paying.";
+const unavailable = "Identity verification is temporarily unavailable. Please try again later or contact DB Cinema Rentals before paying.";
+const unavailableError=()=>new ConvexError({code:"VERIFICATION_UNAVAILABLE",message:unavailable});
 
 function usdUnits(value: unknown): number | null {
   const text = String(value);
@@ -20,7 +22,7 @@ export async function assertDiditCheckoutCapacity(
 ): Promise<void> {
   if (environment !== "live") return;
   const ceiling = usdUnits(maxPriceUsd);
-  if (ceiling === null || ceiling <= 0) throw new Error(unavailable);
+  if (ceiling === null || ceiling <= 0) throw unavailableError();
   try {
     const headers = { "x-api-key": apiKey };
     const [workflowsResponse, balanceResponse] = await Promise.all([
@@ -40,6 +42,6 @@ export async function assertDiditCheckoutCapacity(
         price === null || price <= 0 || price > ceiling || balance === null || balance < price)
       throw new Error("Didit workflow or credit unavailable");
   } catch {
-    throw new Error(unavailable);
+    throw unavailableError();
   }
 }

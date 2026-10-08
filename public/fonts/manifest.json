@@ -1,0 +1,45 @@
+{
+  "sourceCommit": "fcc54cb1898006f91c647c2ad8a01ea1de519169",
+  "source": "Successful Next 16.2.7 production build; five next/font/google configurations in src/app/layout.tsx",
+  "fontFaceCount": 43,
+  "assets": {
+    "04c5164763c40239-s.1kd-r_s9smv5m.woff2": "9343de2ca5d9549f792e7962375af8efb0f320c7643bfd36c884b5a30e5c396f",
+    "051742360c26797e-s.p.1bkzbscqrt8rl.woff2": "2c32b9b3ee358c119e210f6f5195f9bd34894d78a785ff2e95d60e718e400af4",
+    "0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2": "a0d054c4af557de20afd6ca59f47ab353bcaec49c63ff04b6c9d39d0f8910557",
+    "0e7b7e0b829e3eb9-s.2j75_l12byk_u.woff2": "889f979804fc6c2ddb3c9577805caf156bfd092a5b6e58d680535d65267b933e",
+    "1bffadaabf893a1e-s.3-6t-g6q0vh0a.woff2": "a28eb6d3ccb534ae0c94ca999371df024aab60b08c3c8a5720ee9e32fa0faaa2",
+    "26f284dcc38c84c0-s.3hlisc-pwq13z.woff2": "4995a9a43ac659ec32fcd8b463755cd6a07b31a6e6b3894a6a153b661cf490e2",
+    "28868e710e86be81-s.2eksvhm1z0jwa.woff2": "054c266fbb441ee059365dba0885d206f67ca05b375de869b88e02ebfccc9b9d",
+    "2bbe8d2671613f1f-s.0k62hbripvv8p.woff2": "8db00ff46c67b22cda8bed865acf7077651cac8d2841d5b40980556b48961931",
+    "2c55a0e60120577a-s.0-dom-5bn10r2.woff2": "fccca918fea40089dacadc7045861314d1a6bc91f1f323cc1eeb22ebcdb321b5",
+    "32687112bd2dd8db-s.1gepa_7fcx9fm.woff2": "d699664b145bfeeccc66a4cce7fa55e14eb63efd7ec6b0b2ec52e25dd98f3917",
+    "5476f68d60460930-s.2uwcyprjm3xu3.woff2": "46dd4cdca58c26ae87cc6927657bf83b2e8abfc39ffd0ab176e301a8d28d22bf",
+    "6a5386fd6038edbe-s.3_z45zcoc-xoz.woff2": "9c38cb2d0d2d93c1ee6e21fa78db76f13ea7e15e15cc64214c7ca89b6aaa35c4",
+    "7e7f32a39836f228-s.0-oo9_1x_xmvg.woff2": "49c3da6c9a2b279b0f1f860f5cfb1f5dc38d88a5c7be9c9b1837bbc4e3db6111",
+    "7ebf22b5a21034f8-s.p.3j3877k49yy0l.woff2": "6ee678c33f388dd7ba59700ebea635deb98821baafd817b09891f7927177f702",
+    "83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2": "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4",
+    "9c72aa0f40e4eef8-s.1y4-pdgsjb-pw.woff2": "aebf2ab4a4ce6810d73c1ac7be7cafb4e5ec4cee2d6db5fb3e09691747ec4bd6",
+    "9e9f04e3c37952ab-s.p.0pan85mumqyf3.woff2": "23aab0b2692a0c89eb7997d3c7cf5bda41276d6cd4ab6cc0edc3edfcece32b09",
+    "ad66f9afd8947f86-s.3lvt2whj97whp.woff2": "a2e2c783ca6f9c20486e81e72a279203e86730bbf8f01ff6a5ee9dbd09e1c271",
+    "ccf27e5a7366fb23-s.1icgra-w5i50b.woff2": "a8c4bd7cd7073180e740d2d83a616b5cb0845579b73207eeafeae8532e70c901",
+    "daf789e4474d0d90-s.07wt1b-68kohk.woff2": "ae1a8ac1c2899a66eed47a851201bb78a56664bf8da6d34a9ee226582d15ac19",
+    "e41d5df559864f9e-s.p.1g73gv09-xcb6.woff2": "60c06664b5a95c7de6cc3e00d1f9034d78bd1e40b564016b241674449a067d4d",
+    "fa39153a3fc630ba-s.36fqqi66-3tjb.woff2": "d44eb1936043a56038eb02dd70b243f379bef65783f94ec12f277550720411f1",
+    "fc0a7394b875fa43-s.2ytmazkdrg7t9.woff2": "a04fc7ed18a8037149ce0bfda58076709d8e0840e136ed00abbdc196b7992443"
+  },
+  "preloads": [
+    "/fonts/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+    "/fonts/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
+    "/fonts/9e9f04e3c37952ab-s.p.0pan85mumqyf3.woff2",
+    "/fonts/7ebf22b5a21034f8-s.p.3j3877k49yy0l.woff2",
+    "/fonts/e41d5df559864f9e-s.p.1g73gv09-xcb6.woff2",
+    "/fonts/051742360c26797e-s.p.1bkzbscqrt8rl.woff2"
+  ],
+  "licences": {
+    "inter": "https://github.com/google/fonts/blob/main/ofl/inter/OFL.txt",
+    "spacegrotesk": "https://github.com/google/fonts/blob/main/ofl/spacegrotesk/OFL.txt",
+    "anton": "https://github.com/google/fonts/blob/main/ofl/anton/OFL.txt",
+    "instrumentserif": "https://github.com/google/fonts/blob/main/ofl/instrumentserif/OFL.txt",
+    "jetbrainsmono": "https://github.com/google/fonts/blob/main/ofl/jetbrainsmono/OFL.txt"
+  }
+}

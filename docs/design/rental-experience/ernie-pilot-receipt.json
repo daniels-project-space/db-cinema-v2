@@ -1,0 +1,33 @@
+{
+  "checkedAt": "2026-10-07T22:26:10.932Z",
+  "status": 202,
+  "projectName": "db-cinema-rentals",
+  "output": {
+    "bucket": "re-db-cinema-rentals-1f518ftgxs",
+    "prefix": "projects/db-cinema-rentals"
+  },
+  "workflowId": "jn727e21bczgbhymp0xkdhb3398fvtf3",
+  "idempotencyKey": "dbc-equipment-pilot-v2:d0b99d862b4b1db36238017aef10650ddf367908ead86d3356582eb65f56e1f7",
+  "candidateIds": [
+    "kn79mc5rgqhsr64hbn58z737hs86b5ks"
+  ],
+  "maxCostUsdPerAttempt": 1,
+  "imageContractSha256": "2dbdf2fe0708c21eb4ec4828ba50244dca2369bc6fb9f0dbd5b7ac61166f570f",
+  "jobId": "jd78hms12daqs0e34hq67ffj1h8fv0g9",
+  "state": "completed",
+  "manifestSha256": "20a6ce2d61a495f35b8000d44670412e8eac96b3f97132b4ef59bd48089c2cd8",
+  "error": null,
+  "engineSourceRevision": "2e9fbb485bcbb776b7b4c24b4eb93ce8c7cc4f09",
+  "offlineEngineParserAccepted": true,
+  "offlineImageContractHashMatched": true,
+  "engineRetryLimitAtInspectedRevision": 5,
+  "budgetScope": "Per-attempt controller threshold; up to five attempts plus watchdog/provider billing overshoot. Not an aggregate hard quote.",
+  "acceptedForTiles": false,
+  "outputVerified": true,
+  "visualAccepted": false,
+  "visualStatus": "rejected-model-accuracy",
+  "gpuTerminated": true,
+  "recordedGpuSeconds": 207,
+  "recordedGpuCostUsd": 0.01650188611111111,
+  "latestStatusCheckedAt": "2026-10-07T22:30:04.263Z"
+}

@@ -11,6 +11,7 @@ export type EnrichedLine = {
   end: number;
   qty: number;
   lineTotal: number;
+  returnTime?: string | null;
   slug: string | null;
   heroImage: string | null;
   imageSources?: string[];
@@ -43,6 +44,8 @@ export type EnrichedBooking = {
   returnTime: string | null;
   idVerifyStatus: string;
   verificationNote?: string | null;
+  requiresDroneLicence?: boolean;
+  droneLicenceStatus?: string;
   reviewed: boolean;
   firstSlug: string | null;
   start: number | null;
@@ -122,8 +125,8 @@ export function countdown(start: number, now: number): string {
 // ── Rental progress stepper ───────────────────────────────────────
 export type Step = { label: string; state: "done" | "current" | "todo" };
 
-/** Four-stage lifecycle for the minimal progress bar above a tile. */
-export function bookingSteps(b: { status: string; idVerifyStatus: string; depositHoldAmount?: number; depositHoldStatus?: string | null }): { cancelled: boolean; steps: Step[] } {
+/** Saved lifecycle stages, including a separate card hold and manual drone review. */
+export function bookingSteps(b: { status: string; idVerifyStatus: string; depositHoldAmount?: number; depositHoldStatus?: string | null; requiresDroneLicence?: boolean; droneLicenceStatus?: string }): { cancelled: boolean; steps: Step[] } {
   const verificationLabel = b.idVerifyStatus === "verified" ? "ID + address verified"
     : b.idVerifyStatus === "processing" ? "Verification in progress"
     : b.idVerifyStatus === "manual_review" ? "Human review needed"
@@ -134,6 +137,7 @@ export function bookingSteps(b: { status: string; idVerifyStatus: string; deposi
   const labels = withHold
     ? ["Payment", "Card hold", verificationLabel, "Pickup", "Return"]
     : ["Confirmed", verificationLabel, "Pickup", "Return"];
+  if (b.requiresDroneLicence) labels.splice(labels.length - 2, 0, b.droneLicenceStatus === "approved" ? "Drone licence approved" : b.droneLicenceStatus === "review" ? "Drone licence review" : b.droneLicenceStatus === "requires_input" ? "Replace drone licence" : "Upload drone licence");
   if (b.status === "cancelled") {
     return { cancelled: true, steps: labels.map((label) => ({ label, state: "todo" as const })) };
   }
@@ -145,7 +149,7 @@ export function bookingSteps(b: { status: string; idVerifyStatus: string; deposi
   if (back) reached = labels.length;
   else if (out) reached = labels.length - 1;
   else if (booked && withHold && b.depositHoldStatus !== "held") reached = 1;
-  else if (booked && verified) reached = labels.length - 2;
+  else if (booked && verified) reached = b.requiresDroneLicence && b.droneLicenceStatus !== "approved" ? labels.length - 3 : labels.length - 2;
   else if (booked) reached = withHold ? 2 : 1;
   else reached = 0; // pending_payment → "Confirmed" is in progress
   const steps: Step[] = labels.map((label, i) => ({

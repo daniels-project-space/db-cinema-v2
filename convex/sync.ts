@@ -1,9 +1,10 @@
 import { action, internalMutation, mutation } from "./_generated/server";
 import { internal, api } from "./_generated/api";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE, categoryFor, isGenuineBundle } from "./lib/taxonomy";
 import { assertAdmin } from "./adminAuth";
 import { automaticMarketingFields } from "./lib/marketingInventory";
+import { inventoryCapacity } from "./lib/inventoryCapacity";
 
 /**
  * Canonical camera-MODEL identity for inventory reconciliation against the rental
@@ -48,31 +49,29 @@ function camModel(s: string): string | null {
   return null;
 }
 
-/**
- * RMv2 availability/catalog bridge.
- *
- * RMv2 (hearty-oyster-600) is the source of truth and allows anonymous
- * /api/query, so the storefront pulls the dbcinema catalog directly — no RMv2
- * code change. `poll-hygglo` keeps `hygglo_products` (incl. unavailableDates)
- * fresh upstream; this job mirrors it into our own listings/inventory ledger.
- *
- * Images: sync only ever writes `sourceImages` (the imgix hotlinks). The R2
- * migration owns `r2Images` and is NEVER touched here, so the 30-min cron can't
- * undo a migration. Readers prefer r2Images and fall back to sourceImages.
- */
-const RMV2_URL = "https://hearty-oyster-600.convex.cloud";
+/** Rental Manager is the stock/catalogue source. Server credentials are sent
+ * only to its configured Convex site endpoint, never to anonymous public queries.
+ * Sync owns sourceImages; accepted R2 imagery remains untouched. */
 const ACCOUNT = "dbcinema";
 
 async function rmv2Query(path: string, args: Record<string, unknown>) {
-  const res = await fetch(`${RMV2_URL}/api/query`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ path, args, format: "json" }),
+  const configured = process.env.RMV2_WEBHOOK_URL;
+  const secret = process.env.RMV2_WEBHOOK_SECRET;
+  if (!configured || !secret) throw Error("Rental Manager inventory connection is not configured");
+  let base: URL;
+  try { base = new URL(configured); } catch { throw Error("Invalid Rental Manager inventory connection"); }
+  if (base.protocol !== "https:" || !/^[a-z0-9-]+\.convex\.site$/.test(base.hostname) ||
+      base.username || base.password || base.port || base.search || base.hash || base.pathname !== "/dbcinema/booking-sync")
+    throw Error("Invalid Rental Manager inventory connection");
+  const res = await fetch(new URL("/dbcinema/storefront-read", base).href, {
+    method: "POST", redirect: "error", signal: AbortSignal.timeout(20000),
+    headers: { "content-type": "application/json", "x-dbcinema-sync-token": secret },
+    body: JSON.stringify({ path, args }),
   });
+  if (!res.ok) throw Error(`Rental Manager inventory read rejected (HTTP ${res.status})`);
   const json = await res.json();
-  if (json.status !== "success") {
-    throw new Error(`RMv2 ${path} failed: ${json.errorMessage ?? "unknown"}`);
-  }
+  if (json.protocolVersion !== 1 || json.status !== "success" || json.path !== path || !Array.isArray(json.value))
+    throw Error("Invalid Rental Manager inventory receipt");
   return json.value;
 }
 
@@ -98,12 +97,6 @@ function cleanSpecs(title: string, itemType: string): any {
   if (sp.coverage) c.coverage = sp.coverage;
   return c;
 }
-// leading "2x" / "2×" / "3 x" => bundle consumes that many physical units
-function parseQty(title: string): number {
-  const m = title.match(/^\s*(\d+)\s*[x×]/i);
-  const q = m ? parseInt(m[1], 10) : 1;
-  return Math.min(Math.max(q, 1), 6);
-}
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 
@@ -119,33 +112,27 @@ type RawProduct = {
   unavailableDates?: unknown[];
   listings?: { slug?: string; publicUrl?: string }[];
   masterItemId?: string;
+  stockMapping?: {version:number;complete:boolean;owned:boolean|null;components:{masterItemId:string;name:string;qty:number;quantityOwned:number;active:boolean;replacementCost:number}[]};
 };
 
 export const syncFromRmv2 = action({
   args: {},
   handler: async (ctx): Promise<{ listings: number; units: number }> => {
-    const products: RawProduct[] = await rmv2Query("hygglo_products:list", {
+    const products: RawProduct[] = await rmv2Query("hygglo_products:catalogueForStorefront", {
       accountSlug: ACCOUNT,
     });
-    const items: { _id: string; qty?: number }[] = await rmv2Query(
-      "items:listForReconcile",
-      {},
-    );
-    const qtyByItem = new Map(items.map((i) => [i._id, i.qty ?? 1]));
-
-    // What the storefront shows = the shop's REAL rentable inventory: not retired/display-only
-    // (isMarketingOnly), named, and priced. (isPublished is unreliable here — only ~3 of 405 carry
-    // it — so it would empty the catalogue; isMarketingOnly is the maintained "retired" signal.)
-    // Show everything the shop actually HAS. We no longer trust the RMv2 `isMarketingOnly`
-    // flag as a blanket hide — it's over-applied and was hiding ~168 real items (drones,
-    // lights, batteries, real camera kits). Instead we include all named+priced products and
-    // let reconcileCameras hide only true PHANTOMS (camera models not in the items ledger,
-    // e.g. Venice / Alexa / FX30 / A7 IV / A7R) + the local suppressed/display-glass overrides.
+    // Keep priced offerings browsable, including marketing-only demand items.
+    // Physical quantities come exclusively from valid, active owned master
+    // records; listing titles and manual marketing exemptions create no stock.
     const live = products.filter(
       (p) => p.name && (p.prices ?? []).some((x) => (x.pricePerDay ?? x.price ?? 0) > 0),
     );
 
     const payload = live.map((p) => {
+      const mapping = p.stockMapping;
+      if (!mapping || mapping.version !== 1 || typeof mapping.complete !== "boolean" ||
+          !(mapping.owned === null || typeof mapping.owned === "boolean") || !Array.isArray(mapping.components))
+        throw Error("Rental Manager catalogue lacks verified component mapping");
       const prices = p.prices ?? [];
       const pick = (d: number) => {
         const row = prices.find((x) => x.days === d);
@@ -164,14 +151,13 @@ export const syncFromRmv2 = action({
       const spec = DELIVERY_BY_TYPE[itemType];
       return {
         hyggloProductId: p.productId,
-        masterItemId: p.masterItemId,
-        masterQty: p.masterItemId ? qtyByItem.get(p.masterItemId) ?? 1 : 1,
+        stockComponents: mapping.components,
+        stockMappingStatus: mapping.complete && mapping.owned === true && mapping.components.length > 0 ? "complete" as const : mapping.owned === false ? "not_owned" as const : "incomplete" as const,
         slug: `${slugify(title)}-${p.productId}`,
         title,
         category: categoryFor(title),
         itemType,
         specs: cleanSpecs(title, itemType),
-        componentQty: parseQty(title),
         sizeScore: spec.sizeScore,
         weightKg: spec.weightKg,
         sourceImages,
@@ -182,7 +168,6 @@ export const syncFromRmv2 = action({
           day30: pick(30),
         },
         depositAmount: p.valuation ?? 0,
-        replacementCost: p.valuation ?? 0,
         minimumRentalDays: p.minimumRentalDays ?? 1,
         hyggloListingSlug: firstListing?.slug,
         publicUrl: firstListing?.publicUrl,
@@ -206,14 +191,13 @@ export const applyCatalog = internalMutation({
     items: v.array(
       v.object({
         hyggloProductId: v.number(),
-        masterItemId: v.optional(v.string()),
-        masterQty: v.number(),
+        stockMappingStatus: v.union(v.literal("complete"),v.literal("incomplete"),v.literal("not_owned")),
+        stockComponents: v.array(v.object({masterItemId:v.string(),name:v.string(),qty:v.number(),quantityOwned:v.number(),active:v.boolean(),replacementCost:v.number()})),
         slug: v.string(),
         title: v.string(),
         category: v.string(),
         itemType: v.string(),
         specs: v.optional(v.any()),
-        componentQty: v.number(),
         sizeScore: v.number(),
         weightKg: v.number(),
         sourceImages: v.array(v.string()),
@@ -224,7 +208,6 @@ export const applyCatalog = internalMutation({
           day30: v.optional(v.number()),
         }),
         depositAmount: v.number(),
-        replacementCost: v.number(),
         minimumRentalDays: v.number(),
         hyggloListingSlug: v.optional(v.string()),
         publicUrl: v.optional(v.string()),
@@ -233,7 +216,7 @@ export const applyCatalog = internalMutation({
     ),
   },
   handler: async (ctx, { items, fingerprint }) => {
-    const stateKey = "catalog-payload-v1";
+    const stateKey = "catalog-payload-v3-canonical-components";
     const state = fingerprint
       ? await ctx.db
           .query("rmv2_sync_state")
@@ -243,9 +226,36 @@ export const applyCatalog = internalMutation({
     if (fingerprint && state?.cursor === fingerprint) {
       return { listings: 0, units: 0, deactivated: 0, skipped: true };
     }
+    // Validate the complete source batch before mutating any stock. Listing
+    // contents describe demand, never evidence that we own that many units.
+    for (const item of items) {
+      if (!Array.isArray(item.stockComponents) || !["complete","incomplete","not_owned"].includes(item.stockMappingStatus))
+        throw Error("Incomplete source stock mapping contract");
+      const seen = new Set<string>();
+      for (const component of item.stockComponents) {
+        if (!component.masterItemId.trim() || !component.name.trim() || seen.has(component.masterItemId) ||
+            !Number.isSafeInteger(component.qty) || component.qty < 1 ||
+            !Number.isSafeInteger(component.quantityOwned) || component.quantityOwned < 0 ||
+            !Number.isFinite(component.replacementCost) || component.replacementCost < 0)
+          throw Error("Invalid source component mapping");
+        seen.add(component.masterItemId);
+      }
+      if (item.stockMappingStatus === "complete" && !item.stockComponents.length)
+        throw Error("A complete stock mapping requires physical components");
+    }
+    const physical = new Map<string,string>();
+    for (const item of items) for (const component of item.stockComponents ?? []) {
+      const value = JSON.stringify([component.name,component.quantityOwned,component.active,component.replacementCost]);
+      if (physical.has(component.masterItemId) && physical.get(component.masterItemId) !== value)
+        throw Error("Conflicting source physical pool records");
+      physical.set(component.masterItemId,value);
+    }
     let unitCount = 0;
     let listingCount = 0;
     const unitCache = new Map<string, string>();
+    // Once shared stock is established it owns physical capacity. A slower
+    // catalogue response may update descriptions/BOM, never restore old stock.
+    const sharedStock = await ctx.db.query("rmv2_sync_state").withIndex("by_key",q=>q.eq("key","shared-stock-v1")).first();
 
     async function ensureUnit(
       key: string,
@@ -255,6 +265,7 @@ export const applyCatalog = internalMutation({
       replacementCost: number,
       rmv2ItemId: string | undefined,
       hyggloProductId: number,
+      active = true,
     ): Promise<string> {
       if (unitCache.has(key)) return unitCache.get(key)!;
       const existing = await ctx.db
@@ -265,22 +276,22 @@ export const applyCatalog = internalMutation({
       if (existing) {
         await ctx.db.patch(existing._id, {
           name,
-          quantityOwned: Math.max((existing as any).quantityOwned ?? 0, qty),
+          quantityOwned: sharedStock ? existing.quantityOwned : qty,
           replacementCost,
           rmv2ItemId,
           hyggloProductId,
-          active: true,
+          active: sharedStock ? existing.active : active,
         });
         id = existing._id;
       } else {
         id = await ctx.db.insert("inventory_units", {
           sku,
           name,
-          quantityOwned: qty,
+          quantityOwned: sharedStock ? 0 : qty,
           replacementCost,
           rmv2ItemId,
           hyggloProductId,
-          active: true,
+          active: sharedStock ? false : active,
         });
         unitCount++;
       }
@@ -289,17 +300,13 @@ export const applyCatalog = internalMutation({
     }
 
     for (const it of items) {
-      const unitKey = it.masterItemId ?? `prod-${it.hyggloProductId}`;
-      const sku = it.masterItemId ? `mi-${it.masterItemId}` : `prod-${it.hyggloProductId}`;
-      const unitId = await ensureUnit(
-        unitKey,
-        sku,
-        it.title,
-        Math.max(it.masterQty, it.componentQty ?? 1),
-        it.replacementCost,
-        it.masterItemId,
-        it.hyggloProductId,
-      );
+      const components: {inventoryUnitId:any;qty:number}[] = [];
+      for (const component of it.stockComponents) {
+        const unitId = await ensureUnit(component.masterItemId, `mi-${component.masterItemId}`,
+          component.name, component.quantityOwned, component.replacementCost,
+          component.masterItemId, it.hyggloProductId, component.active);
+        components.push({inventoryUnitId:unitId,qty:component.qty});
+      }
 
       const existing = await ctx.db
         .query("listings")
@@ -317,7 +324,8 @@ export const applyCatalog = internalMutation({
         sourceImages: it.sourceImages,
         pricing: it.pricing,
         depositAmount: it.depositAmount,
-        components: [{ inventoryUnitId: unitId as any, qty: it.componentQty }],
+        components,
+        stockMappingStatus: it.stockMappingStatus,
         hyggloListingSlug: it.hyggloListingSlug,
         hyggloProductId: it.hyggloProductId,
         unavailableDates: it.unavailableDates,
@@ -333,7 +341,9 @@ export const applyCatalog = internalMutation({
         // in the live set — so the bot/assemble/storefront never show it.
         const patch: any = (existing as any).suppressed ? { ...synced, active: false } : synced;
         // A retitled/replaced configuration must not inherit the old package's packing list.
-        if (existing.title !== it.title || existing.hyggloProductId !== it.hyggloProductId)
+        const identity = (components: {inventoryUnitId:any;qty:number}[]) => JSON.stringify(components.map(c => [String(c.inventoryUnitId),c.qty]).sort((a,b) => String(a[0]).localeCompare(String(b[0]))));
+        if (existing.title !== it.title || existing.hyggloProductId !== it.hyggloProductId ||
+            identity(existing.components) !== identity(synced.components))
           patch.rentalContents = undefined;
         await ctx.db.patch(existing._id, { ...patch, ...automaticMarketingFields(synced, existing) });
       } else {
@@ -342,8 +352,7 @@ export const applyCatalog = internalMutation({
       }
     }
 
-    // PRUNE: deactivate sync-managed listings no longer in the live set (now marketing-only or
-    // removed at source) so the storefront mirrors the shop's real inventory. Reversible — if an
+    // PRUNE: deactivate sync-managed listings no longer priced/named or removed at source so the storefront mirrors the shop's real inventory. Reversible — if an
     // item is un-retired upstream it re-enters `live` and is re-activated next sync.
     const liveSlugs = new Set(items.map((i) => i.slug));
     const activeRows = await ctx.db
@@ -431,41 +440,33 @@ export const applyDemand = internalMutation({
 });
 
 // ──────────────────────────────────────────────────────────────────────────
-//  Hygglo reservation mirror — cross-check active + upcoming Hygglo rentals so
-//  storefront availability reflects what's already booked on Hygglo (by unit +
-//  dates + qty). Source of truth: RMv2 reservations:listForReconcile(dbcinema).
+//  Shared stock mirror — all upstream accounts, repairs and owner blocks.
+//  Website reservations stay local; their manager copies are excluded upstream.
 // ──────────────────────────────────────────────────────────────────────────
-const DAY_MS = 86400000;
-const dms = (iso?: string) => (iso ? Date.parse(iso + "T00:00:00Z") : NaN);
 
 export const syncHyggloReservations = action({
   args: {},
   handler: async (ctx): Promise<{ mirrored: number; rows: number }> => {
-    const all: any[] = await rmv2Query("reservations:listActiveForStorefront", {
-      account_slug: ACCOUNT,
-    });
-    const today = new Date().toISOString().slice(0, 10);
-    const live = all.filter(
-      (r) =>
-        !r.is_obsolete &&
-        !["cancelled", "canceled", "declined"].includes(String(r.status)) &&
-        r.order_step !== "CANCELED" &&
-        (r.end_date || r.return_date || r.start_date || "") >= today,
-    );
-    const rows = live.map((r) => {
-      const start = dms(r.start_date || r.pickup_date);
-      const end = dms(r.end_date || r.return_date || r.start_date);
-      const resolved = Array.isArray(r.resolved_items) ? r.resolved_items : [];
-      const items = resolved.length
-        ? resolved.map((i: any) => ({ itemId: i.item_id, qty: Math.round(i.qty || 1) }))
-        : (Array.isArray(r.items) ? r.items : []).map((i: any) => ({
-            productId: typeof i.product_id === "number" ? i.product_id : undefined,
-            qty: Math.round(i.qty || 1),
-          }));
-      return { ref: String(r.hygglo_order_id ?? r._id), start, end, items };
-    }).filter((r) => !isNaN(r.start) && !isNaN(r.end));
+    const value:any[] = await rmv2Query("items:sharedStockForStorefront", {});
+    if(value.length!==1 || value[0]?.version!==1 || !Number.isSafeInteger(value[0].checkedAt) || !Array.isArray(value[0].units))
+      throw Error("Invalid Rental Manager shared stock snapshot");
+    return await ctx.runMutation(internal.sync.applySharedStock, {snapshot:value[0]});
+  },
+});
 
-    return await ctx.runMutation(internal.sync.applyHygglo, { rows });
+/** A cart visit reads current shared stock before offering checkout. The query
+ * after the atomic import also includes website/subscription reservations. */
+export const refreshCartStock = action({
+  args:{items:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number()}))},
+  handler:async(ctx,{items}):Promise<{checkedAt:number;availability:Record<string,{available:number;demanded:number;ok:boolean}>}>=>{
+    if(!items.length||items.length>100||items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*86400000))throw Error("Invalid basket stock request");
+    try {
+      await ctx.runAction(api.sync.syncHyggloReservations,{});
+      const availability=await ctx.runQuery(api.availability.forCart,{items});
+      return {checkedAt:Date.now(),availability};
+    } catch {
+      throw new ConvexError({code:"STOCK_CHECK_UNAVAILABLE",message:"We couldn't check equipment availability. Please try again before checkout."});
+    }
   },
 });
 
@@ -494,86 +495,53 @@ export const refreshDemandFromRmv2 = action({
   },
 });
 
-export const applyHygglo = internalMutation({
-  args: {
-    rows: v.array(
-      v.object({
-        ref: v.string(),
-        start: v.number(),
-        end: v.number(),
-        items: v.array(
-          v.object({
-            itemId: v.optional(v.string()),
-            productId: v.optional(v.number()),
-            qty: v.number(),
-          }),
-        ),
-      }),
-    ),
-  },
-  handler: async (ctx, { rows }) => {
-    // Resolve only the handful of units present in live reservations. The old
-    // implementation collected every unit and every fat listing each cycle.
-    const byRmv2 = new Map<string, any>();
-    const byProduct = new Map<number, any>();
-    async function resolveUnit(itemId?: string, productId?: number) {
-      if (itemId) {
-        if (!byRmv2.has(itemId)) {
-          const unit = await ctx.db
-            .query("inventory_units")
-            .withIndex("by_rmv2ItemId", (q) => q.eq("rmv2ItemId", itemId))
-            .first();
-          byRmv2.set(itemId, unit?._id ?? null);
-        }
-        const id = byRmv2.get(itemId);
-        if (id) return id;
-      }
-      if (productId) {
-        if (!byProduct.has(productId)) {
-          const unit = await ctx.db
-            .query("inventory_units")
-            .withIndex("by_hyggloProductId", (q) => q.eq("hyggloProductId", productId))
-            .first();
-          let id = unit?._id ?? null;
-          if (!id) {
-            const listing = await ctx.db
-              .query("listings")
-              .withIndex("by_hyggloProductId", (q) => q.eq("hyggloProductId", productId))
-              .first();
-            id = listing?.components[0]?.inventoryUnitId ?? null;
-          }
-          byProduct.set(productId, id);
-        }
-        return byProduct.get(productId) ?? null;
-      }
-      return null;
-    }
-
-    // clear previous hygglo mirror
-    const existing = await ctx.db
-      .query("reservations")
-      .withIndex("by_source", (q) => q.eq("source", "hygglo"))
-      .collect();
-    for (const r of existing) await ctx.db.delete(r._id);
-
-    let mirrored = 0;
-    for (const row of rows) {
-      for (const it of row.items) {
-        const unitId = await resolveUnit(it.itemId, it.productId);
-        if (!unitId) continue;
-        await ctx.db.insert("reservations", {
-          inventoryUnitId: unitId,
-          start: row.start,
-          end: row.end,
-          qty: it.qty,
-          source: "hygglo",
-          status: "confirmed",
-          externalRef: row.ref,
-        });
-        mirrored++;
+/** Atomically replace shared occupancy and current capacity. Older parallel
+ * responses cannot erase a newer source snapshot or release its held units. */
+export const applySharedStock = internalMutation({
+  args:{snapshot:v.object({version:v.number(),checkedAt:v.number(),units:v.array(v.object({masterItemId:v.string(),active:v.boolean(),quantityOwned:v.number(),windows:v.array(v.object({start:v.number(),end:v.number(),qty:v.number()}))}))})},
+  handler:async(ctx,{snapshot})=>{
+    const key="shared-stock-v1", seen=new Set<string>();
+    if(snapshot.version!==1 || !Number.isSafeInteger(snapshot.checkedAt) || snapshot.checkedAt<1 || snapshot.checkedAt>Date.now()+60000)
+      throw Error("Invalid shared stock snapshot time");
+    for(const unit of snapshot.units) {
+      if(!unit.masterItemId.trim() || seen.has(unit.masterItemId) || !Number.isSafeInteger(unit.quantityOwned) || unit.quantityOwned<0 || (!unit.active&&unit.quantityOwned!==0))
+        throw Error("Invalid shared physical pool");
+      seen.add(unit.masterItemId);let priorEnd=-Infinity;
+      for(const window of unit.windows) {
+        if(!Number.isSafeInteger(window.start)||!Number.isSafeInteger(window.end)||window.end<=window.start||window.start<priorEnd||!Number.isSafeInteger(window.qty)||window.qty<1)
+          throw Error("Invalid shared occupancy windows");
+        priorEnd=window.end;
       }
     }
-    return { mirrored, rows: rows.length };
+    const fingerprint=JSON.stringify(snapshot.units), state=await ctx.db.query("rmv2_sync_state").withIndex("by_key",q=>q.eq("key",key)).first();
+    const prior=state?.cursor?JSON.parse(state.cursor):null;
+    if(prior && snapshot.checkedAt<prior.checkedAt)throw Error("Stale shared stock snapshot");
+    if(prior && snapshot.checkedAt===prior.checkedAt) {
+      if(prior.fingerprint!==fingerprint)throw Error("Conflicting shared stock snapshot");
+    }
+    const resolved=[];
+    for(const source of snapshot.units) {
+      const unit=await ctx.db.query("inventory_units").withIndex("by_rmv2ItemId",q=>q.eq("rmv2ItemId",source.masterItemId)).unique();
+      if(unit)resolved.push({source,unit});
+    }
+    const removed=(await ctx.db.query("inventory_units").collect()).filter(unit=>unit.rmv2ItemId&&!seen.has(unit.rmv2ItemId));
+    const old=await ctx.db.query("reservations").withIndex("by_source",q=>q.eq("source","hygglo")).collect();
+    const signature=(rows:any[])=>JSON.stringify(rows.map(r=>[String(r.inventoryUnitId),r.start,r.end,r.qty,r.endExclusive===true,r.status]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
+    const expected=resolved.flatMap(({source,unit})=>source.windows.map(window=>({inventoryUnitId:unit._id,...window,endExclusive:true,status:"confirmed"})));
+    const intact=signature(old)===signature(expected)&&resolved.every(({source,unit})=>unit.quantityOwned===source.quantityOwned&&unit.active===source.active)&&removed.every(unit=>unit.quantityOwned===0&&unit.active===false);
+    if(prior&&snapshot.checkedAt===prior.checkedAt&&intact)return {mirrored:0,rows:snapshot.units.length,alreadyApplied:true};
+    for(const row of old)await ctx.db.delete(row._id);
+    for(const unit of removed)await ctx.db.patch(unit._id,{quantityOwned:0,active:false});
+    let mirrored=0;
+    for(const {source,unit} of resolved) {
+      await ctx.db.patch(unit._id,{quantityOwned:source.quantityOwned,active:source.active});
+      for(const [index,window] of source.windows.entries()) {
+        await ctx.db.insert("reservations",{inventoryUnitId:unit._id,...window,endExclusive:true,source:"hygglo",status:"confirmed",externalRef:`shared:${source.masterItemId}:${index}`});mirrored++;
+      }
+    }
+    const record={key,lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,fingerprint})};
+    if(state)await ctx.db.patch(state._id,record);else await ctx.db.insert("rmv2_sync_state",record);
+    return {mirrored,rows:snapshot.units.length};
   },
 });
 
@@ -716,15 +684,21 @@ export const applyClassification = mutation({
 });
 
 
+/** Legacy maintenance name retained for callers, but listing demand cannot
+ * manufacture physical stock. Report shortages for owner reconciliation. */
 export const fixUnitQty = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const ls = await ctx.db.query("listings").collect();
-    const need = new Map();
-    for (const l of ls) for (const c of (l.components || [])) { const q = c.qty || 1; need.set(c.inventoryUnitId, Math.max(need.get(c.inventoryUnitId) || 0, q)); }
-    let n = 0;
-    for (const [uid, q] of need) { const u: any = await ctx.db.get(uid as any); if (u && (u.quantityOwned ?? 1) < q) { await ctx.db.patch(uid as any, { quantityOwned: q }); n++; } }
-    return { bumped: n };
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await assertAdmin(ctx, token, "sync.fixUnitQty");
+    const listings = await ctx.db.query("listings").collect();
+    const shortages: { listingId: string; inventoryUnitId: string; required: number; owned: number | null }[] = [];
+    for (const listing of listings) for (const component of listing.components) {
+      const unit = await ctx.db.get(component.inventoryUnitId);
+      const owned = inventoryCapacity(unit);
+      if (owned === null || !Number.isSafeInteger(component.qty) || component.qty < 1 || owned < component.qty)
+        shortages.push({ listingId: String(listing._id), inventoryUnitId: String(component.inventoryUnitId), required: component.qty, owned });
+    }
+    return { bumped: 0, shortages };
   },
 });
 

@@ -58,6 +58,12 @@ export function RentalAdditionApproval({
       setBusy(false);
     }
   }
+  if (["withdrawing", "refund_pending", "refund_failed"].includes(r.status)) return (
+    <aside role="status" className="border-b border-amber-400/15 bg-amber-400/[0.04] px-5 py-4">
+      <p className="text-sm font-medium text-white/85">Item addition withdrawn · {r.qty}× {rentalTitle(r.title)}</p>
+      <p className="mt-1 text-xs leading-relaxed text-white/50">{r.status === "refund_failed" ? "The refund needs the team’s attention. Please contact us in this rental conversation." : "We’re confirming the payment and any refund to your original payment method. This item will not be added while withdrawal is processing."}</p>
+    </aside>
+  );
   return (
     <aside className="border-b border-amber-400/15 bg-amber-400/[0.04] px-5 py-4">
       <p className="text-sm font-medium text-white/85">

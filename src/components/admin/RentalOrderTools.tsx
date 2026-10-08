@@ -1,8 +1,11 @@
 "use client";
+import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { useRef, useState, useEffect } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { ReturnRentalForm } from "./ReturnRentalForm";
+import { ReturnInspectionHistory } from "./ReturnInspectionHistory";
+import { RentalManagerDelivery } from "./RentalManagerDelivery";
 import { SmartImage } from "@/components/SmartImage";
 import { rentalTitle } from "@/lib/rentalPresentation";
 import { formatGbp } from "@/lib/pricing";
@@ -181,9 +184,9 @@ export function RentalOrderTools({
     setBusy(true);
     setError("");
     try {
-      await withdraw({ token, id: id as any });
+      const result = await withdraw({ token, id: id as any });
       setResult(
-        "The item proposal has been closed; any captured proposal payment is being refunded.",
+        result.needsAttention ? "Withdrawal saved. The refund needs attention; the rental remains locked until it is resolved." : result.pending ? "Withdrawal saved. The refund is still processing; the rental remains locked until the bank confirms it." : "The item proposal is closed. Any captured proposal payment has been refunded.",
       );
     } catch (e: any) {
       setError(e.message);
@@ -193,6 +196,11 @@ export function RentalOrderTools({
   }
   return (
     <div data-testid="owner-rental-tools">
+      <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">
+        <div><dt>Booking total</dt><dd>{formatGbp(b.total)}</dd></div>
+        <div><dt>Refundable deposit</dt><dd>{formatGbp(b.depositAmount ?? 0)}</dd></div>
+        <div><dt>Card authorisation</dt><dd>{formatGbp(b.depositHoldAmount ?? 0)}</dd></div>
+      </dl>
       <p className="mb-2 text-[10px] uppercase tracking-[.16em] text-white/35">Manage rental · owner only</p>
       <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Owner rental controls">
         {b.status === "confirmed" && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision || !!b.returnDecision} onClick={async () => {
@@ -277,6 +285,8 @@ export function RentalOrderTools({
           )}
       </div>
       {showReturn && returnOpen && <ReturnRentalForm booking={b} token={token} onClose={() => setReturnOpen(false)} />}
+      {showReturn && (b.returnDecision || b.status === "returned") && <ReturnInspectionHistory token={token} bookingId={bookingId} />}
+      <RentalManagerDelivery token={token} bookingId={bookingId} />
       {additions
         .filter(
           (r) =>

@@ -14,9 +14,12 @@ import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecove
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRenterExposure, renterExposure, replacementValues, attachRenterPerson } from "./lib/rentalExposure";
 import { securityReady } from "../shared/verificationProgress";
+import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerification";
+import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
+import { listingImages } from "./lib/catalogImages";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
-import { assertRentalInventory } from "./lib/rentalInventory";
-import { rentalUnavailable } from "./lib/marketingInventory";
+import { assertRentalInventory, type RentalInventoryCache } from "./lib/rentalInventory";
+import { reservationPaymentUnresolved } from "./lib/reservationPayment";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
 import { postRentalMessage } from "./lib/rentalChat";
@@ -28,7 +31,12 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { peak, type Iv } from "./availability";
+import { paginationOptsValidator } from "convex/server";
+import { belongsToRentalAccount, accountForRental } from "./lib/rentalAccount";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
+import { inspectionInput } from "./lib/returnInspectionFields";
+import { returnInspectionSchedule } from "./lib/returnInspection";
+import { normalizeReturnInspection } from "../shared/returnInspection";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
@@ -84,6 +92,20 @@ async function releaseReferral(ctx:any,b:any){
  if(b.referralRewardId){const r=await ctx.db.get(b.referralRewardId);if(r?.state==="available"&&r.reservedBookingId===b._id)await ctx.db.patch(r._id,{reservedBookingId:undefined});}
 }
 
+/** Private lookup for an exact submitted checkout retry. No new booking,
+ * stock or credit is created, and older attempts without this receipt keep
+ * their existing reconciliation path. */
+export const checkoutAttempt = internalQuery({
+  args:{requestId:v.string(),checkoutInputFingerprint:v.string()},
+  handler:async(ctx,a)=>{
+    const b=await ctx.db.query("bookings").withIndex("by_agreement_request",q=>q.eq("agreementRequestId",a.requestId)).unique();
+    if(!b?.checkoutInputFingerprint)return null;
+    if(b.checkoutInputFingerprint!==a.checkoutInputFingerprint)throw Error("This acceptance attempt belongs to different booking details. Review and accept again.");
+    if(b.status!=="pending_payment")throw Error("This checkout has completed or closed. Use the existing booking or contact us.");
+    return {bookingId:b._id,sessionId:b.stripeCheckoutSessionId,membershipCheckoutId:b.membershipCheckoutId};
+  },
+});
+
 export const createPending = internalMutation({
   args: {
     pricingVersion:v.optional(v.string()),benefitKind:v.optional(v.string()),
@@ -121,6 +143,7 @@ export const createPending = internalMutation({
     currency: v.string(),
     agreementName: v.optional(v.string()),
     agreementRequestId: v.optional(v.string()),
+    checkoutInputFingerprint: v.optional(v.string()),
     securityHoldConsent: v.optional(v.boolean()),
     laterChargeConsent: v.optional(v.boolean()),
     agreementDocs: v.optional(
@@ -137,6 +160,7 @@ export const createPending = internalMutation({
       const owner=await ctx.db.get(a.accountId);
       if(!owner||owner.blockedAt!=null||owner.email!==a.customerEmail.trim().toLowerCase())throw Error("Rental account does not match the checkout customer.");
     }
+    if(a.checkoutInputFingerprint&&!/^[a-f0-9]{64}$/.test(a.checkoutInputFingerprint))throw Error("Invalid checkout receipt.");
     const newAgreement = a.agreementDocs?.some(d => d.version === LEGAL_VERSION);
     const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
     if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
@@ -302,6 +326,7 @@ export const createPending = internalMutation({
       agreementSnapshot,
       agreementRequestId: a.agreementRequestId,
       agreementRequestFingerprint,
+      checkoutInputFingerprint:a.checkoutInputFingerprint,
       securityHoldConsentAt: a.securityHoldConsent ? Date.now() : undefined,
       laterChargeConsentAt: a.laterChargeConsent ? Date.now() : undefined,
       agreementDocs: a.agreementDocs,
@@ -320,73 +345,45 @@ export const createPending = internalMutation({
   },
 });
 
-/** Soft holds: reserve the units for a TTL while the renter is at checkout, so
- *  two people can't grab the last unit at once. Released on confirm or by cron. */
+/** Transactional stock reservation for an unpaid checkout. Replays preserve
+ * the original rows/expiry; changed or incomplete reservations need repair. */
 export const placeHolds = internalMutation({
   args: { bookingId: v.id("bookings"), ttlMs: v.number() },
   handler: async (ctx, { bookingId, ttlMs }) => {
+    if (!Number.isSafeInteger(ttlMs) || ttlMs < 1 || ttlMs > 35 * 60 * 1000)
+      throw Error("Invalid checkout reservation duration");
     const booking = await ctx.db.get(bookingId);
-    if (!booking) return;
-    const now = Date.now();
-    const expires = now + ttlMs;
-    const ACTIVE = new Set(["confirmed", "active", "hold"]);
+    if (!booking || booking.status !== "pending_payment" || !booking.lineItems.length)
+      throw Error("Only an unpaid rental with equipment can reserve checkout stock");
 
-    // Gather this booking's demand per physical unit (BOM-aware) + the rows to insert.
-    const demandByUnit = new Map<string, { ivs: Iv[]; title: string }>();
-    const toInsert: { unitId: any; listingId: any; start: number; end: number; qty: number }[] = [];
-    for (const li of booking.lineItems) {
-      const listing = await ctx.db.get(li.listingId);
-      if (!listing || rentalUnavailable(listing) || !listing.components.length)
-        throw Error("An item is unavailable. Review your basket and choose an alternative.");
-      for (const comp of listing.components) {
-        const uid = String(comp.inventoryUnitId);
-        const qty = (comp.qty || 1) * (li.qty || 1);
-        const d = demandByUnit.get(uid) ?? { ivs: [], title: li.title };
-        d.ivs.push({ start: li.start, end: li.end, qty });
-        demandByUnit.set(uid, d);
-        toInsert.push({ unitId: comp.inventoryUnitId, listingId: li.listingId, start: li.start, end: li.end, qty });
-      }
+    // Validate the complete order in this serializable mutation, using the same
+    // blocked dates, component quantities and real stock records as the cart.
+    const cache: RentalInventoryCache = { records: new Map(), reservations: new Map() };
+    await assertRentalInventory(ctx, booking.lineItems, bookingId, cache);
+    const requested = booking.lineItems.flatMap(li => {
+      const listing = cache.records.get(String(li.listingId));
+      return listing.components.map((comp: { inventoryUnitId: any; qty: number }) => ({
+        inventoryUnitId: comp.inventoryUnitId, listingId: li.listingId,
+        start: li.start, end: li.end, qty: comp.qty * li.qty,
+      }));
+    });
+    const current = await ctx.db.query("reservations")
+      .withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
+    if (current.some(r => r.status === "confirmed" || r.status === "active"))
+      throw Error("This checkout's stock is already committed; reconcile the original rental");
+    const holds = current.filter(r => r.status === "hold");
+    if (holds.length) {
+      const fingerprint = (rows: { inventoryUnitId: unknown; listingId?: unknown; start: number; end: number; qty: number }[]) => JSON.stringify(rows.map(r =>
+        JSON.stringify([String(r.inventoryUnitId), r.listingId ? String(r.listingId) : null, r.start, r.end, r.qty])).sort());
+      if (fingerprint(holds) !== fingerprint(requested))
+        throw Error("This checkout's inventory reservation has changed; reconcile or cancel the original checkout");
+      return { created: 0, alreadyReserved: true };
     }
-
-    // ATOMIC, unit-aware re-check: existing ACTIVE (non-expired) reservations + this booking's
-    // demand must not exceed owned stock for ANY shared unit. This runs inside the serializable
-    // hold-insert mutation, so two concurrent checkouts for the last unit cannot both pass
-    // (closes the action-level TOCTOU), and it catches cross-listing shared-unit demand.
-    for (const [uid, d] of demandByUnit) {
-      const unit: any = await ctx.db.get(uid as any);
-      const owned = unit?.quantityOwned ?? 1;
-      const lo = Math.min(...d.ivs.map((i) => i.start));
-      const hi = Math.max(...d.ivs.map((i) => i.end));
-      const existing: Iv[] = [];
-      const rows = await ctx.db.query("reservations")
-        .withIndex("by_unit", (q) => q.eq("inventoryUnitId", uid as any)).collect();
-      for (const r of rows) {
-        if (!ACTIVE.has(r.status) || r.start > hi || r.end < lo || r.bookingId === bookingId) continue;
-        if (r.status === "hold" && (r.holdExpiresAt ?? 0) < now) {
-          const pendingBooking = r.bookingId ? await ctx.db.get(r.bookingId) : null;
-          if (pendingBooking?.status !== "pending_payment") continue;
-        }
-        existing.push({ start: r.start, end: r.end, qty: r.qty || 1 });
-      }
-      if (peak([...existing, ...d.ivs]) > owned) {
-        throw new Error(`"${d.title}" was just taken for those dates — please adjust your dates or remove it.`);
-      }
-    }
-
-    // All clear → place the soft holds.
-    for (const ins of toInsert) {
-      await ctx.db.insert("reservations", {
-        inventoryUnitId: ins.unitId,
-        listingId: ins.listingId,
-        bookingId,
-        start: ins.start,
-        end: ins.end,
-        qty: ins.qty,
-        source: "site",
-        status: "hold",
-        holdExpiresAt: expires,
-      });
-    }
+    const expires = Date.now() + ttlMs;
+    for (const row of requested) await ctx.db.insert("reservations", {
+      ...row, bookingId, source: "site", status: "hold", holdExpiresAt: expires,
+    });
+    return { created: requested.length, alreadyReserved: false };
   },
 });
 
@@ -401,10 +398,8 @@ export const releaseExpiredHolds = internalMutation({
     let n = 0;
     for (const h of holds)
       if ((h.holdExpiresAt ?? 0) < now) {
-        const booking = h.bookingId ? await ctx.db.get(h.bookingId) : null;
-        // A pending payment can already be paid at Stripe while its webhook is
-        // delayed. Only the Stripe reconciliation action may close that booking.
-        if (booking?.status === "pending_payment") continue;
+        // Checkout and amendment outcomes require provider reconciliation, not TTL.
+        if (await reservationPaymentUnresolved(ctx, h)) continue;
         await ctx.db.delete(h._id);
         n++;
       }
@@ -434,6 +429,7 @@ export const expireUnpaidPending = internalMutation({
   handler: async (ctx, { bookingId, sessionId }) => {
     const booking = await ctx.db.get(bookingId);
     if (!booking || (booking.activeAdditionId || booking.activeExtensionId) || booking.status !== "pending_payment" ||
+        (!sessionId && booking.stripePaymentIntentId) ||
         (booking.stripeCheckoutSessionId ?? undefined) !== sessionId) return false;
     const res = await ctx.db.query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId)).collect();
@@ -562,7 +558,7 @@ export const confirm = internalMutation({
     await ctx.scheduler.runAfter(0, internal.invoice.invoiceEmail, { bookingId });
     await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
     await ctx.scheduler.runAfter(0, internal.didit.reuseVerification, { bookingId });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
+    await queueRmv2Sync(ctx, bookingId);
     return { already: false };
   },
 });
@@ -617,9 +613,38 @@ export const attachAddon = internalMutation({
   for(const comp of listing.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:a.listingId,bookingId:b._id,start:a.start,end:a.end,qty:comp.qty,source:"site",status:b.status==="active"?"active":"confirmed"});
   const account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",(b.guestEmail??"").trim().toLowerCase())).first();
   if(account)await postRentalMessage(ctx,{accountId:account._id,bookingId:b._id,sender:"system",text:`Added to your rental: ${listing.title}. Rental charge £${a.total.toFixed(2)}.`});
-  await ctx.scheduler.runAfter(0,internal.rmv2_webhook.push,{bookingId:b._id});
+  await queueRmv2Sync(ctx, b._id);
   return {closed:false};
  }
+});
+
+/** Compact, protected document history; pagination reaches older rentals
+ * without copying private verification/financial execution fields to the list. */
+export const adminAuthorized=query({args:{token:v.string()},handler:(_ctx,{token})=>checkAdminToken(token)});
+
+export const adminCalendarPage=query({
+  args:{token:v.string(),paginationOpts:paginationOptsValidator},
+  handler:async(ctx,{token,paginationOpts})=>{
+    if(!checkAdminToken(token))return {page:[],isDone:true,continueCursor:""};
+    if(!Number.isSafeInteger(paginationOpts.numItems)||paginationOpts.numItems<1)throw Error("Invalid calendar page size");
+    const result=await ctx.db.query("bookings").order("desc").paginate({...paginationOpts,numItems:Math.min(50,paginationOpts.numItems),maximumRowsRead:50});
+    return {...result,page:result.page.map(b=>({_id:b._id,status:b.status,pickupTime:b.pickupTime,returnTime:b.returnTime,
+      lineItems:b.lineItems.map(l=>({title:l.title,start:l.start,end:l.end,qty:l.qty,returnTime:l.returnTime})),
+    }))};
+  },
+});
+
+export const adminInvoicePage=query({
+  args:{token:v.string(),paginationOpts:paginationOptsValidator},
+  handler:async(ctx,{token,paginationOpts})=>{
+    if(!checkAdminToken(token))return {page:[],isDone:true,continueCursor:""};
+    if(!Number.isSafeInteger(paginationOpts.numItems)||paginationOpts.numItems<1)throw Error("Invalid document page size");
+    const result=await ctx.db.query("bookings").order("desc").paginate({...paginationOpts,numItems:Math.min(50,paginationOpts.numItems),maximumRowsRead:50});
+    return {...result,page:result.page.map(b=>({_id:b._id,at:b._creationTime,status:b.status,total:b.total,guestEmail:b.guestEmail,guestName:b.guestName,
+      hasPayment:!!b.stripePaymentIntentId||["confirmed","active","returned"].includes(b.status),hasReturnStatement:!!b.returnStatement,returnStatementIssuedAt:b.returnStatement?.issuedAt,
+      lineItems:b.lineItems.map(l=>({title:l.title,start:l.start,end:l.end})),
+    }))};
+  },
 });
 
 export const adminList = query({
@@ -659,6 +684,9 @@ export const adminList = query({
       returnDecision: b.returnDecision ?? null,
       returnTime: b.returnTime ?? null,
       returnStatementEmailStatus: b.returnStatementEmailStatus ?? null,
+      hasReturnStatement: !!b.returnStatement,
+      hasPayment: !!b.stripePaymentIntentId || ["confirmed", "active", "returned"].includes(b.status),
+      pickupTime: b.pickupTime ?? null,
       idVerifyStatus: b.idVerifyStatus ?? "required",
       verificationProvider: b.verificationProvider ?? "stripe",
       diditSessionId: b.diditSessionId ?? null,
@@ -699,12 +727,14 @@ export const adminSetStatus = mutation({
         (booking.depositHoldStatus !== "held" || (booking.depositHoldExpiresAt ?? 0) <= Date.now()))
       throw new Error("The card hold must be active before handover.");
     if (status === "active") {
+      await assertDroneApproval(ctx, booking);
+      await assertVerificationArchive(ctx, booking);
       assertAgreementBeforeRelease(booking);
       await assertRenterExposure(ctx, { ...booking, status: "active" });
       if (!booking.renterPersonKey) throw Error("The verified person needs a team identity check before handover.");
     }
     await ctx.db.patch(bookingId, { status, ...(status === "active" ? { pickedUpAt: booking.pickedUpAt ?? Date.now(), deliveryBenefitConsumed: !!booking.deliveryBenefitMonth } : {}) });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
+    await queueRmv2Sync(ctx, bookingId);
   },
 });
 
@@ -714,6 +744,7 @@ export const getForRefund = internalQuery({
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     return {
+      status:b.status,
       paymentSources:await rentalPaymentSources(ctx,b),
       paymentIntentId: b.stripePaymentIntentId ?? null,
       depositAmount: b.depositAmount,
@@ -728,14 +759,15 @@ export const getForRefund = internalQuery({
       depositRefunded: b.depositRefunded ?? false,
       depositKept: b.depositKept ?? 0,
       depositRefundAmount: b.depositRefundAmount ?? 0,
+      depositHoldCapturedForDamage: b.depositHoldCapturedForDamage ?? 0,
       damageNoticeSentAt: b.damageNoticeSentAt ?? null,
     };
   },
 });
 
 export const beginReturnDecision = internalMutation({
-  args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), damageKept: v.number(), damageNote: v.optional(v.string()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()) },
-  handler: async (ctx, { bookingId, actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason }) => {
+  args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), damageKept: v.number(), damageNote: v.optional(v.string()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
+  handler: async (ctx, { bookingId, actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, inspection }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active", "returned"].includes(b.status)) throw new Error("Booking is not available for return.");
     if((b.activeAdditionId || b.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before returning this rental");
@@ -743,14 +775,18 @@ export const beginReturnDecision = internalMutation({
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("Wait for the rental refund to settle before recording the return.");
     const saved = b.returnDecision;
+    const inspected = inspection ? normalizeReturnInspection(await returnInspectionSchedule(ctx, b), inspection, damageKept) : undefined;
     if (saved) {
       if (saved.actualReturnedAt !== actualReturnedAt || saved.damageKept !== damageKept ||
           (saved.damageNote ?? "") !== (damageNote ?? "") || saved.chargeLate !== chargeLate ||
-          (saved.lateWaiverReason ?? "") !== (lateWaiverReason ?? ""))
+          (saved.lateWaiverReason ?? "") !== (lateWaiverReason ?? "") || JSON.stringify(saved.inspection ?? null) !== JSON.stringify(inspected ?? null))
         throw new Error("A return settlement is already in progress with different amounts. Resume the saved decision or contact support before changing it.");
       return;
     }
-    await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, startedAt: Date.now() } });
+    await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, inspection: inspected as any, startedAt: Date.now() } });
+    const accountId = b.accountId ?? (await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first())?._id;
+    for (const item of inspected ?? []) if (item.openCase) await ctx.db.insert("rental_damage_cases", { bookingId, accountId, itemKey: item.key, title: item.title, inventoryUnitId: item.inventoryUnitId as any, details: item.details, status: "open", openedAt: Date.now() });
+    if ((inspected ?? []).some(item => item.openCase)) await queueRmv2Sync(ctx, bookingId);
   },
 });
 
@@ -895,8 +931,8 @@ export const markReturnedStatus = internalMutation({
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
       .collect();
-    for (const r of res) if (r.status !== "returned") await ctx.db.patch(r._id, { status: "returned" });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
+    for (const r of res) if (["hold", "confirmed", "active"].includes(r.status)) await ctx.db.patch(r._id, { status: "returned" });
+    await queueRmv2Sync(ctx, bookingId);
   },
 });
 
@@ -942,6 +978,7 @@ export const recordLateFee = internalMutation({
         holdStatus: b.depositHoldStatus,
         damageTotal: b.depositKept ?? 0, damageFromHold: b.depositHoldCapturedForDamage ?? 0,
         damageNote: b.depositDeductionNote,
+        inspection: b.returnDecision?.inspection,
         lateAssessed: amount, lateWaived: waivedAmount ?? 0, lateBreakdown: breakdown,
       },
       returnStatementEmailStatus: "pending",
@@ -1228,16 +1265,20 @@ export const invoiceData = query({
     let ok = false;
     if (key && process.env.INVOICE_SECRET && key === process.env.INVOICE_SECRET) {
       ok = true;
+    } else if (token && checkAdminToken(token)) {
+      ok = true;
     } else if (token) {
-      const s = await ctx.db.query("sessions").withIndex("by_token", (q) => q.eq("token", token)).first();
-      const acct: any = s && (s.expiresAt ?? 0) > Date.now() ? await ctx.db.get(s.accountId) : null;
-      if (acct && acct.email === (b.guestEmail ?? "").trim().toLowerCase()) ok = true;
+      const acct = await accountForToken(ctx, token, true);
+      if (belongsToRentalAccount(b, acct)) ok = true;
     }
     if (!ok) return null;
     const customer: any = b.customerId ? await ctx.db.get(b.customerId) : null;
+    const account = await accountForRental(ctx, b);
     const rentalRefunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     const issuedCredit=b.creditIssuedId?await ctx.db.get(b.creditIssuedId):null;
     return {
+      rentalRefunded:confirmedRentalRefundPence(rentalRefunds)/100,
+      billingAddress:b.billingAddress??b.address??null,
       rentalRefunds:rentalRefunds.map(r=>({amount:r.amountPence/100,status:r.status,reason:r.reason})),
       cancellationRefund:b.refundAmount??0,accountCreditIssued:issuedCredit?.amount??0,
       number: `DBC-${String(b._id).slice(-8).toUpperCase()}`,
@@ -1247,11 +1288,12 @@ export const invoiceData = query({
       supplierName: process.env.BUSINESS_LEGAL_NAME || "Db Cinema Rentals",
       supplierAddress: process.env.BUSINESS_INVOICE_ADDRESS || undefined,
       status: b.status,
-      customerName: customer?.name ?? null,
+      customerName: b.guestName ?? customer?.name ?? account?.name ?? null,
       email: b.guestEmail ?? null,
       fulfilment: b.fulfilment,
       address: b.address ?? null,
       currency: b.currency ?? "GBP",
+      equipmentImages: await Promise.all(b.lineItems.map(async line => listingImages(await ctx.db.get(line.listingId)))),
       lineItems: rentalBillingLines(b),
       subtotal: b.subtotal,
       discount: b.discount ?? 0,
@@ -1259,6 +1301,10 @@ export const invoiceData = query({
       creditApplied: b.creditApplied ?? 0,
       membershipCreditApplied: b.membershipCreditApplied ?? 0,
       depositAmount: b.depositAmount,
+      depositHoldAmount: b.depositHoldAmount ?? 0,
+      depositHoldStatus: b.depositHoldStatus ?? null,
+      depositRefunded: b.depositRefunded ?? false,
+      depositRefundAmount: b.depositRefundAmount ?? (b.depositRefunded ? null : 0),
       total: b.total,
       promoCode: b.promoCode ?? null,
       returnStatement: b.returnStatement ? {...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(rentalRefunds)/100} : null,
@@ -1422,6 +1468,7 @@ export const setDiditResult = internalMutation({
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
     if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
         (b.diditManualDecisionAt ?? 0) >= eventAt) return true;
+    if (["verified", "manual_review", "rejected", "requires_input"].includes(status)) await queueVerificationArchive(ctx, b);
     // The provider checks the bill and its holder. Also require its UK postcode
     // to match the address this renter supplied for the booking.
     const postcode = (s: string) => s.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";
@@ -1709,7 +1756,7 @@ export const _finalizeCancellation = internalMutation({
       await postRentalMessage(ctx,{accountId,bookingId,sender:"system",text:note});
     }
     await ctx.scheduler.runAfter(0, internal.notify.cancellationEmail, { bookingId, mode, refundAmount, creditAmount });
-    await ctx.scheduler.runAfter(0, internal.rmv2_webhook.push, { bookingId });
+    await queueRmv2Sync(ctx, bookingId);
     return { ok: true as const, creditId };
   },
 });
@@ -1734,6 +1781,7 @@ export const reuseVerificationCandidate = internalQuery({
     if (!validReuse(account?.rentalVerification, b)) return null;
     const source = await ctx.db.get(account!.rentalVerification!.sourceBookingId);
     if (!source?.diditSessionId || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit") return null;
+    try { await assertVerificationArchive(ctx, source); } catch { return null; }
     return { source };
   },
 });
@@ -1742,6 +1790,7 @@ export const applyVerificationReuse = internalMutation({
   handler: async (ctx, { bookingId, sourceBookingId, documentExpiresAt, personKey }) => {
     const b = await ctx.db.get(bookingId), source = await ctx.db.get(sourceBookingId);
     if (!b || !source || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !securityReady(b)) return false;
+    try { await assertVerificationArchive(ctx, source); } catch { return false; }
     const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
     const record = account?.rentalVerification;
     if (!record || record.sourceBookingId !== sourceBookingId || !validReuse(record, b) || documentExpiresAt <= Date.now() || documentExpiresAt <= Math.min(...b.lineItems.map(li => li.start))) return false;
@@ -1796,6 +1845,7 @@ export const verificationProgress = query({
     let exposure = null;
     try { exposure = await renterExposure(ctx, b, ["cancelled", "returned"].includes(b.status) ? [] : b.lineItems); } catch {}
     return { _id: b._id, status: b.status, idVerifyStatus: b.idVerifyStatus ?? "required",
+      requiresDroneLicence: await requiresDroneLicence(ctx, b), droneLicenceStatus: b.droneLicenceStatus ?? "required", droneLicenceNote: b.droneLicenceNote ?? null,
       verificationNote: b.verificationNote ?? null, verificationChecks: b.verificationChecks ?? null,
       verificationUpdatedAt: b.verificationUpdatedAt ?? null, verificationReused: !!b.verificationReusedFrom,
       depositHoldAmount: b.depositHoldAmount ?? 0, depositHoldStatus: b.depositHoldStatus ?? null,

@@ -8,8 +8,8 @@ import {
   useQuery,
   useMutation,
   useAction,
-  usePaginatedQuery,
 } from "convex/react";
+import { usePaginatedQuery } from "convex-helpers/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -24,10 +24,13 @@ import { tierByKey, TIERS } from "@/lib/membership";
 
 import { AccentPicker } from "@/components/AccentPicker";
 import { CollectiveProfile } from "@/components/account/CollectiveProfile";
-import { BookingSections } from "@/components/account/BookingSections";
+import { RenterNotificationBell } from "@/components/account/RenterNotificationBell";
+import { RenterOverview } from "@/components/account/RenterOverview";
 import { RentalCalendar } from "@/components/account/RentalCalendar";
 import { ShootLists } from "@/components/plans/ShootLists";
 import { AvatarUpload } from "@/components/account/AvatarUpload";
+import { ManagementShell } from "@/components/management/ManagementShell";
+import { InvoiceLibrary } from "@/components/management/InvoiceLibrary";
 
 export default function AccountPage() {
   const account = useAccount();
@@ -42,10 +45,7 @@ export default function AccountPage() {
     );
   return (
     <>
-      <SiteHeader />
-      <main className="section-window mx-auto max-w-5xl px-6 py-12">
-        {account.me ? <Dashboard /> : <AuthForm />}
-      </main>
+      {account.me ? <Dashboard /> : <><SiteHeader /><main className="section-window mx-auto max-w-5xl px-6 py-12"><AuthForm /></main></>}
     </>
   );
 }
@@ -166,9 +166,13 @@ function Dashboard() {
   const [saving, setSaving] = useState(false),
     [saveError, setSaveError] = useState<string | null>(null);
   const [tab, setTab] = useState<
-    "rentals" | "chat" | "plans" | "profile" | "membership" | "security"
+    "rentals" | "calendar" | "invoices" | "chat" | "plans" | "profile" | "membership" | "security"
   >("rentals");
   const [chatBooking, setChatBooking] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (["calendar", "rentals"].includes(tab) && rentalPages.status === "CanLoadMore") rentalPages.loadMore(30);
+  }, [tab, rentalPages.status, rentalPages.loadMore]);
 
   useEffect(() => {
     setName(me.name ?? "");
@@ -189,6 +193,7 @@ function Dashboard() {
           "rental",
         );
         if (rental) setChatBooking(rental);
+        else if(new URLSearchParams(window.location.search).get("conversation")==="general")setChatBooking("general");
       }
     };
     openFromHash();
@@ -222,10 +227,11 @@ function Dashboard() {
   }
 
   return (
-    <div className="page-in">
-      <Link href="/rental-stories" className="mb-4 inline-flex items-center gap-2 text-xs text-amber-200/80">Your set story could win £{REVIEW_PRIZE_GBP} · enter & track →</Link>
-      {/* account bar — identity + key info, always on top */}
-      <AccountProfilePill tier={me.membershipActive ? me.membershipTier : null}>
+    <ManagementShell role="renter" name={me.name || "My account"} title={{ rentals: "My rentals", calendar: "Rental calendar", invoices: "Invoices", chat: "Messages", plans: "Shoot lists", profile: "Profile", membership: "Membership", security: "Account security" }[tab]} subtitle="Manage your bookings, documents and conversations in one place." active={tab}
+      nav={[{ key: "rentals", label: "My rentals", icon: "rentals" }, { key: "calendar", label: "Calendar", icon: "calendar" }, { key: "chat", label: "Messages", icon: "messages", badge: unreadMessages }, { key: "invoices", label: "Invoices", icon: "documents" }, { key: "plans", label: "Shoot lists", icon: "calendar" }, { key: "membership", label: "Membership", icon: "people" }, { key: "profile", label: "Profile", icon: "people" }, { key: "security", label: "Security", icon: "settings" }]}
+      onNavigate={key => setTab(key as typeof tab)} actions={<><RenterNotificationBell token={account.token!}/><button onClick={() => account.signOut()} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Sign out</button></>}>
+      {/* Profile identity and account details. */}
+      {tab === "profile" && <AccountProfilePill tier={me.membershipActive ? me.membershipTier : null}>
         <AccountFrame tier={me.membershipActive ? me.membershipTier : null}><ChatAvatar sender="renter" photo={me.avatarUrl} name={me.name || me.email} className="!h-12 !w-12" /></AccountFrame>
         <div className="min-w-0 flex-1">
           <div className="hud-label !text-accent-400/90">
@@ -253,75 +259,22 @@ function Dashboard() {
             )}
           </p>
         </div>
-        <button
-          onClick={() => account.signOut()}
-          className="btn-ghost shrink-0 px-4 py-2 text-sm"
-        >
-          Sign out
-        </button>
-      </AccountProfilePill>
+      </AccountProfilePill>}
 
-      {/* tabs */}
-      <nav className="mt-6 flex gap-2 overflow-x-auto rounded-2xl bg-white/[0.025] p-2">
-        {(
-          [
-            ["rentals", "Rentals"],
-            [
-              "chat",
-              unreadMessages ? `Messages (${unreadMessages})` : "Messages",
-            ],
-            ["plans", "Shoot lists"],
-            ["profile", "Profile"],
-            ["membership", "Membership"],
-            ["security", "Security"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-medium transition ${
-              tab === key
-                ? "bg-white text-black"
-                : "text-white/45 hover:text-white/80"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-
+      {tab === "calendar" && <div className="mt-6 max-w-3xl"><RentalCalendar bookings={bookings as any} loading={rentalPages.status !== "Exhausted"} onOpenRental={id=>{setChatBooking(id);setTab("chat");}} /></div>}
+      {tab === "invoices" && <InvoiceLibrary rentals={bookings} token={account.token!} />}
+      {["calendar", "invoices"].includes(tab) && rentalPages.status === "CanLoadMore" && <button onClick={() => rentalPages.loadMore(30)} className="mt-5 rounded-lg border border-white/15 px-5 py-2 text-xs text-white/70">Load older rentals and documents</button>}
       {tab === "plans" && <ShootLists />}
 
-      {/* RENTALS */}
-      {tab === "rentals" && (
-        <div className="tab-in mt-6 grid gap-6 lg:grid-cols-[1fr_300px]">
-          <div className="min-w-0 space-y-8">
-            <BookingSections
-              bookings={bookings as any}
-              token={account.token!}
-              onOpenChat={(id?: string) => {
-                setChatBooking(id ?? null);
-                setTab("chat");
-              }}
-            />
-            {rentalPages.status === "CanLoadMore" && (
-              <button
-                onClick={() => rentalPages.loadMore(30)}
-                className="rounded-full border border-white/10 px-5 py-2.5 text-xs text-white/60"
-              >
-                Load older rentals
-              </button>
-            )}
-            <details className="rounded-3xl border border-white/[0.06] p-5">
-              <summary className="cursor-pointer text-sm text-white/65">
-                Saved gear
-              </summary>
-              <Favourites />
-            </details>
-          </div>
-          {/* sidebar cell stretches to the row height so the calendar can stick smoothly */}
-          <div>
-            <div className="lg:sticky lg:top-6">
+      {/* Renter overview: equipment, calendar and conversations first. */}
+      {tab === "rentals" && <>
+        <RenterOverview bookings={bookings as any} token={account.token!}
+          historyLoading={rentalPages.status !== "Exhausted"} unreadMessages={unreadMessages}
+          onOpenChat={id=>{setChatBooking(id??null);setTab("chat");}}
+          onOpenCalendar={()=>setTab("calendar")}/>
+        <details className="mt-6 rounded-lg border border-white/10 bg-[#1b1c1b] p-5">
+          <summary className="cursor-pointer text-sm text-white/65">Account credit, rewards &amp; saved gear</summary>
+          <div className="mt-5 grid items-start gap-4 lg:grid-cols-3">
               <div className="mb-4 rounded-3xl border border-white/[0.06] bg-[#141414] p-5">
                 <p className="text-xs text-white/35">Account credit</p>
                 <p className="mt-2 font-display text-2xl text-white">
@@ -339,11 +292,11 @@ function Dashboard() {
                 {me.loyaltyLevel<3&&<p className="mt-3 border-t border-white/10 pt-3 text-xs text-amber-100/60">{me.loyaltyCompleted} / 3 completed · Next: {me.loyaltyLevel===0?2:me.loyaltyLevel===1?4:10}%</p>}
               </div>
               {account.token&&<ReferralPanel token={account.token}/>}
-              <RentalCalendar bookings={bookings as any} />
-            </div>
           </div>
-        </div>
-      )}
+          <div className="mt-5"><Favourites /></div>
+          <Link href="/rental-stories" className="mt-5 inline-flex items-center gap-2 text-xs text-amber-200/80">Your set story could win £{REVIEW_PRIZE_GBP} · enter &amp; track →</Link>
+        </details>
+      </>}
 
       {/* CHAT */}
       {tab === "chat" && (
@@ -450,7 +403,7 @@ function Dashboard() {
           <AccountSecurity />
         </div>
       )}
-    </div>
+    </ManagementShell>
   );
 }
 

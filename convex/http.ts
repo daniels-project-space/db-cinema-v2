@@ -4,6 +4,29 @@ import { internal } from "./_generated/api";
 
 const http = httpRouter();
 
+function documentCors(req: Request) {
+  const origin = req.headers.get("origin") ?? "";
+  const allowed = new Set([process.env.APP_URL?.replace(/\/$/, ""), "https://dbcinemarentals.com", "https://www.dbcinemarentals.com"]);
+  return allowed.has(origin) ? { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Headers": "Authorization, Content-Type", "Access-Control-Allow-Methods": "POST, OPTIONS", "Vary": "Origin" } : null;
+}
+http.route({ path: "/admin-verification-document", method: "OPTIONS", handler: httpAction(async (_ctx, req) => {
+  const cors = documentCors(req);
+  return new Response(null, { status: cors ? 204 : 403, headers: cors ?? {} });
+}) });
+http.route({ path: "/admin-verification-document", method: "POST", handler: httpAction(async (ctx, req) => {
+  const cors = documentCors(req);
+  if (!cors) return new Response("Forbidden", { status: 403 });
+  const headers = { ...cors, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+  try {
+    const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
+    const { documentId } = await req.json();
+    const document = await ctx.runMutation(internal.verificationArchive.downloadAccess, { token, documentId });
+    const blob = await ctx.storage.get(document.storageId);
+    if (!blob) return new Response("Document unavailable", { status: 404, headers });
+    return new Response(blob, { headers: { ...headers, "Content-Type": document.contentType, "Content-Disposition": `inline; filename="${document.kind}.${document.contentType === "application/pdf" ? "pdf" : "image"}"` } });
+  } catch { return new Response("Access denied or document unavailable", { status: 403, headers }); }
+}) });
+
 // Stripe webhook → server-side booking confirmation (see checkout.stripeWebhook for the
 // 2-step activation). Transports the raw body + signature to the node action that verifies
 // and confirms. Public URL: https://<deployment>.convex.site/stripe-webhook

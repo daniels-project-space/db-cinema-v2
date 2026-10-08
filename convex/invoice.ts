@@ -1,4 +1,5 @@
 "use node";
+import { returnStatementEmail } from "../shared/returnStatement";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 
 import { internalAction } from "./_generated/server";
@@ -69,14 +70,9 @@ export const returnSettlementEmail = internalAction({
       if (!res.ok) throw new Error(`Return PDF responded ${res.status}`);
       const pdf = Buffer.from(await res.arrayBuffer());
       if (!pdf.length || pdf.length > 10_000_000) throw new Error("Return PDF size is invalid");
-      const lines = s.lineItems.map((line: any) => `<li>${esc(line.title)} × ${line.qty}: ${amount(line.lineTotal)}${line.returnTime ? ` · return ${new Date(line.end).toISOString().slice(0,10)} at ${esc(line.returnTime)} London time` : ""}</li>`).join("");
-      const late = s.lateAssessed > 0
-        ? `<p><b>Separate late rental time assessed: ${amount(s.lateAssessed)}.</b> This is not yet collected. An itemised notice and seven-day dispute period follow separately.</p>`
-        : s.lateWaived > 0 ? `<p>Late rental time of ${amount(s.lateWaived)} was waived.</p>` : "";
+      const content = returnStatementEmail(s);
       sent = await sendMail({
-        to: s.customerEmail,
-        subject: `Db Cinema return statement ${s.number}`,
-        html: `<h2>Your rental return statement</h2><p>Your itemised PDF return statement is attached. Db Cinema Rentals is not VAT registered, so this is not a VAT invoice.</p><ul>${lines}</ul><p>Rental subtotal ${amount(s.subtotal)}; discount −${amount(s.discount)}; delivery ${amount(s.deliveryFee)}; store credit used −${amount(s.creditApplied)}.</p><p>Confirmed rental payment refunds ${amount(s.rentalRefunded??0)}. Refundable security payment paid ${amount(s.securityPaid)}; refunded ${amount(s.securityRefunded)}. Documented damage/loss retained ${amount(s.damageTotal)}, including ${amount(s.damageFromHold)} from the authorised hold.</p>${late}<p>If any return detail is wrong, reply to this email.</p>`,
+        ...content,
         attachments: [{ filename: `DbCinema-return-${String(bookingId).slice(-8)}.pdf`, content: pdf.toString("base64") }],
       });
     } catch (error) { console.error("Return statement email failed", bookingId, error); }

@@ -53,6 +53,7 @@ export function automaticMarketingFields(listing: MarketingListing, existing?: M
   if (existing?.marketingOnlySource === "auto" && existing.marketingOnly === marketingOnly) return {};
   return { marketingOnly, marketingOnlySource: "auto" as const, marketingOnlyUpdatedAt: Math.max(Date.now(), (existing?.marketingOnlyUpdatedAt ?? 0) + 1) };
 }
-export function rentalUnavailable(listing: MarketingListing & { active?: boolean; suppressed?: boolean }) {
-  return !listing.active || !!listing.suppressed || isMarketingOnly(listing);
+export function rentalUnavailable(listing: MarketingListing & { active?: boolean; suppressed?: boolean; stockMappingStatus?: string }) {
+  return !listing.active || !!listing.suppressed || isMarketingOnly(listing) ||
+    (listing.stockMappingStatus !== undefined && listing.stockMappingStatus !== "complete");
 }
