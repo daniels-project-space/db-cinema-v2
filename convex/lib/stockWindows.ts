@@ -36,7 +36,12 @@ export function windowCapacity(bands:CapacityBand[],start:number,end:number):num
 }
 export function rentalSlots(bands:CapacityBand[],input:RentalWindowInput) {
  const starts=RENTAL_TIME_SLOTS.map(time=>({time,at:londonRentalInstant(input.start,time)})),ends=RENTAL_TIME_SLOTS.map(time=>({time,at:londonRentalInstant(input.end,time)}));
- const pickup=new Set<string>(),returns=new Set<string>(),allPickup=new Set<string>(),allReturns=new Set<string>();let available=0;
- for(const first of starts)for(const last of ends){if(last.at<=first.at)continue;const count=windowCapacity(bands,first.at,last.at+3600000);if(!count)continue;allPickup.add(first.time);allReturns.add(last.time);if(!input.returnTime||input.returnTime===last.time)pickup.add(first.time);if(!input.pickupTime||input.pickupTime===first.time)returns.add(last.time);if((!input.pickupTime||input.pickupTime===first.time)&&(!input.returnTime||input.returnTime===last.time))available=Math.max(available,count);}
- return {pickup:[...(pickup.size?pickup:allPickup)],return:[...(returns.size?returns:allReturns)],available};
+ const pickup=new Set<string>(),returns=new Set<string>(),allPickup=new Set<string>(),allReturns=new Set<string>();let available=0;const validPairs:Array<{pickupTime:string;returnTime:string}>=[];
+ for(const first of starts)for(const last of ends){if(last.at<=first.at)continue;const count=windowCapacity(bands,first.at,last.at+3600000);if(!count)continue;validPairs.push({pickupTime:first.time,returnTime:last.time});allPickup.add(first.time);allReturns.add(last.time);if(!input.returnTime||input.returnTime===last.time)pickup.add(first.time);if(!input.pickupTime||input.pickupTime===first.time)returns.add(last.time);if((!input.pickupTime||input.pickupTime===first.time)&&(!input.returnTime||input.returnTime===last.time))available=Math.max(available,count);}
+ const pickupBoundary=new Set(allPickup),returnBoundary=new Set(allReturns);
+ if(input.start===input.end){
+  for(const first of starts)if(windowCapacity(bands,first.at,first.at+60_000+3600000))pickupBoundary.add(first.time);
+  for(const last of ends)if(windowCapacity(bands,last.at-60_000,last.at+3600000))returnBoundary.add(last.time);
+ }
+ return {pickup:[...(pickup.size?pickup:allPickup)],return:[...(returns.size?returns:allReturns)],available,pickupBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>pickupBoundary.has(t)),returnBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>returnBoundary.has(t)),validPairs};
 }
