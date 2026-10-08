@@ -47,7 +47,7 @@ type CartCtx = {
   switchSet: (expected: string, keys: string[], replacements: Omit<CartItem, "key">[]) => void;
   addReplacement: (expected: string, sourceKey: string, replacement: Omit<CartItem, "key">) => void;
   duplicateItem: (key: string) => void;
-  updateDates: (key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string) => void;
+  updateDates: (key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string, notice?: string) => void;
   reminderEnabled: boolean;
   setReminderEnabled: (enabled: boolean) => void;
   reminderError: string | null;
@@ -263,7 +263,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     (key: string) => setItems((prev) => prev.filter((p) => p.key !== key)),
     [],
   );
-  const updateDates = useCallback((key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string) => {
+  const updateDates = useCallback((key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string, notice?: string) => {
     const item = items.find(i => i.key === key);
     if (!item) throw Error("This item is no longer in your kit.");
     if (!dayMs(start) || !dayMs(end) || end < start || !Number.isFinite(total) || total < 0) throw Error("Invalid rental dates or price.");
@@ -271,7 +271,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const days = daysInclusive(start, end);
     setItems(prev => prev.map(i => i.key === key ? { ...i, key: `${i.listingId}|${start}|${days}|${i.offerType ?? ""}|${pickupTime??""}|${returnTime??""}`, start, end, pickupTime, returnTime, days, total, perDay: Math.round(total / days * 100) / 100 } : i));
     if(start!==item.start||end!==item.end)setMembership(null);
-    setToast(start===item.start&&end===item.end?"Collection times saved":"Rental dates and price updated");
+    setToast(notice ?? (start===item.start&&end===item.end?"Collection times saved":"Rental dates and price updated"));
   }, [items]);
   const clear = useCallback(() => {
     setItems([]);

@@ -107,6 +107,7 @@ export default function CheckoutPage() {
   const effectiveReturnTime=allItemTimes?[...items].sort((a,b)=>(b.end+" "+b.returnTime).localeCompare(a.end+" "+a.returnTime))[0].returnTime!:returnTime;
   const stock=useCartStockCheck(items.map(i=>({...i,pickupTime:i.pickupTime||pickupTime||undefined,returnTime:i.returnTime||returnTime||undefined}))),availability=stock.availability;
   const defaultSlots=useQuery(api.availability.forCheckoutTimeSlots,items.length?{items:items.map(i=>({listingId:i.listingId as any,start:ms(i.start),end:ms(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),pickupTime:pickupTime||undefined,returnTime:returnTime||undefined}:"skip");
+  const invalidTimeOrder = items.some(i => i.start===i.end && !!(i.pickupTime||pickupTime) && !!(i.returnTime||returnTime) && (i.returnTime||returnTime)<=(i.pickupTime||pickupTime));
   const availabilityBlocked = !!items.length && (!stock.ready || !availability || items.some(i => !availability[i.listingId]?.ok));
   const [deliveryAgreed, setDeliveryAgreed] = useState(false);
   const [agreed, setAgreed] = useState(false);
@@ -451,10 +452,10 @@ export default function CheckoutPage() {
 
               {/* times (both pickup & delivery) */}
               <div className="mb-4 space-y-3">{items.map(item=><CartItemTimes key={item.key} item={item} defaultPickupTime={pickupTime} defaultReturnTime={returnTime} ready={stock.ready} delivery={fulfilment==="delivery"}/>)}</div>
-              {availabilityBlocked && <p className="mt-4 text-sm text-amber-200">Choose available equipment, dates and times in your basket. Item-specific times take priority over these default collection times. Your saved choices are kept.</p>}
+              {availabilityBlocked && <p className="mt-4 text-sm text-amber-200">Item-specific times apply on each item’s pickup and return dates. Choose a valid rental period; your saved choices are kept.</p>}
               {!allItemTimes&&<><p className="mb-2 text-xs text-white/55">Default times apply only to items without their own collection times.</p>              <div className="mt-4 flex gap-3">
-                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.pickupSlots}/>
-                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.returnSlots}/>
+                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.pickupBoundarySlots??defaultSlots?.pickupSlots}/>
+                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.returnBoundarySlots??defaultSlots?.returnSlots}/>
               </div></>}
             </StepCard>
 
@@ -584,7 +585,8 @@ export default function CheckoutPage() {
             {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
             {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
             {!!items.length&&<div className="mt-4"><CartStockNotice checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
-            {availabilityBlocked&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
+            {invalidTimeOrder&&<p role="status" className="mt-4 text-sm text-amber-200">Choose a return time later than pickup, or a later return date in your basket.</p>}
+            {availabilityBlocked&&!invalidTimeOrder&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
             {canRecover&&<p role="status" className="mt-3 text-sm text-white/65">Your earlier checkout may already have reserved this kit. Retry securely to recover the same payment session.</p>}
             {!checkout.enabled && <CheckoutPauseNotice loading={checkout.loading}/>}
             <button data-testid="checkout-pay-button" onClick={pay} disabled={!checkout.enabled || !valid || busy || (availabilityBlocked&&!canRecover)} className="btn-primary mt-5 w-full py-3">

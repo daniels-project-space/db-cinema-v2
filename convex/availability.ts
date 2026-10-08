@@ -216,7 +216,7 @@ export const forCalendar = query({
       for(const [uid,qty] of requirements){const next=capacityBands([...occupied[uid],...cart[uid]],owned[uid],qty,from,until);bands=bands===null?next:intersectCapacity(bands,next);}
       for(let n=0;n<days;n++){
         const end=monthStart+n*DAY,key=new Date(end).toISOString().slice(0,10),start=rangeStart!==undefined&&rangeStart<=end?rangeStart:end;
-        const slots=valid(listing)&&!dayRange(start,end).some(day=>blocks.has(day))?rentalSlots(bands??[],{start,end,pickupTime,returnTime}):{pickup:[],return:[],available:0};
+        const slots=valid(listing)&&!dayRange(start,end).some(day=>blocks.has(day))?rentalSlots(bands??[],{start,end,pickupTime,returnTime}):{pickup:[],return:[],available:0,pickupBoundarySlots:[],returnBoundarySlots:[],validPairs:[]};
         result[key]={ok:slots.available>=1,available:slots.available,partial:slots.pickup.length>0&&(slots.pickup.length<(start===end?13:14)||slots.return.length<(start===end?13:14)),pickupSlots:slots.pickup,returnSlots:slots.return,precision:true};
       }
       return result;
@@ -244,7 +244,7 @@ export const forTimeSlots=query({
     if(items.length>100||!Number.isSafeInteger(qty)||qty<1||qty>100)throw Error("Invalid time availability request");
     const precision=await stockTimePrecision(ctx),window=stockWindow({start,end},false);
     const listing=await ctx.db.get(listingId);
-    const empty={precision,pickupSlots:[] as string[],returnSlots:[] as string[],available:0};
+    const empty={precision,pickupSlots:[] as string[],returnSlots:[] as string[],available:0,pickupBoundarySlots:[] as string[],returnBoundarySlots:[] as string[],validPairs:[] as Array<{pickupTime:string;returnTime:string}>};
     if(!listing||rentalUnavailable(listing)||!listing.components.length||dayRange(start,end).some(d=>blockedSet(listing.unavailableDates??[]).has(d)))return empty;
     const requirements=new Map<string,number>();
     for(const c of listing.components){if(!Number.isSafeInteger(c.qty)||c.qty<1)return empty;requirements.set(String(c.inventoryUnitId),(requirements.get(String(c.inventoryUnitId))??0)+c.qty*qty);}
@@ -265,11 +265,11 @@ export const forTimeSlots=query({
     }
     if(!precision){
       const available=windowCapacity(bands??[],window.start,window.end);
-      const slots=available?rentalSlots(bands??[],{start,end,pickupTime,returnTime}):{pickup:[],return:[],available:0};
-      return {precision,pickupSlots:slots.pickup,returnSlots:slots.return,available:slots.available};
+      const slots=available?rentalSlots(bands??[],{start,end,pickupTime,returnTime}):{pickup:[],return:[],available:0,pickupBoundarySlots:[],returnBoundarySlots:[],validPairs:[]};
+      return {precision,pickupSlots:slots.pickup,returnSlots:slots.return,available:slots.available,pickupBoundarySlots:slots.pickupBoundarySlots,returnBoundarySlots:slots.returnBoundarySlots,validPairs:slots.validPairs};
     }
     const slots=rentalSlots(bands??[],{start,end,pickupTime,returnTime});
-    return {precision,pickupSlots:slots.pickup,returnSlots:slots.return,available:slots.available};
+    return {precision,pickupSlots:slots.pickup,returnSlots:slots.return,available:slots.available,pickupBoundarySlots:slots.pickupBoundarySlots,returnBoundarySlots:slots.returnBoundarySlots,validPairs:slots.validPairs};
   },
 });
 
@@ -277,11 +277,11 @@ export const forTimeSlots=query({
 export const forCheckoutTimeSlots=query({
  args:{items:v.array(stockRequest),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string())},
  handler:async(ctx,{items,pickupTime,returnTime})=>{
-  const empty={pickupSlots:[] as string[],returnSlots:[] as string[]};
+  const empty={pickupSlots:[] as string[],returnSlots:[] as string[],pickupBoundarySlots:[] as string[],returnBoundarySlots:[] as string[],validPairs:[] as Array<{pickupTime:string;returnTime:string}>};
   if(!items.length)return empty;
   if(items.length>100)throw Error("Invalid basket time request");
   const precision=await stockTimePrecision(ctx),records=new Map<string,any>(),requirements=new Map<string,number>();
-  const full=items.map(i=>stockWindow(i,false)),lo=Math.min(...full.map(w=>w.start)),hi=Math.max(...full.map(w=>w.end));
+  const full=items.map(i=>stockWindow({start:i.start,end:i.end},false)),lo=Math.min(...full.map(w=>w.start)),hi=Math.max(...full.map(w=>w.end));
   for(const i of items){
    if(!Number.isSafeInteger(i.qty??1)||(i.qty??1)<1||(i.qty??1)>100)throw Error("Invalid cart quantity");
    const l=records.get(String(i.listingId))??await ctx.db.get(i.listingId);records.set(String(i.listingId),l);
@@ -292,16 +292,31 @@ export const forCheckoutTimeSlots=query({
   for(const uid of requirements.keys())pools.set(uid,{owned:inventoryCapacity(await ctx.db.get(uid as any) as any)??0,occupied:await unitReservations(ctx,uid,lo,hi)});
   const pickups=new Set<string>(),returns=new Set<string>(),allPickup=new Set<string>(),allReturn=new Set<string>();
   const windows=new Map<string,ReturnType<typeof stockWindow>>();
-  for(const first of RENTAL_TIME_SLOTS)for(const last of RENTAL_TIME_SLOTS){
+  const validPairs:Array<{pickupTime:string;returnTime:string}>=[];
+  const fits=(first:string,last:string,boundary?:"pickup"|"return")=>{
    const demand=new Map<string,Iv[]>();let valid=true;
-   try{for(const i of items){const request={...i,pickupTime:i.pickupTime||first,returnTime:i.returnTime||last},key=JSON.stringify([i.start,i.end,request.pickupTime,request.returnTime]);const window=windows.get(key)??stockWindow(request,precision);windows.set(key,window);for(const c of records.get(String(i.listingId)).components){const uid=String(c.inventoryUnitId);demand.set(uid,[...(demand.get(uid)??[]),{...window,qty:c.qty*(i.qty??1)}]);}}}catch{valid=false;}
-   if(!valid)continue;
+   try{for(const i of items){const request={...i,pickupTime:i.pickupTime||first,returnTime:i.returnTime||last};
+    // Probe only positive minimal durations on the same civil day. This
+    // separates actual scheduled stock from opposite-clock/menu ordering.
+    if(boundary&&i.start===i.end&&request.returnTime<=request.pickupTime){
+     const clock=(time:string,delta:number)=>{const[h,m]=time.split(":").map(Number),minute=h*60+m+delta;return `${String(Math.floor(minute/60)).padStart(2,"0")}:${String(minute%60).padStart(2,"0")}`;};
+     if(boundary==="pickup"&&!i.returnTime)request.returnTime=clock(request.pickupTime,1);
+     if(boundary==="return"&&!i.pickupTime)request.pickupTime=clock(request.returnTime,-1);
+    }
+    const key=JSON.stringify([i.start,i.end,request.pickupTime,request.returnTime]);const window=windows.get(key)??stockWindow(request,precision);windows.set(key,window);for(const c of records.get(String(i.listingId)).components){const uid=String(c.inventoryUnitId);demand.set(uid,[...(demand.get(uid)??[]),{...window,qty:c.qty*(i.qty??1)}]);}}}catch{valid=false;}
+   if(!valid)return false;
    for(const [uid,lines]of demand){const pool=pools.get(uid)!;if(lines.some(line=>peak(overlappingIntervals([...pool.occupied,...lines],line.start,line.end,true))>pool.owned)){valid=false;break;}}
-   if(!valid)continue;
-   allPickup.add(first);allReturn.add(last);
+   return valid;
+  };
+  for(const first of RENTAL_TIME_SLOTS)for(const last of RENTAL_TIME_SLOTS){
+   if(!fits(first,last))continue;
+   validPairs.push({pickupTime:first,returnTime:last});allPickup.add(first);allReturn.add(last);
    if(!returnTime||returnTime===last)pickups.add(first);
    if(!pickupTime||pickupTime===first)returns.add(last);
   }
-  return {pickupSlots:[...(pickups.size?pickups:allPickup)],returnSlots:[...(returns.size?returns:allReturn)]};
+  const pickupBoundary=new Set(allPickup),returnBoundary=new Set(allReturn);
+  for(const first of RENTAL_TIME_SLOTS)if(!pickupBoundary.has(first)&&RENTAL_TIME_SLOTS.some(last=>fits(first,last,"pickup")))pickupBoundary.add(first);
+  for(const last of RENTAL_TIME_SLOTS)if(!returnBoundary.has(last)&&RENTAL_TIME_SLOTS.some(first=>fits(first,last,"return")))returnBoundary.add(last);
+  return {pickupSlots:[...(pickups.size?pickups:allPickup)],returnSlots:[...(returns.size?returns:allReturn)],pickupBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>pickupBoundary.has(t)),returnBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>returnBoundary.has(t)),validPairs};
  },
 });
