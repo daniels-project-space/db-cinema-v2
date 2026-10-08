@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const { load, db, put } = require('./lib/rentalTestHarness.cjs');
 const accounts = load('convex/accounts.ts');
+const {requiresDroneLicence,assertDroneApproval,isDroneAircraftName}=load('convex/lib/droneVerification.ts');
 const { bookingSteps } = load('src/lib/bookingDisplay.ts');
 (async () => {
  const account = put('accounts', { email: 'renter@example.invalid' });
@@ -26,6 +27,21 @@ const { bookingSteps } = load('src/lib/bookingDisplay.ts');
  assert.equal(current({ ...row, status: 'pending_payment' }), 'Payment');
  await db.patch(listing._id, { components: [], itemType: 'drone' });
  assert.equal((await accounts.myBookings.handler({ db }, { token: 'renter-test' }))[0].requiresDroneLicence, true);
+
+ for(const name of ['Sony FX3','Sony FX3 + DJI RS 3 Pro','DJI Ronin 4D','Sony 24–70mm lens','FPV monitor','FPV camera','DJI FPV camera','Zenmuse X9 camera for DJI Inspire 3','DJI FPV goggles + controller','DJI Mini 4 Pro battery','ND filters for DJI Mavic 3','DJI Inspire 3 remote controller'])assert.equal(isDroneAircraftName(name),false,name+' is not an aircraft');
+ for(const name of ['DJI Mini 4 Pro','DJI Mini 4 Pro + batteries','DJI Mini 4 Pro Fly More Combo','DJI Air 3','DJI Air 2S','DJI Inspire 3','DJI Avata 2','DJI Mavic 3','DJI FPV drone','FPV racing quadcopter','DJI Inspire','DJI Phantom 4'])assert.equal(isDroneAircraftName(name),true,name+' includes an aircraft');
+ const cameraUnit=put('inventory_units',{name:'Sony FX3 camera'}),gimbal=put('inventory_units',{name:'DJI RS 3 Pro gimbal'}),fpvMonitor=put('inventory_units',{name:'FPV monitor'}),battery=put('inventory_units',{name:'DJI Mini 4 Pro battery'});
+ await db.patch(listing._id,{title:'Sony FX3 + gimbal and monitor',itemType:'camera-body',category:'Cameras',components:[cameraUnit,gimbal,fpvMonitor,battery].map(u=>({inventoryUnitId:u._id}))});
+ // A stale licence review on the booking must not turn a camera into a drone.
+ const [camera]=await accounts.myBookings.handler({db},{token:'renter-test'});
+ assert.equal(camera.requiresDroneLicence,false);assert(!bookingSteps(camera).steps.some(s=>/drone licence/i.test(s.label)));
+ assert.equal(current(camera),'Pickup');await assertDroneApproval({db},booking);
+ await db.patch(listing._id,{category:'Drones'});assert.equal(await requiresDroneLicence({db},booking),false,'Typed cameras override a stale drone category');
+ await db.patch(listing._id,{title:'DJI Mini 4 Pro battery',itemType:'drone',category:'Drones',components:[{inventoryUnitId:battery._id}]});
+ assert.equal(await requiresDroneLicence({db},booking),false,'A drone-category accessory is not an aircraft rental');
+ await db.patch(listing._id,{title:'Camera and DJI Mini 4 Pro',itemType:'camera-body',category:'Cameras',components:[{inventoryUnitId:cameraUnit._id},{inventoryUnitId:unit._id}]});
+ assert.equal(await requiresDroneLicence({db},booking),true,'Mixed camera/drone booking still requires drone approval');
+ await assert.rejects(assertDroneApproval({db},booking),/drone operator licence/);
  assert.equal(await accounts.myBookings.handler({ db }, { token: 'invalid' }), null);
  console.log('PASS actual renter account projection and progress: direct/nested drones, private-file exclusion, manual review/replacement/approval, unpaid/hold/document priorities and closed rentals.');
 })().catch(e => { console.error(e); process.exitCode = 1; });

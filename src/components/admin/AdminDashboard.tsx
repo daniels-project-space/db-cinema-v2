@@ -24,7 +24,7 @@ export function AdminDashboard({ token, unread, alerts, onRental, onRentals, onC
   if (!summary.authorized) return <p role="alert" className={styles.loading}>Unlock the admin panel to view rental operations.</p>;
   if (!Array.isArray(summary.awaitingCollection)) return <section className={styles.loading} role="status">The rental overview is temporarily unavailable. <button className={styles.more} onClick={onRentals}>Open Rentals →</button></section>;
 
-  const pendingVerification = summary.awaitingCollection.filter(row => row.verification !== "verified" || row.droneVerification === "review" || row.droneVerification === "requires_input");
+  const pendingVerification = summary.awaitingCollection.filter(row => row.verification !== "verified" || row.requiresDroneLicence && row.droneVerification !== "approved");
   const groups = [
     { key: "active", title: "Current rentals", description: "Collected equipment stays here until its return is recorded.", rows: summary.ongoing, empty: "No equipment is currently marked on hire." },
     { key: "verification", title: "Pending verification", description: "Confirmed rentals needing identity, address or drone document review.", rows: pendingVerification, empty: "No confirmed rentals are awaiting document verification." },

@@ -132,3 +132,7 @@
 
 .shell[data-management-screen=insights],.shell[data-management-screen=insights] .workspace { background:#101112; }
 .shell[data-management-role=admin][data-management-screen=invoices] .workspace { background:#151514; }
+
+/* The reference uses full viewport width; inner panes keep their scrollbars. */
+:global(html):has(.shell) { scrollbar-width:none; }
+@media(min-width:1251px) { .shell[data-management-role=admin][data-management-screen=overview] .content { padding-left:21px; padding-right:20px; } }
