@@ -64,6 +64,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     cv = new ConvexHttpClient(
       process.env.DBC_CONVEX_URL || "https://veracious-wombat-196.convex.cloud",
     );
+  const checkoutEnabled = (await cv.query(api.settings.get, {})).checkoutEnabled === true;
   const r = await cv.query(api.catalog.listListings, {}),
     rows = (Array.isArray(r) ? r : (r.items ?? r.listings ?? [])).filter(l => !(l.marketingOnly ?? !!marketingRedirect(l)));
   const future = new Date(Date.now() + 60 * 86400000);
@@ -325,6 +326,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.evaluate(`document.querySelector('[data-testid="confirm-membership-card"]').click()`);
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')`),false,'Clicking a confirmed card never replays confetti');
   await c.cmd("Emulation.setEmulatedMedia", {features:[{name:"prefers-reduced-motion",value:"reduce"}]});
+  if (!checkoutEnabled) {
+    await until(`document.querySelector('[data-testid="checkout-pay-button"]')?.disabled===true`);
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-pay-button"]').textContent.includes('temporarily paused')`),true);
+  }
   await until(
     `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`,
   );
@@ -423,14 +428,22 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(
     `!document.querySelector('[role="dialog"][aria-label="Subscription benefits"]')`,
   );
-  // Real client navigation carries the explicit card-selection consent.
-  await until(`!![...document.querySelectorAll('button')].find(b=>b.textContent.includes('Secure checkout')&&!b.disabled)`);
-  await c.evaluate(
-    `setTimeout(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Secure checkout')&&!b.disabled).click(),0);true`,
-  );
+  // The production pause keeps the basket intact and blocks the real control.
+  if (checkoutEnabled) {
+    await until(`!![...document.querySelectorAll('button')].find(b=>b.textContent.includes('Secure checkout')&&!b.disabled)`);
+    await c.evaluate(`setTimeout(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Secure checkout')&&!b.disabled).click(),0);true`);
+  } else {
+    await until(`document.querySelector('[data-testid="checkout-paused-button"]')?.disabled===true`);
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-paused-notice"]').textContent.includes('temporarily paused')`),true);
+    await c.cmd("Page.navigate", { url: root + "/checkout" });
+  }
   await until(
     `location.pathname==='/checkout'&&!!document.querySelector('#co-email')&&!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,
   );
+  if (!checkoutEnabled) {
+    await until(`document.querySelector('[data-testid="checkout-pay-button"]')?.disabled===true`);
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-pay-button"]').textContent.includes('temporarily paused')`),true);
+  }
   await until(
     `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`,
   );
