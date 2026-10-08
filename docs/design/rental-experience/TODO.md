@@ -2,6 +2,13 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — exact master stock quantities
+
+- [x] Remove historical maximum retention and listing-demand stock inflation. Mirror exact eligible master quantities, including decreases and zero, while preserving shared pools, rental occupancy, owner tags/photos and selectable zero-stock catalogue cards.
+- [x] Validate all source quantities/conflicts before writes and version the sync fingerprint. Protect the old quantity maintenance mutation and report shortages without manufacturing units. Pair manager eligibility export and actual handler tests; see MASTER-STOCK-SYNC.md.
+- [x] Reproduce inflation with the previous actual sync handler. Full local website default tests/typecheck/build and manager 2131 tests/typecheck/Next build/owner audits pass.
+- [ ] Finish source-matched hosted checks and paired rollout/real stock acceptance. Complete canonical kit mapping, an authenticated inventory bridge and shared atomic reservation claims remain required alongside the original full goal.
+
 ### 8 October 2026 — checkout stock and consent recovery
 
 - [x] Validate full-order stock inside hold insertion, including real active inventory, shared component quantities and date blocks; count complete kits in listing availability and avoid promising marketing inventory through that query. Keep catalogue selection and demand logging unchanged.

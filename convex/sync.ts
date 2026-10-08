@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE, categoryFor, isGenuineBundle } from "./lib/taxonomy";
 import { assertAdmin } from "./adminAuth";
 import { automaticMarketingFields } from "./lib/marketingInventory";
+import { inventoryCapacity } from "./lib/inventoryCapacity";
 
 /**
  * Canonical camera-MODEL identity for inventory reconciliation against the rental
@@ -127,20 +128,16 @@ export const syncFromRmv2 = action({
     const products: RawProduct[] = await rmv2Query("hygglo_products:list", {
       accountSlug: ACCOUNT,
     });
-    const items: { _id: string; qty?: number }[] = await rmv2Query(
+    const items: { _id: string; qty?: number; status?: string; is_marketing_only?: boolean }[] = await rmv2Query(
       "items:listForReconcile",
       {},
     );
-    const qtyByItem = new Map(items.map((i) => [i._id, i.qty ?? 1]));
+    const qtyByItem = new Map(items.map((i) => [i._id,
+      i.status === "active" && i.is_marketing_only === false && Number.isSafeInteger(i.qty) && i.qty! >= 0 ? i.qty! : 0]));
 
-    // What the storefront shows = the shop's REAL rentable inventory: not retired/display-only
-    // (isMarketingOnly), named, and priced. (isPublished is unreliable here — only ~3 of 405 carry
-    // it — so it would empty the catalogue; isMarketingOnly is the maintained "retired" signal.)
-    // Show everything the shop actually HAS. We no longer trust the RMv2 `isMarketingOnly`
-    // flag as a blanket hide — it's over-applied and was hiding ~168 real items (drones,
-    // lights, batteries, real camera kits). Instead we include all named+priced products and
-    // let reconcileCameras hide only true PHANTOMS (camera models not in the items ledger,
-    // e.g. Venice / Alexa / FX30 / A7 IV / A7R) + the local suppressed/display-glass overrides.
+    // Keep priced offerings browsable, including marketing-only demand items.
+    // Physical quantities come exclusively from valid, active owned master
+    // records; listing titles and manual marketing exemptions create no stock.
     const live = products.filter(
       (p) => p.name && (p.prices ?? []).some((x) => (x.pricePerDay ?? x.price ?? 0) > 0),
     );
@@ -165,7 +162,7 @@ export const syncFromRmv2 = action({
       return {
         hyggloProductId: p.productId,
         masterItemId: p.masterItemId,
-        masterQty: p.masterItemId ? qtyByItem.get(p.masterItemId) ?? 1 : 1,
+        masterQty: p.masterItemId ? qtyByItem.get(p.masterItemId) ?? 0 : 0,
         slug: `${slugify(title)}-${p.productId}`,
         title,
         category: categoryFor(title),
@@ -233,7 +230,7 @@ export const applyCatalog = internalMutation({
     ),
   },
   handler: async (ctx, { items, fingerprint }) => {
-    const stateKey = "catalog-payload-v1";
+    const stateKey = "catalog-payload-v2-exact-stock";
     const state = fingerprint
       ? await ctx.db
           .query("rmv2_sync_state")
@@ -242,6 +239,18 @@ export const applyCatalog = internalMutation({
       : null;
     if (fingerprint && state?.cursor === fingerprint) {
       return { listings: 0, units: 0, deactivated: 0, skipped: true };
+    }
+    // Validate the complete source batch before mutating any stock. Listing
+    // contents describe demand, never evidence that we own that many units.
+    const quantities = new Map<string, number>();
+    for (const item of items) {
+      if (!Number.isSafeInteger(item.masterQty) || item.masterQty < 0 ||
+          !Number.isSafeInteger(item.componentQty) || item.componentQty < 1)
+        throw Error("Invalid source inventory quantity");
+      const key = item.masterItemId ?? `prod-${item.hyggloProductId}`;
+      if (quantities.has(key) && quantities.get(key) !== item.masterQty)
+        throw Error("Conflicting quantities for the same source inventory item");
+      quantities.set(key, item.masterQty);
     }
     let unitCount = 0;
     let listingCount = 0;
@@ -265,7 +274,7 @@ export const applyCatalog = internalMutation({
       if (existing) {
         await ctx.db.patch(existing._id, {
           name,
-          quantityOwned: Math.max((existing as any).quantityOwned ?? 0, qty),
+          quantityOwned: qty,
           replacementCost,
           rmv2ItemId,
           hyggloProductId,
@@ -295,7 +304,7 @@ export const applyCatalog = internalMutation({
         unitKey,
         sku,
         it.title,
-        Math.max(it.masterQty, it.componentQty ?? 1),
+        it.masterQty,
         it.replacementCost,
         it.masterItemId,
         it.hyggloProductId,
@@ -342,8 +351,7 @@ export const applyCatalog = internalMutation({
       }
     }
 
-    // PRUNE: deactivate sync-managed listings no longer in the live set (now marketing-only or
-    // removed at source) so the storefront mirrors the shop's real inventory. Reversible — if an
+    // PRUNE: deactivate sync-managed listings no longer priced/named or removed at source so the storefront mirrors the shop's real inventory. Reversible — if an
     // item is un-retired upstream it re-enters `live` and is re-activated next sync.
     const liveSlugs = new Set(items.map((i) => i.slug));
     const activeRows = await ctx.db
@@ -717,15 +725,21 @@ export const applyClassification = mutation({
 });
 
 
+/** Legacy maintenance name retained for callers, but listing demand cannot
+ * manufacture physical stock. Report shortages for owner reconciliation. */
 export const fixUnitQty = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const ls = await ctx.db.query("listings").collect();
-    const need = new Map();
-    for (const l of ls) for (const c of (l.components || [])) { const q = c.qty || 1; need.set(c.inventoryUnitId, Math.max(need.get(c.inventoryUnitId) || 0, q)); }
-    let n = 0;
-    for (const [uid, q] of need) { const u: any = await ctx.db.get(uid as any); if (u && (u.quantityOwned ?? 1) < q) { await ctx.db.patch(uid as any, { quantityOwned: q }); n++; } }
-    return { bumped: n };
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await assertAdmin(ctx, token, "sync.fixUnitQty");
+    const listings = await ctx.db.query("listings").collect();
+    const shortages: { listingId: string; inventoryUnitId: string; required: number; owned: number | null }[] = [];
+    for (const listing of listings) for (const component of listing.components) {
+      const unit = await ctx.db.get(component.inventoryUnitId);
+      const owned = inventoryCapacity(unit);
+      if (owned === null || !Number.isSafeInteger(component.qty) || component.qty < 1 || owned < component.qty)
+        shortages.push({ listingId: String(listing._id), inventoryUnitId: String(component.inventoryUnitId), required: component.qty, owned });
+    }
+    return { bumped: 0, shortages };
   },
 });
 
