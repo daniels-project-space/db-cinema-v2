@@ -462,6 +462,14 @@ async function due(b) {
   });
   assert.equal(b.securityHoldPaymentMethodId, "pm_updated");
   assert.equal(b.securityHoldRecoveredSessionId,"cs_recovery","Completed card setup receipt survives confirmation/webhook replay");
+  sessions.set("cs_recovery",{id:"cs_recovery",mode:"setup",status:"complete",payment_status:"no_payment_required",customer:"cus_test",setup_intent:"seti",metadata:{pickupCardBookingId:b._id}});
+  assert.equal((await checkout.finalize.handler(ctx,{sessionId:"cs_recovery"})).holdStatus,"scheduled","Actual Checkout confirmation replays the completed setup receipt");
+  b.depositHoldStatus="held";
+  assert.equal((await checkout.finalize.handler(ctx,{sessionId:"cs_recovery"})).holdStatus,"held","Repeated confirmation returns current stored hold status");
+  sessions.set("cs_stale",{...sessions.get("cs_recovery"),id:"cs_stale"});
+  await assert.rejects(checkout.finalize.handler(ctx,{sessionId:"cs_stale"}), /no longer current/,"Rejected recovery is not presented as successful card setup");
+  sessions.set("cs_recovery",{...sessions.get("cs_recovery"),customer:"cus_foreign"});
+  await assert.rejects(checkout.finalize.handler(ctx,{sessionId:"cs_recovery"}), /no longer current/,"Completed receipt cannot be reused with a foreign Stripe customer");
   await save(b);
   assert.equal(
     b.securityHoldPaymentMethodId,
