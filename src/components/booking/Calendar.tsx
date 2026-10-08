@@ -82,6 +82,7 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
             cls += "accent-glow bg-accent-500 text-white font-semibold scale-[1.04] ";
           else if (rangeBlocked) cls += "bg-rec-500/25 text-red-200 ";
           else if (inRange) cls += "bg-accent-500/20 text-accent-200 ";
+          else if (checking) cls += "text-white/35 cursor-wait ";
           else if (disabled) cls += "text-white/15 line-through cursor-not-allowed ";
           else cls += "text-white/70 hover:bg-white/10 hover:scale-[1.06] cursor-pointer ";
           if (isToday && !isStart && !isEnd) cls += "ring-1 ring-inset ring-accent-400/40 ";
