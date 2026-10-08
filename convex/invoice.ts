@@ -26,10 +26,10 @@ async function fetchInvoicePdf(url:string,secret:string):Promise<Buffer>{
  *  configured. Sends without the attachment if the PDF route is unreachable, so the
  *  receipt still goes out. */
 export const invoiceEmail = internalAction({
-  args: { bookingId: v.id("bookings") },
-  handler: async (ctx, { bookingId }) => {
+  args: { prepareOnly:v.optional(v.boolean()),deliveryKey:v.optional(v.string()), bookingId: v.id("bookings") },
+  handler: async (ctx, { prepareOnly, deliveryKey, bookingId }) => {
     const b: any = await ctx.runQuery(internal.bookings.receiptContext, { bookingId });
-    if (!b || !b.guestEmail) return;
+    if (!b || !b.guestEmail) return null;
 
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const secret = process.env.INVOICE_SECRET;
@@ -51,12 +51,14 @@ export const invoiceEmail = internalAction({
     if(b.deliveryFee>0)rows.push(["Delivery",amount(b.deliveryFee)]);
     rows.push(["Refundable deposit paid",amount(b.depositAmount)],["Total paid",amount(b.total)]);
     const url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
-    await sendMail({
+    const payload={
+      deliveryKey,
       to:b.guestEmail,
       subject:"Your DB Cinema rental receipt",
       html:rentalEmail({title:"Your payment receipt",preview:`Payment received: ${amount(b.total)}. Your rental receipt is ready.`,url,button:"View rental and receipt",body:`<p>Your receipt${attachment?" is attached as a PDF":" is below. You can also download it from your account"}.</p>${emailRows(rows)}${b.membershipCreditApplied?`<p>Account credit above includes ${amount(b.membershipCreditApplied)} from your first subscription month. Subscription charges are itemised separately by Stripe.</p>`:""}<p>Any card authorisation is separate from the payment total shown above.</p><p style="font-size:12px">No VAT was charged. This is a payment receipt, not a VAT invoice.</p>`}),
       attachments:attachment?[attachment]:[],
-    });
+    };
+    return prepareOnly?payload:sendMail(payload);
   },
 });
 

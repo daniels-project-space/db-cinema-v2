@@ -80,15 +80,17 @@ const {expire:expireCredits}=load('convex/credits.ts');
     guestEmail:'owner@example.invalid',creditApplied:10,lineItems:[]};
   const credit={_id:'credit-1',accountId:'owner-account',createdAt:now-100000,
     expiresAt:now-5000,status:'active',remaining:10};
-  const patches=[];
+  const patches=[],queuedEmails=[];
   const db={
     get:async id=>id==='booking-credit'?booking:id==='owner-account'?{_id:'owner-account',email:'owner@example.invalid'}:null,
-    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:[],first:async()=>table==='accounts'?{_id:'owner-account'}:null,unique:async()=>table==='accounts'?{_id:'owner-account'}:null})}),
+    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:[],first:async()=>table==='accounts'?{_id:'owner-account'}:null,unique:async()=>table==='accounts'?{_id:'owner-account'}:null,order:()=>({take:async()=>[]})})}),
     patch:async(id,patch)=>patches.push({id,patch}),
+    insert:async(table,value)=>{assert.equal(table,"rental_email_deliveries");queuedEmails.push(value);return "delivery-fixture";},
   };
   const bookingCtx={db,scheduler:{runAfter:async()=>{}}};
   await confirm.handler(bookingCtx,{bookingId:'booking-credit',paymentIntentId:'pi_paid'});
   assert.ok(patches.some(p=>p.id==='credit-1'&&p.patch.remaining===0&&p.patch.status==='spent'));
+  assert.deepEqual(queuedEmails.map(x=>x.kind),["payment","receipt"]);
   booking.status='confirmed';
   assert.equal(await expireUnpaidPending.handler(bookingCtx,{bookingId:'booking-credit'}),false);
 

@@ -219,12 +219,12 @@ function signed(event) {
   assert.equal(await setDiditSession.handler(expiredDb,{bookingId:'booking-1',sessionId:'new-renew-session',previousSessionId:'session-1'}),true);
   assert.equal(reset.idVerifyStatus,'processing');assert.equal(reset.verificationExpiresAt,undefined);assert.equal(reset.documentExpiresAt,undefined);assert.equal(reset.verificationReusedFrom,undefined);assert.equal(reset.idVerifiedAt,undefined);assert.equal(reset.idVerificationSource,undefined);
   assert.equal(await setDiditSession.handler(expiredDb,{bookingId:'booking-1',sessionId:'stale-session',previousSessionId:'not-current'}),false,'renewal uses compare-and-set against the exact previous case');
-  let reviewPatch;
+  let reviewPatch;const queuedEmails=[];
   assert.equal(await setDiditManualReview.handler({
-    db:{get:async()=>reviewBooking,patch:async(_id,value)=>{reviewPatch=value;},query:()=>({withIndex:()=>({first:async()=>null,collect:async()=>[]})})},
+    db:{get:async()=>reviewBooking,patch:async(_id,value)=>{reviewPatch=value;},insert:async(table,value)=>{assert.equal(table,"rental_email_deliveries");queuedEmails.push(value);return "delivery-fixture";},query:()=>({withIndex:()=>({first:async()=>null,collect:async()=>[],order:()=>({take:async()=>[]})})})},
     scheduler:{runAfter:async()=>{}},
   },{bookingId:'booking-1',sessionId:'session-1',decision:'resubmit',note:'Replace ID'}),true);
-  assert.equal(reviewPatch.idVerifyStatus,'requires_input');
+  assert.equal(reviewPatch.idVerifyStatus,'requires_input');assert.equal(queuedEmails.length,1);assert.equal(queuedEmails[0].verificationStatus,'requires_input');
   assert.ok(reviewPatch.diditManualDecisionAt > 0);
   let stalePatch = false;
   await setDiditResult.handler({db:{get:async()=>({...reviewBooking,diditManualDecisionAt:now*1000+1000}),patch:async()=>{stalePatch=true;}}},

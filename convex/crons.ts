@@ -80,4 +80,5 @@ crons.interval("reconcile-completed-referrals",{hours:1},internal.referrals.reco
 crons.interval("referral-campaign-delivery",{minutes:5},internal.referralMail.sendCampaign,{});
 crons.interval("renter-push-recovery", { minutes: 2 }, internal.renterPushDelivery.retryDue, {});
 crons.interval("admin-push-recovery", { minutes: 2 }, internal.adminPushDelivery.retryDue, {});
+crons.interval("rental-email-recovery", { minutes: 1 }, internal.rentalEmailDelivery.dispatchDue, {});
 export default crons;

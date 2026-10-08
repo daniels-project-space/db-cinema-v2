@@ -1,5 +1,6 @@
 "use node";
 
+import { createHash } from "node:crypto";
 import nodemailer from "nodemailer";
 
 /**
@@ -32,6 +33,7 @@ export type MailAttachment = {
 };
 
 export type MailInput = {
+  deliveryKey?: string;
   to: string;
   subject: string;
   html: string;
@@ -51,9 +53,11 @@ async function viaGmail(m: MailInput, user: string, pass: string): Promise<boole
       host: "smtp.gmail.com",
       port: 465,
       secure: true,
+      connectionTimeout: 20_000, greetingTimeout: 20_000, socketTimeout: 60_000,
       auth: { user, pass },
     });
-    await transport.sendMail({
+    const result = await transport.sendMail({
+      ...(m.deliveryKey ? {messageId:`<rental-${createHash("sha256").update(m.deliveryKey).digest("hex")}@dbcinemarentals.com>`} : {}),
       from: `${FROM_NAME} <${user}>`,
       to: m.to,
       subject: m.subject,
@@ -65,7 +69,7 @@ async function viaGmail(m: MailInput, user: string, pass: string): Promise<boole
           : { filename: a.filename, path: a.path },
       ),
     });
-    return true;
+    return result.accepted.length > 0;
   } catch (e) {
     console.error("[mail] gmail smtp send failed:", String((e as any)?.message ?? e));
     return false;
@@ -77,7 +81,8 @@ async function viaResend(m: MailInput, key: string): Promise<boolean> {
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json", ...(m.deliveryKey ? {"Idempotency-Key":m.deliveryKey} : {}) },
+      signal: AbortSignal.timeout(60_000),
       body: JSON.stringify({
         from,
         to: m.to,
