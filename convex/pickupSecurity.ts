@@ -10,6 +10,8 @@ import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 
 /** Transactional job identity; old pickup jobs never authorise a rescheduled rental. */
 export async function schedulePickupHold(ctx: any, b: any) {
+  if (pickupHoldEligible(b) && b.stripeDepositIntentId && b.securityHoldDueAt !== pickupHoldAt(b))
+    throw Error("Resolve the existing security authorisation before moving collection. Your rental dates have not changed.");
   if (
     !pickupHoldEligible(b) ||
     b.stripeDepositIntentId ||
@@ -33,6 +35,10 @@ export async function schedulePickupHold(ctx: any, b: any) {
     securityHoldAttempts: 0,
     depositHoldStatus: "scheduled",
     securityHoldFailureCode: undefined,
+    securityHoldLeaseUntil: undefined,
+    securityHoldRecoverySessionId: undefined,
+    securityHoldRecoveryGeneration: undefined,
+    securityHoldRecoveryReleasedIntentId: undefined,
   });
   await queueRmv2Sync(ctx, b._id);
 }
@@ -85,12 +91,21 @@ export const claim = internalMutation({
       return false;
     if (["requires_action", "failed"].includes(b!.depositHoldStatus ?? ""))
       return false;
+    // Stripe retains idempotency keys for at least 24 hours. Do not turn an
+    // unresolved old request into a fresh hold after an outage or delayed job.
+    if (!b!.stripeDepositIntentId && (b!.securityHoldAttempts ?? 0) > 0 && now - b!.securityHoldDueAt! >= 23 * 3600000) {
+      await ctx.db.patch(a.bookingId, { depositHoldStatus: "failed", securityHoldFailureCode: "provider_outcome_unknown", securityHoldRetryAt: undefined, securityHoldLeaseUntil: undefined });
+      await queueRmv2Sync(ctx, a.bookingId);
+      return false;
+    }
     await ctx.db.patch(a.bookingId, {
       securityHoldLeaseUntil: now + 5 * 60000,
       securityHoldAttempts: (b!.securityHoldAttempts ?? 0) + 1,
       depositHoldStatus: "processing",
     });
-    return true;
+    // Return the transaction's immutable generation/card/amount snapshot. A later
+    // context query could accidentally pair an old job with rescheduled terms.
+    return { ...b, securityHoldAttempts: (b!.securityHoldAttempts ?? 0) + 1 };
   },
 });
 export const result = internalMutation({
@@ -102,6 +117,7 @@ export const result = internalMutation({
     expiresAt: v.optional(v.number()),
     failureCode: v.optional(v.string()),
     retry: v.optional(v.boolean()),
+    providerStatus: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
     const b = await ctx.db.get(a.bookingId);
@@ -117,6 +133,12 @@ export const result = internalMutation({
       b!.stripeDepositIntentId !== a.intentId
     )
       throw Error("A different security hold is already linked.");
+    if (a.status === "held" && (a.providerStatus !== "requires_capture" || !Number.isFinite(a.expiresAt) || a.expiresAt! <= Date.now())) return false;
+    // Transport errors carry no provider receipt and cannot undo a later webhook.
+    if (["captured", "released"].includes(b!.depositHoldStatus ?? "")) return false;
+    if (b!.depositHoldStatus === "held" && (!a.intentId || ["requires_action", "processing"].includes(a.status))) return false;
+    if (b!.depositHoldStatus === "held" && a.status === "failed" && a.providerStatus !== "canceled" && !["intent_mismatch", "authorisation_unverifiable"].includes(a.failureCode ?? "")) return false;
+    if (b!.stripeDepositIntentId && !a.intentId) return false;
     const retry = a.retry && (b!.securityHoldAttempts ?? 0) < 3;
     const retryAt = retry
       ? Date.now() + Math.pow(2, b!.securityHoldAttempts ?? 1) * 60000
@@ -165,13 +187,15 @@ export const due = internalQuery({
   },
 });
 export const bindRecovery = internalMutation({
-  args: { bookingId: v.id("bookings"), sessionId: v.string() },
+  args: { bookingId: v.id("bookings"), sessionId: v.string(), generation: v.optional(v.number()), releasedIntentId: v.optional(v.string()) },
   handler: async (ctx, a) => {
     const b = await ctx.db.get(a.bookingId);
-    if (!pickupHoldEligible(b))
-      throw Error("Rental security is no longer open.");
+    if (!pickupHoldEligible(b) || !["failed", "requires_action"].includes(b!.depositHoldStatus ?? "") || b!.securityHoldGeneration !== a.generation || b!.stripeDepositIntentId !== a.releasedIntentId)
+      throw Error("Rental security changed. Refresh your rental before updating the card.");
     await ctx.db.patch(a.bookingId, {
       securityHoldRecoverySessionId: a.sessionId,
+      securityHoldRecoveryGeneration: a.generation,
+      securityHoldRecoveryReleasedIntentId: a.releasedIntentId,
     });
   },
 });
@@ -188,12 +212,17 @@ export const recoverCard = internalMutation({
       !pickupHoldEligible(b) ||
       b!.securityHoldRecoverySessionId !== a.sessionId ||
       b!.securityHoldCustomerId !== a.customerId ||
-      b!.depositHoldStatus === "held"
+      !["failed", "requires_action"].includes(b!.depositHoldStatus ?? "") ||
+      b!.securityHoldRecoveryGeneration !== b!.securityHoldGeneration ||
+      b!.securityHoldRecoveryReleasedIntentId !== b!.stripeDepositIntentId
     )
       return false;
     await ctx.db.patch(a.bookingId, {
       securityHoldPaymentMethodId: a.paymentMethodId,
+      securityHoldRecoveredSessionId: a.sessionId,
       securityHoldRecoverySessionId: undefined,
+      securityHoldRecoveryGeneration: undefined,
+      securityHoldRecoveryReleasedIntentId: undefined,
       securityHoldJobId: undefined,
       stripeDepositIntentId: undefined,
     });
