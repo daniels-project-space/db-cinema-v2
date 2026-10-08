@@ -1896,17 +1896,28 @@ export const verificationProgress = query({
     }
     if (!allowed && a.checkoutSessionId && a.checkoutSessionId === b.stripeCheckoutSessionId && ["confirmed", "active"].includes(b.status)) allowed = true;
     if (!allowed) return null;
-    let exposure = null;
-    try { exposure = await renterExposure(ctx, b, ["cancelled", "returned"].includes(b.status) ? [] : b.lineItems); } catch {}
     let verificationArchiveReady = false;
     if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx, b); verificationArchiveReady = true; } catch {} }
+    const images = new Map<string, string[]>();
+    for (const line of b.lineItems) if (!images.has(String(line.listingId))) images.set(String(line.listingId), listingImages(await ctx.db.get(line.listingId)));
     return { _id: b._id, status: b.status, idVerifyStatus: b.idVerifyStatus ?? "required",
+      verificationAvailable: verificationCanStart(b),
+      cancellationPending: !!b.cancellationDecision && b.status !== "cancelled",
+      returnPending: !!b.returnDecision && b.status !== "returned",
+      idVerificationSource: b.idVerificationSource ?? null,
       securityHoldPolicyVersion:b.securityHoldPolicyVersion??null, verificationArchiveReady, verificationExpiresAt: b.verificationExpiresAt ?? null, documentExpiresAt: b.documentExpiresAt ?? null,
       requiresDroneLicence: await requiresDroneLicence(ctx, b), droneLicenceStatus: b.droneLicenceStatus ?? "required", droneLicenceNote: b.droneLicenceNote ?? null,
       verificationNote: b.verificationNote ?? null, verificationChecks: b.verificationChecks ?? null,
       verificationUpdatedAt: b.verificationUpdatedAt ?? null, verificationReused: !!b.verificationReusedFrom,
       depositHoldAmount: b.depositHoldAmount ?? 0, depositHoldStatus: b.depositHoldStatus ?? null,
-      exposure: exposure ? { currentPence: exposure.currentPence, peakPence: exposure.peakPence, bookingPeakPence: exposure.bookingPeakPence, capPence: exposure.capPence } : null,
+      depositHoldExpiresAt: b.depositHoldExpiresAt ?? null, securityHoldDueAt: b.securityHoldDueAt ?? null,
+      fulfilment: b.fulfilment, total: b.total, subtotal: b.subtotal, discount: b.discount ?? 0,
+      deliveryFee: b.deliveryFee ?? 0, depositAmount: b.depositAmount ?? 0,
+      creditApplied: b.creditApplied ?? 0, membershipCreditApplied: b.membershipCreditApplied ?? 0,
+      lineItems: b.lineItems.map(line => ({ title: line.title, start: line.start, end: line.end, qty: line.qty,
+        pickupTime: "pickupTime" in line ? typeof line.pickupTime === "string" ? line.pickupTime : null : b.pickupTime ?? null,
+        returnTime: line.returnTime === undefined ? b.returnTime ?? null : line.returnTime,
+        images: images.get(String(line.listingId)) ?? [], lineTotal: line.lineTotal })),
     };
   },
 });

@@ -67,7 +67,7 @@ export function IdVerify({ bookingId, status, note, compact, autoStart = false, 
       {status === "manual_review" && <p className="mt-1 text-xs text-white/45">We will review this result and contact you if another document is needed.</p>}
       {status !== "rejected" && status !== "manual_review" && !sessionUrl && (
         <button onClick={() => void open()} disabled={busy} className="btn-primary mt-2 px-5 py-2 text-sm">
-          {busy ? "Opening…" : restart ? "Restart verification" : status === "requires_input" ? "Replace requested document" : status === "processing" ? "Continue check" : "Start automatic check"}
+          {busy ? "Opening…" : restart ? "Restart verification" : status === "requires_input" ? "Replace requested document" : "Continue verification"}
         </button>
       )}
       {sessionUrl && status !== "rejected" && status !== "manual_review" && (
