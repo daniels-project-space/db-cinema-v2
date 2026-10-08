@@ -2,6 +2,13 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — verification copies captured before account creation
+
+- [x] Link existing verification archives and document metadata inside paid-account creation, using permanent rental ownership. Existing archive recovery repairs unlinked copies as well. Preserve storage bytes, integrity hashes, session binding, retention dates and deletion status.
+- [x] Reject conflicting account, rental or session bindings before metadata repair. Never move copies to a new holder of an old email address. Actual paid-account/query/save/recovery handlers verify pre-account capture, later account creation, private directory visibility, in-flight worker completion, payment replay and foreign owner/session rejection.
+- [ ] Verify this account-creation order with real Didit and deployed private document access after compatible backend publication. Hosted CI 37718088311 for the previous historical-backfill commit 62bf23d is SUCCESS, including the unchanged complete membership browser suite; intermittent reload reliability remains open because earlier source-equivalent runs failed.
+
+
 ### 8 October 2026 — complete historical verification backfill
 
 - [x] Replace the latest-100-rentals cutoff with indexed 25-rental transactions and scheduled continuations covering all permanently owned rentals and unlinked current-email rentals. The existing admin document action invokes the real pipeline; each continuation is internal.

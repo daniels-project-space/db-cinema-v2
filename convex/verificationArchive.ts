@@ -2,6 +2,8 @@ import { query, mutation, internalQuery, internalMutation } from "./_generated/s
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
+import { accountForRental } from "./lib/rentalAccount";
+import { linkVerificationCopies } from "./lib/verificationOwnership";
 
 const DOCUMENT_RETENTION_MS = 30 * 86400000;
 function rentalClosedAt(booking: any): number | undefined {
@@ -31,6 +33,8 @@ async function archiveRetention(ctx: any, archive: any) {
 
 export async function queueVerificationArchive(ctx: any, booking: any) {
   if (!booking.diditSessionId) return;
+  const account = await accountForRental(ctx, booking);
+  if (account) await linkVerificationCopies(ctx, booking._id, account._id);
   const existing = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", booking._id)).collect();
   const previous = existing.find((a: any) => a.sessionId === booking.diditSessionId);
   if (previous) {
@@ -40,7 +44,6 @@ export async function queueVerificationArchive(ctx: any, booking: any) {
     }
     return;
   }
-  const account = booking.accountId ? await ctx.db.get(booking.accountId) : await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", (booking.guestEmail ?? "").trim().toLowerCase())).first();
   const archiveId = await ctx.db.insert("verification_archives", { bookingId: booking._id, accountId: account?._id, sessionId: booking.diditSessionId, email: booking.guestEmail ?? account?.email ?? "", status: "pending", attempts: 0, dueAt: Date.now(), createdAt: Date.now() });
   await ctx.scheduler.runAfter(0, internal.verificationArchiveWorker.capture, { archiveId });
 }

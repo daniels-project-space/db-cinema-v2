@@ -1,0 +1,64 @@
+const assert = require('node:assert/strict');
+const { load, db, put, tables } = require('./lib/rentalTestHarness.cjs');
+const claims = load('convex/accountClaims.ts');
+const archive = load('convex/verificationArchive.ts');
+const { linkVerificationCopies } = load('convex/lib/verificationOwnership.ts');
+process.env.ADMIN_TOKEN = 'ownership-test';
+
+(async () => {
+  const scheduled = [];
+  const ctx = { db, scheduler: { runAfter: async (_delay, ref, args) => scheduled.push({ ref, args }) } };
+  const booking = put('bookings', { status: 'pending_payment', guestEmail: 'late-account@example.invalid', guestName: 'Rental customer', diditSessionId: 'pre-account-session' });
+  await archive.queueVerificationArchive(ctx, booking);
+  const saved = tables.get('verification_archives')[0];
+  assert.equal(saved.accountId, undefined);
+  await archive.save.handler(ctx, { archiveId: saved._id, kind: 'identity-0-front_image', storageId: 'owned-file', sha256: 'immutable-hash', size: 100, contentType: 'image/jpeg' });
+  await archive.finish.handler(ctx, { archiveId: saved._id, complete: true });
+  const copy = tables.get('verification_documents')[0];
+  assert.equal(copy.accountId, undefined);
+  assert.equal(await claims.ensurePaidBookingAccount(ctx, booking), null, 'Unpaid rentals cannot acquire an account');
+  await db.patch(booking._id, { status: 'confirmed' });
+  const account = await claims.ensurePaidBookingAccount(ctx, booking);
+  assert.equal(saved.accountId, account._id, 'Paid account creation attaches an earlier archive');
+  assert.equal(copy.accountId, account._id, 'Earlier document metadata follows the same owner');
+  assert.equal(saved.status, 'complete');
+  assert.equal(copy.storageId, 'owned-file');
+  assert.equal(copy.sha256, 'immutable-hash');
+  assert.equal((await archive.accountDocuments.handler(ctx, { token: 'ownership-test', accountId: account._id }))[0].documents[0].id, copy._id, 'Existing copies become visible through the actual account query');
+  await claims.ensurePaidBookingAccount(ctx, booking);
+  assert.equal(tables.get('verification_archives').length, 1, 'Payment replay creates no extra archive');
+  await archive.save.handler(ctx, { archiveId: saved._id, kind: 'address-0', storageId: 'late-worker-file', sha256: 'late-worker-hash', size: 90, contentType: 'image/png' });
+  assert.equal(tables.get('verification_documents')[1].accountId, account._id, 'A capture finishing after account creation uses current archive ownership');
+
+  // Historical account-linked rentals may still contain unlinked archives.
+  const old = put('bookings', { status: 'active', accountId: account._id, guestEmail: 'old-mailbox@example.invalid', diditSessionId: 'old-linked-session' });
+  const oldArchive = put('verification_archives', { bookingId: old._id, sessionId: old.diditSessionId, status: 'pending', attempts: 0 });
+  const oldCopy = put('verification_documents', { archiveId: oldArchive._id, bookingId: old._id, sessionId: old.diditSessionId, storageId: 'old-owned-file', sha256: 'old-hash' });
+  await archive.queueVerificationArchive(ctx, old);
+  assert.equal(oldArchive.accountId, account._id);
+  assert.equal(oldCopy.accountId, account._id);
+  assert.equal(oldArchive.status, 'pending');
+  assert.equal(tables.get('verification_archives').length, 2);
+  const mailboxOwner = put('accounts', { email: old.guestEmail });
+  await assert.rejects(() => linkVerificationCopies(ctx, old._id, mailboxOwner._id), /do not belong/);
+  assert.equal(oldArchive.accountId, account._id, 'Reused email cannot take permanently owned copies');
+
+  const malformed = put('bookings', { status: 'active', accountId: account._id });
+  const unlinked = put('verification_archives', { bookingId: malformed._id, sessionId: 'malformed', status: 'complete' });
+  const foreignCopy = put('verification_documents', { archiveId: unlinked._id, bookingId: malformed._id, sessionId: unlinked.sessionId, accountId: mailboxOwner._id });
+  await assert.rejects(() => linkVerificationCopies(ctx, malformed._id, account._id), /owner or rental binding/);
+  assert.equal(unlinked.accountId, undefined, 'A conflicting copy prevents partial archive repair');
+  assert.equal(foreignCopy.accountId, mailboxOwner._id);
+  foreignCopy.accountId = undefined; foreignCopy.sessionId = 'wrong-session';
+  await assert.rejects(() => linkVerificationCopies(ctx, malformed._id, account._id), /owner or rental binding/);
+  foreignCopy.sessionId = unlinked.sessionId; unlinked.accountId = mailboxOwner._id;
+  await assert.rejects(() => linkVerificationCopies(ctx, malformed._id, account._id), /archive owner/);
+  assert.equal(foreignCopy.accountId, undefined);
+  const closed = put('bookings', { status: 'returned', accountId: account._id, returnedAt: Date.now() - 31 * 86400000 });
+  const removed = put('verification_archives', { bookingId: closed._id, sessionId: 'removed-session', status: 'deleted', deletedAt: Date.now() });
+  const removedAt = removed.deletedAt;
+  await linkVerificationCopies(ctx, closed._id, account._id);
+  assert.equal(removed.accountId, account._id, 'Deleted audit metadata can acquire its permanent owner');
+  assert.equal(removed.status, 'deleted'); assert.equal(removed.deletedAt, removedAt, 'Ownership repair cannot restart retention or resurrect deleted bytes');
+  console.log('PASS verification ownership: pre-account copies attach at paid creation, private query visibility, unchanged bytes/integrity, late worker completion, replay, historical repair and foreign owner/session rejection.');
+})().catch(error => { console.error(error); process.exitCode = 1; });
