@@ -24,7 +24,11 @@ async function blocked() {
   try {
     const out = put('reservations', { inventoryUnitId: owned._id, start: now - 40 * day, end: now - 30 * day, qty: 1, status: 'active' });
     const plannedEnd = out.end;
-    await blocked(); assert.equal(out.end, plannedEnd, 'Stock checks must not rewrite a booked return date');
+    assert.equal((await availability.forCart.handler(ctx,{items:lines}))[camera._id].ok,true,'Availability returns after the booked period even while custody awaits review');
+    await assertRentalInventory(ctx,lines);
+    assert.equal(out.status,'active','Forecast availability must not record a physical return');
+    assert.equal(out.end, plannedEnd, 'Stock checks must not rewrite a booked return date');
+    assert.equal((await availability.forListing.handler(ctx,{listingId:camera._id,start:out.start,end:out.end})).available,0,'The same hire remains unavailable within its booked period');
     out.status = 'returned';
     assert.equal((await availability.forListing.handler(ctx, { listingId: camera._id, start, end })).available, 1);
     assert.equal((await replacements.forCart.handler(ctx, { items: requested })).replacement[0].listingId, camera._id);
@@ -61,6 +65,6 @@ async function blocked() {
     upstream.units[0].windows=[];upstream.checkedAt=now+1;
     assert.equal((await sync.syncHyggloReservations.handler({ ...ctx, runMutation: async (_ref, args) => sync.applySharedStock.handler(ctx, args) }, {})).mirrored, 0);
     assert.equal((await availability.forListing.handler(ctx, { listingId: camera._id, start, end })).available, 1);
-    console.log('PASS actual occupancy/feed/cart/replacement/hold handlers: overdue custody preserved, planned dates intact, unresolved payment TTL retained, reconciled return/payment release and canonical shared-source release.');
+    console.log('PASS actual occupancy/feed/cart/replacement/hold handlers: booked-period availability restores without changing custody or settlement, planned dates intact, unresolved payment TTL retained, reconciled return/payment release and canonical shared-source release.');
   } finally { Date.now = realNow; global.fetch = realFetch; }
 })().catch(error => { console.error(error); process.exitCode = 1; });

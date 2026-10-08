@@ -138,34 +138,33 @@ export const forCart = query({
       resIvs[uid] = await unitReservations(ctx, uid, lo, hi);
     }
 
-    // per-unit peak WITH cart demand, and standalone free (reservations only)
-    const unitOver: Record<string, boolean> = {};
-    const unitFree: Record<string, number> = {};
+    // Build shared basket demand once, but evaluate it within each requested
+    // period. A shortage for another hire must not mark an unrelated date as
+    // unavailable, even when both listings use the same physical pool.
+    const cartIvs: Record<string, Iv[]> = {};
     for (const uid of unitIds) {
-      const cartIvs: Iv[] = [];
+      cartIvs[uid] = [];
       for (const ln of lines)
         for (const c of ln.comps)
-          if (c.inventoryUnitId === uid) cartIvs.push({ start: ln.start, end: ln.end, qty: c.qty || 1 });
-      unitOver[uid] = peak([...resIvs[uid], ...cartIvs]) > owned[uid];
-      unitFree[uid] = Math.max(0, owned[uid] - peak(resIvs[uid]));
+          if (c.inventoryUnitId === uid) cartIvs[uid].push({ start: ln.start, end: ln.end, qty: c.qty });
     }
 
     // per-listing result
-    const groups = new Map<string, { comps: any[]; demanded: number }>();
+    const groups = new Map<string, typeof lines>();
     for (const ln of lines) {
       const g = groups.get(ln.listingId);
-      if (g) g.demanded += 1;
-      else groups.set(ln.listingId, { comps: ln.comps, demanded: 1 });
+      if (g) g.push(ln);
+      else groups.set(ln.listingId, [ln]);
     }
     const result: Record<string, { available: number; demanded: number; ok: boolean }> = {};
     for (const id of invalid) result[id] = { available: 0, demanded: items.filter(i => i.listingId === id).length, ok: false };
     for (const [listingId, g] of groups) {
       if (invalid.has(listingId)) continue;
-      const ok = g.comps.every((c) => !unitOver[c.inventoryUnitId]);
-      const available = Math.min(
-        ...g.comps.map((c) => Math.floor((unitFree[c.inventoryUnitId] ?? 0) / (c.qty || 1))),
-      );
-      result[listingId] = { available, demanded: g.demanded, ok };
+      const ok = g.every(ln => ln.comps.every(c =>
+        peak(overlappingIntervals([...resIvs[c.inventoryUnitId], ...cartIvs[c.inventoryUnitId]], ln.start, ln.end)) <= owned[c.inventoryUnitId]));
+      const available = Math.min(...g.flatMap(ln => ln.comps.map(c =>
+        Math.floor(Math.max(0, owned[c.inventoryUnitId] - peak(overlappingIntervals(resIvs[c.inventoryUnitId], ln.start, ln.end))) / c.qty))));
+      result[listingId] = { available, demanded: g.length, ok };
     }
     return result;
   },

@@ -138,7 +138,7 @@ export default function AdminPage() {
           <div>
             <AdminDashboard token={token} unread={rentalUnread} alerts={attention.length}
               onRental={id => { setDetailId(id); setTab("bookings"); }} onRentals={() => setTab("bookings")}
-              onCalendar={() => setTab("calendar")} onMessages={() => setTab("inbox")} onReports={() => setTab("reports")} />
+              onCalendar={() => setTab("calendar")} onMessages={() => setTab("inbox")} onReports={() => setTab("reports")} onInventory={() => setTab("marketing")} />
             <details className="mt-6 rounded-3xl border border-white/[0.06] p-5">
               <summary className="cursor-pointer text-sm text-white/70">
                 Gear demand

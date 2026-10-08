@@ -1,7 +1,7 @@
-.drawer { position: fixed; inset: 0 0 0 auto; margin: 0 0 0 auto; width: min(850px, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; background: #1b1c1b; color: #e9e4dc; border: 1px solid #ffffff18; padding: 0; overflow-y: auto; font-family: var(--font-inter, Arial), sans-serif; color-scheme: dark; }
+.drawer { position: fixed; inset: 0 0 0 auto; margin: 0 0 0 auto; width: min(674px, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; background: #1b1c1b; color: #e9e4dc; border: 1px solid #ffffff18; padding: 0; overflow-y: auto; font-family: var(--font-inter, Arial), sans-serif; color-scheme: dark; }
 .drawer::backdrop { background: #0009; }
 .header { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; gap: 20px; padding: 24px; background: #20211f; border-bottom: 1px solid #ffffff15; }
-.header h4 { font-family: var(--font-instrument, Georgia), serif; font-size: 29px; font-weight: 400; line-height: 1.25; }
+.header h4 { font-family: Georgia, serif; font-size: 29px; font-weight: 400; line-height: 1.25; }
 .header p { margin-top: 7px; color: #a4a39e; font-size: 12px; line-height: 1.7; }
 .header button { font-size: 25px; color: #c4beb5; align-self: start; min-width: 38px; height: 38px; display: grid; place-items: center; border-radius: 6px; }
 .header button:hover { background: #ffffff08; }
@@ -69,3 +69,35 @@
 .review summary {font-size:13px;cursor:pointer;overflow-wrap:anywhere;}
 .review iframe {display:block;width:100%;height:320px;margin-top:12px;border:1px solid #ffffff18;border-radius:8px;}
 @media (max-width:600px) {.settlementColumns,.previewCards {grid-template-columns:minmax(0,1fr);}.settlementColumns > section,.previewCards > section {padding:16px;}.reviewHead button {width:100%;justify-content:center;}.condition button {min-height:44px;}}
+
+/* 674px settlement drawer, measured against the supplied inspection render. */
+.header { padding:17px 23px 15px; background:#202121; }
+.header h4 { font-size:27px; }
+.header p { margin-top:4px; font-size:13px; }
+.body { padding:13px 23px 27px; }
+.items { gap:12px; margin-top:17px; }
+.items article { grid-template-columns:90px minmax(0,1fr); padding:12px; border-radius:5px; min-height:140px; }
+.condition { gap:5px; margin-top:7px; }
+.condition button { padding:6px 10px; }
+.itemPhoto { height:90px; background:#161818; }
+.sku { margin-top:0; }
+.itemIndex { margin-top:1px; }
+.review { margin-top:15px; }
+.settlementColumns,.previewCards { gap:12px; margin-top:13px; }
+.settlementColumns > section,.previewCards > section { padding:13px; border-radius:5px; background:#1a1c1c; }
+.confirm { margin-top:18px; padding:12px; border-radius:4px; }
+@media(max-width:600px) { .header,.body { padding:18px; } .header h4 { font-size:24px; } .condition button { min-height:44px; } }
+
+.returnTiming { margin-top:13px; padding:9px 12px; border:1px solid #343736; border-radius:5px; font-size:11px; }
+.returnTiming > summary { cursor:pointer; color:#c4c6c0; }
+.returnTiming[open] { padding-bottom:13px; }
+.returnTiming > label { font-size:12px; }
+.reviewHead { gap:9px; }
+.reviewHead h3 { font-size:13px; }
+.reviewHead p { font-size:10px; margin:3px 0 0; }
+.reviewHead button { font-size:11px; padding:7px 10px; border-radius:4px; }
+.review dt,.review p { font-size:11px; }
+.reviewAmounts dd,.paymentSummary dd { font-size:12px; }
+.reviewAmounts > div { margin-top:9px; }
+.previewCards h4 { font-size:13px; }
+.previewCards > section { min-height:119px; }

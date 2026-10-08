@@ -6,6 +6,7 @@ import { AccountDocuments, AccountDocumentSummary } from "./AccountDocuments";
 import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
 import styles from "./AccountAdmin.module.css";
+import { CustomerInvite } from "./CustomerInvite";
 
 const LEVELS = [
   ["automatic", "Automatic · subscription / existing grant"],
@@ -28,6 +29,7 @@ export function AccountAdmin({
   onConversation?: (accountId: string, bookingId: string | null) => void;
 }) {
   const profileRef = useRef<HTMLElement>(null);
+  const verificationRef = useRef<HTMLSelectElement>(null);
   const [input, setInput] = useState(""),
     [email, setEmail] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -39,6 +41,8 @@ export function AccountAdmin({
   const [filter, setFilter] = useState<"all" | "members" | "verified" | "pending">("all"),
     [tierFilter, setTierFilter] = useState<"all" | "standard" | "plus" | "pro" | "studio">("all"),
     [page, setPage] = useState(0);
+  const [verificationFilter, setVerificationFilter] = useState<"all" | "verified" | "pending">("all");
+  const [checked, setChecked] = useState<string[]>([]);
   const [section, setSection] = useState("overview"),
     [panelClosed, setPanelClosed] = useState(false);
   const [note, setNote] = useState(""),
@@ -51,7 +55,7 @@ export function AccountAdmin({
   const authorized = useQuery(api.accountAdmin.directoryAccess, { token });
   const { results: visible, status, loadMore } = usePaginatedQuery(
     api.accountAdmin.directory,
-    authorized ? { token, search: email, filter, tier: tierFilter } : "skip",
+    authorized ? { token, search: email, filter, tier: tierFilter, verification: verificationFilter } : "skip",
     { initialNumItems: 100 },
   );
   const searchPending = input !== email || authorized === undefined || status === "LoadingFirstPage";
@@ -85,10 +89,13 @@ export function AccountAdmin({
     setBusy(false);
     setNoteBusy(false);
   }, [currentScope]);
-  useEffect(() => setPage(0), [email, filter, tierFilter]);
+  useEffect(() => setPage(0), [email, filter, tierFilter, verificationFilter]);
   const pages = Math.max(1, Math.ceil(visible.length / 10));
   const currentPage = page;
   const displayRows = searchPending ? [] : visible.slice(page * 10, page * 10 + 10);
+  const metrics = useQuery(api.accountAdmin.directoryMetrics, authorized && !searchPending
+    ? { token, accountIds: displayRows.map(a => a.id) } : "skip");
+  useEffect(() => setChecked([]), [token, page, email, filter, tierFilter, verificationFilter]);
   const exhausted = status === "Exhausted";
   const loading = searchPending || status === "LoadingMore" || status === "CanLoadMore" && visible.length < (page + 1) * 10 + 1;
   useEffect(() => {
@@ -239,6 +246,16 @@ export function AccountAdmin({
   }
   return (
     <section data-testid="admin-accounts" className={styles.root}>
+      <div className={styles.pageTools}>
+        <label><span aria-hidden>⌕</span><span className={styles.srOnly}>Search all customers</span><input type="search" maxLength={254} placeholder="Search customers, name or email…" value={input} onChange={e => { setInput(e.target.value); setSelectedId(null); setPanelClosed(false); }} /></label>
+        <button type="button" className={styles.filterButton} onClick={() => verificationRef.current?.focus()}>☷ <span>Filters</span></button>
+        {authorized === true && <CustomerInvite />}
+        {checked.length > 0 && <button type="button" className={styles.filterButton} onClick={() => {
+          const csvValue = (value: string) => '"' + (/^[=+@\-\t\r]/.test(value) ? "'" : "") + value.replaceAll('"', '""') + '"';
+          const csv = ["Name,Email,Membership,Verified", ...displayRows.filter(a => checked.includes(a.id)).map(a => [a.name, a.email, label(a.tier), a.verified ? "Verified" : "Pending"].map(csvValue).join(","))].join("\r\n");
+          const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const a = document.createElement("a"); a.href = url; a.download = "db-cinema-customers.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }}>Export {checked.length}</button>}
+      </div>
       <div className={styles.directory}>
         <nav className={styles.directoryTabs} aria-label="Customer filters">
           {[
@@ -290,15 +307,27 @@ export function AccountAdmin({
               )}
             </select>
           </label>
+          <label>
+            <span className={styles.srOnly}>Verification filter</span>
+            <select ref={verificationRef} aria-label="Verification status" value={verificationFilter} onChange={e => { setVerificationFilter(e.target.value as typeof verificationFilter); setPage(0); setSelectedId(null); }}>
+              <option value="all">All verification status</option>
+              <option value="verified">Verified</option>
+              <option value="pending">Pending</option>
+            </select>
+          </label>
         </div>
         <div className={styles.tableWrap}>
           <table className={styles.table}>
+            <colgroup><col style={{width:"4%"}}/><col style={{width:"23%"}}/><col style={{width:"21%"}}/><col style={{width:"14%"}}/><col style={{width:"13%"}}/><col style={{width:"8%"}}/><col style={{width:"12%"}}/><col style={{width:"5%"}}/></colgroup>
             <thead>
               <tr>
+                <th className={styles.checkColumn}><input type="checkbox" aria-label="Select customers on this page" checked={displayRows.length > 0 && displayRows.every(a => checked.includes(a.id))} onChange={e => setChecked(e.target.checked ? displayRows.map(a => a.id) : [])} /></th>
                 <th>Customer</th>
                 <th className={styles.emailColumn}>Email</th>
                 <th>Membership</th>
                 <th className={styles.verificationColumn}>Verified</th>
+                <th className={styles.metricColumn}>Active<br />rentals</th>
+                <th className={styles.metricColumn}>Account<br />credit</th>
                 <th>
                   <span className={styles.srOnly}>Open account</span>
                 </th>
@@ -314,6 +343,7 @@ export function AccountAdmin({
                       : ""
                   }
                 >
+                  <td className={styles.checkColumn}><input type="checkbox" aria-label={`Select ${account.name || account.email}`} checked={checked.includes(account.id)} onChange={e => setChecked(old => e.target.checked ? [...old, account.id] : old.filter(id => id !== account.id))} /></td>
                   <td>
                     <button
                       type="button"
@@ -368,6 +398,8 @@ export function AccountAdmin({
                           : "◷ Pending"}
                     </span>
                   </td>
+                  <td className={styles.metricColumn}>{metrics?.find(m => m.id === account.id)?.activeRentals ?? "…"}{metrics?.find(m => m.id === account.id)?.activeRentalsMore ? "+" : ""}</td>
+                  <td className={styles.metricColumn}>{metrics?.some(m => m.id === account.id) ? formatGbp(metrics.find(m => m.id === account.id)!.credit) : "…"}</td>
                   <td>
                     <button
                       type="button"
@@ -410,9 +442,7 @@ export function AccountAdmin({
             >
               ‹
             </button>
-            <span>
-              Page {currentPage + 1}{exhausted ? ` / ${pages}` : ""}
-            </span>
+            {Array.from({ length: Math.min(5, pages) }, (_, i) => Math.max(0, Math.min(currentPage - 2, pages - 5)) + i).map(n => <button key={n} type="button" aria-label={`Customer page ${n + 1}`} aria-current={n === currentPage ? "page" : undefined} disabled={searchPending} onClick={() => setPage(n)}>{n + 1}</button>)}
             <button
               type="button"
               aria-label="Next customer page"
@@ -453,9 +483,10 @@ export function AccountAdmin({
               </span>
               </div>
               <div className={styles.contacts}>
-              <p>{selected.email}</p>
-              {detail?.phone && <p>{detail.phone}</p>}
+              <p><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 5h18v14H3z M3 5l9 7 9-7"/></svg> {selected.email}</p>
+              {detail?.phone && <p><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 3h4l2 5-3 2c2 3 3 4 6 6l2-3 5 2v4c0 2-3 3-5 2C9 19 5 15 3 8 2 6 3 3 5 3Z"/></svg> {detail.phone}</p>}
               </div>
+              {detail?.address && <p className={styles.address}>{detail.address}</p>}
             </div>
             <button
               type="button"

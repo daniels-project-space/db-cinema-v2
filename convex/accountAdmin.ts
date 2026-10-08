@@ -19,6 +19,7 @@ export const directory = query({
     token: v.string(), search: v.string(), paginationOpts: paginationOptsValidator,
     filter: v.union(v.literal("all"), v.literal("members"), v.literal("verified"), v.literal("pending")),
     tier: v.union(v.literal("all"), v.literal("standard"), v.literal("plus"), v.literal("pro"), v.literal("studio")),
+    verification: v.optional(v.union(v.literal("all"), v.literal("verified"), v.literal("pending"))),
   },
   handler: async (ctx, args) => {
     if (!checkAdminToken(args.token)) return { page: [], isDone: true, continueCursor: "" };
@@ -33,6 +34,7 @@ export const directory = query({
       const verified = account.rentalVerification ? account.rentalVerification.expiresAt > now : !!account.idVerified;
       return (!search || `${account.name ?? ""} ${account.email}`.toLocaleLowerCase("en-GB").includes(search)) &&
         (args.tier === "all" || tier === args.tier) &&
+        (!args.verification || args.verification === "all" || (args.verification === "verified" ? verified : !verified)) &&
         (args.filter === "all" || args.filter === "members" && tier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified);
     });
     return { ...result, page: await Promise.all(matches.map(async account => ({
@@ -44,6 +46,30 @@ export const directory = query({
       verified: account.rentalVerification ? account.rentalVerification.expiresAt > now : !!account.idVerified,
       avatarUrl: account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
     }))) };
+  },
+});
+
+/** Load only the visible directory page. Operational counts exclude completed
+ * and unpaid rentals; legacy email ownership never overrides an account link. */
+export const directoryMetrics = query({
+  args: { token: v.string(), accountIds: v.array(v.id("accounts")) },
+  handler: async (ctx, args) => {
+    if (!checkAdminToken(args.token)) return [];
+    if (args.accountIds.length > 10) throw Error("Invalid customer metrics page.");
+    return Promise.all([...new Set(args.accountIds)].map(async id => {
+      const account = await ctx.db.get(id);
+      if (!account) return { id, activeRentals: 0, activeRentalsMore: false, credit: 0 };
+      const active = (q: any) => q.or(q.eq(q.field("status"), "active"), q.eq(q.field("status"), "confirmed"));
+      const [owned, legacy, credits] = await Promise.all([
+        ctx.db.query("bookings").withIndex("by_account", q => q.eq("accountId", id)).filter(active).take(101),
+        ctx.db.query("bookings").withIndex("by_guestEmail", q => q.eq("guestEmail", account.email.trim().toLowerCase()))
+          .filter(q => q.and(active(q), q.eq(q.field("accountId"), undefined))).take(101),
+        availableCreditRows(ctx, id),
+      ]);
+      const count = owned.length + legacy.length;
+      return { id, activeRentals: Math.min(count, 100), activeRentalsMore: count > 100,
+        credit: credits.reduce((n: number, c: any) => n + c.availablePence, 0) / 100 };
+    }));
   },
 });
 

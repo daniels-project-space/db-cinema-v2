@@ -9,6 +9,7 @@ import { RentalManagerDelivery } from "./RentalManagerDelivery";
 import { SmartImage } from "@/components/SmartImage";
 import { rentalTitle } from "@/lib/rentalPresentation";
 import { formatGbp } from "@/lib/pricing";
+import { rentalDate } from "@/lib/rentalPresentation";
 
 export function RentalOrderTools({
   token,
@@ -196,6 +197,10 @@ export function RentalOrderTools({
   }
   return (
     <div data-testid="owner-rental-tools">
+      <section className={chatStyles.bookingFacts} aria-label="Booked equipment and handover">
+        <div className={chatStyles.factsIdentity}><SmartImage src={b.lineItems[0]?.heroImage} fallbackSources={b.lineItems[0]?.imageSources} alt={b.lineItems[0]?.title ?? "Rental kit"} className={chatStyles.factsPhoto} /><div><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
+        <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{b.pickupTime ?? "Time to confirm"}</dd></div><div><dt>Return</dt><dd>{b.returnTime ?? "Time to confirm"}</dd></div><div><dt>Customer</dt><dd>{b.guestName || b.guestEmail}</dd></div><div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
+      </section>
       <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">
         <div><dt>Booking total</dt><dd>{formatGbp(b.total)}</dd></div>
         <div><dt>Refundable deposit</dt><dd>{formatGbp(b.depositAmount ?? 0)}</dd></div>

@@ -38,7 +38,7 @@ const ctx={db:{...db,normalizeId(table,id){return tables.get(table)?.some(row=>r
  assert.deepEqual(summary.topMisses,[['boundary miss',1]]);
  assert.equal(summary.ongoing.length,5,'All active rentals remain visible, including very overdue equipment and records needing date review');
  assert.deepEqual(summary.awaitingCollection.map(row=>row._id),[booking._id,futureBooking._id],'Confirmation does not claim the kit has been collected, including rentals far in the future');
- assert.equal(summary.overdueCount,1);
+ assert.equal(summary.overdueCount,1);assert.equal(summary.awaitingCollection[0].verification,'required','Legacy missing verification remains required rather than implied approved');
  assert.equal(summary.itemsOut,6,"Equipment units include actual quantities across active rentals only");
  assert.deepEqual(summary.ongoing.find(row=>row._id===onHire._id).calendarLines,[{title:onHire.lineItems[0].title,qty:3,start:onHire.lineItems[0].start,end:onHire.lineItems[0].end,returnTime:onHire.lineItems[0].returnTime}]);
  const active=summary.ongoing.find(row=>row._id===onHire._id);assert.equal(active.overdue,true);assert.equal(active.customerName,'Known customer');assert.equal(active.kit[0].qty,3);
@@ -70,5 +70,22 @@ const ctx={db:{...db,normalizeId(table,id){return tables.get(table)?.some(row=>r
  const camera=insights.top.find(row=>row.listingId===listing._id);assert.equal(camera.marketingOnly,true);assert.equal(camera.title,'Sony FX3');assert.equal(camera.units,3);assert.equal(camera.adds,1);
  assert(!JSON.stringify(insights).includes('private-member@'));assert(!JSON.stringify(insights).includes('sub_expired'));
  assert(!insights.pages.some(row=>row[0]==='/future'));
+ // Recorded receipts must exclude security, unpaid checkouts and other currencies.
+ let panelReads=0;const panelCtx={db:{...db,query(table){panelReads++;return db.query(table)}}};
+ assert.deepEqual(await analytics.dashboardPanels.handler(panelCtx,{token:'wrong',now}),{authorized:false});assert.equal(panelReads,0);
+ const receipt=(extra={})=>put('bookings',{_creationTime:Date.UTC(2026,9,1),status:'confirmed',currency:'GBP',stripePaymentIntentId:'pi_fixture',total:120,depositAmount:20,...extra});
+ const paidReceipt=receipt({rentalPaidPence:8000,total:150}); // Updated paid addition is included, not the old initial snapshot.
+ put('rental_refunds',{bookingId:paidReceipt._id,status:'partial',amountPence:3000,parts:[{status:'succeeded',amountPence:1000},{status:'failed',amountPence:2000}]});
+ put('rental_refunds',{bookingId:paidReceipt._id,status:'pending',amountPence:5000});
+ receipt({status:'pending_payment'});receipt({stripePaymentIntentId:undefined});receipt({currency:'USD'});receipt({_creationTime:now+1});
+ receipt({status:'cancelled'});receipt({status:'cancelled',cancellationDecision:{action:'refund'},total:70});
+ receipt({_creationTime:Date.UTC(2026,4,1),status:'returned',total:40});
+ receipt({_creationTime:Date.UTC(2026,4,1)-1,total:1000});
+ put('listings',{active:true,category:'Cameras'});put('listings',{active:true,category:'Cameras'});put('listings',{active:true,category:'Lenses'});put('listings',{active:false,category:'Inactive'});
+ const panels=await analytics.dashboardPanels.handler(panelCtx,{token:'fixture-owner',now});
+ assert.equal(panels.months.length,6);assert.equal(panels.months[0].rentalPence,2000);assert.equal(panels.months[5].rentalPence,17000);
+ assert.equal(panels.totalPence,19000);assert.equal(panels.receiptCount,3);assert.equal(panels.partialReceipts,false);
+ assert.deepEqual(panels.categories,[{name:'Cameras',count:2},{name:'Lenses',count:1}]);
+ assert(!JSON.stringify(panels).includes('pi_fixture'),'No payment IDs or customer details exposed in aggregates');
  console.log('PASS indexed analytics: authorization, seven/thirty-day boundaries, future timestamps, creation-order ties, funnel metrics, live sessions, ongoing rentals and demand units; historic events never read.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

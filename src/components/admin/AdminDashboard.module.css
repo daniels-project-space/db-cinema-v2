@@ -105,3 +105,83 @@
 .rentalActions:has(details[open]) { grid-template-columns:1fr; }
 .calendar .monthGrid { max-height:360px; }
 @media(max-width:640px) { .rentalSummary { grid-template-columns:72px minmax(0,1fr); } .hero { width:72px; height:76px; } .calendar .monthGrid { max-height:360px; } }
+
+/* Rental dashboard render geometry; all surfaces use the approved dark palette. */
+.metrics button { min-height:90px; padding:13px 17px; background:linear-gradient(130deg,#242626,#1c1e1e); border-color:#343635; }
+.metrics strong { font-size:30px; margin:8px 0 4px; }
+.metrics small { font-size:10px; }
+.tools { margin:10px 0 9px; }
+.columns { grid-template-columns:minmax(0,1.09fr) minmax(0,1fr); gap:18px; }
+.panel { background:linear-gradient(130deg,#212323,#1a1c1c); border-color:#343635; padding:17px; }
+.panel header { margin-bottom:14px; }
+.panel header p { font-size:10px; }
+.list { gap:8px; }
+.rental { padding:11px; background:#202222; }
+.rentalSummary { grid-template-columns:96px minmax(0,1fr) minmax(120px,.8fr); gap:12px; }
+.hero { width:96px; height:80px; background:#151817; }
+.kitSummary h3 { font-size:13px; }
+.customer h4 { font-size:12px; }
+.customer p { font-size:10px; }
+.rentalActions { margin-top:6px; padding-top:6px; }
+.kitDetails summary { font-size:10px; }
+.calendar .monthGrid { max-height:348px; }
+@media(max-width:1250px) { .columns { grid-template-columns:1fr; } }
+@media(max-width:640px) { .rentalSummary { grid-template-columns:72px minmax(0,1fr); } .hero { width:72px; height:76px; } }
+
+.metrics small { line-height:1.2; }
+.metrics button { padding:11px 17px; }
+.columns { margin-top:14px; }
+.panel header p { display:none; }
+.panel header { margin-bottom:17px; }
+.rentalSummary { grid-template-columns:142px minmax(0,1fr) minmax(135px,.83fr); }
+.hero { width:142px; height:95px; }
+.list { max-height:554px; }
+.rental { padding:12px; }
+.rentalActions { margin-top:0; padding-top:0; border:0; }
+.rentalActions summary { font-size:9px; }
+.calendar .monthGrid { max-height:348px; }
+@media(max-width:640px) { .rentalSummary { grid-template-columns:72px minmax(0,1fr); } .hero { width:72px; height:76px; } .metrics button { padding:12px; } }
+
+.panel h2 { font-family:var(--font-inter,Arial),sans-serif; font-size:18px; font-weight:600; }
+.calendar h2 { font-size:21px; }
+@media(min-width:1251px) { .metrics button { height:90px; } }
+
+.rental { position:relative; }
+.hero { height:90px; }
+.rentalActions { display:block; position:absolute; bottom:10px; right:12px; }
+.rentalActions > details { display:none; }
+.rentalActions footer button { font-size:9px; }
+.rental:has(.kitDetails[open]) .rentalActions { position:static; }
+.rental:has(.kitDetails[open]) .rentalActions > details { display:block; }
+@media(max-width:640px) { .rentalActions { position:static; display:grid; margin-top:10px; } .rentalActions > details { display:block; } .hero { height:76px; } }
+
+.revenue { min-height:243px; }
+.revenue header > span { border:1px solid #343736; border-radius:4px; padding:5px 8px; font-size:10px; color:#acb0a9; }
+.receiptTotal { display:block; font-size:27px; font-weight:600; line-height:1.2; }
+.revenue .panelNote { margin-top:6px; font-size:10px; }
+.revenue svg { width:100%; height:112px; margin-top:9px; }
+.receiptMonths { display:flex; justify-content:space-between; padding:0 21px; color:#9fa59c; font-size:10px; }
+.catalogueTiles { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+.catalogueTiles > div { border:1px solid #343736; border-radius:4px; padding:9px; min-width:0; }
+.catalogueTiles span { font-size:10px; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.catalogueTiles strong { display:block; font-size:22px; line-height:1.4; }
+.catalogueTiles small { font-size:9px; color:#91988f; }
+@media(max-width:640px) { .catalogueTiles { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+/* The compact disclosure remains reachable beside the manage action. */
+@media(min-width:641px) {
+  .rentalActions { display:flex; align-items:center; gap:12px; }
+  .rentalActions > details { display:block; }
+  .kitDetails summary { max-width:96px; font-size:9px; }
+  .kitDetails summary span { margin-left:5px; }
+  .rental:has(.kitDetails[open]) .rentalActions { display:block; margin-top:10px; }
+}
+
+@media(min-width:1251px) {
+  .calendar .monthGrid { max-height:256px; }
+  .primary > .panel:first-child .list { max-height:494px; }
+  .primary > .panel:first-child header { margin-bottom:10px; }
+  .rental { padding:11px; }
+  .kitSummary h3 { font-size:12px; line-height:1.35; }
+  .rentalActions summary { max-width:87px; }
+}

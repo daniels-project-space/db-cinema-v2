@@ -66,3 +66,58 @@
 .inboxScreen .inbox { margin-top:18px; }
 @media (min-width:1151px) { .inboxScreen .header { padding-top:18px; padding-bottom:18px; } .inboxScreen .messages { height:410px; } }
 @media (min-width:768px) and (max-width:1023px) { .inbox { display:block; border:0; background:transparent; } .directory { border-right:0; } .renterDirectory { padding:0 0 14px; } .renterDirectory > button { min-width:220px; flex-shrink:0; } }
+
+/* Three panes align to the 1487px conversation render. */
+.conversation { border-radius:0; border:0; background:#1b1d1d; --muted:#a5a6a8; }
+.header { background:#1b1d1d; padding:18px 24px; }
+.header h3 { font-family:var(--font-inter,Arial),sans-serif; font-size:19px; }
+.eyebrow { letter-spacing:0; font-size:11px; text-transform:none; }
+.bookingStrip { background:#191b1b; }
+.bookingStrip h4 { font-size:14px; }
+.tools { background:#1b1d1d; padding:23px 24px; }
+.toolsHeading h4 { font:25px Georgia,serif; }
+.messages { background:#1b1d1d; }
+.message :global(.management-conversation-message-copy) { background:#262929; border-color:#373a39; color:#e4e3df; border-radius:6px; font-size:14px; }
+.message[data-mine=true] :global(.management-conversation-message-copy) { background:#493326; border-color:#6d4d39; color:#f0e5db; }
+.composer { background:#1b1d1d; }
+.composeForm { background:#171a1a; border-color:#393b3b; }
+@media(min-width:1151px) {
+ .inbox { grid-template-columns:369px minmax(0,1fr); margin-top:0; border-radius:0; border:0; min-height:calc(100dvh - 61px); }
+ .inboxScreen { position:relative; }
+ .inboxScreen > div:first-child { position:absolute; top:17px; left:21px; width:327px; z-index:1; }
+ .inboxScreen > div:first-child h2 { font-size:23px; }
+ .inboxScreen > div:first-child p { font-size:11px; }
+ .inboxScreen > .tabs { position:absolute; top:86px; left:21px; width:327px; margin:0; z-index:1; }
+ .inboxScreen .inbox { margin-top:0; }
+ .directory { padding:135px 21px 20px; background:#171a1a; }
+ .directory > div { max-height:calc(100dvh - 240px); }
+ .directory button { padding:18px 10px; border-radius:0; }
+ .renterDirectory { padding:23px 21px; }
+ .withTools { grid-template-columns:minmax(0,1.344fr) minmax(350px,1fr); grid-template-rows:auto minmax(0,1fr); height:calc(100dvh - 61px); }
+ .header { min-height:84px; }
+ .main { min-height:0; }
+ .bookingStrip { min-height:112px; }
+ .messages,.inboxScreen .messages { flex:1; height:auto; min-height:220px; padding:24px; }
+ .composer { padding:15px 24px 22px; }
+ .tools { overflow-y:auto; scrollbar-width:thin; }
+ .inboxScreen > .inbox > div { min-width:0; }
+}
+@media(max-width:1150px) { .conversation { border:1px solid #343737; border-radius:6px; } }
+
+.header .eyebrow { display:none; }
+.header h3 { margin:0 0 5px; }
+.header .identity { gap:14px; }
+.header .identity > span { width:48px; height:48px; }
+@media(min-width:1151px) { .header { height:84px; } .bookingStrip { min-height:112px; } }
+
+.bookingFacts { margin-bottom:23px; border-bottom:1px solid #353737; padding-bottom:20px; }
+.factsIdentity { display:flex; gap:15px; align-items:center; margin-bottom:18px; }
+.factsPhoto { width:86px; height:72px; background:#141717; border-radius:4px; flex-shrink:0; }
+.factsPhoto img { object-fit:contain; }
+.factsIdentity h5 { font-size:15px; font-weight:600; }
+.factsIdentity p { font-size:11px; color:#a5a6a8; margin-top:5px; }
+.bookingFacts dl { display:grid; gap:11px; font-size:12px; }
+.bookingFacts dl > div { display:flex; gap:20px; justify-content:space-between; align-items:flex-start; }
+.bookingFacts dt { color:#a5a6a8; }
+.bookingFacts dd { margin:0; text-align:right; color:#d4d6d0; max-width:65%; overflow-wrap:anywhere; }
+.bookingFacts dd[data-verified=true] { color:#68b68e; }
