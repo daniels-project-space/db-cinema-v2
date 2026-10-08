@@ -2,6 +2,14 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — partial audited kit quantities
+
+- [x] Fix the manager physical-unit resolver's partial-audit branch: per-kit quantities multiply by booked listing quantities; audited listings sharing one item add together, and independently mapped listings retain their contribution. Supplied adapters follow the same expansion as fully audited kits.
+- [x] Reject invalid booked/component quantities and overflowing multiplication/aggregation before they can become believable occupancy. Preserve explicit owned-nothing decisions and unrelated legacy units.
+- [x] Actual snapshot/quote regression: controlled 12 owned / 10 occupied now yields 2 free. Prior actual source emits 1 occupied / 11 free. Listing order, adapters and quantity validation are tested in the real resolver/source path; no live rental data is changed.
+- [x] Manager final full suite passes: 142 files, 2168 tests and 14 existing skips. TypeScript/safe build and graphs pass. Record inspected coordinator choke points and protocol in `docs/shared-stock-authority-plan-2026-10-08.md`; no authority implementation is claimed.
+- [ ] Perform compatible paired rollout and reconcile unknown legacy physical mappings. The single atomic reservation authority across website/Hygglo writes, complete private/live acceptance and reference/ERNIE requirements remain active.
+
 ### 8 October 2026 — fenced booking delivery and exact paired receipts
 
 - [x] Tie each delivery result to its claimed generation as well as booking revision. Ignore duplicate and late previous-worker results; recover expired workers with a new generation. Move leased bookings out of the due batch until recovery time so they cannot starve other rentals.
