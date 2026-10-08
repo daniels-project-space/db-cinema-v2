@@ -18,7 +18,15 @@ add({type:'add_to_cart',at:now-29*DAY,path:'second item',title:'Second',qty:3},1
 add({type:'register_interest',at:now-30*DAY,path:'display',title:'Display',qty:1},11);
 add({type:'add_to_cart',at:now-30*DAY-1,path:'expired cart'},12);
 const booking=put('bookings',{status:'confirmed',guestEmail:'fixture@example.invalid',lineItems:[{start:now-DAY,end:now+DAY,title:'Camera'}],total:25});
+const listing=put('listings',{title:'Sony FX3',r2Images:['https://fixture.invalid/fx3.jpg'],sourceImages:['https://fixture.invalid/backup.jpg','http://fixture.invalid/rejected.jpg']});
+const onHire=put('bookings',{status:'active',guestName:'Known customer',guestEmail:'on-hire@example.invalid',pickupTime:'10:00',returnTime:'18:00',diditSessionId:'private-verification',address:'Private billing address',lineItems:[{listingId:listing._id,start:now-40*DAY,end:now-30*DAY,title:'Sony FX3',qty:3}],total:50});
+const boundary=put('bookings',{status:'active',guestEmail:'boundary@example.invalid',returnTime:'18:00',lineItems:[{listingId:listing._id,start:Date.UTC(2026,9,7),end:Date.UTC(2026,9,7),title:'Boundary camera',qty:1,returnTime:'13:00'}],total:20});
+const noTime=put('bookings',{status:'active',guestEmail:'unagreed@example.invalid',returnTime:'18:00',lineItems:[{listingId:listing._id,start:now-40*DAY,end:now-30*DAY,title:'Unagreed return',qty:1,returnTime:null}],total:20});
+const empty=put('bookings',{status:'active',guestEmail:'needs-review@example.invalid',lineItems:[],total:20});
+const invalidTime=put('bookings',{status:'active',guestEmail:'invalid-slot@example.invalid',returnTime:'not agreed',lineItems:[{listingId:listing._id,start:now-DAY,end:now+DAY,title:'Legacy invalid slot',qty:1}],total:20});
+const futureBooking=put('bookings',{status:'confirmed',guestEmail:'future-collection@example.invalid',lineItems:[{start:now+60*DAY,end:now+62*DAY,title:'Future kit'}],total:25});
 put('bookings',{status:'cancelled',guestEmail:'cancelled@example.invalid',lineItems:[{start:now-DAY,end:now+DAY,title:'Old'}],total:9});
+put('bookings',{status:'returned',guestEmail:'returned@example.invalid',lineItems:[{start:now-DAY,end:now+DAY,title:'Returned'}],total:9});
 let eventReads=0;
 const ctx={db:{...db,query(table){const query=db.query(table);const collect=query.collect.bind(query);query.collect=async()=>{const rows=await collect();if(table==='events'){eventReads+=rows.length;return rows.sort((a,b)=>a.at-b.at||a._creationTime-b._creationTime);}return rows;};return query;}}};
 (async()=>{
@@ -27,8 +35,21 @@ const ctx={db:{...db,query(table){const query=db.query(table);const collect=quer
  assert.equal(summary.views24,3);assert.equal(summary.views7,4);assert.equal(summary.live,2);
  assert.equal(summary.purchases24,1);assert.equal(summary.checkouts24,1);assert.equal(summary.conversion,33.3);
  assert.deepEqual(summary.topPages,[['/first',1],['/second',1],['/future',1]]);
- assert.deepEqual(summary.topMisses,[['boundary miss',1]]);assert.equal(summary.ongoing.length,1);assert.equal(summary.ongoing[0]._id,booking._id);
+ assert.deepEqual(summary.topMisses,[['boundary miss',1]]);
+ assert.equal(summary.ongoing.length,5,'All active rentals remain visible, including very overdue equipment and records needing date review');
+ assert.deepEqual(summary.awaitingCollection.map(row=>row._id),[booking._id,futureBooking._id],'Confirmation does not claim the kit has been collected, including rentals far in the future');
+ assert.equal(summary.overdueCount,1);
+ const active=summary.ongoing.find(row=>row._id===onHire._id);assert.equal(active.overdue,true);assert.equal(active.customerName,'Known customer');assert.equal(active.kit[0].qty,3);
+ assert.deepEqual(active.kit[0].imageSources,['https://fixture.invalid/fx3.jpg','https://fixture.invalid/backup.jpg']);assert.equal(active.kit[0].heroImage,'https://fixture.invalid/fx3.jpg');
+ assert.equal(summary.ongoing.find(row=>row._id===boundary._id).overdue,false,'Exact London return time is not overdue');
+ assert.equal(summary.ongoing.find(row=>row._id===boundary._id).returnTime,'13:00','Per-item return override is shown rather than the obsolete booking slot');
+ assert.equal(summary.ongoing.find(row=>row._id===noTime._id).overdue,false,'Explicitly unagreed line time never inherits another deadline');
+ assert.equal(summary.ongoing.find(row=>row._id===noTime._id).returnTime,null);
+ assert.equal(summary.ongoing.find(row=>row._id===empty._id).start,null);assert.equal(summary.ongoing.find(row=>row._id===empty._id).end,null);
+ assert.equal(summary.ongoing.find(row=>row._id===invalidTime._id).deadlineNeedsReview,true);assert.equal(summary.ongoing.find(row=>row._id===invalidTime._id).returnTime,null,'Bad legacy times do not crash the dashboard or become invented slots');
+ assert(!JSON.stringify(summary).includes('private-verification'));assert(!JSON.stringify(summary).includes('Private billing address'));
  assert.equal(eventReads,7,'only seven-day events are read including exact boundary and future events');
+ const afterBoundary=await analytics.adminSummary.handler(ctx,{token:'fixture-owner',now:now+60000});assert.equal(afterBoundary.ongoing.find(row=>row._id===boundary._id).overdue,true,'One minute after the saved London deadline is overdue');
  eventReads=0;
  const demand=await analytics.cartDemand.handler(ctx,{token:'fixture-owner',days:30,now});
  assert.equal(demand.total,3);assert.equal(eventReads,3,'bounded type/date reads exclude history');

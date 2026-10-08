@@ -1,6 +1,6 @@
 # Verification document archive
 
-Requirement: preserve Didit-uploaded ID and address evidence under the same DB Cinema account/rental, viewable by admins for insurance. User confirmed 30 days after rental closure on 7 October 2026.
+Requirement: preserve Didit-uploaded ID and address evidence under the same DB Cinema account/rental, viewable by admins for insurance. User confirmed 30 days after rental closure.
 
 Copies belong to DB Cinema's Convex storage, not the administrator's browser or VPS. Didit URLs expire, so the worker retrieves a fresh booking/email/workflow-bound decision and copies document bytes. Required ID and address evidence must both exist before archive completion. SHA-256, size and content type are saved with each copy; duplicate retries discard duplicate objects. A replaced file retains its prior archived version within the retention window.
 

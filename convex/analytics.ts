@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { listingImages } from "./lib/catalogImages";
 import { checkAdminToken } from "./adminAuth";
+import { lateFeeQuote } from "./lib/lateFee";
 
 /** Record a first-party event (views, funnel steps, zero-result searches). */
 export const track = mutation({
@@ -118,7 +119,8 @@ export const adminSummary = query({
     for (const e of in7) if (e.type === "search_no_results" && e.path) searchMisses.set(e.path, (searchMisses.get(e.path) ?? 0) + 1);
     const topMisses = [...searchMisses.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
 
-    // ongoing rentals: confirmed/active bookings spanning now
+    // Operational status is authoritative: overdue kit remains on hire until
+    // its return is recorded; an uncollected confirmation is not an active hire.
     const confirmed = await ctx.db
       .query("bookings")
       .withIndex("by_status", (q) => q.eq("status", "confirmed"))
@@ -127,23 +129,39 @@ export const adminSummary = query({
       .query("bookings")
       .withIndex("by_status", (q) => q.eq("status", "active"))
       .collect();
-    const ongoing = [...confirmed, ...active]
-      .filter((b) => {
-        const s = Math.min(...b.lineItems.map((li) => li.start));
-        const e = Math.max(...b.lineItems.map((li) => li.end));
-        return s <= now + DAY && e >= now - DAY; // around now (±1d window)
-      })
-      .map((b) => ({
-        _id: b._id,
-        guestEmail: b.guestEmail,
-        status: b.status,
-        start: Math.min(...b.lineItems.map((li) => li.start)),
-        end: Math.max(...b.lineItems.map((li) => li.end)),
-        total: b.total,
-        items: b.lineItems.map((li) => li.title).join(", "),
-        fulfilment: b.fulfilment,
-      }))
-      .sort((a, b) => a.start - b.start);
+    const byDate = (rows: typeof active, key: "start" | "end") => [...rows].sort((a, b) => {
+      const date = (row: typeof a) => {
+        const values = row.lineItems.map(line => line[key]).filter(Number.isFinite);
+        return values.length ? (key === "start" ? Math.min(...values) : Math.max(...values)) : Infinity;
+      };
+      return date(a) - date(b) || a._creationTime - b._creationTime;
+    });
+    const sourceImages = new Map<string, Promise<string[]>>();
+    const project = async (b: typeof active[number], index: number) => {
+      const starts = b.lineItems.map(line => line.start).filter(Number.isFinite);
+      const ends = b.lineItems.map(line => line.end).filter(Number.isFinite);
+      const lastDay = ends.length ? Math.max(...ends) : null;
+      const finalSlots = b.lineItems.filter(line => line.end === lastDay).map(line => line.returnTime === undefined ? b.returnTime : line.returnTime);
+      const returnTime = finalSlots.length && finalSlots.every(slot => typeof slot === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(slot)) ? [...finalSlots as string[]].sort().at(-1)! : null;
+      let overdue = false, deadlineNeedsReview = false;
+      if (b.status === "active") {
+        try { overdue = lateFeeQuote(b.lineItems, b.returnTime ?? null, now).breakdown.length > 0; }
+        catch { deadlineNeedsReview = true; }
+      }
+      const kit = index < 6 ? await Promise.all(b.lineItems.map(async line => {
+        const id = String(line.listingId ?? "");
+        if (id && !sourceImages.has(id)) sourceImages.set(id, ctx.db.get(line.listingId).then(listing => listingImages(listing)));
+        const images = id ? await sourceImages.get(id)! : [];
+        return { title: line.title, qty: line.qty ?? 1, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
+      })) : [];
+      return { _id: b._id, guestEmail: b.guestEmail, customerName: b.guestName ?? b.agreementName ?? null,
+        status: b.status, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
+        pickupTime: b.pickupTime ?? null, returnTime, total: b.total,
+        items: b.lineItems.map(line => line.title).join(", "), kit, fulfilment: b.fulfilment,
+        overdue, deadlineNeedsReview };
+    };
+    const ongoing = await Promise.all(byDate(active, "end").map(project));
+    const awaitingCollection = await Promise.all(byDate(confirmed, "start").map(project));
 
     return {
       authorized: true as const,
@@ -157,6 +175,8 @@ export const adminSummary = query({
       topPages,
       topMisses,
       ongoing,
+      awaitingCollection,
+      overdueCount: ongoing.filter(rental => rental.overdue).length,
     };
   },
 });

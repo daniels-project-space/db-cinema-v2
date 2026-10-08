@@ -2,7 +2,7 @@
 
 The complete scope and added dark-management/equipment-render requirements are tracked in [TODO.md](TODO.md).
 
-Four concept renders created with the built-in GPT image-generation tool on 7 October 2026:
+Six concept renders created with the built-in GPT image-generation tool on 7 October 2026:
 
 - `renter-panel.png`: renter dashboard, equipment cards and verification timeline.
 - `admin-chat.png`: three-column rental inbox with booking controls and drone review.

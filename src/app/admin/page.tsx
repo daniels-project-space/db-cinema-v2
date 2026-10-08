@@ -20,6 +20,7 @@ import { parseOwnerConversationUrl } from "../../../shared/ownerConversationRout
 import { ManagementShell } from "@/components/management/ManagementShell";
 import { InvoiceLibrary } from "@/components/management/InvoiceLibrary";
 import { RentalCalendar } from "@/components/account/RentalCalendar";
+import { AdminDashboard } from "@/components/admin/AdminDashboard";
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -134,7 +135,9 @@ export default function AdminPage() {
 
         {tab === "overview" && (
           <div className="mt-6">
-            <AdminAnalytics token={token} />
+            <AdminDashboard token={token} unread={rentalUnread} alerts={attention.length}
+              onRental={id => { setDetailId(id); setTab("bookings"); }} onRentals={() => setTab("bookings")}
+              onCalendar={() => setTab("calendar")} onMessages={() => setTab("inbox")} onReports={() => setTab("reports")} />
             <details className="mt-6 rounded-3xl border border-white/[0.06] p-5">
               <summary className="cursor-pointer text-sm text-white/70">
                 Gear demand
@@ -468,7 +471,7 @@ function AdminAnalytics({ token }: { token: string }) {
   const s = useQuery(api.analytics.adminSummary, { token, now });
   if (!s || !(s as any).authorized) return null;
   const a: any = s;
-  const fmtDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const fmtDay = (ms: number | null) => ms == null || !Number.isFinite(ms) ? "Unconfirmed" : new Date(ms).toISOString().slice(0, 10);
 
   return (
     <section className="mt-6">
