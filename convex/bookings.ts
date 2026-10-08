@@ -17,7 +17,7 @@ import { checkoutMembershipCredit, membershipSignupOffer } from "../shared/check
 import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRenterExposure, renterExposure, replacementValues, attachRenterPerson } from "./lib/rentalExposure";
-import { securityReady, verificationCanStart } from "../shared/verificationProgress";
+import { securityReady, verificationCanStart, verificationSessionCanOpen, renterVerificationNote } from "../shared/verificationProgress";
 import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerification";
 import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
 import { listingImages } from "./lib/catalogImages";
@@ -1403,6 +1403,7 @@ export const verificationAccess = internalQuery({
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
       documentExpiresAt: b.documentExpiresAt ?? null,
+      verificationExpiresAt: b.verificationExpiresAt ?? null,
       renterPersonKey: b.renterPersonKey ?? null,
       accountId: b.accountId, depositHoldAmount: b.depositHoldAmount, depositHoldStatus: b.depositHoldStatus,
       securityHoldPolicyVersion: b.securityHoldPolicyVersion, cancellationDecision:b.cancellationDecision, returnDecision:b.returnDecision,
@@ -1474,12 +1475,18 @@ export const setDiditSession = internalMutation({
   handler: async (ctx, { bookingId, sessionId, previousSessionId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || !["confirmed", "active"].includes(b.status) ||
-        !["required", "processing", "requires_input"].includes(b.idVerifyStatus ?? "required") || !verificationCanStart(b)) return false;
+        !verificationSessionCanOpen(b)) return false;
     if (b.diditSessionId !== previousSessionId && b.diditSessionId !== sessionId) return false;
     if (b.diditSessionId !== sessionId) {
       await ctx.db.patch(bookingId, {
         diditSessionId: sessionId,
         verificationChecks: undefined,
+        idVerifiedAt: undefined,
+        verificationExpiresAt: undefined,
+        documentExpiresAt: undefined,
+        verificationReusedFrom: undefined,
+        idVerificationSource: undefined,
+        verificationNote: undefined,
         diditEventId: undefined,
         diditEventAt: undefined,
         diditManualDecisionAt: undefined,
@@ -1907,7 +1914,7 @@ export const verificationProgress = query({
       idVerificationSource: b.idVerificationSource ?? null,
       securityHoldPolicyVersion:b.securityHoldPolicyVersion??null, verificationArchiveReady, verificationExpiresAt: b.verificationExpiresAt ?? null, documentExpiresAt: b.documentExpiresAt ?? null,
       requiresDroneLicence: await requiresDroneLicence(ctx, b), droneLicenceStatus: b.droneLicenceStatus ?? "required", droneLicenceNote: b.droneLicenceNote ?? null,
-      verificationNote: b.verificationNote ?? null, verificationChecks: b.verificationChecks ?? null,
+      verificationNote: renterVerificationNote(b.verificationNote), verificationChecks: b.verificationChecks ?? null,
       verificationUpdatedAt: b.verificationUpdatedAt ?? null, verificationReused: !!b.verificationReusedFrom,
       depositHoldAmount: b.depositHoldAmount ?? 0, depositHoldStatus: b.depositHoldStatus ?? null,
       depositHoldExpiresAt: b.depositHoldExpiresAt ?? null, securityHoldDueAt: b.securityHoldDueAt ?? null,

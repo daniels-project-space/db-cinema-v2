@@ -15,3 +15,5 @@ The existing signed Didit webhook and authenticated 15-second visible refresh su
 ## Qualification status
 
 This branch is a draft until actual staging desktop/mobile screenshots, flow checks and visual comparisons are completed. Unit/handler tests cover private account/session binding and denial, internal-field redaction, archive/expiry/security/drone readiness, and cancellation preparation. Production publication and checkout reopening are separate actions; checkout remains closed.
+
+The implementation also refreshes displayed readiness at actual document/card-hold expiry, gates renewal through the paid renter and the exact previous Didit session, retains earlier archived documents, redacts historical internal allocation notes, and supplies real archive/expiry state to rental cards. The public footer is hidden only while this verification workspace is mounted.

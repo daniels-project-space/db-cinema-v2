@@ -84,7 +84,7 @@ function SuccessInner() {
     );
   if (state === "unpaid")
     return (
-      <Msg title="Payment not completed" body="Your card was not charged. Your kit is still saved here, ready when you are." cta />
+      <Msg title="Payment not completed" body="Payment has not been confirmed. Your basket is saved. If your bank shows a pending payment, check its status before paying again." cta />
     );
   if (state === "cancelled")
     return <Msg title="This booking is closed" body="This checkout belongs to a cancelled booking. Please contact us if your bank shows a charge so we can confirm its refund." cta />;
@@ -93,10 +93,10 @@ function SuccessInner() {
 
   if(additionId){
     const ready=holdStatus==="held";
-    return <Msg title={ready?"Items added to your rental":"Payment received · approval pending"} body={ready?"Your order and rental conversation now include the extra items.":holdStatus==="requires_action"?"Complete the bank approval to add these items. You can resume it in your rental conversation.":"The extra items are waiting for a valid security hold. Open your rental conversation to check the status or ask the team for help."} cta />;
+    return <Msg title={ready?"Items added to your rental":"Payment received · approval pending"} body={ready?"Your order and rental conversation now include the extra items.":holdStatus==="requires_action"?"Complete the bank approval to add these items. You can resume it in your rental conversation.":"The extra items are waiting for a valid security hold. Open your rental conversation to check the status or ask the team for help."} accountRental={bookingId} />;
   }
 
-  if(cardSaved)return <Msg title="Card saved" body="Your rental security card has been updated. We will request the hold at your agreed pickup time, or now if pickup is already due. Open your account to check progress." cta />;
+  if(cardSaved)return <Msg title="Card saved" body="Your rental security card has been updated. We will request the hold at your agreed pickup time, or now if pickup is already due. Open your account to check progress." accountRental={bookingId} />;
 
   // membership subscription confirmation
   if (membership && !bookingId) {
@@ -129,11 +129,13 @@ function Msg({
   body,
   cta,
   onRetry,
+  accountRental,
 }: {
   title: string;
   body: string;
   cta?: boolean;
   onRetry?: () => void;
+  accountRental?: string | null;
 }) {
   return (
     <><SiteHeader /><main className="section-window mx-auto min-h-[70vh] max-w-xl px-6 py-24 text-center">
@@ -144,6 +146,7 @@ function Msg({
           Check payment again
         </button>
       )}
+      {accountRental && <Link href={`/account?rental=${encodeURIComponent(accountRental)}#chat`} className="btn-primary mt-6 px-6 py-3">Open rental conversation</Link>}
       {cta && (
         <Link
           href="/cart"

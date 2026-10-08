@@ -61,7 +61,7 @@ export function IdVerify({ bookingId, status, note, compact, autoStart = false, 
 
   return (
     <div className={compact ? "" : "rounded-xl border border-accent-400/20 bg-accent-400/[0.06] p-4"}>
-      <div className="text-sm text-white/70">{restart ? "Verification needs restarting" : LABEL[status] ?? LABEL.required}</div>
+      {!compact && <div className="text-sm text-white/70">{restart ? "Verification needs restarting" : LABEL[status] ?? LABEL.required}</div>}
       {note && (status === "requires_input" || status === "manual_review") && <p className="mt-1 text-xs text-amber-200">{note}</p>}
       {status === "processing" && <p className="mt-1 text-xs text-white/45">We will update this page when the provider completes its check. You can return later.</p>}
       {status === "manual_review" && <p className="mt-1 text-xs text-white/45">We will review this result and contact you if another document is needed.</p>}
