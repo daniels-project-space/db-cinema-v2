@@ -11,6 +11,7 @@ export type EnrichedLine = {
   end: number;
   qty: number;
   lineTotal: number;
+  returnTime?: string | null;
   slug: string | null;
   heroImage: string | null;
   imageSources?: string[];

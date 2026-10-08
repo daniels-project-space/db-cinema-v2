@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from "react";
 import {
-  type EnrichedBooking,
   groupOf,
   londonStartOfDay,
   fmtDate,
 } from "@/lib/bookingDisplay";
+
+import { calendarMonth, type CalendarRental } from "@/lib/rentalCalendar";
 
 const WD = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -28,13 +29,12 @@ function Lg({ c, t }: { c: string; t: string }) {
   );
 }
 
-export function RentalCalendar({ bookings }: { bookings: EnrichedBooking[] | null | undefined }) {
-  const list = (bookings ?? []).filter((b) => b.start != null && b.end != null);
+export function RentalCalendar({ bookings, loading = false }: { bookings: CalendarRental[] | null | undefined; loading?: boolean }) {
+  const list = bookings ?? [];
   const now = Date.now();
 
   const initial = useMemo(() => {
-    const future = list.filter((b) => (b.end ?? 0) >= now).sort((a, b) => (a.start ?? 0) - (b.start ?? 0))[0];
-    const base = future?.start ?? now;
+    const base = now;
     const p = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit" }).formatToParts(new Date(base));
     return { y: +p.find((x) => x.type === "year")!.value, m: +p.find((x) => x.type === "month")!.value - 1 };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -43,21 +43,7 @@ export function RentalCalendar({ bookings }: { bookings: EnrichedBooking[] | nul
   const [ym, setYm] = useState(initial);
   const [sel, setSel] = useState<number | null>(null);
 
-  const cover = useMemo(() => {
-    const m = new Map<number, EnrichedBooking[]>();
-    for (const b of list) {
-      let d = londonStartOfDay(b.start!);
-      const last = londonStartOfDay(b.end!);
-      let guard = 0;
-      while (d <= last && guard++ < 400) {
-        if (!m.has(d)) m.set(d, []);
-        m.get(d)!.push(b);
-        d += 86400000;
-      }
-    }
-    return m;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookings]);
+  const cover = useMemo(() => calendarMonth(list, ym.y, ym.m), [bookings, ym.y, ym.m]);
 
   const firstOfMonth = Date.UTC(ym.y, ym.m, 1);
   const daysInMonth = new Date(Date.UTC(ym.y, ym.m + 1, 0)).getUTCDate();
@@ -91,13 +77,14 @@ export function RentalCalendar({ bookings }: { bookings: EnrichedBooking[] | nul
           if (day == null) return <div key={i} />;
           const cd = cellDate(day);
           const bs = cover.get(cd) ?? [];
-          const top = [...bs].sort((a, b) => groupRank[groupOf(b)] - groupRank[groupOf(a)])[0];
-          const tint = top ? groupTint[groupOf(top)] : "";
+          const top = [...bs].sort((a, b) => groupRank[groupOf(b.rental)] - groupRank[groupOf(a.rental)])[0];
+          const tint = top ? groupTint[groupOf(top.rental)] : "";
           const isToday = cd === todayCivil;
           const selected = sel === day;
           return (
             <button
               key={i}
+              aria-label={`${day} ${MONTHS[ym.m]} ${ym.y} · ${bs.length} rentals${loading ? " · history loading" : ""}`}
               onClick={() => setSel(selected ? null : day)}
               className={`relative flex aspect-square items-center justify-center rounded-lg text-xs transition ${tint || "text-white/45 hover:bg-white/5"} ${selected ? "outline outline-2 outline-accent-400" : ""}`}
             >
@@ -117,19 +104,18 @@ export function RentalCalendar({ bookings }: { bookings: EnrichedBooking[] | nul
       {sel != null && selBookings.length > 0 && (
         <div className="mt-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 text-xs">
           <div className="mb-1 font-medium text-white/70">{fmtDate(cellDate(sel))}</div>
-          {selBookings.map((b) => (
-            <div key={b._id} className="text-white/55">
-              {b.lineItems[0]?.title}
-              {b.lineItems.length > 1 ? ` +${b.lineItems.length - 1}` : ""}
-              {b.pickupTime || b.returnTime
-                ? ` · ${b.pickupTime ? `pickup ${b.pickupTime}` : ""}${b.returnTime ? ` return ${b.returnTime}` : ""}`
-                : ""}
+          {selBookings.map(({rental:b,lines,pickup,returns}) => (
+            <div key={b._id} className="mt-2 border-t border-white/5 pt-2 text-white/55">
+              <div className="text-white/70">DBC-{b._id.slice(-8).toUpperCase()} · {b.status.replaceAll("_", " ")}</div>
+              {lines.map((line,i)=><div key={i}>{line.qty} × {line.title}</div>)}
+              {pickup && <div>Collection{b.pickupTime ? ` · ${b.pickupTime}` : " · time not recorded"}</div>}
+              {returns.map((line,i)=><div key={i}>Return · {line.title} · {line.returnTime ?? b.returnTime ?? "time not recorded"}</div>)}
             </div>
           ))}
         </div>
       )}
       {sel != null && selBookings.length === 0 && (
-        <div className="mt-3 text-xs text-white/30">No rentals on {fmtDate(cellDate(sel))}.</div>
+        <div className="mt-3 text-xs text-white/30">{loading ? "Still checking rental history for this date…" : `No rentals on ${fmtDate(cellDate(sel))}.`}</div>
       )}
     </section>
   );

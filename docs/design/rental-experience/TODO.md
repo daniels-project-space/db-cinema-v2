@@ -2,13 +2,21 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — complete calendar history and exact item periods
+
+- [x] Replace the admin newest-100 dependency with protected compact 50-record paging that continues through history. Display checking/counts and prevent partial empty dates claiming no rentals. Renter calendar navigation continues its ownership-aware history pages.
+- [x] Project actual line periods into only the viewed London civil month, preserving separate gaps, overlapping quantities and hires beyond 400 days. Show collection/individual return times only on their relevant boundaries, with explicit unrecorded times. Preserve saved line return times in renter projections.
+- [x] Actual handler/month tests and native real-component/handler checks pass for 143 records beyond the old cap, auth/page/privacy bounds, gaps, overlaps, quantity/time boundaries, long hires, DST/leap dates, navigation, incomplete-history messages, denied sessions and mobile overflow. Default suite/build/TypeScript pass; desktop/mobile screenshots visually reviewed. See CALENDAR-HISTORY.md.
+- [ ] Complete hosted/compatible-backend and actual private-user calendar acceptance. History scanning uses bounded pages, not an indexed date-window projection; no live manager occupancy/atomic-claim or broad goal completion is asserted.
+
 ### 8 October 2026 — complete protected invoice history
 
 - [x] Replace the admin library's newest-100 dependency with protected bounded pagination through all rental records. Return a compact list without verification/agreements/provider IDs/case details and preserve actual receipt/settlement indicators and settlement issue dates.
 - [x] Wire thin authorization and load the old wide rental query only for its remaining calendar consumer. Use actual invoice/rental/customer/date/amount/status columns and a dark selected-document panel; keep independent periods, credits, refunds and card-authorisation releases truthful.
 - [x] Scope pending PDF viewing to the session epoch, cancel on row/detail/preview close and session changes, and revoke private blob URLs. Actual protected 143-record history tests and native production-component/handler checks verify older records, search, customer selection, cancellation and A/B/A session isolation. See INVOICE-HISTORY.md.
 - [x] Final default suite and production build including TypeScript pass. Native desktop/mobile screenshots visually reviewed at `/root/dbc-invoice-history-review/`; final PDF column is visible, settlement issue dates are correct and mobile has no page overflow. Local fixture logs: `/tmp/dbc-invoice-history-final-scope-tests.log`, `/tmp/dbc-invoice-history-final-scope-build.log`.
-- [ ] Finish current hosted checks, compatible backend and actual private-user acceptance. The separate admin calendar's latest-100 limitation, all original manager/reservation/document/render work and complete six-reference fidelity remain open.
+- [x] Invoice source 20ee721 hosted CI 37739178121 is terminal failed at the enabled cart checkout wait after typecheck/default tests/build. The staged stock-refresh function remains absent. This does not invalidate local PDF/history acceptance or prove deployed backend compatibility.
+- [ ] Finish current hosted checks, compatible backend and actual private-user acceptance. All original manager/reservation/document/render work and complete six-reference fidelity remain open; calendar history source completion is tracked separately above.
 
 ### 8 October 2026 — checkout/full-cart physical stock parity
 

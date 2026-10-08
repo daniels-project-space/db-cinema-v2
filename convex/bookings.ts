@@ -622,6 +622,18 @@ export const attachAddon = internalMutation({
  * without copying private verification/financial execution fields to the list. */
 export const adminAuthorized=query({args:{token:v.string()},handler:(_ctx,{token})=>checkAdminToken(token)});
 
+export const adminCalendarPage=query({
+  args:{token:v.string(),paginationOpts:paginationOptsValidator},
+  handler:async(ctx,{token,paginationOpts})=>{
+    if(!checkAdminToken(token))return {page:[],isDone:true,continueCursor:""};
+    if(!Number.isSafeInteger(paginationOpts.numItems)||paginationOpts.numItems<1)throw Error("Invalid calendar page size");
+    const result=await ctx.db.query("bookings").order("desc").paginate({...paginationOpts,numItems:Math.min(50,paginationOpts.numItems),maximumRowsRead:50});
+    return {...result,page:result.page.map(b=>({_id:b._id,status:b.status,pickupTime:b.pickupTime,returnTime:b.returnTime,
+      lineItems:b.lineItems.map(l=>({title:l.title,start:l.start,end:l.end,qty:l.qty,returnTime:l.returnTime})),
+    }))};
+  },
+});
+
 export const adminInvoicePage=query({
   args:{token:v.string(),paginationOpts:paginationOptsValidator},
   handler:async(ctx,{token,paginationOpts})=>{

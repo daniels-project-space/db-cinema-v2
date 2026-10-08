@@ -461,6 +461,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
           end: li.end,
           qty: li.qty,
           lineTotal: li.lineTotal,
+          returnTime: li.returnTime ?? null,
           slug: (l as any)?.slug ?? null,
           heroImage: heroOf(l),
           imageSources: listingImages(l),

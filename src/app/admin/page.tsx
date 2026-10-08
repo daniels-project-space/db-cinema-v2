@@ -19,7 +19,7 @@ import { formatGbp } from "@/lib/pricing";
 import { parseOwnerConversationUrl } from "../../../shared/ownerConversationRoute";
 import { ManagementShell } from "@/components/management/ManagementShell";
 import { AdminInvoiceLibrary } from "@/components/management/AdminInvoiceLibrary";
-import { RentalCalendar } from "@/components/account/RentalCalendar";
+import { AdminRentalCalendar } from "@/components/management/AdminRentalCalendar";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 
 export default function AdminPage() {
@@ -64,7 +64,6 @@ export default function AdminPage() {
   }, []);
 
   const authed=useQuery(api.bookings.adminAuthorized,token?{token}:"skip");
-  const bookings = useQuery(api.bookings.adminList, token&&authed&&tab==="calendar" ? { token } : "skip");
   const rentalUnread =
     useQuery(
       api.rentalChat.unreadTotals,
@@ -152,7 +151,7 @@ export default function AdminPage() {
         )}
         {tab === "reports" && <div className="mt-6"><AdminAnalytics token={token} /><AdminCartDemand token={token} /></div>}
         {tab === "invoices" && <AdminInvoiceLibrary token={token} />}
-        {tab === "calendar" && <div className="mt-6 max-w-3xl"><p className="mb-4 text-xs text-white/45">Latest 100 rental records · pickup and return times shown in London time.</p><RentalCalendar bookings={bookings?.items.filter(b => b.lineItems.length).map(b => ({ ...b, start: Math.min(...b.lineItems.map(l => l.start)), end: Math.max(...b.lineItems.map(l => l.end)) })) as any} /></div>}
+        {tab === "calendar" && <AdminRentalCalendar key={token} token={token} />}
         {tab === "bookings" && !detailId && (
           <AdminRentalCards
             token={token}

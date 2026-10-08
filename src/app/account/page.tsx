@@ -170,6 +170,10 @@ function Dashboard() {
   const [chatBooking, setChatBooking] = useState<string | null>(null);
 
   useEffect(() => {
+    if (tab === "calendar" && rentalPages.status === "CanLoadMore") rentalPages.loadMore(30);
+  }, [tab, rentalPages.status, rentalPages.loadMore]);
+
+  useEffect(() => {
     setName(me.name ?? "");
     setPhone(me.phone ?? "");
     setAddress(me.address ?? "");
@@ -256,7 +260,7 @@ function Dashboard() {
         </div>
       </AccountProfilePill>}
 
-      {tab === "calendar" && <div className="mt-6 max-w-3xl"><RentalCalendar bookings={bookings as any} /></div>}
+      {tab === "calendar" && <div className="mt-6 max-w-3xl"><RentalCalendar bookings={bookings as any} loading={rentalPages.status !== "Exhausted"} /></div>}
       {tab === "invoices" && <InvoiceLibrary rentals={bookings} token={account.token!} />}
       {["calendar", "invoices"].includes(tab) && rentalPages.status === "CanLoadMore" && <button onClick={() => rentalPages.loadMore(30)} className="mt-5 rounded-lg border border-white/15 px-5 py-2 text-xs text-white/70">Load older rentals and documents</button>}
       {tab === "plans" && <ShootLists />}
@@ -308,7 +312,7 @@ function Dashboard() {
                 {me.loyaltyLevel<3&&<p className="mt-3 border-t border-white/10 pt-3 text-xs text-amber-100/60">{me.loyaltyCompleted} / 3 completed · Next: {me.loyaltyLevel===0?2:me.loyaltyLevel===1?4:10}%</p>}
               </div>
               {account.token&&<ReferralPanel token={account.token}/>}
-              <RentalCalendar bookings={bookings as any} />
+              <RentalCalendar bookings={bookings as any} loading={rentalPages.status !== "Exhausted"} />
             </div>
           </div>
         </div>
