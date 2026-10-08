@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { lateFeeQuote } from "@cvx/lib/lateFee";
@@ -8,6 +8,7 @@ import { formatGbp } from "@/lib/pricing";
 import { normalizeReturnInspection, type InspectionInput } from "../../../shared/returnInspection";
 import { ReturnSettlementReview } from "./ReturnSettlementReview";
 import styles from "./ReturnRentalForm.module.css";
+import { SmartImage } from "../SmartImage";
 
 const localNow = () => {
   const now = new Date();
@@ -15,6 +16,12 @@ const localNow = () => {
 };
 
 export function ReturnRentalForm({ booking, token, onClose }: { booking: any; token: string; onClose: () => void }) {
+  return <ScopedReturnRentalForm key={JSON.stringify([booking._id, token])} booking={booking} token={token} onClose={onClose} />;
+}
+
+function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; token: string; onClose: () => void }) {
+  const alive = useRef(true);
+  useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const submit = useAction(api.checkout.markReturned);
   const review = useAction(api.checkout.previewReturned);
   const [reviewed, setReviewed] = useState<{ key: string; data: any } | null>(null);
@@ -61,9 +68,9 @@ export function ReturnRentalForm({ booking, token, onClose }: { booking: any; to
   async function inspectReview() {
     if (!valid || reviewBusy || working) return;
     setReviewBusy(true); setError(null);
-    try { setReviewed({ key: decisionKey, data: await review(selection) }); }
-    catch (e: any) { setError(e?.message ?? "Could not prepare the return statement. No settlement has been executed."); }
-    finally { setReviewBusy(false); }
+    try { const data = await review(selection); if (alive.current) setReviewed({ key: decisionKey, data }); }
+    catch (e: any) { if (alive.current) setError(e?.message ?? "Could not prepare the return statement. No settlement has been executed."); }
+    finally { if (alive.current) setReviewBusy(false); }
   }
 
   async function finish() {
@@ -72,10 +79,11 @@ export function ReturnRentalForm({ booking, token, onClose }: { booking: any; to
     setError(null);
     try {
       const result = await submit(selection);
+      if (!alive.current) return;
       alert(`Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
       onClose();
-    } catch (e: any) { setError(e?.message ?? "Return could not be recorded."); }
-    finally { setWorking(false); }
+    } catch (e: any) { if (alive.current) setError(e?.message ?? "Return could not be recorded."); }
+    finally { if (alive.current) setWorking(false); }
   }
 
   function update(key: string, patch: Partial<InspectionInput>) { setConditions(previous => ({ ...previous, [key]: { key, condition: previous[key]?.condition ?? "issue", details: previous[key]?.details ?? "", openCase: previous[key]?.openCase ?? false, ...patch } })); }
@@ -87,7 +95,7 @@ export function ReturnRentalForm({ booking, token, onClose }: { booking: any; to
       <div className={styles.sectionHeading}><div><h5>Equipment condition</h5><p>{schedule ? `${schedule.items.length} individual items · ${schedule.items.filter(i => !!conditions[i.key]).length} conditions selected` : "Loading reserved equipment…"}</p></div><button disabled={working || !!saved || !schedule} onClick={() => { setConditions(Object.fromEntries(schedule!.items.map(i => [i.key, { key: i.key, condition: "good", details: "", openCase: false }]))); setDamage("0"); setDamageNote(""); }}>Mark all good</button></div>
       {schedule?.legacy && <p className="mt-2 text-xs text-amber-200">This legacy rental has no physical inventory schedule. The booked listings and quantities are shown.</p>}
       <div className={styles.items}>{schedule?.items.map((item, index) => { const value = conditions[item.key]; return <article key={item.key} aria-label={item.title} data-condition={value?.condition ?? "pending"}>
-        <div className={styles.itemHeading}><span className={styles.itemNumber} aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><div><h6>{item.title}</h6>{item.sku && <p className={styles.sku}>Inventory SKU · {item.sku}</p>}</div></div>
+        <div className={styles.itemHeading}><SmartImage src={item.imageSources?.[0]} fallbackSources={item.imageSources?.slice(1)} alt={item.title} className={styles.itemPhoto} imgClassName={styles.containedPhoto} /><div><h6>{item.title}</h6>{item.sku && <p className={styles.sku}>Inventory SKU · {item.sku}</p>}<p className={styles.itemIndex}>Inspection item {index + 1}</p></div></div>
         <div className={styles.condition} role="group" aria-label={`Condition for ${item.title}`}><button disabled={working || !!saved} aria-pressed={value?.condition === "good"} onClick={() => update(item.key, { condition: "good", details: "", openCase: false })}>✓ Good condition</button><button disabled={working || !!saved} aria-pressed={value?.condition === "issue"} onClick={() => update(item.key, { condition: "issue" })}>○ Issues found</button></div>
         {value?.condition === "issue" && <><label>Issue details (required)<textarea disabled={working || !!saved} maxLength={2000} rows={3} value={value.details} onChange={e => update(item.key, { details: e.target.value })} placeholder="Describe damage, loss and the evidence" /></label><label className={styles.case}><input type="checkbox" disabled={working || !!saved} checked={value.openCase} onChange={e => update(item.key, { openCase: e.target.checked })} /><span>Open damage case<small>Creates a rental/account case and preserves verification copies while it remains open.</small></span></label></>}
       </article>; })}</div>

@@ -4,13 +4,15 @@ import { formatGbp } from "@/lib/pricing";
 import styles from "./ReturnRentalForm.module.css";
 
 export function ReturnSettlementReview({ data, busy, enabled, onReview, paymentSummary }: { data: any; busy: boolean; enabled: boolean; onReview: () => void; paymentSummary?: ReactNode }) {
-  const [pdfUrl, setPdfUrl] = useState("");
+  const [pdf, setPdf] = useState<{ source: string; url: string } | null>(null);
+  const source = data?.pdf?.base64;
+  const pdfUrl = pdf?.source === source ? pdf?.url ?? "" : "";
   useEffect(() => {
-    if (!data?.pdf?.base64) { setPdfUrl(""); return; }
-    const bytes = Uint8Array.from(atob(data.pdf.base64), c => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" })); setPdfUrl(url);
+    if (!source) { setPdf(null); return; }
+    const bytes = Uint8Array.from(atob(source), c => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" })); setPdf({ source, url });
     return () => URL.revokeObjectURL(url);
-  }, [data]);
+  }, [source]);
   return <section className={styles.review}>
     <div className={styles.reviewHead}><div><h3>Settlement review</h3><p>Review the card balance, itemised statement and email before confirming.</p></div><button type="button" disabled={!enabled || busy} onClick={onReview}>{busy ? "Preparing statement…" : data ? "Refresh review" : "Review statement & email"}</button></div>
     <div className={styles.settlementColumns}>{paymentSummary}<section className={styles.settlementPreview}><h4>Settlement preview</h4>{data ? <>

@@ -11,17 +11,21 @@
 .sectionHeading p { font-size: 11px; color: #999b94; margin-top: 5px; }
 .sectionHeading button { color: #d1a785; font-size: 11px; text-decoration: underline; white-space: nowrap; }
 .items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
-.items article { border: 1px solid #ffffff15; border-radius: 8px; padding: 16px; background: #171817; min-width: 0; }
+.items article { display: grid; grid-template-columns: 90px minmax(0, 1fr); column-gap: 12px; align-content: start; border: 1px solid #ffffff15; border-radius: 8px; padding: 16px; background: #171817; min-width: 0; }
 .items article[data-condition=issue] { border-color: #bd8d6c55; }
-.itemHeading { display: flex; gap: 12px; align-items: start; }
+.itemHeading { display: contents; }
 .itemHeading > div { min-width: 0; }
+.itemHeading > div:not(.itemPhoto) { grid-column: 2; }
+.itemPhoto { grid-column: 1; grid-row: 1 / span 2; width: 90px; height: 100px; border-radius: 6px; background: #111312; }
+.itemPhoto img.containedPhoto { object-fit: contain; padding: 5px; }
+.itemIndex { margin-top: 5px; color: #898e84; font-size: 10px; }
 .itemNumber { display: grid; place-items: center; flex: 0 0 38px; height: 38px; border: 1px solid #ffffff14; border-radius: 8px; background: #ffffff04; font-size: 12px; color: #c0b9ae; font-variant-numeric: tabular-nums; }
 .items h6 { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .sku { font-size: 10px; color: #989b92; margin-top: 5px; }
-.condition { display: grid; gap: 7px; margin-top: 13px; }
+.condition { grid-column: 2; display: grid; gap: 7px; margin-top: 13px; }
 .condition button { border: 1px solid #ffffff24; border-radius: 5px; padding: 8px 10px; text-align: left; color: #b9bcb1; font-size: 11px; }
 .condition button[aria-pressed=true] { border-color: #bd8d6c; background: #bd8d6c12; color: #dbb899; }
-.items label { display: block; margin-top: 12px; color: #a4a59e; font-size: 11px; }
+.items label { grid-column: 1 / -1; display: block; margin-top: 12px; color: #a4a59e; font-size: 11px; }
 .items textarea { width: 100%; background: #111312; border: 1px solid #ffffff20; border-radius: 5px; margin-top: 7px; padding: 10px; color: #eeeae4; resize: vertical; }
 .items label.case { display: flex; align-items: start; gap: 10px; }
 .case input { appearance: none; flex: 0 0 38px; width: 38px; height: 22px; margin-top: 1px; border: 1px solid #ffffff26; border-radius: 12px; background: #343632; position: relative; cursor: pointer; }

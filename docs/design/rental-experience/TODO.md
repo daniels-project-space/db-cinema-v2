@@ -2,6 +2,13 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — photographed return cards and inspection ownership
+
+- [x] Add exact rental-bound item photos beside independent condition controls, with explicit missing-photo fallback, two-column desktop and one-column mobile layouts. Exclude kit/pack/incorrect-name photos and keep photo metadata outside frozen financial records. Protected schedule/context handlers share the projection.
+- [x] Reproduce stale A/B/A inspection acceptance with the previous component. Remount for each rental/session and prevent delayed reviews or settlement results from affecting another drawer; bind private PDF object URLs to current bytes.
+- [x] Full local tests and final production build pass. Inspected actual-component desktop/mobile fixtures cover delayed success/error, A/B/A, session rotation, private PDF, pending settlement, reopen and exact photo fallback. The full actual-handler/PDF inspection-to-settlement fixture passes with synthetic Stripe/email. Default tests now include all return review/PDF/inspection checks. See RETURN-CARDS.md for precise evidence and limits.
+- [ ] Push and verify hosted source/preview checks, then perform compatible backend/private live acceptance. Remaining original visual fidelity, accurate owned equipment images, authoritative cross-project stock claims and full integration requirements remain open.
+
 ### 8 October 2026 — checkout reload confirmation
 
 - [x] Reproduce the complete native reload failure with passive frame/network/lifecycle events. It opens a before-unload dialog and waits unanswered. This direct evidence supersedes a renderer-hang claim for that run; do not attribute the prompt's listener without further evidence.

@@ -6,6 +6,28 @@ import { lateFeeQuote } from "./lib/lateFee";
 import { returnInspectionSchedule } from "./lib/returnInspection";
 import { inspectionInput } from "./lib/returnInspectionFields";
 import { normalizeReturnInspection } from "../shared/returnInspection";
+import { listingImages } from "./lib/catalogImages";
+import type { InspectionItem } from "../shared/returnInspection";
+
+/** Presentation only: a kit's photograph cannot stand in for one component.
+ * Keep the reserved/frozen equipment identity separate from editable photos. */
+async function inspectionDisplay(ctx: any, booking: any, items: InspectionItem[]) {
+  const listings = new Map<string, any>();
+  for (const line of booking.lineItems ?? []) {
+    if (line.listingId && !listings.has(String(line.listingId))) listings.set(String(line.listingId), await ctx.db.get(line.listingId));
+  }
+  return items.map(item => {
+    let listing: any;
+    if (item.inventoryUnitId) {
+      const name = item.title.replace(/ · item \d+ of \d+$/, "").trim().toLowerCase();
+      listing = [...listings.values()].find(l => l?.isPackage !== true && l?.title?.trim().toLowerCase() === name && l?.components?.length === 1 && l.components[0].qty === 1 && String(l.components[0].inventoryUnitId) === String(item.inventoryUnitId) && listingImages(l).length);
+    } else if (item.key.startsWith("legacy:")) {
+      const line = booking.lineItems?.[Number(item.key.split(":")[1])];
+      listing = line && listings.get(String(line.listingId));
+    }
+    return { ...item, imageSources: listingImages(listing) };
+  });
+}
 
 export const validate = internalQuery({ args: { bookingId: v.id("bookings"), inspection: v.array(inspectionInput), damage: v.number() }, handler: async (ctx, args) => {
   const booking = await ctx.db.get(args.bookingId);
@@ -20,7 +42,7 @@ export const schedule = query({ args: { token: v.string(), bookingId: v.id("book
   const booking = await ctx.db.get(args.bookingId);
   if (!booking) throw Error("Rental not found");
   const items = await returnInspectionSchedule(ctx, booking);
-  return { items, legacy: items.some(i => i.key.startsWith("legacy:")), inspection: booking.returnDecision?.inspection ?? [], cases: await ctx.db.query("rental_damage_cases").withIndex("by_booking", q => q.eq("bookingId", args.bookingId)).collect() };
+  return { items: await inspectionDisplay(ctx, booking, items), legacy: items.some(i => i.key.startsWith("legacy:")), inspection: booking.returnDecision?.inspection ?? [], cases: await ctx.db.query("rental_damage_cases").withIndex("by_booking", q => q.eq("bookingId", args.bookingId)).collect() };
 } });
 export const closeCase = mutation({ args: { token: v.string(), caseId: v.id("rental_damage_cases"), resolution: v.string(), bookingId: v.optional(v.id("bookings")) }, handler: async (ctx, args) => {
   await assertAdmin(ctx, args.token, "returnInspections.closeCase");
@@ -44,5 +66,5 @@ export const context = query({ args: {token:v.string(),bookingId:v.id("bookings"
     returnDecision:b.returnDecision??null,returnStatement:b.returnStatement??null,
     settlementEmailStatus:b.returnStatementEmailStatus??null,
     lateQuote:lateFeeQuote(b.lineItems,b.returnTime??null,args.actualReturnedAt??b.returnDecision?.actualReturnedAt??Date.now()),
-    items,legacy:items.some(i=>i.key.startsWith("legacy:")),cases:await ctx.db.query("rental_damage_cases").withIndex("by_booking",q=>q.eq("bookingId",b._id)).collect()};
+    items:await inspectionDisplay(ctx,b,items),legacy:items.some(i=>i.key.startsWith("legacy:")),cases:await ctx.db.query("rental_damage_cases").withIndex("by_booking",q=>q.eq("bookingId",b._id)).collect()};
 } });
