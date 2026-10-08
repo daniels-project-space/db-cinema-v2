@@ -1,5 +1,5 @@
-import {isAllowedReturnTime} from "../src/lib/site";
 "use node";
+import {isAllowedReturnTime} from "../src/lib/site";
 
 import Stripe from "stripe";
 import { PICKUP_HOLD_POLICY } from "../shared/pickupSecurity";

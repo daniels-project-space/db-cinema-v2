@@ -20,10 +20,10 @@ export const sets = query({
     const original = await ctx.db.get(source.listingId);
     if (!original) return null;
     const group = items.filter(i => i.listingId === source.listingId && i.start === source.start && i.end === source.end && i.pickupTime===source.pickupTime && i.returnTime===source.returnTime);
-    const keys = group.map(i => i.key), requested = group.length * packSize(original.title);
+    const keys = group.map(i => i.key), requested = group.reduce((sum,line)=>sum+(line.qty??1),0) * packSize(original.title);
     const cache = { records: new Map<string, any>(), reservations: new Map<string, any[]>() };
     const days = Math.round((source.end - source.start) / 86400000) + 1;
-    try { await assertRentalInventory(ctx, items.map(i => ({ ...i, qty: 1 })), undefined, cache); return { keys, requested, options: [], singles: [], searchLimited: false }; } catch {}
+    try { await assertRentalInventory(ctx, items.map(i => ({ ...i, qty: i.qty??1 })), undefined, cache); return { keys, requested, options: [], singles: [], searchLimited: false }; } catch {}
     const retained = await Promise.all(items.filter(i => !keys.includes(i.key)).map(async line => ({ line, listing: await ctx.db.get(line.listingId) })));
     const type = original.itemType ?? deriveItemType(original.title);
     const redirect = marketingRedirect(original);
