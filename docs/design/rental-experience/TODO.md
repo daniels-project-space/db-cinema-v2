@@ -2,6 +2,13 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — checkout reload confirmation
+
+- [x] Reproduce the complete native reload failure with passive frame/network/lifecycle events. It opens a before-unload dialog and waits unanswered. This direct evidence supersedes a renderer-hang claim for that run; do not attribute the prompt's listener without further evidence.
+- [x] Confirm before-unload only during deliberate test navigation/reload; unexpected dialogs and confirmation errors still fail. Preserve all application behavior, UI/security/membership/persistence assertions and timeouts. The full native suite passes twice, including a passive trace of the real confirmation and subsequent document load. Actual Chrome calibration verifies both native confirmation and unexpected-alert rejection using the real helper.
+- [ ] Verify the source-matched hosted CI. The preceding website stock run 37720165776 passed build/typecheck/unit checks but failed browser reload; manager 37720168821 is SUCCESS. Private, live financial/document, cross-project reservation, remaining visual and equipment-asset requirements stay open.
+
+
 ### 8 October 2026 — physical custody and unresolved stock holds
 
 - [x] Share stock occupancy semantics between full-cart availability, listing availability, replacement inventory checks and atomic checkout holds. A physically active rental overdue by date remains occupied until return; planned dates remain unchanged. An expired TTL does not free a pending-payment booking before provider reconciliation.

@@ -189,6 +189,20 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const loaded = new Promise((resolve, reject) => {
       timer = setTimeout(() => {finished = true;reject(Error('Document load timed out: '+method));},30000);
       unsubscribe = c.on(event => {
+        if (!finished && event.method === 'Page.javascriptDialogOpening') {
+          if (event.params?.type !== 'beforeunload') {
+            finished = true;clearTimeout(timer);
+            reject(Error('Unexpected browser dialog during '+method+': '+event.params?.type));
+          } else {
+            // A deliberate reload/navigation is a user decision to leave.
+            // Chrome can require confirmation after edited checkout forms.
+            // Answer the native prompt; preserve every application assertion.
+            console.log({navigationDialog:'beforeunload',method});
+            void c.cmd('Page.handleJavaScriptDialog', {accept:true}).catch(error => {
+              if (!finished) {finished=true;clearTimeout(timer);reject(error);}
+            });
+          }
+        }
         if (!finished && event.method === 'Page.domContentEventFired') {
           finished = true;clearTimeout(timer);resolve();
         }
