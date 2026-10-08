@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const {load,db,put}=require('./lib/rentalTestHarness.cjs');
 const {rentalWindow,londonRentalInstant}=load('shared/rentalWindow.ts');
-const {stockWindow}=load('convex/lib/stockWindows.ts');
+const {stockWindow,stockTimePrecision}=load('convex/lib/stockWindows.ts');
 const availability=load('convex/availability.ts'),bookings=load('convex/bookings.ts');
 const day=86400000,date=Date.UTC(2030,5,8),ctx={db};
 const unit=put('inventory_units',{name:'Physical lens',quantityOwned:1,active:true});
@@ -11,6 +11,19 @@ const occupied=put('reservations',{source:'hygglo',stockWindowVersion:2,turnarou
 const line=(pickupTime,returnTime,extra={})=>({listingId:listing._id,start:date,end:date,pickupTime,returnTime,...extra});
 const fit=items=>availability.forCart.handler(ctx,{items});
 (async()=>{
+ const refresh=JSON.parse(load('convex/crons.ts').default.export())['sync-hygglo-reservations'];
+ assert.equal(refresh.name,'sync.syncHyggloReservations','Freshness schedule calls the real shared-stock importer');
+ const refreshMs=(refresh.schedule.minutes??0)*60000+(refresh.schedule.seconds??0)*1000;
+ assert(refreshMs>0,'Shared-stock refresh must be a positive interval');
+ const originalNow=Date.now;let now=originalNow();
+ try {
+  Date.now=()=>now;
+  for(let cycle=0;cycle<3;cycle++){
+   state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:now});
+   now+=2*refreshMs-1; // One missed refresh must not invalidate the last successful feed.
+   assert.equal(await stockTimePrecision(ctx),true,'Scheduled source refresh must occur before precise stock expires, even after one missed cycle');
+  }
+ }finally{Date.now=originalNow;state.cursor=JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()});}
  assert.equal((await fit([line('19:00','22:00')]))[listing._id].ok,true,'Confirmed return frees pool at exact instant, after the one-hour turnaround');
  assert.equal((await fit([line('17:00','22:00')]))[listing._id].ok,false,'Overlap cannot be crossed');
  let slots=await availability.forTimeSlots.handler(ctx,{...line(undefined,undefined),items:[]});assert.deepEqual(slots.pickupSlots,['19:00','20:00','21:00']);

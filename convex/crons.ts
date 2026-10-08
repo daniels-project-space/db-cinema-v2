@@ -50,15 +50,17 @@ crons.interval("sync-rmv2-catalog", { minutes: 30 }, api.sync.syncFromRmv2, {});
 
 // Mirror all upstream shared stock, repair holds and owner blocks. Website
 // reservations stay local; their manager copies are excluded to avoid duplication.
+// Precise stock expires after five minutes: two-minute polling tolerates one
+// missed refresh without making every intraday release fall back to whole days.
 crons.interval(
   "sync-hygglo-reservations",
-  { minutes: 15 },
+  { minutes: 2 },
   api.sync.syncHyggloReservations,
   {},
 );
 
 // Demand is historical analytics, not live availability. Recompute daily
-// rather than rereading the history during every 15-minute reservation sync.
+// rather than rereading the history during every reservation sync.
 crons.interval("refresh-rental-demand", { hours: 24 }, api.sync.refreshDemandFromRmv2, {});
 
 // Sweep stale API rate-limit rows.
