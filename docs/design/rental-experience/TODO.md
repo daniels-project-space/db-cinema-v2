@@ -8,9 +8,10 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Use complete shared component allocations for cart, replacement and hold checks. Keep unknown/unowned cards selectable for demand, preserve owner tags/photos, reject malformed/conflicting batches and clear stale packing lists after a component change.
 - [x] Export upstream physical occupancy from the manager's real stock helper, preferring audited kit overrides over stale primary guesses and preserving explicitly empty allocations. Native paired HTTP verification passes; the old actual importer reproduces four nominal kits where the source supports one. See CANONICAL-KIT-STOCK.md.
 - [x] Full website default suite and build pass; manager 140 files / 2152 passing tests / 14 skips, TypeScript, Next build and both owner audits pass.
-- [ ] Complete final source-matched hosted checks and previews.
+- [x] Website CI 37730425603 for ce9d46f and manager CI 37730425398 for a4ae20a are terminal SUCCESS. Both matching previews are READY; the website run includes the complete membership/cart/checkout browser regression. Frontend readiness does not publish compatible backend functions.
 - [ ] Before compatible backend rollout, reconcile active legacy website allocations against their original booking evidence and review mapping gaps/conflicts. Preserving old allocation rows does not establish migration safety.
 - [ ] Verify real current/upcoming/ongoing source stock, freshness and a single atomic stock authority across website and Hygglo writers. All original management, document, return, visual and equipment-render requirements remain active.
+- [ ] Match the manager's full loadStockSources/stockForItem constraints: cross-account shared-master occupancy, stock held by repair cases, owner blackout/vacation periods, per-item periods and return buffers. The current authenticated mirror is still scoped to DB Cinema upstream bookings; canonical component accuracy does not prove these additional constraints.
 
 ### 8 October 2026 — private inventory bridge
 
