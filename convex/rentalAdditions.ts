@@ -89,7 +89,6 @@ async function ensureSession(ctx: any, id: any) {
       mode: "payment",
       adaptive_pricing: {enabled:false},
       expires_at: Math.floor(r.createdAt / 1000) + 24 * 60 * 60,
-      payment_method_types: ["card"],
       customer_email: b.guestEmail,
       customer_creation: "always",
       payment_intent_data: { setup_future_usage: "off_session" },
@@ -123,7 +122,6 @@ async function ensureSession(ctx: any, id: any) {
     const recurring=(original.line_items??[]).filter(line=>typeof line.price==="string");
     if(original.mode!=="subscription"||recurring.length!==1||!original.customer)throw Error("Original membership checkout is not recoverable.");
     params={...original,...params,mode:"subscription",customer:original.customer,customer_email:undefined,customer_creation:undefined,payment_intent_data:undefined,
-      payment_method_types:original.payment_method_configuration?undefined:params.payment_method_types,
       subscription_data:original.subscription_data,
       line_items:[...(params.line_items??[]),...recurring],
       metadata:{...original.metadata,...params.metadata,rentalPaidPence:String(money(amount)),membershipFeePence:String(money(r.membershipFee??0))}};
@@ -137,6 +135,30 @@ async function ensureSession(ctx: any, id: any) {
   });
   return session;
 }
+async function recoverPreparedSecurity(ctx: any, r: any): Promise<Stripe.PaymentIntent> {
+  if (!r.securityCreationParams || !r.securityCreationPreparedAt) throw Error("The pending security authorisation needs reconciliation");
+  const params: Stripe.PaymentIntentCreateParams = JSON.parse(r.securityCreationParams);
+  let intent: Stripe.PaymentIntent | undefined;
+  if (Date.now() >= r.securityCreationPreparedAt + 23 * 3600000) {
+    for await (const found of sb().paymentIntents.list({ customer: params.customer as string, created: { gte: Math.floor(r.securityCreationPreparedAt / 1000) - 5 }, limit: 100 })) {
+      if (found.metadata.rentalAdditionId === r._id && found.metadata.purpose === "replacement_rental_security_hold") { intent = await sb().paymentIntents.retrieve(found.id, { expand: ["latest_charge"] }); break; }
+    }
+    if (!intent) throw Error("The unresolved security authorisation needs provider reconciliation; no new hold was created");
+  } else {
+    try { intent = await sb().paymentIntents.create(params, { idempotencyKey: `dbc-addition-security-${r._id}` }); }
+    catch (e: any) {
+      const known = e?.raw?.payment_intent?.id ?? e?.payment_intent?.id;
+      if (!known) throw e;
+      intent = await sb().paymentIntents.retrieve(known, { expand: ["latest_charge"] });
+    }
+  }
+  const customer = typeof intent.customer === "string" ? intent.customer : intent.customer?.id;
+  const method = typeof intent.payment_method === "string" ? intent.payment_method : intent.payment_method?.id;
+  if (intent.amount !== params.amount || intent.currency !== "gbp" || intent.capture_method !== "manual" || customer !== params.customer || method !== params.payment_method || intent.metadata.rentalAdditionId !== r._id || intent.metadata.bookingId !== r.bookingId || intent.metadata.purpose !== "replacement_rental_security_hold") throw Error("Recovered security authorisation does not match its prepared request");
+  await ctx.runMutation(internal.rentalAdditionState.bindHold, { id: r._id, intentId: intent.id, status: intent.status === "requires_capture" ? "held" : intent.status === "requires_action" ? "requires_action" : "failed", expiresAt: expires(intent) });
+  return intent;
+}
+
 async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAttention?: boolean } | undefined> {
   const state: any = await ctx.runQuery(internal.rentalAdditionState.context, {
     id,
@@ -195,8 +217,14 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
   } else if (paid) throw Error("Paid withdrawal has no confirmed payment");
   const latest: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
   if (latest?.addition) Object.assign(r, latest.addition);
+  if (r.securityCreationPending) {
+    await recoverPreparedSecurity(ctx, r);
+    const recovered: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+    if (recovered?.addition) Object.assign(r, recovered.addition);
+  }
   if (r.holdIntentId && r.holdIntentId !== r.oldHoldId) {
     const hold = await sb().paymentIntents.retrieve(r.holdIntentId);
+    if (hold.amount_received > 0) throw Error("The captured replacement security payment needs financial reconciliation before closing");
     if (
       [
         "requires_capture",
@@ -205,11 +233,11 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
         "requires_payment_method",
       ].includes(hold.status)
     )
-      await sb().paymentIntents.cancel(
-        hold.id,
-        {},
-        { idempotencyKey: `dbc-addition-hold-close-${id}` },
-      );
+      {
+        const cancelled = await sb().paymentIntents.cancel(hold.id, {}, { idempotencyKey: `dbc-addition-hold-close-${id}` });
+        if (cancelled.status !== "canceled") throw Error("The replacement security authorisation has not been released");
+      }
+    else if (hold.status !== "canceled") throw Error("The replacement security payment needs financial reconciliation before closing");
   }
   await ctx.runMutation(internal.rentalAdditionState.close, {
     id,
@@ -321,6 +349,7 @@ async function finish(
       if (old.status === "requires_capture" && (expires(old) ?? 0) > Date.now())
         intent = old;
     }
+    if (!intent && r.securityCreationPending) intent = await recoverPreparedSecurity(ctx, r);
     if (!intent) {
       const paid = await sb().paymentIntents.retrieve(payment);
       const customer =
@@ -333,33 +362,18 @@ async function finish(
           : paid.payment_method?.id;
       if (!customer || !method)
         throw Error("Addition card details are unavailable");
-      try {
-        intent = await sb().paymentIntents.create(
-          {
-            amount: money(r.holdTotal),
-            currency: "gbp",
-            customer,
-            payment_method: method,
-            allowed_payment_method_types: ["card"],
-            capture_method: "manual",
-            confirm: true,
-            off_session: true,
-            expand: ["latest_charge"],
-            metadata: {
-              bookingId: r.bookingId,
-              rentalAdditionId: id,
-              purpose: "replacement_rental_security_hold",
-            },
-          },
-          { idempotencyKey: `dbc-addition-security-${id}` },
-        );
-      } catch (e: any) {
-        const failed = e?.raw?.payment_intent?.id ?? e?.payment_intent?.id;
-        if (!failed) throw e;
-        intent = await sb().paymentIntents.retrieve(failed, {
-          expand: ["latest_charge"],
-        });
+      const params: Stripe.PaymentIntentCreateParams = {
+        amount: money(r.holdTotal), currency: "gbp", customer, payment_method: method,
+        allowed_payment_method_types: ["card"], capture_method: "manual", confirm: true, off_session: true, expand: ["latest_charge"],
+        metadata: { bookingId: r.bookingId, rentalAdditionId: id, purpose: "replacement_rental_security_hold" },
+      };
+      const prepared: any = await ctx.runMutation(internal.rentalAdditionState.beginSecurityAuthorization, { id, params: JSON.stringify(params) });
+      if (prepared.closed) {
+        const result = await withdraw(ctx, id);
+        return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
       }
+      const pending: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+      intent = await recoverPreparedSecurity(ctx, pending.addition);
     }
     const status =
       intent.status === "requires_capture"

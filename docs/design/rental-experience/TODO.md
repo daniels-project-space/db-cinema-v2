@@ -2,13 +2,24 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — in-flight replacement security and withdrawal
+
+- [x] Reproduce prior actual 1e90cca action leaving a late card hold uncancelled after withdrawal closed. Persist the exact prepared authorisation before provider work, block attachment/closure while unresolved, and recover/bind/cancel the same attempt before releasing the operation and stock.
+- [x] Respect a conservative pre-pruning replay window; later recovery requires provider evidence with exact amount/currency/capture/customer/method/rental metadata, otherwise no new hold and no unproved closure. Keep frozen card/customer parameters internal. Attest cancellation and reject captured security as an uncaptured release; use dynamic-method configuration for addition Checkout and explicit card allowlisting for manual holds.
+- [x] Actual paused-create/withdrawal/provider-state tests cover retained lock, single resolved/cancelled hold, lost response, aged unproved request/no-create, captured security and private parameter omission. Prior actual source reproduces the leak. See ADDITION-SECURITY-RACE.md.
+- [x] Runtime-source production build including TypeScript passes; final targeted provider identity/captured/unknown-outcome tests and fixed-clock checkout fixture pass. Source graph updated.
+- [x] Final full default suite passes, including the monotonic receipt fixture and provider identity race/unknown/captured checks; runtime-source build/TypeScript passes and graph is current.
+- [ ] Finish current hosted checks and actual provider acceptance. Explicit unknown/captured/failed remediation, membership/legacy acceptance and all original integration/visual/render work remain open.
+
+- [x] 1e90cca hosted CI 37741553194 failed the checkout/full-cart unit fixture after TypeScript, because changed synthetic snapshots reused a millisecond receipt. Prior actual fixture reproduces under a fixed clock; the corrected fixture advances receipts while preserving the real conflict guard. This is separate from compatible staged-backend rollout.
+
 ### 8 October 2026 — durable item-addition withdrawal refunds
 
 - [x] Save withdrawal before provider effects and block attachment/late payment or hold callbacks from overriding it. Preserve pending/failed/action-required refund locks and expired stock; route retries, payment callbacks and the existing reconciler through the saved decision.
 - [x] Bind the exact saved session/payment/refund identity, amount and currency; save provider refund status and close only after success and replacement-hold cleanup. Recover lost refund responses by metadata beyond idempotency. Distinguish pending/attention/completed admin results and hide renter payment controls during withdrawal.
 - [x] Actual action/state/stock tests and prior actual ce6fbd8 negative control pass. Native real renter component/protected-state pending/failed views pass and desktop/mobile screenshots are visually reviewed. See ADDITION-WITHDRAWAL.md.
 - [x] Final source-matched default suite and production build including TypeScript pass; graph updated. Controlled provider/database/transport fixtures only; no external writes.
-- [ ] Finish current hosted checks and live provider acceptance. Audit late external hold creation versus already-closed withdrawal, explicit failed-refund remediation, no-payment-required membership withdrawal and legacy refund recovery; no broad financial/lifecycle completion is claimed.
+- [ ] Finish current hosted checks and live provider acceptance. The late-security authorisation race is implemented above; finish explicit failed-refund remediation, no-payment-required membership withdrawal and legacy refund recovery; no broad financial/lifecycle completion is claimed.
 
 ### 8 October 2026 — unresolved amendment stock expiry
 

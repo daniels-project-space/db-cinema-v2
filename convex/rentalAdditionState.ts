@@ -49,13 +49,11 @@ export const existing = internalQuery({
 });
 export const list = query({
   args: { token: v.string(), bookingId: v.id("bookings") },
-  handler: async (ctx, { token, bookingId }) =>
-    checkAdminToken(token)
-      ? ctx.db
-          .query("rental_additions")
-          .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
-          .collect()
-      : [],
+  handler: async (ctx, { token, bookingId }) => {
+    if (!checkAdminToken(token)) return [];
+    const rows = await ctx.db.query("rental_additions").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
+    return rows.map(({ securityCreationParams: _privateParams, ...row }) => row);
+  },
 });
 export const prepare = internalMutation({
   args: {
@@ -297,6 +295,7 @@ export const bindHold = internalMutation({
       throw Error("Addition hold mismatch");
     await ctx.db.patch(id, {
       holdIntentId: intentId,
+      securityCreationPending: false,
       holdExpiresAt: expiresAt,
       status: r.withdrawalRequestedAt ? r.status : status,
       updatedAt: Date.now(),
@@ -311,6 +310,7 @@ export const apply = internalMutation({
     if (r.status === "applied" || r.status === "applied_draft")
       return { applied: true, already: true };
     if (r.withdrawalRequestedAt) return { closed: true };
+    if (r.securityCreationPending) throw Error("Wait for the pending security authorisation");
     const b = await ctx.db.get(r.bookingId);
     if (
       !b ||
@@ -399,6 +399,22 @@ export const apply = internalMutation({
     return { applied: true };
   },
 });
+/** Persist the exact approved attempt before sending any new card hold. */
+export const beginSecurityAuthorization = internalMutation({
+  args: { id: v.id("rental_additions"), params: v.string() },
+  handler: async (ctx, { id, params }) => {
+    const r = await ctx.db.get(id);
+    if (!r || r.withdrawalRequestedAt || ["applied", "applied_draft", "refunded", "expired"].includes(r.status)) return { closed: true as const };
+    const b = await ctx.db.get(r.bookingId);
+    if (!b || b.activeAdditionId !== id || !r.paymentIntentId || b.cancellationDecision || b.returnDecision) return { closed: true as const };
+    const p = JSON.parse(params);
+    if (p.amount !== Math.round(r.holdTotal * 100) || p.amount <= 0 || p.currency !== "gbp" || p.capture_method !== "manual" || p.confirm !== true || p.off_session !== true || typeof p.customer !== "string" || !p.customer || typeof p.payment_method !== "string" || !p.payment_method || p.metadata?.rentalAdditionId !== id || p.metadata?.bookingId !== r.bookingId || p.metadata?.purpose !== "replacement_rental_security_hold") throw Error("Security authorisation does not match the saved proposal");
+    if (r.securityCreationParams && r.securityCreationParams !== params) throw Error("The prepared security authorisation changed");
+    if (!r.securityCreationPending) await ctx.db.patch(id, { securityCreationPending: true, securityCreationPreparedAt: Date.now(), securityCreationParams: params });
+    return { closed: false as const, params: r.securityCreationParams ?? params };
+  },
+});
+
 /** Serialize the withdrawal decision against attachment before provider effects. */
 export const beginWithdrawal = internalMutation({
   args: { id: v.id("rental_additions") },
@@ -439,6 +455,7 @@ export const close = internalMutation({
     if (["applied", "applied_draft"].includes(r.status))
       throw Error("Applied items are settled through the rental");
     if (r.status === "refunded" || r.status === "expired") return;
+    if (r.securityCreationPending) throw Error("Wait for the pending security authorisation to be reconciled");
     if (r.withdrawalRequestedAt && r.paymentIntentId && (!refunded || r.withdrawalRefundStatus !== "succeeded")) throw Error("Wait for the withdrawal refund to be confirmed");
     const b = await ctx.db.get(r.bookingId);
     await ctx.db.patch(id, {
