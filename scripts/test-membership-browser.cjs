@@ -241,7 +241,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       await c.evaluate('window.__dbcClickRect=null');
       // Wait for the actual hit target and stable layout, rather than clicking an
       // old coordinate while images or hydration are still moving the button.
-      await until(`(()=>{const el=(${expression});if(!el)return false;const r=el.getBoundingClientRect(),point={x:r.x+r.width/2,y:r.y+r.height/2};const before=window.__dbcClickRect;window.__dbcClickRect=point;const hit=document.elementFromPoint(point.x,point.y);return before&&Math.abs(before.x-point.x)<1&&Math.abs(before.y-point.y)<1&&!!hit&&(el===hit||el.contains(hit))})()`);
+      try {
+        await until(`(()=>{const el=(${expression});if(!el)return false;const r=el.getBoundingClientRect(),point={x:r.x+r.width/2,y:r.y+r.height/2};if(point.y<80||point.y>=innerHeight||point.x<0||point.x>=innerWidth){el.scrollIntoView({block:'center',behavior:'instant'});window.__dbcClickRect=null;return false}const before=window.__dbcClickRect;window.__dbcClickRect=point;const hit=document.elementFromPoint(point.x,point.y);return before&&Math.abs(before.x-point.x)<1&&Math.abs(before.y-point.y)<1&&!!hit&&(el===hit||el.contains(hit))})()`);
+      } catch(error) {
+        const diagnostic=await c.evaluate(`(()=>{const el=(${expression}),r=el?.getBoundingClientRect(),hit=r?document.elementFromPoint(r.x+r.width/2,r.y+r.height/2):null;return {viewport:{width:innerWidth,height:innerHeight},scroll:scrollY,rect:r?.toJSON(),hit:hit?{tag:hit.tagName,id:hit.id,class:hit.className,text:hit.textContent?.slice(0,150)}:null}})()`);
+        console.error({clearBasketHitFailure:diagnostic});await shot('clear-basket-hit-failure');throw error;
+      }
     }
     const point = await c.evaluate(`(()=>{const r=(${expression}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
     await c.cmd('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
