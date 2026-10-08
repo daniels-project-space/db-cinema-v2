@@ -83,9 +83,9 @@ export function useGafferTools() {
   const account = useAccount();
   const convex = useConvex();
   const emailedCart = useRef<{email:string;shareKey:string;signature:string}|null>(null);
-  const cartAlternatives = useQuery(api.cartReplacements.forCart, cart.items.length ? {items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)})),limit:6} : "skip");
+  const cartAlternatives = useQuery(api.cartReplacements.forCart, cart.items.length ? {items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:6} : "skip");
   const replacementBrief = useCallback(async()=>{
-    const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)})),limit:6});
+    const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:6});
     return cart.items.filter(i=>Object.prototype.hasOwnProperty.call(rows,i.key)).map(i=>`${i.title} is unavailable for ${i.start} to ${i.end}. Available replacements for those same dates: ${(rows[i.key]??[]).map(c=>`${c.title} (£${c.total})`).join("; ")||"none found"}. The cart shows two initially; Show more replacements reveals more. Ask before changing their selection.`).join(" ");
   },[cart.items,convex]);
   const { focus, suggest, suggestedIds, focusedId } = useGafferFocus();
@@ -248,7 +248,7 @@ export function useGafferTools() {
     if (!cart.items.length) return [];
     try {
       const res: any = await convex.query(api.availability.forCart, {
-        items: cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end) })),
+        items: cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime })),
       });
       return cart.items.filter((i) => res?.[i.listingId] && !res[i.listingId].ok);
     } catch {
@@ -562,7 +562,7 @@ export function useGafferTools() {
       /** Same-category substitutes that are genuinely free for those dates. */
       suggest_alternatives: async ({ item, start, end }: { item: string; start?: string; end?: string }) => {
         const basketItem=cart.items.find(i=>i.title.toLowerCase()===String(item).trim().toLowerCase());
-        if(basketItem){const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)})),limit:10});const alts=rows[basketItem.key];return alts?`${basketItem.title} is unavailable for ${basketItem.start} to ${basketItem.end}. Available alternatives: ${alts.map(c=>`${c.title} (£${c.total})`).join("; ")||"none"}. Use Show more replacements on the cart or ask which they prefer before switching.`:"This basket item is currently available. Ask before changing it.";}
+        if(basketItem){const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:10});const alts=rows[basketItem.key];return alts?`${basketItem.title} is unavailable for ${basketItem.start} to ${basketItem.end}. Available alternatives: ${alts.map(c=>`${c.title} (£${c.total})`).join("; ")||"none"}. Use Show more replacements on the cart or ask which they prefer before switching.`:"This basket item is currently available. Ask before changing it.";}
         const hit = await findOne(item);
         if (!hit) return `Couldn't find ${item} to match against.`;
         const { startIso, endIso } = resolveWindow(start, end, hit.minDays ?? 1);
@@ -660,7 +660,7 @@ export function useGafferTools() {
       email_checkout_cart: async ({email}:{email?:string}) => {
         const to=(email??account.me?.email??"").trim().toLowerCase();
         if(!to)return "Ask for their email address and permission to email the discussed cart.";
-        try{const result=await convex.action(api.checkoutCarts.email,{email:to,token:account.me?.email===to?account.token??undefined:undefined,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)}))});
+        try{const result=await convex.action(api.checkoutCarts.email,{email:to,token:account.me?.email===to?account.token??undefined:undefined,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime}))});
           emailedCart.current={email:to,shareKey:result.shareKey,signature:cart.items.map(i=>`${i.listingId}:${i.start}:${i.end}`).join("|")};
           return `The discussed cart was emailed to ${to}. Its private link restores the items and selected dates; availability is rechecked and unavailable items show replacements. It does not reserve gear or take payment.`;
         }catch(e){return e instanceof Error?e.message:"The cart email could not be sent.";}
@@ -668,16 +668,16 @@ export function useGafferTools() {
       switch_unavailable: async ({item,replacement}:{item:string;replacement:string}) => {
         const source=cart.items.find(i=>i.title.toLowerCase()===String(item).trim().toLowerCase());
         if(!source)return "Name the exact unavailable basket item before switching it.";
-        const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)})),limit:100});
+        const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:100});
         const choice=rows[source.key]?.find(i=>i.title.toLowerCase()===String(replacement).trim().toLowerCase());
         if(!choice)return "That replacement is not currently available for this basket. Use check_basket for the current alternatives.";
-        cart.switchItem(source.key,{...choice,start:source.start,end:source.end});return `Switched ${source.title} to ${choice.title}, keeping ${source.start} to ${source.end}. Recheck the basket before checkout.`;
+        cart.switchItem(source.key,{...choice,start:source.start,end:source.end,pickupTime:source.pickupTime,returnTime:source.returnTime});return `Switched ${source.title} to ${choice.title}, keeping ${source.start} to ${source.end}. Recheck the basket before checkout.`;
       },
       setup_account: async ({email,name,phone}:{email:string;name:string;phone:string}) => {
         if(!email?.trim()||!name?.trim()||!phone?.trim())return "Ask for their name, phone number and email address, and confirm they want an account.";
         try{const to=email.trim().toLowerCase(),signature=cart.items.map(i=>`${i.listingId}:${i.start}:${i.end}`).join("|");
           if(cart.count&&(!emailedCart.current||emailedCart.current.email!==to||emailedCart.current.signature!==signature)){
-            const result=await convex.action(api.checkoutCarts.email,{email:to,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end)}))});emailedCart.current={email:to,shareKey:result.shareKey,signature};
+            const result=await convex.action(api.checkoutCarts.email,{email:to,lines:cart.items.map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime}))});emailedCart.current={email:to,shareKey:result.shareKey,signature};
           }
           const result=await convex.action(api.accountCodes.request,{email:to,name,phone,purpose:"setup",cartKey:emailedCart.current?.email===to?emailedCart.current.shareKey:undefined});
           router.push(`/account/setup?challenge=${result.challenge}`);

@@ -21,6 +21,8 @@ import { assertVerificationArchive } from "./verificationArchive";
 import { requiresDroneLicence } from "./lib/droneVerification";
 import { securityReady } from "../shared/verificationProgress";
 import { VERIFICATION_REUSE_DAYS } from "./lib/verificationReuse";
+import { stockWindow } from "./lib/stockWindows";
+import { bookingStockLines } from "../shared/rentalWindow";
 
 const PAID_STATUSES = new Set(["confirmed", "active", "returned"]);
 
@@ -74,6 +76,7 @@ export function mapBookingForSync(
       qty: li.qty ?? 1,
       start: li.start,
       end: li.end,
+      pickupTime:li.pickupTime===undefined?b.pickupTime??null:li.pickupTime,
       returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime,
       units: unitsOut,
     };
@@ -132,15 +135,30 @@ export function mapBookingForSync(
       .filter(r => r.source === "site" && ["confirmed", "active", "returned"].includes(r.status))
       .map(r => {
         const unit = unitById.get(String(r.inventoryUnitId));
-        const matchingLines = (b.lineItems ?? []).filter(li => r.listingId && String(li.listingId) === String(r.listingId) && li.start <= r.start && li.end === r.end);
-        const returnTimes = matchingLines.map(li => li.returnTime === undefined ? b.returnTime ?? null : li.returnTime);
-        // No inferred time for an ambiguous/legacy allocation. Keep it occupied
-        // through the whole return day rather than releasing physical stock early.
-        const returnTime = returnTimes.length && returnTimes.every(t => typeof t === "string") ? [...returnTimes].sort().at(-1)! : null;
+        const exportedEnd = r.end + (r.endExclusive && r.turnaroundBufferMinutes !== 60 ? 3600000 : 0);
+        const matchingLines = bookingStockLines(b).filter(li => {
+          if (!r.listingId || String(li.listingId) !== String(r.listingId)) return false;
+          if (!r.endExclusive) return li.start === r.start && li.end === r.end;
+          // Legacy unmarked exact rows lacked the turnaround buffer. Normalize
+          // once, then compare the allocation against signed civil clocks. An
+          // extension tail may begin after collection but must end exactly at
+          // this line's allocation end; there is no approximate date matching.
+          return [true, false].some(precise => {
+            try { const w = stockWindow(li, precise); return w.end === exportedEnd && w.start <= r.start && r.start < w.end; }
+            catch { return false; }
+          });
+        });
+        const evidence = new Map(matchingLines.map(li => [JSON.stringify([li.start, li.end, li.pickupTime ?? null, li.returnTime ?? null]), li]));
+        const signedLine = evidence.size === 1 ? [...evidence.values()][0] : undefined;
+        // Preserve explicit unknown clocks and never select one ambiguous line.
+        const pickupTime = signedLine?.pickupTime ?? null;
+        const returnTime = signedLine?.returnTime ?? null;
         return { reservationId: String(r._id), inventoryUnitId: String(r.inventoryUnitId),
           rmv2ItemId: unit?.rmv2ItemId ?? null, name: unit?.name ?? "Unmapped equipment",
           sku: unit?.sku ?? null, qty: r.qty, start: r.start, end: r.end,
-          pickupTime: b.pickupTime ?? null, returnTime,
+          ...(r.endExclusive?{end:exportedEnd,endExclusive:true,stockWindowVersion:2,turnaroundBufferMinutes:60}:{}),
+          pickupTime, returnTime,
+          ...(signedLine ? { pickupDate: new Date(signedLine.start).toISOString().slice(0, 10), returnDate: new Date(signedLine.end).toISOString().slice(0, 10) } : {}),
           listingId: r.listingId ? String(r.listingId) : null,
           status: r.status, hyggloProductId: unit?.hyggloProductId ?? null };
       }) } : {}),

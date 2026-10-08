@@ -11,6 +11,8 @@ import { dayMs } from "@/lib/dates";
 import { useCart } from "@/components/cart/CartProvider";
 import { IconCheck, IconX } from "@/components/icons";
 
+import {TimeSlotPicker} from "../checkout/TimeSlotPicker";
+
 function WaitlistForm({ listingId, start, end }: { listingId: string; start: number; end: number }) {
   const account = useAccount();
   const addWait = useMutation(api.waitlist.add);
@@ -94,6 +96,7 @@ export function BookingPanel({
   demand?: number;
 }) {
   const cart = useCart();
+  const [pickupTime,setPickupTime]=useState(""),[returnTime,setReturnTime]=useState("");
   const calendarStock=useCalendarStock(listing._id,month,cart.items,!!listing.marketingOnly,start&&!end?start:null);
   const blockedDays=new Set([...unavailable,...calendarStock.unavailable]);
   const days = start && end ? daysInclusive(start, end) : 0;
@@ -109,14 +112,15 @@ export function BookingPanel({
   const prospective =
     start && end
       ? [
-          ...cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end) })),
-          { listingId: listing._id as any, start: startMs, end: endMs },
+          ...cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime })),
+          { listingId: listing._id as any, start: startMs, end: endMs,pickupTime:pickupTime||undefined,returnTime:returnTime||undefined },
         ]
       : [];
   const fit = useQuery(
     api.availability.forCart,
     start && end && !listing.marketingOnly ? { items: prospective } : "skip",
   );
+  const slots=useQuery(api.availability.forTimeSlots,start&&end&&!listing.marketingOnly?{listingId:listing._id as any,start:startMs,end:endMs,pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,items:prospective.slice(0,-1)}:"skip");
   const cand: any = fit ? (fit as any)[listing._id] : undefined;
   // Marketing requests are recorded by cart.add; the basket checks stock and
   // offers replacements before checkout rather than blocking demand collection.
@@ -131,6 +135,7 @@ export function BookingPanel({
       heroImage: listing.heroImage,
       start,
       end,
+      pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,
       days,
       perDay: q.perDay,
       total: q.total,
@@ -146,12 +151,17 @@ export function BookingPanel({
         start={start}
         end={end}
         unavailable={listing.marketingOnly ? new Set<string>() : blockedDays}
+        partial={calendarStock.partial}
         disabled={!calendarStock.ready}
         onPick={onPick}
       />
 
       {!calendarStock.ready && <div role="status" className="text-sm text-white/70">{calendarStock.error ? <>Couldn’t check these dates. <button type="button" className="underline text-accent-300" onClick={()=>void calendarStock.retry()}>Retry availability</button></> : "Checking available dates…"}</div>}
 
+      {start&&end&&!listing.marketingOnly&&<div className="grid grid-cols-2 gap-3">
+        <TimeSlotPicker id={`gear-${listing._id}-pickup`} label="Pickup time" value={pickupTime} onChange={setPickupTime} disabled={!calendarStock.ready||!slots} allowedSlots={slots?.pickupSlots}/>
+        <TimeSlotPicker id={`gear-${listing._id}-return`} label="Return time" value={returnTime} onChange={setReturnTime} disabled={!calendarStock.ready||!slots} allowedSlots={slots?.returnSlots}/>
+      </div>}
       <div className="spot gradient-border rounded-2xl p-5">
         {/* base rate row */}
         <div className="flex items-baseline justify-between">

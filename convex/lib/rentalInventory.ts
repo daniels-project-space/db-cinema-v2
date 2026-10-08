@@ -1,3 +1,4 @@
+import { stockTimePrecision, stockWindow } from "./stockWindows";
 import { peak, blockedSet, overlappingIntervals } from "../availability";
 import { rentalUnavailable } from "./marketingInventory";
 import { reservationOccupancy } from "./reservationOccupancy";
@@ -18,6 +19,7 @@ export async function assertRentalInventory(
     cache?.records.set(key, record);
     return record;
   }
+  const precision=await stockTimePrecision(ctx);
   const byUnit = new Map<string, { id: any; intervals: any[] }>();
   for (const line of lines) {
     if (
@@ -28,6 +30,7 @@ export async function assertRentalInventory(
       line.end < line.start
     )
       throw Error("Invalid rental dates or quantity");
+    const window=stockWindow(line,precision);
     const listing = await get(line.listingId);
     if (!listing || rentalUnavailable(listing))
       throw Error("An item is no longer available");
@@ -47,8 +50,7 @@ export async function assertRentalInventory(
         intervals: [],
       };
       row.intervals.push({
-        start: line.start,
-        end: line.end,
+        ...window,
         qty: comp.qty * line.qty,
       });
       byUnit.set(key, row);
@@ -70,7 +72,7 @@ export async function assertRentalInventory(
       .map((r: any) => reservationOccupancy(ctx, r)));
     const existing = occupied.filter((row): row is NonNullable<typeof row> => row !== null);
     const over = row.intervals.some((window) => {
-      const overlapping = overlappingIntervals([...existing, ...row.intervals],window.start,window.end);
+      const overlapping = overlappingIntervals([...existing, ...row.intervals],window.start,window.end,true);
       return peak(overlapping) > owned;
     });
     if (over)

@@ -28,6 +28,8 @@ export type CartItem = {
   heroImage: string | null;
   start: string;
   end: string;
+  pickupTime?: string;
+  returnTime?: string;
   days: number;
   perDay: number;
   total: number;
@@ -45,7 +47,7 @@ type CartCtx = {
   switchSet: (expected: string, keys: string[], replacements: Omit<CartItem, "key">[]) => void;
   addReplacement: (expected: string, sourceKey: string, replacement: Omit<CartItem, "key">) => void;
   duplicateItem: (key: string) => void;
-  updateDates: (key: string, start: string, end: string, total: number) => void;
+  updateDates: (key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string) => void;
   reminderEnabled: boolean;
   setReminderEnabled: (enabled: boolean) => void;
   reminderError: string | null;
@@ -106,7 +108,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     items.map((i) => ({
       listingId: i.listingId,
       start: dayMs(i.start),
-      end: dayMs(i.end),
+      end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime,
       qty: 1,
     })),
   );
@@ -204,7 +206,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const add = useCallback(
     (item: Omit<CartItem, "key">) => {
-      const key = `${item.listingId}|${item.start}|${item.days}|${item.offerType ?? ""}`;
+      const key = `${item.listingId}|${item.start}|${item.days}|${item.offerType ?? ""}|${item.pickupTime??""}|${item.returnTime??""}`;
       setItems((prev) =>
         prev.some((p) => p.key === key) ? prev : [...prev, { ...item, key }],
       );
@@ -223,14 +225,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const switchItem = useCallback((key: string, replacement: Omit<CartItem, "key">) => {
     const original = latestItems.current.find(i => i.key === key);
-    if (!original || original.start !== replacement.start || original.end !== replacement.end)
+    if (!original || original.start !== replacement.start || original.end !== replacement.end || original.pickupTime!==replacement.pickupTime || original.returnTime!==replacement.returnTime)
       throw Error("Your basket changed. Choose an alternative for the current dates.");
-    if (latestItems.current.some(i => i.key !== key && i.listingId === replacement.listingId && i.start === replacement.start && i.end === replacement.end))
+    if (latestItems.current.some(i => i.key !== key && i.listingId === replacement.listingId && i.start === replacement.start && i.end === replacement.end && i.pickupTime===replacement.pickupTime && i.returnTime===replacement.returnTime))
       throw Error("That alternative is already in your basket for these dates.");
-    const nextKey = `${replacement.listingId}|${replacement.start}|${replacement.days}|`;
+    const nextKey = `${replacement.listingId}|${replacement.start}|${replacement.days}||${replacement.pickupTime??""}|${replacement.returnTime??""}`;
     setItems(prev => {
       const original = prev.find(i => i.key === key);
-      if (!original || original.start !== replacement.start || original.end !== replacement.end || prev.some(i => i.key !== key && i.listingId === replacement.listingId && i.start === replacement.start && i.end === replacement.end)) return prev;
+      if (!original || original.start !== replacement.start || original.end !== replacement.end || original.pickupTime!==replacement.pickupTime || original.returnTime!==replacement.returnTime || prev.some(i => i.key !== key && i.listingId === replacement.listingId && i.start === replacement.start && i.end === replacement.end && i.pickupTime===replacement.pickupTime && i.returnTime===replacement.returnTime)) return prev;
       return prev.map(i => i.key === key ? { ...replacement, key: nextKey } : i);
     });
     setMembership(null);
@@ -261,15 +263,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
     (key: string) => setItems((prev) => prev.filter((p) => p.key !== key)),
     [],
   );
-  const updateDates = useCallback((key: string, start: string, end: string, total: number) => {
+  const updateDates = useCallback((key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string) => {
     const item = items.find(i => i.key === key);
     if (!item) throw Error("This item is no longer in your kit.");
     if (!dayMs(start) || !dayMs(end) || end < start || !Number.isFinite(total) || total < 0) throw Error("Invalid rental dates or price.");
-    if (items.some(i => i.key !== key && i.listingId === item.listingId && i.start === start && i.end === end && i.offerType === item.offerType)) throw Error("This item is already in your kit for those dates.");
+    if (items.some(i => i.key !== key && i.listingId === item.listingId && i.start === start && i.end === end && i.pickupTime===pickupTime && i.returnTime===returnTime && i.offerType === item.offerType)) throw Error("This item is already in your kit for those dates.");
     const days = daysInclusive(start, end);
-    setItems(prev => prev.map(i => i.key === key ? { ...i, key: `${i.listingId}|${start}|${days}|${i.offerType ?? ""}`, start, end, days, total, perDay: Math.round(total / days * 100) / 100 } : i));
-    setMembership(null);
-    setToast("Rental dates and price updated");
+    setItems(prev => prev.map(i => i.key === key ? { ...i, key: `${i.listingId}|${start}|${days}|${i.offerType ?? ""}|${pickupTime??""}|${returnTime??""}`, start, end, pickupTime, returnTime, days, total, perDay: Math.round(total / days * 100) / 100 } : i));
+    if(start!==item.start||end!==item.end)setMembership(null);
+    setToast(start===item.start&&end===item.end?"Collection times saved":"Rental dates and price updated");
   }, [items]);
   const clear = useCallback(() => {
     setItems([]);

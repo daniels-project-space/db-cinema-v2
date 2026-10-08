@@ -4,7 +4,7 @@ import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { sendMail } from "./lib/mailer";
-export const email=action({args:{email:v.string(),token:v.optional(v.string()),lines:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number()}))},handler:async(ctx,a):Promise<{url:string;shareKey:string}>=>{
+export const email=action({args:{email:v.string(),token:v.optional(v.string()),lines:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number(),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string())}))},handler:async(ctx,a):Promise<{url:string;shareKey:string}>=>{
  const shareKey=randomBytes(32).toString("base64url");
  await ctx.runMutation(internal.checkoutCartData.create,{...a,shareKey});
  const url=`${new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin}/cart/quote/${shareKey}`;

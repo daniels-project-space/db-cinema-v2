@@ -46,8 +46,8 @@ function pay(r){const s=sessions.get(r.stripePaymentLinkId);s.status='complete';
  assert((tables.get('reservations')??[]).some(x=>x.extensionRequestId===r.id&&x.status==='hold'&&x.qty===2));
  const amendmentHold=(tables.get('reservations')??[]).find(x=>x.extensionRequestId===r.id&&x.status==='hold');await db.patch(amendmentHold._id,{holdExpiresAt:Date.now()-1});
  await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(amendmentHold._id),'The timer preserves an actual owner-approved unresolved extension');
- const availability=load('convex/availability.ts');assert.equal((await availability.forListing.handler(ctx,{listingId:listing._id,start:amendmentHold.start,end:amendmentHold.end})).available,2,'Expired extension markers remain occupied before payment reconciliation');
- await db.patch(r.id,{status:'refund_pending'});await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(amendmentHold._id),'Pending provider refund also preserves physical stock');assert.equal((await availability.forListing.handler(ctx,{listingId:listing._id,start:amendmentHold.start,end:amendmentHold.end})).available,2);await db.patch(r.id,{status:'awaiting_payment'});
+ const availability=load('convex/availability.ts');assert.equal((await availability.forListing.handler(ctx,{listingId:listing._id,start:end,end:end+2*86400000})).available,2,'Expired extension markers remain occupied before payment reconciliation');
+ await db.patch(r.id,{status:'refund_pending'});await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(amendmentHold._id),'Pending provider refund also preserves physical stock');assert.equal((await availability.forListing.handler(ctx,{listingId:listing._id,start:end,end:end+2*86400000})).available,2);await db.patch(r.id,{status:'awaiting_payment'});
 
  await assert.rejects(bookings.beginReturnDecision.handler(ctx,{bookingId:b._id,actualReturnedAt:Date.now(),damageKept:0,chargeLate:false}),/approved extension/);
  await db.patch(b._id,{status:'confirmed'});

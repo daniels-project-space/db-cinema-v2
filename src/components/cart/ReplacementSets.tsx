@@ -10,7 +10,7 @@ import { useCart, type CartItem } from "./CartProvider";
 export function ReplacementSets({ item }: { item: CartItem }) {
   const cart = useCart(), convex = useConvex();
   const [limit, setLimit] = useState(2), [busy, setBusy] = useState(false), [error, setError] = useState("");
-  const args = { items: cart.items.map(i => ({ key: i.key, listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end) })), sourceKey: item.key, limit: Math.min(20, limit + 1) };
+  const args = { items: cart.items.map(i => ({ key: i.key, listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime })), sourceKey: item.key, limit: Math.min(20, limit + 1) };
   const data = useQuery(api.cartReplacements.sets, args);
   // Repeated cart rows share one quantity-aware replacement panel.
   if (data && data.keys[0] !== item.key) return null;
@@ -24,8 +24,8 @@ export function ReplacementSets({ item }: { item: CartItem }) {
       const choices = single ? fresh?.singles.filter(c => c.listingId === optionId) : index == null ? option?.items : option && [option.items[index]];
       if (!fresh || !choices?.length) throw Error("Stock changed. Choose a currently available replacement.");
       if (choices.some(c => !c)) throw Error("This replacement changed. Try again.");
-      if (single || index != null) cart.addReplacement(expected, item.key, { ...choices[0], start: item.start, end: item.end });
-      else cart.switchSet(expected, fresh.keys, choices.map(c => ({ ...c, start: item.start, end: item.end })));
+      if (single || index != null) cart.addReplacement(expected, item.key, { ...choices[0], start: item.start, end: item.end,pickupTime:item.pickupTime,returnTime:item.returnTime });
+      else cart.switchSet(expected, fresh.keys, choices.map(c => ({ ...c, start: item.start, end: item.end,pickupTime:item.pickupTime,returnTime:item.returnTime })));
     } catch (e) { setError(e instanceof Error ? e.message : "Could not add replacements."); }
     finally { setBusy(false); }
   }

@@ -17,11 +17,12 @@ type Props = {
   start: string | null;
   end: string | null;
   unavailable: Set<string>;
+  partial?:Set<string>;
   disabled?: boolean;
   onPick: (isoDate: string) => void;
 };
 
-export function Calendar({ month, onMonthChange, start, end, unavailable, onPick, disabled: checking=false }: Props) {
+export function Calendar({ month, onMonthChange, start, end, unavailable, onPick, disabled: checking=false,partial=new Set<string>() }: Props) {
   const y = month.getFullYear();
   const m = month.getMonth();
   const startWeekday = (new Date(y, m, 1).getDay() + 6) % 7; // Mon=0
@@ -93,14 +94,16 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
               disabled={disabled}
               onClick={() => onPick(dayIso)}
               className={cls}
-              title={checking ? "Checking availability" : isBlocked ? "Unavailable" : crossesBlocked ? "This range includes an unavailable day" : undefined}
+              title={checking ? "Checking availability" : isBlocked ? "Unavailable" : crossesBlocked ? "This range includes an unavailable day" : partial.has(dayIso)?"Available at selected times only — choose pickup and return times":undefined}
             >
               {d}
+              {partial.has(dayIso)&&!disabled&&<span aria-hidden="true" className="absolute bottom-1 h-1 w-1 rounded-full bg-amber-300"/>}
             </button>
           );
         })}
       </div>
 
+      {partial.size>0&&<p className="mt-2 text-center text-[11px] text-amber-200/80">Marked dates have limited times. Choose an available pickup and return.</p>}
       <div className="mt-3 text-center font-mono text-[11px] text-white/35">
         {!start
           ? "Tap your start date"

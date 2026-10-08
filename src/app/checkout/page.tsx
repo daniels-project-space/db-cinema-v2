@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { IconLock, IconShield, IconCheck, IconTruck, IconPin, IconArrowRight } from "@/components/icons";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
 import Link from "next/link";
@@ -25,6 +25,7 @@ import { AGREEMENTS } from "@/lib/legal";
 import { DELIVERY_TERMS_VERSION, DELIVERY_ACCEPTANCE_TEXT } from "../../../shared/rentalAgreement";
 import { depositFor, depositChargeFor, smallDamageHold, formatGbp, type Protection } from "@/lib/pricing";
 import { browserCheckoutStorage, readCheckoutDraft, saveCheckoutDraft } from "@/lib/checkoutDraft";
+import { CartItemTimes } from "@/components/cart/CartItemTimes";
 import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 
 import { dayMs as ms } from "@/lib/dates";
@@ -77,8 +78,6 @@ function StepCard({
 export default function CheckoutPage() {
   const { items, subtotal, eligibleSubtotal, membership, setMembership } = useCart();
   const account = useAccount();
-  const stock=useCartStockCheck(items),availability=stock.availability;
-  const availabilityBlocked = !!items.length && (!stock.ready || !availability || items.some(i => !availability[i.listingId]?.ok));
   const promo = usePromo(eligibleSubtotal);
   const checkout = useCheckoutStatus();
   const start = useAction(api.checkout.start);
@@ -103,6 +102,12 @@ export default function CheckoutPage() {
   const [protection, setProtection] = useState<Protection>("verify");
   const [pickupTime, setPickupTime] = useState("");
   const [returnTime, setReturnTime] = useState("");
+  const allItemTimes=!!items.length&&items.every(i=>i.pickupTime&&i.returnTime);
+  const effectivePickupTime=allItemTimes?[...items].sort((a,b)=>(a.start+" "+a.pickupTime).localeCompare(b.start+" "+b.pickupTime))[0].pickupTime!:pickupTime;
+  const effectiveReturnTime=allItemTimes?[...items].sort((a,b)=>(b.end+" "+b.returnTime).localeCompare(a.end+" "+a.returnTime))[0].returnTime!:returnTime;
+  const stock=useCartStockCheck(items.map(i=>({...i,pickupTime:i.pickupTime||pickupTime||undefined,returnTime:i.returnTime||returnTime||undefined}))),availability=stock.availability;
+  const defaultSlots=useQuery(api.availability.forCheckoutTimeSlots,items.length?{items:items.map(i=>({listingId:i.listingId as any,start:ms(i.start),end:ms(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),pickupTime:pickupTime||undefined,returnTime:returnTime||undefined}:"skip");
+  const availabilityBlocked = !!items.length && (!stock.ready || !availability || items.some(i => !availability[i.listingId]?.ok));
   const [deliveryAgreed, setDeliveryAgreed] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState("");
@@ -170,12 +175,12 @@ export default function CheckoutPage() {
   const deliveryAddressPostcode = address.match(PC_RE)?.[1]?.replace(/\s/g, "").toUpperCase() ?? "";
   const quotedPostcode = postcode.match(PC_RE)?.[1]?.replace(/\s/g, "").toUpperCase() ?? "";
   const fulfilmentDone =
-    !!pickupTime && !!returnTime && (fulfilment === "pickup" ||
+    !!effectivePickupTime && !!effectiveReturnTime && (fulfilment === "pickup" ||
       (dq?.ok && address.trim().length >= 10 && deliveryAddressPostcode === quotedPostcode && !!quotedPostcode && deliveryAgreed));
   const priceArgs = {
     items: items.map((i) => ({
       listingId: i.listingId as any, title: i.title, start: ms(i.start), end: ms(i.end),
-      qty: 1, total: i.total, deposit: i.deposit, offerType: i.offerType,
+      qty: 1, total: i.total, deposit: i.deposit, offerType: i.offerType,pickupTime:i.pickupTime||effectivePickupTime||undefined,returnTime:i.returnTime||effectiveReturnTime||undefined,
     })),
     token: account.token && account.me ? account.token : undefined,
     selectedMembership: membership ? {tier:membership.tier,intro:membership.intro} : undefined,
@@ -225,7 +230,7 @@ export default function CheckoutPage() {
 
   // Reading the documents and signing the current order are separate. Changes
   // to the order invalidate only the signature/attempt, never the read checkbox.
-  const signingContext = JSON.stringify({ quoteKey, name, phone, billingAddress, pickupTime, returnTime,
+  const signingContext = JSON.stringify({ quoteKey, name, phone, billingAddress, pickupTime:effectivePickupTime, returnTime:effectiveReturnTime,
     deliveryAgreed, due: currentQuote?.combinedTotalDue, deposit: currentQuote?.depositAmount, hold: currentQuote?.depositHoldAmount });
   useEffect(() => { setSignature(""); agreementRequest.current = null; setRecovery(null); }, [signingContext]);
   useEffect(() => { agreementRequest.current = null; }, [signature, agreed]);
@@ -267,7 +272,7 @@ export default function CheckoutPage() {
     }
   }, [draftReady, restoreDeliveryQuote, items.length]);
 
-  const recoveryKey=JSON.stringify({priceArgs,phone,billingAddress,name,email,pickupTime,returnTime,signature,agreed,deliveryAgreed,total:currentQuote?.combinedTotalDue,deliveryFee:currentQuote?.quotedDeliveryFee,membershipTermsAccepted:membership?.termsAccepted});
+  const recoveryKey=JSON.stringify({priceArgs,phone,billingAddress,name,email,pickupTime:effectivePickupTime,returnTime:effectiveReturnTime,signature,agreed,deliveryAgreed,total:currentQuote?.combinedTotalDue,deliveryFee:currentQuote?.quotedDeliveryFee,membershipTermsAccepted:membership?.termsAccepted});
   const canRecover=recovery?.key===recoveryKey&&recovery.acceptance===agreementRequest.current;
   async function pay() {
     if (!checkout.enabled) { setErr(CHECKOUT_PAUSED_MESSAGE); return; }
@@ -302,8 +307,8 @@ export default function CheckoutPage() {
         selectedMembership: membership ? {tier:membership.tier,intro:membership.intro,termsVersion:MEMBERSHIP_TERMS_VERSION,requestId:membershipAttempt!} : undefined,
         promoCode: promo.applied ?? undefined,
         protection,
-        pickupTime,
-        returnTime,
+        pickupTime:effectivePickupTime,
+        returnTime:effectiveReturnTime,
         agreement: { name: signature.trim(), requestId: acceptanceAttempt, securityHoldConsent: agreed, laterChargeConsent: agreed, documents: docs },
       });
       window.location.href = url;
@@ -445,11 +450,12 @@ export default function CheckoutPage() {
               )}
 
               {/* times (both pickup & delivery) */}
-              {availabilityBlocked && <p className="mt-4 text-sm text-amber-200">Choose available equipment and dates in your basket before choosing collection times. Your saved choices are kept.</p>}
-              <div className="mt-4 flex gap-3">
-                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={availabilityBlocked}/>
-                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={availabilityBlocked}/>
-              </div>
+              <div className="mb-4 space-y-3">{items.map(item=><CartItemTimes key={item.key} item={item} defaultPickupTime={pickupTime} defaultReturnTime={returnTime} ready={stock.ready} delivery={fulfilment==="delivery"}/>)}</div>
+              {availabilityBlocked && <p className="mt-4 text-sm text-amber-200">Choose available equipment, dates and times in your basket. Item-specific times take priority over these default collection times. Your saved choices are kept.</p>}
+              {!allItemTimes&&<><p className="mb-2 text-xs text-white/55">Default times apply only to items without their own collection times.</p>              <div className="mt-4 flex gap-3">
+                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.pickupSlots}/>
+                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.returnSlots}/>
+              </div></>}
             </StepCard>
 
             {/* 03 — protection */}

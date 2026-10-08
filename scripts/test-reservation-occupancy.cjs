@@ -5,7 +5,7 @@ const { assertRentalInventory } = load('convex/lib/rentalInventory.ts');
 const bookings = load('convex/bookings.ts'), sync = load('convex/sync.ts');
 const realNow = Date.now, realFetch = global.fetch;
 process.env.RMV2_WEBHOOK_URL='https://fixture-manager.convex.site/dbcinema/booking-sync';process.env.RMV2_WEBHOOK_SECRET='fixture-read-service';
-const now = Date.UTC(2026, 9, 8, 12), day = 86400000, start = now + 90 * day, end = start + day;
+const now = Date.UTC(2026, 9, 8, 12), day = 86400000, start = Math.floor((now + 90 * day)/day)*day, end = start + day;
 Date.now = () => now;
 const ctx = { db }, owned = put('inventory_units', { name: 'Owned camera', quantityOwned: 1, rmv2ItemId: 'master-camera' });
 const camera = put('listings', { title: 'Sony FX3 body', slug: 'sony-fx3', category: 'Cameras', itemType: 'camera-body', active: true, components: [{ inventoryUnitId: owned._id, qty: 1 }], pricing: { daily: 40 }, depositAmount: 1000 });
@@ -28,7 +28,7 @@ async function blocked() {
     await assertRentalInventory(ctx,lines);
     assert.equal(out.status,'active','Forecast availability must not record a physical return');
     assert.equal(out.end, plannedEnd, 'Stock checks must not rewrite a booked return date');
-    assert.equal((await availability.forListing.handler(ctx,{listingId:camera._id,start:out.start,end:out.end})).available,0,'The same hire remains unavailable within its booked period');
+    assert.equal((await availability.forListing.handler(ctx,{listingId:camera._id,start:Math.floor(out.start/day)*day,end:Math.floor(out.end/day)*day})).available,0,'The same hire remains unavailable within its booked period');
     out.status = 'returned';
     assert.equal((await availability.forListing.handler(ctx, { listingId: camera._id, start, end })).available, 1);
     assert.equal((await replacements.forCart.handler(ctx, { items: requested })).replacement[0].listingId, camera._id);

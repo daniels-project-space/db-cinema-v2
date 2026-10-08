@@ -1,3 +1,7 @@
+import {stockWindow} from "./lib/stockWindows";
+import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
+import {assertRentalInventory} from "./lib/rentalInventory";
+import {assertRentalAllocation} from "./lib/rentalAllocation";
 import { schedulePickupHold } from "./pickupSecurity";
 import { assertRenterExposure } from "./lib/rentalExposure";
 import { postRentalMessage } from "./lib/rentalChat";
@@ -13,20 +17,7 @@ const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /** Is `listing` available over [start,end] EXCLUDING this booking's own reservations? */
 async function listingFree(ctx: any, listingId: any, start: number, end: number, excludeBookingId: any): Promise<boolean> {
-  const l = await ctx.db.get(listingId);
-  if (!l || !l.active) return false;
-  const ACTIVE = new Set(["confirmed", "active", "hold"]);
-  for (const comp of l.components) {
-    const unit: any = await ctx.db.get(comp.inventoryUnitId);
-    const owned = unit?.quantityOwned ?? 1;
-    const existing: Iv[] = (
-      await ctx.db.query("reservations").withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", comp.inventoryUnitId)).collect()
-    )
-      .filter((r: any) => ACTIVE.has(r.status) && r.start <= end && r.end >= start && r.bookingId !== excludeBookingId)
-      .map((r: any) => ({ start: r.start, end: r.end, qty: r.qty || 1 }));
-    if (peak([...existing, { start, end, qty: comp.qty || 1 }]) > owned) return false;
-  }
-  return true;
+  try{await assertRentalInventory(ctx,[{listingId,start,end,qty:1}],excludeBookingId);return true;}catch{return false;}
 }
 
 /** Customer requests a reschedule (whole booking) or item-level extend. Gated. */
@@ -146,23 +137,19 @@ export const _applyReschedule = internalMutation({
     if (!b || r.requestedStart == null || r.requestedEnd == null) return { ok: false, reason: "gone" };
     if(b.cancellationDecision||b.returnDecision||b.activeAdditionId||b.activeExtensionId||b.status!=="confirmed")throw Error("This rental can no longer be rescheduled");
     const newStart = r.requestedStart, newEnd = r.requestedEnd;
-    // every listing must be free over the new window (excluding this booking's own holds)
-    for (const li of b.lineItems) {
-      if (!(await listingFree(ctx, li.listingId, newStart, newEnd, r.bookingId))) {
-        await ctx.db.patch(requestId, { status: "declined", resolvedAt: Date.now(), note: "unavailable" });
-        await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Sorry — ${li.title} isn't available for ${iso(newStart)} → ${iso(newEnd)}. Your rental is unchanged; reply here and we'll find an option.`, });
-        return { ok: false, reason: "unavailable" };
-      }
+    const lines=bookingStockLines(b).map(li=>({...li,start:newStart,end:newEnd}));
+    try{await assertRentalInventory(ctx,lines,r.bookingId);}catch{
+      await ctx.db.patch(requestId,{status:"declined",resolvedAt:Date.now(),note:"unavailable"});
+      await postRentalMessage(ctx,{accountId:r.accountId,bookingId:r.bookingId,sender:"system",text:`Sorry — this complete kit is unavailable for ${iso(newStart)} → ${iso(newEnd)}. Your rental is unchanged; reply here and we'll find an option.`});
+      return {ok:false,reason:"unavailable"};
     }
-    await assertRenterExposure(ctx, b, b.lineItems.map(li => ({ ...li, start: newStart, end: newEnd })));
-    await ctx.db.patch(r.bookingId, { lineItems: b.lineItems.map((li) => ({ ...li, start: newStart, end: newEnd })) });
-    await schedulePickupHold(ctx,{...b,lineItems:b.lineItems.map(li=>({...li,start:newStart,end:newEnd}))});
-    const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q) => q.eq("bookingId", r.bookingId)).collect();
-    for (const res of reservations) {
-      if (res.status === "confirmed" || res.status === "active" || res.status === "hold") {
-        await ctx.db.patch(res._id, { start: newStart, end: newEnd });
-      }
-    }
+    await assertRenterExposure(ctx,b,lines);
+    const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",r.bookingId)).collect();
+    const mode=await assertRentalAllocation(ctx,b,reservations);
+    await ctx.db.patch(r.bookingId,{lineItems:lines});
+    await schedulePickupHold(ctx,{...b,lineItems:lines});
+    for(const res of reservations)if(["confirmed","active","hold"].includes(res.status))await ctx.db.patch(res._id,{status:"cancelled"});
+    for(const li of lines){const listing=await ctx.db.get(li.listingId);const window=mode==="legacy"?{start:li.start,end:li.end}:stockWindow(li,mode==="precise");for(const comp of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:li.listingId,bookingId:r.bookingId,...window,qty:comp.qty*li.qty,source:"site",status:"confirmed"});}
     await ctx.db.patch(requestId, { status: "applied", resolvedAt: Date.now() });
     await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Done — your rental is rescheduled to ${iso(newStart)} → ${iso(newEnd)}. ✓`, });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: r.bookingId, kind: "rescheduled", detail: `${iso(newStart)} → ${iso(newEnd)}` });

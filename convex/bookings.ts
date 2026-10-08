@@ -1,3 +1,6 @@
+import {assertRentalAllocation} from "./lib/rentalAllocation";
+import { bookingStockLines, rentalWindow } from "../shared/rentalWindow";
+import { stockTimePrecision, stockWindow } from "./lib/stockWindows";
 import { PICKUP_HOLD_POLICY } from "../shared/pickupSecurity";
 import { availableCreditRows,creditPlan,creditKind } from "./lib/checkoutCredit";
 import { ensurePaidBookingAccount } from "./accountClaims";
@@ -65,6 +68,8 @@ const lineItem = v.object({
   qty: v.number(),
   lineTotal: v.number(),
   dailyRate: v.optional(v.number()),
+  pickupTime:v.optional(v.union(v.string(),v.null())),
+  returnTime:v.optional(v.union(v.string(),v.null())),
 });
 
 async function availableCreditFor(ctx: any, accountId: any): Promise<number> {
@@ -347,6 +352,12 @@ export const createPending = internalMutation({
   },
 });
 
+function stockAllocationFingerprint(booking:any,rows:any[]) {
+ const lines=bookingStockLines<any>(booking).map(li=>[String(li.listingId),li.start,li.end,li.pickupTime??null,li.returnTime??null,li.qty]).map(line=>JSON.stringify(line)).sort();
+ const physical=rows.map(r=>JSON.stringify([String(r.inventoryUnitId),String(r.listingId),r.start,r.end,r.qty,r.endExclusive===true,r.turnaroundBufferMinutes??0])).sort();
+ return JSON.stringify({lines,physical});
+}
+
 /** Transactional stock reservation for an unpaid checkout. Replays preserve
  * the original rows/expiry; changed or incomplete reservations need repair. */
 export const placeHolds = internalMutation({
@@ -361,12 +372,14 @@ export const placeHolds = internalMutation({
     // Validate the complete order in this serializable mutation, using the same
     // blocked dates, component quantities and real stock records as the cart.
     const cache: RentalInventoryCache = { records: new Map(), reservations: new Map() };
-    await assertRentalInventory(ctx, booking.lineItems, bookingId, cache);
-    const requested = booking.lineItems.flatMap(li => {
+    const lines=bookingStockLines(booking);
+    const precision=await stockTimePrecision(ctx);
+    await assertRentalInventory(ctx, lines, bookingId, cache);
+    const requested = lines.flatMap(li => {
       const listing = cache.records.get(String(li.listingId));
       return listing.components.map((comp: { inventoryUnitId: any; qty: number }) => ({
         inventoryUnitId: comp.inventoryUnitId, listingId: li.listingId,
-        start: li.start, end: li.end, qty: comp.qty * li.qty,
+        ...stockWindow(li,precision),qty: comp.qty * li.qty,
       }));
     });
     const current = await ctx.db.query("reservations")
@@ -376,11 +389,12 @@ export const placeHolds = internalMutation({
     const holds = current.filter(r => r.status === "hold");
     if (holds.length) {
       const fingerprint = (rows: { inventoryUnitId: unknown; listingId?: unknown; start: number; end: number; qty: number }[]) => JSON.stringify(rows.map(r =>
-        JSON.stringify([String(r.inventoryUnitId), r.listingId ? String(r.listingId) : null, r.start, r.end, r.qty])).sort());
+        JSON.stringify([String(r.inventoryUnitId), r.listingId ? String(r.listingId) : null, r.start, r.end, r.qty,(r as {endExclusive?:boolean}).endExclusive===true,(r as {turnaroundBufferMinutes?:number}).turnaroundBufferMinutes??0])).sort());
       if (fingerprint(holds) !== fingerprint(requested))
         throw Error("This checkout's inventory reservation has changed; reconcile or cancel the original checkout");
       return { created: 0, alreadyReserved: true };
     }
+    await ctx.db.patch(bookingId,{stockHoldFingerprint:stockAllocationFingerprint(booking,requested)});
     const expires = Date.now() + ttlMs;
     for (const row of requested) await ctx.db.insert("reservations", {
       ...row, bookingId, source: "site", status: "hold", holdExpiresAt: expires,
@@ -478,7 +492,8 @@ export const confirm = internalMutation({
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
       .collect();
-    for (const h of holds) if (h.status === "hold") await ctx.db.delete(h._id);
+    const committed=holds.filter(h=>h.status==="hold");
+    for (const h of committed) await ctx.db.delete(h._id);
     await ctx.db.patch(bookingId, {
       status: "confirmed",
       stripePaymentIntentId: paymentIntentId,
@@ -491,20 +506,27 @@ export const confirm = internalMutation({
     if(membershipAccount&&!membershipAccount.firstRentalPaidAt)await ctx.db.patch(membershipAccount._id,{firstRentalPaidAt:Date.now()});
     if (membershipAccount?.membershipPerksPendingBookingId === bookingId)
       await ctx.db.patch(membershipAccount._id,{membershipPerksPendingBookingId:undefined});
-    // write the reservation ledger (source:site) per BOM component
-    for (const li of booking.lineItems) {
-      const listing = await ctx.db.get(li.listingId);
-      if (!listing) continue;
-      for (const comp of listing.components) {
-        await ctx.db.insert("reservations", {
-          inventoryUnitId: comp.inventoryUnitId,
-          listingId: li.listingId,
-          bookingId,
-          start: li.start,
-          end: li.end,
-          qty: comp.qty * li.qty,
-          source: "site",
-          status: "confirmed",
+    // Preserve the exact physical allocation made by the authoritative hold
+    // transaction, even when source freshness or the listing BOM changes later.
+    let completeAllocation=false;
+    if(committed.length&&booking.stockHoldFingerprint)completeAllocation=booking.stockHoldFingerprint===stockAllocationFingerprint(booking,committed);
+    else if(committed.length)try{await assertRentalAllocation(ctx,booking,committed.map(h=>({...h,status:"confirmed"})));completeAllocation=true;}catch{}
+    if (completeAllocation) {
+      for (const h of committed) await ctx.db.insert("reservations", {
+        inventoryUnitId:h.inventoryUnitId,listingId:h.listingId,bookingId,
+        start:h.start,end:h.end,endExclusive:h.endExclusive,turnaroundBufferMinutes:h.turnaroundBufferMinutes,
+        qty:h.qty,source:"site",status:"confirmed",
+      });
+    } else {
+      // Compatibility for paid bookings created before physical holds existed.
+      const precision=await stockTimePrecision(ctx);
+      for (const li of bookingStockLines(booking)) {
+        const listing=await ctx.db.get(li.listingId);
+        if (!listing) continue;
+        for (const comp of listing.components) await ctx.db.insert("reservations", {
+          inventoryUnitId:comp.inventoryUnitId,listingId:li.listingId,bookingId,
+          ...stockWindow(li,precision),qty:comp.qty*li.qty,
+          source:"site",status:"confirmed",
         });
       }
     }

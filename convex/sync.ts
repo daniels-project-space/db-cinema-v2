@@ -1,3 +1,4 @@
+import { stockRequest } from "./lib/stockRequest";
 import { action, internalMutation, mutation } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
@@ -448,7 +449,7 @@ export const syncHyggloReservations = action({
   args: {},
   handler: async (ctx): Promise<{ mirrored: number; rows: number }> => {
     const value:any[] = await rmv2Query("items:sharedStockForStorefront", {});
-    if(value.length!==1 || value[0]?.version!==1 || !Number.isSafeInteger(value[0].checkedAt) || !Array.isArray(value[0].units))
+    if(value.length!==1 || ![1,2].includes(value[0]?.version) || !Number.isSafeInteger(value[0].checkedAt) || !Array.isArray(value[0].units))
       throw Error("Invalid Rental Manager shared stock snapshot");
     return await ctx.runMutation(internal.sync.applySharedStock, {snapshot:value[0]});
   },
@@ -457,7 +458,7 @@ export const syncHyggloReservations = action({
 /** A cart visit reads current shared stock before offering checkout. The query
  * after the atomic import also includes website/subscription reservations. */
 export const refreshCartStock = action({
-  args:{items:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number()}))},
+  args:{items:v.array(stockRequest)},
   handler:async(ctx,{items}):Promise<{checkedAt:number;availability:Record<string,{available:number;demanded:number;ok:boolean}>}>=>{
     if(!items.length||items.length>100||items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*86400000))throw Error("Invalid basket stock request");
     try {
@@ -498,10 +499,10 @@ export const refreshDemandFromRmv2 = action({
 /** Atomically replace shared occupancy and current capacity. Older parallel
  * responses cannot erase a newer source snapshot or release its held units. */
 export const applySharedStock = internalMutation({
-  args:{snapshot:v.object({version:v.number(),checkedAt:v.number(),units:v.array(v.object({masterItemId:v.string(),active:v.boolean(),quantityOwned:v.number(),windows:v.array(v.object({start:v.number(),end:v.number(),qty:v.number()}))}))})},
+  args:{snapshot:v.object({version:v.number(),turnaroundBufferMinutes:v.optional(v.number()),checkedAt:v.number(),units:v.array(v.object({masterItemId:v.string(),active:v.boolean(),quantityOwned:v.number(),windows:v.array(v.object({start:v.number(),end:v.number(),qty:v.number()}))}))})},
   handler:async(ctx,{snapshot})=>{
     const key="shared-stock-v1", seen=new Set<string>();
-    if(snapshot.version!==1 || !Number.isSafeInteger(snapshot.checkedAt) || snapshot.checkedAt<1 || snapshot.checkedAt>Date.now()+60000)
+    if((snapshot.version===2&&snapshot.turnaroundBufferMinutes!==60)||![1,2].includes(snapshot.version) || !Number.isSafeInteger(snapshot.checkedAt) || snapshot.checkedAt<1 || snapshot.checkedAt>Date.now()+60000)
       throw Error("Invalid shared stock snapshot time");
     for(const unit of snapshot.units) {
       if(!unit.masterItemId.trim() || seen.has(unit.masterItemId) || !Number.isSafeInteger(unit.quantityOwned) || unit.quantityOwned<0 || (!unit.active&&unit.quantityOwned!==0))
@@ -513,7 +514,7 @@ export const applySharedStock = internalMutation({
         priorEnd=window.end;
       }
     }
-    const fingerprint=JSON.stringify(snapshot.units), state=await ctx.db.query("rmv2_sync_state").withIndex("by_key",q=>q.eq("key",key)).first();
+    const fingerprint=JSON.stringify({version:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,units:snapshot.units}), state=await ctx.db.query("rmv2_sync_state").withIndex("by_key",q=>q.eq("key",key)).first();
     const prior=state?.cursor?JSON.parse(state.cursor):null;
     if(prior && snapshot.checkedAt<prior.checkedAt)throw Error("Stale shared stock snapshot");
     if(prior && snapshot.checkedAt===prior.checkedAt) {
@@ -526,14 +527,14 @@ export const applySharedStock = internalMutation({
     }
     const removed=(await ctx.db.query("inventory_units").collect()).filter(unit=>unit.rmv2ItemId&&!seen.has(unit.rmv2ItemId));
     const old=await ctx.db.query("reservations").withIndex("by_source",q=>q.eq("source","hygglo")).collect();
-    const signature=(rows:any[])=>JSON.stringify(rows.map(r=>[String(r.inventoryUnitId),r.start,r.end,r.qty,r.endExclusive===true,r.status]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
-    const expected=resolved.flatMap(({source,unit})=>source.windows.map(window=>({inventoryUnitId:unit._id,...window,endExclusive:true,status:"confirmed"})));
+    const signature=(rows:any[])=>JSON.stringify(rows.map(r=>[String(r.inventoryUnitId),r.start,r.end,r.qty,r.endExclusive===true,r.stockWindowVersion??1,r.turnaroundBufferMinutes??0,r.status]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
+    const expected=resolved.flatMap(({source,unit})=>source.windows.map(window=>({inventoryUnitId:unit._id,...window,endExclusive:true,stockWindowVersion:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,status:"confirmed"})));
     const intact=signature(old)===signature(expected)&&resolved.every(({source,unit})=>unit.quantityOwned===source.quantityOwned&&unit.active===source.active)&&removed.every(unit=>unit.quantityOwned===0&&unit.active===false);
     if(prior&&prior.fingerprint===fingerprint&&intact){
       // A fresh identical provider receipt must not churn hundreds of physical
       // reservations. Advance freshness only after verifying every stored pool
       // and window; a newly mapped pool or corrupt ledger still repairs below.
-      if(snapshot.checkedAt!==prior.checkedAt)await ctx.db.patch(state!._id,{lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,fingerprint})});
+      if(snapshot.checkedAt!==prior.checkedAt)await ctx.db.patch(state!._id,{lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,version:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,fingerprint})});
       return {mirrored:0,rows:snapshot.units.length,alreadyApplied:true};
     }
     for(const row of old)await ctx.db.delete(row._id);
@@ -542,10 +543,10 @@ export const applySharedStock = internalMutation({
     for(const {source,unit} of resolved) {
       await ctx.db.patch(unit._id,{quantityOwned:source.quantityOwned,active:source.active});
       for(const [index,window] of source.windows.entries()) {
-        await ctx.db.insert("reservations",{inventoryUnitId:unit._id,...window,endExclusive:true,source:"hygglo",status:"confirmed",externalRef:`shared:${source.masterItemId}:${index}`});mirrored++;
+        await ctx.db.insert("reservations",{inventoryUnitId:unit._id,...window,endExclusive:true,stockWindowVersion:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,source:"hygglo",status:"confirmed",externalRef:`shared:${source.masterItemId}:${index}`});mirrored++;
       }
     }
-    const record={key,lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,fingerprint})};
+    const record={key,lastSyncedAt:Date.now(),status:"ok",cursor:JSON.stringify({checkedAt:snapshot.checkedAt,version:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,fingerprint})};
     if(state)await ctx.db.patch(state._id,record);else await ctx.db.insert("rmv2_sync_state",record);
     return {mirrored,rows:snapshot.units.length};
   },
@@ -721,8 +722,8 @@ export const applyKnowledge = mutation({
 
 /** One upstream refresh for a calendar scope, never one refresh per day. */
 export const refreshCalendarStock = action({
-  args:{listingId:v.id("listings"),monthStart:v.number(),rangeStart:v.optional(v.number()),items:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number()}))},
-  handler:async(ctx,args):Promise<{checkedAt:number;days:Record<string,{ok:boolean;available:number}>}>=>{
+  args:{listingId:v.id("listings"),monthStart:v.number(),rangeStart:v.optional(v.number()),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),items:v.array(stockRequest)},
+  handler:async(ctx,args):Promise<{checkedAt:number;days:Record<string,{ok:boolean;available:number;partial?:boolean;pickupSlots?:string[];returnSlots?:string[];precision?:boolean}>}>=>{
     const first=new Date(args.monthStart);
     if(!Number.isSafeInteger(args.monthStart)||first.getUTCDate()!==1||first.getUTCHours()!==0||first.getUTCMinutes()!==0||first.getUTCSeconds()!==0||first.getUTCMilliseconds()!==0||args.items.length>100||args.items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*86400000||i.start%86400000!==0||i.end%86400000!==0)||(args.rangeStart!==undefined&&(!Number.isSafeInteger(args.rangeStart)||args.rangeStart%86400000!==0||Math.abs(args.monthStart-args.rangeStart)>365*86400000)))throw Error("Invalid calendar stock request");
     try{

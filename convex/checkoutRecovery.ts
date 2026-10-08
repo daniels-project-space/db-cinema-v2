@@ -19,7 +19,7 @@ const line = v.object({
   listingId: v.id("listings"),
   qty: v.number(),
   start: v.number(),
-  end: v.number(),
+  end: v.number(),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
 });
 export const sync = mutation({
   args: { token: v.string(), enabled: v.boolean(), lines: v.array(line) },

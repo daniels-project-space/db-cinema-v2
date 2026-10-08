@@ -1,4 +1,5 @@
 "use node";
+import {isAllowedReturnTime} from "../src/lib/site";
 
 import Stripe from "stripe";
 import { PICKUP_HOLD_POLICY } from "../shared/pickupSecurity";
@@ -81,7 +82,7 @@ export const priceQuote = action({
   args: {
     items: v.array(v.object({
       listingId: v.id("listings"), title: v.string(), start: v.number(), end: v.number(),
-      qty: v.number(), total: v.number(), deposit: v.number(), offerType: v.optional(v.string()),
+      qty: v.number(), total: v.number(), deposit: v.number(), offerType: v.optional(v.string()),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
     })),
     token: v.optional(v.string()),
     customerEmail: v.string(),
@@ -164,6 +165,7 @@ export const start = action({
         total: v.number(),
         deposit: v.number(),
         offerType: v.optional(v.string()),
+        pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
       }),
     ),
     selectedMembership: v.optional(v.object({tier:v.string(),intro:v.union(v.literal("trial"),v.literal("credit"),v.literal("none")),termsVersion:v.string(),requestId:v.string()})),
@@ -220,7 +222,7 @@ export const start = action({
     if (a.customer.billingAddress.trim().length < 10 || (a.customer.name ?? "").trim().length < 3)
       throw new Error("Enter your full name and billing address for the rental statement.");
     const slot = /^([01]\d|2[0-3]):[0-5]\d$/;
-    if (!a.pickupTime || !slot.test(a.pickupTime) || !a.returnTime || !slot.test(a.returnTime))
+    if (!a.pickupTime || !slot.test(a.pickupTime) || !a.returnTime || !slot.test(a.returnTime) || !isAllowedReturnTime(a.pickupTime) || !isAllowedReturnTime(a.returnTime) || a.items.some(i=>i.pickupTime!==undefined&&!isAllowedReturnTime(i.pickupTime)||i.returnTime!==undefined&&!isAllowedReturnTime(i.returnTime)))
       throw new Error("Choose the agreed pickup and return times before paying.");
     assertCurrentAgreement(a.agreement, a.fulfilment);
     if (!a.agreement?.requestId||!/^[a-zA-Z0-9-]{16,80}$/.test(a.agreement.requestId)) throw Error("Review and sign this booking before paying.");
@@ -274,7 +276,7 @@ export const start = action({
 
     // Check the complete physical basket, preserving each line's own period.
     // Separate listings can share kit components; disjoint dates do not add.
-    const availability=await ctx.runQuery(api.availability.forCart,{items:a.items.map(i=>({listingId:i.listingId,start:i.start,end:i.end}))});
+    const availability=await ctx.runQuery(api.availability.forCart,{items:a.items.map(i=>({listingId:i.listingId,start:i.start,end:i.end,qty:i.qty,pickupTime:i.pickupTime??a.pickupTime,returnTime:i.returnTime??a.returnTime}))});
     const unavailable=a.items.find(i=>!availability[i.listingId]?.ok);
     if(unavailable)throw Error(`"${unavailable.title}" isn't available in that quantity for those dates`);
 
@@ -336,6 +338,7 @@ export const start = action({
         qty: i.qty,
         lineTotal: i.total,
         dailyRate: price.items[idx]?.dailyRate,
+        pickupTime:i.pickupTime??a.pickupTime,returnTime:i.returnTime??a.returnTime,
       })),
       subtotal,
       depositAmount,

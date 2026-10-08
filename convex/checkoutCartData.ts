@@ -5,7 +5,7 @@ import { accountForToken } from "./lib/rentalChat";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { quote } from "./lib/pricing";
 import { listingImages } from "./lib/catalogImages";
-export const cartLine=v.object({listingId:v.id("listings"),start:v.number(),end:v.number()});
+export const cartLine=v.object({listingId:v.id("listings"),start:v.number(),end:v.number(),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string())});
 export const create=internalMutation({args:{email:v.string(),token:v.optional(v.string()),shareKey:v.string(),lines:v.array(cartLine)},handler:async(ctx,a)=>{
  const email=a.email.trim().toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254)throw Error("Enter a valid email address.");
  if(!a.lines.length||a.lines.length>100)throw Error("Add between 1 and 100 items to the cart.");
@@ -20,6 +20,6 @@ export const get=query({args:{shareKey:v.string()},handler:async(ctx,a)=>{
  const cart=await ctx.db.query("checkout_carts").withIndex("by_share",q=>q.eq("shareKey",a.shareKey)).unique();if(!cart||cart.expiresAt<=Date.now())return null;
  let available=true;try{await assertRentalInventory(ctx,cart.lines.map(l=>({...l,qty:1})));}catch{available=false;}
  const items=await Promise.all(cart.lines.map(async(l,index)=>{const listing=await ctx.db.get(l.listingId);if(!listing)return null;const days=Math.round((l.end-l.start)/86400000)+1,price=quote(listing.pricing,days);const total=listing.quietDeal?Math.round(price.total*(1-listing.quietDeal/100)):price.total;
-  return {key:`email-cart-${index}`,listingId:String(listing._id),title:listing.title,slug:listing.slug,heroImage:listingImages(listing)[0]??null,start:new Date(l.start).toISOString().slice(0,10),end:new Date(l.end).toISOString().slice(0,10),days,total,perDay:Math.round(total/days*100)/100,deposit:listing.depositAmount};}));
+  return {key:`email-cart-${index}`,listingId:String(listing._id),title:listing.title,slug:listing.slug,heroImage:listingImages(listing)[0]??null,start:new Date(l.start).toISOString().slice(0,10),end:new Date(l.end).toISOString().slice(0,10),pickupTime:l.pickupTime,returnTime:l.returnTime,days,total,perDay:Math.round(total/days*100)/100,deposit:listing.depositAmount};}));
  return {items:items.filter(i=>i!==null),available:available&&items.every(Boolean),expiresAt:cart.expiresAt};
 }});
