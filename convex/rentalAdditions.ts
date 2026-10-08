@@ -137,12 +137,12 @@ async function ensureSession(ctx: any, id: any) {
   });
   return session;
 }
-async function withdraw(ctx: any, id: any) {
+async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAttention?: boolean } | undefined> {
   const state: any = await ctx.runQuery(internal.rentalAdditionState.context, {
     id,
   });
   if (!state) return;
-  const r = state.addition;
+  const r: any = await ctx.runMutation(internal.rentalAdditionState.beginWithdrawal, { id });
   if (["applied", "applied_draft"].includes(r.status))
     throw Error(
       "This item is already part of the rental. Use rental refund or cancellation controls.",
@@ -161,13 +161,16 @@ async function withdraw(ctx: any, id: any) {
     return;
   }
   const session = await ensureSession(ctx, id);
+  const bound: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+  if (bound?.addition) Object.assign(r, bound.addition);
   if (session.status === "open")
-    await sb().checkout.sessions.expire(session.id);
+    Object.assign(session, await sb().checkout.sessions.expire(session.id));
   else if (session.status !== "expired" && session.payment_status !== "paid")
     throw Error(
       "The addition payment is still processing. Wait for its provider result.",
     );
   const paid = session.payment_status === "paid";
+  if (session.id !== r.sessionId || paid && (session.status !== "complete" || session.currency !== "gbp" || session.amount_total !== money((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0)))) throw Error("Withdrawal session does not match the saved order");
   if(paid&&r.membershipCheckoutId&&session.subscription){const sub=typeof session.subscription==="string"?session.subscription:session.subscription.id;await sb().subscriptions.cancel(sub);}
   const payment = await checkoutPaymentIntent(session);
   if (paid && payment) {
@@ -175,15 +178,23 @@ async function withdraw(ctx: any, id: any) {
       id,
       paymentIntentId: payment,
     });
-    const refund = await sb().refunds.create(
-      { payment_intent: payment },
-      { idempotencyKey: `dbc-addition-withdraw-${id}` },
-    );
-    if (refund.status === "failed" || refund.status === "canceled")
-      throw Error(
-        "The proposal refund failed. The rental remains locked until the payment is resolved.",
-      );
-  }
+    let refund: Stripe.Refund | undefined;
+    if (r.withdrawalRefundId) refund = await sb().refunds.retrieve(r.withdrawalRefundId);
+    else {
+      // Recover an accepted refund whose response/binding was lost, including
+      // after Stripe's idempotency window, without issuing another refund.
+      for await (const found of sb().refunds.list({ payment_intent: payment, limit: 100 })) {
+        if (found.metadata?.rentalAdditionWithdrawalId === id) { refund = found; break; }
+      }
+      if (!refund) refund = await sb().refunds.create({ payment_intent: payment, metadata: { rentalAdditionWithdrawalId: id } }, { idempotencyKey: `dbc-addition-withdraw-${id}` });
+    }
+    const refundPayment = typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
+    if (refundPayment !== payment || refund.currency !== "gbp" || refund.amount !== session.amount_total) throw Error("Withdrawal refund does not match the saved payment");
+    await ctx.runMutation(internal.rentalAdditionState.recordWithdrawalRefund, { id, paymentIntentId: payment, refundId: refund.id, status: refund.status ?? "pending", amountPence: refund.amount });
+    if (refund.status !== "succeeded") return { pending: true, needsAttention: ["failed", "canceled", "requires_action"].includes(refund.status ?? "") };
+  } else if (paid) throw Error("Paid withdrawal has no confirmed payment");
+  const latest: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+  if (latest?.addition) Object.assign(r, latest.addition);
   if (r.holdIntentId && r.holdIntentId !== r.oldHoldId) {
     const hold = await sb().paymentIntents.retrieve(r.holdIntentId);
     if (
@@ -204,6 +215,7 @@ async function withdraw(ctx: any, id: any) {
     id,
     refunded: paid,
   });
+  return { pending: false };
 }
 async function releaseReplacedHold(ctx: any, r: any) {
   if (!r.holdIntentId || !r.oldHoldId || r.holdIntentId === r.oldHoldId) return;
@@ -246,13 +258,17 @@ async function finish(
     throw Error("Addition payment has not completed");
   if (["refunded", "expired"].includes(r.status))
     return { bookingId: r.bookingId, status: r.status, closed: true };
+  if (r.withdrawalRequestedAt) {
+    const result = await withdraw(ctx, id);
+    return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
+  }
   if (["applied", "applied_draft"].includes(r.status)) {
     if (r.status === "applied") await releaseReplacedHold(ctx, r);
     return { bookingId: r.bookingId, status: "held" };
   }
   if (Date.now() > r.createdAt + 24 * 3600000) {
-    await withdraw(ctx, id);
-    return { bookingId: r.bookingId, status: "refunded", closed: true };
+    const result = await withdraw(ctx, id);
+    return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
   }
   const payment = await checkoutPaymentIntent(session);
   if (!payment&&!noPayment) throw Error("Paid addition has no card payment");
@@ -275,16 +291,16 @@ async function finish(
     b.returnDecision ||
     !["pending_payment", "confirmed", "active"].includes(b.status)
   ) {
-    await withdraw(ctx, id);
-    return { bookingId: r.bookingId, status: "refunded", closed: true };
+    const result = await withdraw(ctx, id);
+    return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
   }
   if (r.draftReplacement) {
     const applied = await ctx.runMutation(internal.rentalAdditionState.apply, {
       id,
     });
     if (applied.closed) {
-      await withdraw(ctx, id);
-      return { bookingId: r.bookingId, status: "refunded", closed: true };
+      const result = await withdraw(ctx, id);
+      return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
     }
     return { bookingId: r.bookingId, status: "draft_applied" };
   }
@@ -374,8 +390,8 @@ async function finish(
     id,
   });
   if (result.closed) {
-    await withdraw(ctx, id);
-    return { bookingId: r.bookingId, status: "refunded", closed: true };
+    const result = await withdraw(ctx, id);
+    return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
   }
   await releaseReplacedHold(ctx, {
     ...r,
@@ -485,8 +501,8 @@ export const withdrawByOwner = action({
       token,
       fn: "rentalAdditions.withdraw",
     });
-    await withdraw(ctx, id);
-    return { ok: true };
+    const result = await withdraw(ctx, id);
+    return { ok: true, pending: !!result?.pending, needsAttention: !!result?.needsAttention };
   },
 });
 export const finalizePaid = internalAction({
@@ -520,6 +536,7 @@ export const reconcile = internalAction({
     );
     for (const r of rows) {
       try {
+        if (r.withdrawalRequestedAt) { await withdraw(ctx, r._id); continue; }
         if (Date.now() > r.createdAt + 24 * 3600000 && r.sessionId) {
           await withdraw(ctx, r._id);
           continue;

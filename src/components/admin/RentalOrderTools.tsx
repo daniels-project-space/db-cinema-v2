@@ -183,9 +183,9 @@ export function RentalOrderTools({
     setBusy(true);
     setError("");
     try {
-      await withdraw({ token, id: id as any });
+      const result = await withdraw({ token, id: id as any });
       setResult(
-        "The item proposal has been closed; any captured proposal payment is being refunded.",
+        result.needsAttention ? "Withdrawal saved. The refund needs attention; the rental remains locked until it is resolved." : result.pending ? "Withdrawal saved. The refund is still processing; the rental remains locked until the bank confirms it." : "The item proposal is closed. Any captured proposal payment has been refunded.",
       );
     } catch (e: any) {
       setError(e.message);

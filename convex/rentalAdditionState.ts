@@ -232,7 +232,7 @@ export const bindSession = internalMutation({
     await ctx.db.patch(id, {
       sessionId,
       paymentUrl: url,
-      status: "awaiting_payment",
+      status: r.withdrawalRequestedAt ? r.status : "awaiting_payment",
       updatedAt: Date.now(),
     });
     if (r.draftReplacement){
@@ -246,6 +246,7 @@ export const bindSession = internalMutation({
       const member=await ctx.db.get(r.membershipCheckoutId);if(!member||member.state==="complete"||member.bookingId!==b._id||member.sessionId!==r.baseSessionId)throw Error("The membership checkout changed before this edit was bound.");
       await ctx.db.patch(member._id,{sessionId,state:"open",expiresAt:r.createdAt+24*3600000});
     }
+    if (r.withdrawalRequestedAt) return;
     await note(
       ctx,
       b,
@@ -277,7 +278,7 @@ export const markPaid = internalMutation({
     if (["applied", "applied_draft", "refunded"].includes(r.status)) return;
     await ctx.db.patch(id, {
       paymentIntentId,
-      status: "paid",
+      status: r.withdrawalRequestedAt ? r.status : "paid",
       updatedAt: Date.now(),
     });
   },
@@ -297,7 +298,7 @@ export const bindHold = internalMutation({
     await ctx.db.patch(id, {
       holdIntentId: intentId,
       holdExpiresAt: expiresAt,
-      status,
+      status: r.withdrawalRequestedAt ? r.status : status,
       updatedAt: Date.now(),
     });
   },
@@ -309,6 +310,7 @@ export const apply = internalMutation({
     if (!r) return { closed: true };
     if (r.status === "applied" || r.status === "applied_draft")
       return { applied: true, already: true };
+    if (r.withdrawalRequestedAt) return { closed: true };
     const b = await ctx.db.get(r.bookingId);
     if (
       !b ||
@@ -397,6 +399,34 @@ export const apply = internalMutation({
     return { applied: true };
   },
 });
+/** Serialize the withdrawal decision against attachment before provider effects. */
+export const beginWithdrawal = internalMutation({
+  args: { id: v.id("rental_additions") },
+  handler: async (ctx, { id }) => {
+    const r = await ctx.db.get(id);
+    if (!r) throw Error("Addition missing");
+    if (["applied", "applied_draft"].includes(r.status)) throw Error("Applied items are settled through the rental");
+    if (["refunded", "expired"].includes(r.status) || r.withdrawalRequestedAt) return r;
+    const patch = { withdrawalRequestedAt: Date.now(), status: "withdrawing", updatedAt: Date.now() };
+    await ctx.db.patch(id, patch);
+    return { ...r, ...patch };
+  },
+});
+
+export const recordWithdrawalRefund = internalMutation({
+  args: { id: v.id("rental_additions"), paymentIntentId: v.string(), refundId: v.string(), status: v.string(), amountPence: v.number() },
+  handler: async (ctx, args) => {
+    const r = await ctx.db.get(args.id);
+    if (!r?.withdrawalRequestedAt || r.paymentIntentId !== args.paymentIntentId) throw Error("Withdrawal payment mismatch");
+    if (r.withdrawalRefundId && r.withdrawalRefundId !== args.refundId) throw Error("Withdrawal refund mismatch");
+    const expected = Math.round(((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0)) * 100);
+    if (args.amountPence !== expected || !["pending", "requires_action", "succeeded", "failed", "canceled"].includes(args.status)) throw Error("Withdrawal refund result mismatch");
+    if (r.withdrawalRefundStatus === "succeeded") return;
+    await ctx.db.patch(args.id, { withdrawalRefundId: args.refundId, withdrawalRefundStatus: args.status,
+      status: ["failed", "canceled"].includes(args.status) ? "refund_failed" : "refund_pending", updatedAt: Date.now() });
+  },
+});
+
 export const close = internalMutation({
   args: {
     id: v.id("rental_additions"),
@@ -409,6 +439,7 @@ export const close = internalMutation({
     if (["applied", "applied_draft"].includes(r.status))
       throw Error("Applied items are settled through the rental");
     if (r.status === "refunded" || r.status === "expired") return;
+    if (r.withdrawalRequestedAt && r.paymentIntentId && (!refunded || r.withdrawalRefundStatus !== "succeeded")) throw Error("Wait for the withdrawal refund to be confirmed");
     const b = await ctx.db.get(r.bookingId);
     await ctx.db.patch(id, {
       status: refunded ? "refunded" : "expired",
@@ -462,6 +493,9 @@ export const open = internalQuery({
         "requires_action",
         "held",
         "failed",
+        "withdrawing",
+        "refund_pending",
+        "refund_failed",
       ].map((status) =>
         ctx.db
           .query("rental_additions")
@@ -503,8 +537,8 @@ export const customerState = query({
         r.securityCharge,
       securityCharge: r.securityCharge,
       holdTotal: r.holdTotal,
-      url: r.paymentUrl ?? null,
-      sessionId: r.sessionId ?? null,
+      url: r.withdrawalRequestedAt ? null : r.paymentUrl ?? null,
+      sessionId: r.withdrawalRequestedAt ? null : r.sessionId ?? null,
       expiresAt: r.createdAt + 24 * 3600000,
     };
   },

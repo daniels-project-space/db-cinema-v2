@@ -2,13 +2,22 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — durable item-addition withdrawal refunds
+
+- [x] Save withdrawal before provider effects and block attachment/late payment or hold callbacks from overriding it. Preserve pending/failed/action-required refund locks and expired stock; route retries, payment callbacks and the existing reconciler through the saved decision.
+- [x] Bind the exact saved session/payment/refund identity, amount and currency; save provider refund status and close only after success and replacement-hold cleanup. Recover lost refund responses by metadata beyond idempotency. Distinguish pending/attention/completed admin results and hide renter payment controls during withdrawal.
+- [x] Actual action/state/stock tests and prior actual ce6fbd8 negative control pass. Native real renter component/protected-state pending/failed views pass and desktop/mobile screenshots are visually reviewed. See ADDITION-WITHDRAWAL.md.
+- [x] Final source-matched default suite and production build including TypeScript pass; graph updated. Controlled provider/database/transport fixtures only; no external writes.
+- [ ] Finish current hosted checks and live provider acceptance. Audit late external hold creation versus already-closed withdrawal, explicit failed-refund remediation, no-payment-required membership withdrawal and legacy refund recovery; no broad financial/lifecycle completion is claimed.
+
 ### 8 October 2026 — unresolved amendment stock expiry
 
 - [x] Reproduce prior actual stock-reader/timer releasing an unresolved expired extension of a confirmed rental. Share one outcome decision across availability occupancy and cleanup for checkout, extension and addition rows, preserving unresolved and unknown/mismatched bindings until reconciled.
 - [x] Actual full-cart/listing/replacement/hold/cleanup tests cover nonterminal and properly terminal amendment states, unknown/mismatched request binding, and the actual owner-approved extension's expired hold before payment and during refund_pending. Prior actual 161f683 reader/timer fail this invariant. See AMENDMENT-STOCK-EXPIRY.md.
 - [x] Final default suite and production build including TypeScript pass; graph updated. Synthetic source/database/provider fixtures only, with no external writes.
+- [x] Amendment source ce6fbd8 hosted CI 37740435720 is terminal failed at the enabled cart checkout wait after typecheck/default tests/build; missing compatible staged stock refresh remains a separate rollout requirement.
 - [ ] Finish current hosted checks and live provider acceptance. Cross-system atomic authority and paid-refund lifecycle completion remain separate requirements.
-- [ ] Wire durable item-addition withdrawal refund-pending state and provider reconciliation; prevent accidental application while withdrawal is unresolved. Audit found the current withdrawal closes after a pending refund response.
+- [x] Durable item-addition withdrawal refund-pending state, provider reconciliation and attachment prevention are implemented above. Further financial races/legacy/live acceptance remain explicitly open.
 
 ### 8 October 2026 — complete calendar history and exact item periods
 
