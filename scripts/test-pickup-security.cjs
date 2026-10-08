@@ -13,6 +13,7 @@ let events = [],
   setups = new Map(),
   subscriptions = new Map();
 class StripeFixture {
+  paymentMethodConfigurations = {retrieve:async id=>({active:true,card:{display_preference:{value:"on"}},apple_pay:{display_preference:{value:"off"}},google_pay:{display_preference:{value:"off"}},link:{display_preference:{value:"off"}}})};
   paymentIntents = {
     create: async (a, o) => {
       events.push(["create", a, o]);
@@ -71,6 +72,7 @@ setMock("./lib/mailer", {
 });
 setMock("./lib/rmv2SyncQueue", { queueRmv2Sync: async () => {} });
 process.env.STRIPE_SECRET_KEY = "sk_test_fixture";
+process.env.STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID="pmc_test_card";
 process.env.APP_URL = "https://example.invalid";
 const security = load("convex/pickupSecurity.ts"),
   holds = load("convex/holdRenewal.ts"),
@@ -345,6 +347,7 @@ async function due(b) {
     bookingId: b._id,
   });
   assert.equal(b.securityHoldRecoverySessionId, "cs_recovery");
+  assert.equal(events.findLast(e=>e[0]==="setup")[1].payment_method_configuration,"pmc_test_card","Recovery reuses the actual card-only rental configuration");
   assert.equal(events.findLast((e) => e[0] === "setup")[1].mode, "setup");
   await security.recoverCard.handler(ctx, {
     bookingId: b._id,
