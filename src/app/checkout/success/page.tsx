@@ -1,9 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import { IconCamera, IconTicket, IconCheck, IconArrowRight } from "@/components/icons";
+import { IconTicket, IconArrowRight } from "@/components/icons";
 import { useSearchParams } from "next/navigation";
-import { useAction, useQuery } from "convex/react";
+import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -11,7 +11,6 @@ import { useCart } from "@/components/cart/CartProvider";
 import { VerificationProgress } from "@/components/rentals/VerificationProgress";
 import { tierByKey } from "@/lib/membership";
 import { loadStripe } from "@stripe/stripe-js";
-import { formatGbp } from "@/lib/pricing";
 
 function SuccessInner() {
   const params = useSearchParams();
@@ -71,11 +70,6 @@ function SuccessInner() {
     return () => { alive = false; };
   }, [sessionId, holdSecret, holdStatus, syncHold,additionId,syncAddition]);
 
-  const booking = useQuery(
-    api.bookings.get,
-    bookingId ? { bookingId: bookingId as any } : "skip",
-  );
-
   if (!sessionId)
     return <Msg title="No session" body="Missing checkout session." />;
   if (state === "working")
@@ -90,7 +84,7 @@ function SuccessInner() {
     );
   if (state === "unpaid")
     return (
-      <Msg title="Payment not completed" body="Your card was not charged. Your kit is still saved here, ready when you are." cta />
+      <Msg title="Payment not completed" body="Payment has not been confirmed. Your basket is saved. If your bank shows a pending payment, check its status before paying again." cta />
     );
   if (state === "cancelled")
     return <Msg title="This booking is closed" body="This checkout belongs to a cancelled booking. Please contact us if your bank shows a charge so we can confirm its refund." cta />;
@@ -99,16 +93,16 @@ function SuccessInner() {
 
   if(additionId){
     const ready=holdStatus==="held";
-    return <Msg title={ready?"Items added to your rental":"Payment received · approval pending"} body={ready?"Your order and rental conversation now include the extra items.":holdStatus==="requires_action"?"Complete the bank approval to add these items. You can resume it in your rental conversation.":"The extra items are waiting for a valid security hold. Open your rental conversation to check the status or ask the team for help."} cta />;
+    return <Msg title={ready?"Items added to your rental":"Payment received · approval pending"} body={ready?"Your order and rental conversation now include the extra items.":holdStatus==="requires_action"?"Complete the bank approval to add these items. You can resume it in your rental conversation.":"The extra items are waiting for a valid security hold. Open your rental conversation to check the status or ask the team for help."} accountRental={bookingId} />;
   }
 
-  if(cardSaved)return <Msg title="Card saved" body="Your rental security card has been updated. We will request the hold at your agreed pickup time, or now if pickup is already due. Open your account to check progress." cta />;
+  if(cardSaved)return <Msg title="Card saved" body="Your rental security card has been updated. We will request the hold at your agreed pickup time, or now if pickup is already due. Open your account to check progress." accountRental={bookingId} />;
 
   // membership subscription confirmation
   if (membership && !bookingId) {
     const t = tierByKey(membership);
     return (
-      <div className="mx-auto max-w-2xl px-6 py-16 text-center">
+      <><SiteHeader /><div className="mx-auto max-w-2xl px-6 py-16 text-center">
         <div className="page-in mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-400/15 text-amber-300 shadow-[0_0_44px_-8px_rgba(251,191,36,0.5)]">
           <IconTicket className="h-8 w-8" />
         </div>
@@ -123,68 +117,11 @@ function SuccessInner() {
           Start saving
           <IconArrowRight className="h-4 w-4" />
         </Link>
-      </div>
+      </div></>
     );
   }
 
-  return (
-    <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-      <div className="page-in relative mx-auto h-16 w-16">
-        <span className="ripple-ring" style={{ width: 96, height: 96, opacity: 0.5 }} aria-hidden />
-        <span className="ripple-ring" style={{ width: 144, height: 144, opacity: 0.3, animationDelay: "0.3s" }} aria-hidden />
-        <span className="ripple-ring" style={{ width: 196, height: 196, opacity: 0.15, animationDelay: "0.6s" }} aria-hidden />
-        <div className="accent-glow-lg relative flex h-16 w-16 items-center justify-center rounded-full bg-accent-500/15 text-accent-400">
-          <IconCamera className="h-8 w-8" />
-        </div>
-      </div>
-      <div className="hud-label mt-5 flex items-center justify-center gap-2">
-        <span className="rec-dot" /> Scene locked
-      </div>
-      <h1 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
-        Payment <span className="serif-accent gradient-text text-[1.06em]">received</span>
-      </h1>
-      <p className="mt-3 text-white/40">
-        Your payment is received and your kit is reserved. Complete the required identity and address checks now. Your saved card will be authorised automatically at your agreed pickup time; handover requires successful security and document approval.
-      </p>
-
-      {bookingId && <div className="mt-8"><VerificationProgress bookingId={bookingId} checkoutSessionId={sessionId} autoStart /></div>}
-
-      {booking && (
-        <div className="ticket spot gradient-border mx-auto mt-8 max-w-md rounded-2xl p-5 text-left">
-          <div className="hud-label !text-accent-400/90">Your receipt</div>
-          <div className="mt-3">
-            {booking.lineItems.map((li, i) => (
-              <div key={i} className="flex justify-between py-1 text-sm text-white/60">
-                <span className="mr-2 line-clamp-1">{li.title}</span>
-                <span className="font-mono">{formatGbp(li.lineTotal)}</span>
-              </div>
-            ))}
-          </div>
-          <hr className="receipt-sep" />
-          <div className="flex justify-between font-display font-bold text-white">
-            <span>Paid</span>
-            <span className="font-mono">{formatGbp(booking.total)}</span>
-          </div>
-          <div className="mt-1 text-right font-mono text-xs text-white/35">
-            incl. {formatGbp(booking.depositAmount)} refundable security payment
-          </div>
-          {booking.depositHoldAmount > 0 && <div className="mt-1 text-right font-mono text-xs text-white/35">Separate {formatGbp(booking.depositHoldAmount)} card hold: {booking.depositHoldStatus ?? holdStatus ?? "processing"} (not charged)</div>}
-        </div>
-      )}
-
-      {booking?.depositHoldAmount && booking.depositHoldStatus !== "held" && (
-        <div className="mx-auto mt-5 max-w-md rounded-xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm text-amber-200">
-          {holdStatus === "scheduled" ? "Your card is saved. The hold is scheduled for your agreed pickup or delivery time and is not charged today. Document checks can be completed now. Equipment cannot be handed over until all required checks and the hold are complete." : holdStatus === "requires_action" ? "Your bank is confirming the refundable card hold. Complete any bank prompt to finish." : "The card hold is not active yet. Equipment cannot be handed over until it is authorised. Please contact us if this does not update."}
-        </div>
-      )}
-
-
-      <Link href="/gear" className="btn-primary mt-8 px-7 py-3">
-        Rent more gear
-        <IconArrowRight className="h-4 w-4" />
-      </Link>
-    </div>
-  );
+  return bookingId ? <VerificationProgress bookingId={bookingId} checkoutSessionId={sessionId} presentation="page" /> : <Msg title="Loading your rental" body="Your payment was received. Open your account to view the booking." />;
 }
 
 function Msg({
@@ -192,14 +129,16 @@ function Msg({
   body,
   cta,
   onRetry,
+  accountRental,
 }: {
   title: string;
   body: string;
   cta?: boolean;
   onRetry?: () => void;
+  accountRental?: string | null;
 }) {
   return (
-    <div className="mx-auto max-w-xl px-6 py-24 text-center">
+    <><SiteHeader /><main className="section-window mx-auto min-h-[70vh] max-w-xl px-6 py-24 text-center">
       <h1 className="font-display text-2xl font-bold text-white/90">{title}</h1>
       <p className="mt-2 text-white/40">{body}</p>
       {onRetry && (
@@ -207,6 +146,7 @@ function Msg({
           Check payment again
         </button>
       )}
+      {accountRental && <Link href={`/account?rental=${encodeURIComponent(accountRental)}#chat`} className="btn-primary mt-6 px-6 py-3">Open rental conversation</Link>}
       {cta && (
         <Link
           href="/cart"
@@ -215,19 +155,10 @@ function Msg({
           Back to kit <span className="arrow">→</span>
         </Link>
       )}
-    </div>
+    </main></>
   );
 }
 
 export default function SuccessPage() {
-  return (
-    <>
-      <SiteHeader />
-      <main className="section-window min-h-[70vh]">
-        <Suspense fallback={<Msg title="Loading…" body="" />}>
-          <SuccessInner />
-        </Suspense>
-      </main>
-    </>
-  );
+  return <Suspense fallback={<Msg title="Loading…" body="" />}><SuccessInner /></Suspense>;
 }

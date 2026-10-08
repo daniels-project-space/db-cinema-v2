@@ -1,6 +1,6 @@
 "use node";
 
-import { verificationChecks, verificationCanStart } from "../shared/verificationProgress";
+import { verificationChecks, verificationCanStart, verificationExpired } from "../shared/verificationProgress";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import Stripe from "stripe";
@@ -46,7 +46,7 @@ export const bookingSession = action({
     const cfg = config();
     let booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
     if (!booking || booking.verificationProvider !== "didit" || !["confirmed", "active"].includes(booking.status) ||
-        !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required"))
+        (!["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required") && !(booking.idVerifyStatus === "verified" && verificationExpired(booking))))
       throw new Error("This booking is not ready for verification.");
     if (!verificationCanStart(booking)) throw Error("Complete the rental payment and required card hold before verification.");
     let authorized = false;
@@ -77,7 +77,7 @@ export const bookingSession = action({
           throw new Error("Verification provider returned an invalid link.");
         return { url: existing.session_url };
       }
-      if (existing.status !== "Expired" && existing.status !== "Abandoned")
+      if (existing.status !== "Expired" && existing.status !== "Abandoned" && !(booking.idVerifyStatus === "verified" && verificationExpired(booking) && existing.status === "Approved"))
         throw new Error("This verification has a decision. Please refresh your rental status.");
     }
     const nameParts = String(booking.renterName ?? "").trim().split(/\s+/).filter(Boolean);

@@ -186,7 +186,8 @@ function Dashboard() {
   // on Rentals wondering where the conversation went.
   useEffect(() => {
     const openFromHash = () => {
-      if(window.location.hash === "#plans") setTab("plans");
+      const section=window.location.hash.slice(1).toLowerCase();
+      if (["rentals", "calendar", "invoices", "chat", "plans", "profile", "membership", "security"].includes(section)) setTab(section as typeof tab);
       if (window.location.hash.replace("#", "").toLowerCase() === "chat") {
         setTab("chat");
         const rental = new URLSearchParams(window.location.search).get(

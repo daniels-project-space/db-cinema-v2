@@ -17,7 +17,7 @@ import { checkoutMembershipCredit, membershipSignupOffer } from "../shared/check
 import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecovery";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRenterExposure, renterExposure, replacementValues, attachRenterPerson } from "./lib/rentalExposure";
-import { securityReady, verificationCanStart } from "../shared/verificationProgress";
+import { securityReady, verificationCanStart, verificationSessionCanOpen, renterVerificationNote } from "../shared/verificationProgress";
 import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerification";
 import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
 import { listingImages } from "./lib/catalogImages";
@@ -1403,6 +1403,7 @@ export const verificationAccess = internalQuery({
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
       documentExpiresAt: b.documentExpiresAt ?? null,
+      verificationExpiresAt: b.verificationExpiresAt ?? null,
       renterPersonKey: b.renterPersonKey ?? null,
       accountId: b.accountId, depositHoldAmount: b.depositHoldAmount, depositHoldStatus: b.depositHoldStatus,
       securityHoldPolicyVersion: b.securityHoldPolicyVersion, cancellationDecision:b.cancellationDecision, returnDecision:b.returnDecision,
@@ -1474,12 +1475,18 @@ export const setDiditSession = internalMutation({
   handler: async (ctx, { bookingId, sessionId, previousSessionId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || !["confirmed", "active"].includes(b.status) ||
-        !["required", "processing", "requires_input"].includes(b.idVerifyStatus ?? "required") || !verificationCanStart(b)) return false;
+        !verificationSessionCanOpen(b)) return false;
     if (b.diditSessionId !== previousSessionId && b.diditSessionId !== sessionId) return false;
     if (b.diditSessionId !== sessionId) {
       await ctx.db.patch(bookingId, {
         diditSessionId: sessionId,
         verificationChecks: undefined,
+        idVerifiedAt: undefined,
+        verificationExpiresAt: undefined,
+        documentExpiresAt: undefined,
+        verificationReusedFrom: undefined,
+        idVerificationSource: undefined,
+        verificationNote: undefined,
         diditEventId: undefined,
         diditEventAt: undefined,
         diditManualDecisionAt: undefined,
@@ -1896,17 +1903,28 @@ export const verificationProgress = query({
     }
     if (!allowed && a.checkoutSessionId && a.checkoutSessionId === b.stripeCheckoutSessionId && ["confirmed", "active"].includes(b.status)) allowed = true;
     if (!allowed) return null;
-    let exposure = null;
-    try { exposure = await renterExposure(ctx, b, ["cancelled", "returned"].includes(b.status) ? [] : b.lineItems); } catch {}
     let verificationArchiveReady = false;
     if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx, b); verificationArchiveReady = true; } catch {} }
+    const images = new Map<string, string[]>();
+    for (const line of b.lineItems) if (!images.has(String(line.listingId))) images.set(String(line.listingId), listingImages(await ctx.db.get(line.listingId)));
     return { _id: b._id, status: b.status, idVerifyStatus: b.idVerifyStatus ?? "required",
+      verificationAvailable: verificationCanStart(b),
+      cancellationPending: !!b.cancellationDecision && b.status !== "cancelled",
+      returnPending: !!b.returnDecision && b.status !== "returned",
+      idVerificationSource: b.idVerificationSource ?? null,
       securityHoldPolicyVersion:b.securityHoldPolicyVersion??null, verificationArchiveReady, verificationExpiresAt: b.verificationExpiresAt ?? null, documentExpiresAt: b.documentExpiresAt ?? null,
       requiresDroneLicence: await requiresDroneLicence(ctx, b), droneLicenceStatus: b.droneLicenceStatus ?? "required", droneLicenceNote: b.droneLicenceNote ?? null,
-      verificationNote: b.verificationNote ?? null, verificationChecks: b.verificationChecks ?? null,
+      verificationNote: renterVerificationNote(b.verificationNote), verificationChecks: b.verificationChecks ?? null,
       verificationUpdatedAt: b.verificationUpdatedAt ?? null, verificationReused: !!b.verificationReusedFrom,
       depositHoldAmount: b.depositHoldAmount ?? 0, depositHoldStatus: b.depositHoldStatus ?? null,
-      exposure: exposure ? { currentPence: exposure.currentPence, peakPence: exposure.peakPence, bookingPeakPence: exposure.bookingPeakPence, capPence: exposure.capPence } : null,
+      depositHoldExpiresAt: b.depositHoldExpiresAt ?? null, securityHoldDueAt: b.securityHoldDueAt ?? null,
+      fulfilment: b.fulfilment, total: b.total, subtotal: b.subtotal, discount: b.discount ?? 0,
+      deliveryFee: b.deliveryFee ?? 0, depositAmount: b.depositAmount ?? 0,
+      creditApplied: b.creditApplied ?? 0, membershipCreditApplied: b.membershipCreditApplied ?? 0,
+      lineItems: b.lineItems.map(line => ({ title: line.title, start: line.start, end: line.end, qty: line.qty,
+        pickupTime: "pickupTime" in line ? typeof line.pickupTime === "string" ? line.pickupTime : null : b.pickupTime ?? null,
+        returnTime: line.returnTime === undefined ? b.returnTime ?? null : line.returnTime,
+        images: images.get(String(line.listingId)) ?? [], lineTotal: line.lineTotal })),
     };
   },
 });

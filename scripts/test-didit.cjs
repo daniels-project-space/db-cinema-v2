@@ -198,6 +198,27 @@ function signed(event) {
     await assert.rejects(adminReview.handler(reviewCtx,{token:'admin',bookingId:'booking-1',decision:'approve',note:'Reviewed identity evidence'}),/did not accept/);
     assert.equal(calls.some(x=>x.ref === 'bookings:setDiditManualReview'),false,'failed provider writes must not approve the rental');
   } finally { global.fetch = originalFetch; }
+  // Expired approval renews only for the bound, paid renter. Old documents remain archived.
+  const expiredBooking = {...reviewBooking,idVerifyStatus:'verified',verificationExpiresAt:Date.now()-1};
+  let renewPatch, posts=0;
+  const renewCtx = {runQuery:async ref=>ref==='accounts:_byToken'?{email:'renter@example.invalid'}:expiredBooking,
+    runMutation:async(ref,args)=>{renewPatch=args;return true;}};
+  const beforeRenewFetch = global.fetch;
+  try {
+    global.fetch=async(url,options={})=>{if(options.method==='POST'){posts++;return new Response(JSON.stringify({session_id:'new-renew-session',workflow_id:'workflow-1',url:'https://verify.didit.me/session/new-renew-session'}));}return new Response(JSON.stringify({...report,status:'Approved'}));};
+    assert.equal((await bookingSession.handler(renewCtx,{bookingId:'booking-1',accountToken:'account-token'})).url,'https://verify.didit.me/session/new-renew-session');
+    assert.equal(posts,1);assert.equal(renewPatch.previousSessionId,'session-1');
+    await assert.rejects(bookingSession.handler({...renewCtx,runQuery:async ref=>ref==='accounts:_byToken'?{email:'foreign@example.invalid'}:expiredBooking},{bookingId:'booking-1',accountToken:'foreign'}),/sign in/);
+    assert.equal(posts,1,'foreign accounts cannot initiate paid provider workflows');
+    await assert.rejects(bookingSession.handler({...renewCtx,runQuery:async()=>({...expiredBooking,verificationExpiresAt:Date.now()+60000})},{bookingId:'booking-1',accountToken:'account-token'}),/not ready/);
+    assert.equal(posts,1,'a valid approval cannot be unnecessarily replaced');
+    await assert.rejects(bookingSession.handler({...renewCtx,runQuery:async()=>({...expiredBooking,cancellationDecision:{}})},{bookingId:'booking-1',accountToken:'account-token'}),/required card hold/);
+  } finally {global.fetch=beforeRenewFetch;}
+  let reset;
+  const expiredDb = {db:{get:async()=>({...expiredBooking,verificationReusedFrom:'source-booking',idVerificationSource:'manual'}),patch:async(_,value)=>{reset=value;},query:()=>({withIndex:()=>({first:async()=>null,collect:async()=>[]})})},scheduler:{runAfter:async()=>{}}};
+  assert.equal(await setDiditSession.handler(expiredDb,{bookingId:'booking-1',sessionId:'new-renew-session',previousSessionId:'session-1'}),true);
+  assert.equal(reset.idVerifyStatus,'processing');assert.equal(reset.verificationExpiresAt,undefined);assert.equal(reset.documentExpiresAt,undefined);assert.equal(reset.verificationReusedFrom,undefined);assert.equal(reset.idVerifiedAt,undefined);assert.equal(reset.idVerificationSource,undefined);
+  assert.equal(await setDiditSession.handler(expiredDb,{bookingId:'booking-1',sessionId:'stale-session',previousSessionId:'not-current'}),false,'renewal uses compare-and-set against the exact previous case');
   let reviewPatch;
   assert.equal(await setDiditManualReview.handler({
     db:{get:async()=>reviewBooking,patch:async(_id,value)=>{reviewPatch=value;},query:()=>({withIndex:()=>({first:async()=>null,collect:async()=>[]})})},

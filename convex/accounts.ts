@@ -1,3 +1,5 @@
+import { assertVerificationArchive } from "./verificationArchive";
+import { renterVerificationNote } from "../shared/verificationProgress";
 import { ensureReferralCode } from "./lib/referrals";
 import { rentalsForAccount } from "./lib/rentalAccount";
 import { requiresDroneLicence } from "./lib/droneVerification";
@@ -453,8 +455,18 @@ async function enrichBookings(ctx:any,rows:any[]) {
       return imgs?.[0] ?? null;
     };
 
+    const archiveCache = new Map<string, boolean>();
     const out = [];
     for (const b of rows) {
+      let verificationArchiveReady = false;
+      if (b.idVerifyStatus === "verified") {
+        const sourceId = String(b.verificationReusedFrom ?? b._id);
+        if (!archiveCache.has(sourceId)) {
+          try { await assertVerificationArchive(ctx, b); archiveCache.set(sourceId, true); }
+          catch { archiveCache.set(sourceId, false); }
+        }
+        verificationArchiveReady = archiveCache.get(sourceId) === true;
+      }
       const lines = [];
       for (const li of b.lineItems) {
         const l = await getListing(li.listingId);
@@ -502,7 +514,14 @@ async function enrichBookings(ctx:any,rows:any[]) {
         pickupTime: b.pickupTime ?? null,
         returnTime: b.returnTime ?? null,
         idVerifyStatus: b.idVerifyStatus ?? "required",
-        verificationNote: b.verificationNote ?? null,
+        verificationNote: renterVerificationNote(b.verificationNote),
+        verificationArchiveReady,
+        verificationExpiresAt: b.verificationExpiresAt ?? null,
+        documentExpiresAt: b.documentExpiresAt ?? null,
+        verificationChecks: b.verificationChecks ?? null,
+        idVerificationSource: b.idVerificationSource ?? null,
+        cancellationPending: !!b.cancellationDecision && b.status !== "cancelled",
+        returnPending: !!b.returnDecision && b.status !== "returned",
         requiresDroneLicence: await requiresDroneLicence(ctx, b),
         droneLicenceStatus: b.droneLicenceStatus ?? "required",
         reviewed: reviewed.has(b._id),
