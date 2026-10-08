@@ -50,7 +50,7 @@ export function CartItemDates({ item }: { item: CartItem }) {
       </div>
       <p className="mt-2 text-[10px] leading-4 text-white/45" aria-live="polite">{!valid ? "Choose a valid date range from today onwards." : fit === undefined ? "Checking availability for your kit…" : !available ? "Unavailable with your kit. Try different dates." : `${daysInclusive(start, end)} rental day${daysInclusive(start, end) === 1 ? "" : "s"} · available with your kit. Price updates when saved.`}</p>
       {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
-      <button type="button" onClick={save} disabled={!valid || !available || busy} className="btn-ghost mt-3 min-h-9 w-full !px-3 !py-2 text-xs">{busy ? "Updating…" : "Save dates"}</button>
+      <button type="button" data-cart-date-save onClick={save} disabled={!valid || !available || busy} className="btn-ghost mt-3 min-h-9 w-full !px-3 !py-2 text-xs">{busy ? "Updating…" : "Save dates"}</button>
     </div>}
   </div>;
 }

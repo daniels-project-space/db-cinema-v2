@@ -381,7 +381,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     currency: "GBP",
   }).format(Math.round((paid.combinedTotalDue-paid.depositAmount)*100)/100);
   await until(
-    `document.querySelector('[data-testid="basket-due"]').textContent===${JSON.stringify(paidDue)}`,
+    `document.querySelector('[data-testid="basket-due"]')?.textContent===${JSON.stringify(paidDue)}`,
   );
   assert.equal(
     await c.evaluate(
@@ -628,7 +628,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await reload();
   const noSavingBase = await cv.action(api.checkout.priceQuote, weekdayArgs);
   const noSavingDue = new Intl.NumberFormat("en-GB", {style:"currency",currency:"GBP"}).format(Math.round((noSavingBase.combinedTotalDue-noSavingBase.depositAmount)*100)/100);
-  await until(`document.querySelector('[data-testid="basket-due"]').textContent===${JSON.stringify(noSavingDue)}`);
+  await until(`document.querySelector('[data-testid="basket-due"]')?.textContent===${JSON.stringify(noSavingDue)}`);
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="applied-membership-savings"]')`),false,"Stored preference must not apply subscription credit");
   assert.equal(await c.evaluate(`localStorage.getItem('dbc_membership_selection_v1')`),null,"Stale preference is removed");
   assert.equal(await c.evaluate(`!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`),false,"No subscription selected after reload");
@@ -645,23 +645,23 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const newEnd=new Date(weekdayStart+2*86400000).toISOString().slice(0,10);
   async function dateInput(index,value){await c.evaluate(`(()=>{const e=document.querySelectorAll('main [data-cart-dates] input')[${index}];Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
   await dateInput(1,new Date(weekdayStart-86400000).toISOString().slice(0,10));
-  assert.equal(await c.evaluate(`document.querySelector('main [data-cart-dates] button:last-child').disabled`),true,"Reversed dates must not save");
+  assert.equal(await c.evaluate(`document.querySelector('main [data-cart-dates] [data-cart-date-save]').disabled`),true,"Reversed dates must not save");
   await dateInput(1,newEnd);
-  await until(`!document.querySelector('main [data-cart-dates] button:last-child').disabled`);
+  await until(`!document.querySelector('main [data-cart-dates] [data-cart-date-save]').disabled`);
   for(const width of [1440,390]){
     await c.cmd("Emulation.setDeviceMetricsOverride",{width,height:1000,deviceScaleFactor:1,mobile:width<600});
     await c.evaluate(`document.querySelector('main [data-cart-dates]').scrollIntoView({block:'center'})`);await wait(300);
     assert.equal(await c.evaluate("document.documentElement.scrollWidth>innerWidth"),false);
     await shot("date-editor-"+width);
   }
-  await c.evaluate(`document.querySelector('main [data-cart-dates] button:last-child').click()`);
+  await c.evaluate(`document.querySelector('main [data-cart-dates] [data-cart-date-save]').click()`);
   await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].end===${JSON.stringify(newEnd)}&&!document.querySelector('main [data-cart-dates] input')`);
   const stored=await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))`);
   assert.equal(stored[0].days,3);assert.deepEqual(stored[1],secondItem,"Changing the first line must preserve the second line");
   const editedQuote=await cv.action(api.checkout.priceQuote,{...weekdayArgs,items:[{...weekdayArgs.items[0],end:weekdayStart+2*86400000}, {...weekdayArgs.items[0],start:secondStart,end:secondStart}]});
   assert.equal(stored[0].total,editedQuote.items[0].total,"Saved line price must reflect the authoritative new date quote");
   const editedDue=new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(Math.round((editedQuote.combinedTotalDue-editedQuote.depositAmount)*100)/100);
-  await until(`document.querySelector('[data-testid="basket-due"]').textContent===${JSON.stringify(editedDue)}`);
+  await until(`document.querySelector('[data-testid="basket-due"]')?.textContent===${JSON.stringify(editedDue)}`);
   await reload();
   await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].end===${JSON.stringify(newEnd)}&&document.querySelectorAll('main [data-cart-dates]').length===2`);
   await c.evaluate(`document.querySelector('button[aria-label="Open kit"]').click()`);
