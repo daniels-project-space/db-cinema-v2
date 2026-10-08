@@ -2,6 +2,12 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — renter notification implementation
+
+- [x] Connect the account bell to protected renter device registrations/preferences and actual owner/system rental-chat event queueing. Add private lock-screen text, exact booking/general-support destinations, read/ownership/session suppression, subscription generations, fenced retries, expiration and sign-out disable.
+- [x] Add account-scoped manifest/notification worker and phone/Home Screen guidance, explicit gesture opt-in, denial recovery and missing-subscription reconnection. Validate actual components/handlers in controlled browser fixtures, inspect five desktop/mobile notification states, and check public routes retain their scope. See RENTER-NOTIFICATIONS.md.
+- [ ] Verify deployed compatible backend/VAPID configuration and actual consented physical-phone install/push delivery. Build and verify the separate admin notification settings panel; retain all original reference/integration requirements.
+
 ### 8 October 2026 — separate renter workspace
 
 - [x] Implement the renter calendar/chat-focused overview with actual account rental history, current kit quantities/item dates, unread messages, booking conversation shortcuts and a general-support shortcut. Keep account benefits secondary and admin operational controls separate.

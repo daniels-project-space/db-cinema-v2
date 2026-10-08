@@ -24,6 +24,7 @@ import { tierByKey, TIERS } from "@/lib/membership";
 
 import { AccentPicker } from "@/components/AccentPicker";
 import { CollectiveProfile } from "@/components/account/CollectiveProfile";
+import { RenterNotificationBell } from "@/components/account/RenterNotificationBell";
 import { RenterOverview } from "@/components/account/RenterOverview";
 import { RentalCalendar } from "@/components/account/RentalCalendar";
 import { ShootLists } from "@/components/plans/ShootLists";
@@ -192,6 +193,7 @@ function Dashboard() {
           "rental",
         );
         if (rental) setChatBooking(rental);
+        else if(new URLSearchParams(window.location.search).get("conversation")==="general")setChatBooking("general");
       }
     };
     openFromHash();
@@ -227,7 +229,7 @@ function Dashboard() {
   return (
     <ManagementShell role="renter" name={me.name || "My account"} title={{ rentals: "My rentals", calendar: "Rental calendar", invoices: "Invoices", chat: "Messages", plans: "Shoot lists", profile: "Profile", membership: "Membership", security: "Account security" }[tab]} subtitle="Manage your bookings, documents and conversations in one place." active={tab}
       nav={[{ key: "rentals", label: "My rentals", icon: "rentals" }, { key: "calendar", label: "Calendar", icon: "calendar" }, { key: "chat", label: "Messages", icon: "messages", badge: unreadMessages }, { key: "invoices", label: "Invoices", icon: "documents" }, { key: "plans", label: "Shoot lists", icon: "calendar" }, { key: "membership", label: "Membership", icon: "people" }, { key: "profile", label: "Profile", icon: "people" }, { key: "security", label: "Security", icon: "settings" }]}
-      onNavigate={key => setTab(key as typeof tab)} actions={<button onClick={() => account.signOut()} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Sign out</button>}>
+      onNavigate={key => setTab(key as typeof tab)} actions={<><RenterNotificationBell token={account.token!}/><button onClick={() => account.signOut()} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Sign out</button></>}>
       {/* Profile identity and account details. */}
       {tab === "profile" && <AccountProfilePill tier={me.membershipActive ? me.membershipTier : null}>
         <AccountFrame tier={me.membershipActive ? me.membershipTier : null}><ChatAvatar sender="renter" photo={me.avatarUrl} name={me.name || me.email} className="!h-12 !w-12" /></AccountFrame>

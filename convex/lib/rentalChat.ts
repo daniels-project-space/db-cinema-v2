@@ -1,3 +1,4 @@
+import { queueRenterNotification } from "./renterPush";
 import { queueOwnerNotification } from "./adminPush";
 import { belongsToRentalAccount } from "./rentalAccount";
 /** Shared boundaries for customer and owner rental conversations. */
@@ -69,6 +70,10 @@ export async function postRentalMessage(
   if (a.sender === "renter" && thread?.escalated) await queueOwnerNotification(ctx, {
     eventKey: `renter-message:${id}`, kind: "renter_message", accountId: a.accountId, bookingId: a.bookingId,
     title: "New rental message", body: "A renter has replied in a conversation handled by your team.",
+  });
+  if (a.sender === "owner" || a.sender === "system") await queueRenterNotification(ctx, {
+    eventKey: `rental-message:${id}`, kind: a.sender === "owner" ? "messages" : "booking",
+    accountId: a.accountId, bookingId: a.bookingId, messageAt: now,
   });
   return id;
 }

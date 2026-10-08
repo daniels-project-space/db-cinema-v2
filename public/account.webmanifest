@@ -1,0 +1,14 @@
+{
+  "id": "/account",
+  "name": "DB Cinema Rentals",
+  "short_name": "DB Cinema",
+  "start_url": "/account",
+  "scope": "/account",
+  "display": "standalone",
+  "background_color": "#131313",
+  "theme_color": "#131313",
+  "icons": [
+    { "src": "/db-cinema-logo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/db-cinema-logo.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }
+  ]
+}

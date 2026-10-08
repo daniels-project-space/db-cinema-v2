@@ -625,6 +625,19 @@ export default defineSchema({
     .index("by_booking_at", ["bookingId", "at"])
     .index("by_account_at", ["accountId", "at"]),
 
+  renter_push_subscriptions: defineTable({
+    accountId: v.id("accounts"), sessionId: v.id("sessions"), deviceId: v.string(), endpoint: v.string(), p256dh: v.string(), auth: v.string(),
+    enabled: v.boolean(), messagesEnabled: v.boolean(), bookingEnabled: v.boolean(), createdAt: v.number(), updatedAt: v.number(), lastError: v.optional(v.string()),
+  }).index("by_device", ["deviceId"]).index("by_endpoint", ["endpoint"]).index("by_account_enabled", ["accountId", "enabled"]).index("by_session", ["sessionId"]),
+  renter_notifications: defineTable({
+    eventKey: v.string(), kind: v.union(v.literal("messages"), v.literal("booking")), accountId: v.id("accounts"), bookingId: v.optional(v.id("bookings")),
+    createdAt: v.number(), messageAt: v.number(),
+  }).index("by_event", ["eventKey"]),
+  renter_push_deliveries: defineTable({
+    notificationId: v.id("renter_notifications"), subscriptionId: v.id("renter_push_subscriptions"), subscriptionUpdatedAt: v.number(),
+    status: v.string(), attempts: v.number(), nextAttemptAt: v.number(), updatedAt: v.number(), claimId: v.optional(v.string()), claimedAt: v.optional(v.number()), lastError: v.optional(v.string()),
+  }).index("by_status_due", ["status", "nextAttemptAt"]),
+
   admin_push_subscriptions: defineTable({
     deviceId: v.string(), endpoint: v.string(), p256dh: v.string(), auth: v.string(),
     enabled: v.boolean(), createdAt: v.number(), updatedAt: v.number(), lastError: v.optional(v.string()),

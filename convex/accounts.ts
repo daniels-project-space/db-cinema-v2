@@ -412,7 +412,11 @@ export const signOut = mutation({
       .query("sessions")
       .withIndex("by_token", (q) => q.eq("token", token))
       .first();
-    if (s) await ctx.db.delete(s._id);
+    if (s) {
+      const devices=await ctx.db.query("renter_push_subscriptions").withIndex("by_session",q=>q.eq("sessionId",s._id)).collect();
+      for(const device of devices)await ctx.db.patch(device._id,{enabled:false,updatedAt:Math.max(Date.now(),device.updatedAt+1)});
+      await ctx.db.delete(s._id);
+    }
   },
 });
 

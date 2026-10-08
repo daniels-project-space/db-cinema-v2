@@ -15,6 +15,8 @@ import type * as accountCodeClaims from "../accountCodeClaims.js";
 import type * as accountCodes from "../accountCodes.js";
 import type * as accounts from "../accounts.js";
 import type * as adminAuth from "../adminAuth.js";
+import type * as renterNotifications from "../renterNotifications.js";
+import type * as renterPushDelivery from "../renterPushDelivery.js";
 import type * as adminNotifications from "../adminNotifications.js";
 import type * as adminPushDelivery from "../adminPushDelivery.js";
 import type * as admin_republish from "../admin_republish.js";
@@ -149,6 +151,8 @@ declare const fullApi: ApiFromModules<{
   accountCodes: typeof accountCodes;
   accounts: typeof accounts;
   adminAuth: typeof adminAuth;
+  renterNotifications: typeof renterNotifications;
+  renterPushDelivery: typeof renterPushDelivery;
   adminNotifications: typeof adminNotifications;
   adminPushDelivery: typeof adminPushDelivery;
   admin_republish: typeof admin_republish;
