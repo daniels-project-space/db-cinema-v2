@@ -453,8 +453,8 @@ export default function CheckoutPage() {
               <div className="mb-4 space-y-3">{items.map(item=><CartItemTimes key={item.key} item={item} defaultPickupTime={pickupTime} defaultReturnTime={returnTime} ready={stock.ready} delivery={fulfilment==="delivery"}/>)}</div>
               {availabilityBlocked && <p className="mt-4 text-sm text-amber-200">Choose available equipment, dates and times in your basket. Item-specific times take priority over these default collection times. Your saved choices are kept.</p>}
               {!allItemTimes&&<><p className="mb-2 text-xs text-white/55">Default times apply only to items without their own collection times.</p>              <div className="mt-4 flex gap-3">
-                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.pickupSlots}/>
-                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.returnSlots}/>
+                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.pickupBoundarySlots??defaultSlots?.pickupSlots}/>
+                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.returnBoundarySlots??defaultSlots?.returnSlots}/>
               </div></>}
             </StepCard>
 
