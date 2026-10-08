@@ -660,7 +660,7 @@ function checkoutOrigin(origin: string) {
   return requested;
 }
 
-async function syncStripeMembership(ctx: any, sub: Stripe.Subscription, checkoutId?: string) {
+export async function syncStripeMembership(ctx: any, sub: Stripe.Subscription, checkoutId?: string) {
   const tier = tierKeyFromSub(sub);
   const email = sub.metadata.accountEmail;
   if (!tier || !email) return;

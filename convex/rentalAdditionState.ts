@@ -36,7 +36,9 @@ export const context = internalQuery({
   handler: async (ctx, { id }) => {
     const addition = await ctx.db.get(id);
     if (!addition) return null;
-    return { addition, booking: await ctx.db.get(addition.bookingId) };
+    const membershipCheckout = addition.membershipCheckoutId ? await ctx.db.get(addition.membershipCheckoutId) : null;
+    return { addition, booking: await ctx.db.get(addition.bookingId), membershipCheckout,
+      membershipAccount: membershipCheckout ? await ctx.db.get(membershipCheckout.accountId) : null };
   },
 });
 export const existing = internalQuery({
@@ -440,6 +442,22 @@ export const recordWithdrawalRefund = internalMutation({
     if (r.withdrawalRefundStatus === "succeeded") return;
     await ctx.db.patch(args.id, { withdrawalRefundId: args.refundId, withdrawalRefundStatus: args.status,
       status: ["failed", "canceled"].includes(args.status) ? "refund_failed" : "refund_pending", updatedAt: Date.now() });
+  },
+});
+
+/** Called after the exact checkout subscription has been attested cancelled. */
+export const recordMembershipWithdrawal = internalMutation({
+  args: { id: v.id("rental_additions"), subscriptionId: v.string() },
+  handler: async (ctx, { id, subscriptionId }) => {
+    const r = await ctx.db.get(id), member = r?.membershipCheckoutId ? await ctx.db.get(r.membershipCheckoutId) : null;
+    if (!r?.withdrawalRequestedAt || !member || member.bookingId !== r.bookingId || member.sessionId !== r.sessionId) throw Error("Membership withdrawal checkout mismatch");
+    if (r.withdrawalMembershipSubscriptionId && r.withdrawalMembershipSubscriptionId !== subscriptionId || member.subscriptionId && member.subscriptionId !== subscriptionId) throw Error("Membership withdrawal subscription mismatch");
+    const account = await ctx.db.get(member.accountId);
+    if (!account || account.stripeSubscriptionId !== subscriptionId || account.membershipStatus !== "canceled") throw Error("Membership cancellation has not been reconciled");
+    await ctx.db.patch(id, { withdrawalMembershipSubscriptionId: subscriptionId });
+    await ctx.db.patch(member._id, { state: "expired", subscriptionId });
+    await ctx.db.patch(account._id, { ...(member.intro !== "none" ? { membershipIntroUsed: true, membershipIntroChoice: member.intro } : {}),
+      ...(account.membershipPerksPendingBookingId === r.bookingId ? { membershipPerksPendingBookingId: undefined } : {}) });
   },
 });
 

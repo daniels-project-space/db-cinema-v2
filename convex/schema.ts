@@ -721,6 +721,7 @@ export default defineSchema({
     status:v.string(),reason:v.string(),createdAt:v.number(),updatedAt:v.number(),
     sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),
     withdrawalRequestedAt:v.optional(v.number()),withdrawalRefundId:v.optional(v.string()),withdrawalRefundStatus:v.optional(v.string()),
+    withdrawalMembershipSubscriptionId:v.optional(v.string()),
     securityCreationPending:v.optional(v.boolean()),securityCreationPreparedAt:v.optional(v.number()),securityCreationParams:v.optional(v.string()),
     holdIntentId:v.optional(v.string()),holdExpiresAt:v.optional(v.number()),
   }).index("by_booking",["bookingId"]).index("by_request",["requestId"]).index("by_session",["sessionId"]).index("by_status",["status"]).index("by_status_updated",["status","updatedAt"]),

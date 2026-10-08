@@ -1,6 +1,6 @@
 "use node";
 import Stripe from "stripe";
-import { checkoutPaymentIntent } from "./checkout";
+import { checkoutPaymentIntent, syncStripeMembership } from "./checkout";
 import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
@@ -187,13 +187,35 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
   if (bound?.addition) Object.assign(r, bound.addition);
   if (session.status === "open")
     Object.assign(session, await sb().checkout.sessions.expire(session.id));
-  else if (session.status !== "expired" && session.payment_status !== "paid")
+  else if (session.status !== "expired" && !(session.status === "complete" && r.membershipCheckoutId && session.payment_status === "no_payment_required") && session.payment_status !== "paid")
     throw Error(
       "The addition payment is still processing. Wait for its provider result.",
     );
   const paid = session.payment_status === "paid";
-  if (session.id !== r.sessionId || paid && (session.status !== "complete" || session.currency !== "gbp" || session.amount_total !== money((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0)))) throw Error("Withdrawal session does not match the saved order");
-  if(paid&&r.membershipCheckoutId&&session.subscription){const sub=typeof session.subscription==="string"?session.subscription:session.subscription.id;await sb().subscriptions.cancel(sub);}
+  const noPayment = !!r.membershipCheckoutId && session.status === "complete" && session.payment_status === "no_payment_required";
+  const complete = paid || noPayment;
+  const expected = money((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0));
+  if (session.id !== r.sessionId || complete && (session.status !== "complete" || session.currency !== "gbp" || session.amount_total !== expected || noPayment && expected !== 0)) throw Error("Withdrawal session does not match the saved order");
+  if (complete && r.membershipCheckoutId) {
+    const member = bound?.membershipCheckout, account = bound?.membershipAccount;
+    const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
+    const subId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+    if (!member || !account || member.bookingId !== r.bookingId || member.sessionId !== session.id || customer !== account.stripeCustomerId || !subId || member.subscriptionId && member.subscriptionId !== subId || r.withdrawalMembershipSubscriptionId && r.withdrawalMembershipSubscriptionId !== subId) throw Error("Membership withdrawal ownership mismatch");
+    let sub = await sb().subscriptions.retrieve(subId);
+    const assertSubscription = (candidate: Stripe.Subscription) => {
+      const subCustomer = typeof candidate.customer === "string" ? candidate.customer : candidate.customer.id;
+      if (candidate.id !== subId || subCustomer !== customer || candidate.metadata.membershipCheckoutId !== r.membershipCheckoutId || candidate.metadata.bookingId !== r.bookingId || candidate.metadata.membershipTier !== member.tier || candidate.metadata.accountEmail !== account.email || account.membershipActive && account.stripeSubscriptionId !== subId) throw Error("Membership withdrawal subscription mismatch");
+    };
+    assertSubscription(sub);
+    if (sub.status !== "canceled") {
+      try { sub = await sb().subscriptions.cancel(subId, { invoice_now: false, prorate: false }); }
+      catch (error) { const current = await sb().subscriptions.retrieve(subId); if (current.status !== "canceled") throw error; sub = current; }
+    }
+    assertSubscription(sub);
+    if (sub.status !== "canceled") throw Error("The membership cancellation is not confirmed");
+    await syncStripeMembership(ctx, sub);
+    await ctx.runMutation(internal.rentalAdditionState.recordMembershipWithdrawal, { id, subscriptionId: subId });
+  }
   const payment = await checkoutPaymentIntent(session);
   if (paid && payment) {
     await ctx.runMutation(internal.rentalAdditionState.markPaid, {

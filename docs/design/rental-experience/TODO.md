@@ -2,6 +2,14 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — completed membership withdrawal and retention confirmation
+
+- [x] Confirm Daniel's 30-day document retention: latest linked return/cancellation starts the window; active reuse, open damage cases and recorded insurance holds preserve owned copies. Actual archive, worker, backfill and ownership regressions pass; deployed provider/archive acceptance remains open.
+- [x] Handle completed £0 membership checkout withdrawals. Retrieve and validate the exact account/customer/checkout/booking/subscription, attest cancellation, expire the membership receipt and consume used introductory offers. No £0 cash refund or account-credit grant.
+- [x] Recover an accepted cancellation with a lost response by retrieving its current state; pending paid refunds re-read the canceled subscription instead of canceling again. Keep stock and operation locked while cancellation remains unconfirmed. Controlled-provider tests exercise actual rental/account/membership handlers and reject foreign or inconsistent identities.
+- [x] Local full suite, targeted membership withdrawal regressions and TypeScript pass. Previous actual source reproduces the £0 processing lock in the same harness. Final build and graph refreshed before commit.
+- [ ] Hosted prior 3a464da run 37743065013 passed typecheck/unit/build and failed the unchanged browser secure-checkout-enabled wait. Compatible backend/browser acceptance and real provider cancellation/refund remain open. Shared atomic reservation authority, remaining reference visuals and owned hero images remain open.
+
 ### 8 October 2026 — in-flight replacement security and withdrawal
 
 - [x] Reproduce prior actual 1e90cca action leaving a late card hold uncancelled after withdrawal closed. Persist the exact prepared authorisation before provider work, block attachment/closure while unresolved, and recover/bind/cancel the same attempt before releasing the operation and stock.
