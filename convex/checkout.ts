@@ -16,6 +16,7 @@ import { lateFeeQuote } from "./lib/lateFee";
 import { assertCurrentAgreement, agreementRequestFingerprint } from "../shared/rentalAgreement";
 import { sendMail } from "./lib/mailer";
 import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
+import { ensureCheckoutCustomer } from "./lib/stripeCustomer";
 import { tierByKey, allocateSaving, TIERS } from "./lib/membership";
 import { cancellationSettlement } from "../src/lib/cancellationPolicy";
 import { MEMBERSHIP_BASKET_MINIMUM } from "../shared/checkoutMembershipCredit";
@@ -306,6 +307,9 @@ export const start = action({
         paymentConfig.link?.display_preference?.value !== "off")
       throw new Error("Rental payment configuration must use a reusable card. Please contact us before paying.");
 
+    const stripeCustomerId = acct ? await ensureCheckoutCustomer(sb, acct, (customerId,expectedCustomerId)=>
+      ctx.runMutation(internal.accounts._bindCheckoutCustomer,{accountId:acct._id,customerId,expectedCustomerId})) : undefined;
+
     // store credit redemption — applies to the rental spend only (never the refundable deposit).
     // Reserved transactionally inside createPending (double-spend-safe): it caps to the account's
     // available balance minus credit already reserved by its other pending checkouts, and returns
@@ -428,17 +432,6 @@ export const start = action({
         email: acct.email,
         month,
         count: freedCount,
-      });
-    }
-
-    // saved cards: attach a Stripe customer so returning renters skip re-entry
-    let stripeCustomerId: string | undefined = acct?.stripeCustomerId;
-    if (acct && !stripeCustomerId) {
-      const c = await sb.customers.create({ email: acct.email, name: a.customer.name });
-      stripeCustomerId = c.id;
-      await ctx.runMutation(internal.accounts._setStripeCustomer, {
-        email: acct.email,
-        customerId: c.id,
       });
     }
 
@@ -627,12 +620,8 @@ export const startMembership = action({
       throw Error("This membership checkout is no longer open.");
     }
     try {
-      let customerId = acct.stripeCustomerId;
-      if (!customerId) {
-        const c = await sb.customers.create({ email: acct.email, name: acct.name ?? undefined }, { idempotencyKey: `dbc-member-customer-${acct._id}` });
-        customerId = c.id;
-        await ctx.runMutation(internal.accounts._setStripeCustomer, { email: acct.email, customerId });
-      }
+      const customerId = await ensureCheckoutCustomer(sb, acct, (customerId,expectedCustomerId)=>
+        ctx.runMutation(internal.accounts._bindCheckoutCustomer,{accountId:acct._id,customerId,expectedCustomerId}));
       const priceId = await ensurePrice(sb, tier);
       const metadata = { membershipTier: tier.key, accountEmail: acct.email, membershipCheckoutId: String(reservation._id), membershipTerms: MEMBERSHIP_TERMS_VERSION };
       const session = await sb.checkout.sessions.create({
