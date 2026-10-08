@@ -12,6 +12,7 @@ This checklist extends the original goal; no original integration requirement is
 
 ### 8 October 2026 — physical custody and unresolved stock holds
 
+- [x] Extend Rental Manager's shared live quoting path beyond the dashboard's seven-day grace assumption: overdue delivered equipment blocks future quotes until return, retaining per-item website windows and excluding obsolete/recorded-return rows. Actual frozen-clock quote regressions cover ancient custody, ongoing status, future dates, recorded return, own-request exclusion and latest-window quantities; full checks/publication are tracked with manager PR #65.
 - [x] Share stock occupancy semantics between full-cart availability, listing availability, replacement inventory checks and atomic checkout holds. A physically active rental overdue by date remains occupied until return; planned dates remain unchanged. An expired TTL does not free a pending-payment booking before provider reconciliation.
 - [x] Preserve DELIVERED/confirmed custody when mirroring older manager rentals. Exclude RETURNED, REVIEWED, completed, cancelled and obsolete source rows from mirrored stock. Actual source/feed/cart/replacement/hold regressions verify blocking well beyond the old return date and release after actual return or terminal payment reconciliation.
 - [ ] Publish the compatible manager feed/index and website occupancy source, then verify real source stock and deployed cart alternatives. The manager feed fix is paired in PR #65.
