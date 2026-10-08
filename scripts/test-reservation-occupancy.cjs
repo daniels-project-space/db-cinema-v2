@@ -33,20 +33,16 @@ async function blocked() {
     await blocked(); pending.status = 'cancelled';
     assert.equal((await availability.forCart.handler(ctx, { items: lines }))[camera._id].ok, true, 'A terminal reconciled payment releases an expired hold');
     await assertRentalInventory(ctx, lines); hold.status = 'cancelled';
-    const upstream = [
-      { _id: 'overdue', status: 'confirmed', order_step: 'DELIVERED', start_date: '2026-08-01', end_date: '2026-08-02', resolved_items: [{ item_id: 'master-camera', qty: 1 }] },
-      { _id: 'returned', status: 'confirmed', order_step: 'RETURNED', start_date: '2026-10-08', end_date: '2027-05-01', resolved_items: [{ item_id: 'master-camera', qty: 1 }] },
-      { _id: 'completed', status: 'completed', order_step: 'DELIVERED', start_date: '2026-10-08', end_date: '2027-05-01', resolved_items: [{ item_id: 'master-camera', qty: 1 }] },
-    ];
-    global.fetch = async (_url, options) => ({ ok: true, json: async () => ({ protocolVersion: 1, path: JSON.parse(options.body).path, status: 'success', value: upstream }) });
-    const result = await sync.syncHyggloReservations.handler({ ...ctx, runMutation: async (_ref, args) => sync.applyHygglo.handler(ctx, args) }, {});
+    const upstream={version:1,checkedAt:now,units:[{masterItemId:'master-camera',active:true,quantityOwned:1,windows:[{start:Date.parse('2026-08-01'),end:Date.parse('9999-12-31'),qty:1}]}]};
+    global.fetch = async (_url, options) => ({ ok: true, json: async () => ({ protocolVersion: 1, path: JSON.parse(options.body).path, status: 'success', value: [upstream] }) });
+    const result = await sync.syncHyggloReservations.handler({ ...ctx, runMutation: async (_ref, args) => sync.applySharedStock.handler(ctx, args) }, {});
     assert.equal(result.mirrored, 1);
     const mirrored = tables.get('reservations').find(r => r.source === 'hygglo');
-    assert.equal(mirrored.status, 'active'); assert.equal(mirrored.end, Date.parse('2026-08-02'));
+    assert.equal(mirrored.status, 'confirmed'); assert.equal(mirrored.endExclusive,true);
     await blocked();
-    upstream[0].order_step = 'RETURNED';
-    assert.equal((await sync.syncHyggloReservations.handler({ ...ctx, runMutation: async (_ref, args) => sync.applyHygglo.handler(ctx, args) }, {})).mirrored, 0);
+    upstream.units[0].windows=[];upstream.checkedAt=now+1;
+    assert.equal((await sync.syncHyggloReservations.handler({ ...ctx, runMutation: async (_ref, args) => sync.applySharedStock.handler(ctx, args) }, {})).mirrored, 0);
     assert.equal((await availability.forListing.handler(ctx, { listingId: camera._id, start, end })).available, 1);
-    console.log('PASS actual occupancy/feed/cart/replacement/hold handlers: overdue custody preserved, planned dates intact, unresolved payment TTL retained, reconciled return/payment release and no returned/completed mirror stock.');
+    console.log('PASS actual occupancy/feed/cart/replacement/hold handlers: overdue custody preserved, planned dates intact, unresolved payment TTL retained, reconciled return/payment release and canonical shared-source release.');
   } finally { Date.now = realNow; global.fetch = realFetch; }
 })().catch(error => { console.error(error); process.exitCode = 1; });

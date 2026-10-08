@@ -9,5 +9,5 @@ export async function reservationOccupancy(ctx: any, row: any, now = Date.now())
   // Keep the saved return date intact. An overdue rental physically still out
   // has no reliable next availability date until its return is recorded.
   const end = row.status === "active" && row.end < today ? Infinity : row.end;
-  return { start: row.start, end, qty: row.qty || 1 };
+  return { start: row.start, end, qty: row.qty || 1, ...(row.endExclusive ? {endExclusive:true} : {}) };
 }

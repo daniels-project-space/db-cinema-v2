@@ -1,4 +1,4 @@
-import { peak, blockedSet } from "../availability";
+import { peak, blockedSet, overlappingIntervals } from "../availability";
 import { rentalUnavailable } from "./marketingInventory";
 import { reservationOccupancy } from "./reservationOccupancy";
 import { inventoryCapacity } from "./inventoryCapacity";
@@ -70,16 +70,7 @@ export async function assertRentalInventory(
       .map((r: any) => reservationOccupancy(ctx, r)));
     const existing = occupied.filter((row): row is NonNullable<typeof row> => row !== null);
     const over = row.intervals.some((window) => {
-      const overlapping = [...existing, ...row.intervals]
-        .filter(
-          (interval) =>
-            interval.start <= window.end && interval.end >= window.start,
-        )
-        .map((interval) => ({
-          ...interval,
-          start: Math.max(interval.start, window.start),
-          end: Math.min(interval.end, window.end),
-        }));
+      const overlapping = overlappingIntervals([...existing, ...row.intervals],window.start,window.end);
       return peak(overlapping) > owned;
     });
     if (over)

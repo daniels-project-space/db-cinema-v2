@@ -2,6 +2,15 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — shared stock constraints
+
+- [x] Reuse the manager's actual quote occupancy calculation and one shared-source snapshot for all upstream accounts, repairs, owner blackouts/vacations, kit/adapter allocation, extension maxima and overdue custody. Exclude website copies/private metadata.
+- [x] Wire the existing sync action and cart/listing/replacement/hold checks to exact half-open source windows alongside inclusive website rental days. Atomically update exact capacity, retire deleted masters, preserve local reservations and reject malformed/stale/conflicting snapshots.
+- [x] Native paired actual HTTP/client handlers verify each constraint and its release. The prior actual importer reproduces offering a kit despite each constraint. Actual manager quote parity and website midnight/disjoint-peak/replay tests pass. See SHARED-STOCK-CONSTRAINTS.md.
+- [x] Full local website default tests/typecheck/build and manager 141 files / 2159 tests / 14 skips, typecheck/Next build/owner audits pass. Both code graphs are current.
+- [ ] Complete source-matched hosted checks and previews.
+- [ ] Finish compatible backend rollout, legacy allocation reconciliation and live all-account/repair/blackout/cart acceptance. Connect fresh source checks and one atomic claim across all writers; asynchronous mirroring alone remains insufficient.
+
 ### 8 October 2026 — canonical complete-kit stock
 
 - [x] Export one authenticated manager snapshot from its actual listing resolver, including declared kit coverage, audited overrides and every stock-required component's exact physical pool. Require this contract in website sync; no primary-only/title-quantity fallback.
@@ -11,7 +20,7 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Website CI 37730425603 for ce9d46f and manager CI 37730425398 for a4ae20a are terminal SUCCESS. Both matching previews are READY; the website run includes the complete membership/cart/checkout browser regression. Frontend readiness does not publish compatible backend functions.
 - [ ] Before compatible backend rollout, reconcile active legacy website allocations against their original booking evidence and review mapping gaps/conflicts. Preserving old allocation rows does not establish migration safety.
 - [ ] Verify real current/upcoming/ongoing source stock, freshness and a single atomic stock authority across website and Hygglo writers. All original management, document, return, visual and equipment-render requirements remain active.
-- [ ] Match the manager's full loadStockSources/stockForItem constraints: cross-account shared-master occupancy, stock held by repair cases, owner blackout/vacation periods, per-item periods and return buffers. The current authenticated mirror is still scoped to DB Cinema upstream bookings; canonical component accuracy does not prove these additional constraints.
+- [ ] Verify live parity for the full loadStockSources/stockForItem constraints. The new shared-stock source/import closes the prior DB Cinema-only mirror gap in controlled actual-handler checks; deployed acceptance and freshness remain open.
 
 ### 8 October 2026 — private inventory bridge
 

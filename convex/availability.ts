@@ -38,13 +38,21 @@ export function blockedSet(raw: string[]): Set<string> {
   return set;
 }
 
-export type Iv = { start: number; end: number; qty: number };
-/** Max concurrent qty across overlapping intervals (end inclusive). */
+export type Iv = { start: number; end: number; qty: number; endExclusive?: boolean };
+/** Clip exact upstream windows and inclusive local rental days to the same
+ * half-open requested period. A midnight release does not consume the next day. */
+export function overlappingIntervals(intervals:Iv[],start:number,end:number):Iv[] {
+  const until=end+DAY;
+  return intervals.map(i=>({...i,end:i.endExclusive?i.end:i.end+DAY,endExclusive:true}))
+    .filter(i=>i.start<until&&i.end>start)
+    .map(i=>({...i,start:Math.max(i.start,start),end:Math.min(i.end,until)}));
+}
+/** Max concurrent quantity; local ends are inclusive days unless explicitly half-open. */
 export function peak(intervals: Iv[]): number {
   const ev: [number, number][] = [];
   for (const i of intervals) {
     ev.push([i.start, i.qty]);
-    ev.push([i.end + DAY, -i.qty]); // end inclusive: frees the day after
+    ev.push([i.endExclusive ? i.end : i.end + DAY, -i.qty]);
   }
   ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   let cur = 0,
@@ -62,8 +70,7 @@ async function unitReservations(ctx: any, unitId: any, lo: number, hi: number): 
     .withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", unitId))
     .collect();
   const intervals = await Promise.all(res.map((row: any) => reservationOccupancy(ctx, row)));
-  return intervals.filter((row): row is Iv => !!row && row.start <= hi && row.end >= lo)
-    .map(row => ({ ...row, start: Math.max(row.start, lo), end: Math.min(row.end, hi) }));
+  return overlappingIntervals(intervals.filter((row): row is Iv => !!row),lo,hi);
 }
 
 /** Quantity-aware availability for one listing over [start,end]. */
@@ -83,11 +90,7 @@ export const forListing = query({
       const unit: any = await ctx.db.get(comp.inventoryUnitId);
       const ownedQ = inventoryCapacity(unit) ?? 0;
       owned = Math.min(owned, Math.floor(ownedQ / comp.qty));
-      const ivs = (await unitReservations(ctx, comp.inventoryUnitId, start, end)).map((r) => ({
-        start: Math.max(r.start, start),
-        end: Math.min(r.end, end),
-        qty: r.qty,
-      }));
+      const ivs = await unitReservations(ctx, comp.inventoryUnitId, start, end);
       const free = Math.max(0, ownedQ - peak(ivs));
       minAvail = Math.min(minAvail, Math.floor(free / comp.qty));
     }

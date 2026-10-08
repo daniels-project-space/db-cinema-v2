@@ -109,6 +109,7 @@ export default defineSchema({
     subscriptionId: v.optional(v.id("subscriptions")),
     start: v.number(), // epoch ms (UTC)
     end: v.number(),
+    endExclusive: v.optional(v.boolean()), // shared stock windows preserve exact return buffers
     qty: v.number(),
     source: v.union(
       v.literal("site"),

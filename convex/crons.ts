@@ -44,8 +44,8 @@ crons.interval("expire-credits", { hours: 24 }, internal.credits.expire, {});
 // Keep the storefront catalog fresh from RMv2 (listings, pricing, images-source).
 crons.interval("sync-rmv2-catalog", { minutes: 30 }, api.sync.syncFromRmv2, {});
 
-// Cross-check active + upcoming Hygglo rentals into the availability ledger so
-// stock reflects what's already booked on Hygglo (by unit, dates, qty).
+// Mirror all upstream shared stock, repair holds and owner blocks. Website
+// reservations stay local; their manager copies are excluded to avoid duplication.
 crons.interval(
   "sync-hygglo-reservations",
   { minutes: 15 },
