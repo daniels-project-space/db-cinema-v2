@@ -8,7 +8,7 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Wire the existing sync action and cart/listing/replacement/hold checks to exact half-open source windows alongside inclusive website rental days. Atomically update exact capacity, retire deleted masters, preserve local reservations and reject malformed/stale/conflicting snapshots.
 - [x] Native paired actual HTTP/client handlers verify each constraint and its release. The prior actual importer reproduces offering a kit despite each constraint. Actual manager quote parity and website midnight/disjoint-peak/replay tests pass. See SHARED-STOCK-CONSTRAINTS.md.
 - [x] Full local website default tests/typecheck/build and manager 141 files / 2159 tests / 14 skips, typecheck/Next build/owner audits pass. Both code graphs are current.
-- [ ] Complete source-matched hosted checks and previews.
+- [x] Website CI 37732364129 for 315f732 and manager CI 37732363731 for 460a6bd are terminal SUCCESS. Both source-matched Vercel previews are READY; the website run includes the complete membership/cart/checkout browser regression. No compatible backend rollout is implied.
 - [ ] Finish compatible backend rollout, legacy allocation reconciliation and live all-account/repair/blackout/cart acceptance. Connect fresh source checks and one atomic claim across all writers; asynchronous mirroring alone remains insufficient.
 
 ### 8 October 2026 — canonical complete-kit stock

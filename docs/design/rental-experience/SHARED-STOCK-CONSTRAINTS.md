@@ -16,4 +16,6 @@ Validation: actual manager source/HTTP checks compare the exported peak with rea
 
 Full local website tests/typecheck/build and manager 141 files / 2159 passing tests / 14 skips, typecheck/Next build and both owner audits pass. Both code graphs are current.
 
-Remaining: hosted source checks/previews, manager-first compatible backend rollout and credentials, active legacy allocation reconciliation, real shared source-to-cart acceptance and freshness. The original single atomic authority across website and Hygglo writers remains required: a 15-minute asynchronous mirror cannot guarantee concurrent no-double-booking. All management, document, return, visual-fidelity and accurate equipment-render work remains in the active goal.
+Hosted website CI 37732364129 for 315f732 and manager CI 37732363731 for 460a6bd are terminal SUCCESS. The website run includes complete membership/cart/checkout browser regression. Source-matched previews dpl_4ZuuLAkUgjHYyTvkrimEBRuBoSJU and dpl_HcsSjCbG6r9GbAgzUa9opGW6EMMV are READY.
+
+Remaining: manager-first compatible backend rollout and credentials, active legacy allocation reconciliation, real shared source-to-cart acceptance and freshness. The original single atomic authority across website and Hygglo writers remains required: a 15-minute asynchronous mirror cannot guarantee concurrent no-double-booking. All management, document, return, visual-fidelity and accurate equipment-render work remains in the active goal.
