@@ -12,6 +12,7 @@ import { BookingReview } from "@/components/account/BookingReview";
 import { StatusPill } from "@/components/account/StatusPill";
 import { CancelButton } from "@/components/account/CancelButton";
 import { BookingProgress } from "@/components/account/BookingProgress";
+import { PickupHold } from "@/components/account/PickupHold";
 import { HoldRenewal } from "@/components/account/HoldRenewal";
 import { RentalAdditionApproval } from "@/components/rentals/RentalAdditionApproval";
 import { LateFeeApproval } from "@/components/account/LateFeeApproval";
@@ -100,6 +101,7 @@ export function BookingTile({
       </>}
       {err && <div className="mt-1 text-[11px] text-rose-300">{err}</div>}
 
+      {token && token !== "preview" && <PickupHold bookingId={booking._id} token={token} policy={booking.securityHoldPolicyVersion} status={booking.depositHoldStatus} dueAt={booking.securityHoldDueAt} />}
       {token && token !== "preview" && <HoldRenewal bookingId={booking._id} token={token} status={booking.depositHoldRenewalStatus} expiresAt={booking.depositHoldExpiresAt} />}
       {token && token !== "preview" && <LateFeeApproval bookingId={booking._id} token={token} status={booking.lateFeeStatus} amount={booking.lateFeeAmount} />}
 

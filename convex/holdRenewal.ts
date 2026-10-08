@@ -1,6 +1,7 @@
 "use node";
 
 import Stripe from "stripe";
+import { pickupHoldEligible } from "../shared/pickupSecurity";
 import { action, internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -156,3 +157,34 @@ export const sync = action({
     return { status };
   },
 });
+
+/** Initial security authorisation for NEW pickup-policy rentals. Legacy holds use the existing renewal flow. */
+async function reconcilePickup(ctx:any,b:any,intent:Stripe.PaymentIntent,sb:Stripe) {
+  const expiresAt=captureBefore(intent);
+  const valid=intent.status==="requires_capture"&&intent.capture_method==="manual"&&intent.currency==="gbp"&&intent.amount===Math.round(b.depositHoldAmount*100)&&Number.isFinite(expiresAt)&&expiresAt!>Date.now();
+  const status=valid?"held":intent.status==="requires_action"?"requires_action":"failed";
+  if(intent.status==="requires_capture"&&!valid)await sb.paymentIntents.cancel(intent.id,{}, {idempotencyKey:`dbc-pickup-invalid-${intent.id}`});
+  const applied=await ctx.runMutation(internal.pickupSecurity.result,{bookingId:b._id,generation:b.securityHoldGeneration,intentId:intent.id,status,expiresAt:valid?expiresAt:undefined,failureCode:status==="failed"?"authorisation_failed":undefined});
+  if(!applied&&["requires_capture","requires_action","requires_payment_method","requires_confirmation"].includes(intent.status))await sb.paymentIntents.cancel(intent.id,{}, {idempotencyKey:`dbc-pickup-stale-${intent.id}`});
+  return applied?status:"stale";
+}
+export const authorizePickup = internalAction({args:{bookingId:v.id("bookings"),generation:v.number()},handler:async(ctx,a)=>{
+ if(!await ctx.runMutation(internal.pickupSecurity.claim,a))return;
+ const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:a.bookingId});if(!b)return;
+ const sb=stripe();let intent:Stripe.PaymentIntent;
+ try {
+  if(b.stripeDepositIntentId)intent=await sb.paymentIntents.retrieve(b.stripeDepositIntentId,{expand:["latest_charge"]});
+  else try {intent=await sb.paymentIntents.create({amount:Math.round(b.depositHoldAmount*100),currency:"gbp",customer:b.securityHoldCustomerId,payment_method:b.securityHoldPaymentMethodId,allowed_payment_method_types:["card"],capture_method:"manual",confirm:true,off_session:true,...(process.env.STRIPE_EXTENDED_AUTH_ENABLED==="true"?{payment_method_options:{card:{request_extended_authorization:"if_available" as const}}}:{}),metadata:{bookingId:a.bookingId,purpose:"pickup_security_hold",generation:String(a.generation)},expand:["latest_charge"]},{idempotencyKey:`dbc-pickup-hold-${a.bookingId}-${a.generation}`});}
+  catch(e:any){const id=e?.raw?.payment_intent?.id??e?.payment_intent?.id;if(!id)throw e;intent=await sb.paymentIntents.retrieve(id,{expand:["latest_charge"]});}
+  const status=await reconcilePickup(ctx,b,intent,sb);
+  if(["requires_action","failed"].includes(status))await notify(b.guestEmail??null,"Your rental card hold needs attention",`<p>Your agreed £${b.depositHoldAmount} card authorisation at pickup ${status==="requires_action"?"needs bank authentication":"could not be authorised"}. No security hold has been charged. <a href="${process.env.APP_URL??"https://dbcinemarentals.com"}/account">Open your rental account</a> to authenticate or update your saved card. Equipment cannot be collected until the hold and required checks are complete.</p>`).catch(console.error);
+ }catch(e:any){const transient=["StripeConnectionError","StripeAPIError","StripeRateLimitError"].includes(e?.type);await ctx.runMutation(internal.pickupSecurity.result,{...a,status:"failed",failureCode:transient?"provider_unavailable":"authorisation_failed",retry:transient});if(!transient||(b.securityHoldAttempts??0)>=3)await notify(b.guestEmail??null,"Your rental card hold needs attention",`<p>The card authorisation for pickup could not be completed. <a href="${process.env.APP_URL??"https://dbcinemarentals.com"}/account">Open your rental account</a> to update your saved card. Equipment cannot be collected until security is complete.</p>`).catch(console.error);}
+}});
+export const pickupsDue = internalAction({args:{},handler:async(ctx)=>{const rows:any[]=await ctx.runQuery(internal.pickupSecurity.due,{});for(const row of rows){const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:row.bookingId});if(b?.securityHoldPaymentMethodId)await ctx.runAction(internal.holdRenewal.authorizePickup,row);else await ctx.runAction(internal.checkout.preparePickupSecurity,{bookingId:row.bookingId});}}});
+
+async function ownPickup(ctx:any,token:string,bookingId:any){const account:any=await ctx.runQuery(api.accounts.me,{token}),b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId});if(!account||!b||!pickupHoldEligible(b)||(b.accountId?b.accountId!==account._id:account.email?.trim().toLowerCase()!==b.guestEmail?.trim().toLowerCase()))throw Error("Booking access denied");return b;}
+export const resumePickup = action({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a)=>{const b=await ownPickup(ctx,a.token,a.bookingId);if(b.depositHoldStatus!=="requires_action"||!b.stripeDepositIntentId)return {status:b.depositHoldStatus,clientSecret:null};const intent=await stripe().paymentIntents.retrieve(b.stripeDepositIntentId);return {status:intent.status,clientSecret:intent.status==="requires_action"?intent.client_secret:null};}});
+export const syncPickup = action({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a):Promise<{status:string}>=>{const b=await ownPickup(ctx,a.token,a.bookingId);if(!b.stripeDepositIntentId)return {status:b.depositHoldStatus??"none"};const sb=stripe(),intent=await sb.paymentIntents.retrieve(b.stripeDepositIntentId,{expand:["latest_charge"]});return {status:await reconcilePickup(ctx,b,intent,sb)};}});
+export const updatePickupCard = action({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a):Promise<{url:string}>=>{const b=await ownPickup(ctx,a.token,a.bookingId);if(!pickupHoldEligible(b)||!["failed","requires_action"].includes(b.depositHoldStatus??""))throw Error("This rental does not need a replacement card.");if(!b.securityHoldCustomerId)throw Error("Your saved rental card account is temporarily unavailable. Please contact us.");const sb=stripe();if(b.stripeDepositIntentId){const old=await sb.paymentIntents.retrieve(b.stripeDepositIntentId);if(old.status==="requires_capture")throw Error("A security hold is already authorised. Refresh your rental.");if(["requires_action","requires_payment_method","requires_confirmation"].includes(old.status))await sb.paymentIntents.cancel(old.id,{}, {idempotencyKey:`dbc-pickup-recovery-cancel-${old.id}`});}
+ const session=await sb.checkout.sessions.create({mode:"setup",currency:"gbp",customer:b.securityHoldCustomerId,payment_method_configuration:process.env.STRIPE_PAYMENT_METHOD_CONFIGURATION_ID,setup_intent_data:{metadata:{bookingId:a.bookingId,purpose:"pickup_card_recovery"}},metadata:{pickupCardBookingId:a.bookingId},success_url:`${new URL(process.env.APP_URL!).origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${new URL(process.env.APP_URL!).origin}/account`});if(!session.url)throw Error("Card setup could not start.");await ctx.runMutation(internal.pickupSecurity.bindRecovery,{bookingId:a.bookingId,sessionId:session.id});return {url:session.url};}});
+export const reconcilePickupWebhook = internalAction({args:{bookingId:v.id("bookings"),intentId:v.string()},handler:async(ctx,a)=>{const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:a.bookingId});const sb=stripe(),intent=await sb.paymentIntents.retrieve(a.intentId,{expand:["latest_charge"]});if(!b||intent.metadata?.bookingId!==a.bookingId||Number(intent.metadata.generation)!==b.securityHoldGeneration)return;await reconcilePickup(ctx,b,intent,sb);}});

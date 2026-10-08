@@ -47,6 +47,7 @@ import type * as followUp from "../followUp.js";
 import type * as gaffer from "../gaffer.js";
 import type * as googleAuth from "../googleAuth.js";
 import type * as holdRenewal from "../holdRenewal.js";
+import type * as pickupSecurity from "../pickupSecurity.js";
 import type * as http from "../http.js";
 import type * as identity from "../identity.js";
 import type * as invoice from "../invoice.js";
@@ -190,6 +191,7 @@ declare const fullApi: ApiFromModules<{
   gaffer: typeof gaffer;
   googleAuth: typeof googleAuth;
   holdRenewal: typeof holdRenewal;
+  pickupSecurity: typeof pickupSecurity;
   http: typeof http;
   identity: typeof identity;
   invoice: typeof invoice;

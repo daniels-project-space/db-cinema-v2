@@ -1,3 +1,4 @@
+import { PICKUP_HOLD_POLICY } from "../shared/pickupSecurity";
 import { availableCreditRows,creditPlan,creditKind } from "./lib/checkoutCredit";
 import { ensurePaidBookingAccount } from "./accountClaims";
 import { referralEligibility,availableReferralReward } from "./lib/referrals";
@@ -327,6 +328,7 @@ export const createPending = internalMutation({
       agreementRequestId: a.agreementRequestId,
       agreementRequestFingerprint,
       checkoutInputFingerprint:a.checkoutInputFingerprint,
+      securityHoldPolicyVersion: PICKUP_HOLD_POLICY,
       securityHoldConsentAt: a.securityHoldConsent ? Date.now() : undefined,
       laterChargeConsentAt: a.laterChargeConsent ? Date.now() : undefined,
       agreementDocs: a.agreementDocs,
@@ -480,7 +482,10 @@ export const confirm = internalMutation({
     await ctx.db.patch(bookingId, {
       status: "confirmed",
       stripePaymentIntentId: paymentIntentId,
+      ...(booking.securityHoldPolicyVersion === PICKUP_HOLD_POLICY && booking.depositHoldAmount ? {securityHoldRetryAt:Date.now(),depositHoldStatus:"scheduled"} : {}),
     });
+    if (booking.securityHoldPolicyVersion === PICKUP_HOLD_POLICY && booking.depositHoldAmount)
+      await ctx.scheduler.runAfter(0,internal.checkout.preparePickupSecurity,{bookingId});
     await ensurePaidBookingAccount(ctx,{...booking,status:"confirmed"});
     const membershipAccount = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", booking.guestEmail ?? "")).first();
     if(membershipAccount&&!membershipAccount.firstRentalPaidAt)await ctx.db.patch(membershipAccount._id,{firstRentalPaidAt:Date.now()});
@@ -809,6 +814,7 @@ export const holdContext = internalQuery({
       amount: b.depositHoldAmount ?? 0,
       intentId: b.stripeDepositIntentId ?? null,
       holdStatus: b.depositHoldStatus ?? null,
+      securityHoldPolicyVersion: b.securityHoldPolicyVersion,
     };
   },
 });
@@ -1672,7 +1678,7 @@ export const prepareCancellation=internalMutation({args:{bookingId:v.id("booking
  const jobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
  if(jobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("A refund is still processing");
  const kind=bookingCancelKind(b,Date.now());
- const decision={kind,createdAt:Date.now(),...(fullCreditOfferId?{fullCreditOfferId}:{})};await ctx.db.patch(bookingId,{cancellationDecision:decision});return decision;
+ const decision={kind,createdAt:Date.now(),...(fullCreditOfferId?{fullCreditOfferId}:{})};await ctx.db.patch(bookingId,{cancellationDecision:decision,...(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY?{securityHoldRetryAt:undefined}:{})});return decision;
 }});
 export const recordCancellationQuote=internalMutation({args:{bookingId:v.id("bookings"),quote:v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})},handler:async(ctx,{bookingId,quote})=>{
  const b=await ctx.db.get(bookingId);if(!b?.cancellationDecision)throw Error("Cancellation has not been prepared");

@@ -1,6 +1,7 @@
 "use node";
 
 import Stripe from "stripe";
+import { PICKUP_HOLD_POLICY } from "../shared/pickupSecurity";
 import { returnSecurityPlan } from "../shared/returnSettlement";
 import { returnStatementEmail, type ReturnStatementData } from "../shared/returnStatement";
 import type { InspectionInput } from "../shared/returnInspection";
@@ -483,6 +484,29 @@ export async function checkoutPaymentIntent(session: Stripe.Checkout.Session): P
   return intents[0];
 }
 
+/** Payment, setup, paid subscription and trial subscription all save a reusable card. */
+export async function checkoutSavedCard(session:Stripe.Checkout.Session,sb:Stripe) {
+ const customerId=typeof session.customer==="string"?session.customer:session.customer?.id;
+ if(!customerId)throw Error("Rental checkout has no saved card customer.");
+ let paymentMethod:string|undefined;
+ const paymentId=await checkoutPaymentIntent(session);
+ if(paymentId){const pi=await sb.paymentIntents.retrieve(paymentId);if(pi.status==="succeeded")paymentMethod=typeof pi.payment_method==="string"?pi.payment_method:pi.payment_method?.id;}
+ if(!paymentMethod&&session.setup_intent){const setup=await sb.setupIntents.retrieve(typeof session.setup_intent==="string"?session.setup_intent:session.setup_intent.id);if(setup.status==="succeeded")paymentMethod=typeof setup.payment_method==="string"?setup.payment_method:setup.payment_method?.id;}
+ if(!paymentMethod&&session.subscription){const sub=await sb.subscriptions.retrieve(typeof session.subscription==="string"?session.subscription:session.subscription.id);paymentMethod=typeof sub.default_payment_method==="string"?sub.default_payment_method:sub.default_payment_method?.id;if(!paymentMethod&&sub.pending_setup_intent){const setup=await sb.setupIntents.retrieve(typeof sub.pending_setup_intent==="string"?sub.pending_setup_intent:sub.pending_setup_intent.id);if(setup.status==="succeeded")paymentMethod=typeof setup.payment_method==="string"?setup.payment_method:setup.payment_method?.id;}}
+ if(!paymentMethod)throw Error("Your reusable card could not be saved. Open your rental account to complete card setup.");
+ const method=await sb.paymentMethods.retrieve(paymentMethod);
+ const attached=typeof method.customer==="string"?method.customer:method.customer?.id;
+ if(method.type!=="card"||attached!==customerId)throw Error("The saved card is not attached to this rental customer.");
+ return {customerId,paymentMethodId:paymentMethod};
+}
+export const preparePickupSecurity = internalAction({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
+ const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId});
+ if(b?.securityHoldPolicyVersion!==PICKUP_HOLD_POLICY||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||!b.depositHoldAmount||b.securityHoldPaymentMethodId)return;
+ try{const session=await stripe().checkout.sessions.retrieve(b.stripeCheckoutSessionId);if(session.metadata?.bookingId!==bookingId||!checkoutCompleted(session))throw Error("Checkout payment is not confirmed.");const customerId=typeof session.customer==="string"?session.customer:session.customer?.id;if(customerId)await ctx.runMutation(internal.pickupSecurity.saveCustomer,{bookingId,sessionId:session.id,customerId});await ctx.runMutation(internal.pickupSecurity.saveCard,{bookingId,sessionId:session.id,...await checkoutSavedCard(session,stripe())});}
+ catch(e:any){await ctx.runMutation(internal.pickupSecurity.prepareFailed,{bookingId,retry:["StripeConnectionError","StripeAPIError","StripeRateLimitError"].includes(e?.type)});}
+}});
+async function recoverPickupCard(ctx:any,session:Stripe.Checkout.Session){const bookingId=session.metadata?.pickupCardBookingId;if(!bookingId||!checkoutCompleted(session))return;const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:bookingId as any});if(!b||b.securityHoldRecoverySessionId!==session.id)return;await ctx.runMutation(internal.pickupSecurity.recoverCard,{bookingId:bookingId as any,sessionId:session.id,...await checkoutSavedCard(session,stripe())});return bookingId;}
+
 /** A separate manual-capture PaymentIntent is required for an actual card hold.
  * Checkout saves the card for off-session use, then this attempts the hold immediately.
  * Issuer authentication is still possible; the success page handles that in the same flow. */
@@ -492,6 +516,11 @@ async function authorizeHold(ctx: any, session: Stripe.Checkout.Session): Promis
   const b: any = await ctx.runQuery(internal.bookings.holdContext, { bookingId: bookingId as any });
   if (!b || !b.amount || !["confirmed", "active"].includes(b.status)) return { status: "not_applicable" };
   const sb = stripe();
+  if(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY){
+    await ctx.runAction(internal.checkout.preparePickupSecurity,{bookingId:bookingId as any});
+    const current:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:bookingId as any});
+    return {status:current?.depositHoldStatus??"scheduled"};
+  }
   let intent: Stripe.PaymentIntent;
   if (b.intentId) {
     intent = await sb.paymentIntents.retrieve(b.intentId, { expand: ["latest_charge"] });
@@ -904,10 +933,11 @@ export const finalize = action({
   handler: async (
     ctx,
     { sessionId },
-  ): Promise<{ bookingId: string | null; paid: boolean; closed?: boolean; membership?: string; holdStatus?: string; holdClientSecret?: string;additionId?:string }> => {
+  ): Promise<{ bookingId: string | null; paid: boolean; closed?: boolean; membership?: string; holdStatus?: string; holdClientSecret?: string;cardSaved?:boolean;additionId?:string }> => {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
     const m = session.metadata ?? {};
     const paid = checkoutCompleted(session);
+    if(m.pickupCardBookingId){const bookingId=await recoverPickupCard(ctx,session);return {bookingId:bookingId??m.pickupCardBookingId,paid,holdStatus:"scheduled",cardSaved:true};}
     if(m.filmFundEntryId){const r=await ctx.runAction(internal.filmFundPayments.fulfill,{sessionId});return {bookingId:null,paid:r.paid};}
 
     if(paid&&m.rentalAdditionId){const r=await ctx.runAction(internal.rentalAdditions.finalizePaid,{id:m.rentalAdditionId as any,sessionId});return {bookingId:r.bookingId,paid,closed:r.closed,holdStatus:r.status,holdClientSecret:r.clientSecret,additionId:m.rentalAdditionId};}
@@ -1054,6 +1084,7 @@ export const stripeWebhook = internalAction({
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const s = event.data.object as Stripe.Checkout.Session;
       const m = s.metadata ?? {};
+      if(m.pickupCardBookingId){await recoverPickupCard(ctx,await stripe().checkout.sessions.retrieve(s.id));return true;}
       if(m.filmFundEntryId){await ctx.runAction(internal.filmFundPayments.fulfill,{sessionId:s.id});return true;}
       const pi = await checkoutPaymentIntent(s);
       if (m.membershipTier) await fulfillMembership(ctx, await stripe().checkout.sessions.retrieve(s.id));
@@ -1072,6 +1103,12 @@ export const stripeWebhook = internalAction({
         } else if (m.changeRequestId) {
           await ctx.runAction(internal.rentalExtensionPayments.finalize, { sessionId: s.id });
         }
+      }
+    }
+    if (["payment_intent.amount_capturable_updated","payment_intent.payment_failed","payment_intent.canceled"].includes(event.type)) {
+      const intent=event.data.object as Stripe.PaymentIntent;
+      if(intent.metadata?.purpose==="pickup_security_hold"&&intent.metadata.bookingId){
+        await ctx.runAction(internal.holdRenewal.reconcilePickupWebhook,{bookingId:intent.metadata.bookingId as any,intentId:intent.id});
       }
     }
     if (["refund.created","refund.updated","refund.failed"].includes(event.type)) {

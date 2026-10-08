@@ -27,6 +27,7 @@ function SuccessInner() {
   );
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [membership, setMembership] = useState<string | null>(null);
+  const [cardSaved, setCardSaved] = useState(false);
   const [holdStatus, setHoldStatus] = useState<string | null>(null);
   const [holdSecret, setHoldSecret] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -40,12 +41,13 @@ function SuccessInner() {
         if (r.paid) {
           if (r.closed) { setState("cancelled"); return; }
           setBookingId(r.bookingId);
+          setCardSaved(!!r.cardSaved);
           setAdditionId(r.additionId??null);
           setMembership((r as any).membership ?? null);
           setHoldStatus(r.holdStatus ?? null);
           setHoldSecret(r.holdClientSecret ?? null);
           setState("paid");
-          if (!(r as any).membership&&!r.additionId) clear();
+          if (!(r as any).membership&&!r.additionId&&!r.cardSaved) clear();
         } else {
           setState("unpaid");
         }
@@ -100,6 +102,8 @@ function SuccessInner() {
     return <Msg title={ready?"Items added to your rental":"Payment received · approval pending"} body={ready?"Your order and rental conversation now include the extra items.":holdStatus==="requires_action"?"Complete the bank approval to add these items. You can resume it in your rental conversation.":"The extra items are waiting for a valid security hold. Open your rental conversation to check the status or ask the team for help."} cta />;
   }
 
+  if(cardSaved)return <Msg title="Card saved" body="Your rental security card has been updated. We will request the hold at your agreed pickup time, or now if pickup is already due. Open your account to check progress." cta />;
+
   // membership subscription confirmation
   if (membership && !bookingId) {
     const t = tierByKey(membership);
@@ -140,7 +144,7 @@ function SuccessInner() {
         Payment <span className="serif-accent gradient-text text-[1.06em]">received</span>
       </h1>
       <p className="mt-3 text-white/40">
-        Your payment is received and your kit is reserved. Rental approval is pending the required security and document verification. Keep this page open to complete the checks.
+        Your payment is received and your kit is reserved. Complete the required identity and address checks now. Your saved card will be authorised automatically at your agreed pickup time; handover requires successful security and document approval.
       </p>
 
       {bookingId && <div className="mt-8"><VerificationProgress bookingId={bookingId} checkoutSessionId={sessionId} autoStart /></div>}
@@ -170,7 +174,7 @@ function SuccessInner() {
 
       {booking?.depositHoldAmount && booking.depositHoldStatus !== "held" && (
         <div className="mx-auto mt-5 max-w-md rounded-xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm text-amber-200">
-          {holdStatus === "requires_action" ? "Your bank is confirming the refundable card hold. Complete any bank prompt to finish." : "The card hold is not active yet. Equipment cannot be handed over until it is authorised. Please contact us if this does not update."}
+          {holdStatus === "scheduled" ? "Your card is saved. The hold is scheduled for your agreed pickup or delivery time and is not charged today. Document checks can be completed now. Equipment cannot be handed over until all required checks and the hold are complete." : holdStatus === "requires_action" ? "Your bank is confirming the refundable card hold. Complete any bank prompt to finish." : "The card hold is not active yet. Equipment cannot be handed over until it is authorised. Please contact us if this does not update."}
         </div>
       )}
 
