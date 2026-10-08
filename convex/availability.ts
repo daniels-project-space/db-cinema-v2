@@ -314,9 +314,9 @@ export const forCheckoutTimeSlots=query({
    if(!returnTime||returnTime===last)pickups.add(first);
    if(!pickupTime||pickupTime===first)returns.add(last);
   }
-  const pickupBoundary=new Set(allPickup),returnBoundary=new Set(allReturn);
-  for(const first of RENTAL_TIME_SLOTS)if(!pickupBoundary.has(first)&&RENTAL_TIME_SLOTS.some(last=>fits(first,last,"pickup")))pickupBoundary.add(first);
-  for(const last of RENTAL_TIME_SLOTS)if(!returnBoundary.has(last)&&RENTAL_TIME_SLOTS.some(first=>fits(first,last,"return")))returnBoundary.add(last);
+  const pickupBoundary=new Set<string>(),returnBoundary=new Set<string>();
+  for(const first of RENTAL_TIME_SLOTS)if(returnTime?fits(first,returnTime,"pickup"):RENTAL_TIME_SLOTS.some(last=>fits(first,last,"pickup")))pickupBoundary.add(first);
+  for(const last of RENTAL_TIME_SLOTS)if(pickupTime?fits(pickupTime,last,"return"):RENTAL_TIME_SLOTS.some(first=>fits(first,last,"return")))returnBoundary.add(last);
   return {pickupSlots:[...(pickups.size?pickups:allPickup)],returnSlots:[...(returns.size?returns:allReturn)],pickupBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>pickupBoundary.has(t)),returnBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>returnBoundary.has(t)),validPairs};
  },
 });
