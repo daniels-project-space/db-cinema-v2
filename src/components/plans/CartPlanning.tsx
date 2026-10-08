@@ -6,42 +6,9 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { useCart } from "@/components/cart/CartProvider";
 import Link from "next/link";
 import { dayMs } from "@/lib/dates";
-export function CheckoutReminder() {
-  const cart = useCart(),
-    account = useAccount();
-  if (!account.me)
-    return (
-      <p className="text-xs text-white/45">
-        <Link href="/account" className="underline">
-          Sign in
-        </Link>{" "}
-        to save your kit and request a checkout reminder.
-      </p>
-    );
-  return (
-    <div>
-      <label className="flex items-start gap-3 text-sm text-white/65">
-        <input
-          type="checkbox"
-          checked={cart.reminderEnabled}
-          onChange={(e) => cart.setReminderEnabled(e.target.checked)}
-          className="mt-1 accent-orange-500"
-        />
-        <span>
-          Email me once if I leave this checkout unfinished.
-          <span className="mt-1 block text-xs text-white/40">
-            After 2 hours, when booking is available. No reservation or
-            marketing signup. Turn off here or in Shoot lists.
-          </span>
-        </span>
-      </label>
-      {cart.reminderError && (
-        <p role="alert" className="mt-2 text-xs text-rose-300">
-          {cart.reminderError}
-        </p>
-      )}
-    </div>
-  );
+export function BasketRecoveryStatus() {
+  const cart = useCart();
+  return cart.recoveryError ? <p role="alert" className="mt-2 text-xs text-rose-300">{cart.recoveryError}</p> : null;
 }
 export function CartPlanning() {
   const cart = useCart(),
@@ -119,9 +86,7 @@ export function CartPlanning() {
           </Link>
         </p>
       )}
-      <div className="mt-5 border-t border-white/10 pt-4">
-        <CheckoutReminder />
-      </div>
+      <BasketRecoveryStatus />
     </section>
   );
 }

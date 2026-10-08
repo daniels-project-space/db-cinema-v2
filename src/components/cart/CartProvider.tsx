@@ -9,7 +9,7 @@ import {
   useCallback,
   ReactNode,
 } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { dayMs, daysInclusive } from "@/lib/dates";
@@ -48,9 +48,7 @@ type CartCtx = {
   addReplacement: (expected: string, sourceKey: string, replacement: Omit<CartItem, "key">) => void;
   duplicateItem: (key: string) => void;
   updateDates: (key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string, notice?: string) => void;
-  reminderEnabled: boolean;
-  setReminderEnabled: (enabled: boolean) => void;
-  reminderError: string | null;
+  recoveryError: string | null;
   remove: (key: string) => void;
   clear: () => void;
   has: (listingId: string) => boolean;
@@ -85,24 +83,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<string | null>(null);
   const track = useMutation(api.analytics.track);
   const account = useAccount();
-  const recovery = useQuery(
-    api.checkoutRecovery.mine,
-    account.token && account.me ? { token: account.token } : "skip",
-  );
   const syncRecovery = useMutation(api.checkoutRecovery.sync);
-  const [reminderChoice, setReminderChoice] = useState<{
-    token: string;
-    value: boolean;
-  } | null>(null);
-  const [reminderError, setReminderError] = useState<string | null>(null);
-  const reminderEnabled =
-    !!account.token &&
-    (reminderChoice?.token === account.token
-      ? reminderChoice.value
-      : !!recovery);
-  const setReminderEnabled = (value: boolean) => {
-    if (account.token) setReminderChoice({ token: account.token, value });
-  };
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const hadBasket = useRef({ token: "", value: false });
   const recoveryLines = JSON.stringify(
     items.map((i) => ({
@@ -113,38 +95,33 @@ export function CartProvider({ children }: { children: ReactNode }) {
     })),
   );
   useEffect(() => {
-    if (!hydrated || !account.token || !account.me || recovery === undefined)
-      return;
+    if (!hydrated || !account.token || !account.me) return;
     if (hadBasket.current.token !== account.token)
       hadBasket.current = { token: account.token, value: false };
-    const explicitlyOff =
-      reminderChoice?.token === account.token && !reminderChoice.value;
-    if (!items.length && !hadBasket.current.value && !explicitlyOff) return;
+    if (!items.length && !hadBasket.current.value) return;
     if (items.length) hadBasket.current.value = true;
-    const timer = setTimeout(() => {
-      syncRecovery({
-        token: account.token!,
-        enabled: reminderEnabled,
-        lines: JSON.parse(recoveryLines),
-      })
-        .then(() => setReminderError(null))
-        .catch(() =>
-          setReminderError(
-            "Could not save your reminder preference. Please try again.",
-          ),
-        );
-    }, 700);
-    return () => clearTimeout(timer);
-  }, [
-    hydrated,
-    account.token,
-    account.me,
-    recoveryLines,
-    reminderEnabled,
-    recovery === undefined,
-    syncRecovery,
-    reminderChoice,
-  ]);
+    let lastActivitySync = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const save = () => {
+      lastActivitySync = Date.now();
+      void syncRecovery({ token: account.token!, lines: JSON.parse(recoveryLines) })
+        .then(() => setRecoveryError(null))
+        .catch(() => setRecoveryError("Could not save your basket for later. Check the rental dates or try again."));
+    };
+    timer = setTimeout(save, 700);
+    const activity = () => {
+      if (!items.length || document.visibilityState !== "visible" || Date.now() - lastActivitySync < 60_000) return;
+      clearTimeout(timer);
+      save();
+    };
+    window.addEventListener("pointerdown", activity);
+    window.addEventListener("keydown", activity);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("pointerdown", activity);
+      window.removeEventListener("keydown", activity);
+    };
+  }, [hydrated, account.token, account.me, recoveryLines, syncRecovery]);
   const replace = useCallback((next: CartItem[]) => {
     setItems(next);
     setPromoState(null);
@@ -300,9 +277,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         switchSet,
         addReplacement,
         duplicateItem,
-        reminderEnabled,
-        setReminderEnabled,
-        reminderError,
+        recoveryError,
         remove,
         clear,
         has,

@@ -248,7 +248,7 @@ const start = londonDay() + 30 * DAY,
   assert.equal(
     await recovery.sync.handler(ctx, { token: "a", enabled: true, lines }),
     rId,
-    "same basket does not reset timer or resend",
+    "same basket retains its identity",
   );
   await assert.rejects(
     () => recovery.resume.handler(ctx, { token: "expired", id: rId }),
@@ -269,6 +269,8 @@ const start = londonDay() + 30 * DAY,
   );
   process.env.CHECKOUT_RECOVERY_ENABLED = "true";
   process.env.RENTAL_CHECKOUT_ENABLED = "false";
+  assert.equal(await recovery._claim.handler(ctx, { id: rId }), null, "paused checkout suppresses follow-ups");
+  process.env.RENTAL_CHECKOUT_ENABLED = "true";
   let c = await recovery._claim.handler(ctx, { id: rId });
   assert.ok(c);
   assert.equal(await recovery._claim.handler(ctx, { id: rId }), null);
@@ -287,7 +289,7 @@ const start = londonDay() + 30 * DAY,
     leaseUntil: c.leaseUntil,
     sent: true,
   });
-  assert.equal(r.state, "stopped", "opt-out wins over delayed receipt");
+  assert.equal(r.state, "stopped", "clearing the basket wins over delayed receipt");
   const id2 = await recovery.sync.handler(ctx, {
     token: "a",
     enabled: true,
@@ -520,7 +522,7 @@ const start = londonDay() + 30 * DAY,
     "stopped",
   );
   console.log(
-    "PASS whole-kit quantities/live pricing/shared stock; private plans/revocable sharing; waitlist ownership/today/failed delivery/claims; consent recovery/gates/retry/opt-out/checkout suppression.",
+    "PASS whole-kit quantities/live pricing/shared stock; private plans/revocable sharing; waitlist ownership/today/failed delivery/claims; automatic recovery/gates/retry/basket-clear/checkout suppression.",
   );
 })().catch((e) => {
   console.error(e);
