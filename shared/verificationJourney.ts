@@ -20,6 +20,7 @@ export function verificationJourney(
   );
   const verified =
     booking.idVerifyStatus === "verified" &&
+    booking.verificationExpiresAt != null &&
     unexpired &&
     (booking.idVerificationSource === "manual" ||
       !booking.verificationChecks ||

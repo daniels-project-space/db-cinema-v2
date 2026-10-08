@@ -14,6 +14,7 @@ assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,requires
 assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,verificationExpiresAt:journeyNow},journeyNow).ready,false);
 assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0,cancellationPending:true},journeyNow).current,-1,'cancellation preparation closes the upload journey');
 assert.equal(verificationJourney({...journeyBooking,depositHoldAmount:0},journeyNow).steps.some(step=>step.label==='Drone licence'),false,'non-drone rentals never display drone progress');
+assert.equal(verificationJourney({...journeyBooking,verificationExpiresAt:undefined,depositHoldAmount:0},journeyNow).ready,false,'unknown verification approval lifetime cannot authorize pickup');
 const {assertRenterExposure,renterExposure,attachRenterPerson}=load('convex/lib/rentalExposure.ts');
 const day=Date.UTC(2030,0,1),D=86400000;
 assert.equal(RENTAL_VALUE_CAP_PENCE,1500000);

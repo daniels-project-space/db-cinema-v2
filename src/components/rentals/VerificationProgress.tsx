@@ -246,6 +246,9 @@ export function VerificationProgress({
     wide = presentation === "page";
   const ready = booking.verificationAvailable && verificationCanStart(booking);
   const approved = journey.reviewed;
+  const approvalUnknown =
+    booking.idVerifyStatus === "verified" &&
+    booking.verificationExpiresAt == null;
   const expired = verificationExpired(booking, now);
   const uploadStatus =
     expired && booking.idVerifyStatus === "verified"
@@ -257,21 +260,24 @@ export function VerificationProgress({
     selfie: "A quick selfie to match your photo ID.",
     address: "A recent bill, bank statement or official address document.",
   };
-  const stage = booking.cancellationPending
-    ? "Cancellation in progress"
-    : booking.returnPending
-      ? "Return being settled"
-      : !journey.closed && !approved && ready
-        ? booking.idVerifyStatus === "manual_review"
-          ? "Verification under review"
-          : expired || booking.idVerifyStatus === "requires_input"
-            ? "Documents needed"
-            : booking.idVerifyStatus === "rejected"
-              ? "Verification needs attention"
-              : booking.idVerifyStatus === "verified"
-                ? "Saving verification documents"
-                : "Verification needed"
-        : rentalStageLabel(booking);
+  const stage =
+    approvalUnknown && !journey.closed
+      ? "Verification needs review"
+      : booking.cancellationPending
+        ? "Cancellation in progress"
+        : booking.returnPending
+          ? "Return being settled"
+          : !journey.closed && !approved && ready
+            ? booking.idVerifyStatus === "manual_review"
+              ? "Verification under review"
+              : expired || booking.idVerifyStatus === "requires_input"
+                ? "Documents needed"
+                : booking.idVerifyStatus === "rejected"
+                  ? "Verification needs attention"
+                  : booking.idVerifyStatus === "verified"
+                    ? "Saving verification documents"
+                    : "Verification needed"
+            : rentalStageLabel(booking);
   const content = (
     <section aria-label="Rental verification" className={styles.journey}>
       <div className={wide ? styles.layout : undefined}>
@@ -292,12 +298,14 @@ export function VerificationProgress({
                   : booking.returnPending
                     ? "Return being settled"
                     : "Rental closed"
-                : approved
-                  ? "Your documents are approved"
-                  : expired
-                    ? "Renew your verification"
-                    : (statusLabels[booking.idVerifyStatus] ??
-                      "Verify your identity")}
+                : approvalUnknown
+                  ? "Verification needs a team check"
+                  : approved
+                    ? "Your documents are approved"
+                    : expired
+                      ? "Renew your verification"
+                      : (statusLabels[booking.idVerifyStatus] ??
+                        "Verify your identity")}
             </h2>
             <p role="status" aria-live="polite" className={styles.intro}>
               {journey.closed
