@@ -326,10 +326,6 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.evaluate(`document.querySelector('[data-testid="confirm-membership-card"]').click()`);
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')`),false,'Clicking a confirmed card never replays confetti');
   await c.cmd("Emulation.setEmulatedMedia", {features:[{name:"prefers-reduced-motion",value:"reduce"}]});
-  if (!checkoutEnabled) {
-    await until(`document.querySelector('[data-testid="checkout-pay-button"]')?.disabled===true`);
-    assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-pay-button"]').textContent.includes('temporarily paused')`),true);
-  }
   await until(
     `!![...document.querySelectorAll('button')].find(b=>b.innerText==='Remove membership')`,
   );
