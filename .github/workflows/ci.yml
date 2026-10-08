@@ -80,4 +80,5 @@ jobs:
             echo "Browser test server did not become ready"
             exit 1
           fi
+          node scripts/test-browser-cdp.cjs
           npm run test:membership-browser

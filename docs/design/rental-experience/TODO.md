@@ -206,3 +206,10 @@ This checklist extends the original goal; no original integration requirement is
 
 - [x] Pilot 3 completed and GPU terminated; independent PNG/native receipt/R2 checks pass. Reject its hardware proportions/grip/interface and loose framing explicitly. Evidence in ernie-pilot-3-output-verification.json; no accepted card image and no bulk release. Add primary NP-FW50/NP-F570 family descriptions with unresolved OEM/casing blocks (41 descriptions, nine blocks, 32 drafts, 41 remaining reviews).
 - [x] Customer-profile preview dpl_Du2Y8ZJykAPcM6Mubg34Qgjx82CC is READY for ec03963. Hosted CI remains terminal failed at a later checkout reload, with typecheck/tests/build passing; private/live acceptance still open.
+
+### 8 October 2026 — complete browser controls and error propagation
+
+- [x] Verify hosted CI 37715627010 for source 2d24b2e is SUCCESS. Retain the earlier terminal failure as evidence of intermittent reload behaviour.
+- [x] Correct the causal claim: full native global-observer omission still fails, although the smaller raw-collector/no-observer controls pass. DevTools and batch-reconstruction replacements did not fix the complete reproduction and were removed. Fresh isolated Chrome 145 with profile/cache in shared memory also fails; no test assertion/timeout was weakened.
+- [x] Reproduce and fix CDP page exceptions silently returning undefined. Actual-browser calibration verifies normal/async/undefined results and syntax/runtime/async rejection; the old helper fails the same negative check. Wire it into CI before the unchanged membership suite. See BROWSER-RELOAD.md for scope and terminal logs.
+- [ ] Resolve complete native/hosted reload reliability and finish all original visual, equipment and live paired-manager/private-document acceptance requirements.

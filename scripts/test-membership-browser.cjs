@@ -42,15 +42,14 @@ async function connect(url, existingId) {
   return {
     cmd,
     on: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
-    evaluate: async (expression, extra = {}) =>
-      (
-        await cmd("Runtime.evaluate", {
-          expression,
-          awaitPromise: true,
-          returnByValue: true,
-          ...extra,
-        })
-      ).result?.value,
+    evaluate: async (expression, extra = {}) => {
+      const response = await cmd("Runtime.evaluate", {
+        expression, awaitPromise: true, returnByValue: true, ...extra,
+      });
+      if (response.exceptionDetails)
+        throw Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
+      return response.result?.value;
+    },
     close: () => ws.close(),
     tabId: tab.id,
   };
