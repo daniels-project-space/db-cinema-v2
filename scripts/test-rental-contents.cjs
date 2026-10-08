@@ -30,9 +30,9 @@ async function configurationGuards(){
  assert.equal(writes,0,'old acquired contents must not attach to a renamed package');
  const {applyCatalog}=loadBoundary('convex/sync.ts');
  for(const changed of [false,true]){
-  const writes=[];const row={_id:'listing',title:'Old package',hyggloProductId:1,rentalContents:{included:['Old lens']}};
+  const writes=[];const row={_id:'listing',title:'Old package',hyggloProductId:1,components:[{inventoryUnitId:'unit',qty:1}],rentalContents:{included:['Old lens']}};
   const ctx={db:{query:table=>({withIndex:()=>({first:async()=>table==='inventory_units'?{_id:'unit',quantityOwned:1}:row,collect:async()=>[]})}),patch:async(id,patch)=>writes.push({id,patch})}};
-  await applyCatalog.handler(ctx,{items:[{hyggloProductId:1,masterQty:1,componentQty:1,slug:'listing',title:changed?'New package':'Old package',category:'Cameras',itemType:'camera-body',sourceImages:[],pricing:{daily:20},depositAmount:100,replacementCost:100,minimumRentalDays:1,unavailableDates:[]}]});
+  await applyCatalog.handler(ctx,{items:[{hyggloProductId:1,stockMappingStatus:'complete',stockComponents:[{masterItemId:'camera',name:'Camera',qty:1,quantityOwned:1,active:true,replacementCost:100}],slug:'listing',title:changed?'New package':'Old package',category:'Cameras',itemType:'camera-body',sourceImages:[],pricing:{daily:20},depositAmount:100,replacementCost:100,minimumRentalDays:1,unavailableDates:[]}]});
   const patch=writes.find(x=>x.id==='listing').patch;
   assert.equal(Object.hasOwn(patch,'rentalContents'),changed);
   if(changed)assert.equal(patch.rentalContents,undefined,'a new configuration must forget the old contents');

@@ -3,12 +3,12 @@ const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
 process.env.ADMIN_TOKEN='fixture-marketing-admin';
 const admin=load('convex/marketingAdmin.ts'),sync=load('convex/sync.ts'),availability=load('convex/availability.ts'),replacements=load('convex/cartReplacements.ts'),catalog=load('convex/catalog.ts'),{assertRentalInventory}=load('convex/lib/rentalInventory.ts');
 const ctx={db},start=Date.UTC(2030,1,1),end=start+2*86400000;
-const unit=put('inventory_units',{name:'FX3',quantityOwned:10});
+const unit=put('inventory_units',{name:'FX3',quantityOwned:10,sku:'mi-fixture-camera',rmv2ItemId:'fixture-camera',active:true});
 const listing=(title,slug)=>put('listings',{title,slug,category:'Cameras',itemType:'camera-body',active:true,depositAmount:1000,pricing:{daily:40},components:[{inventoryUnitId:unit._id,qty:1}]});
 const owned=listing('Sony FX3 camera kit','fx3'),alt=listing('Sony A7 V camera kit','a7v'),marketing=listing('Cannon R5 C cinema camera','r5');
 const lines=l=>({items:[{listingId:l._id,start,end}]});
 const save=(l,marketingOnly,token=process.env.ADMIN_TOKEN,expectedUpdatedAt=l.marketingOnlyUpdatedAt)=>admin.save.handler(ctx,{token,changes:[{listingId:l._id,marketingOnly,expectedUpdatedAt}]});
-const importItem=(l,title=l.title)=>({hyggloProductId:l===owned?10:20,masterQty:10,slug:l.slug,title,category:'Cameras',itemType:'camera-body',componentQty:1,sizeScore:1,weightKg:1,sourceImages:[],pricing:{daily:40},depositAmount:1000,replacementCost:1000,minimumRentalDays:1,unavailableDates:[]});
+const importItem=(l,title=l.title)=>({hyggloProductId:l===owned?10:20,stockMappingStatus:'complete',stockComponents:[{masterItemId:'fixture-camera',name:'FX3',qty:1,quantityOwned:10,active:true,replacementCost:1000}],slug:l.slug,title,category:'Cameras',itemType:'camera-body',sizeScore:1,weightKg:1,sourceImages:[],pricing:{daily:40},depositAmount:1000,minimumRentalDays:1,unavailableDates:[]});
 (async()=>{
  assert.deepEqual(await admin.list.handler(ctx,{token:'wrong'}),{authorized:false,items:[]});await assert.rejects(save(owned,true,'wrong'),/unauthorized/);assert.equal(owned.marketingOnly,undefined);
  const seed=await admin.seedIdentified.handler(ctx,{});assert.equal(seed.tagged,1);assert.equal(marketing.marketingOnly,true);assert.equal(marketing.marketingOnlySource,'auto');assert.equal((await admin.seedIdentified.handler(ctx,{})).updated,0);

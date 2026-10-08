@@ -69,6 +69,7 @@ export default defineSchema({
       day30: v.optional(v.number()),
     }),
     depositAmount: v.number(),
+    stockMappingStatus: v.optional(v.union(v.literal("complete"), v.literal("incomplete"), v.literal("not_owned"))),
     // bill-of-materials: which physical units this bundle consumes
     components: v.array(
       v.object({

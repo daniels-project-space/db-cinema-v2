@@ -97,12 +97,6 @@ function cleanSpecs(title: string, itemType: string): any {
   if (sp.coverage) c.coverage = sp.coverage;
   return c;
 }
-// leading "2x" / "2×" / "3 x" => bundle consumes that many physical units
-function parseQty(title: string): number {
-  const m = title.match(/^\s*(\d+)\s*[x×]/i);
-  const q = m ? parseInt(m[1], 10) : 1;
-  return Math.min(Math.max(q, 1), 6);
-}
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 
@@ -118,21 +112,15 @@ type RawProduct = {
   unavailableDates?: unknown[];
   listings?: { slug?: string; publicUrl?: string }[];
   masterItemId?: string;
+  stockMapping?: {version:number;complete:boolean;owned:boolean|null;components:{masterItemId:string;name:string;qty:number;quantityOwned:number;active:boolean;replacementCost:number}[]};
 };
 
 export const syncFromRmv2 = action({
   args: {},
   handler: async (ctx): Promise<{ listings: number; units: number }> => {
-    const products: RawProduct[] = await rmv2Query("hygglo_products:list", {
+    const products: RawProduct[] = await rmv2Query("hygglo_products:catalogueForStorefront", {
       accountSlug: ACCOUNT,
     });
-    const items: { _id: string; qty?: number; status?: string; is_marketing_only?: boolean }[] = await rmv2Query(
-      "items:listForReconcile",
-      {},
-    );
-    const qtyByItem = new Map(items.map((i) => [i._id,
-      i.status === "active" && i.is_marketing_only === false && Number.isSafeInteger(i.qty) && i.qty! >= 0 ? i.qty! : 0]));
-
     // Keep priced offerings browsable, including marketing-only demand items.
     // Physical quantities come exclusively from valid, active owned master
     // records; listing titles and manual marketing exemptions create no stock.
@@ -141,6 +129,10 @@ export const syncFromRmv2 = action({
     );
 
     const payload = live.map((p) => {
+      const mapping = p.stockMapping;
+      if (!mapping || mapping.version !== 1 || typeof mapping.complete !== "boolean" ||
+          !(mapping.owned === null || typeof mapping.owned === "boolean") || !Array.isArray(mapping.components))
+        throw Error("Rental Manager catalogue lacks verified component mapping");
       const prices = p.prices ?? [];
       const pick = (d: number) => {
         const row = prices.find((x) => x.days === d);
@@ -159,14 +151,13 @@ export const syncFromRmv2 = action({
       const spec = DELIVERY_BY_TYPE[itemType];
       return {
         hyggloProductId: p.productId,
-        masterItemId: p.masterItemId,
-        masterQty: p.masterItemId ? qtyByItem.get(p.masterItemId) ?? 0 : 0,
+        stockComponents: mapping.components,
+        stockMappingStatus: mapping.complete && mapping.owned === true && mapping.components.length > 0 ? "complete" as const : mapping.owned === false ? "not_owned" as const : "incomplete" as const,
         slug: `${slugify(title)}-${p.productId}`,
         title,
         category: categoryFor(title),
         itemType,
         specs: cleanSpecs(title, itemType),
-        componentQty: parseQty(title),
         sizeScore: spec.sizeScore,
         weightKg: spec.weightKg,
         sourceImages,
@@ -177,7 +168,6 @@ export const syncFromRmv2 = action({
           day30: pick(30),
         },
         depositAmount: p.valuation ?? 0,
-        replacementCost: p.valuation ?? 0,
         minimumRentalDays: p.minimumRentalDays ?? 1,
         hyggloListingSlug: firstListing?.slug,
         publicUrl: firstListing?.publicUrl,
@@ -201,14 +191,13 @@ export const applyCatalog = internalMutation({
     items: v.array(
       v.object({
         hyggloProductId: v.number(),
-        masterItemId: v.optional(v.string()),
-        masterQty: v.number(),
+        stockMappingStatus: v.union(v.literal("complete"),v.literal("incomplete"),v.literal("not_owned")),
+        stockComponents: v.array(v.object({masterItemId:v.string(),name:v.string(),qty:v.number(),quantityOwned:v.number(),active:v.boolean(),replacementCost:v.number()})),
         slug: v.string(),
         title: v.string(),
         category: v.string(),
         itemType: v.string(),
         specs: v.optional(v.any()),
-        componentQty: v.number(),
         sizeScore: v.number(),
         weightKg: v.number(),
         sourceImages: v.array(v.string()),
@@ -219,7 +208,6 @@ export const applyCatalog = internalMutation({
           day30: v.optional(v.number()),
         }),
         depositAmount: v.number(),
-        replacementCost: v.number(),
         minimumRentalDays: v.number(),
         hyggloListingSlug: v.optional(v.string()),
         publicUrl: v.optional(v.string()),
@@ -228,7 +216,7 @@ export const applyCatalog = internalMutation({
     ),
   },
   handler: async (ctx, { items, fingerprint }) => {
-    const stateKey = "catalog-payload-v2-exact-stock";
+    const stateKey = "catalog-payload-v3-canonical-components";
     const state = fingerprint
       ? await ctx.db
           .query("rmv2_sync_state")
@@ -240,15 +228,27 @@ export const applyCatalog = internalMutation({
     }
     // Validate the complete source batch before mutating any stock. Listing
     // contents describe demand, never evidence that we own that many units.
-    const quantities = new Map<string, number>();
     for (const item of items) {
-      if (!Number.isSafeInteger(item.masterQty) || item.masterQty < 0 ||
-          !Number.isSafeInteger(item.componentQty) || item.componentQty < 1)
-        throw Error("Invalid source inventory quantity");
-      const key = item.masterItemId ?? `prod-${item.hyggloProductId}`;
-      if (quantities.has(key) && quantities.get(key) !== item.masterQty)
-        throw Error("Conflicting quantities for the same source inventory item");
-      quantities.set(key, item.masterQty);
+      if (!Array.isArray(item.stockComponents) || !["complete","incomplete","not_owned"].includes(item.stockMappingStatus))
+        throw Error("Incomplete source stock mapping contract");
+      const seen = new Set<string>();
+      for (const component of item.stockComponents) {
+        if (!component.masterItemId.trim() || !component.name.trim() || seen.has(component.masterItemId) ||
+            !Number.isSafeInteger(component.qty) || component.qty < 1 ||
+            !Number.isSafeInteger(component.quantityOwned) || component.quantityOwned < 0 ||
+            !Number.isFinite(component.replacementCost) || component.replacementCost < 0)
+          throw Error("Invalid source component mapping");
+        seen.add(component.masterItemId);
+      }
+      if (item.stockMappingStatus === "complete" && !item.stockComponents.length)
+        throw Error("A complete stock mapping requires physical components");
+    }
+    const physical = new Map<string,string>();
+    for (const item of items) for (const component of item.stockComponents ?? []) {
+      const value = JSON.stringify([component.name,component.quantityOwned,component.active,component.replacementCost]);
+      if (physical.has(component.masterItemId) && physical.get(component.masterItemId) !== value)
+        throw Error("Conflicting source physical pool records");
+      physical.set(component.masterItemId,value);
     }
     let unitCount = 0;
     let listingCount = 0;
@@ -262,6 +262,7 @@ export const applyCatalog = internalMutation({
       replacementCost: number,
       rmv2ItemId: string | undefined,
       hyggloProductId: number,
+      active = true,
     ): Promise<string> {
       if (unitCache.has(key)) return unitCache.get(key)!;
       const existing = await ctx.db
@@ -276,7 +277,7 @@ export const applyCatalog = internalMutation({
           replacementCost,
           rmv2ItemId,
           hyggloProductId,
-          active: true,
+          active,
         });
         id = existing._id;
       } else {
@@ -287,7 +288,7 @@ export const applyCatalog = internalMutation({
           replacementCost,
           rmv2ItemId,
           hyggloProductId,
-          active: true,
+          active,
         });
         unitCount++;
       }
@@ -296,17 +297,13 @@ export const applyCatalog = internalMutation({
     }
 
     for (const it of items) {
-      const unitKey = it.masterItemId ?? `prod-${it.hyggloProductId}`;
-      const sku = it.masterItemId ? `mi-${it.masterItemId}` : `prod-${it.hyggloProductId}`;
-      const unitId = await ensureUnit(
-        unitKey,
-        sku,
-        it.title,
-        it.masterQty,
-        it.replacementCost,
-        it.masterItemId,
-        it.hyggloProductId,
-      );
+      const components: {inventoryUnitId:any;qty:number}[] = [];
+      for (const component of it.stockComponents) {
+        const unitId = await ensureUnit(component.masterItemId, `mi-${component.masterItemId}`,
+          component.name, component.quantityOwned, component.replacementCost,
+          component.masterItemId, it.hyggloProductId, component.active);
+        components.push({inventoryUnitId:unitId,qty:component.qty});
+      }
 
       const existing = await ctx.db
         .query("listings")
@@ -324,7 +321,8 @@ export const applyCatalog = internalMutation({
         sourceImages: it.sourceImages,
         pricing: it.pricing,
         depositAmount: it.depositAmount,
-        components: [{ inventoryUnitId: unitId as any, qty: it.componentQty }],
+        components,
+        stockMappingStatus: it.stockMappingStatus,
         hyggloListingSlug: it.hyggloListingSlug,
         hyggloProductId: it.hyggloProductId,
         unavailableDates: it.unavailableDates,
@@ -340,7 +338,9 @@ export const applyCatalog = internalMutation({
         // in the live set — so the bot/assemble/storefront never show it.
         const patch: any = (existing as any).suppressed ? { ...synced, active: false } : synced;
         // A retitled/replaced configuration must not inherit the old package's packing list.
-        if (existing.title !== it.title || existing.hyggloProductId !== it.hyggloProductId)
+        const identity = (components: {inventoryUnitId:any;qty:number}[]) => JSON.stringify(components.map(c => [String(c.inventoryUnitId),c.qty]).sort((a,b) => String(a[0]).localeCompare(String(b[0]))));
+        if (existing.title !== it.title || existing.hyggloProductId !== it.hyggloProductId ||
+            identity(existing.components) !== identity(synced.components))
           patch.rentalContents = undefined;
         await ctx.db.patch(existing._id, { ...patch, ...automaticMarketingFields(synced, existing) });
       } else {
@@ -461,8 +461,10 @@ export const syncHyggloReservations = action({
     const rows = live.map((r) => {
       const start = dms(r.start_date || r.pickup_date);
       const end = dms(r.end_date || r.return_date || r.start_date);
-      const resolved = Array.isArray(r.resolved_items) ? r.resolved_items : [];
-      const items = resolved.length
+      if (Array.isArray(r.physical_items) && r.physical_items.some((i:any) => typeof i.item_id !== "string" || !i.item_id.trim() || !Number.isSafeInteger(i.qty) || i.qty < 1))
+        throw Error("Rental Manager reservation has invalid physical quantities");
+      const resolved = Array.isArray(r.physical_items) ? r.physical_items : Array.isArray(r.expanded_items) && r.expanded_items.length ? r.expanded_items : Array.isArray(r.resolved_items) ? r.resolved_items : [];
+      const items = Array.isArray(r.physical_items) || resolved.length
         ? resolved.map((i: any) => ({ itemId: i.item_id, qty: Math.round(i.qty || 1) }))
         : (Array.isArray(r.items) ? r.items : []).map((i: any) => ({
             productId: typeof i.product_id === "number" ? i.product_id : undefined,

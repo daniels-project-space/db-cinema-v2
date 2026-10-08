@@ -2,6 +2,16 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — canonical complete-kit stock
+
+- [x] Export one authenticated manager snapshot from its actual listing resolver, including declared kit coverage, audited overrides and every stock-required component's exact physical pool. Require this contract in website sync; no primary-only/title-quantity fallback.
+- [x] Use complete shared component allocations for cart, replacement and hold checks. Keep unknown/unowned cards selectable for demand, preserve owner tags/photos, reject malformed/conflicting batches and clear stale packing lists after a component change.
+- [x] Export upstream physical occupancy from the manager's real stock helper, preferring audited kit overrides over stale primary guesses and preserving explicitly empty allocations. Native paired HTTP verification passes; the old actual importer reproduces four nominal kits where the source supports one. See CANONICAL-KIT-STOCK.md.
+- [x] Full website default suite and build pass; manager 140 files / 2152 passing tests / 14 skips, TypeScript, Next build and both owner audits pass.
+- [ ] Complete final source-matched hosted checks and previews.
+- [ ] Before compatible backend rollout, reconcile active legacy website allocations against their original booking evidence and review mapping gaps/conflicts. Preserving old allocation rows does not establish migration safety.
+- [ ] Verify real current/upcoming/ongoing source stock, freshness and a single atomic stock authority across website and Hygglo writers. All original management, document, return, visual and equipment-render requirements remain active.
+
 ### 8 October 2026 — private inventory bridge
 
 - [x] Replace all anonymous website source reads with the existing configured server synchronization credential, validated HTTPS manager endpoint, redirect refusal, timeout and versioned path-bound receipt. Reject errors before source writes.
