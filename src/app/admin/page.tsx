@@ -11,6 +11,7 @@ import { AdminGafferCalls } from "@/components/admin/GafferCalls";
 import { RentalInbox } from "@/components/admin/RentalInbox";
 import { AdminRentalCards } from "@/components/admin/RentalCards";
 import { RentalWorkspace } from "@/components/admin/RentalWorkspace";
+import { NotificationSettings } from "@/components/admin/NotificationSettings";
 import { OwnerNotificationBell } from "@/components/admin/OwnerNotificationBell";
 import { AccountAdmin } from "@/components/admin/AccountAdmin";
 import { MarketingListingsAdmin } from "@/components/admin/MarketingListingsAdmin";
@@ -218,6 +219,7 @@ export default function AdminPage() {
 
         {tab === "settings" && (
           <div className="mt-6 space-y-4">
+            <NotificationSettings token={token} />
             <MarketingListingsAdmin token={token} />
             <AdminSettings token={token} />
             {[

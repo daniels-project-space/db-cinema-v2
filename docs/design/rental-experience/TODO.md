@@ -2,6 +2,12 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — admin notification settings implementation
+
+- [x] Add the admin-only settings panel with saved device names and actual alert-type preferences, device disable, bounded private delivery status and guarded manual retries. Connect preferences to real queue/claim paths and preserve in-app attention.
+- [x] Fence queued admin alerts to subscription versions, disable duplicate endpoints after browser-ID reset, recover killed workers, and prepare the owner worker before gesture opt-in. Add the separate admin Home Screen manifest and recovery behavior. Actual handler tests and native real-component/handler desktop/mobile checks are qualified in ADMIN-NOTIFICATIONS.md.
+- [ ] Complete hosted/physical-phone/provider-delivery acceptance and compatible paired publication. Original six-screen reference comparisons and all integration/stock/archive/render requirements remain active.
+
 ### 8 October 2026 — renter notification implementation
 
 - [x] Connect the account bell to protected renter device registrations/preferences and actual owner/system rental-chat event queueing. Add private lock-screen text, exact booking/general-support destinations, read/ownership/session suppression, subscription generations, fenced retries, expiration and sign-out disable.

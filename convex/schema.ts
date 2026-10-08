@@ -639,9 +639,10 @@ export default defineSchema({
   }).index("by_status_due", ["status", "nextAttemptAt"]),
 
   admin_push_subscriptions: defineTable({
+    label: v.optional(v.string()), humanRequests: v.optional(v.boolean()), renterMessages: v.optional(v.boolean()),
     deviceId: v.string(), endpoint: v.string(), p256dh: v.string(), auth: v.string(),
     enabled: v.boolean(), createdAt: v.number(), updatedAt: v.number(), lastError: v.optional(v.string()),
-  }).index("by_device", ["deviceId"]).index("by_enabled", ["enabled"]),
+  }).index("by_device", ["deviceId"]).index("by_endpoint", ["endpoint"]).index("by_enabled", ["enabled"]),
   admin_notifications: defineTable({
     eventKey: v.string(), kind: v.string(), accountId: v.id("accounts"), bookingId: v.optional(v.id("bookings")),
     title: v.string(), body: v.string(), createdAt: v.number(), read: v.boolean(),

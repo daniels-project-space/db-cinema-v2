@@ -1,0 +1,1 @@
+{"id":"/admin","name":"DB Cinema Rentals Admin","short_name":"DB Admin","start_url":"/admin","scope":"/admin","display":"standalone","background_color":"#171818","theme_color":"#171818","icons":[{"src":"/db-cinema-logo-512.png","sizes":"512x512","type":"image/png","purpose":"any"},{"src":"/db-cinema-logo.png","sizes":"1024x1024","type":"image/png","purpose":"any"}]}
