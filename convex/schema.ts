@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { inspectionRecord } from "./lib/returnInspectionFields";
+import { cancellationReceipt } from "./lib/cancellationFields";
 
 /**
  * Db Cinema Rentals v2 — standalone storefront schema.
@@ -16,6 +17,10 @@ import { inspectionRecord } from "./lib/returnInspectionFields";
  * Trigger sync job through an httpAction bridge. `rmv2_sync_state` tracks it.
  */
 export default defineSchema({
+  rental_cancellations: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")),
+    adminReason: v.optional(v.string()), legacy: v.boolean(), status: v.union(v.literal("processing"), v.literal("attention"), v.literal("succeeded")),
+    receipts: v.array(cancellationReceipt), generation: v.number(), leaseUntil: v.number(), retryAt: v.optional(v.number()), updatedAt: v.number(),
+  }).index("by_booking", ["bookingId"]).index("by_retry", ["retryAt"]),
   rental_damage_cases: defineTable({
     bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")),
     itemKey: v.string(), title: v.string(), inventoryUnitId: v.optional(v.id("inventory_units")),

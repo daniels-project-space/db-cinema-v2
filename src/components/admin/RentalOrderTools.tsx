@@ -25,6 +25,7 @@ export function RentalOrderTools({
     token,
     bookingId: bookingId as any,
   });
+  const cancellation = useQuery(api.cancellationRecovery.ownerStatus, { token, bookingId: bookingId as any });
   const additions =
     useQuery(api.rentalAdditionState.list, {
       token,
@@ -132,7 +133,7 @@ export function RentalOrderTools({
       setMode(null);
       setReason("");
     } catch (e: any) {
-      setError(e.message ?? "The action could not be completed.");
+      setError(e.data?.message ?? e.message ?? "The action could not be completed.");
     } finally {
       setBusy(false);
     }
@@ -207,6 +208,10 @@ export function RentalOrderTools({
         <div><dt>Card authorisation</dt><dd>{formatGbp(b.depositHoldAmount ?? 0)}</dd></div>
       </dl>
       <p className="mb-2 text-[10px] uppercase tracking-[.16em] text-white/35">Manage rental · owner only</p>
+      {cancellation && cancellation.status !== "succeeded" && <div role="status" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
+        <p>{cancellation.status === "attention" ? "Cancellation needs payment review. The existing refund was not completed." : "Cancellation settlement is processing. The rental remains reserved until refunds and security release are confirmed."}</p>
+        {cancellation.refunds.map((r, i) => <p key={i} className="mt-2">{formatGbp(r.amount)} · {r.status.replaceAll("_", " ")}{r.approvalUrl && r.status === "awaiting_approval" && <a className="ml-2 underline" href={r.approvalUrl} target="_blank" rel="noopener noreferrer">Review in Stripe</a>}</p>)}
+      </div>}
       <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Owner rental controls">
         {b.status === "confirmed" && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision || !!b.returnDecision} onClick={async () => {
           setBusy(true); setError(""); setResult("");

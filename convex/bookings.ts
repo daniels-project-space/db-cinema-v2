@@ -585,10 +585,7 @@ export const getForChat = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
-    const acct = await ctx.db
-      .query("accounts")
-      .withIndex("by_email", (q) => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()))
-      .first();
+    const acct = await accountForRental(ctx, b);
     return {
       accountId: acct?._id ?? null,
       lineItems: b.lineItems,
@@ -1632,10 +1629,7 @@ export const getForCancel = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
-    const acct = await ctx.db
-      .query("accounts")
-      .withIndex("by_email", (q) => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()))
-      .first();
+    const acct = await accountForRental(ctx, b);
     const res = await ctx.db
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
@@ -1703,6 +1697,12 @@ export const _finalizeCancellation = internalMutation({
   handler: async (ctx, { bookingId, accountId, mode, refundAmount, creditAmount, currency, adminReason }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return { ok: false as const };
+    const cancellationJob = await ctx.db.query("rental_cancellations").withIndex("by_booking", q => q.eq("bookingId", bookingId)).unique();
+    if (cancellationJob?.receipts.some(r => r.status !== "succeeded")) throw Error("Stripe cancellation settlement is incomplete.");
+    if (cancellationJob && (!b.cancellationDecision?.quote ||
+        b.cancellationDecision.quote.mode !== mode || b.cancellationDecision.quote.refundAmount !== refundAmount ||
+        b.cancellationDecision.quote.creditAmount !== creditAmount || cancellationJob.accountId !== accountId ||
+        currency.toLowerCase() !== (b.currency ?? "GBP").toLowerCase())) throw Error("The frozen cancellation settlement changed.");
     await stopMatchingRecovery(ctx,b.guestEmail??"",b.lineItems,bookingId);
     const membershipAccount = accountId ? await ctx.db.get(accountId) : await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",b.guestEmail??"")).first();
     if (membershipAccount?.membershipPerksPendingBookingId === bookingId)

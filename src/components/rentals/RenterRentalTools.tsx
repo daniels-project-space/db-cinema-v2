@@ -7,6 +7,7 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
   const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => { const timer = setInterval(() => setRefreshKey(Date.now()), 60000); return () => clearInterval(timer); }, []);
   const context = useQuery(api.rentalRequests.context, { token, bookingId: bookingId as any, refreshKey });
+  const cancellation = useQuery(api.cancellationRecovery.renterStatus, { token, bookingId: bookingId as any });
   const request = useMutation(api.rentalRequests.submit);
   const cancel = useAction(api.checkout.cancelByCustomer);
   const cancelUnpaid = useAction(api.checkout.cancelUnpaidByCustomer);
@@ -35,10 +36,11 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
         setResult("Request sent to the team in this conversation. Your rental stays unchanged until the team confirms it.");
       }
       setMode(null);
-    } catch (e: any) { setError(e.message ?? "Please try again."); }
+    } catch (e: any) { setError(e.data?.message ?? e.message ?? "Please try again."); }
     finally { setBusy(false); }
   }
   return <div className="mt-3" data-testid="renter-rental-tools">
+    {cancellation && cancellation.status !== "succeeded" && <p role="status" className="mb-3 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-100">{cancellation.status === "attention" ? "The team is reviewing your cancellation settlement. Please message us if you need help." : "Your cancellation is processing. We will confirm once the refund and security release are complete."}</p>}
     <div className="flex flex-wrap gap-2" aria-label="Rental requests">
       {(context.status === "active" ? [["items", "Request kit change"]] : [["dates", "Request dates"], ["items", "Request kit change"], ["cancel", "Cancel rental"]]).map(([kind, label]) => <button key={kind} disabled={busy || context.locked} onClick={() => open(kind as typeof mode)} className={`rounded-full border px-3 py-2 text-xs ${mode === kind ? "border-accent-400/50 bg-accent-500/10 text-white" : "border-white/10 text-white/60 hover:text-white"} disabled:opacity-35`}>{label}</button>)}
     </div>
