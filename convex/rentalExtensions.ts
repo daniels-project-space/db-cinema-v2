@@ -139,10 +139,16 @@ export const prepare = internalMutation({
     if (!r.baseLines || r.baseLines !== baseLines(b)) throw Error("The rental changed. Decline this request and ask for a new quote.");
     const q = await quoteFor(ctx, b, r.extraDays!, r.lineItemIndexes);
     if (q.priceDelta !== r.priceDelta || quoteIdentity(q.items) !== quoteIdentity(r.quoteItems ?? [])) throw Error("The price changed. Decline this request and ask the renter to review a fresh quote.");
+    const proposed=bookingStockLines(b!).map((li,index)=>q.items.some(item=>item.lineIndex===index)?{...li,end:q.items.find(item=>item.lineIndex===index)!.end,returnTime}:li);
+    await assertRentalInventory(ctx,proposed,b!._id);
     const expiresAt = Date.now() + DAY;
     for (const item of q.items) {
+      const original=bookingStockLines(b!)[item.lineIndex],extended=proposed[item.lineIndex];
+      // Reserve continuously from the previous agreed return, including the
+      // remainder of that day, through the newly approved return clock.
+      const start=rentalWindow(original).end,end=rentalWindow(extended).end;
       const listing = await ctx.db.get(item.listingId as Id<"listings">);
-      for (const comp of listing!.components) await ctx.db.insert("reservations", { bookingId: b!._id, extensionRequestId: requestId, listingId: item.listingId, inventoryUnitId: comp.inventoryUnitId, qty: comp.qty * item.qty, start: item.start, end: item.end, source: "site", status: "hold", holdExpiresAt: expiresAt });
+      for (const comp of listing!.components) await ctx.db.insert("reservations", { bookingId: b!._id, extensionRequestId: requestId, listingId: item.listingId, inventoryUnitId: comp.inventoryUnitId, qty: comp.qty * item.qty, start,end,endExclusive:true, source: "site", status: "hold", holdExpiresAt: expiresAt });
     }
     const patch = { approvedReturnTime: returnTime, status: "approved" as const, approvedAt: Date.now(), approvalReason: reason.trim(), expiresAt };
     await ctx.db.patch(requestId, patch);

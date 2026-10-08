@@ -1,3 +1,4 @@
+import {isAllowedReturnTime} from "../src/lib/site";
 "use node";
 
 import Stripe from "stripe";
@@ -221,7 +222,7 @@ export const start = action({
     if (a.customer.billingAddress.trim().length < 10 || (a.customer.name ?? "").trim().length < 3)
       throw new Error("Enter your full name and billing address for the rental statement.");
     const slot = /^([01]\d|2[0-3]):[0-5]\d$/;
-    if (!a.pickupTime || !slot.test(a.pickupTime) || !a.returnTime || !slot.test(a.returnTime))
+    if (!a.pickupTime || !slot.test(a.pickupTime) || !a.returnTime || !slot.test(a.returnTime) || !isAllowedReturnTime(a.pickupTime) || !isAllowedReturnTime(a.returnTime) || a.items.some(i=>i.pickupTime!==undefined&&!isAllowedReturnTime(i.pickupTime)||i.returnTime!==undefined&&!isAllowedReturnTime(i.returnTime)))
       throw new Error("Choose the agreed pickup and return times before paying.");
     assertCurrentAgreement(a.agreement, a.fulfilment);
     if (!a.agreement?.requestId||!/^[a-zA-Z0-9-]{16,80}$/.test(a.agreement.requestId)) throw Error("Review and sign this booking before paying.");

@@ -118,13 +118,13 @@ export const forCart = query({
     if (items.length === 0) return {};
     if(items.length>100)throw Error("Basket is too large");
     const precision=await stockTimePrecision(ctx);
-    const windows=items.map(i=>stockWindow(i,precision));
+    const invalid = new Set<string>();
+    const windows=items.map(i=>{try{return stockWindow(i,precision);}catch(error){if(!(error instanceof Error)||error.message!=="Return must be after pickup")throw error;invalid.add(String(i.listingId));return stockWindow({start:i.start,end:i.end},false);}});
     const lo = Math.min(...windows.map(i=>i.start));
     const hi = Math.max(...windows.map(i=>i.end));
 
     // resolve each cart line's components
     const lines: { listingId: string; start: number; end: number; qty:number; comps: any[] }[] = [];
-    const invalid = new Set<string>();
     for (const [index,it] of items.entries()) {
       if(!Number.isSafeInteger(it.qty??1)||(it.qty??1)<1||(it.qty??1)>100)throw Error("Invalid rental quantity");
       const l = await ctx.db.get(it.listingId);

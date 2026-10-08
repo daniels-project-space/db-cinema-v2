@@ -14,7 +14,7 @@ export function TimeSlotPicker({ id, label, value, onChange, disabled=false, all
   const menu = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  useEffect(()=>{if(disabled)setOpen(false);},[disabled]);
+  useEffect(()=>{if(disabled||!slots.length)setOpen(false);},[disabled,slots.length]);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 260, maxHeight: 320 });
   function show() { if(disabled||!slots.length)return; setActive(Math.max(0, slots.indexOf(value))); setOpen(true); }
   function choose(index: number) { if(disabled||!slots.length)return; onChange(slots[index]); setOpen(false); trigger.current?.focus(); }

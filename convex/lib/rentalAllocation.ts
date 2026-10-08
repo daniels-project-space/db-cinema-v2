@@ -26,7 +26,8 @@ export async function assertRentalAllocation(ctx: any, booking: any, reservation
     add(actual, reservation.listingId, reservation.inventoryUnitId, reservation.start, reservation.end, reservation.qty);
   }
   const fingerprint = (map: Map<string, number>) => JSON.stringify([...map.entries()].sort(([a], [b]) => a.localeCompare(b)));
-  const wanted=reservations.some(r=>r.endExclusive)?[exact,days]:[expected];
+  const preciseLedger=reservations.some(r=>!r.extensionRequestId&&["confirmed","active"].includes(r.status)&&r.endExclusive);
+  const wanted=preciseLedger?[exact,days]:[expected];
   if (!wanted.some(map=>fingerprint(map)===fingerprint(actual))) throw Error("The kit inventory mapping changed. The team must reconcile the current rental before changing it.");
-  return reservations.some(r=>r.endExclusive)?(fingerprint(exact)===fingerprint(actual)?"precise":"day"):"legacy";
+  return preciseLedger?(fingerprint(exact)===fingerprint(actual)?"precise":"day"):"legacy";
 }

@@ -158,6 +158,7 @@ async function due(b) {
       }),
     /clocks change/,
   );
+  assert.equal(shared.pickupHoldAt({lineItems:[{start:Date.parse("2026-10-10"),pickupTime:"18:00"},{start:Date.parse("2026-10-11"),pickupTime:"09:00"},{start:Date.parse("2026-10-10"),pickupTime:"10:00"}],pickupTime:"22:00"}),Date.parse("2026-10-10T09:00:00Z"),"Hold follows earliest actual per-item collection, with London BST, rather than the global clock or smallest clock on another day");
   let b = make();
   await save(b);
   assert.equal(b.depositHoldStatus, "scheduled");
