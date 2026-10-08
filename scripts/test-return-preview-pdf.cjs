@@ -18,7 +18,8 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
  const pdf=Buffer.from(await response.arrayBuffer());assert.equal(pdf.subarray(0,5).toString(),'%PDF-');const file=path.join(dir,'draft.pdf');fs.writeFileSync(file,pdf);
  const text=execFileSync('pdftotext',[file,'-'],{encoding:'utf8'});assert(text.includes('DRAFT RETURN STATEMENT'));assert(text.includes('Expected security refund at return'));assert(text.includes('40.50'));assert(text.includes('Damage case selected'));assert(text.includes('previewing does not execute refunds'));
  invoice.returnStatement=statement;const final=await POST(request({statement,draft:false}),params);assert.equal(final.status,200);const issued=path.join(dir,'issued.pdf');fs.writeFileSync(issued,Buffer.from(await final.arrayBuffer()));const finalText=execFileSync('pdftotext',[issued,'-'],{encoding:'utf8'});assert(!finalText.includes('DRAFT RETURN STATEMENT'));assert(finalText.includes('Damage case opened'));assert.equal((await POST(request({statement:{...statement,damageTotal:999},draft:false}),params)).status,409);
- fs.mkdirSync('/root/dbc-return-statement-review',{recursive:true});fs.copyFileSync(file,'/root/dbc-return-statement-review/draft.pdf');fs.copyFileSync(issued,'/root/dbc-return-statement-review/issued-fixture.pdf');
- execFileSync('pdftoppm',['-png','-scale-to','1500','-singlefile',file,'/root/dbc-return-statement-review/draft']);
+ const artifacts=process.env.DBC_RETURN_PDF_ARTIFACT_DIR?path.resolve(process.env.DBC_RETURN_PDF_ARTIFACT_DIR):path.join(dir,'review');
+ fs.mkdirSync(artifacts,{recursive:true});fs.copyFileSync(file,path.join(artifacts,'draft.pdf'));fs.copyFileSync(issued,path.join(artifacts,'issued-fixture.pdf'));
+ execFileSync('pdftoppm',['-png','-scale-to','1500','-singlefile',file,path.join(artifacts,'draft')]);
  console.log('PASS actual PDF route/renderer: private secret-scoped booking lookup, altered particulars/amounts rejected, draft watermarks and truthful planned amounts, exact issued statement validation and real PDF text extraction. Isolated booking-query fixtures only.');
 })().catch(e=>{console.error(e);process.exitCode=1});
