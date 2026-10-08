@@ -2,7 +2,6 @@ import { query, mutation, internalQuery, internalMutation } from "./_generated/s
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
-import { rentalsForAccount } from "./lib/rentalAccount";
 
 const DOCUMENT_RETENTION_MS = 30 * 86400000;
 function rentalClosedAt(booking: any): number | undefined {
@@ -101,16 +100,39 @@ export const downloadAccess = internalMutation({ args: { token: v.string(), docu
   return { storageId: document.storageId, kind: document.kind, contentType: document.contentType };
 } });
 
+/** Walk both ownership indexes without truncating an account's rental history. */
+async function backfillPage(ctx: any, accountId: any, legacy: boolean, cursor: string | null) {
+  const account = await ctx.db.get(accountId);
+  if (!account) return;
+  const rentals = legacy
+    ? ctx.db.query("bookings").withIndex("by_account_guestEmail", (q: any) => q.eq("accountId", undefined).eq("guestEmail", account.email))
+    : ctx.db.query("bookings").withIndex("by_account", (q: any) => q.eq("accountId", accountId));
+  const page = await rentals.order("desc").paginate({ numItems: 25, cursor });
+  for (const booking of page.page) {
+    if (!booking.diditSessionId) continue;
+    const archives = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", booking._id)).collect();
+    const existing = archives.find((a: any) => a.sessionId === booking.diditSessionId);
+    // The same decision preserves active reuse and claims, without recopying
+    // expired documents or resurrecting an archive whose bytes were deleted.
+    const retention = await archiveRetention(ctx, existing ?? { bookingId: booking._id, status: "pending" });
+    if (retention.viewable) await queueVerificationArchive(ctx, booking);
+  }
+  if (!page.isDone || !legacy) {
+    await ctx.scheduler.runAfter(0, internal.verificationArchive.backfillNext, {
+      accountId, legacy: page.isDone ? true : legacy,
+      cursor: page.isDone ? null : page.continueCursor,
+    });
+  }
+}
 export const backfillAccount = mutation({ args: { token: v.string(), accountId: v.id("accounts") }, handler: async (ctx, args) => {
   await assertAdmin(ctx, args.token, "verificationArchive.backfillAccount");
-  const account = await ctx.db.get(args.accountId);
-  if (!account) throw Error("Account not found");
-  const bookings = await rentalsForAccount(ctx, account, 100);
-  for (const booking of bookings) {
-    const closedAt = rentalClosedAt(booking);
-    if (booking.diditSessionId && (!closedAt || closedAt + DOCUMENT_RETENTION_MS > Date.now())) await queueVerificationArchive(ctx, booking);
-  }
+  if (!await ctx.db.get(args.accountId)) throw Error("Account not found");
+  await backfillPage(ctx, args.accountId, false, null);
 } });
+export const backfillNext = internalMutation({
+  args: { accountId: v.id("accounts"), legacy: v.boolean(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, args) => backfillPage(ctx, args.accountId, args.legacy, args.cursor),
+});
 export const retentionHold = mutation({ args: { token: v.string(), archiveId: v.id("verification_archives"), reason: v.string() }, handler: async (ctx, args) => {
   await assertAdmin(ctx, args.token, "verificationArchive.retentionHold");
   const archive = await ctx.db.get(args.archiveId);

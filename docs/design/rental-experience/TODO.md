@@ -2,6 +2,14 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — complete historical verification backfill
+
+- [x] Replace the latest-100-rentals cutoff with indexed 25-rental transactions and scheduled continuations covering all permanently owned rentals and unlinked current-email rentals. The existing admin document action invokes the real pipeline; each continuation is internal.
+- [x] Apply the same retention decision used by private viewing and deletion before copying historical verifications. Preserve older copies needed by active reuse, open claims or unknown closure; exclude expired verifications and previously deleted archives.
+- [x] Exercise 195 eligible rentals through actual handlers and a synthetic scheduled queue: changed-email ownership, unrelated/foreign exclusion, both ownership indexes, bounded page sizes, termination, retry deduplication, deleted-byte protection and denied admin access pass. Archive and real worker regressions pass. Add all three to the default CI test command.
+- [ ] Verify deployed scheduled continuations, real Didit copies and private admin viewing after compatible backend publication. Source/fixture success does not establish live provider acceptance.
+
+
 ## Paired review checkpoint
 
 - [x] Make compatible local changes reviewable in draft [website PR #58](https://github.com/daniels-project-space/db-cinema-v2/pull/58) and [Rental Manager PR #65](https://github.com/daniels-project-space/rental-manager-v2/pull/65). Preserve the latest manager invoice-statistics/reconciliation improvements by merging current main before review.
