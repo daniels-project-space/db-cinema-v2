@@ -2,6 +2,12 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — separate renter workspace
+
+- [x] Implement the renter calendar/chat-focused overview with actual account rental history, current kit quantities/item dates, unread messages, booking conversation shortcuts and a general-support shortcut. Keep account benefits secondary and admin operational controls separate.
+- [x] Record five desktop/phone visual passes and verify calendar/general-support/booking callbacks using real components and protected-query synthetic fixtures. Default regression suite, typecheck, production build and graph update pass; qualified evidence is recorded in RENTER-RENTALS.md.
+- [ ] Complete hosted/private renter acceptance, accurate source photos, notification opt-in/delivery and remaining reference comparisons; no pixel-perfect or production-publication claim.
+
 ### 8 October 2026 — updated interface and notification priority
 
 - [ ] Implement the remaining account/admin reference layouts now, using actual account, rental and document data; scope dark styling to management. Operational, stock, finance and customer-management panels are admin-only. Renter screens need a separate calendar/chat-focused layout with their own rental details, documents and notifications.

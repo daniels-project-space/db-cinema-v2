@@ -29,7 +29,7 @@ function Lg({ c, t }: { c: string; t: string }) {
   );
 }
 
-export function RentalCalendar({ bookings, loading = false }: { bookings: CalendarRental[] | null | undefined; loading?: boolean }) {
+export function RentalCalendar({ bookings, loading = false, onOpenRental }: { bookings: CalendarRental[] | null | undefined; loading?: boolean; onOpenRental?: (bookingId: string) => void }) {
   const list = bookings ?? [];
   const now = Date.now();
 
@@ -60,7 +60,7 @@ export function RentalCalendar({ bookings, loading = false }: { bookings: Calend
 
   return (
     <section className="spot gradient-border rounded-2xl p-5">
-      <div className="flex items-center justify-between">
+      <div data-calendar-heading className="flex items-center justify-between">
         <h2 className="font-display font-semibold text-white/80">Rental calendar</h2>
         <div className="flex items-center gap-1">
           <button onClick={prev} aria-label="Previous month" className="rounded-lg px-2 py-1 text-white/50 hover:bg-white/5 hover:text-white">‹</button>
@@ -110,6 +110,7 @@ export function RentalCalendar({ bookings, loading = false }: { bookings: Calend
               {lines.map((line,i)=><div key={i}>{line.qty} × {line.title}</div>)}
               {pickup && <div>Collection{b.pickupTime ? ` · ${b.pickupTime}` : " · time not recorded"}</div>}
               {returns.map((line,i)=><div key={i}>Return · {line.title} · {line.returnTime ?? b.returnTime ?? "time not recorded"}</div>)}
+              {onOpenRental && <button type="button" onClick={()=>onOpenRental(b._id)} className="mt-2 text-xs text-accent-300 underline underline-offset-4">Open rental conversation →</button>}
             </div>
           ))}
         </div>

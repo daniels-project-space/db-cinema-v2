@@ -67,12 +67,12 @@ export function BookingTile({
       : "");
 
   return (
-    <article className="management-rental-card overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313] p-5 sm:p-6">
+    <article data-rental-featured={featured || undefined} className="management-rental-card overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313] p-5 sm:p-6">
 
       {showVerify && <VerificationLink booking={booking} compact={featured} />}
       <RentalAdditionApproval token={token} bookingId={booking._id}/>
 
-      <div className={featured ? "grid gap-6 xl:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]" : ""}>
+      <div data-rental-layout={featured || undefined} className={featured ? "grid gap-6 xl:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]" : ""}>
       {featured && <RentalKit items={booking.lineItems} showcase prices />}
       <div className="min-w-0">
       <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
@@ -92,8 +92,8 @@ export function BookingTile({
       {!featured && <div className="mt-5"><RentalKit items={booking.lineItems} compact={isHistory} prices /></div>}
       {featured && <>
         {!isPending && <p className="mt-4 break-words text-xs leading-5 text-white/50">{logistics}</p>}
-        <div className="mt-6 border-t border-white/10 pt-5"><BookingProgress booking={booking} detailed /></div>
-        <dl className="mt-6 grid gap-3 border-t border-white/10 pt-5 sm:grid-cols-2">
+        <div data-rental-progress className="mt-6 border-t border-white/10 pt-5"><BookingProgress booking={booking} detailed /></div>
+        <dl data-rental-security className="mt-6 grid gap-3 border-t border-white/10 pt-5 sm:grid-cols-2">
           <div><dt className="text-xs text-white/45">Refundable deposit</dt><dd className="mt-1 font-display text-xl text-white">{formatGbp(booking.depositAmount)}</dd><p className="mt-1 text-[10px] text-white/45">{booking.depositRefunded ? "Refund issued" : isPending ? "Due with payment" : "Charged separately from the card hold"}</p></div>
           <div><dt className="text-xs text-white/45">Card authorisation</dt><dd className="mt-1 font-display text-xl text-white">{formatGbp(booking.depositHoldAmount ?? 0)}</dd><p className="mt-1 text-[10px] text-white/45">{(booking.depositHoldAmount ?? 0) > 0 ? `${booking.depositHoldStatus ?? "Pending"} · not a payment` : "No card hold requested"}</p></div>
         </dl>
@@ -103,7 +103,7 @@ export function BookingTile({
       {token && token !== "preview" && <HoldRenewal bookingId={booking._id} token={token} status={booking.depositHoldRenewalStatus} expiresAt={booking.depositHoldExpiresAt} />}
       {token && token !== "preview" && <LateFeeApproval bookingId={booking._id} token={token} status={booking.lateFeeStatus} amount={booking.lateFeeAmount} />}
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
+      <div data-rental-actions className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
         <button onClick={chat} className={`${isHistory ? "text-white/65 hover:text-white" : "rounded-full bg-accent-500 px-5 py-2.5 text-white hover:bg-accent-400"} text-xs font-medium`}>{isHistory ? "Conversation ↗" : "Open conversation"}</button>
         {isHistory && <Link href={`/plan?booking=${booking._id}`} className="rounded-full bg-white/[0.06] px-4 py-2 text-xs text-white/75 hover:bg-white/10">Rent this kit again ↗</Link>}
         {isPending && <button onClick={abort} disabled={busy} className="text-xs text-white/40 hover:text-rose-300 disabled:opacity-30">{busy ? "Removing…" : "Remove draft"}</button>}
