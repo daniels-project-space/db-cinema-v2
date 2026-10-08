@@ -14,7 +14,7 @@ import {
   internalMutation,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { listingImages } from "./lib/catalogImages";
 import { stream, mergedStream } from "convex-helpers/server/stream";
@@ -622,6 +622,20 @@ export const _setStripeCustomer = internalMutation({
       .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
       .first();
     if (a) await ctx.db.patch(a._id, { stripeCustomerId: customerId });
+  },
+});
+
+/** Checkout recovery binds by permanent account ID, without overwriting a
+ * newer concurrent customer or relinking an existing subscription. */
+export const _bindCheckoutCustomer = internalMutation({
+  args: {accountId:v.id("accounts"),customerId:v.string(),expectedCustomerId:v.optional(v.string())},
+  handler: async(ctx,{accountId,customerId,expectedCustomerId})=>{
+    const account=await ctx.db.get(accountId);
+    if(!account||account.blockedAt!=null)throw new ConvexError({code:"BILLING_ACCOUNT_UNAVAILABLE",message:"Please sign in again before paying."});
+    if(account.stripeCustomerId===customerId)return;
+    if(account.stripeCustomerId!==expectedCustomerId||account.stripeSubscriptionId)
+      throw new ConvexError({code:"BILLING_ACCOUNT_CHANGED",message:"Your billing account changed. Please retry checkout."});
+    await ctx.db.patch(accountId,{stripeCustomerId:customerId});
   },
 });
 

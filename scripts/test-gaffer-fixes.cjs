@@ -34,6 +34,7 @@ Object.assign(process.env, {
 });
 class StripeStub {
   static lastCheckout;
+  customers = {retrieve:async id=>({id,deleted:false,metadata:{}})};
   paymentMethodConfigurations = { retrieve: async () => ({ active: true, card: { display_preference: { value: 'on' } }, apple_pay: { display_preference: { value: 'off' } }, google_pay: { display_preference: { value: 'off' } }, link: { display_preference: { value: 'off' } } }) };
   checkout = { sessions: { create: async (params) => { StripeStub.lastCheckout=params; return {id:'cs_test_booking',url:'https://checkout.stripe.test/session'}; } } };
 }
@@ -66,8 +67,8 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
         if(ref==='settings:get') return {acceptingOrders:true};
         if(ref==='catalog:repriceLines') return prices.map((total,i)=>({title:`Real item ${i}`,total,deposit:1000}));
         if(ref==='availability:forCart') return Object.fromEntries(args.items.map(i=>[i.listingId,{available:10,ok:true}]));
-        if(ref==='accounts:_byToken') return {_id:'acct-1',email:'owner@example.invalid',membershipActive:false};
-        if(ref==='accounts:_byEmail') return args.email==='owner@example.invalid'?{_id:'acct-1',email:args.email,membershipActive:false}:null;
+        if(ref==='accounts:_byToken') return {_id:'acct-1',email:'owner@example.invalid',stripeCustomerId:'cus_fixture',membershipActive:false};
+        if(ref==='accounts:_byEmail') return args.email==='owner@example.invalid'?{_id:'acct-1',email:args.email,stripeCustomerId:'cus_fixture',membershipActive:false}:null;
         if(ref==='bookings:availableCheckoutCredit') return args.kind==='refund'?0:availableCredit;
         if(ref==='repeatRentals:candidate') return null;
         if(ref==='promo:validate') return validate.handler({},args);

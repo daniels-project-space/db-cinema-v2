@@ -30,7 +30,7 @@ import {
   query,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { belongsToRentalAccount, accountForRental } from "./lib/rentalAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
@@ -101,7 +101,7 @@ export const checkoutAttempt = internalQuery({
     const b=await ctx.db.query("bookings").withIndex("by_agreement_request",q=>q.eq("agreementRequestId",a.requestId)).unique();
     if(!b?.checkoutInputFingerprint)return null;
     if(b.checkoutInputFingerprint!==a.checkoutInputFingerprint)throw Error("This acceptance attempt belongs to different booking details. Review and accept again.");
-    if(b.status!=="pending_payment")throw Error("This checkout has completed or closed. Use the existing booking or contact us.");
+    if(b.status!=="pending_payment")throw new ConvexError({code:"CHECKOUT_CLOSED",message:"This checkout has completed or closed. Open your existing booking, or refresh checkout and review a new attempt."});
     return {bookingId:b._id,sessionId:b.stripeCheckoutSessionId,membershipCheckoutId:b.membershipCheckoutId};
   },
 });
