@@ -17,10 +17,11 @@ type Props = {
   start: string | null;
   end: string | null;
   unavailable: Set<string>;
+  disabled?: boolean;
   onPick: (isoDate: string) => void;
 };
 
-export function Calendar({ month, onMonthChange, start, end, unavailable, onPick }: Props) {
+export function Calendar({ month, onMonthChange, start, end, unavailable, onPick, disabled: checking=false }: Props) {
   const y = month.getFullYear();
   const m = month.getMonth();
   const startWeekday = (new Date(y, m, 1).getDay() + 6) % 7; // Mon=0
@@ -72,7 +73,8 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
           const isEnd = dayIso === end;
           const inRange = !!start && !!end && dayIso > start && dayIso < end;
           const rangeBlocked = (inRange || isStart || isEnd) && isBlocked;
-          const disabled = isPast || isBlocked;
+          const crossesBlocked=!!start&&!end&&dayIso>=start&&[...unavailable].some(day=>day>=start&&day<=dayIso);
+          const disabled = checking || isPast || isBlocked || crossesBlocked;
 
           let cls =
             "relative h-9 rounded-lg text-sm transition-all duration-200 flex items-center justify-center tabular-nums ";
@@ -90,7 +92,7 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
               disabled={disabled}
               onClick={() => onPick(dayIso)}
               className={cls}
-              title={isBlocked ? "Unavailable" : undefined}
+              title={checking ? "Checking availability" : isBlocked ? "Unavailable" : crossesBlocked ? "This range includes an unavailable day" : undefined}
             >
               {d}
             </button>

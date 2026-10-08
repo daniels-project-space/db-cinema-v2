@@ -712,3 +712,17 @@ export const applyKnowledge = mutation({
     return { updated: n };
   },
 });
+
+/** One upstream refresh for a calendar scope, never one refresh per day. */
+export const refreshCalendarStock = action({
+  args:{listingId:v.id("listings"),monthStart:v.number(),rangeStart:v.optional(v.number()),items:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number()}))},
+  handler:async(ctx,args):Promise<{checkedAt:number;days:Record<string,{ok:boolean;available:number}>}>=>{
+    const first=new Date(args.monthStart);
+    if(!Number.isSafeInteger(args.monthStart)||first.getUTCDate()!==1||first.getUTCHours()!==0||first.getUTCMinutes()!==0||first.getUTCSeconds()!==0||first.getUTCMilliseconds()!==0||args.items.length>100||args.items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*86400000||i.start%86400000!==0||i.end%86400000!==0)||(args.rangeStart!==undefined&&(!Number.isSafeInteger(args.rangeStart)||args.rangeStart%86400000!==0||Math.abs(args.monthStart-args.rangeStart)>365*86400000)))throw Error("Invalid calendar stock request");
+    try{
+      await ctx.runAction(api.sync.syncHyggloReservations,{});
+      const days=await ctx.runQuery(api.availability.forCalendar,args);
+      return {checkedAt:Date.now(),days};
+    }catch{throw new ConvexError({code:"STOCK_CHECK_UNAVAILABLE",message:"We couldn't check these dates. Please retry."});}
+  },
+});

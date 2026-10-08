@@ -6,6 +6,7 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { api } from "@cvx/_generated/api";
 import { quote as computeQuote, depositChargeFor, depositFor, type Pricing } from "@/lib/pricing";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
+import { useCalendarStock } from "./useCalendarStock";
 import { dayMs } from "@/lib/dates";
 import { useCart } from "@/components/cart/CartProvider";
 import { IconCheck, IconX } from "@/components/icons";
@@ -93,6 +94,8 @@ export function BookingPanel({
   demand?: number;
 }) {
   const cart = useCart();
+  const calendarStock=useCalendarStock(listing._id,month,cart.items,!!listing.marketingOnly,start&&!end?start:null);
+  const blockedDays=new Set([...unavailable,...calendarStock.unavailable]);
   const days = start && end ? daysInclusive(start, end) : 0;
   const q = useMemo(
     () => (days ? computeQuote(listing.pricing, days) : null),
@@ -117,7 +120,7 @@ export function BookingPanel({
   const cand: any = fit ? (fit as any)[listing._id] : undefined;
   // Marketing requests are recorded by cart.add; the basket checks stock and
   // offers replacements before checkout rather than blocking demand collection.
-  const canAdd = !!(start && end && q && (listing.marketingOnly || cand?.ok));
+  const canAdd = !!(start && end && q && (listing.marketingOnly || calendarStock.ready && cand?.ok));
 
   function addToKit() {
     if (!canAdd || !q || !start || !end) return;
@@ -142,9 +145,12 @@ export function BookingPanel({
         onMonthChange={onMonthChange}
         start={start}
         end={end}
-        unavailable={listing.marketingOnly ? new Set<string>() : unavailable}
+        unavailable={listing.marketingOnly ? new Set<string>() : blockedDays}
+        disabled={!calendarStock.ready}
         onPick={onPick}
       />
+
+      {!calendarStock.ready && <div role="status" className="text-sm text-white/70">{calendarStock.error ? <>Couldn’t check these dates. <button type="button" className="underline text-accent-300" onClick={()=>void calendarStock.retry()}>Retry availability</button></> : "Checking available dates…"}</div>}
 
       <div className="spot gradient-border rounded-2xl p-5">
         {/* base rate row */}

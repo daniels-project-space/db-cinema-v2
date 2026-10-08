@@ -169,3 +169,44 @@ export const forCart = query({
     return result;
   },
 });
+
+/** One visible month, loading each shared physical pool once. Capacity is
+ * evaluated with the existing basket plus ONE prospective listing per day. */
+export const forCalendar = query({
+  args: { listingId: v.id("listings"), monthStart: v.number(), rangeStart:v.optional(v.number()), items: v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number()})) },
+  handler: async (ctx, {listingId, monthStart, rangeStart, items}) => {
+    const date=new Date(monthStart);
+    if(!Number.isSafeInteger(monthStart)||date.getUTCDate()!==1||date.getUTCHours()!==0||date.getUTCMinutes()!==0||date.getUTCSeconds()!==0||date.getUTCMilliseconds()!==0||(rangeStart!==undefined&&(!Number.isSafeInteger(rangeStart)||rangeStart%DAY!==0||Math.abs(monthStart-rangeStart)>365*DAY))||items.length>100||items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*DAY||i.start%DAY!==0||i.end%DAY!==0))throw Error("Invalid calendar stock request");
+    const days=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate();
+    const records=new Map<string,any>();
+    for(const id of new Set([String(listingId),...items.map(i=>String(i.listingId))]))records.set(id,await ctx.db.get(id as any));
+    const listing=records.get(String(listingId));
+    const valid=(l:any)=>l&&!rentalUnavailable(l)&&l.components?.length&&l.components.every((c:any)=>Number.isSafeInteger(c.qty)&&c.qty>0);
+    const unitIds=new Set<string>(valid(listing)?listing.components.map((c:any)=>String(c.inventoryUnitId)):[]);
+    const owned:Record<string,number>={},occupied:Record<string,Iv[]>={},cart:Record<string,Iv[]>={};
+    for(const uid of unitIds){
+      owned[uid]=inventoryCapacity(await ctx.db.get(uid as any) as any)??0;
+      const rows=await ctx.db.query("reservations").withIndex("by_unit",q=>q.eq("inventoryUnitId",uid as any)).collect();
+      occupied[uid]=(await Promise.all(rows.map(row=>reservationOccupancy(ctx,row)))).filter((row):row is Iv=>!!row);
+      cart[uid]=items.flatMap(i=>{
+        const l=records.get(String(i.listingId));
+        if(!valid(l))return [];
+        return l.components.filter((c:any)=>String(c.inventoryUnitId)===uid).map((c:any)=>({start:i.start,end:i.end,qty:c.qty}));
+      });
+    }
+    const requirements=new Map<string,number>();
+    if(valid(listing))for(const c of listing.components)requirements.set(String(c.inventoryUnitId),(requirements.get(String(c.inventoryUnitId))??0)+c.qty);
+    const blocks=blockedSet(listing?.unavailableDates??[]),result:Record<string,{ok:boolean;available:number}>={};
+    for(let n=0;n<days;n++){
+      const start=monthStart+n*DAY,key=new Date(start).toISOString().slice(0,10);
+      let available=0,ok=false;
+      const from=rangeStart!==undefined&&rangeStart<=start?rangeStart:start;
+      if(valid(listing)&&!dayRange(from,start).some(day=>blocks.has(day))){
+        available=Math.min(...[...requirements].map(([uid,qty])=>Math.floor(Math.max(0,owned[uid]-peak(overlappingIntervals([...occupied[uid],...cart[uid]],from,start)))/qty)));
+        ok=available>=1;
+      }
+      result[key]={available,ok};
+    }
+    return result;
+  },
+});
