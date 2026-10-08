@@ -1,6 +1,6 @@
 import { action, internalMutation, mutation } from "./_generated/server";
 import { internal, api } from "./_generated/api";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE, categoryFor, isGenuineBundle } from "./lib/taxonomy";
 import { assertAdmin } from "./adminAuth";
 import { automaticMarketingFields } from "./lib/marketingInventory";
@@ -451,6 +451,22 @@ export const syncHyggloReservations = action({
     if(value.length!==1 || value[0]?.version!==1 || !Number.isSafeInteger(value[0].checkedAt) || !Array.isArray(value[0].units))
       throw Error("Invalid Rental Manager shared stock snapshot");
     return await ctx.runMutation(internal.sync.applySharedStock, {snapshot:value[0]});
+  },
+});
+
+/** A cart visit reads current shared stock before offering checkout. The query
+ * after the atomic import also includes website/subscription reservations. */
+export const refreshCartStock = action({
+  args:{items:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number()}))},
+  handler:async(ctx,{items}):Promise<{checkedAt:number;availability:Record<string,{available:number;demanded:number;ok:boolean}>}>=>{
+    if(!items.length||items.length>100||items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*86400000))throw Error("Invalid basket stock request");
+    try {
+      await ctx.runAction(api.sync.syncHyggloReservations,{});
+      const availability=await ctx.runQuery(api.availability.forCart,{items});
+      return {checkedAt:Date.now(),availability};
+    } catch {
+      throw new ConvexError({code:"STOCK_CHECK_UNAVAILABLE",message:"We couldn't check equipment availability. Please try again before checkout."});
+    }
   },
 });
 

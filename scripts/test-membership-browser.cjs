@@ -415,7 +415,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   // Real client navigation carries the explicit card-selection consent.
   await c.evaluate(
-    `setTimeout(()=>[...document.querySelectorAll('a')].find(a=>a.textContent.includes('Secure checkout')).click(),0);true`,
+    `setTimeout(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Secure checkout')&&!b.disabled).click(),0);true`,
   );
   await until(
     `location.pathname==='/checkout'&&!!document.querySelector('#co-email')&&!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,

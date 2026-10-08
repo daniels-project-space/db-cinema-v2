@@ -244,6 +244,11 @@ export const start = action({
       }
     }
 
+    // New checkout must read current upstream stock, not only the scheduled
+    // mirror. Existing bound membership recovery above retains its saved URL.
+    try { await ctx.runAction(api.sync.syncHyggloReservations,{}); }
+    catch { throw new ConvexError({code:"STOCK_CHECK_UNAVAILABLE",message:"We couldn't check equipment availability. Please try again before paying."}); }
+
     // Recompute exactly what the renter reviewed, using current listing and account data.
     const price = await calculateRentalPrice(ctx, a);
     a.items = price.items;

@@ -2,6 +2,13 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — fresh full-cart stock checks
+
+- [x] Refresh the authenticated actual shared source on full-cart/checkout entry, basket changes, foreground return and each visible minute. Keep unknown/failed checks disabled with a sanitized retry notice; delayed changed/cleared basket results cannot enable checkout.
+- [x] Require another source check before cart navigation and new checkout booking/credit/payment effects. Preserve existing bound membership-session recovery during source outage. This does not resolve the separate ordinary-rental own-hold recovery path.
+- [x] Actual source/cart/checkout handler tests, full default suite, TypeScript and production build pass. Actual frontend DOM fixture verifies failed-source retry, unavailable navigation, stale basket response isolation, preserved customer details/consent and no automatic payment; desktop/mobile screenshots inspected in /root/dbc-cart-stock-freshness-review. Controlled records/providers only.
+- [ ] Obtain current hosted CI/preview evidence and compatible backend/source rollout acceptance. The source read is fresh but the manager snapshot and local reservation are separate transactions; a single atomic claim across all writers remains required.
+
 ### 8 October 2026 — shared stock constraints
 
 - [x] Reuse the manager's actual quote occupancy calculation and one shared-source snapshot for all upstream accounts, repairs, owner blackouts/vacations, kit/adapter allocation, extension maxima and overdue custody. Exclude website copies/private metadata.
