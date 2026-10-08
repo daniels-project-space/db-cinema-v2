@@ -9,6 +9,7 @@ class Stripe {
       retrieve: async (id) => ({ id, amount_received: 12000 }),
     };
     this.refunds = {
+      retrieve: async id => [...receipts.values()].find(r => r.id === id),
       list: (args) => ({
         async *[Symbol.asyncIterator]() {
           refundListCalls++;
@@ -31,6 +32,7 @@ class Stripe {
           status: "succeeded",
           amount: args.amount,
           payment_intent: args.payment_intent,
+          currency: "gbp", metadata: args.metadata ?? {},
         };
         receipts.set(idempotencyKey, r);
         return r;
@@ -41,6 +43,7 @@ class Stripe {
 setMock("stripe", { default: Stripe });
 process.env.STRIPE_SECRET_KEY = "sk_test_fixture";
 process.env.ADMIN_TOKEN = "fixture-owner";
+const recovery = load("convex/cancellationRecovery.ts");
 const bookings = load("convex/bookings.ts"),
   checkout = load("convex/checkout.ts");
 put("accounts", { email: "cancellation@rental-test.invalid" });
@@ -72,6 +75,7 @@ const ctx = {
     throw Error(ref);
   },
   runMutation: async (ref, args) => {
+    if(ref.startsWith("cancellationRecovery.")) return recovery[ref.split(".")[1]].handler(ctx,args);
     if (ref === "adminAuth.assertAdminInternal")
       return load("convex/adminAuth.ts").assertAdminInternal.handler(ctx, args);
     if (ref === "bookings._finalizeCancellation" && failFinalize) {
@@ -100,7 +104,7 @@ const ctx = {
   assert.equal(created, 1, "one provider refund across retry");
   assert.equal(
     refundListCalls,
-    1,
+    2,
     "retry does not reprice against already refunded balance",
   );
   assert.equal(b.status, "cancelled");

@@ -6,6 +6,8 @@ import { returnSecurityPlan } from "../shared/returnSettlement";
 import { returnStatementEmail, type ReturnStatementData } from "../shared/returnStatement";
 import type { InspectionInput } from "../shared/returnInspection";
 import { rentalRefundBalance } from "./lib/rentalRefundBalance";
+import { recoverApprovedRefund, RefundReviewRequired } from "./lib/approvedRefund";
+import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
@@ -1194,12 +1196,15 @@ async function releaseBookingHolds(ctx: any, bookingId: any, b: any) {
     ...(b.depositHoldPreviousIntentIds ?? []),
   ].filter((id): id is string => !!id))];
   for (const id of ids) {
-    const hold = await sb.paymentIntents.retrieve(id);
+    let hold = await sb.paymentIntents.retrieve(id);
     if (["requires_capture", "requires_action", "requires_confirmation", "requires_payment_method"].includes(hold.status)) {
-      await sb.paymentIntents.cancel(id, {}, { idempotencyKey: `dbc-cancel-hold-${bookingId}-${id}` });
-      if (id === b.stripeDepositIntentId)
-        await ctx.runMutation(internal.bookings.setHold, { bookingId, intentId: id, status: "released" });
+      hold = await sb.paymentIntents.cancel(id, {}, { idempotencyKey: `dbc-cancel-hold-${bookingId}-${id}` });
     }
+    if (hold.status === "succeeded" || hold.amount_received > 0)
+      throw new RefundReviewRequired("The security authorisation has a captured charge. The team must review its settlement before cancellation can finish.");
+    if (hold.status !== "canceled") throw Error("The security hold is still processing. Cancellation will resume after settlement.");
+    if (id === b.stripeDepositIntentId)
+      await ctx.runMutation(internal.bookings.setHold, { bookingId, intentId: id, status: "released" });
   }
 }
 
@@ -1262,11 +1267,41 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
   }
   quote=await ctx.runMutation(internal.bookings.recordCancellationQuote,{bookingId,quote:{mode,refundAmount,creditAmount,paymentIntentId:paidIntentId??undefined,allocations}});
  }
- for(const allocation of quote.allocations??(quote.paymentIntentId&&quote.refundAmount>0?[{paymentIntentId:quote.paymentIntentId,amountPence:pence(quote.refundAmount)}]:[]))await stripe().refunds.create({payment_intent:allocation.paymentIntentId,amount:allocation.amountPence},{idempotencyKey:allocation.paymentIntentId===quote.paymentIntentId?`dbc-cancel-refund-${bookingId}`:`dbc-cancel-refund-${bookingId}-${allocation.paymentIntentId}`});
- await releaseBookingHolds(ctx,bookingId,b);
- await ctx.runMutation(internal.bookings._finalizeCancellation,{bookingId,accountId,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount,currency:b.currency,adminReason});
- return {ok:true,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount};
+ const job:any=await ctx.runMutation(internal.cancellationRecovery.claim,{bookingId,accountId,adminReason,legacy:!!decision.quote});
+ const pending=()=>new ConvexError({code:"CANCELLATION_PENDING",message:"Cancellation settlement is processing. Any required Stripe approval must be completed by the team. We will finish automatically once the refund and security release are confirmed."});
+ if(!job)throw pending();
+ let complete=false,review=false;
+ try{
+  for(const receipt of job.receipts){
+   const persist=async(receipt:any)=>{await ctx.runMutation(internal.cancellationRecovery.receipt,{id:job._id,generation:job.generation,receipt});};
+   const result=await recoverApprovedRefund(stripe(),receipt,{currency:b.currency,now:Date.now(),persist,
+    idempotencyKey:receipt.paymentIntentId===quote.paymentIntentId?`dbc-cancel-refund-${bookingId}`:`dbc-cancel-refund-${bookingId}-${receipt.paymentIntentId}`,
+    ...(!job.legacy?{metadata:{rentalCancellationId:job._id,bookingId:String(bookingId),rentalPaymentIntent:receipt.paymentIntentId}}:{})});
+   await persist(result);
+   if(result.status==="failed")throw new ConvexError({code:"CANCELLATION_REVIEW",message:"Stripe could not complete this refund. The team must review the existing request; no second refund has been issued."});
+   if(result.status!=="succeeded")throw pending();
+  }
+  await releaseBookingHolds(ctx,bookingId,b);
+  await ctx.runMutation(internal.bookings._finalizeCancellation,{bookingId,accountId:job.accountId,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount,currency:b.currency,adminReason:job.adminReason});
+  if(decision.fullCreditOfferId)await ctx.runMutation(internal.rentalCreditOffers.accepted,{offerId:decision.fullCreditOfferId});
+  complete=true;
+  return {ok:true,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount};
+ }catch(error){review=error instanceof RefundReviewRequired;throw error;}
+ finally{await ctx.runMutation(internal.cancellationRecovery.finishAttempt,{id:job._id,generation:job.generation,complete,review});}
 }
+
+/** Retry only durable, already-requested cancellations; never initiate a new cancellation. */
+export const reconcileCancellations=internalAction({args:{},handler:async(ctx)=>{
+ const jobs:any[]=await ctx.runQuery(internal.cancellationRecovery.due,{});
+ for(const job of jobs){
+  try{
+   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId:job.bookingId});
+   if(b?.status==="cancelled"){await ctx.runMutation(internal.cancellationRecovery.finishAttempt,{id:job._id,complete:true});continue;}
+   if(b?.cancellationDecision?.quote)await cancelRental(ctx,job.bookingId,b,job.accountId,job.adminReason,b.cancellationDecision.fullCreditOfferId);
+  }catch{/* The durable ledger retains provider receipts and the next retry. */}
+ }
+ return {checked:jobs.length};
+}});
 /** Read-only provider quote. Gaffer can offer, but only the renter can accept. */
 export const offerFullCredit = internalAction({
  args:{accountId:v.id("accounts"),bookingId:v.id("bookings")},
@@ -1317,7 +1352,7 @@ export const cancelUnpaidByCustomer = action({
  handler:async(ctx,{token,bookingId}):Promise<{ok:boolean;mode:string;refundAmount:number;creditAmount:number}>=>{
   const me:any=await ctx.runQuery(api.accounts.me,{token});if(!me)throw Error("Please sign in.");
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
-  if(!b||(b.guestEmail??"").trim().toLowerCase()!==me.email.trim().toLowerCase())throw Error("unauthorized");
+  if(!belongsToRentalAccount(b,me))throw Error("unauthorized");
   if(b.status!=="pending_payment"||!b.siteOnly)throw Error("Only unpaid direct checkouts can be abandoned here.");
   return cancelRental(ctx,bookingId,b,me._id);
  }
@@ -1328,7 +1363,7 @@ export const cancelByCustomer = action({
   if(process.env.CUSTOMER_BOOKING_ACTIONS!=="true")throw Error("Online cancellation isn't available yet — please contact us to cancel.");
   const me:any=await ctx.runQuery(api.accounts.me,{token});if(!me)throw Error("Please sign in.");
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
-  if(!b||b.guestEmail!==me.email)throw Error("unauthorized");
+  if(!belongsToRentalAccount(b,me))throw Error("unauthorized");
   if(b.cancelledAt||b.status==="cancelled")throw Error("This booking is already cancelled.");
   if(!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Please contact us to change this booking.");
   return cancelRental(ctx,bookingId,b,me._id);
