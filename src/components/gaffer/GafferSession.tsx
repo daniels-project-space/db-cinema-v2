@@ -4,6 +4,9 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
   type ReactNode,
 } from "react";
+import { useMutation } from "convex/react";
+import { api } from "@cvx/_generated/api";
+import { getSessionId } from "@/lib/session";
 import { usePathname } from "next/navigation";
 import { useGafferTools } from "@/components/gaffer/useGafferTools";
 import { createCallMemory } from "./callMemory";
@@ -137,6 +140,7 @@ let overridesAllowed: boolean | null = null;
 const GafferCtx = createContext<Ctx | null>(null);
 
 export function GafferSessionProvider({ children }: { children: ReactNode }) {
+  const trackUsage=useMutation(api.analytics.track);
   const [state, setState] = useState<CallState>("idle");
   const [speaking, setSpeaking] = useState(false);
   const [secs, setSecs] = useState(0);
@@ -584,6 +588,7 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
           return;
         }
         conv.current = session;
+        if(!continuity)void trackUsage({type:"gaffer_connected",path:pathnameRef.current??"/",sessionId:getSessionId()}).catch(()=>{});
 
         // Send the page brief now, not in onConnect: that fires *inside*
         // startSession, before this assignment, so `conv.current` was still

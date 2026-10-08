@@ -28,7 +28,7 @@ const futureBooking=put('bookings',{status:'confirmed',guestEmail:'future-collec
 put('bookings',{status:'cancelled',guestEmail:'cancelled@example.invalid',lineItems:[{start:now-DAY,end:now+DAY,title:'Old'}],total:9});
 put('bookings',{status:'returned',guestEmail:'returned@example.invalid',lineItems:[{start:now-DAY,end:now+DAY,title:'Returned'}],total:9});
 let eventReads=0;
-const ctx={db:{...db,query(table){const query=db.query(table);const collect=query.collect.bind(query);query.collect=async()=>{const rows=await collect();if(table==='events'){eventReads+=rows.length;return rows.sort((a,b)=>a.at-b.at||a._creationTime-b._creationTime);}return rows;};return query;}}};
+const ctx={db:{...db,normalizeId(table,id){return tables.get(table)?.some(row=>row._id===id)?id:null},query(table){const query=db.query(table);const collect=query.collect.bind(query);query.collect=async()=>{const rows=await collect();if(table==='events'){eventReads+=rows.length;return rows.sort((a,b)=>a.at-b.at||a._creationTime-b._creationTime);}return rows;};return query;}}};
 (async()=>{
  assert.deepEqual(await analytics.adminSummary.handler(ctx,{token:'wrong',now}),{authorized:false});assert.equal(eventReads,0);
  const summary=await analytics.adminSummary.handler(ctx,{token:'fixture-owner',now});
@@ -39,6 +39,8 @@ const ctx={db:{...db,query(table){const query=db.query(table);const collect=quer
  assert.equal(summary.ongoing.length,5,'All active rentals remain visible, including very overdue equipment and records needing date review');
  assert.deepEqual(summary.awaitingCollection.map(row=>row._id),[booking._id,futureBooking._id],'Confirmation does not claim the kit has been collected, including rentals far in the future');
  assert.equal(summary.overdueCount,1);
+ assert.equal(summary.itemsOut,6,"Equipment units include actual quantities across active rentals only");
+ assert.deepEqual(summary.ongoing.find(row=>row._id===onHire._id).calendarLines,[{title:onHire.lineItems[0].title,qty:3,start:onHire.lineItems[0].start,end:onHire.lineItems[0].end,returnTime:onHire.lineItems[0].returnTime}]);
  const active=summary.ongoing.find(row=>row._id===onHire._id);assert.equal(active.overdue,true);assert.equal(active.customerName,'Known customer');assert.equal(active.kit[0].qty,3);
  assert.deepEqual(active.kit[0].imageSources,['https://fixture.invalid/fx3.jpg','https://fixture.invalid/backup.jpg']);assert.equal(active.kit[0].heroImage,'https://fixture.invalid/fx3.jpg');
  assert.equal(summary.ongoing.find(row=>row._id===boundary._id).overdue,false,'Exact London return time is not overdue');
@@ -54,5 +56,19 @@ const ctx={db:{...db,query(table){const query=db.query(table);const collect=quer
  const demand=await analytics.cartDemand.handler(ctx,{token:'fixture-owner',days:30,now});
  assert.equal(demand.total,3);assert.equal(eventReads,3,'bounded type/date reads exclude history');
  assert.deepEqual(demand.top.map(x=>[x.title,x.units,x.displayOnly]),[['First',2,false],['Second',3,false],['Display',1,true]]);
+ put('events',{type:'gaffer_connected',at:now-60000});
+ put('events',{type:'search',at:now-60000,path:' Sony FX3 '});put('events',{type:'search',at:now-1000,path:'sony fx3'});
+ put('events',{type:'add_to_cart',at:now-1000,listingId:listing._id,title:'Old camera title',qty:3});await db.patch(listing._id,{marketingOnly:true});
+ put('accounts',{email:'private-member@example.invalid',createdAt:now-DAY,membershipActive:true,membershipTier:'pro',membershipCancelAtPeriodEnd:true});
+ put('accounts',{email:'blocked-member@example.invalid',createdAt:now-DAY,membershipActive:true,membershipTier:'pro',blockedAt:now});
+ put('accounts',{email:'expired-member@example.invalid',createdAt:now-DAY,membershipActive:true,membershipTier:'pro',stripeSubscriptionId:'sub_expired',membershipStatus:'active',membershipPaidThrough:1});
+ const denied=await analytics.insights.handler(ctx,{token:'wrong',days:30,now});assert.deepEqual(denied,{authorized:false});
+ const insights=await analytics.insights.handler(ctx,{token:'fixture-owner',days:30,now});
+ assert.equal(insights.uniqueVisitors,1,'Duplicate browser sessions count once; future and anonymous views excluded');
+ assert.equal(insights.gaffer,1);assert.deepEqual(insights.searches,[['sony fx3',2]]);assert.equal(insights.membership.active,1);assert.equal(insights.membership.scheduledCancellations,1);
+ assert.equal(insights.series.length,30);assert.equal(insights.series.reduce((n,row)=>n+row.adds,0),insights.cartAdds);
+ const camera=insights.top.find(row=>row.listingId===listing._id);assert.equal(camera.marketingOnly,true);assert.equal(camera.title,'Sony FX3');assert.equal(camera.units,3);assert.equal(camera.adds,1);
+ assert(!JSON.stringify(insights).includes('private-member@'));assert(!JSON.stringify(insights).includes('sub_expired'));
+ assert(!insights.pages.some(row=>row[0]==='/future'));
  console.log('PASS indexed analytics: authorization, seven/thirty-day boundaries, future timestamps, creation-order ties, funnel metrics, live sessions, ongoing rentals and demand units; historic events never read.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

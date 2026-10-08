@@ -21,13 +21,14 @@ import { parseOwnerConversationUrl } from "../../../shared/ownerConversationRout
 import { ManagementShell } from "@/components/management/ManagementShell";
 import { AdminInvoiceLibrary } from "@/components/management/AdminInvoiceLibrary";
 import { AdminRentalCalendar } from "@/components/management/AdminRentalCalendar";
+import { AdminInsights } from "@/components/admin/AdminInsights";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<
-    "overview" | "bookings" | "calendar" | "invoices" | "reports" | "inbox" | "enquiries" | "calls" | "settings" | "fund" | "stories" | "accounts" | "marketing"
+    "overview" | "bookings" | "calendar" | "invoices" | "insights" | "reports" | "inbox" | "enquiries" | "calls" | "settings" | "fund" | "stories" | "accounts" | "marketing"
   >("overview");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
@@ -120,13 +121,13 @@ export default function AdminPage() {
   }
 
   return (
-    <ManagementShell role="admin" name="DB Cinema team" title={{ overview: "Dashboard", bookings: "Rentals", calendar: "Rental calendar", invoices: "Invoices", reports: "Reports", inbox: "Messages", accounts: "Customers & members", marketing: "Inventory & marketing", enquiries: "Enquiries", calls: "Gaffer calls", fund: "Film Fund", stories: "Story Prize", settings: "Settings" }[tab]} subtitle={tab==="invoices"?"View rental receipts, payments and issued settlements.":"Manage rentals, accounts and equipment operations."}
+    <ManagementShell role="admin" name="DB Cinema team" title={{ overview: "Dashboard", bookings: "Rentals", calendar: "Rental calendar", invoices: "Invoices", insights: "Insights & Demand", reports: "Reports", inbox: "Messages", accounts: "Customers & members", marketing: "Inventory & marketing", enquiries: "Enquiries", calls: "Gaffer calls", fund: "Film Fund", stories: "Story Prize", settings: "Settings" }[tab]} subtitle={tab==="invoices"?"View rental receipts, payments and issued settlements.":"Manage rentals, accounts and equipment operations."}
       active={tab} nav={[
         { key: "overview", label: "Dashboard", icon: "dashboard" }, { key: "bookings", label: "Rentals", icon: "rentals" },
         { key: "calendar", label: "Calendar", icon: "calendar" },
         { key: "marketing", label: "Inventory & marketing", icon: "rentals" }, { key: "accounts", label: "Customers & members", icon: "people" },
         { key: "inbox", label: "Messages", icon: "messages", badge: rentalUnread || attention.length },
-        { key: "invoices", label: "Invoices", icon: "documents" }, { key: "reports", label: "Reports", icon: "dashboard" },
+        { key: "invoices", label: "Invoices", icon: "documents" }, { key: "insights", label: "Insights", icon: "dashboard" }, { key: "reports", label: "Reports", icon: "dashboard" },
         { key: "enquiries", label: "Enquiries", icon: "messages", badge: contacts?.items.filter((m: any) => !m.handled).length },
         { key: "calls", label: "Gaffer calls", icon: "messages" }, { key: "fund", label: "Film Fund", icon: "dashboard" },
         { key: "stories", label: "Story Prize", icon: "dashboard" }, { key: "settings", label: "Settings", icon: "settings" },
@@ -134,7 +135,7 @@ export default function AdminPage() {
       actions={<><OwnerNotificationBell token={token} /><button onClick={lock} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Lock</button></>}>
 
         {tab === "overview" && (
-          <div className="mt-6">
+          <div>
             <AdminDashboard token={token} unread={rentalUnread} alerts={attention.length}
               onRental={id => { setDetailId(id); setTab("bookings"); }} onRentals={() => setTab("bookings")}
               onCalendar={() => setTab("calendar")} onMessages={() => setTab("inbox")} onReports={() => setTab("reports")} />
@@ -150,6 +151,7 @@ export default function AdminPage() {
         {tab === "inbox" && (
           <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusRevision={conversationNavigation} />
         )}
+        {tab === "insights" && <AdminInsights token={token} onInventory={() => setTab("marketing")} />}
         {tab === "reports" && <div className="mt-6"><AdminAnalytics token={token} /><AdminCartDemand token={token} /></div>}
         {tab === "invoices" && <AdminInvoiceLibrary token={token} />}
         {tab === "calendar" && <AdminRentalCalendar key={token} token={token} />}

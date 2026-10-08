@@ -56,3 +56,13 @@
 .shell[data-management-role="admin"][data-management-screen="invoices"] .heading { display:none; }
 .shell[data-management-role="admin"][data-management-screen="invoices"] .content { padding-top:28px; }
 @media(min-width:641px) { .shell[data-management-role="admin"][data-management-screen="invoices"] .topbar { min-height:54px; padding-block:10px; } .shell[data-management-role="admin"][data-management-screen="invoices"] .content { padding:24px 22px 50px; } }
+@media(min-width:1000px) { .shell[data-management-role="admin"][data-management-screen="overview"] .heading { position:absolute; top:20px; left:259px; margin:0; max-width:45vw; } .shell[data-management-role="admin"][data-management-screen="overview"] .heading h1 { font-family:Georgia,serif; font-size:29px; line-height:1.2; } .shell[data-management-role="admin"][data-management-screen="overview"] .heading p { font-size:12px; margin-top:6px; } .shell[data-management-role="admin"][data-management-screen="overview"] .topbar { min-height:85px; } .shell[data-management-role="admin"][data-management-screen="overview"] .breadcrumb { visibility:hidden; } .shell[data-management-role="admin"][data-management-screen="overview"] .content { padding:18px 22px 50px; } }
+
+@media(max-width:999px) { .shell[data-management-role="admin"][data-management-screen="overview"] .heading { margin-bottom:22px; } }
+
+.shell[data-management-role="admin"][data-management-screen="insights"] .heading { display:none; }
+.shell[data-management-role="admin"][data-management-screen="insights"] .content { padding:22px 25px 45px; }
+@media(max-width:640px) { .shell[data-management-role="admin"][data-management-screen="insights"] .content { padding:22px 16px 40px; } }
+@media(min-width:1301px){.shell[data-management-role="admin"][data-management-screen="insights"] .workspace{position:relative}.shell[data-management-role="admin"][data-management-screen="insights"] .topbar{position:absolute;right:25px;top:28px;padding:0;min-height:0;border:0;background:transparent;z-index:2}.shell[data-management-role="admin"][data-management-screen="insights"] .breadcrumb{display:none}.shell[data-management-role="admin"][data-management-screen="insights"] .actor>span{display:none}}
+@media(min-width:1301px){.shell[data-management-role="admin"][data-management-screen="insights"] .actor>.avatar{display:grid}}
+@media(min-width:1301px){.shell[data-management-role="admin"][data-management-screen="insights"]{grid-template-columns:225px minmax(0,1fr)}.shell[data-management-role="admin"][data-management-screen="insights"] .content{padding:22px 26px 45px 30px}}

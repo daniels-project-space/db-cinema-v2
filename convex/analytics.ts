@@ -2,6 +2,8 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { listingImages } from "./lib/catalogImages";
 import { checkAdminToken } from "./adminAuth";
+import { isMarketingOnly } from "./lib/marketingInventory";
+import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { lateFeeQuote } from "./lib/lateFee";
 
 /** Record a first-party event (views, funnel steps, zero-result searches). */
@@ -158,6 +160,7 @@ export const adminSummary = query({
         status: b.status, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
         pickupTime: b.pickupTime ?? null, returnTime, total: b.total,
         items: b.lineItems.map(line => line.title).join(", "), kit, fulfilment: b.fulfilment,
+        calendarLines: b.lineItems.map(line => ({title:line.title,qty:line.qty ?? 1,start:line.start,end:line.end,returnTime:line.returnTime})),
         overdue, deadlineNeedsReview };
     };
     const ongoing = await Promise.all(byDate(active, "end").map(project));
@@ -177,6 +180,43 @@ export const adminSummary = query({
       ongoing,
       awaitingCollection,
       overdueCount: ongoing.filter(rental => rental.overdue).length,
+      itemsOut: active.reduce((total,booking)=>total+booking.lineItems.reduce((count,line)=>count+(Number.isSafeInteger(line.qty ?? 1) && (line.qty ?? 1)>0 ? line.qty ?? 1 : 0),0),0),
     };
   },
+});
+
+/** Admin-only Insights: first-party observations, never invented render values. */
+export const insights = query({
+  args: { token:v.string(), days:v.number(), now:v.number() },
+  handler:async(ctx,{token,days,now})=>{
+    if(!checkAdminToken(token))return {authorized:false as const};
+    const duration=[7,30,90].includes(days)?days:30;
+    const end=Math.floor(now/DAYMS)*DAYMS+DAYMS, since=end-duration*DAYMS;
+    const events=(await ctx.db.query("events").withIndex("by_at",q=>q.gte("at",since)).collect()).filter(e=>e.at<=now);
+    const series=Array.from({length:duration},(_,i)=>({date:new Date(since+i*DAYMS).toISOString().slice(0,10),visitors:0,adds:0}));
+    const unique=new Set<string>(), daily=series.map(()=>new Set<string>());
+    const items=new Map<string,{listingId:string|null,title:string,adds:number,units:number}>(),searches=new Map<string,number>(),misses=new Map<string,number>(),pages=new Map<string,Set<string>>();
+    const increment=(map:Map<string,number>,key:string)=>{if(key)map.set(key,(map.get(key)??0)+1)};
+    let cartAdds=0,gaffer=0,checkouts=0,interest=0;
+    for(const event of events){
+      const index=Math.floor((event.at-since)/DAYMS);
+      if(event.type==="view"&&event.sessionId){unique.add(event.sessionId);daily[index]?.add(event.sessionId);const page=pages.get(event.path??"/")??new Set<string>();page.add(event.sessionId);pages.set(event.path??"/",page)}
+      if(event.type==="add_to_cart"){cartAdds++;if(series[index])series[index].adds++;const key=event.listingId??event.path??event.title??"unknown";const item=items.get(key)??{listingId:event.listingId??null,title:event.title??event.path??"Unknown equipment",adds:0,units:0};item.adds++;item.units+=Number.isSafeInteger(event.qty)&&event.qty!>0?event.qty!:1;items.set(key,item)}
+      if(event.type==="search_tag")increment(searches,`Tag: ${(event.path??"").trim()}`);
+      if(event.type==="search")increment(searches,(event.path??"").trim().toLowerCase());
+      if(event.type==="search_no_results")increment(misses,(event.path??"").trim().toLowerCase());
+      if(event.type==="gaffer_connected")gaffer++;
+      if(event.type==="checkout_start")checkouts++;
+      if(event.type==="register_interest")interest++;
+    }
+    series.forEach((row,i)=>{row.visitors=daily[i].size});
+    const top=await Promise.all([...items.values()].sort((a,b)=>b.adds-a.adds||a.title.localeCompare(b.title)).slice(0,25).map(async item=>{
+      const id=item.listingId?ctx.db.normalizeId("listings",item.listingId):null,listing=id?await ctx.db.get(id):null;
+      const imageSources=listingImages(listing);return {...item,title:listing?.title??item.title,marketingOnly:listing?isMarketingOnly(listing):null,heroImage:imageSources[0]??null,imageSources};
+    }));
+    const accounts=await ctx.db.query("accounts").collect(), members=accounts.filter(membershipActiveNow), tiers=new Map<string,number>();
+    for(const member of members)increment(tiers,membershipTierFor(member)??"Member");
+    const sorted=(map:Map<string,number>)=>[...map].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
+    return {authorized:true as const,days:duration,since,now,uniqueVisitors:unique.size,cartAdds,gaffer,noResults:[...misses.values()].reduce((n,v)=>n+v,0),checkouts,interest,series,top,searches:sorted(searches).slice(0,20),misses:sorted(misses).slice(0,20),pages:sorted(new Map([...pages].map(([key,value])=>[key,value.size]))).slice(0,8),membership:{active:members.length,new:members.filter(a=>(a.membershipSubscriptionCreatedAt??a.createdAt)>=since&&(a.membershipSubscriptionCreatedAt??a.createdAt)<=now).length,scheduledCancellations:members.filter(a=>a.membershipCancelAtPeriodEnd).length,tiers:sorted(tiers)}};
+  }
 });

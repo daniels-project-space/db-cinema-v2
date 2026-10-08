@@ -236,9 +236,10 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     useRef:(initial)=>{const i=cursor++;if(!(i in slots))slots[i]={current:initial};return slots[i];},
     useCallback:f=>f,useMemo:f=>f(),useEffect:()=>{},
   };
-  let priceAllowed=false,alignments=0;
+  let priceAllowed=false,alignments=0;const usageEvents=[];
   const {GafferSessionProvider}=load('src/components/gaffer/GafferSession.tsx',{
     react:React,'react/jsx-runtime':{jsx:(_type,props)=>props},
+    'convex/react':{useMutation:()=>async args=>{usageEvents.push(args)}},'@cvx/_generated/api':{api:refs},'@/lib/session':{getSessionId:()=> 'fixture-browser'},
     'next/navigation':{usePathname:()=>'/gear'},
     '@/components/gaffer/useGafferTools':{useGafferTools:()=>({clientTools:{add_to_basket:async()=> 'Added FX3'},dynamicVariables:variables,noteCustomerMessage:message=>{priceAllowed=asksForBetterPrice(message);},noteAgentAlignment:()=>{alignments++;},noteAgentMessage:()=>{},resetSpokenFocus:()=>{},resetPriceRequest:()=>{priceAllowed=false;}})},
     '@/components/gaffer/callContext':{pageBrief:()=>({intent:'gear',mode:'sales',brief:'Gear page',opening:'Hello there'}),isSignOff:text=>text==='goodbye'},
@@ -254,7 +255,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   first.cfg.onMessage({source:'user',message:'Could you do a better price?'});assert.equal(priceAllowed,true);
   variables={basket_count:'1',basket_items:'FX3 next Friday'};render();
   now+=600_000;first.cfg.onDisconnect();await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(sessions.length,2);assert.equal(render().state,'live');
+  assert.equal(sessions.length,2);assert.equal(render().state,'live');assert.deepEqual(usageEvents,[{type:'gaffer_connected',path:'/gear',sessionId:'fixture-browser'}],'Transport reconnection does not double count a conversation');
   const resumed=sessions[1];first.cfg.onAudioAlignment({chars:["X"],char_start_times_ms:[0],char_durations_ms:[100]});assert.equal(alignments,1,"Stale audio cannot refocus the new call");
   assert.equal(resumed.cfg.dynamicVariables.basket_count,'1','reconnect uses fresh basket');
   assert.match(resumed.cfg.overrides.agent.firstMessage,/carry on/);

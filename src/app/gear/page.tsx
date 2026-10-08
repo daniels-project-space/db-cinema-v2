@@ -60,12 +60,13 @@ function GearPageInner() {
 
   // log searches that return nothing (demand signal for the owner dashboard)
   const track = useMutation(api.analytics.track);
+  useEffect(()=>{if(cat==="All")return;const timer=setTimeout(()=>{void track({type:"search_tag",path:cat,sessionId:getSessionId()}).catch(()=>{})},700);return()=>clearTimeout(timer)},[cat,track]);
   useEffect(() => {
     const q = search.trim();
     if (!q || listings === undefined) return;
-    if (listings.length === 0) {
+    {
       const t = setTimeout(
-        () => track({ type: "search_no_results", path: q, sessionId: getSessionId() }).catch(() => {}),
+        () => { void track({ type: "search", path: q, sessionId: getSessionId() }).catch(() => {}); if(listings.length===0)void track({ type: "search_no_results", path: q, sessionId: getSessionId() }).catch(() => {}); },
         700,
       );
       return () => clearTimeout(t);

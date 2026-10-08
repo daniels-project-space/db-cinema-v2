@@ -2,6 +2,14 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — latest visual-only priority
+
+- [x] Add the admin-only Insights & Demand section to the actual build and navigation using first-party events and real membership/listing data. Add filters, source photos, bars, searchable-demand rankings, no-result searches, Gaffer use and CSV export. See INSIGHTS-REFERENCE-REBUILD.md.
+- [x] Inspect five actual-component desktop/phone passes for Insights and five for the refined operations dashboard; fix observed geometry, thumbnail and responsive defects. See DASHBOARD-REFERENCE-REBUILD.md.
+- [ ] Match every admin and renter screen to its approved render in layout, colours and typography; full pixel parity remains unproved. Prioritise this work now, per Daniel's latest instruction, while preserving the original integration work for later.
+- [ ] Complete hosted/private-account visual and interaction acceptance, including production alias verification after a compatible release. Local checks do not prove publication.
+
+
 ### 8 October 2026 — admin notification settings implementation
 
 - [x] Add the admin-only settings panel with saved device names and actual alert-type preferences, device disable, bounded private delivery status and guarded manual retries. Connect preferences to real queue/claim paths and preserve in-app attention.
