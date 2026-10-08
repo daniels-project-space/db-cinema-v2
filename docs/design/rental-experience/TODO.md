@@ -2,6 +2,14 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — physical allocation consistency for amendments
+
+- [x] Require current kit components, quantities and exact per-line periods to match confirmed/active physical reservations before rescheduling or removing kit. Share the same check with extension handling; aggregate equivalent split rows without guessing missing legacy evidence. Unresolved holds preserve the rental for reconciliation.
+- [x] Permanent account ownership selects amendment chat and email recipients, including after an email change. Missing permanent owners never fall back to a reused mailbox; legacy email-only bookings remain compatible. Amendment email links to the particular rental and escapes supplied text.
+- [x] Actual mutation/private-recipient/email-handler fixtures verify rejected drift leaves dates, kit, stock and messages unchanged; valid mixed-period kit moves and removal retries preserve agreed charges. Prior actual ee23235 accepts the mismatched allocation under the same regression.
+- [x] Final full local tests, production build, TypeScript and Graphify update pass. Prior source negative isolates allocation drift with matching guest/account emails.
+- [ ] Latest prior membership hosted CI 37744286203 passed typecheck/tests/build and failed the unchanged secure-checkout-enabled browser wait. Compatible hosted/live acceptance, real legacy physical allocation reconciliation and one atomic reservation authority across both apps remain open; this consistency check does not replace those requirements.
+
 ### 8 October 2026 — completed membership withdrawal and retention confirmation
 
 - [x] Confirm Daniel's 30-day document retention: latest linked return/cancellation starts the window; active reuse, open damage cases and recorded insurance holds preserve owned copies. Actual archive, worker, backfill and ownership regressions pass; deployed provider/archive acceptance remains open.

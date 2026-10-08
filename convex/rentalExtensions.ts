@@ -1,3 +1,4 @@
+import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -24,19 +25,7 @@ async function mutableRental(ctx: any, b: any, ownRequest?: any) {
     throw Error("Finish the open rental operation first.");
   const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
   if (!reservations.length || reservations.some((r: any) => r.source !== "site")) throw Error("Manage this rental through its original booking platform.");
-  // Catalogue sync must not silently release the physical units already on hire.
-  const expected = new Map<string, number>(), actual = new Map<string, number>();
-  const add = (map: Map<string, number>, listingId: any, unit: any, start: number, end: number, qty: number) => {
-    const key = JSON.stringify([listingId, unit, start, end]); map.set(key, (map.get(key) ?? 0) + qty);
-  };
-  for (const li of b.lineItems) {
-    const listing = await ctx.db.get(li.listingId);
-    if (!listing?.components?.length) throw Error("The kit inventory mapping needs a team check.");
-    for (const comp of listing.components) add(expected, li.listingId, comp.inventoryUnitId, li.start, li.end, comp.qty * li.qty);
-  }
-  for (const res of reservations) if (!res.extensionRequestId && ["confirmed", "active"].includes(res.status)) add(actual, res.listingId, res.inventoryUnitId, res.start, res.end, res.qty);
-  const fingerprint = (map: Map<string, number>) => JSON.stringify([...map.entries()].sort(([a], [b]) => a.localeCompare(b)));
-  if (fingerprint(expected) !== fingerprint(actual)) throw Error("The kit inventory mapping changed. The team must reconcile the current rental before extending it.");
+  await assertRentalAllocation(ctx, b, reservations);
   const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
   if (refunds.some((r: any) => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
 }

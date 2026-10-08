@@ -1,3 +1,5 @@
+import { assertRentalAllocation } from "./lib/rentalAllocation";
+import { accountForRental } from "./lib/rentalAccount";
 import { listingImages } from "./lib/catalogImages";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
 import {
@@ -14,6 +16,18 @@ import { assertRenterExposure } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { postRentalMessage } from "./lib/rentalChat";
 import { rentalCancellationStart, bookingCancelKind, londonStartOfDay } from "../src/lib/cancellationPolicy";
+
+/** Minimal server-only address lookup: a linked rental never falls back to a reused mailbox. */
+export const changeRecipient = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, { bookingId }) => {
+    const booking = await ctx.db.get(bookingId);
+    if (!booking) return null;
+    const account = await accountForRental(ctx, booking);
+    const email = booking.accountId ? account?.email : account?.email ?? booking.guestEmail;
+    return email ? { email, bookingId } : null;
+  },
+});
 
 export const details = query({
   args: { token: v.string(), bookingId: v.id("bookings") },
@@ -69,6 +83,8 @@ export const reschedule = mutation({
       .collect();
     if (reservations.some((r) => r.source !== "site"))
       throw Error("Manage this rental through its original booking platform");
+    if (reservations.some(r => r.status === "hold")) throw Error("Resolve the open stock hold before changing this rental.");
+    await assertRentalAllocation(ctx, b, reservations);
     const previous = Math.min(...b.lineItems.map((li) => li.start));
     const shift = start - previous;
     const previousEnd = Math.max(...b.lineItems.map(li => li.end));
@@ -89,12 +105,7 @@ export const reschedule = mutation({
           start: r.start + shift,
           end: r.end + shift + endShift,
         });
-    const a = await ctx.db
-      .query("accounts")
-      .withIndex("by_email", (q) =>
-        q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
-      )
-      .first();
+    const a = await accountForRental(ctx, b);
     const detail = `${new Date(start).toISOString().slice(0, 10)} → ${new Date(Math.max(...lines.map((li) => li.end))).toISOString().slice(0, 10)}`;
     if (a)
       await postRentalMessage(ctx, {
@@ -138,6 +149,8 @@ export const removeItem = mutation({
     if (b.lineItems.length < 2) throw Error("Use Cancel rental to remove the last item.");
     const reservations = await ctx.db.query("reservations").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
     if (reservations.some(r => r.source !== "site" || r.status === "active")) throw Error("Manage external or already collected kit through its original rental flow.");
+    if (reservations.some(r => r.status === "hold")) throw Error("Resolve the open stock hold before changing this rental.");
+    await assertRentalAllocation(ctx, b, reservations);
     const lines = b.lineItems.filter((_, i) => i !== args.lineIndex);
     await assertRentalInventory(ctx, lines, b._id);
     for (const r of reservations) if (["hold", "confirmed"].includes(r.status)) await ctx.db.patch(r._id, { status: "cancelled" });
@@ -147,7 +160,7 @@ export const removeItem = mutation({
     }
     const { dailyRate: _, ...removed } = line;
     await ctx.db.patch(b._id, { lineItems: lines, cancellationPolicyStart: rentalCancellationStart(b), removedItems: [...(b.removedItems ?? []), { ...removed, removedAt: Date.now(), reason: args.reason.trim(), requestId: args.requestId }] });
-    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    const account = await accountForRental(ctx, b);
     const detail = `${line.qty}× ${line.title} removed from your kit. Agreed charges and security are unchanged; any eligible refund is recorded separately. ${args.reason.trim()}`;
     if (account) await postRentalMessage(ctx, { accountId: account._id, bookingId: b._id, sender: "system", text: detail });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: b._id, kind: "kit updated", detail });
