@@ -524,12 +524,15 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   // A large weekday kit must now offer first-month credit in this checkout.
   const weekdayStart = start + 3 * 86400000,
     weekdayEnd = weekdayStart;
-  const bigWeekdayArgs = {...args,items:args.items.map(i=>({...i,start:weekdayStart,end:weekdayEnd}))};
+  const bigWeekdayEnd = weekdayStart + 3 * 86400000;
+  const bigWeekdayArgs = {...args,items:args.items.map(i=>({...i,start:weekdayStart,end:bigWeekdayEnd}))};
+  const bigWeekdayAvailability = await cv.query(api.availability.forCart,{items:bigWeekdayArgs.items.map(i=>({listingId:i.listingId,start:i.start,end:i.end}))});
+  assert(bigWeekdayAvailability[l._id]?.ok,"The four-day weekday fixture must be available");
   const bigWeekdayQuote = await cv.action(api.checkout.priceQuote,bigWeekdayArgs);
   assert.equal(bigWeekdayQuote.recommendations[0].tier,"studio");
   assert.equal(bigWeekdayQuote.recommendations[0].intro,"none");
   assert(bigWeekdayQuote.recommendations[0].membershipCreditApplied > 0);
-  const bigWeekdayItem = {...item,key:l._id+":big-weekday",start:new Date(weekdayStart).toISOString().slice(0,10),end:new Date(weekdayEnd).toISOString().slice(0,10),days:1,total:bigWeekdayQuote.items[0].total,perDay:bigWeekdayQuote.items[0].total};
+  const bigWeekdayItem = {...item,key:l._id+":big-weekday",start:new Date(weekdayStart).toISOString().slice(0,10),end:new Date(bigWeekdayEnd).toISOString().slice(0,10),days:4,total:bigWeekdayQuote.items[0].total,perDay:bigWeekdayQuote.items[0].total/4};
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([bigWeekdayItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`);
   await navigate(root+"/cart");
   await until(`!!document.querySelector('[data-testid="potential-membership-savings"]')`);
@@ -542,7 +545,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   // Cart lines have independent keys and can contain the same listing. Keep
   // three real £100 lines even when the live catalogue has fewer distinct kits.
   const transitionGear=Array.from({length:3},(_,n)=>eligibleTransitionGear[n%eligibleTransitionGear.length]);
-  let transitionItems=transitionGear.map((g,n)=>({...bigWeekdayItem,key:'tier-transition-'+n,listingId:g._id,title:g.title,slug:g.slug,heroImage:g.heroImage,deposit:g.depositAmount,total:100,perDay:100}));
+  let transitionItems=transitionGear.map((g,n)=>({...bigWeekdayItem,key:'tier-transition-'+n,listingId:g._id,title:g.title,slug:g.slug,heroImage:g.heroImage,deposit:g.depositAmount,end:new Date(weekdayEnd).toISOString().slice(0,10),days:1,total:100,perDay:100}));
   await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify(transitionItems))});localStorage.removeItem('dbc_membership_selection_v1');true`);
   await navigate(root+'/cart');
   await until(`document.querySelector('[data-testid="membership-upsell"]')?.textContent.includes('Studio subscription')&&!!document.querySelector('[data-testid="potential-membership-savings"]')`);
@@ -557,7 +560,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert(await c.evaluate(`window.__dbcTierPending.every(s=>s.height>=${previousHeight})`),'The tile keeps its space while recalculating');
     await c.evaluate(`window.__dbcTierObserver.disconnect();true`);
     transitionItems=transitionItems.slice(1);
-    const transitionQuote=await cv.action(api.checkout.priceQuote,{...bigWeekdayArgs,items:transitionItems.map(i=>({...bigWeekdayArgs.items[0],listingId:i.listingId,title:i.title}))});
+    const transitionQuote=await cv.action(api.checkout.priceQuote,{...bigWeekdayArgs,items:transitionItems.map(i=>({...bigWeekdayArgs.items[0],end:weekdayEnd,listingId:i.listingId,title:i.title}))});
     const offer=transitionQuote.recommendations.find(r=>r.netSaving>0);
     assert.equal(offer.tier,expectedTier);
     await until(`document.querySelector('[data-testid="potential-membership-savings"]')?.innerText===${JSON.stringify('Subscribe to save £'+offer.netSaving.toFixed(2))}`);
@@ -565,7 +568,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   // Compact checkout enrolment includes explicit recurring terms in the checkbox.
   // Below £100 there must be no unsolicited subscription offer.
-  const cheap = rows.filter(l=>l.pricing && !l.displayOnly && l.pricing.daily<30).sort((a,b)=>a.pricing.daily-b.pricing.daily)[0];
+  let cheap;
+  for(const candidate of rows.filter(l=>l.pricing&&!l.displayOnly&&l.pricing.daily<30).sort((a,b)=>a.pricing.daily-b.pricing.daily)){
+    const check=await cv.query(api.availability.forCart,{items:[{listingId:candidate._id,start:weekdayStart,end:weekdayStart+2*86400000},{listingId:candidate._id,start:weekdayStart+30*86400000,end:weekdayStart+30*86400000}]});
+    if(check[candidate._id]?.ok){cheap=candidate;break}
+  }
   assert(cheap,"Need a small kit for the no-saving regression");
   const weekdayArgs = {...args,items:args.items.map(i=>({...i,listingId:cheap._id,title:cheap.title,start:weekdayStart,end:weekdayEnd}))};
   const weekdayQuote = await cv.action(api.checkout.priceQuote, weekdayArgs);
