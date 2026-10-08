@@ -33,9 +33,11 @@ export const push = internalAction({
     const booking = await ctx.runQuery(internal.rmv2_sync.forRmv2SyncOne, { bookingId });
     if (!booking) return { ok: false, reason: "not_found" };
     const revision = booking.revision ?? 0;
-    if (!(await ctx.runMutation(internal.rmv2Delivery.claim, { bookingId, revision }))) return { ok: false, reason: "not_due_or_claimed" };
+    const claim = await ctx.runMutation(internal.rmv2Delivery.claim, { bookingId, revision });
+    if (!claim) return { ok: false, reason: "not_due_or_claimed" };
+    const generation = claim.generation;
     async function result(ok: boolean, reason?: string) {
-      await ctx.runMutation(internal.rmv2Delivery.record, { bookingId, revision, ok, ...(reason ? { reason } : {}) });
+      await ctx.runMutation(internal.rmv2Delivery.record, { bookingId, revision, generation, ok, ...(reason ? { reason } : {}) });
       return { ok, ...(reason ? { reason } : {}) };
     }
     const url = process.env.RMV2_WEBHOOK_URL;
@@ -64,7 +66,9 @@ export const push = internalAction({
         return result(false, `http_${resp.status}`);
       }
       const receipt = await resp.json();
-      if (receipt?.ok !== true) return result(false, "invalid_receipt");
+      const applied = receipt?.appliedRevision === revision && ["applied", "unchanged"].includes(receipt?.outcome);
+      const unpaid = booking.status === "pending_payment" && receipt?.outcome === "ignored" && receipt?.reason === "unpaid" && receipt?.appliedRevision === null;
+      if (receipt?.ok !== true || receipt.version !== 1 || receipt.bookingId !== bookingId || receipt.receivedRevision !== revision || !applied && !unpaid) return result(false, "invalid_receipt");
       return result(true);
     } catch (err) {
       console.error(

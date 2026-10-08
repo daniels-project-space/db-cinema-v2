@@ -308,6 +308,7 @@ export default defineSchema({
     rmv2SyncAttempts: v.optional(v.number()), rmv2SyncDueAt: v.optional(v.number()),
     rmv2SyncError: v.optional(v.string()), rmv2SyncDeliveredAt: v.optional(v.number()),
     rmv2SyncLeaseUntil: v.optional(v.number()),
+    rmv2SyncLeaseGeneration: v.optional(v.number()),
     lateFeeAmount: v.optional(v.number()),
     lateFeeWaivedAmount: v.optional(v.number()),
     lateFeeWaiverReason: v.optional(v.string()),

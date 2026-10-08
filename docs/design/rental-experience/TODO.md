@@ -2,6 +2,14 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — fenced booking delivery and exact paired receipts
+
+- [x] Tie each delivery result to its claimed generation as well as booking revision. Ignore duplicate and late previous-worker results; recover expired workers with a new generation. Move leased bookings out of the due batch until recovery time so they cannot starve other rentals.
+- [x] Require versioned manager receipts naming the received booking/revision and the applied revision. Actual manager upsert/HTTP route distinguishes applied, unchanged, stale and explicitly unpaid records; unknown/unaccepted records do not get a generic success acknowledgement. Old generic receipts remain unacknowledged until the compatible manager is deployed.
+- [x] Actual queue/webhook fixtures reproduce a paused older worker arriving after replacement and preserve the newer retry. Actual manager HTTP/upsert tests verify return state, duplicate/stale receipt, auth/config/invalid input and invalid physical stock evidence. Prior actual website source reproduces the stale acknowledgement.
+- [x] Both full local suites/typechecks/safe builds, manager owner-boundary checks and graphs pass. Manager suite: 142 files, 2163 passing tests, 14 existing skips. Hosted prior 92a26c2 run 37746099079 passed typecheck/unit tests and failed the new stock-function preflight; build/browser were not reached.
+- [ ] Perform manager-first paired rollout and re-attest historical deliveries through protected resync. This is reliable asynchronous delivery, not the still-required shared atomic reservation authority. Real source bindings, private account/document/payment/mail acceptance, legacy allocations and remaining reference/ERNIE work remain open.
+
 ### 8 October 2026 — explicit backend acceptance binding
 
 - [x] Inspect current public client code: actual `ConvexReactClient` binds to `https://zany-wolf-18.convex.cloud`; a second example URL appears only in a library error message. Correct CI's main backend from historical veracious-wombat to the live client target.
