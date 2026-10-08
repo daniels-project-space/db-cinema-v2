@@ -1,3 +1,4 @@
+import { queueRentalEmail } from "./lib/rentalEmailQueue";
 import {assertRentalAllocation} from "./lib/rentalAllocation";
 import { bookingStockLines, rentalWindow } from "../shared/rentalWindow";
 import { stockTimePrecision, stockWindow } from "./lib/stockWindows";
@@ -581,8 +582,9 @@ export const confirm = internalMutation({
       if(r?.state==="available"&&r.reservedBookingId===bookingId){await ctx.db.patch(r._id,{state:"used",usedBookingId:bookingId,usedAt:Date.now()});await ctx.db.patch(r.accountId,{referralRewardUsedAt:Date.now()});}
     }
     await ctx.scheduler.runAfter(0, internal.referralPayments.attest, {bookingId});
-    await ctx.scheduler.runAfter(0, internal.notify.bookingAlert, { bookingId });
-    await ctx.scheduler.runAfter(0, internal.invoice.invoiceEmail, { bookingId });
+    await ctx.scheduler.runAfter(0, internal.notify.bookingOwnerAlert, { bookingId });
+    await queueRentalEmail(ctx,bookingId,"payment");
+    await queueRentalEmail(ctx,bookingId,"receipt");
     await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
     await ctx.scheduler.runAfter(0, internal.didit.reuseVerification, { bookingId });
     await queueRmv2Sync(ctx, bookingId);
@@ -1475,7 +1477,7 @@ export const setIdentity = internalMutation({
     else await revokeReuse(ctx, bookingId);
     await verificationUpdateMessage(ctx, bookingId, prev, status);
     if (status !== prev && ["verified", "requires_input", "canceled"].includes(status))
-      await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
+      await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:status});
   },
 });
 
@@ -1579,7 +1581,7 @@ export const setDiditResult = internalMutation({
     else if (["rejected", "requires_input", "manual_review"].includes(status)) await revokeReuse(ctx, bookingId);
     await verificationUpdateMessage(ctx, bookingId, previous, status);
     if (["confirmed", "active"].includes(b.status) && previous !== status && ["verified", "manual_review", "requires_input", "rejected"].includes(status))
-      await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
+      await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:status});
     if (["confirmed", "active"].includes(b.status) && previous !== status && status === "manual_review")
       await ctx.scheduler.runAfter(0, internal.notify.verificationReviewAlert, { bookingId });
     await queueRmv2Sync(ctx, bookingId);
@@ -1618,7 +1620,7 @@ export const adminSetIdStatus = mutation({
     else await revokeReuse(ctx, bookingId);
     await verificationUpdateMessage(ctx, bookingId, prev, status);
     if (status !== prev && ["verified", "requires_input", "canceled"].includes(status))
-      await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
+      await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:status});
     await queueRmv2Sync(ctx, bookingId);
   },
 });
@@ -1655,7 +1657,7 @@ export const setDiditManualReview = internalMutation({
     else await revokeReuse(ctx, bookingId);
     await verificationUpdateMessage(ctx, bookingId, previous, status);
     if (status !== previous)
-      await ctx.scheduler.runAfter(0, internal.notify.verificationEmail, { bookingId, status });
+      await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:status});
     await queueRmv2Sync(ctx, bookingId);
     return true;
   },
@@ -1822,7 +1824,7 @@ export const _finalizeCancellation = internalMutation({
             : `Your booking was cancelled.`;
       await postRentalMessage(ctx,{accountId,bookingId,sender:"system",text:note});
     }
-    await ctx.scheduler.runAfter(0, internal.notify.cancellationEmail, { bookingId, mode, refundAmount, creditAmount });
+    await queueRentalEmail(ctx,bookingId,"cancellation",{mode,refundAmount,creditAmount});
     await queueRmv2Sync(ctx, bookingId);
     return { ok: true as const, creditId };
   },

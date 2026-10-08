@@ -34,15 +34,18 @@ async function email(
   attachments?: Array<{ filename: string; path: string }>,
   /** Overrides the owner address — used to thread Gaffer follow-up replies. */
   replyToOverride?: string,
+  deliveryKey?: string,
+  prepareOnly=false,
 ) {
-  await sendMail({ to, subject, html, attachments, replyTo: replyToOverride });
+  const payload={to,subject,html,attachments,replyTo:replyToOverride,deliveryKey};
+  return prepareOnly ? payload : sendMail(payload);
 }
 
-export const bookingAlert = internalAction({
-  args: { bookingId: v.id("bookings") },
-  handler: async (ctx, { bookingId }) => {
-    const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
-    if (!b||!b.guestEmail||!["confirmed","active"].includes(b.status)) return;
+export const bookingOwnerAlert = internalAction({
+  args: {bookingId:v.id("bookings")},
+  handler: async(ctx,{bookingId})=>{
+    const b:any=await ctx.runQuery(internal.bookings.get,{bookingId});
+    if(!b||!b.guestEmail||!["confirmed","active"].includes(b.status))return;
     const lines = b.lineItems
       .map(
         (li: any) =>
@@ -52,11 +55,19 @@ export const bookingAlert = internalAction({
     await telegram(
       `🎬 <b>New booking</b>\n${b.guestEmail}\n${b.fulfilment}\n${lines}\n<b>£${b.total}</b> (incl £${b.depositAmount} refundable security payment; £${b.depositHoldAmount ?? 0} separate card hold)`,
     );
+  },
+});
+
+export const bookingAlert = internalAction({
+  args: { prepareOnly:v.optional(v.boolean()), deliveryKey:v.optional(v.string()), bookingId: v.id("bookings") },
+  handler: async (ctx, { prepareOnly, deliveryKey, bookingId }) => {
+    const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
+    if (!b||!b.guestEmail||!["confirmed","active"].includes(b.status)) return null;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
     const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);
     rows.push(["Payment received",emailMoney(b.total)],["Refundable deposit included",emailMoney(b.depositAmount)]);
-    await email(b.guestEmail,"Payment received — complete your rental checks",rentalEmail({title:"Payment received",preview:"Your rental request is awaiting verification and approval.",url,button:"Complete verification",body:`<p>Thanks for renting with DB Cinema. Your rental request is awaiting verification and approval.</p>${emailRows(rows)}<p>Open your rental to complete the required checks and follow their progress. Equipment handover requires completed checks and approval.</p>`}));
+    return email(b.guestEmail,"Payment received — complete your rental checks",rentalEmail({title:"Payment received",preview:"Your rental request is awaiting verification and approval.",url,button:"Complete verification",body:`<p>Thanks for renting with DB Cinema. Your rental request is awaiting verification and approval.</p>${emailRows(rows)}<p>Open your rental to complete the required checks and follow their progress. Equipment handover requires completed checks and approval.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 
@@ -73,10 +84,10 @@ export const waitlistEmail = internalAction({
 
 /** Emails the renter when their ID-verification status changes (verified / needs-retry). */
 export const verificationEmail = internalAction({
-  args: { bookingId: v.id("bookings"), status: v.string() },
-  handler: async (ctx, { bookingId, status }) => {
+  args: { prepareOnly:v.optional(v.boolean()), deliveryKey:v.optional(v.string()), bookingId: v.id("bookings"), status: v.string() },
+  handler: async (ctx, { prepareOnly, deliveryKey, bookingId, status }) => {
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
-    if (!b || !b.guestEmail || b.idVerifyStatus!==status || !["confirmed","active"].includes(b.status)) return;
+    if (!b || !b.guestEmail || b.idVerifyStatus!==status || !["confirmed","active"].includes(b.status)) return null;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
     const messages:Record<string,{title:string;body:string;button:string}>={
@@ -87,8 +98,8 @@ export const verificationEmail = internalAction({
       requires_input:{title:"Complete your verification",body:"Your check needs another try. Open your rental to see which documents need updating.",button:"Continue verification"},
       canceled:{title:"Continue your verification",body:"Your verification session was cancelled. Open your rental to continue the required checks.",button:"Continue verification"},
     };
-    const message=messages[status];if(!message)return;
-    await email(b.guestEmail,message.title,rentalEmail({title:message.title,preview:message.body,url,button:message.button,body:`<p>${emailEscape(message.body)}</p>`}));
+    const message=messages[status];if(!message)return null;
+    return email(b.guestEmail,message.title,rentalEmail({title:message.title,preview:message.body,url,button:message.button,body:`<p>${emailEscape(message.body)}</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 
@@ -104,16 +115,16 @@ export const verificationReviewAlert = internalAction({
 
 /** Emails the renter when their booking is cancelled (refund or store-credit summary). */
 export const cancellationEmail = internalAction({
-  args: { bookingId: v.id("bookings"), mode: v.string(), refundAmount: v.number(), creditAmount: v.number() },
-  handler: async (ctx, { bookingId, mode, refundAmount, creditAmount }) => {
+  args: { prepareOnly:v.optional(v.boolean()), deliveryKey:v.optional(v.string()), bookingId: v.id("bookings"), mode: v.string(), refundAmount: v.number(), creditAmount: v.number() },
+  handler: async (ctx, { prepareOnly, deliveryKey, bookingId, mode, refundAmount, creditAmount }) => {
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
-    if (!b || !b.guestEmail) return;
+    if (!b || !b.guestEmail) return null;
     const app=process.env.APP_URL??"https://dbcinemarentals.com",url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
     const rows:Array<[string,string]>=[];
     if(refundAmount>0)rows.push(["Refund to original payment method",emailMoney(refundAmount)]);
     if(creditAmount>0)rows.push([mode==="credit"?"Account credit added":"Account credit restored",emailMoney(creditAmount)]);
     const detail=mode==="credit"?`<p>Account credit is available for future rentals for ${CANCELLATION_CREDIT_DAYS} days. It is separate from any cash refund shown above; no cash refund is issued for the amount converted to credit.</p>`:mode==="refund"?(refundAmount>0?"<p>Your refund is returned to the original payment method. Bank processing times vary.</p>":"<p>No cash refund is due under this cancellation.</p>"):"<p>No payment was taken, so there is no payment to refund.</p>";
-    await email(b.guestEmail,"Your DB Cinema booking is cancelled",rentalEmail({title:"Booking cancelled",preview:"Your cancellation and settlement summary.",url,button:"View cancellation",body:`<p>Your rental request has been cancelled.</p>${emailRows(rows)}${detail}<p>Any uncaptured card authorisation is released separately.</p>`}));
+    return email(b.guestEmail,"Your DB Cinema booking is cancelled",rentalEmail({title:"Booking cancelled",preview:"Your cancellation and settlement summary.",url,button:"View cancellation",body:`<p>Your rental request has been cancelled.</p>${emailRows(rows)}${detail}<p>Any uncaptured card authorisation is released separately.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 

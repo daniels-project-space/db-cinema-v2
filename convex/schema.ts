@@ -17,6 +17,14 @@ import { cancellationReceipt } from "./lib/cancellationFields";
  * Trigger sync job through an httpAction bridge. `rmv2_sync_state` tracks it.
  */
 export default defineSchema({
+  rental_email_deliveries: defineTable({
+    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation")),
+    key: v.string(), sequence: v.number(), verificationStatus: v.optional(v.string()),
+    mode: v.optional(v.string()), refundAmount: v.optional(v.number()), creditAmount: v.optional(v.number()),
+    state: v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("skipped"),v.literal("failed")),
+    attempts: v.number(), generation: v.number(), dueAt: v.number(), createdAt: v.number(), updatedAt: v.number(), sentAt: v.optional(v.number()),
+    lastError: v.optional(v.string()), payloadStorageId:v.optional(v.id("_storage")), recipientEmail:v.optional(v.string()),
+  }).index("by_key",["key"]).index("by_booking_kind",["bookingId","kind"]).index("by_state_due",["state","dueAt"]),
   rental_cancellations: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")),
     adminReason: v.optional(v.string()), legacy: v.boolean(), status: v.union(v.literal("processing"), v.literal("attention"), v.literal("succeeded")),
     receipts: v.array(cancellationReceipt), generation: v.number(), leaseUntil: v.number(), retryAt: v.optional(v.number()), updatedAt: v.number(),
