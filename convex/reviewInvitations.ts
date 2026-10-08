@@ -1,3 +1,5 @@
+import { encoreGate } from "./lib/loyalty";
+import { accountForRental } from "./lib/rentalAccount";
 import { query, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { accountForToken, ownedBooking, postRentalMessage } from "./lib/rentalChat";
@@ -12,7 +14,7 @@ export const eligibility = query({
     const reviewed = !!await ctx.db.query("reviews").withIndex("by_booking", q => q.eq("verifiedBookingId", bookingId)).first();
     const context = await reviewContext(ctx, b);
     const reason = customerReviewGate(b);
-    return { reviewed, eligible: !reviewed && !reason && b.reviewEligibilityFingerprint === reviewSettlementFingerprint(context),
+    return { reviewed, encoreEligible:!encoreGate(b), eligible: !reviewed && !reason && b.reviewEligibilityFingerprint === reviewSettlementFingerprint(context),
       canCheck: !reviewed && !reason, suppressed: ["deposit_retained", "partial_refund"].includes(reason ?? "") };
   },
 });
@@ -29,10 +31,10 @@ export const recordEligibility = internalMutation({
     await ctx.db.patch(bookingId, { reviewEligibilityFingerprint: allowed ? fingerprint : undefined, reviewEligibilityCheckedAt: Date.now() });
     if (allowed && !b.reviewInvitationMessageId) {
       const reviewed = await ctx.db.query("reviews").withIndex("by_booking", q => q.eq("verifiedBookingId", bookingId)).first();
-      const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+      const account = await accountForRental(ctx,b);
       if (account && !reviewed) {
         const messageId = await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system",
-          text: "Your rental is returned and its refundable security has been settled. How was your rental? You can leave a rating and review here.",
+          text: !encoreGate(b)?"Your clean return and security settlement are complete. Leave an honest review to earn your next Encore rental saving. Every star rating counts equally.":"Your rental is returned and its refundable security has been settled. How was your rental? You can leave a rating and review here.",
           meta: { kind: "review_invitation" } });
         await ctx.db.patch(bookingId, { reviewInvitationMessageId: messageId });
       }

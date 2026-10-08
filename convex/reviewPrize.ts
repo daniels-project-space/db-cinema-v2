@@ -1,3 +1,4 @@
+import { unlockLoyalty, encoreGate } from "./lib/loyalty";
 import { REVIEW_PRIZE_GBP } from "../shared/reviewPrize";
 import {
   query,
@@ -228,9 +229,10 @@ export const submit = mutation({
         verifiedBookingId: b._id,
         date: Date.now(),
         published: true,
-        incentivized: true,
+        incentivized: true,prizeEntry:true,encoreReward:!encoreGate(b),
       });
-    else await ctx.db.patch(reviewId, { incentivized: true });
+    else await ctx.db.patch(reviewId, { incentivized: true,prizeEntry:true,encoreReward:review?.encoreReward||!encoreGate(b) });
+    await unlockLoyalty(ctx,account);
     const patch = {
       accountId: account._id,
       bookingId: b._id,

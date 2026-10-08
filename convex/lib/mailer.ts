@@ -34,6 +34,8 @@ export type MailAttachment = {
 
 export type MailInput = {
   deliveryKey?: string;
+  promotional?: boolean;
+  cleanReturnRequired?: boolean;
   to: string;
   subject: string;
   html: string;

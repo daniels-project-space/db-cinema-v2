@@ -36,12 +36,13 @@ export function BookingReview({ bookingId, reviewed = false, token, inline = fal
   }
   return <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
     <p className="mb-2 text-xs font-medium text-white/80">How was your rental?</p>
+    {eligibility.encoreEligible&&<p className="mb-3 text-xs text-amber-200/80">Your honest review earns your next Encore rental saving. Every star rating counts equally.</p>}
     <div className="flex gap-1" role="group" aria-label="Rental rating">
       {[1,2,3,4,5].map(n => <button key={n} type="button" onClick={() => setRating(n)} aria-label={`${n} star${n === 1 ? "" : "s"}`} aria-pressed={rating === n} className={`rounded-lg p-1.5 ${n <= rating ? "text-accent-400" : "text-white/25"}`}><IconStar filled className="h-5 w-5"/></button>)}
     </div>
     <textarea aria-label="Your rental review" maxLength={2000} value={text} onChange={e => setText(e.target.value)} rows={2} placeholder="How was the gear and service?" className="mt-2 w-full rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-white outline-none"/>
     {err && <p role="alert" className="mt-2 text-xs text-rose-300">{err}</p>}
-    <p className="mt-1 text-[10px] text-white/40">Published on our website with your display name and profile photo.</p>
+    <p className="mt-1 text-[10px] text-white/40">Published with your display name and profile photo.{eligibility.encoreEligible?" This review receives an Encore benefit and is labelled incentivised.":""}</p>
     <div className="mt-3 flex gap-3"><button type="button" disabled={busy || !rating || text.trim().length < 10} onClick={send} className="btn-primary px-4 py-2 text-xs disabled:opacity-40">{busy ? "Saving…" : "Publish review"}</button>{!inline && <button type="button" onClick={() => setOpen(false)} className="text-xs text-white/40">Cancel</button>}</div>
   </div>;
 }

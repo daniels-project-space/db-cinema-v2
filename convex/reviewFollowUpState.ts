@@ -1,3 +1,6 @@
+import { queueRentalEmail } from "./lib/rentalEmailQueue";
+import { accountForRental } from "./lib/rentalAccount";
+import { encoreGate } from "./lib/loyalty";
 import { reviewContext } from "./lib/reviewContext";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
@@ -10,8 +13,8 @@ export const candidates = internalQuery({
     .order("asc")
     .filter(q => q.and(q.neq(q.field("remindedReview"), true),
       q.neq(q.field("reviewFollowUpStatus"), "sent"),
-      q.neq(q.field("reviewFollowUpStatus"), "sending")))
-    .take(50);return Promise.all(rows.map(async b => { const account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",(b.guestEmail??"").trim().toLowerCase())).first();return {...await reviewContext(ctx,b),prizeOffersAllowed:!!account?.marketingEmails}; }));},
+      q.neq(q.field("reviewFollowUpStatus"), "sending"),q.neq(q.field("reviewFollowUpStatus"), "failed")))
+    .take(50);return Promise.all(rows.map(async b => { const account=await accountForRental(ctx,b);return {...await reviewContext(ctx,b),customerEmail:account?.email??(b.accountId?undefined:b.guestEmail),prizeOffersAllowed:!!account?.marketingEmails&&!encoreGate(b),encoreOffersAllowed:!!account?.marketingEmails&&!encoreGate(b)}; }));},
 });
 export const context = internalQuery({
   args: { bookingId: v.id("bookings") },
@@ -22,7 +25,7 @@ export const recordCheck = internalMutation({
   args: { bookingId: v.id("bookings"), fingerprint: v.string(), reason: v.optional(v.string()), claim: v.boolean() },
   handler: async (ctx, { bookingId, fingerprint, reason, claim }) => {
     const b = await ctx.db.get(bookingId);
-    if (!b || reviewFingerprint(b) !== fingerprint || b.reviewFollowUpStatus === "sending") return false;
+    if (!b || reviewFingerprint(b) !== fingerprint || ["sending","failed"].includes(b.reviewFollowUpStatus??"")) return false;
     const blocked = reviewGate(b) ?? reason;
     if (blocked) {
       if (blocked !== "already_sent") await ctx.db.patch(bookingId, {
@@ -34,13 +37,15 @@ export const recordCheck = internalMutation({
     const now = Date.now();
     const due = b.reviewFollowUpDueAt ?? Math.max(now, b.returnedAt ?? 0,
       ...(b.lineItems.map(li => li.end))) + 86400000;
-    const ready = claim && !!b.guestEmail && now >= due;
+    const account=await accountForRental(ctx,b),recipient=account?.email??(b.accountId?null:b.guestEmail);
+    const ready = claim && !!recipient && now >= due;
     await ctx.db.patch(bookingId, {
       reviewFollowUpStatus: ready ? "sending" : "waiting",
       reviewFollowUpReason: ready ? undefined : "post_refund_wait",
       reviewFollowUpCheckedAt: now, reviewRefundConfirmedAt: b.reviewRefundConfirmedAt ?? now,
       reviewFollowUpDueAt: due,
     });
+    if(ready)await queueRentalEmail(ctx,bookingId,"review");
     return ready;
   },
 });
@@ -56,3 +61,11 @@ export const recordSent = internalMutation({
     });
   },
 });
+
+/** Private current recipient and offer permissions for the durable mail renderer. */
+export const emailContext=internalQuery({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
+ const b=await ctx.db.get(bookingId);if(!b)return null;
+ const account=await accountForRental(ctx,b);
+ return {...b,customerEmail:account?.email??(b.accountId?undefined:b.guestEmail),
+  encoreOffersAllowed:!!account?.marketingEmails&&!encoreGate(b),prizeOffersAllowed:!!account?.marketingEmails&&!encoreGate(b)};
+}});

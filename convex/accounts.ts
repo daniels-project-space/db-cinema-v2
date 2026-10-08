@@ -4,7 +4,7 @@ import { ensureReferralCode } from "./lib/referrals";
 import { rentalsForAccount } from "./lib/rentalAccount";
 import { requiresDroneLicence } from "./lib/droneVerification";
 import { creditKind } from "./lib/checkoutCredit";
-import { loyaltyProgress } from "./lib/loyalty";
+import { loyaltyProgress, celebratedLoyaltyLevel, ENCORE_POLICY_VERSION } from "./lib/loyalty";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { usableCredit } from "./lib/creditLedger";
 import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
@@ -219,10 +219,10 @@ export const me = query({
       referralCode:a.referralCode??null,
       refundCredit:credits.filter(c=>c.status==="active"&&c.expiresAt>now&&creditKind(c)==="refund").reduce((n,c)=>n+usableCredit(c),0),
       earnedCredit:credits.filter(c=>c.status==="active"&&c.expiresAt>now&&creditKind(c)==="earned").reduce((n,c)=>n+usableCredit(c),0),
-      loyaltyLevel:loyalty.level,loyaltyPercent:loyalty.percent,loyaltyCelebratedLevel:a.loyaltyCelebratedLevel??(a.loyaltyCelebratedAt?3:0),
+      loyaltyLevel:loyalty.level,loyaltyPercent:loyalty.percent,loyaltyCelebratedLevel:celebratedLoyaltyLevel(a),
       loyaltyEligible: loyalty.eligible,
       loyaltyCompleted: loyalty.completed,
-      loyaltyCelebrated: (a.loyaltyCelebratedLevel??(a.loyaltyCelebratedAt?3:0))>=loyalty.level,
+      loyaltyCelebrated: (celebratedLoyaltyLevel(a))>=loyalty.level,
       membershipPerksPending: !!a.membershipPerksPendingBookingId,
       _id: a._id,
       email: a.email,
@@ -666,9 +666,9 @@ export const acknowledgeLoyalty = mutation({
     const account=await resolve(ctx,token);
     if(!account)throw Error("Sign in to your account.");
     const progress=await loyaltyProgress(ctx,account),earned=level??progress.level;
-    if(!Number.isInteger(earned)||earned<1||earned>progress.level)throw Error("Complete the qualifying rental before claiming this Encore level.");
-    const celebrated=account.loyaltyCelebratedLevel??(account.loyaltyCelebratedAt?3:0);
-    if(earned>celebrated)await ctx.db.patch(account._id,{loyaltyLevel:progress.level,loyaltyCelebratedLevel:earned,...(earned===3?{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()}:{})});
+    if(!Number.isInteger(earned)||earned<1||earned>progress.level)throw Error("Complete a clean rental and its review before claiming this Encore level.");
+    const celebrated=celebratedLoyaltyLevel(account);
+    if(earned>celebrated)await ctx.db.patch(account._id,{loyaltyPolicyVersion:ENCORE_POLICY_VERSION,loyaltyLevel:progress.level,loyaltyCelebratedLevel:earned,...(earned===3?{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()}:{})});
     return true;
   },
 });
