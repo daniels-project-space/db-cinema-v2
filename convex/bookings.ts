@@ -29,6 +29,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { belongsToRentalAccount, accountForRental } from "./lib/rentalAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { inspectionInput } from "./lib/returnInspectionFields";
@@ -615,6 +616,23 @@ export const attachAddon = internalMutation({
   await queueRmv2Sync(ctx, b._id);
   return {closed:false};
  }
+});
+
+/** Compact, protected document history; pagination reaches older rentals
+ * without copying private verification/financial execution fields to the list. */
+export const adminAuthorized=query({args:{token:v.string()},handler:(_ctx,{token})=>checkAdminToken(token)});
+
+export const adminInvoicePage=query({
+  args:{token:v.string(),paginationOpts:paginationOptsValidator},
+  handler:async(ctx,{token,paginationOpts})=>{
+    if(!checkAdminToken(token))return {page:[],isDone:true,continueCursor:""};
+    if(!Number.isSafeInteger(paginationOpts.numItems)||paginationOpts.numItems<1)throw Error("Invalid document page size");
+    const result=await ctx.db.query("bookings").order("desc").paginate({...paginationOpts,numItems:Math.min(50,paginationOpts.numItems),maximumRowsRead:50});
+    return {...result,page:result.page.map(b=>({_id:b._id,at:b._creationTime,status:b.status,total:b.total,guestEmail:b.guestEmail,guestName:b.guestName,
+      hasPayment:!!b.stripePaymentIntentId||["confirmed","active","returned"].includes(b.status),hasReturnStatement:!!b.returnStatement,returnStatementIssuedAt:b.returnStatement?.issuedAt,
+      lineItems:b.lineItems.map(l=>({title:l.title,start:l.start,end:l.end})),
+    }))};
+  },
 });
 
 export const adminList = query({

@@ -18,7 +18,7 @@ import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
 import { parseOwnerConversationUrl } from "../../../shared/ownerConversationRoute";
 import { ManagementShell } from "@/components/management/ManagementShell";
-import { InvoiceLibrary } from "@/components/management/InvoiceLibrary";
+import { AdminInvoiceLibrary } from "@/components/management/AdminInvoiceLibrary";
 import { RentalCalendar } from "@/components/account/RentalCalendar";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 
@@ -63,7 +63,8 @@ export default function AdminPage() {
     };
   }, []);
 
-  const bookings = useQuery(api.bookings.adminList, token ? { token } : "skip");
+  const authed=useQuery(api.bookings.adminAuthorized,token?{token}:"skip");
+  const bookings = useQuery(api.bookings.adminList, token&&authed&&tab==="calendar" ? { token } : "skip");
   const rentalUnread =
     useQuery(
       api.rentalChat.unreadTotals,
@@ -73,7 +74,6 @@ export default function AdminPage() {
   const attention = useQuery(api.adminNotifications.latest, token ? { token } : "skip") ?? [];
   const markHandled = useMutation(api.contact.adminMarkHandled);
 
-  const authed = bookings?.authorized;
 
   function save() {
     localStorage.setItem("dbc_admin", input);
@@ -120,7 +120,7 @@ export default function AdminPage() {
   }
 
   return (
-    <ManagementShell role="admin" name="DB Cinema team" title={{ overview: "Dashboard", bookings: "Rentals", calendar: "Rental calendar", invoices: "Invoices", reports: "Reports", inbox: "Messages", accounts: "Customers & members", marketing: "Inventory & marketing", enquiries: "Enquiries", calls: "Gaffer calls", fund: "Film Fund", stories: "Story Prize", settings: "Settings" }[tab]} subtitle="Manage rentals, accounts and equipment operations."
+    <ManagementShell role="admin" name="DB Cinema team" title={{ overview: "Dashboard", bookings: "Rentals", calendar: "Rental calendar", invoices: "Invoices", reports: "Reports", inbox: "Messages", accounts: "Customers & members", marketing: "Inventory & marketing", enquiries: "Enquiries", calls: "Gaffer calls", fund: "Film Fund", stories: "Story Prize", settings: "Settings" }[tab]} subtitle={tab==="invoices"?"View rental receipts, payments and issued settlements.":"Manage rentals, accounts and equipment operations."}
       active={tab} nav={[
         { key: "overview", label: "Dashboard", icon: "dashboard" }, { key: "bookings", label: "Rentals", icon: "rentals" },
         { key: "calendar", label: "Calendar", icon: "calendar" },
@@ -151,7 +151,7 @@ export default function AdminPage() {
           <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusRevision={conversationNavigation} />
         )}
         {tab === "reports" && <div className="mt-6"><AdminAnalytics token={token} /><AdminCartDemand token={token} /></div>}
-        {tab === "invoices" && <><p className="mt-6 text-xs text-white/45">Documents for the latest 100 rental records.</p><InvoiceLibrary token={token} rentals={bookings?.items} admin /></>}
+        {tab === "invoices" && <AdminInvoiceLibrary token={token} />}
         {tab === "calendar" && <div className="mt-6 max-w-3xl"><p className="mb-4 text-xs text-white/45">Latest 100 rental records · pickup and return times shown in London time.</p><RentalCalendar bookings={bookings?.items.filter(b => b.lineItems.length).map(b => ({ ...b, start: Math.min(...b.lineItems.map(l => l.start)), end: Math.max(...b.lineItems.map(l => l.end)) })) as any} /></div>}
         {tab === "bookings" && !detailId && (
           <AdminRentalCards

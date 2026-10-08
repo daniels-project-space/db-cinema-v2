@@ -486,6 +486,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
         depositHoldRenewalStatus: b.depositHoldRenewalStatus ?? null,
         depositRefunded: b.depositRefunded ?? false,
         hasReturnStatement: !!b.returnStatement,
+        returnStatementIssuedAt:b.returnStatement?.issuedAt,
         hasPayment: !!b.stripePaymentIntentId || ["confirmed", "active", "returned"].includes(b.status),
         lateFeeAmount: b.lateFeeAmount ?? 0,
         lateFeeStatus: b.lateFeeStatus ?? null,

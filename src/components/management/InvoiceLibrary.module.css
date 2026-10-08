@@ -49,3 +49,41 @@
 .preview iframe { display: block; width: 100%; height: 72vh; border: 0; }
 @media(max-width: 800px) { .toolbar { align-items: stretch; flex-direction: column; } .toolbar input { width: 100%; } }
 @media(max-width: 500px) { .library { padding: 16px; } .list article { flex-wrap: wrap; gap: 12px; } .document { flex-basis: calc(100% - 54px); } .amount { margin-left: 54px; margin-right: auto; text-align: left; } .tabs { gap: 18px; } .preview header { flex-wrap: wrap; } }
+.list {margin-top:18px;min-width:0;overflow-x:auto;border:1px solid #ffffff12;border-radius:7px;background:#181918;}
+.list table {width:100%;border-collapse:collapse;min-width:600px;font-size:11px;}
+.list th {padding:14px 10px;text-align:left;color:#a8a79e;font-size:10px;font-weight:400;border-bottom:1px solid #ffffff12;white-space:nowrap;}
+.list td {padding:15px 10px;vertical-align:middle;border-bottom:1px solid #ffffff0d;color:#d2cfc6;}
+.list tr:last-child td {border-bottom:0;}
+.list td:first-child {padding-left:14px;border-left:2px solid transparent;}
+.list tr[data-selected=true] {background:#ffffff04;}
+.list tr[data-selected=true] td:first-child {border-left-color:#bd8d6c;}
+.list tbody tr:hover {background:#ffffff03;}
+.list .document {display:block;width:100%;text-align:left;border:0;padding:0;background:none;}
+.list .document h3 {font-size:12px;white-space:nowrap;}
+.list .document p {margin-top:5px;font-size:10px;color:#99998f;}
+.list td strong {display:block;font-weight:400;font-size:11px;color:#e4dfd6;overflow-wrap:anywhere;line-height:1.5;}
+.list td small {display:block;font-size:10px;color:#92948d;line-height:1.5;margin-top:4px;overflow-wrap:anywhere;}
+.list .amount {font-size:12px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.status {display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid #ffffff18;border-radius:5px;background:#ffffff04;font-size:10px;text-transform:capitalize;white-space:nowrap;}
+.status::before {content:"";width:5px;height:5px;border-radius:50%;background:#90998c;}
+.status[data-status=confirmed],.status[data-status=active] {color:#6fba91;background:#5ac58d09;border-color:#5ac58d30;}
+.status[data-status=confirmed]::before,.status[data-status=active]::before {background:#6fba91;}
+.status[data-status=cancelled] {color:#d99e90;border-color:#c86d5440;background:#c86d540a;}
+.list .pdfButton {padding:7px 8px;border:1px solid #ffffff16;border-radius:5px;color:#d4ad8c;font-size:10px;white-space:nowrap;}
+.list .pdfButton:disabled {opacity:.5;}
+.footer {display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:20px;font-size:11px;color:#9e9c93;}
+.footer button {border:1px solid #bd8d6c55;border-radius:5px;padding:9px 13px;color:#d4ad8c;white-space:nowrap;}
+.footer button:disabled {opacity:.5;}
+@media(max-width:640px){.list table{min-width:0;display:block;}.list thead{display:none;}.list tbody{display:block;}.list tr{display:grid;grid-template-columns:minmax(0,1fr) auto;border-bottom:1px solid #ffffff12;padding:10px 12px;gap:8px 16px;}.list td{padding:4px 0;border:0;min-width:0;overflow-wrap:anywhere;}.list td:first-child{grid-column:1/-1;padding-left:8px;margin-left:-8px;}.list td[data-label=Rental],.list td[data-label=Customer]{grid-column:1/-1;}.list td[data-label]::before{content:attr(data-label);display:block;font-size:9px;color:#858a81;letter-spacing:.06em;margin-bottom:4px;text-transform:uppercase;}.list .amount{text-align:left;}.footer{align-items:stretch;flex-direction:column;}.detail{padding:16px;}.library{padding:16px;}}
+
+.workspace.withDetail {grid-template-columns:minmax(0,1.45fr) minmax(350px,1fr);gap:20px;}
+.list td {padding-block:12px;}
+.list td strong,.list td small {max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.list td[data-label=Issued] {white-space:nowrap;}
+@media(max-width:1150px){.workspace.withDetail{grid-template-columns:minmax(0,1fr);}}
+@media(max-width:640px){.list td{padding-block:4px;}.list td strong,.list td small{max-width:none;white-space:normal;overflow:visible;}}
+
+.list table {table-layout:fixed;}
+.list td:last-child {padding-inline:6px;text-align:center;}
+.list .pdfButton {padding:4px;font-size:16px;line-height:1.1;}
+@media(max-width:640px){.list colgroup{display:none;}.list td:last-child{text-align:left;padding:4px 0;}.list .pdfButton{padding:7px 12px;}}

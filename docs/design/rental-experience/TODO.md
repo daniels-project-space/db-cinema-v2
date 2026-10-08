@@ -2,11 +2,20 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — complete protected invoice history
+
+- [x] Replace the admin library's newest-100 dependency with protected bounded pagination through all rental records. Return a compact list without verification/agreements/provider IDs/case details and preserve actual receipt/settlement indicators and settlement issue dates.
+- [x] Wire thin authorization and load the old wide rental query only for its remaining calendar consumer. Use actual invoice/rental/customer/date/amount/status columns and a dark selected-document panel; keep independent periods, credits, refunds and card-authorisation releases truthful.
+- [x] Scope pending PDF viewing to the session epoch, cancel on row/detail/preview close and session changes, and revoke private blob URLs. Actual protected 143-record history tests and native production-component/handler checks verify older records, search, customer selection, cancellation and A/B/A session isolation. See INVOICE-HISTORY.md.
+- [x] Final default suite and production build including TypeScript pass. Native desktop/mobile screenshots visually reviewed at `/root/dbc-invoice-history-review/`; final PDF column is visible, settlement issue dates are correct and mobile has no page overflow. Local fixture logs: `/tmp/dbc-invoice-history-final-scope-tests.log`, `/tmp/dbc-invoice-history-final-scope-build.log`.
+- [ ] Finish current hosted checks, compatible backend and actual private-user acceptance. The separate admin calendar's latest-100 limitation, all original manager/reservation/document/render work and complete six-reference fidelity remain open.
+
 ### 8 October 2026 — checkout/full-cart physical stock parity
 
 - [x] Reproduce prior checkout rejecting two disjoint hires of one owned camera. Replace listing-level union/count checks with the actual full-cart shared-component query, retaining each item's original period and the final transactional hold mutation.
 - [x] Actual checkout/repricing/booking/holds/provider-binding tests verify exact disjoint allocations, overlapping repeated quantity, cross-listing camera/kit components, rejection before member/account/Stripe work and upstream bookings only in the gap. Prior actual fbc6694 action fails the same disjoint fixture. See CHECKOUT-CART-STOCK-PARITY.md.
 - [x] Full default suite and final production build (including TypeScript) pass; graph updated. Provider/database/transport data is controlled and no live writes are asserted.
+- [x] Hosted CI 37736720640 for 034aafd is terminal failed at the enabled cart-checkout wait after typecheck/tests/build pass. The staged stock-refresh function remains absent; do not bypass that guard or claim complete hosted/live acceptance.
 - [ ] Finish current hosted checks, compatible backend rollout and real stock acceptance. Manager unpaid-hold visibility, amendment reservations and one atomic authority across upstream writers remain in the original goal; no mirror/precheck is claimed to solve that concurrency boundary.
 
 ### 8 October 2026 — exact saved checkout recovery
