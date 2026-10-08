@@ -32,6 +32,8 @@ export type EnrichedBooking = {
   depositHoldAmount?: number;
   depositHoldStatus?: string | null;
   depositHoldExpiresAt?: number | null;
+  securityHoldPolicyVersion?: string | null;
+  securityHoldDueAt?: number | null;
   depositHoldRenewalStatus?: string | null;
   depositRefunded?: boolean;
   hasReturnStatement?: boolean;
@@ -73,13 +75,14 @@ export const GROUP_ORDER: BookingGroup[] = ["pending", "active", "upcoming", "pa
 export const GROUP_META: Record<BookingGroup, { label: string; blurb: string }> = {
   pending: { label: "Needs payment", blurb: "Finish checkout to lock these in" },
   active: { label: "Out now", blurb: "Currently in your hands" },
-  upcoming: { label: "Upcoming", blurb: "Confirmed and on the way" },
+  upcoming: { label: "Upcoming", blurb: "Reserved rentals and verification progress" },
   past: { label: "History", blurb: "Completed & cancelled rentals" },
 };
 
 export const STATUS_META: Record<string, { label: string; pill: string; dot: string }> = {
   pending_payment: { label: "Payment pending", pill: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30", dot: "bg-amber-400" },
-  confirmed: { label: "Confirmed", pill: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/30", dot: "bg-emerald-400" },
+  confirmed: { label: "Payment received", pill: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/30", dot: "bg-emerald-400" },
+  awaiting_verification: { label: "Awaiting verification", pill: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30", dot: "bg-amber-400" },
   active: { label: "Out now", pill: "bg-sky-500/15 text-sky-300 ring-1 ring-sky-400/30", dot: "bg-sky-400" },
   returned: { label: "Completed", pill: "bg-white/10 text-white/55 ring-1 ring-white/15", dot: "bg-white/40" },
   cancelled: { label: "Cancelled", pill: "bg-rose-500/15 text-rose-300 ring-1 ring-rose-400/30", dot: "bg-rose-400" },
@@ -136,7 +139,7 @@ export function bookingSteps(b: { status: string; idVerifyStatus: string; deposi
   const withHold = (b.depositHoldAmount ?? 0) > 0;
   const labels = withHold
     ? ["Payment", "Card hold", verificationLabel, "Pickup", "Return"]
-    : ["Confirmed", verificationLabel, "Pickup", "Return"];
+    : ["Payment", verificationLabel, "Pickup", "Return"];
   if (b.requiresDroneLicence) labels.splice(labels.length - 2, 0, b.droneLicenceStatus === "approved" ? "Drone licence approved" : b.droneLicenceStatus === "review" ? "Drone licence review" : b.droneLicenceStatus === "requires_input" ? "Replace drone licence" : "Upload drone licence");
   if (b.status === "cancelled") {
     return { cancelled: true, steps: labels.map((label) => ({ label, state: "todo" as const })) };

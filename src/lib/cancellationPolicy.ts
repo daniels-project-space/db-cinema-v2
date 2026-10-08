@@ -19,7 +19,7 @@ export function cancelKind(start: number, now: number, fullRefundDays = CANCELLA
 
 /** Preserve the more generous policy already agreed by earlier renters. */
 export function cancellationDaysForBooking(booking: { agreementDocs?: { kind: string; version: string }[] }): number {
-  return booking.agreementDocs?.some(d => d.kind === "cancellation" && d.version === "2026-10-v11")
+  return booking.agreementDocs?.some(d => d.kind === "cancellation" && ["2026-10-v11", "2026-10-v12"].includes(d.version))
     ? CANCELLATION_FULL_REFUND_DAYS : 3;
 }
 

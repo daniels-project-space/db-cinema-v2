@@ -9,6 +9,7 @@ import {
   RENTAL_STAGE_LABELS,
 } from "@/lib/rentalPresentation";
 import { formatGbp } from "@/lib/pricing";
+import { rentalStageLabel } from "../../../shared/rentalReadiness";
 export function AdminRentalCards({
   token,
   onChat,
@@ -77,7 +78,7 @@ export function AdminRentalCards({
                   <p className="truncate font-display text-base font-semibold text-white/90">{r.name || r.guestEmail}</p>
                   <p className="mt-1 text-xs text-white/45">{rentalDate(r.start, r.end)}</p>
                 </div>
-                <span className="shrink-0 rounded-full bg-white/[0.05] px-2.5 py-1 text-[10px] text-white/65">{RENTAL_STAGE_LABELS[r.status]}</span>
+                <span className="shrink-0 rounded-full bg-white/[0.05] px-2.5 py-1 text-[10px] text-white/65">{rentalStageLabel(r)}</span>
               </div>
               <div className="mt-4"><RentalKit items={r.items} /></div>
               <div className="mt-3 flex items-baseline justify-between text-xs text-white/35"><span>Rental total</span><span className="text-sm font-semibold text-white/85">{formatGbp(r.total)}</span></div>

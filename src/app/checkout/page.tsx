@@ -14,6 +14,7 @@ import { accountPricingContext, shouldResetMembershipPreference, membershipOffer
 import { CheckoutLoopBanner } from "@/components/CheckoutLoopBanner";
 import { CheckoutReminder } from "@/components/plans/CartPlanning";
 import { useCart } from "@/components/cart/CartProvider";
+import { useCheckoutStatus, CheckoutPauseNotice, CHECKOUT_PAUSED_MESSAGE } from "@/components/cart/CheckoutStatus";
 import { CheckoutCode } from "@/components/cart/CheckoutCode";
 import { usePromo } from "@/components/cart/usePromo";
 import { useBasketPrice } from "@/components/cart/useBasketPrice";
@@ -79,6 +80,7 @@ export default function CheckoutPage() {
   const stock=useCartStockCheck(items),availability=stock.availability;
   const availabilityBlocked = !!items.length && (!stock.ready || !availability || items.some(i => !availability[i.listingId]?.ok));
   const promo = usePromo(eligibleSubtotal);
+  const checkout = useCheckoutStatus();
   const start = useAction(api.checkout.start);
   const getPriceQuote = useAction(api.checkout.priceQuote);
   const getQuote = useAction(api.delivery.quote);
@@ -268,6 +270,7 @@ export default function CheckoutPage() {
   const recoveryKey=JSON.stringify({priceArgs,phone,billingAddress,name,email,pickupTime,returnTime,signature,agreed,deliveryAgreed,total:currentQuote?.combinedTotalDue,deliveryFee:currentQuote?.quotedDeliveryFee,membershipTermsAccepted:membership?.termsAccepted});
   const canRecover=recovery?.key===recoveryKey&&recovery.acceptance===agreementRequest.current;
   async function pay() {
+    if (!checkout.enabled) { setErr(CHECKOUT_PAUSED_MESSAGE); return; }
     if (availabilityBlocked&&!canRecover) { setErr("Review your basket and choose available alternatives before checkout."); return; }
     if (!valid) return;
     setBusy(true);
@@ -473,7 +476,7 @@ export default function CheckoutPage() {
                     <span className="shrink-0 font-mono text-sm text-accent-300">{smallDamageHold(equipmentValue) ? `${formatGbp(smallDamageHold(equipmentValue))} hold` : "No card hold"}</span>
                   </div>
                   <p className="mt-1.5 text-xs text-white/40">
-                    {formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("verify", equipmentValue))} refundable deposit at checkout{smallDamageHold(equipmentValue) > 0 ? `, plus a separate ${formatGbp(smallDamageHold(equipmentValue))} card hold.` : ". No separate card hold is required."} Pay first, then complete the automatic ID, selfie and address check. Approval is required before handover.
+                    {formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("verify", equipmentValue))} refundable deposit at checkout{smallDamageHold(equipmentValue) > 0 ? `, plus a separate ${formatGbp(smallDamageHold(equipmentValue))} card hold at pickup.` : ". No separate card hold is required."} Pay first, then complete the automatic ID, selfie and address check. Approval is required before handover.
                   </p>
                 </button>
 
@@ -492,16 +495,16 @@ export default function CheckoutPage() {
                     </span>
                     <span className="shrink-0 font-mono text-sm text-accent-300">{formatGbp(equipmentValue)} hold</span>
                   </div>
-                  <p className="mt-1.5 text-xs text-white/40">{formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("deposit", equipmentValue))} refundable security payment at checkout, plus a separate {formatGbp(equipmentValue)} card hold. Automatic ID, selfie and address check before handover.</p>
+                  <p className="mt-1.5 text-xs text-white/40">{formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("deposit", equipmentValue))} refundable security payment at checkout, plus a separate {formatGbp(equipmentValue)} card hold at pickup. Automatic ID, selfie and address check before handover.</p>
                 </button>}
               </div>
-              <p className="mt-3 text-[11px] leading-5 text-white/45">Security is based on the combined replacement value of your gear{currentQuote ? ` (${formatGbp(equipmentValue)})` : ""}. The standard card authorisation is 10% of that value — £100 per £1,000, or £250 for £2,500 — rounded to the nearest penny. It reserves funds rather than charging them. The optional full-value hold remains available for equipment worth £1,000 or more, with its separately quoted refundable payment. Any eligible waiver is shown in your quote.</p>
+              <p className="mt-3 text-[11px] leading-5 text-white/45">Security is based on the combined replacement value of your gear{currentQuote ? ` (${formatGbp(equipmentValue)})` : ""}. The standard card authorisation is 10% of that value — £100 per £1,000, or £250 for £2,500 — rounded to the nearest penny. We save your card at checkout and request this authorisation automatically at your agreed pickup or delivery time. It reserves funds rather than charging them; your bank may ask you to authenticate. The optional full-value hold remains available for equipment worth £1,000 or more, with its separately quoted refundable payment. Any eligible waiver is shown in your quote.</p>
             </StepCard>
 
             {/* 04 — agreements */}
             <StepCard n="04" title="Agreements & signature" sub="Required before hire. Security does not cap your responsibility." done={signDone} delay={210}>
               <div data-testid="rental-consent" className="rounded-xl border border-white/10 bg-black/10 p-4">
-                <p className="text-xs leading-5 text-white/60">{depositAmount > 0 ? `${formatGbp(depositAmount)} refundable deposit is charged with this booking.` : "Your upfront refundable deposit is waived."} {holdAmount > 0 ? `I authorise a separate ${formatGbp(holdAmount)} card hold, equal to ${protection === "deposit" ? "the full equipment value" : "10% of the equipment value"}. I authorise an attempted replacement hold of the same agreed amount within 24 hours of bank expiry if still required. It is not charged; bank approval may be needed, and both holds may briefly appear before the earlier one is released.` : "No separate card hold is required."}</p>
+                <p className="text-xs leading-5 text-white/60">{depositAmount > 0 ? `${formatGbp(depositAmount)} refundable deposit is charged with this booking.` : "Your upfront refundable deposit is waived."} {holdAmount > 0 ? `I agree that Stripe saves my card at checkout and DB automatically requests a separate ${formatGbp(holdAmount)} card hold at my agreed pickup or delivery time, equal to ${protection === "deposit" ? "the full equipment value" : "10% of the equipment value"}. I authorise an attempted replacement hold of the same agreed amount within 24 hours of bank expiry if still required. It is not charged; bank approval may be needed, and both holds may briefly appear before the earlier one is released.` : "No separate card hold is required."}</p>
                 <p className="mt-2 text-xs leading-5 text-white/60">I remain responsible for evidenced loss, theft, missing items, non-return and damage under the Rental Agreement, excluding fair wear, pre-existing defects and loss attributable to DB. Security and DB’s insurance excess are not automatic liability caps. My own insurance is optional for currently declared company-owned or declared leased kit; rental charges do not buy comprehensive renter cover. Separately itemised late time and properly owed loss/damage follow notice, evidence and a dispute opportunity. An unused active hold may cover late time if no damage is due; a remaining saved-card payment may require authentication. No amount is collected twice.</p>
                 <details className="mt-3 text-xs text-white/55"><summary className="cursor-pointer text-accent-300">Read the rental agreements</summary><ul className="mt-2 space-y-1.5">{AGREEMENTS.map(d=><li key={d.kind}><a href={`/legal/${d.kind}?version=${encodeURIComponent(d.version)}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{d.title} · {d.version}</a></li>)}</ul></details>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">
@@ -561,7 +564,7 @@ export default function CheckoutPage() {
                 <section data-testid="refundable-security" className="mt-3 rounded-xl border border-white/10 bg-white/[.015] p-3">
                   <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">Fully refundable security</h3>
                   <Row label={currentQuote?.securityWaiverReason ? "Refundable deposit · waived" : "Refundable deposit · charged today"} value={depositAmount} muted />
-                  {holdAmount > 0 ? <div className="mt-2"><Row label="Card authorisation · not charged" value={holdAmount} muted /></div> : <p className="mt-2 text-[11px] text-white/40">No card hold required.</p>}
+                  {holdAmount > 0 ? <div className="mt-2"><Row label="Card authorisation at pickup · not charged" value={holdAmount} muted /></div> : <p className="mt-2 text-[11px] text-white/40">No card hold required.</p>}
                   <p className="mt-3 text-[10px] leading-4 text-white/45">Your deposit is refunded in full after safe return and settlement, less any agreed charges under the rental terms. Any uncaptured hold is released separately; it is not included in the amount charged.</p>
                 </section>
               </div>
@@ -577,8 +580,9 @@ export default function CheckoutPage() {
             {!!items.length&&<div className="mt-4"><CartStockNotice checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
             {availabilityBlocked&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
             {canRecover&&<p role="status" className="mt-3 text-sm text-white/65">Your earlier checkout may already have reserved this kit. Retry securely to recover the same payment session.</p>}
-            <button onClick={pay} disabled={!valid || busy || (availabilityBlocked&&!canRecover)} className="btn-primary mt-5 w-full py-3">
-              {busy ? "Redirecting…" : canRecover ? "Retry secure checkout" : "Pay with card"}
+            {!checkout.enabled && <CheckoutPauseNotice loading={checkout.loading}/>}
+            <button data-testid="checkout-pay-button" onClick={pay} disabled={!checkout.enabled || !valid || busy || (availabilityBlocked&&!canRecover)} className="btn-primary mt-5 w-full py-3">
+              {!checkout.enabled ? "Checkout temporarily paused" : busy ? "Redirecting…" : canRecover ? "Retry secure checkout" : "Pay with card"}
               {!busy && <IconLock className="h-4 w-4" />}
             </button>
             <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">

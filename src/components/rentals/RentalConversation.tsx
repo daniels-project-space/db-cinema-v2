@@ -10,6 +10,7 @@ import { RENTAL_STAGE_LABELS } from "@/lib/rentalPresentation";
 import { ChatAvatar, GafferIcon } from "./ChatIdentity";
 import { RentalCreditOffer } from "./RentalCreditOffer";
 import { BookingReview } from "@/components/account/BookingReview";
+import { RentalVerificationSummary } from "./RentalVerificationSummary";
 
 export function RentalConversation({
   token,
@@ -18,6 +19,7 @@ export function RentalConversation({
   admin = false,
   title,
   stage,
+  stageLabel,
   escalated = false,
   tools,
   openRevision = 0,
@@ -29,6 +31,7 @@ export function RentalConversation({
   admin?: boolean;
   title: string;
   stage: string;
+  stageLabel?: string;
   escalated?: boolean;
   tools?: React.ReactNode;
   openRevision?: number;
@@ -224,11 +227,12 @@ export function RentalConversation({
           {admin ? teamHandling ? "Hand to Gaffer" : "Take over" : teamHandling ? "Team notified" : "Request a human"}
         </button>
       </header>
+      {bookingId && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin}/>}
       <div className={`management-conversation-main ${styles.main}`}>
       <div className={styles.bookingStrip}>
         {bookingSummary?.image && <SmartImage src={bookingSummary.image} fallbackSources={bookingSummary.imageSources} alt={title} className={styles.kitImage} />}
         <div><h4>{title}</h4><p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
-        <span className={styles.stage}>{RENTAL_STAGE_LABELS[stage] ?? stage}</span>
+        <span className={styles.stage}>{stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage}</span>
       </div>
       {!admin && bookingId && (
         <RentalAdditionApproval token={token} bookingId={bookingId} />

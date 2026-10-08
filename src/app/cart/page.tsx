@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useCheckoutStatus, CheckoutPauseNotice } from "@/components/cart/CheckoutStatus";
 import { Fragment } from "react";
 import { ReplacementSets } from "@/components/cart/ReplacementSets";
 import { useCartStockCheck } from "@/components/cart/useCartStockCheck";
@@ -33,10 +34,12 @@ export default function CartPage() {
   } = useCart();
   const { quote, recommendations, error: quoteError, loading } = useBasketPrice();
   const promo = usePromo(eligibleSubtotal);
+  const checkout = useCheckoutStatus();
 
   const stock=useCartStockCheck(items),avail=stock.availability,router=useRouter();
   const blocked = !!items.length && (!stock.ready || !avail || items.some(i => !avail[i.listingId]?.ok));
   async function continueCheckout(){
+    if (!checkout.enabled) return;
     const receipt=await stock.recheck();
     if(receipt&&items.every(i=>receipt.availability[i.listingId]?.ok))router.push("/checkout");
   }
@@ -240,7 +243,7 @@ export default function CartPage() {
                   <p className="text-[11px] leading-relaxed text-white/40">Rental charges{membership ? " + subscription" : ""}, after applied credit. Delivery and refundable security are calculated at checkout.</p>
                 </div>
 
-                {blocked ? (
+                {!checkout.enabled ? <><button data-testid="checkout-paused-button" type="button" disabled className="mt-5 w-full cursor-not-allowed rounded-full bg-white/10 py-3 text-white/50">Checkout temporarily paused</button><CheckoutPauseNotice loading={checkout.loading}/></> : blocked ? (
                   <button
                     disabled
                     className="mt-5 w-full cursor-not-allowed rounded-full bg-white/10 py-3 text-center font-medium text-white/40"

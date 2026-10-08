@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const {load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
 const {peakRentalValue,RENTAL_VALUE_CAP_PENCE}=load('shared/rentalExposure.ts');
-const {verificationChecks,securityReady}=load('shared/verificationProgress.ts');
+const {verificationChecks,securityReady,verificationCanStart}=load('shared/verificationProgress.ts');
 const {assertRenterExposure,renterExposure,attachRenterPerson}=load('convex/lib/rentalExposure.ts');
 const day=Date.UTC(2030,0,1),D=86400000;
 assert.equal(RENTAL_VALUE_CAP_PENCE,1500000);
@@ -13,6 +13,13 @@ assert.equal(securityReady({status:'pending_payment'}),false);
 for(const s of ['awaiting_payment','requires_action','failed','released',null])assert.equal(securityReady({status:'confirmed',depositHoldAmount:250,depositHoldStatus:s}),false);
 assert.equal(securityReady({status:'confirmed',depositHoldAmount:0}),true);
 assert.equal(securityReady({status:'confirmed',depositHoldAmount:250,depositHoldStatus:'held'}),true);
+const pickupPaid={status:'confirmed',depositHoldAmount:100,depositHoldStatus:'scheduled',securityHoldPolicyVersion:'2026-10-pickup-hold-v1'};
+assert.equal(verificationCanStart(pickupPaid),true,'paid new-policy rental must allow document onboarding before pickup');
+assert.equal(securityReady(pickupPaid),false,'document onboarding must never approve security handover');
+assert.equal(verificationCanStart({...pickupPaid,status:'pending_payment'}),false);
+assert.equal(verificationCanStart({...pickupPaid,cancellationDecision:{kind:'full_refund'}}),false);
+assert.equal(verificationCanStart({...pickupPaid,securityHoldPolicyVersion:'older-policy'}),false);
+
 const checks=verificationChecks({id_verifications:[{status:'Approved'}],liveness_checks:[{status:'Approved'}],face_matches:[{status:'In Progress'}],poa_verifications:[{status:'Resubmitted'}]});
 assert.deepEqual(checks,{identity:'approved',selfie:'processing',address:'requires_input'});
 assert.deepEqual(verificationChecks({}),{identity:'waiting',selfie:'waiting',address:'waiting'});

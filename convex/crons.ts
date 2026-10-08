@@ -3,6 +3,9 @@ import { api, internal } from "./_generated/api";
 
 const crons = cronJobs();
 
+// Durable pickup scheduling recovery; requests only due/new-policy bookings.
+crons.interval("pickup-rental-security-holds", { minutes: 5 }, internal.holdRenewal.pickupsDue, {});
+
 // Release expired soft cart holds.
 crons.interval("release-holds", { minutes: 5 }, internal.bookings.releaseExpiredHolds, {});
 

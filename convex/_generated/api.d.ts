@@ -105,6 +105,7 @@ import type * as membershipBenefits from "../membershipBenefits.js";
 import type * as notify from "../notify.js";
 import type * as offers from "../offers.js";
 import type * as operators from "../operators.js";
+import type * as pickupSecurity from "../pickupSecurity.js";
 import type * as promo from "../promo.js";
 import type * as rateLimit from "../rateLimit.js";
 import type * as recommendations from "../recommendations.js";
@@ -248,6 +249,7 @@ declare const fullApi: ApiFromModules<{
   notify: typeof notify;
   offers: typeof offers;
   operators: typeof operators;
+  pickupSecurity: typeof pickupSecurity;
   promo: typeof promo;
   rateLimit: typeof rateLimit;
   recommendations: typeof recommendations;

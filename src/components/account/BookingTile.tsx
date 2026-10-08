@@ -12,6 +12,7 @@ import { BookingReview } from "@/components/account/BookingReview";
 import { StatusPill } from "@/components/account/StatusPill";
 import { CancelButton } from "@/components/account/CancelButton";
 import { BookingProgress } from "@/components/account/BookingProgress";
+import { PickupHold } from "@/components/account/PickupHold";
 import { HoldRenewal } from "@/components/account/HoldRenewal";
 import { RentalAdditionApproval } from "@/components/rentals/RentalAdditionApproval";
 import { LateFeeApproval } from "@/components/account/LateFeeApproval";
@@ -77,7 +78,7 @@ export function BookingTile({
       <div className="min-w-0">
       <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
         <div>
-          <StatusPill status={booking.status} />
+          <StatusPill status={booking.status} booking={booking} />
           {featured && <h2 className="mt-4 font-display text-2xl leading-tight text-white sm:text-3xl">{rentalTitle(first?.title ?? "Your rental")}</h2>}
           {start != null && end != null && <h3 className="mt-3 font-display text-sm font-semibold text-white/90">{fmtRange(start, end)}</h3>}
           <p className="mt-1 text-xs text-white/40">{isHistory && start != null ? new Date(start).getUTCFullYear() : days != null ? `${days} ${days === 1 ? "day" : "days"}` : "Dates to be confirmed"}
@@ -100,6 +101,7 @@ export function BookingTile({
       </>}
       {err && <div className="mt-1 text-[11px] text-rose-300">{err}</div>}
 
+      {token && token !== "preview" && <PickupHold bookingId={booking._id} token={token} policy={booking.securityHoldPolicyVersion} status={booking.depositHoldStatus} dueAt={booking.securityHoldDueAt} />}
       {token && token !== "preview" && <HoldRenewal bookingId={booking._id} token={token} status={booking.depositHoldRenewalStatus} expiresAt={booking.depositHoldExpiresAt} />}
       {token && token !== "preview" && <LateFeeApproval bookingId={booking._id} token={token} status={booking.lateFeeStatus} amount={booking.lateFeeAmount} />}
 

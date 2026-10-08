@@ -11,6 +11,8 @@ import {
 } from "@/lib/rentalPresentation";
 import { formatGbp } from "@/lib/pricing";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
+import { RentalVerificationSummary } from "@/components/rentals/RentalVerificationSummary";
+import { rentalStageLabel } from "../../../shared/rentalReadiness";
 export function RentalWorkspace({
   token,
   bookingId,
@@ -67,7 +69,7 @@ export function RentalWorkspace({
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs text-accent-300">
-            {RENTAL_STAGE_LABELS[b.status]}
+            {rentalStageLabel(b)}
           </p>
           <h2 className="mt-2 font-display text-xl font-semibold text-white">
             {rentalTitle(b.lineItems[0]?.title ?? "Rental")}
@@ -93,6 +95,7 @@ export function RentalWorkspace({
           </button>
         </div>
       </header>
+      <RentalVerificationSummary bookingId={bookingId} token={token} admin/>
       <nav className="mt-6 flex gap-2 overflow-x-auto border-b border-white/[0.06] pb-4">
         {[
           ["order", "Order & payments"],
@@ -153,7 +156,7 @@ export function RentalWorkspace({
             {b.status === "confirmed" && (
               <button
                 disabled={
-                  busy || !!b.activeAdditionId || !!b.cancellationDecision
+                  busy || !!b.activeAdditionId || !!b.cancellationDecision || rentalStageLabel(b) !== "Verification approved"
                 }
                 onClick={() =>
                   void execute(() =>

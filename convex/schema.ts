@@ -218,6 +218,18 @@ export default defineSchema({
     depositAmount: v.number(),
     depositHoldAmount: v.optional(v.number()),
     depositHoldStatus: v.optional(v.string()),
+    securityHoldPolicyVersion: v.optional(v.string()),
+    securityHoldDueAt: v.optional(v.number()),
+    securityHoldGeneration: v.optional(v.number()),
+    securityHoldJobId: v.optional(v.id("_scheduled_functions")),
+    securityHoldLeaseUntil: v.optional(v.number()),
+    securityHoldAttempts: v.optional(v.number()),
+    securityHoldPrepareAttempts: v.optional(v.number()),
+    securityHoldRetryAt: v.optional(v.number()),
+    securityHoldCustomerId: v.optional(v.string()),
+    securityHoldPaymentMethodId: v.optional(v.string()),
+    securityHoldRecoverySessionId: v.optional(v.string()),
+    securityHoldFailureCode: v.optional(v.string()),
     depositHoldExpiresAt: v.optional(v.number()),
     depositHoldRenewalIntentId: v.optional(v.string()),
     depositHoldRenewalStatus: v.optional(v.string()),
@@ -349,6 +361,7 @@ export default defineSchema({
     .index("by_guest_chat_updated",["guestEmail","chatUpdatedAt"])
     .index("by_owner_unread_updated",["chatUnreadOwner","chatUpdatedAt"])
     .index("by_status", ["status"])
+    .index("by_security_hold_due", ["securityHoldPolicyVersion", "securityHoldRetryAt"])
     .index("by_verificationProvider_status", ["verificationProvider", "status"])
     .index("by_verification_reused", ["verificationReusedFrom"])
     .index("by_agreement_request", ["agreementRequestId"])

@@ -7,6 +7,8 @@ import { listingImages } from "./lib/catalogImages";
 import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
 import { acknowledgeOwnerNotifications } from "./lib/adminPush";
 import { accountForRental, rentalsForAccount } from "./lib/rentalAccount";
+import { requiresDroneLicence } from "./lib/droneVerification";
+import { assertVerificationArchive } from "./verificationArchive";
 import {
   accountForToken,
   ownedBooking,
@@ -23,6 +25,8 @@ async function ownerAccount(ctx: any, bookingId?: any, accountId?: any) {
   return accountId ? ctx.db.get(accountId) : null;
 }
 async function bookingView(ctx: any, b: any, account: any) {
+  let verificationArchiveReady = false;
+  if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx, b); verificationArchiveReady = true; } catch {} }
   const thread = account ? await rentalThread(ctx, account._id, b._id) : null;
   const items = await Promise.all(
     b.lineItems.map(async (li: any) => {
@@ -39,8 +43,17 @@ async function bookingView(ctx: any, b: any, account: any) {
     _id: b._id,
     status: b.status,
     idVerifyStatus: b.idVerifyStatus ?? "required",
+    idVerificationSource: b.idVerificationSource ?? null,
+    verificationChecks: b.verificationChecks ?? null,
+    verificationArchiveReady,
+    verificationExpiresAt: b.verificationExpiresAt ?? null,
+    documentExpiresAt: b.documentExpiresAt ?? null,
+    verificationUpdatedAt: b.verificationUpdatedAt ?? null,
+    requiresDroneLicence: await requiresDroneLicence(ctx, b),
+    droneLicenceStatus: b.droneLicenceStatus ?? "required",
     depositHoldAmount: b.depositHoldAmount ?? 0,
     depositHoldStatus: b.depositHoldStatus ?? null,
+    depositHoldExpiresAt: b.depositHoldExpiresAt ?? null,
     returnChecking: !!b.returnDecision && b.status !== "returned",
     guestEmail: b.guestEmail,
     name: account?.name ?? null,

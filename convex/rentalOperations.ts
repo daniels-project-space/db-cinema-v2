@@ -1,6 +1,8 @@
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { accountForRental } from "./lib/rentalAccount";
 import { listingImages } from "./lib/catalogImages";
+import { requiresDroneLicence } from "./lib/droneVerification";
+import { assertVerificationArchive } from "./verificationArchive";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
 import {
   mutation,
@@ -35,12 +37,16 @@ export const details = query({
     if (!checkAdminToken(token)) return null;
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
+    let verificationArchiveReady = false;
+    if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx, b); verificationArchiveReady = true; } catch {} }
     const refunds = await ctx.db
       .query("rental_refunds")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
       .collect();
     return {
       ...b,
+      requiresDroneLicence: await requiresDroneLicence(ctx, b),
+      verificationArchiveReady,
       lineItems: await Promise.all(b.lineItems.map(async (line) => {
         const listing = await ctx.db.get(line.listingId);
         const imageSources = listingImages(listing);
