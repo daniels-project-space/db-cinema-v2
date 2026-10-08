@@ -9,7 +9,7 @@ import {
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 
 /** Transactional job identity; old pickup jobs never authorise a rescheduled rental. */
-export async function schedulePickupHold(ctx: any, b: any) {
+export async function schedulePickupHold(ctx: any, b: any, force=false) {
   if (pickupHoldEligible(b) && b.stripeDepositIntentId && b.securityHoldDueAt !== pickupHoldAt(b))
     throw Error("Resolve the existing security authorisation before moving collection. Your rental dates have not changed.");
   if (
@@ -19,7 +19,7 @@ export async function schedulePickupHold(ctx: any, b: any) {
   )
     return;
   const dueAt = pickupHoldAt(b);
-  if (b.securityHoldDueAt === dueAt && b.securityHoldJobId) return;
+  if (!force && b.securityHoldDueAt === dueAt && b.securityHoldJobId) return;
   // Previous jobs are generation-gated; even a job already executing cannot authorise stale dates.
   const generation = (b.securityHoldGeneration ?? 0) + 1;
   const jobId = await ctx.scheduler.runAt(

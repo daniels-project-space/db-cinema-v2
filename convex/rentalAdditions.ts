@@ -1,4 +1,5 @@
 "use node";
+import {canDeferAdditionSecurity,PICKUP_HOLD_POLICY,pickupHoldAt} from "../shared/pickupSecurity";
 import Stripe from "stripe";
 import { checkoutPaymentIntent, syncStripeMembership } from "./checkout";
 import { createHash } from "node:crypto";
@@ -83,7 +84,7 @@ async function ensureSession(ctx: any, id: any) {
       integration_identifier: `db-rental-update-${Array.from(createHash("sha256").update(r.requestId).digest().subarray(0, 8), (n) => String.fromCharCode(97 + (n % 26))).join("")}`,
       custom_text: {
         submit: {
-          message: `By paying you accept the updated rental under our [terms](${origin}/legal/terms), including the stated refundable security charge and full card hold. Documented late fees and damage are handled under your rental agreement.`,
+          message: `By paying you accept the updated rental under our [terms](${origin}/legal/terms), including the stated refundable security charge and updated card authorisation. For pickup-scheduled security, the updated hold is requested at pickup on your saved card. Documented late fees and damage are handled under your rental agreement.`,
         },
       },
       mode: "payment",
@@ -314,7 +315,7 @@ async function finish(
   }
   if (["applied", "applied_draft"].includes(r.status)) {
     if (r.status === "applied") await releaseReplacedHold(ctx, r);
-    return { bookingId: r.bookingId, status: "held" };
+    return { bookingId: r.bookingId, status: b?.depositHoldStatus??"held" };
   }
   if (Date.now() > r.createdAt + 24 * 3600000) {
     const result = await withdraw(ctx, id);
@@ -355,6 +356,12 @@ async function finish(
     return { bookingId: r.bookingId, status: "draft_applied" };
   }
   if(!payment)throw Error("An item addition requires a saved rental payment.");
+  if(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY&&pickupHoldAt(b)>Date.now()){
+    if(!canDeferAdditionSecurity(b)||r.holdIntentId||r.securityCreationPending)throw Error("Resolve the existing security authorisation before updating the pickup hold.");
+    const result=await ctx.runMutation(internal.rentalAdditionState.apply,{id});
+    if(result.closed){const result=await withdraw(ctx,id);return {bookingId:r.bookingId,status:result?.pending?"refund_pending":"refunded",closed:!result?.pending};}
+    return {bookingId:r.bookingId,status:"scheduled"};
+  }
   let intent: Stripe.PaymentIntent | null = null;
   if (r.holdTotal > 0) {
     if (r.holdIntentId)
@@ -497,6 +504,11 @@ export const start = action({
         internal.rentalAdditionState.context,
         { id: r._id },
       );
+      if(canDeferAdditionSecurity(state.booking)){
+        const result=await ctx.runMutation(internal.rentalAdditionState.apply,{id:r._id});
+        if(result.closed)throw Error("This rental can no longer accept the item");
+        return {url:"",id:r._id,applied:true};
+      }
       const hold = state.booking?.stripeDepositIntentId
         ? await sb().paymentIntents.retrieve(
             state.booking.stripeDepositIntentId,
