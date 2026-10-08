@@ -242,6 +242,16 @@ async function due(b) {
   );
   assert.notEqual(b.depositHoldStatus, "held");
   events = [];
+  b = make();
+  await save(b);
+  await due(b);
+  const orphanId = b.stripeDepositIntentId;
+  b.securityHoldGeneration += 1;
+  b.stripeDepositIntentId = undefined;
+  await holds.reconcilePickupWebhook.handler(ctx, { bookingId: b._id, intentId: orphanId });
+  assert.equal(intents.get(orphanId).status, "canceled", "Late webhook cleans orphaned old-generation hold after unknown worker outcome");
+
+  events = [];
   outcome = "requires_action";
   b = make();
   await save(b);
