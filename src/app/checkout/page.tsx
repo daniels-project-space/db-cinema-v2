@@ -23,11 +23,14 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { AGREEMENTS } from "@/lib/legal";
 import { DELIVERY_TERMS_VERSION, DELIVERY_ACCEPTANCE_TEXT } from "../../../shared/rentalAgreement";
 import { depositFor, depositChargeFor, smallDamageHold, formatGbp, type Protection } from "@/lib/pricing";
+import { browserCheckoutStorage, readCheckoutDraft, saveCheckoutDraft } from "@/lib/checkoutDraft";
+import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 
 import { dayMs as ms } from "@/lib/dates";
-import { PICKUP_SLOTS as SLOTS, HOURS_SENTENCE } from "@/lib/site";
+import { HOURS_SENTENCE } from "@/lib/site";
 
 const PC_RE = /\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i;
+const DRAFT_TERMS = JSON.stringify({ documents: AGREEMENTS, delivery: DELIVERY_TERMS_VERSION });
 
 function StepCard({
   n,
@@ -102,10 +105,11 @@ export default function CheckoutPage() {
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState("");
   const agreementRequest = useRef<string | null>(null);
-  useEffect(() => {
-    setAgreed(false);
-    agreementRequest.current = null;
-  }, [signature, name, email, billingAddress, pickupTime, returnTime, address]);
+  const draftScope = account.loading ? null : account.me ? `account:${account.me._id}` : "guest";
+  const [restoredScope, setRestoredScope] = useState<string | null>(null);
+  const draftReady = !!draftScope && restoredScope === draftScope;
+  const [restoreDeliveryQuote, setRestoreDeliveryQuote] = useState(false);
+  const deliveryRequest = useRef(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [recovery,setRecovery]=useState<{key:string;acceptance:string}|null>(null);
@@ -115,6 +119,38 @@ export default function CheckoutPage() {
     offerContext: string;
     value: Awaited<ReturnType<typeof getPriceQuote>>;
   } | null>(null);
+
+  useEffect(() => {
+    if (!draftScope) return;
+    const draft = readCheckoutDraft(browserCheckoutStorage(), draftScope, DRAFT_TERMS);
+    const profile = account.me;
+    setEmail(draft?.email ?? profile?.email ?? "");
+    setName(draft?.name ?? profile?.name ?? "");
+    setPhone(draft?.phone ?? profile?.phone ?? "");
+    setBillingAddress(draft?.billingAddress ?? profile?.address ?? "");
+    setFulfilment(draft?.fulfilment ?? "pickup");
+    setAddress(draft?.address ?? profile?.address ?? "");
+    setPostcode(draft?.postcode ?? profile?.address?.match(PC_RE)?.[1] ?? "");
+    setProtection(draft?.protection ?? "verify");
+    setPickupTime(draft?.pickupTime ?? "");
+    setReturnTime(draft?.returnTime ?? "");
+    setAgreed(draft?.agreed ?? false);
+    setDeliveryAgreed(draft?.deliveryAgreed ?? false);
+    setSignature(""); setDq(null); setQuoting(false); setRecovery(null); setQuoted(null);
+    agreementRequest.current = null; membershipRequest.current = null;
+    deliveryRequest.current++;
+    setRestoreDeliveryQuote(draft?.fulfilment === "delivery" && !!draft.postcode);
+    setRestoredScope(draftScope);
+  }, [draftScope]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    saveCheckoutDraft(browserCheckoutStorage(), draftScope!, DRAFT_TERMS, {
+      email, name, phone, billingAddress, fulfilment, address, postcode, protection,
+      pickupTime, returnTime, agreed, deliveryAgreed,
+    });
+  }, [draftReady, draftScope, email, name, phone, billingAddress, fulfilment, address,
+    postcode, protection, pickupTime, returnTime, agreed, deliveryAgreed]);
 
   useEffect(() => {
     const profile = account.me;
@@ -165,10 +201,8 @@ export default function CheckoutPage() {
   const depositAmount = currentQuote?.depositAmount ?? depositChargeFor(protection, replacementSum);
 
   useEffect(() => {
-    setAgreed(false);
-    agreementRequest.current = null;
     setQuoteError(null);
-    if (!priceArgs.items.length || (fulfilment === "delivery" && (!dq?.ok || !quotedPostcode))) return;
+    if (!draftReady || !priceArgs.items.length || (fulfilment === "delivery" && (!dq?.ok || !quotedPostcode))) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       getPriceQuote(priceArgs).then((value) => {
@@ -179,33 +213,57 @@ export default function CheckoutPage() {
             membershipRequest.current = null;
             return;
           }
-          // A refreshed provider-side price needs a fresh, amount-specific consent.
-          setAgreed(false);
         }
       }).catch((e: any) => {
         if (!cancelled) setQuoteError(e?.message ?? "Could not calculate this rental total.");
       });
     }, 250);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [quoteKey, getPriceQuote]);
+  }, [quoteKey, getPriceQuote, draftReady]);
+
+  // Reading the documents and signing the current order are separate. Changes
+  // to the order invalidate only the signature/attempt, never the read checkbox.
+  const signingContext = JSON.stringify({ quoteKey, name, phone, billingAddress, pickupTime, returnTime,
+    deliveryAgreed, due: currentQuote?.combinedTotalDue, deposit: currentQuote?.depositAmount, hold: currentQuote?.depositHoldAmount });
+  useEffect(() => { setSignature(""); agreementRequest.current = null; setRecovery(null); }, [signingContext]);
+  useEffect(() => { agreementRequest.current = null; }, [signature, agreed]);
+  useEffect(() => {
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) { setSignature(""); agreementRequest.current = null; setRecovery(null); }
+    };
+    window.addEventListener("pageshow", restore);
+    return () => window.removeEventListener("pageshow", restore);
+  }, []);
 
   const signDone = agreed && signature.trim().length > 2;
 
-  const valid = (!account.token || !!account.me) && (!membership || membership.termsAccepted) && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
+  const valid = draftReady && (!account.token || !!account.me) && (!membership || membership.termsAccepted) && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
+
+  const deliveryKey = JSON.stringify({ postcode: postcode.trim().toUpperCase(), items: items.map(i => i.listingId) });
+  const currentDeliveryKey = useRef(deliveryKey);
+  currentDeliveryKey.current = deliveryKey;
 
   async function quoteDelivery() {
     if (!postcode.trim()) return;
+    const request = ++deliveryRequest.current, key = deliveryKey;
+    const current = () => deliveryRequest.current === request && currentDeliveryKey.current === key;
     setQuoting(true);
     setDq(null);
     try {
       const r = await getQuote({ postcode: postcode.trim(), listingIds: items.map((i) => i.listingId as any) });
-      setDq(r);
+      if (current()) setDq(r);
     } catch (e: any) {
-      setDq({ ok: false, reason: e?.message ?? "Quote failed" });
+      if (current()) setDq({ ok: false, reason: e?.message ?? "Quote failed" });
     } finally {
-      setQuoting(false);
+      if (deliveryRequest.current === request) setQuoting(false);
     }
   }
+  useEffect(() => {
+    if (draftReady && restoreDeliveryQuote && items.length) {
+      setRestoreDeliveryQuote(false);
+      void quoteDelivery();
+    }
+  }, [draftReady, restoreDeliveryQuote, items.length]);
 
   const recoveryKey=JSON.stringify({priceArgs,phone,billingAddress,name,email,pickupTime,returnTime,signature,agreed,deliveryAgreed,total:currentQuote?.combinedTotalDue,deliveryFee:currentQuote?.quotedDeliveryFee,membershipTermsAccepted:membership?.termsAccepted});
   const canRecover=recovery?.key===recoveryKey&&recovery.acceptance===agreementRequest.current;
@@ -250,7 +308,6 @@ export default function CheckoutPage() {
       if (e?.data?.code === "CHECKOUT_STOCK_REJECTED" && e.data.freshAcceptanceRequired === true && agreementRequest.current === acceptanceAttempt) {
         agreementRequest.current = null;
         if (membershipRequest.current === membershipAttempt) membershipRequest.current = null;
-        setAgreed(false);
         setSignature("");
         setRecovery(null);
       } else if(agreementRequest.current===acceptanceAttempt) {
@@ -386,24 +443,8 @@ export default function CheckoutPage() {
 
               {/* times (both pickup & delivery) */}
               <div className="mt-4 flex gap-3">
-                <div className="flex-1">
-                  <label className={label} htmlFor="co-time-out">
-                    {fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"}
-                  </label>
-                  <select id="co-time-out" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} className="input w-full [color-scheme:dark]">
-                    <option value="">Select…</option>
-                    {SLOTS.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className={label} htmlFor="co-time-back">
-                    {fulfilment === "delivery" ? "Collection time *" : "Return time *"}
-                  </label>
-                  <select id="co-time-back" value={returnTime} onChange={(e) => setReturnTime(e.target.value)} className="input w-full [color-scheme:dark]">
-                    <option value="">Select…</option>
-                    {SLOTS.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
+                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime}/>
+                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime}/>
               </div>
             </StepCard>
 
@@ -472,6 +513,7 @@ export default function CheckoutPage() {
                 <input
                   id="co-sig"
                   value={signature}
+                  disabled={!draftReady || !currentQuote || busy}
                   onChange={(e) => setSignature(e.target.value)}
                   placeholder="Your signature"
                   className="input serif-accent w-full border-b-2 border-b-accent-400/30 !text-xl text-white/90 placeholder:font-sans placeholder:text-sm"
