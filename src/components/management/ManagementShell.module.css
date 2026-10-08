@@ -1,8 +1,8 @@
 .shell { font-family:var(--font-inter, Arial),sans-serif; --management-copper: #bd8d6c; display: grid; grid-template-columns: 237px minmax(0, 1fr); min-height: 100vh; position: relative; isolation: isolate; background: #151515; color: #eeeae4; }
 .sidebar { background: #111212; border-right: 1px solid #ffffff0f; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
-.brand { display: block; padding: 24px 20px 16px; color: var(--management-copper); border-bottom: 1px solid #ffffff0a; }
-.brand > span { display: flex; align-items: baseline; gap: 5px; font-family: var(--font-instrument, Georgia), serif; font-size: 40px; line-height: 1; letter-spacing: -.06em; white-space: nowrap; }
-.brand small { font-family: var(--font-instrument, Georgia), serif; color: #eeeae4; font-size: 25px; letter-spacing: .06em; }
+.brand { display: block; padding: 24px 20px 4px; color: var(--management-copper); border-bottom: 1px solid #ffffff0a; }
+.brand > span { display: flex; align-items: baseline; gap: 7px; font-family: Georgia, "Times New Roman", serif; font-size: 40px; line-height: 1; letter-spacing: -.06em; white-space: nowrap; }
+.brand small { font-family: Georgia, "Times New Roman", serif; color: #eeeae4; font-size: 25px; letter-spacing: .06em; }
 .brand b { display: block; color: #c6a084; font-size: 9px; letter-spacing: .44em; font-weight: 400; padding-left: 56px; margin-top: 5px; }
 .nav { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; }
 .nav button { display: flex; align-items: center; gap: 13px; padding: 13px 23px; border-left: 3px solid transparent; text-align: left; color: #a8a7a5; font-size: 12px; transition: background .15s, color .15s; }
@@ -28,6 +28,16 @@
 .content { padding: 28px 30px 60px; max-width: 1720px; margin-inline: auto; }
 .heading h1 { font-family: var(--font-instrument, Georgia), serif; font-size: clamp(29px, 3vw, 38px); letter-spacing: -.015em; font-weight: 400; line-height: 1.2; }
 .heading p { margin-top: 9px; color: #9c9b96; font-size: 13px; }
+@media (min-width: 1101px) {
+  .shell[data-management-role="admin"][data-management-screen="accounts"] .workspace { position: relative; }
+  .shell[data-management-role="admin"][data-management-screen="accounts"] .topbar { position: absolute; right: 15px; top: 32px; min-height: 0; padding: 0; background: transparent; border: 0; }
+  .shell[data-management-role="admin"][data-management-screen="accounts"] .breadcrumb,
+  .shell[data-management-role="admin"][data-management-screen="accounts"] .actor > span { display: none; }
+  .shell[data-management-role="admin"][data-management-screen="accounts"] .content { padding: 32px 0 36px 15px; }
+  .shell[data-management-role="admin"][data-management-screen="accounts"] .heading { padding: 0 15px; padding-right: 140px; }
+  .shell[data-management-role="admin"][data-management-screen="accounts"] .heading h1 { font-family: Georgia, "Times New Roman", serif; font-size: 28px; line-height: 34px; letter-spacing: 0; }
+  .shell[data-management-role="admin"][data-management-screen="accounts"] .heading p { font-size: 14px; margin-top: 7px; }
+}
 .menuButton { display: none; }
 .closeButton { display: none; }
 .shell :global(.btn-primary) { background: #a97756; color: #fff6ef; box-shadow: none; }

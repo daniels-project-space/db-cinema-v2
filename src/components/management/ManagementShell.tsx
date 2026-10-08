@@ -21,7 +21,7 @@ export function ManagementShell({ role, title, name, subtitle, nav, active, onNa
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, [menuOpen]);
-  return <div className={styles.shell} data-management-role={role}>
+  return <div className={styles.shell} data-management-role={role} data-management-screen={active}>
     <aside className={`${styles.sidebar} ${menuOpen ? styles.open : ""}`}>
       <button type="button" aria-label="Close account menu" className={styles.closeButton} onClick={() => setMenuOpen(false)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
       <Link href="/" className={styles.brand}><span>DB <small>CINEMA</small></span><b>RENTALS</b></Link>

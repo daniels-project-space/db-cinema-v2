@@ -296,8 +296,9 @@ export function AccountAdmin({
             <thead>
               <tr>
                 <th>Customer</th>
+                <th className={styles.emailColumn}>Email</th>
                 <th>Membership</th>
-                <th>Verification</th>
+                <th className={styles.verificationColumn}>Verified</th>
                 <th>
                   <span className={styles.srOnly}>Open account</span>
                 </th>
@@ -335,7 +336,7 @@ export function AccountAdmin({
                       )}
                       <span>
                         <strong>{account.name || "DB Cinema renter"}</strong>
-                        <small>{account.email}</small>
+                        <small className={styles.mobileEmail}>{account.email}</small>
                         <small className={styles.mobileVerification}>
                           {account.blocked
                             ? "Blocked"
@@ -346,10 +347,11 @@ export function AccountAdmin({
                       </span>
                     </button>
                   </td>
+                  <td className={styles.emailColumn}><span>{account.email}</span></td>
                   <td>
                     <span className={styles.tier}>{label(account.tier)}</span>
                   </td>
-                  <td>
+                  <td className={styles.verificationColumn}>
                     <span
                       className={
                         account.blocked
@@ -442,14 +444,18 @@ export function AccountAdmin({
               </span>
             )}
             <div>
+              <div className={styles.profileIdentity}>
               <h2>{selected.name || "DB Cinema renter"}</h2>
               <span
                 className={selected.verified ? styles.verified : styles.pending}
               >
                 {selected.verified ? "✓ Verified" : "Verification pending"}
               </span>
+              </div>
+              <div className={styles.contacts}>
               <p>{selected.email}</p>
               {detail?.phone && <p>{detail.phone}</p>}
+              </div>
             </div>
             <button
               type="button"
@@ -464,7 +470,7 @@ export function AccountAdmin({
             </button>
           </header>
           <div className={styles.summary}>
-            <div>
+            <div className={styles.membershipSummary}>
               <span>Membership</span>
               <strong>{label(selected.tier)}</strong>
               <small>
@@ -474,9 +480,10 @@ export function AccountAdmin({
                     ? "Granted access"
                     : "Standard account"}
               </small>
+              {detail && <small>Account created {date(detail.createdAt)}</small>}
             </div>
             <div>
-              <span>Available account credit</span>
+              <span>Available credit</span>
               <strong>{detail ? formatGbp(detail.credit) : "…"}</strong>
               {detail && (
                 <small>

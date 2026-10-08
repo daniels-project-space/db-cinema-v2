@@ -2,6 +2,14 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — updated interface and notification priority
+
+- [ ] Implement the remaining account/admin reference layouts now, using actual account, rental and document data; scope dark styling to management. Operational, stock, finance and customer-management panels are admin-only. Renter screens need a separate calendar/chat-focused layout with their own rental details, documents and notifications.
+- [ ] Complete at least five recorded screenshot/vision comparison passes for **each** of the six reference screens. Customers & Members has six inspected refinement passes at desktop/phone sizes; remaining controls and populated acceptance still prevent a pixel-perfect claim. Fix observed differences between passes; do not count five uninspected screenshots as acceptance or call partial fidelity pixel-perfect.
+- [ ] Add renter notification-bell opt-in, phone guidance and supported home-screen installation instructions. Browser/OS permission and installation require deliberate customer gestures; the site cannot silently install itself or grant notifications.
+- [ ] Wire authenticated renter push subscriptions and real booking/chat notifications, with device removal, permission denial/recovery, account ownership and delivery-failure handling.
+- [ ] Build the admin notification settings panel with persisted, working options and delivery controls; verify desktop/mobile and actual authenticated delivery separately from fixtures.
+
 ### 8 October 2026 — partial audited kit quantities
 
 - [x] Paired controlled acceptance: actual prior/current manager snapshot → website sync/cart/whole-order holds. Prior wrongly allows three bodies; corrected allows two, rejects three without partial writes, consumes remaining capacity and replays without duplicates. Runtime source revisions and qualified evidence are saved in the manager `docs/paired-partial-kit-acceptance-2026-10-08.json`; this does not prove live or concurrent cross-app acquisition.

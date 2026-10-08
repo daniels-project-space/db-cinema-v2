@@ -1,9 +1,9 @@
 .root {
   font-family: var(--font-inter, Arial), sans-serif;
   display: grid;
-  grid-template-columns: minmax(350px, 1fr) minmax(420px, 1fr);
-  gap: 16px;
-  margin-top: 24px;
+  grid-template-columns: minmax(350px, 0.98fr) minmax(420px, 1fr);
+  gap: 12px;
+  margin-top: 20px;
   font-size: 12px;
   color: #ccc9c5;
 }
@@ -16,7 +16,7 @@
   align-self: start;
 }
 .directory {
-  padding: 18px 16px;
+  padding: 16px 16px 24px;
 }
 .directoryTabs,
 .profileTabs {
@@ -33,6 +33,7 @@
   border-bottom: 2px solid transparent;
   font-size: 11px;
 }
+.directoryTabs button { padding-top: 6px; padding-bottom: 8px; font-size: 12px; }
 .directoryTabs button.active,
 .profileTabs button.active {
   border-bottom-color: #ba8969;
@@ -45,7 +46,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 165px;
   gap: 10px;
-  margin: 18px 0 24px;
+  margin: 18px 0 20px;
 }
 .filters input,
 .filters select,
@@ -56,7 +57,7 @@
   border-radius: 5px;
   padding: 10px 11px;
   color: #d4d1cc;
-  font-size: 11px;
+  font-size: 12px;
 }
 .filters input::placeholder {
   color: #848681;
@@ -70,15 +71,17 @@
   text-align: left;
 }
 .table th {
-  font-size: 10px;
+  font-size: 11px;
   color: #aaa9a6;
   font-weight: 400;
   padding: 0 8px 15px;
 }
 .table td {
-  padding: 15px 8px;
+  padding: 13.5px 7px;
   border-top: 1px solid #ffffff12;
 }
+.emailColumn { font-size: 10px; color: #a6a6a1; overflow-wrap: anywhere; max-width: 160px; }
+.customer .mobileEmail { display: none; }
 .table th:first-child,
 .table td:first-child {
   padding-left: 0;
@@ -212,13 +215,17 @@
   min-width: 0;
 }
 .profileHeader h2 {
-  font-family: var(--font-instrument), Georgia, serif;
-  font-size: 24px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 22px;
   font-weight: 400;
   color: #f1ebe2;
   margin-bottom: 6px;
   padding-right: 24px;
 }
+.profileIdentity { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.profileIdentity h2 { padding-right: 0; margin-bottom: 0; }
+.profileIdentity .verified { border: 1px solid #49b17c33; background: #49b17c0d; padding: 4px 8px; border-radius: 4px; }
+.contacts { display: flex; flex-wrap: wrap; column-gap: 22px; }
 .profileHeader p {
   font-size: 11px;
   color: #aaa9a4;
@@ -234,10 +241,13 @@
 }
 .summary {
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
+  grid-template-columns: 1.9fr 0.8fr;
   gap: 12px;
   padding: 0 18px 19px;
 }
+.summary .membershipSummary strong { display: inline-block; font-family: var(--font-inter, Arial), sans-serif; font-size: 12px; padding: 7px 18px; background: #a97759; border: 1px solid #ba8969; border-radius: 5px; }
+.summary .membershipSummary > span { display: block; }
+.summary .membershipSummary small { font-size: 10px; }
 .summary > div {
   border: 1px solid #ffffff14;
   padding: 14px;
@@ -250,8 +260,8 @@
 }
 .summary strong {
   display: block;
-  font-family: var(--font-instrument), Georgia, serif;
-  font-size: 25px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 24px;
   font-weight: 400;
   color: #eee9e0;
   margin-top: 12px;
@@ -488,6 +498,10 @@
   }
 }
 @media (max-width: 600px) {
+  .directoryTabs button { font-size: 11px; }
+  .summary { grid-template-columns: 1.1fr 1fr; }
+  .profileIdentity { gap: 8px; }
+  .contacts { display: block; }
   .directory {
     padding: 15px 12px;
   }
@@ -549,11 +563,13 @@
   .profileTabs {
     margin-inline: 14px;
   }
-  .table td:nth-child(3),
-  .table th:nth-child(3) {
+  .table .emailColumn,
+  .table .verificationColumn {
     display: none;
   }
+  .customer .mobileEmail { display: block; }
 }
+@media (min-width: 1101px) { .detail { margin-top: -9px; } .profileHeader { padding-top: 26px; min-height: 124px; } }
 
 .mobileVerification {
   display: none !important;
