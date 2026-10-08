@@ -69,7 +69,7 @@ export function BookingTile({
   return (
     <article data-rental-featured={featured || undefined} className="management-rental-card overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313] p-5 sm:p-6">
 
-      {showVerify && <VerificationLink booking={booking} compact={featured} />}
+      {showVerify && !featured && <VerificationLink booking={booking} />}
       <RentalAdditionApproval token={token} bookingId={booking._id}/>
 
       <div data-rental-layout={featured || undefined} className={featured ? "grid gap-6 xl:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]" : ""}>
@@ -104,11 +104,10 @@ export function BookingTile({
       {token && token !== "preview" && <LateFeeApproval bookingId={booking._id} token={token} status={booking.lateFeeStatus} amount={booking.lateFeeAmount} />}
 
       <div data-rental-actions className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
+        {showVerify && featured && <VerificationLink booking={booking} compact />}
         <button onClick={chat} className={`${isHistory ? "text-white/65 hover:text-white" : "rounded-full bg-accent-500 px-5 py-2.5 text-white hover:bg-accent-400"} text-xs font-medium`}>{isHistory ? "Conversation ↗" : "Open conversation"}</button>
         {isHistory && <Link href={`/plan?booking=${booking._id}`} className="rounded-full bg-white/[0.06] px-4 py-2 text-xs text-white/75 hover:bg-white/10">Rent this kit again ↗</Link>}
         {isPending && <button onClick={abort} disabled={busy} className="text-xs text-white/40 hover:text-rose-300 disabled:opacity-30">{busy ? "Removing…" : "Remove draft"}</button>}
-      </div>
-      </div>
       </div>
       <details className="mt-4 border-t border-white/[0.06] pt-3">
         <summary className="cursor-pointer text-xs font-medium text-white/55 hover:text-white">Rental details &amp; actions</summary>
@@ -180,6 +179,8 @@ export function BookingTile({
         )}
       </div>
       </details>
+      </div>
+      </div>
     </article>
   );
 }

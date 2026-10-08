@@ -8,3 +8,10 @@
 
 .equipmentPhoto{width:60px;height:53px;border-radius:4px;background:#0d100e}.equipmentPhoto img{object-fit:contain!important}@media(max-width:850px){.equipmentPhoto{width:50px;height:48px}}
 @media(min-width:1301px){.insights{position:relative}.heading{margin-bottom:14px}.heading h1{font-size:46px}.heading p{font-size:18px}.scope{position:absolute;top:73px;right:0;margin:0;font-size:10px}.metrics>div{min-height:118px}.metrics strong{line-height:1.1}.metrics{margin-bottom:18px}.chart svg{height:130px}.memberships{min-height:181px}}
+
+/* Neutral charcoal sampled from the Insights render, with copper bars. */
+.insights { color:#efefec; }
+.metrics>div { background:linear-gradient(125deg,#1b1e1e,#111515); border-color:#2b302d; }
+.panel { background:linear-gradient(125deg,#1a1e1d,#111515); border-color:#2b302d; border-radius:6px; }
+.equipmentPhoto,.equipment article img { background:#101312; }
+@media(min-width:1301px) { .central { grid-template-columns:minmax(0,1.037fr) minmax(0,1fr); } .panel { padding:18px 19px; } .equipment article { padding:14px 0; } .chart { min-height:229px; } .bottom .panel { min-height:271px; } .right { gap:17px; } }

@@ -5,6 +5,7 @@ import { checkAdminToken } from "./adminAuth";
 import { isMarketingOnly } from "./lib/marketingInventory";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { lateFeeQuote } from "./lib/lateFee";
+import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 
 /** Record a first-party event (views, funnel steps, zero-result searches). */
 export const track = mutation({
@@ -157,7 +158,7 @@ export const adminSummary = query({
         return { title: line.title, qty: line.qty ?? 1, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
       })) : [];
       return { _id: b._id, guestEmail: b.guestEmail, customerName: b.guestName ?? b.agreementName ?? null,
-        status: b.status, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
+        status: b.status, verification: b.idVerifyStatus ?? "required", droneVerification: b.droneLicenceStatus ?? null, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
         pickupTime: b.pickupTime ?? null, returnTime, total: b.total,
         items: b.lineItems.map(line => line.title).join(", "), kit, fulfilment: b.fulfilment,
         calendarLines: b.lineItems.map(line => ({title:line.title,qty:line.qty ?? 1,start:line.start,end:line.end,returnTime:line.returnTime})),
@@ -186,6 +187,39 @@ export const adminSummary = query({
 });
 
 /** Admin-only Insights: first-party observations, never invented render values. */
+export const dashboardPanels = query({
+  args: { token: v.string(), now: v.number() },
+  handler: async (ctx, { token, now }) => {
+    if (!checkAdminToken(token)) return { authorized: false as const };
+    const date = new Date(now);
+    const months = Array.from({ length: 6 }, (_, i) => ({
+      at: Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 5 + i, 1), rentalPence: 0,
+    }));
+    const [rows, listings] = await Promise.all([
+      ctx.db.query("bookings").withIndex("by_creation_time", q => q.gte("_creationTime", months[0].at)).take(1001),
+      ctx.db.query("listings").withIndex("by_active", q => q.eq("active", true)).take(1001),
+    ]);
+    const paid = rows.slice(0, 1000).filter(b => b._creationTime <= now && b.stripePaymentIntentId && b.currency === "GBP" &&
+      (["confirmed", "active", "returned"].includes(b.status) || b.status === "cancelled" && !!b.cancellationDecision));
+    await Promise.all(paid.map(async b => {
+      const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
+      // Booking totals include applied, paid additions and extensions. The original
+      // rentalPaidPence snapshot does not; using it would omit later kit changes.
+      const pence = Math.max(0, Math.round((b.total - b.depositAmount) * 100) - confirmedRentalRefundPence(refunds));
+      const month = [...months].reverse().find(m => b._creationTime >= m.at);
+      if (month) month.rentalPence += pence;
+    }));
+    const categories = new Map<string, number>();
+    for (const listing of listings.slice(0, 1000)) {
+      const category = listing.category || "Other";
+      categories.set(category, (categories.get(category) ?? 0) + 1);
+    }
+    return { authorized: true as const, months, totalPence: months.reduce((n, m) => n + m.rentalPence, 0),
+      receiptCount: paid.length, partialReceipts: rows.length > 1000, partialCatalogue: listings.length > 1000,
+      categories: [...categories].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([name, count]) => ({ name, count })) };
+  },
+});
+
 export const insights = query({
   args: { token:v.string(), days:v.number(), now:v.number() },
   handler:async(ctx,{token,days,now})=>{

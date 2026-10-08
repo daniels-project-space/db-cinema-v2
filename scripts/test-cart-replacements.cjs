@@ -42,5 +42,21 @@ for(const title of ['Cannon r5 c cinema camera','Sigma art 24-70mm f2.8 lens','S
  put('reservations',{inventoryUnitId:fx3.components[0].inventoryUnitId,start,end,qty:1,status:'confirmed'});assert(!(await replacements.forCart.handler(ctx,{items:lines(phantom)})).source.some(c=>c.listingId===fx3._id));
  // Do not substitute a known incompatible body into a kit with E glass.
  await db.patch(a7._id,{specs:{mount:'EF'}});const glass=listing('Sony lens',unit('lens'),{category:'Lenses',itemType:'lens',specs:{mount:'E'}});assert.equal((await replacements.forCart.handler(ctx,{items:[...lines(phantom),{key:'lens',listingId:glass._id,start,end}]})).source.length,0);
+ // Independent periods sharing one physical pool must not inherit a shortage
+ // on another cart line or during the gap between their requested dates.
+ const periodUnit=unit('Period-specific camera'),firstPeriod=listing('Early camera hire',periodUnit),laterPeriod=listing('Later camera hire',periodUnit);
+ const day=86400000,early={listingId:firstPeriod._id,start,end:start},late={listingId:laterPeriod._id,start:start+10*day,end:start+10*day};
+ const laterHold=put('reservations',{inventoryUnitId:periodUnit._id,start:late.start,end:late.end,qty:1,status:'confirmed'});
+ let periods=await availability.forCart.handler(ctx,{items:[early,late]});
+ assert.deepEqual(periods[firstPeriod._id],{available:1,demanded:1,ok:true},'A later occupied date must not mark the earlier hire unavailable');
+ assert.deepEqual(periods[laterPeriod._id],{available:0,demanded:1,ok:false});
+ await db.patch(laterHold._id,{start:start+5*day,end:start+5*day,qty:2});
+ periods=await availability.forCart.handler(ctx,{items:[early,late]});
+ assert(Object.values(periods).every(p=>p.ok&&p.available===1),'Even an overbooked gap outside both hires cannot block their selected dates');
+ const overlapping={...late,start:early.start,end:early.end};
+ periods=await availability.forCart.handler(ctx,{items:[early,overlapping]});
+ assert(Object.values(periods).every(p=>!p.ok),'Overlapping shared basket demand still blocks both conflicting hires');
+ await assertRentalInventory(ctx,[{...early,qty:1},{...late,qty:1}]);
+ await assert.rejects(assertRentalInventory(ctx,[{...early,qty:1},{...overlapping,qty:1}]),/already reserved/);
  console.log('Cart replacement handlers: marketing and missing lines blocked; ranked maximum two, exact period/pricing, date blocks, expired/live holds, retained shared inventory, minimum duration, stock races, and mount compatibility pass.');
 })().catch(e=>{console.error(e);process.exitCode=1});

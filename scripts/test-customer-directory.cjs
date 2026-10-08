@@ -6,10 +6,10 @@ let scans = 0, avatarReads = 0;
 const ctx = { db: { ...db, query(table) { scans++; return db.query(table); } }, storage: { getUrl: async () => { avatarReads++; return "https://example.invalid/avatar"; } } };
 const old = put("accounts", { email: "older+camera@example.invalid", name: "Older Cinematographer", createdAt: 1, adminMembershipTier: "pro", avatarStorageId: "old-avatar", rentalVerification: { expiresAt: Date.now() + 100000 }, hash: "private-hash", stripeCustomerId: "private-provider" });
 for (let i = 0; i < 220; i++) put("accounts", { email: `customer${i}@example.invalid`, name: `Customer ${i}`, createdAt: i + 2, idVerified: true, ...(i === 3 ? { rentalVerification: { expiresAt: 1 } } : {}) });
-async function find(search, filter = "all", tier = "all") {
+async function find(search, filter = "all", tier = "all", verification = "all") {
  let cursor = null, pageCount = 0; const rows = [];
  do {
-  const result = await admin.directory.handler(ctx, { token: "fixture-admin", search, filter, tier, paginationOpts: { numItems: 100, cursor } });
+  const result = await admin.directory.handler(ctx, { token: "fixture-admin", search, filter, tier, verification, paginationOpts: { numItems: 100, cursor } });
   pageCount++; rows.push(...result.page);
   if (result.isDone) break;
   assert.notEqual(result.continueCursor, cursor); cursor = result.continueCursor;
@@ -28,6 +28,24 @@ async function find(search, filter = "all", tier = "all") {
  assert.equal(JSON.stringify(byName.rows).includes("private-hash"), false); assert.equal(JSON.stringify(byName.rows).includes("private-provider"), false);
  assert.equal((await find("Cinematographer", "pending")).rows.length, 0);
  const pending = await find("", "pending"); assert.equal(pending.rows.length, 1); assert.equal(pending.rows[0].email, "customer3@example.invalid");
+ assert.equal((await find("", "members", "pro", "verified")).rows.length, 1);
+ assert.equal((await find("", "members", "pro", "pending")).rows.length, 0, "Membership and verification filters must compose");
+ put("bookings", { accountId: old._id, guestEmail: "different@example.invalid", status: "active" });
+ put("bookings", { guestEmail: old.email, status: "confirmed" });
+ put("bookings", { accountId: "foreign-account", guestEmail: old.email, status: "active" });
+ put("bookings", { accountId: old._id, guestEmail: old.email, status: "returned" });
+ const credit = put("credits", { accountId: old._id, amount: 25, remaining: 25, status: "active", expiresAt: Date.now() + 100000, reason: "rental_refund:test" });
+ put("credits", { accountId: old._id, amount: 100, remaining: 100, status: "active", expiresAt: 1 });
+ put("bookings", { guestEmail: old.email, status: "pending_payment", creditAllocations: [{ creditId: credit._id, amount: 5 }] });
+ const beforeMetrics = scans;
+ assert.deepEqual(await admin.directoryMetrics.handler(ctx, { token: "wrong", accountIds: [old._id] }), []);
+ assert.equal(scans, beforeMetrics, "Unauthorized metrics must not query data");
+ const [metric] = await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [old._id, old._id] });
+ assert.deepEqual(metric, { id: old._id, activeRentals: 2, activeRentalsMore: false, credit: 20 }, "Count owned and unclaimed legacy rentals; exclude foreign links, past rentals, expired and reserved credit");
+ await assert.rejects(admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: Array(11).fill(old._id) }), /metrics page/);
+ for (let i = 0; i < 105; i++) put("bookings", { accountId: old._id, status: "active" });
+ const capped = (await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [old._id] }))[0];
+ assert.equal(capped.activeRentals, 100); assert.equal(capped.activeRentalsMore, true, "A bounded count must disclose that more rentals exist");
  for (const size of [0, 101, 1.5]) await assert.rejects(admin.directory.handler(ctx, { token: "fixture-admin", search: "", filter: "all", tier: "all", paginationOpts: { numItems: size, cursor: null } }), /page size/);
  console.log("PASS full customer directory: bounded cursors, older name/email matches, sparse pages, live membership/verification filters, no duplicate accounts and admin-only safe projection.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

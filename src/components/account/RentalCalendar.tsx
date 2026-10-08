@@ -69,7 +69,7 @@ export function RentalCalendar({ bookings, loading = false, onOpenRental }: { bo
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-7 gap-1 text-center">
+      <div data-calendar-grid className="mt-4 grid grid-cols-7 gap-1 text-center">
         {WD.map((d) => (
           <div key={d} className="pb-1 text-[10px] font-medium uppercase tracking-wide text-white/30">{d}</div>
         ))}
@@ -94,7 +94,7 @@ export function RentalCalendar({ bookings, loading = false, onOpenRental }: { bo
         })}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-white/40">
+      <div data-calendar-legend className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-white/40">
         <Lg c="bg-emerald-400" t="Upcoming" />
         <Lg c="bg-sky-400" t="Out now" />
         <Lg c="bg-amber-400" t="Pending" />

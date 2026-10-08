@@ -36,7 +36,7 @@
 .root :global([data-rental-featured]) { border-radius: 6px; padding: 18px; background: #1b1c1b; }
 .root :global([data-rental-layout]) { gap: 22px; }
 .root :global([data-rental-progress]), .root :global([data-rental-security]) { margin-top: 14px; padding-top: 12px; }
-.root :global([data-rental-featured]) > div:last-of-type { margin-top: 14px; padding-top: 12px; }
+
 .root :global([data-rental-featured]) h2 { font-family: Georgia, serif; font-size: 28px; margin-top: 10px; }
 .root :global([data-rental-actions]) > button:first-child { border-radius: 4px; background: #9c6a4c; }
 .agenda :global([data-calendar-heading]) { flex-wrap: wrap; gap: 10px; }
@@ -50,3 +50,107 @@
 .root :global([data-rental-layout]) .management-kit-image > div { aspect-ratio: 4 / 3; }
 @media (max-width: 1350px) { .root :global([data-rental-layout]) { grid-template-columns: 1fr; } }
 @media (max-width: 1000px) { .workspace { grid-template-columns: 1fr; } }
+
+/* Full-width featured rental, then kit and calendar, as in the renter render. */
+.root { margin-top:17px; }
+.toolbar { margin-bottom:17px; }
+.toolbar > p { display:none; }
+.toolbar nav { margin-left:auto; }
+.root :global([data-rental-featured]) { padding:0; background:#1c1e1d; border-color:#343633; }
+.root :global([data-rental-layout]) { display:grid; grid-template-columns:minmax(0,.74fr) minmax(0,1fr); gap:0; }
+.root :global([data-rental-layout]) > div:first-child { height:100%; padding:0; background:#131616; }
+.root :global([data-rental-layout]) > div:first-child > div:first-child { height:100%; }
+.root :global([data-rental-layout]) > div:first-child > div:first-child > div { border:0; border-radius:0; height:100%; }
+.root :global([data-rental-layout]) > div:first-child > div:first-child > div > div:first-child { aspect-ratio:auto; height:100%; min-height:340px; }
+.root :global([data-rental-layout]) > div:first-child > div:first-child > div img { object-fit:contain; }
+.root :global([data-rental-layout]) > div:first-child > details { padding:9px 18px; background:#171a18; }
+.root :global([data-rental-layout]) > div:first-child > div[aria-label] { display:none; }
+.root :global([data-rental-layout]) > div:last-child { padding:17px 27px; }
+.root :global([data-rental-featured]) h2 { font-size:32px; margin-top:12px; }
+.root :global([data-rental-progress]) { margin-top:16px; padding-top:14px; }
+.root :global([data-rental-security]) { margin-top:15px; padding-top:12px; }
+.root :global([data-rental-actions]) { margin-top:13px; padding-top:13px; }
+.root :global([data-rental-actions]) section { margin:0; }
+.root :global([data-rental-actions]) section a { padding:9px 15px; border-radius:4px; background:#ae7b5c; color:#fff4e9; font-size:12px; }
+.root :global([data-rental-featured]) > details { margin:0; padding:10px 18px; }
+.workspace { margin-top:14px; grid-template-columns:minmax(0,1fr) 341px; gap:12px; }
+.kit { margin-top:0; padding:16px; }
+.kitStrip { gap:16px; }
+.kitItem { flex:0 0 130px; }
+.kitImage { width:130px; height:110px; aspect-ratio:auto; }
+.agenda { gap:14px; }
+@media(max-width:1100px) { .root :global([data-rental-layout]) { grid-template-columns:1fr; } .root :global([data-rental-layout]) > div:first-child > div:first-child > div > div:first-child { min-height:260px; max-height:320px; } .workspace { grid-template-columns:1fr; } }
+@media(max-width:600px) { .root :global([data-rental-layout]) > div:last-child { padding:18px; } .root :global([data-rental-featured]) h2 { font-size:25px; } .toolbar { margin-top:0; } .workspace { gap:14px; } }
+
+@media(min-width:1101px) { .root { position:relative; margin-top:17px; } .toolbar { position:absolute; top:-78px; right:0; margin:0; } .root :global([data-rental-layout]) > div:first-child { align-self:stretch; } .root :global([data-rental-layout]) > div:first-child > div:first-child > div > div:first-child { min-height:300px; } .root :global([data-rental-layout]) > div:last-child { padding:16px 27px; } .root :global([data-rental-featured]) h2 { font-size:30px; line-height:1.15; margin-top:8px; } .root :global([data-rental-progress]) { margin-top:12px; padding-top:10px; } .root :global([data-rental-security]) { margin-top:12px; padding-top:10px; } .root :global([data-rental-actions]) { margin-top:12px; padding-top:10px; } }
+
+.agenda :global(button[aria-label*=rentals]) { border-radius:3px; }
+.agenda :global(button[class*=bg-sky-500]) { background:#78533e; border-color:#a77b5e; color:#ead8c7; }
+.agenda :global(button[class*=bg-emerald-500]) { background:#3c5144; border-color:#647866; color:#d5e2d5; }
+.agenda :global(button[class*=bg-amber-500]) { background:#63513a; border-color:#8d7552; color:#e4dac7; }
+
+/* Keep the image and its disclosure in flow; expanded details grow the card. */
+.root :global([data-rental-layout]) > div:first-child { display:flex; flex-direction:column; }
+.root :global([data-rental-layout]) > div:first-child > div:first-child { flex:1; height:auto; min-height:0; }
+.root :global([data-rental-layout]) > div:first-child > details { flex:none; margin:0; }
+.root :global([data-rental-layout]) > div:last-child > details { margin-top:9px; padding-top:8px; font-size:11px; }
+@media(min-width:1101px) {
+  .root :global([data-rental-layout]) > div:last-child { padding:15px 27px; }
+  .root :global([data-rental-featured]) h2 { font-size:28px; }
+  .root :global([data-rental-featured]) h3 { margin-top:8px; }
+  .root :global([data-rental-layout]) > div:last-child > p { margin-top:10px; }
+  .root :global([data-rental-progress]) { margin-top:9px; padding-top:9px; }
+  .root :global([data-rental-progress]) ol > li > span:last-child { margin-top:6px; font-size:11px; line-height:17px; }
+  .root :global([data-rental-security]) { margin-top:9px; padding-top:9px; }
+  .root :global([data-rental-security]) dd { font-size:18px; margin-top:2px; }
+  .root :global([data-rental-security]) dt { font-size:11px; }
+  .root :global([data-rental-security]) p { margin-top:2px; }
+  .root :global([data-rental-actions]) { margin-top:9px; padding-top:9px; }
+}
+
+.rentalArchive { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) 300px; gap:12px; margin-top:12px; }
+.rentalArchive .history { margin-top:0; min-width:0; }
+.rentalArchive .conversations { min-width:0; }
+.rentalArchive table { width:100%; table-layout:fixed; font-size:10px; }
+.rentalArchive th { font-weight:400; text-align:left; padding:0 5px 11px 0; border-bottom:1px solid #ffffff18; }
+.rentalArchive th:first-child { width:44%; }
+.rentalArchive td { padding:9px 5px 9px 0; border-bottom:1px solid #ffffff10; color:#bdc1ba; }
+.rentalArchive td:last-child,.rentalArchive th:last-child { text-align:right; }
+.archiveRental { display:flex; align-items:center; gap:8px; width:100%; text-align:left; color:#e0e1db; }
+.archiveRental span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.archivePhoto { flex:none; width:40px; height:36px; border-radius:3px; }
+.archiveStatus { display:inline-block; border:1px solid #60776066; background:#37554333; color:#aec4b2; padding:2px 4px; border-radius:3px; font-size:9px; }
+.rentalArchive a { color:#d2a486; text-decoration:underline; text-underline-offset:3px; }
+.allActions { margin-top:14px; padding:14px; border:1px solid #ffffff17; border-radius:5px; background:#1b1c1b; }
+.allActions > summary { font-size:12px; color:#c6c8c1; cursor:pointer; }
+.allActions[open] > summary { margin-bottom:14px; }
+@media(min-width:1101px) { .root :global([data-rental-layout]) > div:last-child { padding:12px 27px; } .root :global([data-rental-progress]) { margin-top:7px; padding-top:7px; } .root :global([data-rental-security]) { margin-top:7px; padding-top:7px; } .root :global([data-rental-actions]) { margin-top:7px; padding-top:7px; } .root :global([data-rental-layout]) > div:last-child > details { margin-top:6px; padding-top:6px; } }
+@media(max-width:1300px) { .rentalArchive { grid-template-columns:1fr 1fr; } .rentalArchive .conversations { grid-column:1/-1; } }
+@media(max-width:700px) { .rentalArchive { grid-template-columns:1fr; } }
+
+.agenda > section { padding:14px; }
+.agenda :global([data-calendar-heading]) { flex-wrap:nowrap; gap:8px; }
+.agenda :global([data-calendar-heading]) h2 { font-size:13px; white-space:nowrap; }
+.agenda :global([data-calendar-heading]) > div { gap:0; }
+.agenda :global([data-calendar-heading]) > div > span { min-width:104px; font-size:11px; }
+.agenda :global([data-calendar-heading]) button { padding:3px 5px; }
+.agenda :global([data-calendar-grid]) { margin-top:8px; gap:3px; }
+.agenda :global([data-calendar-grid]) button { height:27px; aspect-ratio:auto; font-size:10px; }
+.agenda :global([data-calendar-legend]) { margin-top:8px; font-size:9px; gap:7px; }
+.agenda :global([data-calendar-legend]) span span { width:6px; height:6px; }
+.kitItem strong { line-height:1.4; }
+.kitImage { height:104px; }
+@media(min-width:1101px) { .root :global([data-rental-layout]) > div:last-child { padding-top:10px; padding-bottom:10px; } .root :global([data-rental-layout]) > div:last-child > p { margin-top:7px; } .root :global([data-rental-progress]) ol > li > span:last-child { margin-top:4px; } .root :global([data-rental-security]) { gap:4px; } }
+
+@media(min-width:1101px) {
+ .root :global([data-rental-featured]) h2 { margin-top:6px; }
+ .root :global([data-rental-featured]) h3 { margin-top:4px; line-height:18px; }
+ .root :global([data-rental-layout]) > div:last-child > p { margin-top:5px; }
+ .root :global([data-rental-progress]) ol > li > span:last-child { font-size:10px; line-height:14px; }
+ .root :global([data-rental-layout]) > div:last-child > details { margin-top:5px; padding-top:5px; }
+}
+.kit { padding:14px; }
+.kit header { margin-bottom:9px; }
+.kitItem strong { font-size:11px; line-height:1.35; margin-top:6px; }
+.kitStrip { padding-bottom:0; }
+.kitImage { height:98px; }

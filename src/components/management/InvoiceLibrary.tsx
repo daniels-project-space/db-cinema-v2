@@ -24,6 +24,7 @@ export function InvoiceLibrary({ rentals, token, admin = false, hasMore=false, l
   const scope=useRef({token,epoch:0});
   const [preview, setPreview] = useState<{ url: string; name: string; epoch:number } | null>(null), [busy, setBusy] = useState<string | null>(null), [error, setError] = useState("");
   const detailPanel=useRef<HTMLElement>(null),selectedButton=useRef<HTMLButtonElement|null>(null);
+  const focusAfterClose=useRef<number|null>(null);
   const dialog = useRef<HTMLDialogElement>(null), activeUrl = useRef<string | null>(null), request = useRef(0), controller=useRef<AbortController|null>(null);
   if(scope.current.token!==token){scope.current={token,epoch:scope.current.epoch+1};request.current++;}
   const selected=chosen?.epoch===scope.current.epoch?chosen.key:null,activePreview=preview?.epoch===scope.current.epoch?preview:null;
@@ -37,7 +38,15 @@ export function InvoiceLibrary({ rentals, token, admin = false, hasMore=false, l
   const selection = visible.find(d => `${d.rental._id}-${d.phase}` === selected);
   const detail = useQuery(api.bookings.invoiceData, selection ? { token, bookingId: selection.rental._id as any } : "skip");
   useEffect(()=>{if(selected && window.matchMedia("(max-width:1200px)").matches){const frame=requestAnimationFrame(()=>detailPanel.current?.scrollIntoView({block:"start",behavior:"instant"}));return()=>cancelAnimationFrame(frame);}},[selected,detail !== undefined]);
-  function closeDetails(){close();setChosen(null);requestAnimationFrame(()=>{if(selectedButton.current?.isConnected){selectedButton.current.focus({preventScroll:true});selectedButton.current.scrollIntoView({block:"center",behavior:"instant"});}});}
+  useEffect(()=>{
+    if(selected !== null || focusAfterClose.current === null) return;
+    const epoch=focusAfterClose.current;focusAfterClose.current=null;
+    if(epoch===scope.current.epoch && selectedButton.current?.isConnected){
+      selectedButton.current.focus({preventScroll:true});
+      selectedButton.current.scrollIntoView({block:"center",behavior:"instant"});
+    }
+  },[selected,token]);
+  function closeDetails(){close();focusAfterClose.current=scope.current.epoch;setChosen(null);}
   function close() { request.current++;controller.current?.abort();controller.current=null;setBusy(null);setError("");dialog.current?.close(); setPreview(null); if (activeUrl.current) URL.revokeObjectURL(activeUrl.current); activeUrl.current = null; }
   async function open(rental: Rental, phase: string) {
     controller.current?.abort();const abort=new AbortController();controller.current=abort;
