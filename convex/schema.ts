@@ -255,6 +255,7 @@ export default defineSchema({
     agreementSnapshot: v.optional(v.string()),
     agreementRequestId: v.optional(v.string()),
     agreementRequestFingerprint: v.optional(v.string()),
+    checkoutInputFingerprint: v.optional(v.string()),
     securityHoldConsentAt: v.optional(v.number()),
     securityPolicyVersion: v.optional(v.string()),
     laterChargeConsentAt: v.optional(v.number()),

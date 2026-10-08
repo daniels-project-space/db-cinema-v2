@@ -89,6 +89,20 @@ async function releaseReferral(ctx:any,b:any){
  if(b.referralRewardId){const r=await ctx.db.get(b.referralRewardId);if(r?.state==="available"&&r.reservedBookingId===b._id)await ctx.db.patch(r._id,{reservedBookingId:undefined});}
 }
 
+/** Private lookup for an exact submitted checkout retry. No new booking,
+ * stock or credit is created, and older attempts without this receipt keep
+ * their existing reconciliation path. */
+export const checkoutAttempt = internalQuery({
+  args:{requestId:v.string(),checkoutInputFingerprint:v.string()},
+  handler:async(ctx,a)=>{
+    const b=await ctx.db.query("bookings").withIndex("by_agreement_request",q=>q.eq("agreementRequestId",a.requestId)).unique();
+    if(!b?.checkoutInputFingerprint)return null;
+    if(b.checkoutInputFingerprint!==a.checkoutInputFingerprint)throw Error("This acceptance attempt belongs to different booking details. Review and accept again.");
+    if(b.status!=="pending_payment")throw Error("This checkout has completed or closed. Use the existing booking or contact us.");
+    return {bookingId:b._id,sessionId:b.stripeCheckoutSessionId,membershipCheckoutId:b.membershipCheckoutId};
+  },
+});
+
 export const createPending = internalMutation({
   args: {
     pricingVersion:v.optional(v.string()),benefitKind:v.optional(v.string()),
@@ -126,6 +140,7 @@ export const createPending = internalMutation({
     currency: v.string(),
     agreementName: v.optional(v.string()),
     agreementRequestId: v.optional(v.string()),
+    checkoutInputFingerprint: v.optional(v.string()),
     securityHoldConsent: v.optional(v.boolean()),
     laterChargeConsent: v.optional(v.boolean()),
     agreementDocs: v.optional(
@@ -142,6 +157,7 @@ export const createPending = internalMutation({
       const owner=await ctx.db.get(a.accountId);
       if(!owner||owner.blockedAt!=null||owner.email!==a.customerEmail.trim().toLowerCase())throw Error("Rental account does not match the checkout customer.");
     }
+    if(a.checkoutInputFingerprint&&!/^[a-f0-9]{64}$/.test(a.checkoutInputFingerprint))throw Error("Invalid checkout receipt.");
     const newAgreement = a.agreementDocs?.some(d => d.version === LEGAL_VERSION);
     const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
     if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
@@ -307,6 +323,7 @@ export const createPending = internalMutation({
       agreementSnapshot,
       agreementRequestId: a.agreementRequestId,
       agreementRequestFingerprint,
+      checkoutInputFingerprint:a.checkoutInputFingerprint,
       securityHoldConsentAt: a.securityHoldConsent ? Date.now() : undefined,
       laterChargeConsentAt: a.laterChargeConsent ? Date.now() : undefined,
       agreementDocs: a.agreementDocs,

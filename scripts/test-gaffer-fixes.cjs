@@ -62,6 +62,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     const stop = new Error('captured booking boundary');
     const ctx = {
       runQuery: async (ref,args) => {
+        if(ref==='bookings:checkoutAttempt') return null;
         if(ref==='settings:get') return {acceptingOrders:true};
         if(ref==='catalog:repriceLines') return prices.map((total,i)=>({title:`Real item ${i}`,total,deposit:1000}));
         if(ref==='availability:forListing') return {available:10};
@@ -131,7 +132,8 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     runAction:async(ref)=>{assert.equal(ref,'sync:syncHyggloReservations');return {mirrored:0,rows:0};},
     runQuery: async (ref) => {
       if(ref==='accounts:_byEmail') return null; // Guest fixture has no stored account.
-      if(ref==='settings:get') return {acceptingOrders:true};
+      if(ref==='bookings:checkoutAttempt') return null;
+        if(ref==='settings:get') return {acceptingOrders:true};
       if(ref==='catalog:repriceLines') return [{title:'Real camera',total:200,deposit:1000,dailyRate:40}];
       if(ref==='availability:forListing') return {available:1};
       throw Error(`Unexpected query ${ref}`);

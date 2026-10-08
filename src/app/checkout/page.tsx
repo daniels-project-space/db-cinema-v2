@@ -108,6 +108,7 @@ export default function CheckoutPage() {
   }, [signature, name, email, billingAddress, pickupTime, returnTime, address]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [recovery,setRecovery]=useState<{key:string;acceptance:string}|null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [quoted, setQuoted] = useState<{
     key: string;
@@ -206,8 +207,10 @@ export default function CheckoutPage() {
     }
   }
 
+  const recoveryKey=JSON.stringify({priceArgs,phone,billingAddress,name,email,pickupTime,returnTime,signature,agreed,deliveryAgreed,total:currentQuote?.combinedTotalDue,deliveryFee:currentQuote?.quotedDeliveryFee,membershipTermsAccepted:membership?.termsAccepted});
+  const canRecover=recovery?.key===recoveryKey&&recovery.acceptance===agreementRequest.current;
   async function pay() {
-    if (availabilityBlocked) { setErr("Review your basket and choose available alternatives before checkout."); return; }
+    if (availabilityBlocked&&!canRecover) { setErr("Review your basket and choose available alternatives before checkout."); return; }
     if (!valid) return;
     setBusy(true);
     setErr(null);
@@ -249,6 +252,9 @@ export default function CheckoutPage() {
         if (membershipRequest.current === membershipAttempt) membershipRequest.current = null;
         setAgreed(false);
         setSignature("");
+        setRecovery(null);
+      } else if(agreementRequest.current===acceptanceAttempt) {
+        setRecovery({key:recoveryKey,acceptance:acceptanceAttempt});
       }
       setErr(typeof e?.data?.message === "string" ? e.data.message : e?.message ?? "Something went wrong");
       setBusy(false);
@@ -526,9 +532,10 @@ export default function CheckoutPage() {
             {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
             {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
             {!!items.length&&<div className="mt-4"><CartStockNotice checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
-            {availabilityBlocked&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
-            <button onClick={pay} disabled={!valid || busy || availabilityBlocked} className="btn-primary mt-5 w-full py-3">
-              {busy ? "Redirecting…" : "Pay with card"}
+            {availabilityBlocked&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
+            {canRecover&&<p role="status" className="mt-3 text-sm text-white/65">Your earlier checkout may already have reserved this kit. Retry securely to recover the same payment session.</p>}
+            <button onClick={pay} disabled={!valid || busy || (availabilityBlocked&&!canRecover)} className="btn-primary mt-5 w-full py-3">
+              {busy ? "Redirecting…" : canRecover ? "Retry secure checkout" : "Pay with card"}
               {!busy && <IconLock className="h-4 w-4" />}
             </button>
             <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">

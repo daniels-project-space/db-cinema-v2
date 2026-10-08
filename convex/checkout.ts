@@ -13,7 +13,7 @@ import { inspectionInput } from "./lib/returnInspectionFields";
 import { assertCreditOffer, creditOfferFingerprint } from "./lib/rentalCreditPolicy";
 import { cancellationPaymentPlan,rentalRefundPlan,securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { lateFeeQuote } from "./lib/lateFee";
-import { assertCurrentAgreement } from "../shared/rentalAgreement";
+import { assertCurrentAgreement, agreementRequestFingerprint } from "../shared/rentalAgreement";
 import { sendMail } from "./lib/mailer";
 import { assertDiditCheckoutCapacity } from "./lib/diditCapacity";
 import { tierByKey, allocateSaving, TIERS } from "./lib/membership";
@@ -219,7 +219,17 @@ export const start = action({
     if (!a.pickupTime || !slot.test(a.pickupTime) || !a.returnTime || !slot.test(a.returnTime))
       throw new Error("Choose the agreed pickup and return times before paying.");
     assertCurrentAgreement(a.agreement, a.fulfilment);
-    if (!a.agreement?.requestId) throw Error("Review and sign this booking before paying.");
+    if (!a.agreement?.requestId||!/^[a-zA-Z0-9-]{16,80}$/.test(a.agreement.requestId)) throw Error("Review and sign this booking before paying.");
+
+    const checkoutInputFingerprint=createHash("sha256").update(agreementRequestFingerprint({...a,token:undefined})).digest("hex");
+    const priorAttempt=await ctx.runQuery(internal.bookings.checkoutAttempt,{requestId:a.agreement.requestId,checkoutInputFingerprint});
+    if(priorAttempt?.sessionId){
+      const session=await stripe().checkout.sessions.retrieve(priorAttempt.sessionId);
+      if(session.id!==priorAttempt.sessionId||session.metadata?.bookingId!==String(priorAttempt.bookingId))throw Error("This payment session does not match the saved booking. Contact us before retrying.");
+      if(session.status!=="open"||!session.url)throw Error("This checkout has completed or expired. Use the existing booking or contact us.");
+      return {url:session.url};
+    }
+    if(priorAttempt&&!priorAttempt.membershipCheckoutId)throw Error("This checkout is still pending reconciliation. Do not submit a second acceptance or payment.");
 
     await assertDiditCheckoutCapacity(
       process.env.DIDIT_API_KEY!,
@@ -230,13 +240,18 @@ export const start = action({
 
     if (a.selectedMembership && /^[A-Za-z0-9_-]{32,100}$/.test(a.selectedMembership.requestId)) {
       const existing: any = await ctx.runQuery(internal.membershipBenefits.byRequest,{requestId:a.selectedMembership.requestId,email:a.customer.email});
+      if(priorAttempt&&existing&&(String(existing._id)!==String(priorAttempt.membershipCheckoutId)||String(existing.bookingId)!==String(priorAttempt.bookingId)))throw Error("This membership checkout does not match the saved booking. Contact us before retrying.");
+      if(priorAttempt&&existing&&!["creating","open"].includes(existing.state))throw Error("This membership checkout has completed or closed. Contact us before retrying.");
       if (existing?.sessionId) {
         const session = await stripe().checkout.sessions.retrieve(existing.sessionId);
+        if(priorAttempt&&(session.id!==existing.sessionId||session.metadata?.bookingId!==String(priorAttempt.bookingId)))throw Error("This payment session does not match the saved booking. Contact us before retrying.");
         if (session.status === "open" && session.url) return {url:session.url};
         throw Error("This membership checkout is no longer open.");
       }
       if (existing?.sessionParams) {
-        const session = await stripe().checkout.sessions.create(JSON.parse(existing.sessionParams),{idempotencyKey:`dbc-member-checkout-${existing._id}`});
+        const savedParams=JSON.parse(existing.sessionParams);
+        if(priorAttempt&&savedParams.metadata?.bookingId!==String(priorAttempt.bookingId))throw Error("This payment setup does not match the saved booking. Contact us before retrying.");
+        const session = await stripe().checkout.sessions.create(savedParams,{idempotencyKey:`dbc-member-checkout-${existing._id}`});
         await ctx.runMutation(internal.membershipBenefits.bindCheckout,{id:existing._id,sessionId:session.id,bookingId:existing.bookingId});
         await ctx.runMutation(internal.bookings.bindCheckoutSession,{bookingId:existing.bookingId,sessionId:session.id});
         if (!session.url) throw Error("Stripe did not return a checkout URL");
@@ -356,6 +371,7 @@ export const start = action({
       currency: "GBP",
       agreementName: a.agreement?.name,
       agreementRequestId: a.agreement?.requestId,
+      checkoutInputFingerprint,
       securityHoldConsent: a.agreement?.securityHoldConsent,
       laterChargeConsent: a.agreement?.laterChargeConsent,
       agreementDocs: a.agreement?.documents,

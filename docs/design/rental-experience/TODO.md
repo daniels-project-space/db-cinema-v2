@@ -2,12 +2,19 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — exact saved checkout recovery
+
+- [x] Reproduce the prior actual checkout rejecting its own last-unit hold. Persist the exact validated submitted-request receipt and privately recover a matching pending provider session before new stock/pricing/credit/booking effects. Validate provider session ID, booking metadata and open status; retain unknown unbound outcomes.
+- [x] Connect an explicit unchanged-request retry in the actual checkout screen despite its own stock hold. Reject edited particulars and reset recovery after confirmed stock rejection; keep customer details and uncertain-outcome consent. No automatic payment retry.
+- [x] Actual first-checkout/hold/session-binding tests plus prior-source negative control pass. Full default suite/TypeScript/build pass; actual component desktop/mobile retry/consent/edited-detail checks and visual review pass. See CHECKOUT-SESSION-RECOVERY.md. Controlled provider/data only.
+- [ ] Obtain compatible staging/hosted and live backend acceptance. Older records without the submitted-input receipt keep their existing reconciliation path; do not fabricate receipts or release uncertain payments/stock. All original management, document, render and shared reservation requirements remain open.
+
 ### 8 October 2026 — fresh full-cart stock checks
 
 - [x] Refresh the authenticated actual shared source on full-cart/checkout entry, basket changes, foreground return and each visible minute. Keep unknown/failed checks disabled with a sanitized retry notice; delayed changed/cleared basket results cannot enable checkout.
-- [x] Require another source check before cart navigation and new checkout booking/credit/payment effects. Preserve existing bound membership-session recovery during source outage. This does not resolve the separate ordinary-rental own-hold recovery path.
+- [x] Require another source check before cart navigation and new checkout booking/credit/payment effects. Preserve existing bound membership-session recovery during source outage. Exact saved-session recovery for new receipt-bound attempts is now implemented separately; historical attempts still require their existing reconciliation path.
 - [x] Actual source/cart/checkout handler tests, full default suite, TypeScript and production build pass. Actual frontend DOM fixture verifies failed-source retry, unavailable navigation, stale basket response isolation, preserved customer details/consent and no automatic payment; desktop/mobile screenshots inspected in /root/dbc-cart-stock-freshness-review. Controlled records/providers only.
-- [x] Source ce1384e preview dpl_HJJy3xefstqNYiGi7qq1N7gvyuy2 is READY. Hosted CI 37734393067 passes typecheck/default tests/production build, then fails waiting for cart-to-checkout navigation. An empty bounded staging request independently proves sync:refreshCartStock is not registered in deafening-stoat-340. Keep the stock guard and full browser assertions; no anonymous fallback or compatible backend rollout is implied.
+- [x] Source ce1384e preview dpl_HJJy3xefstqNYiGi7qq1N7gvyuy2 is READY. Follow-up 57bb9d3 CI 37734713052 passes typecheck/tests/build and fails at the explicit enabled-checkout wait. Hosted CI 37734393067 passes typecheck/default tests/production build, then fails waiting for cart-to-checkout navigation. An empty bounded staging request independently proves sync:refreshCartStock is not registered in deafening-stoat-340. Keep the stock guard and full browser assertions; no anonymous fallback or compatible backend rollout is implied.
 - [ ] Register compatible staging source functions and obtain the complete hosted browser pass, then verify compatible backend/source rollout acceptance. The source read is fresh but the manager snapshot and local reservation are separate transactions; a single atomic claim across all writers remains required.
 
 ### 8 October 2026 — shared stock constraints
