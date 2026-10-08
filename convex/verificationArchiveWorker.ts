@@ -23,8 +23,9 @@ export function trustedMediaUrl(raw: string): boolean {
   } catch { return false; }
 }
 export const capture = internalAction({ args: { archiveId: v.id("verification_archives") }, handler: async (ctx, { archiveId }) => {
-  const archive = await ctx.runQuery(internal.verificationArchive.context, { archiveId });
-  if (!archive || archive.status === "complete" || archive.status === "deleted") return;
+  const archive = await ctx.runMutation(internal.verificationArchive.claim, { archiveId });
+  if (!archive) return;
+  const generation=archive.generation,documents=archive.documents;
   let complete = false;
   try {
     const key = process.env.DIDIT_API_KEY;
@@ -34,8 +35,8 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
     const report = await response.json();
     if (report.session_id !== archive.sessionId || report.vendor_data !== `dbc-booking-${archive.bookingId}` || report.contact_details?.email?.trim().toLowerCase() !== archive.email.trim().toLowerCase() || report.workflow_id !== process.env.DIDIT_WORKFLOW_ID || report.session_kind !== "user") throw Error("Verification case mismatch");
     const media = documentMedia(report);
-    if (!media.some(m => m.kind.startsWith("identity-")) || !media.some(m => m.kind.startsWith("address-")) || media.length > 30) throw Error("Required documents missing");
-    for (const file of media) {
+    if (media.length > 30) throw Error("Too many provider documents");
+    async function saveFile(file:{kind:string;url:string}) {
       if (!trustedMediaUrl(file.url)) throw Error("Unapproved provider media host");
       // Never follow arbitrary redirects or expose provider URLs in public queries.
       const downloaded = await fetch(file.url, { redirect: "error", signal: AbortSignal.timeout(20000) });
@@ -50,22 +51,30 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
       const type = bytes.subarray(0, 5).toString() === "%PDF-" ? "application/pdf" : bytes[0] === 0xff && bytes[1] === 0xd8 ? "image/jpeg" : bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? "image/png" : bytes.subarray(0,4).toString() === "RIFF" && bytes.subarray(8,12).toString() === "WEBP" ? "image/webp" : null;
       if (!type) throw Error("Unexpected document format");
       const sha256 = createHash("sha256").update(bytes).digest("hex");
-      const previous = archive.documents.find(d => d.kind === file.kind && d.sha256 === sha256);
+      const previous = documents.find(d => d.kind === file.kind && d.sha256 === sha256);
       if (previous) {
         const stored = await ctx.storage.get(previous.storageId);
-        if (stored && stored.size === size && createHash("sha256").update(Buffer.from(await stored.arrayBuffer())).digest("hex") === sha256) continue;
+        if (stored && stored.size === size && createHash("sha256").update(Buffer.from(await stored.arrayBuffer())).digest("hex") === sha256) return;
       }
       const storageId = await ctx.storage.store(new Blob([bytes], { type }));
       try {
         const stored = await ctx.storage.get(storageId);
         if (!stored || stored.size !== size || createHash("sha256").update(Buffer.from(await stored.arrayBuffer())).digest("hex") !== sha256) throw Error("Stored document integrity check failed");
-        await ctx.runMutation(internal.verificationArchive.save, { archiveId, kind: file.kind, storageId, sha256, size, contentType: type, ...(previous ? { replaceStorageId: previous.storageId } : {}) });
+        const saved=await ctx.runMutation(internal.verificationArchive.save, { archiveId,generation,kind: file.kind, storageId, sha256, size, contentType: type, ...(previous ? { replaceStorageId: previous.storageId } : {}) });
+        if(!saved)throw Error("Archive revision changed");
       }
-      catch (error) { await ctx.storage.delete(storageId); throw error; }
+      catch (error) { if(await ctx.storage.get(storageId))await ctx.storage.delete(storageId); throw error; }
     }
-    complete = true;
+    // Keep healthy documents even when a sibling download fails. Three bounded
+    // downloads at once bound memory use and reduce download latency.
+    let failed=false;
+    for(let offset=0;offset<media.length;offset+=3){
+      const results=await Promise.allSettled(media.slice(offset,offset+3).map(saveFile));
+      if(results.some(r=>r.status==="rejected"))failed=true;
+    }
+    complete = !failed && media.some(m=>m.kind.startsWith("identity-")) && media.some(m=>m.kind.startsWith("address-"));
   } catch { /* Persist a bounded, non-sensitive failure; cron/admin retries fetch fresh URLs. */ }
-  await ctx.runMutation(internal.verificationArchive.finish, { archiveId, complete });
+  await ctx.runMutation(internal.verificationArchive.finish, { archiveId,generation:archive.generation,complete });
 } });
 export const retryDue = internalAction({ args: {}, handler: async ctx => {
   const jobs = await ctx.runQuery(internal.verificationArchive.due, {});

@@ -1,6 +1,6 @@
 /** Actual handlers: server payment boundary, provider feature states, scoped reads and equipment cap. */
 const assert = require('node:assert/strict');
-const {load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
+const {load,db,put,setMock,tables}=require('./lib/rentalTestHarness.cjs');
 const {peakRentalValue,RENTAL_VALUE_CAP_PENCE}=load('shared/rentalExposure.ts');
 const {verificationChecks,securityReady,verificationCanStart}=load('shared/verificationProgress.ts');
 const {verificationJourney}=load('shared/verificationJourney.ts');
@@ -62,6 +62,10 @@ const ctx={db,scheduler:{runAfter:async()=>{}}};
  const old=put('bookings',{guestEmail:account.email,status:'active',lineItems:[line(lens,Date.UTC(2020,0,1))]});
  assert.equal((await renterExposure(ctx,b)).currentPence,500000,'overdue collected kit stays counted');await db.patch(old._id,{status:'returned'});
  const bookings=load('convex/bookings.ts');
+ const partialBooking=put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',lineItems:[],verificationProvider:'didit',diditSessionId:'partial-session',idVerifyStatus:'processing'});
+ await bookings.setDiditResult.handler(ctx,{bookingId:partialBooking._id,sessionId:'partial-session',eventId:'partial-upload-event',eventAt:Date.now(),status:'processing',providerStatus:'In Progress',poaPostcodes:[],checks:{identity:'approved',selfie:'processing',address:'waiting'}});
+ assert((tables.get('verification_archives')??[]).some(a=>a.bookingId===partialBooking._id),'Actual in-progress provider updates queue document capture before address completion');
+ assert.equal(partialBooking.idVerifyStatus,'processing','Partial documents never approve the rental');
  assert.equal(await bookings.verificationProgress.handler(ctx,{bookingId:b._id}),null);
  assert.equal(await bookings.verificationProgress.handler(ctx,{bookingId:b._id,token:'foreign'}),null);
  assert.equal(await bookings.verificationProgress.handler(ctx,{bookingId:b._id,checkoutSessionId:'cs_wrong'}),null);
