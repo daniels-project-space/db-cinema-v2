@@ -5,6 +5,7 @@ import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, usePaginatedQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { RentalConversation } from "@/components/rentals/RentalConversation";
 import { SmartImage } from "@/components/SmartImage";
 import {
@@ -135,7 +136,7 @@ export function RentalInbox({
     ? (rows.find((r) => r._id === selected) ?? (stage === "general" ? generalDirect : direct))
     : visible[0];
   return (
-    <section id="messages" className="mt-6">
+    <section id="messages" className={chatStyles.inboxScreen}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-xl font-semibold text-white">
@@ -170,7 +171,7 @@ export function RentalInbox({
           <span className="text-xs font-medium text-white/85">{n.title} · {n.renterName}</span><span className="mt-1 block text-[10px] text-amber-200/70">{RENTAL_STAGE_LABELS[n.rentalStage] ?? "General support"}</span>
         </button>)}</div>}
       </div>}
-      <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
+      <div className={`${chatStyles.tabs} mt-5 flex gap-2 overflow-x-auto pb-1`}>
         {[
           ["all", "All rentals"],
           ["unread", "Unread rentals"],
@@ -179,6 +180,7 @@ export function RentalInbox({
         ].map(([key, label]) => (
           <button
             key={key}
+            aria-pressed={stage === key}
             onClick={() => {
               setStage(key);
               setSelected(null);
@@ -198,8 +200,8 @@ export function RentalInbox({
           </button>
         ))}
       </div>
-      <div className="mt-5 grid gap-5 lg:grid-cols-[310px_1fr]">
-        <aside className={`min-w-0 ${selected ? "hidden lg:block" : ""}`}>
+      <div className={chatStyles.inbox}>
+        <aside className={`${chatStyles.directory} ${selected ? "hidden lg:block" : ""}`}>
           <input
             aria-label="Search rental conversations"
             value={search}
@@ -211,6 +213,7 @@ export function RentalInbox({
             {visible.map((r) => (
               <button
                 key={r._id}
+                aria-current={focus?._id === r._id}
                 onClick={() => setSelected(r._id)}
                 className={`rounded-2xl border p-3 text-left ${focus?._id === r._id ? "border-accent-400/25 bg-accent-500/[0.06]" : "border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.04]"}`}
               >
@@ -283,6 +286,7 @@ export function RentalInbox({
               accountId={focus.accountId ?? undefined}
               title={rentalTitle(focus.items[0]?.title ?? "General support")}
               stage={focus.status}
+              bookingSummary={{image: focus.items[0]?.heroImage, imageSources: focus.items[0]?.imageSources, dates: focus.start ? rentalDate(focus.start, focus.end) : "Account support", count: focus.items.length}}
               escalated={focus.escalated}
               tools={
                 focus.status !== "support" ? (

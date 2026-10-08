@@ -1,4 +1,6 @@
 "use client";
+import styles from "./RentalConversation.module.css";
+import { SmartImage } from "@/components/SmartImage";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -19,6 +21,7 @@ export function RentalConversation({
   escalated = false,
   tools,
   openRevision = 0,
+  bookingSummary,
 }: {
   token: string;
   bookingId?: string;
@@ -29,6 +32,7 @@ export function RentalConversation({
   escalated?: boolean;
   tools?: React.ReactNode;
   openRevision?: number;
+  bookingSummary?: { image?: string | null; imageSources?: string[]; dates: string; count: number };
 }) {
   const thread = useQuery(api.rentalChat.messages, {
     token,
@@ -205,43 +209,34 @@ export function RentalConversation({
     <section
       ref={container}
       data-conversation-scope={bookingId ? `rental:${bookingId}` : `support:${accountId ?? "self"}`}
-      className={`${admin && tools ? "management-conversation-admin" : ""} scroll-mt-24 flex min-h-[450px] sm:min-h-[540px] flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313]`}
+      data-role={admin ? "admin" : "renter"}
+      className={`${styles.conversation} ${tools ? styles.withTools : ""}`}
     >
-      <header className={`flex items-center justify-between gap-3 border-b p-5 ${teamHandling ? "border-amber-300/20 bg-amber-300/[0.07]" : "border-emerald-300/20 bg-emerald-300/[0.05]"}`}>
-        <div className="flex min-w-0 items-center gap-3">
-          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl font-display font-bold ${teamHandling ? "bg-amber-300/15 text-amber-200" : "bg-emerald-300/15 text-emerald-200"}`}>
-            {teamHandling ? <ChatAvatar sender="owner" /> : <GafferIcon className="h-7 w-7" />}
-          </span>
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold text-white">
-              {title}
-            </h3>
-            <p className="mt-1 text-xs text-white/40">
-              {RENTAL_STAGE_LABELS[stage] ?? stage} ·{" "}
-              {teamHandling ? "Human support · team notified" : "Gaffer · automatic assistant"}
-            </p>
+      <header className={styles.header}>
+        <div className={styles.identity}>
+          <ChatAvatar sender={admin ? "renter" : "owner"} name={thread && "renter" in thread ? thread.renter?.name : null} photo={thread && "renter" in thread ? thread.renter?.photo : null} />
+          <div><p className={styles.eyebrow}>{admin ? "Rental conversation" : "Your rental team"}</p>
+            <h3>{admin && thread && "renter" in thread ? thread.renter?.name || "Guest renter" : "DB Cinema Rentals"}</h3>
+            <p className={styles.supportStatus}><span />{teamHandling ? "Team handling your conversation" : "Gaffer available · team can join"}</p>
           </div>
         </div>
-        <button
-          onClick={handoff}
-          disabled={!admin && teamHandling}
-          className={`shrink-0 rounded-full border px-3 py-2 text-xs font-medium disabled:opacity-60 ${teamHandling ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200" : "border-amber-300/30 bg-amber-300/10 text-amber-200"}`}
-        >
-          {admin
-            ? (thread?.escalated ?? escalated)
-              ? "Hand to Gaffer"
-              : "Take over"
-            : teamHandling ? "Team notified" : "Request a human"}
+        <button onClick={handoff} disabled={!admin && teamHandling} className={styles.handoff}>
+          {admin ? teamHandling ? "Hand to Gaffer" : "Take over" : teamHandling ? "Team notified" : "Request a human"}
         </button>
       </header>
-      <div className="management-conversation-main flex min-h-0 flex-1 flex-col">
+      <div className={`management-conversation-main ${styles.main}`}>
+      <div className={styles.bookingStrip}>
+        {bookingSummary?.image && <SmartImage src={bookingSummary.image} fallbackSources={bookingSummary.imageSources} alt={title} className={styles.kitImage} />}
+        <div><h4>{title}</h4><p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
+        <span className={styles.stage}>{RENTAL_STAGE_LABELS[stage] ?? stage}</span>
+      </div>
       {!admin && bookingId && (
         <RentalAdditionApproval token={token} bookingId={bookingId} />
       )}
       {bookingId && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
       <div
         ref={body}
-        className="management-conversation-messages flex h-[320px] sm:h-[440px] min-h-0 shrink-0 flex-col gap-4 overflow-y-auto px-5 py-6"
+        className={`management-conversation-messages ${styles.messages}`}
         aria-live="polite"
         aria-label="Rental conversation"
       >
@@ -280,21 +275,23 @@ export function RentalConversation({
                   : m.sender === "system"
                   ? "Automatic rental update"
                     : admin
-                      ? "Renter"
+                      ? (thread && "renter" in thread ? thread.renter?.name || "Renter" : "Renter")
                       : "You";
             return (<Fragment key={m._id}>
               {date !== previousDate && <p className="management-conversation-date self-stretch text-center text-[10px] text-white/40"><span>{date}</span></p>}
               <div
                 data-message-id={m._id}
                 data-sender={m.sender}
-                className={`management-conversation-message flex flex-col ${mine ? "items-end" : "items-start"}`}
+                data-mine={mine}
+                className={`management-conversation-message ${styles.message}`}
               >
                 <div className={`management-conversation-message-row flex max-w-full items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}>
                 <ChatAvatar key={`${m.sender}-${thread && "renter" in thread ? thread.renter?.photo : ""}`} sender={m.sender} name={thread && "renter" in thread ? thread.renter?.name : null} photo={thread && "renter" in thread ? thread.renter?.photo : null} />
+                <div className={styles.messageContent}>
+                  <div className={styles.messageMeta}><strong>{label}</strong><time dateTime={new Date(m.at).toISOString()}>{new Date(m.at).toLocaleTimeString("en-GB", {hour:"2-digit",minute:"2-digit"})}</time></div>
                 <div
                   className={`management-conversation-message-copy min-w-0 max-w-[calc(100%-2.5rem)] rounded-2xl border px-4 py-3 text-sm leading-relaxed ${m.sender === "bot" ? "border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-50" : m.sender === "owner" ? "border-accent-300/25 bg-accent-500/15 text-orange-50" : m.sender === "system" ? "border-dashed border-sky-200/20 bg-sky-300/[0.04] text-sky-100/70" : "border-violet-300/20 bg-violet-300/10 text-violet-50"}`}
                 >
-                  <div className="management-conversation-sender mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
                   <p className="whitespace-pre-wrap break-words">{m.text}</p>
                   {m.meta?.kind === "full_credit_offer" && !admin && <RentalCreditOffer token={token} offerId={m.meta.offerId} />}
                   {m.meta?.kind === "review_invitation" && !admin && bookingId && <BookingReview key={bookingId} bookingId={bookingId} token={token} inline />}
@@ -308,19 +305,13 @@ export function RentalConversation({
                   )}
                 </div>
                 </div>
-                <span className="mt-1.5 px-1 text-[10px] text-white/30">
-                  {label} ·{" "}
-                  {new Date(m.at).toLocaleTimeString("en-GB", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
+                </div>
               </div></Fragment>
             );
           })
         )}
       </div>
-      <footer className="border-t border-white/[0.07] p-4">
+      <footer className={styles.composer}>
         {admin && <div className="mb-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={suggest} disabled={drafting} className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"><GafferIcon className="h-4 w-4" />{drafting ? "Drafting…" : "Suggest replies"}</button>
@@ -342,7 +333,7 @@ export function RentalConversation({
             e.preventDefault();
             void submit();
           }}
-          className="flex items-end gap-2"
+          className={styles.composeForm}
         >
           <textarea
             aria-label="Message"
@@ -371,7 +362,7 @@ export function RentalConversation({
       </footer>
       </div>
       {tools && (
-        <aside aria-label="Rental management controls" className="management-conversation-tools border-b border-white/[0.06] px-5 py-3">{tools}</aside>
+        <aside aria-label={admin ? "Rental management controls" : "Your rental details"} className={`management-conversation-tools ${styles.tools}`}><div className={styles.toolsHeading}><p className={styles.eyebrow}>{admin ? "Operations" : "Your booking"}</p><h4>{admin ? "Booking details" : "Rental details"}</h4></div>{tools}</aside>
       )}
     </section>
   );

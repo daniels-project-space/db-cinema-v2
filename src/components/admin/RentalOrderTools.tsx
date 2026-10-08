@@ -1,4 +1,5 @@
 "use client";
+import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { useRef, useState, useEffect } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -195,6 +196,11 @@ export function RentalOrderTools({
   }
   return (
     <div data-testid="owner-rental-tools">
+      <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">
+        <div><dt>Booking total</dt><dd>{formatGbp(b.total)}</dd></div>
+        <div><dt>Refundable deposit</dt><dd>{formatGbp(b.depositAmount ?? 0)}</dd></div>
+        <div><dt>Card authorisation</dt><dd>{formatGbp(b.depositHoldAmount ?? 0)}</dd></div>
+      </dl>
       <p className="mb-2 text-[10px] uppercase tracking-[.16em] text-white/35">Manage rental · owner only</p>
       <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Owner rental controls">
         {b.status === "confirmed" && <button disabled={busy || !!processing || !!(b.activeAdditionId || b.activeExtensionId) || !!b.cancellationDecision || !!b.returnDecision} onClick={async () => {

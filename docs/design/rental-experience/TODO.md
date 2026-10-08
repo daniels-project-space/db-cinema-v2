@@ -450,3 +450,12 @@ This checklist extends the original goal; no original integration requirement is
 - [x] Correct the causal claim: full native global-observer omission still fails, although the smaller raw-collector/no-observer controls pass. DevTools and batch-reconstruction replacements did not fix the complete reproduction and were removed. Fresh isolated Chrome 145 with profile/cache in shared memory also fails; no test assertion/timeout was weakened.
 - [x] Reproduce and fix CDP page exceptions silently returning undefined. Actual-browser calibration verifies normal/async/undefined results and syntax/runtime/async rejection; the old helper fails the same negative check. Wire it into CI before the unchanged membership suite. See BROWSER-RELOAD.md for scope and terminal logs.
 - [ ] Resolve complete native/hosted reload reliability and finish all original visual, equipment and live paired-manager/private-document acceptance requirements.
+
+### Latest visual steering: substantially improve both messaging panels
+- [x] Replace flattened chat styling with dedicated dark conversation layout and readable bubbles.
+- [x] Rebuild directory rows, booking header, message identity/time, date separators and composer.
+- [x] Keep admin operations separate from renter journey/request tools; chat comes first on phone/tablet.
+- [x] Inspect five full inbox passes for each role at desktop and mobile widths, plus initial conversation and final composer views.
+- [x] Validate real protected sends, handoff, renter request form, draft scope safety and responsive layout locally.
+- [ ] Complete pixel-accuracy acceptance of all remaining management references and production visual verification.
+See `MESSAGING-REBUILD.md` for evidence and limits.

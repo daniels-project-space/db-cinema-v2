@@ -45,22 +45,11 @@
 .shell :global(.text-accent-300), .shell :global(.text-accent-400), .shell :global(.text-accent-200) { color: #d0a887; }
 .shell :global(.management-rental-card) { border-radius: 12px; border-color: #ffffff14; background: #1b1c1b; box-shadow: none; }
 .shell :global(.management-kit-image) { border-radius: 8px; border: 1px solid #ffffff0b; background: #141514; }
-.shell :global(.management-conversation-admin) { display: grid; grid-template-columns: minmax(0, 1fr) 285px; align-content: start; border-radius: 12px; background: #1a1b1a; }
-.shell :global(.management-conversation-admin) > * { min-width: 0; }
-.shell :global(.management-conversation-admin) > header { grid-column: 1 / -1; grid-row: 1; background: #ffffff03; border-color: #ffffff10; }
-.shell :global(.management-conversation-admin) > :global(.management-conversation-main) { grid-column: 1; grid-row: 2; }
-.shell :global(.management-conversation-admin) > :global(.management-conversation-tools) { grid-column: 2; grid-row: 2; border-left: 1px solid #ffffff10; background: #191a19; padding: 20px 16px; }
-.shell :global(.management-conversation-admin) :global(.management-conversation-messages) { gap: 24px; padding: 28px 24px; }
-.shell :global(.management-conversation-admin) :global(.management-conversation-date) { display: flex; align-items: center; gap: 14px; font-size: 11px; }
-.shell :global(.management-conversation-admin) :global(.management-conversation-date)::before, .shell :global(.management-conversation-admin) :global(.management-conversation-date)::after { content: ''; flex: 1; height: 1px; background: #ffffff0c; }
-.shell :global(.management-conversation-admin) :global(.management-conversation-message) { align-items: start; }
-.shell :global(.management-conversation-admin) :global(.management-conversation-message-row) { flex-direction: row; gap: 14px; width: 100%; }
-.shell :global(.management-conversation-admin) :global(.management-conversation-message-copy) { flex: 1; padding: 0; border: 0; border-radius: 0; background: transparent; color: #d0cdc7; font-size: 13px; line-height: 1.8; }
-.shell :global(.management-conversation-admin) :global(.management-conversation-sender) { font-size: 12px; text-transform: none; letter-spacing: 0; opacity: 1; color: #eeeae4; margin-bottom: 5px; }
-.shell :global(.management-conversation-admin) :global([data-sender=system]) :global(.management-conversation-message-copy) { border-left: 2px solid #bd8d6c66; padding-left: 14px; font-size: 12px; color: #aaa89e; }
 @media (max-width: 900px) { .shell { grid-template-columns: 180px minmax(0, 1fr); } .brand { padding-inline: 18px; } .brand > span { font-size: 28px; } .brand small { font-size: 14px; } .content { padding: 24px 20px 50px; } .topbar { padding-inline: 20px; } .nav button { padding-inline: 17px; font-size: 11px; gap: 10px; } }
-@media (max-width: 1200px) { .shell :global(.management-conversation-admin) { grid-template-columns: minmax(0, 1fr); } .shell :global(.management-conversation-admin) > :global(.management-conversation-tools) { grid-column: 1; grid-row: 2; border-left: 0; } .shell :global(.management-conversation-admin) > :global(.management-conversation-main) { grid-column: 1; grid-row: 3; } }
 @media (max-width: 640px) { .shell { display: block; } .sidebar { display: none; position: fixed; width: 240px; z-index: 40; box-shadow: 20px 0 70px #000a; } .sidebar.open { display: flex; } .topbar { padding: 14px 16px; min-height: 65px; } .breadcrumb { gap: 8px; font-size: 11px; flex: 1; } .breadcrumb > span, .breadcrumb i { display: none; } .actor > span:not(.avatar) { display: none; } .menuButton { display: block; color: #e2d1c2; padding: 6px; z-index: 45; } .content { padding: 23px 16px 50px; } }
 @media (max-width: 640px) { .menuButton[aria-expanded=true] { visibility: hidden; } .closeButton { display: grid; place-items: center; position: absolute; top: 20px; right: 12px; width: 32px; height: 32px; color: #d3b499; border-radius: 6px; } .closeButton:hover { background: #ffffff0a; } .closeButton svg { width: 20px; height: 20px; } }
 
 .shell[data-management-role="renter"][data-management-screen="rentals"] .heading h1 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(29px, 3vw, 40px); }
+/* Messaging has its own conversation title and identity header. */
+.shell[data-management-screen="messages"] .heading { display:none; }
+.shell[data-management-screen="messages"] .content { padding-top:22px; }

@@ -1,0 +1,68 @@
+.inbox { display:grid; grid-template-columns:248px minmax(0,1fr); gap:0; margin-top:24px; border:1px solid #ffffff14; border-radius:10px; overflow:hidden; background:#191a19; }
+.directory { padding:18px 14px; border-right:1px solid #ffffff14; background:linear-gradient(145deg,#222321,#191a19); }
+.directory > input { border-radius:6px; background:#121311; }
+.directory button { border-radius:6px; border-color:transparent; border-bottom-color:#ffffff0c; padding:16px 10px; }
+.conversation { --copper:#b98160; --muted:#a49f97; display:flex; flex-direction:column; min-width:0; overflow:hidden; border:1px solid #ffffff12; border-radius:10px; background:#1b1c1b; color:#eae5dd; scroll-margin-top:90px; }
+.withTools { display:grid; grid-template-columns:minmax(0,1fr) 300px; }
+.header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:22px 24px; border-bottom:1px solid #ffffff12; background:linear-gradient(120deg,#252622,#1b1c1b); grid-column:1; }
+.identity { display:flex; align-items:center; gap:14px; min-width:0; }
+.identity > div { min-width:0; }
+.header h3 { font-family:Georgia,serif; font-size:22px; line-height:1.3; margin:3px 0 5px; overflow-wrap:anywhere; }
+.eyebrow { font-size:10px; text-transform:uppercase; letter-spacing:.15em; color:var(--muted); }
+.supportStatus { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+.supportStatus span { width:5px; height:5px; border-radius:50%; background:#7fb091; flex-shrink:0; }
+.handoff { border:1px solid #b9816066; border-radius:5px; padding:9px 12px; font-size:11px; color:#d7b49b; flex-shrink:0; }
+.handoff:disabled { opacity:.6; }
+.main { display:flex; flex-direction:column; min-width:0; grid-column:1; }
+.bookingStrip { display:flex; align-items:center; gap:14px; padding:18px 24px; border-bottom:1px solid #ffffff12; background:#ffffff02; }
+.kitImage { width:84px; height:64px; flex-shrink:0; border-radius:5px; background:#11120f; object-fit:contain; }
+.bookingStrip > div { flex:1; min-width:0; }
+.bookingStrip h4 { font-size:14px; font-weight:600; overflow-wrap:anywhere; }
+.bookingStrip p { margin-top:5px; font-size:11px; line-height:1.7; color:var(--muted); }
+.stage { border:1px solid #7fb09130; color:#97bda2; background:#7fb0910a; padding:5px 8px; border-radius:4px; font-size:10px; }
+.messages { display:flex; flex-direction:column; gap:25px; height:460px; min-height:300px; overflow-y:auto; padding:28px 24px; background:radial-gradient(ellipse at top,#ffffff02,transparent 75%); scrollbar-width:thin; scrollbar-color:#ffffff20 transparent; }
+.messages :global(.management-conversation-date) { display:flex; align-items:center; gap:14px; color:#99968d; font-size:10px; }
+.messages :global(.management-conversation-date)::before,.messages :global(.management-conversation-date)::after { content:''; height:1px; background:#ffffff0d; flex:1; }
+.message { display:flex; flex-direction:column; align-items:flex-start; }
+.message[data-mine=true] { align-items:flex-end; }
+.message :global(.management-conversation-message-row) { max-width:92%; gap:10px; }
+.messageContent { min-width:0; flex:1; }
+.messageMeta { display:flex; align-items:center; gap:10px; margin:0 0 7px; font-size:11px; }
+.messageMeta strong { font-weight:500; color:#dfd8cd; }
+.messageMeta time { font-size:10px; color:#928f88; }
+.message[data-mine=true] .messageMeta { justify-content:flex-end; }
+.message :global(.management-conversation-message-copy) { max-width:100%; border-radius:6px; padding:12px 15px; font-size:13px; line-height:1.75; background:#272825; border-color:#ffffff0e; color:#dedbd4; }
+.message[data-mine=true] :global(.management-conversation-message-copy) { background:#81543830; border-color:#b9816030; color:#eaded1; }
+.message[data-sender=bot] :global(.management-conversation-message-copy) { background:#28453722; border-color:#86b69922; }
+.message[data-sender=system] :global(.management-conversation-message-copy) { border-style:dashed; background:transparent; font-size:12px; color:#b4aea3; }
+.composer { padding:18px 24px 20px; border-top:1px solid #ffffff12; background:#1d1e1c; }
+.composeForm { display:flex; align-items:flex-end; gap:10px; padding:10px; border:1px solid #ffffff20; border-radius:6px; background:#151613; }
+.composeForm textarea { min-width:0; min-height:52px; background:transparent; border-radius:3px; padding:9px 10px; font-size:13px; line-height:1.7; }
+.composeForm button { background:linear-gradient(120deg,#a16c4c,#bd8c69); border-radius:4px; min-height:40px; padding:10px 20px; font-size:12px; }
+.tools { grid-column:2; grid-row:1 / span 2; padding:24px 18px; border-left:1px solid #ffffff12; background:linear-gradient(150deg,#242521,#191a19); min-width:0; }
+.toolsHeading { padding-bottom:20px; margin-bottom:20px; border-bottom:1px solid #ffffff12; }
+.toolsHeading h4 { font-family:Georgia,serif; font-size:22px; margin-top:4px; }
+.tools :global(.rounded-2xl),.tools :global(.rounded-3xl) { border-radius:6px; }
+.tools button { border-radius:5px; }
+.conversation button:focus-visible,.directory button:focus-visible { outline:2px solid #c79777; outline-offset:3px; }
+@media (max-width:1450px) { .inbox { grid-template-columns:210px minmax(0,1fr); } .withTools { grid-template-columns:minmax(0,1fr) 260px; } .header,.bookingStrip,.composer { padding-left:18px; padding-right:18px; } .messages { padding:24px 18px; } }
+@media (max-width:1150px) { .withTools { display:flex; } .tools { border-left:0; border-top:1px solid #ffffff12; } .toolsHeading { margin-bottom:14px; padding-bottom:14px; } }
+@media (max-width:767px) { .inbox { display:block; border:0; background:transparent; overflow:visible; } .directory { border-right:0; padding:0; } .conversation { border-radius:8px; } .header { padding:18px 14px; gap:10px; } .header h3 { font-size:19px; } .eyebrow { font-size:9px; } .identity { gap:10px; } .supportStatus { font-size:10px; line-height:1.5; } .handoff { font-size:10px; padding:8px; max-width:95px; } .bookingStrip { padding:14px; gap:10px; flex-wrap:wrap; } .kitImage { width:62px; height:50px; } .bookingStrip h4 { font-size:13px; } .stage { margin-left:auto; } .messages { height:440px; padding:20px 14px; gap:22px; } .message :global(.management-conversation-message-row) { max-width:100%; gap:8px; } .message :global(.management-conversation-message-copy) { padding:10px 12px; } .messageMeta { font-size:10px; gap:7px; } .composer { padding:12px; } .composeForm { padding:6px; gap:4px; } .composeForm textarea { padding:7px; } .composeForm button { padding:10px 13px; } .tools { padding:20px 14px; } }
+.renterDirectory { padding:20px 14px; }
+.renterDirectory > h2 { font-size:10px; letter-spacing:.15em; padding:0 4px 10px; }
+.renterDirectory > button { min-width:0; width:100%; }
+.tabs button { border-radius:4px; border-bottom:2px solid transparent; background:#ffffff03; color:#a49f97; }
+.tabs button[class*="bg-white "] { background:#b9816010; border-bottom-color:#b98160; color:#e7c8b1; }
+.message :global(.management-conversation-message-copy) { font-size:14px; }
+.header .identity > span { width:44px; height:44px; border-radius:50%; }
+@media (max-width:767px) { .renterDirectory { padding:0 0 14px; border:0; margin-bottom:0; scrollbar-width:thin; } .renterDirectory > button { min-width:220px; width:220px; flex-shrink:0; border:1px solid #ffffff12; } .messages { height:380px; } }
+.paymentSummary { margin-bottom:24px; padding:15px 12px; border:1px solid #ffffff12; border-radius:6px; background:#ffffff02; }
+.paymentSummary > div { display:flex; justify-content:space-between; align-items:start; gap:12px; padding:8px 0; }
+.paymentSummary dt { color:#a49f97; font-size:11px; }
+.paymentSummary dd { font-size:12px; color:#e4ddd1; font-variant-numeric:tabular-nums; white-space:nowrap; margin:0; }
+.inboxScreen { margin-top:0; }
+.inboxScreen > div:first-child h2 { font-family:Georgia,serif; font-size:28px; font-weight:400; }
+.inboxScreen > div:first-child p { font-size:12px; margin-top:6px; }
+.inboxScreen .inbox { margin-top:18px; }
+@media (min-width:1151px) { .inboxScreen .header { padding-top:18px; padding-bottom:18px; } .inboxScreen .messages { height:410px; } }
+@media (min-width:768px) and (max-width:1023px) { .inbox { display:block; border:0; background:transparent; } .directory { border-right:0; } .renterDirectory { padding:0 0 14px; } .renterDirectory > button { min-width:220px; flex-shrink:0; } }
