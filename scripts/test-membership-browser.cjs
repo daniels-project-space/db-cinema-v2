@@ -414,6 +414,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     `!document.querySelector('[role="dialog"][aria-label="Subscription benefits"]')`,
   );
   // Real client navigation carries the explicit card-selection consent.
+  await until(`!![...document.querySelectorAll('button')].find(b=>b.textContent.includes('Secure checkout')&&!b.disabled)`);
   await c.evaluate(
     `setTimeout(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Secure checkout')&&!b.disabled).click(),0);true`,
   );
