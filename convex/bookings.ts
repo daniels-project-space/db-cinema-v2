@@ -18,6 +18,7 @@ import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerificati
 import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
 import { assertRentalInventory, type RentalInventoryCache } from "./lib/rentalInventory";
+import { reservationPaymentUnresolved } from "./lib/reservationPayment";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
 import { postRentalMessage } from "./lib/rentalChat";
@@ -396,10 +397,8 @@ export const releaseExpiredHolds = internalMutation({
     let n = 0;
     for (const h of holds)
       if ((h.holdExpiresAt ?? 0) < now) {
-        const booking = h.bookingId ? await ctx.db.get(h.bookingId) : null;
-        // A pending payment can already be paid at Stripe while its webhook is
-        // delayed. Only the Stripe reconciliation action may close that booking.
-        if (booking?.status === "pending_payment") continue;
+        // Checkout and amendment outcomes require provider reconciliation, not TTL.
+        if (await reservationPaymentUnresolved(ctx, h)) continue;
         await ctx.db.delete(h._id);
         n++;
       }

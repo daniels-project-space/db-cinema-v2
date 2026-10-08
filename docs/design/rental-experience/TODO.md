@@ -2,11 +2,20 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — unresolved amendment stock expiry
+
+- [x] Reproduce prior actual stock-reader/timer releasing an unresolved expired extension of a confirmed rental. Share one outcome decision across availability occupancy and cleanup for checkout, extension and addition rows, preserving unresolved and unknown/mismatched bindings until reconciled.
+- [x] Actual full-cart/listing/replacement/hold/cleanup tests cover nonterminal and properly terminal amendment states, unknown/mismatched request binding, and the actual owner-approved extension's expired hold before payment and during refund_pending. Prior actual 161f683 reader/timer fail this invariant. See AMENDMENT-STOCK-EXPIRY.md.
+- [x] Final default suite and production build including TypeScript pass; graph updated. Synthetic source/database/provider fixtures only, with no external writes.
+- [ ] Finish current hosted checks and live provider acceptance. Cross-system atomic authority and paid-refund lifecycle completion remain separate requirements.
+- [ ] Wire durable item-addition withdrawal refund-pending state and provider reconciliation; prevent accidental application while withdrawal is unresolved. Audit found the current withdrawal closes after a pending refund response.
+
 ### 8 October 2026 — complete calendar history and exact item periods
 
 - [x] Replace the admin newest-100 dependency with protected compact 50-record paging that continues through history. Display checking/counts and prevent partial empty dates claiming no rentals. Renter calendar navigation continues its ownership-aware history pages.
 - [x] Project actual line periods into only the viewed London civil month, preserving separate gaps, overlapping quantities and hires beyond 400 days. Show collection/individual return times only on their relevant boundaries, with explicit unrecorded times. Preserve saved line return times in renter projections.
 - [x] Actual handler/month tests and native real-component/handler checks pass for 143 records beyond the old cap, auth/page/privacy bounds, gaps, overlaps, quantity/time boundaries, long hires, DST/leap dates, navigation, incomplete-history messages, denied sessions and mobile overflow. Default suite/build/TypeScript pass; desktop/mobile screenshots visually reviewed. See CALENDAR-HISTORY.md.
+- [x] Calendar source 161f683 CI 37739868592 is terminal failed at the enabled cart checkout wait after local checks; inspect hosted failure separately from calendar fixture acceptance.
 - [ ] Complete hosted/compatible-backend and actual private-user calendar acceptance. History scanning uses bounded pages, not an indexed date-window projection; no live manager occupancy/atomic-claim or broad goal completion is asserted.
 
 ### 8 October 2026 — complete protected invoice history

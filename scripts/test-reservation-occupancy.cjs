@@ -33,6 +33,24 @@ async function blocked() {
     await blocked(); pending.status = 'cancelled';
     assert.equal((await availability.forCart.handler(ctx, { items: lines }))[camera._id].ok, true, 'A terminal reconciled payment releases an expired hold');
     await assertRentalInventory(ctx, lines); hold.status = 'cancelled';
+    const parent=put('bookings',{status:'confirmed'});
+    const extension=put('booking_change_requests',{bookingId:parent._id,type:'extend',status:'approved'});
+    const amendment=put('reservations',{inventoryUnitId:owned._id,bookingId:parent._id,extensionRequestId:extension._id,start,end,qty:1,status:'hold',source:'site',holdExpiresAt:now-1});
+    for(const status of ['approved','awaiting_payment','refund_pending','pending','unknown']){
+      extension.status=status;await blocked();await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(amendment._id),'Unresolved extension survives cleanup: '+status);
+    }
+    extension.status='expired';assert.equal((await availability.forCart.handler(ctx,{items:lines}))[camera._id].ok,true);await bookings.releaseExpiredHolds.handler(ctx,{});assert.equal(await db.get(amendment._id),null,'Provider-attested terminal extension permits cleanup');
+    const addition=put('rental_additions',{bookingId:parent._id,status:'prepared'});
+    const added=put('reservations',{inventoryUnitId:owned._id,bookingId:parent._id,externalRef:`addition:${addition._id}`,start,end,qty:1,status:'hold',source:'site',holdExpiresAt:now-1});
+    for(const status of ['prepared','awaiting_payment','paid','refund_pending','unknown']){
+      addition.status=status;await blocked();await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(added._id),'Unresolved addition survives cleanup: '+status);
+    }
+    addition.status='refunded';assert.equal((await availability.forCart.handler(ctx,{items:lines}))[camera._id].ok,true);await bookings.releaseExpiredHolds.handler(ctx,{});assert.equal(await db.get(added._id),null);
+    const orphan=put('reservations',{inventoryUnitId:owned._id,bookingId:parent._id,extensionRequestId:'missing-request',start,end,qty:1,status:'hold',source:'site',holdExpiresAt:now-1});
+    await blocked();await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(orphan._id),'Unknown binding requires reconciliation instead of stock release');orphan.status='cancelled';
+    const foreign=put('booking_change_requests',{bookingId:'other-booking',type:'extend',status:'refunded'});
+    const wrong=put('reservations',{inventoryUnitId:owned._id,bookingId:parent._id,extensionRequestId:foreign._id,start,end,qty:1,status:'hold',source:'site',holdExpiresAt:now-1});
+    await blocked();await bookings.releaseExpiredHolds.handler(ctx,{});assert(await db.get(wrong._id),'Another rental\'s terminal amendment cannot free this reservation');wrong.status='cancelled';
     const upstream={version:1,checkedAt:now,units:[{masterItemId:'master-camera',active:true,quantityOwned:1,windows:[{start:Date.parse('2026-08-01'),end:Date.parse('9999-12-31'),qty:1}]}]};
     global.fetch = async (_url, options) => ({ ok: true, json: async () => ({ protocolVersion: 1, path: JSON.parse(options.body).path, status: 'success', value: [upstream] }) });
     const result = await sync.syncHyggloReservations.handler({ ...ctx, runMutation: async (_ref, args) => sync.applySharedStock.handler(ctx, args) }, {});
