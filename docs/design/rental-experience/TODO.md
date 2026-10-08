@@ -4,6 +4,8 @@ This checklist extends the original goal; no original integration requirement is
 
 ### 8 October 2026 — partial audited kit quantities
 
+- [x] Paired controlled acceptance: actual prior/current manager snapshot → website sync/cart/whole-order holds. Prior wrongly allows three bodies; corrected allows two, rejects three without partial writes, consumes remaining capacity and replays without duplicates. Runtime source revisions and qualified evidence are saved in the manager `docs/paired-partial-kit-acceptance-2026-10-08.json`; this does not prove live or concurrent cross-app acquisition.
+
 - [x] Fix the manager physical-unit resolver's partial-audit branch: per-kit quantities multiply by booked listing quantities; audited listings sharing one item add together, and independently mapped listings retain their contribution. Supplied adapters follow the same expansion as fully audited kits.
 - [x] Reject invalid booked/component quantities and overflowing multiplication/aggregation before they can become believable occupancy. Preserve explicit owned-nothing decisions and unrelated legacy units.
 - [x] Actual snapshot/quote regression: controlled 12 owned / 10 occupied now yields 2 free. Prior actual source emits 1 occupied / 11 free. Listing order, adapters and quantity validation are tested in the real resolver/source path; no live rental data is changed.
