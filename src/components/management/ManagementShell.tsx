@@ -1,5 +1,5 @@
 "use client";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import styles from "./ManagementShell.module.css";
 
@@ -15,8 +15,15 @@ const icons: Record<string, string> = {
 };
 export function ManagementShell({ role, title, name, subtitle, nav, active, onNavigate, actions, children }: { role: "renter" | "admin"; title: string; name: string; subtitle?: string; nav: ManagementNav[]; active: string; onNavigate: (key: string) => void; actions?: ReactNode; children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [menuOpen]);
   return <div className={styles.shell} data-management-role={role}>
     <aside className={`${styles.sidebar} ${menuOpen ? styles.open : ""}`}>
+      <button type="button" aria-label="Close account menu" className={styles.closeButton} onClick={() => setMenuOpen(false)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
       <Link href="/" className={styles.brand}><span>DB <small>CINEMA</small></span><b>RENTALS</b></Link>
       <nav aria-label={role === "admin" ? "Management navigation" : "Account navigation"} className={styles.nav}>
         {nav.map(item => <button type="button" key={item.key} aria-current={active === item.key ? "page" : undefined} onClick={() => { onNavigate(item.key); setMenuOpen(false); }} className={active === item.key ? styles.selected : ""}>
@@ -24,7 +31,11 @@ export function ManagementShell({ role, title, name, subtitle, nav, active, onNa
           <span>{item.label}</span>{!!item.badge && <b>{item.badge}</b>}
         </button>)}
       </nav>
-      <div className={styles.sidebarBottom}><p>PROFESSIONAL KIT.<br />EXTRAORDINARY STORIES.</p><Link href="/gear">Browse equipment ↗</Link><span>DB Cinema Rentals · London</span></div>
+      <div className={styles.sidebarBottom}>
+        <div className={styles.sidebarImage} aria-hidden="true"><img src="/arri-deconstruct-poster.jpg" alt="" loading="lazy" decoding="async" /></div>
+        <p>PROFESSIONAL<br />KIT FOR<br />EXTRAORDINARY<br />STORIES.</p>
+        <Link href="/gear">Browse equipment ↗</Link><span>DB Cinema Rentals · London</span>
+      </div>
     </aside>
     <div className={styles.workspace}>
       <header className={styles.topbar}>

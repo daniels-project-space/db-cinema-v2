@@ -2,6 +2,13 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — management sidebar reference treatment
+
+- [x] Bring the shared account/admin sidebar to the reference's 237px desktop width, reduce excess spacing above navigation, use the copper/white serif wordmark and add the existing camera poster above the stacked brand footer. Treat the poster as decorative brand imagery, not an accepted owned-equipment ERNIE render.
+- [x] Keep all styling inside the management CSS module. Native actual shell/customer component checks verify the decoded poster, desktop/mobile overflow, nine navigation controls, mobile close button, Escape and selection closure. Inspected screenshots are at `/root/dbc-management-sidebar-review`; synthetic customer/query transport does not establish live account acceptance or full concept pixel fidelity.
+- [ ] Complete remaining page/reference fidelity and verify deployed account/admin layouts. Hosted CI 37718931122 for preceding conversation commit d4ecf81 is SUCCESS; broader live, private document, financial, equipment render and paired-manager acceptance remain open.
+
+
 ### 8 October 2026 — conversation response isolation
 
 - [x] Bind send, handoff, suggested-reply and read-error responses to their originating conversation, account, role and session. Revisiting a conversation creates a fresh scope, so a prior request cannot erase its new draft or finish a newer pending operation. Preserve new text typed while a previous message sends.
