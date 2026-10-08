@@ -1,3 +1,6 @@
+import { encoreGate } from "./lib/loyalty";
+import { customerReviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
+import { reviewContext } from "./lib/reviewContext";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -12,6 +15,12 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
   const account=await accountForRental(ctx,b);
   const recipient=account?.email ?? (b.accountId ? null : b.guestEmail);
   if(!recipient || (row.recipientEmail && row.recipientEmail!==recipient)) return false;
+  if(row.kind === "review"){
+    if(b.remindedReview || b.reviewFollowUpStatus==="sent")return false;
+    if(customerReviewGate(b) || b.reviewEligibilityFingerprint!==reviewSettlementFingerprint(await reviewContext(ctx,b)))return false;
+    if(row.preparedPromotional && !account?.marketingEmails || row.preparedCleanReturnRequired && encoreGate(b))return false;
+    return !await ctx.db.query("reviews").withIndex("by_booking",q=>q.eq("verifiedBookingId",b._id)).first();
+  }
   if(row.kind === "cancellation")return b.status === "cancelled";
   if(row.kind === "verification") {
     const latest=(await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",b._id).eq("kind","verification")).order("desc").take(1))[0];
@@ -21,6 +30,10 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
   // A payment receipt remains useful after a paid rental is returned/cancelled.
   return ["confirmed","active","returned","cancelled"].includes(b.status) && !!(b.stripePaymentIntentId || b.total === 0);
 }
+async function markReviewState(ctx:MutationCtx,bookingId:Id<"bookings">,patch:any){
+ const booking=await ctx.db.get(bookingId);
+ if(booking && booking.reviewFollowUpStatus!=="sent")await ctx.db.patch(bookingId,patch);
+}
 async function flagFailure(ctx:MutationCtx,row:Doc<"rental_email_deliveries">) {
  const booking=await ctx.db.get(row.bookingId),account=await accountForRental(ctx,booking);
  if(account)await queueOwnerNotification(ctx,{eventKey:`rental-email-failed:${row._id}`,kind:"email_failure",accountId:account._id,bookingId:row.bookingId,
@@ -29,8 +42,8 @@ async function flagFailure(ctx:MutationCtx,row:Doc<"rental_email_deliveries">) {
 async function dispatch(ctx:MutationCtx,id:Id<"rental_email_deliveries">) {
   const row=await ctx.db.get(id),now=Date.now();
   if(!row || !["pending","sending"].includes(row.state) || row.dueAt>now)return false;
-  if(!await current(ctx,row)){await ctx.db.patch(id,{state:"skipped",updatedAt:now,lastError:"Notice no longer applicable"});return false;}
-  if(row.attempts>=MAX_ATTEMPTS){await ctx.db.patch(id,{state:"failed",updatedAt:now,lastError:"Delivery attempts exhausted; requires support"});await flagFailure(ctx,row);return false;}
+  if(!await current(ctx,row)){await ctx.db.patch(id,{state:"skipped",updatedAt:now,lastError:"Notice no longer applicable"});if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:"suppressed",remindedReview:true,reviewFollowUpReason:"notice_no_longer_applicable"});return false;}
+  if(row.attempts>=MAX_ATTEMPTS){await ctx.db.patch(id,{state:"failed",updatedAt:now,lastError:"Delivery attempts exhausted; requires support"});await flagFailure(ctx,row);if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:"failed",reviewFollowUpReason:"email_failed"});return false;}
   const generation=row.generation+1;
   await ctx.db.patch(id,{state:"sending",attempts:row.attempts+1,generation,dueAt:now+LEASE_MS,updatedAt:now});
   await ctx.scheduler.runAfter(0,internal.rentalEmailMail.deliver,{deliveryId:id,generation});return true;
@@ -55,16 +68,19 @@ export const finish=internalMutation({args:{deliveryId:v.id("rental_email_delive
     updatedAt:now,sentAt:a.result==="sent"?now:undefined,
     dueAt:a.result==="retry"?now+Math.min(6*60,2**(row.attempts-1))*60_000:now,
     lastError:a.result==="retry"?(failed?"Delivery attempts exhausted; requires support":"Transport did not accept email"):undefined});
+  if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:a.result==="sent"?"sent":a.result==="skipped"?"suppressed":failed?"failed":"sending",
+    remindedReview:a.result==="sent"||a.result==="skipped",reviewFollowUpSentAt:a.result==="sent"?now:undefined,
+    reviewFollowUpReason:a.result==="retry"?(failed?"email_failed":"email_retry"):a.result==="skipped"?"notice_no_longer_applicable":undefined});
   if(failed)await flagFailure(ctx,row);
   return true;
 }});
 
 /** Attach the immutable prepared message before any provider send. */
-export const prepare=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),storageId:v.id("_storage"),recipientEmail:v.string()},handler:async(ctx,a)=>{
+export const prepare=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),storageId:v.id("_storage"),recipientEmail:v.string(),promotional:v.optional(v.boolean()),cleanReturnRequired:v.optional(v.boolean())},handler:async(ctx,a)=>{
  const row=await ctx.db.get(a.deliveryId);
  if(!row || row.state!=="sending" || row.generation!==a.generation || row.dueAt<=Date.now() || !await current(ctx,row))return null;
  const booking=await ctx.db.get(row.bookingId),account=await accountForRental(ctx,booking);
  if(a.recipientEmail!==(account?.email ?? (booking?.accountId ? null : booking?.guestEmail)))return null;
  if(row.payloadStorageId)return row.payloadStorageId;
- await ctx.db.patch(row._id,{payloadStorageId:a.storageId,recipientEmail:a.recipientEmail,updatedAt:Date.now()});return a.storageId;
+ await ctx.db.patch(row._id,{payloadStorageId:a.storageId,recipientEmail:a.recipientEmail,preparedPromotional:a.promotional,preparedCleanReturnRequired:a.cleanReturnRequired,updatedAt:Date.now()});return a.storageId;
 }});

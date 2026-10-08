@@ -8,7 +8,7 @@ import { ensurePaidBookingAccount } from "./accountClaims";
 import { referralEligibility,availableReferralReward } from "./lib/referrals";
 import { SINGLE_BENEFIT_VERSION } from "../shared/rentalBenefits";
 import { SECURITY_POLICY_VERSION, depositChargeFor } from "../shared/rentalSecurity";
-import { unlockLoyalty, loyaltyProgress } from "./lib/loyalty";
+import { loyaltyProgress } from "./lib/loyalty";
 import { creditDebit,usableCredit } from "./lib/creditLedger";
 import { safeRepeatRental,repeatRentalFingerprint } from "./lib/repeatRental";
 import { reviewContext } from "./lib/reviewContext";
@@ -954,7 +954,6 @@ export const markReturnedStatus = internalMutation({
     const b = await ctx.db.get(bookingId);
     if (!b) return;
     if (b.status !== "returned") await ctx.db.patch(bookingId, { status: "returned" });
-    if (b.guestEmail) await unlockLoyalty(ctx,b.guestEmail);
     const res = await ctx.db
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))

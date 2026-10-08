@@ -1,3 +1,4 @@
+import { unlockLoyalty, encoreGate } from "./lib/loyalty";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
@@ -35,7 +36,7 @@ export const listPublished = query({
       author: r.author,
       authorImage: photo ?? account?.googleAvatarUrl ?? r.authorImage ?? null,
       rating: r.rating,
-      incentivized: r.incentivized ?? false,
+      incentivized: r.incentivized ?? false,encoreReward:r.encoreReward??false,prizeEntry:r.prizeEntry??(!!r.incentivized&&!r.encoreReward),
       text: r.text,
       product: r.product ?? null,
     }); }));
@@ -137,7 +138,9 @@ export const submitNative = mutation({
       verifiedBookingId: bookingId,
       date: Date.now(),
       published: true,
+      incentivized:!encoreGate(b),encoreReward:!encoreGate(b),
     });
-    return { ok: true };
+    const encore=await unlockLoyalty(ctx,acct);
+    return { ok: true,encoreLevel:encore.level };
   },
 });

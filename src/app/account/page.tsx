@@ -287,10 +287,10 @@ function Dashboard() {
               </div>
               <div className="mb-4 rounded-3xl border border-amber-200/20 bg-gradient-to-br from-amber-200/[.07] to-transparent p-5">
                 <p className="font-mono text-[10px] uppercase tracking-[.25em] text-amber-200/65">Encore · returning filmmakers</p>
-                <p className="mt-2 font-display text-2xl text-white">{me.loyaltyEligible ? `${me.loyaltyPercent}% off your next story` : `${me.loyaltyCompleted} / 3 completed rentals`}</p>
+                <p className="mt-2 font-display text-2xl text-white">{me.loyaltyEligible ? `${me.loyaltyPercent}% off your next story` : `${me.loyaltyCompleted} / 3 reviewed rentals`}</p>
                 <EncoreCrest level={Math.max(1,me.loyaltyLevel)} className="mx-auto mt-3 h-20 w-20 text-amber-100/65"/>
-                <p className="mt-2 text-xs leading-6 text-white/45">{me.loyaltyEligible ? me.membershipActive ? "Unlocked and saved. Your subscription and Encore price benefits do not stack." : "Applied automatically when it is your best saving. Rental charges only; delivery and security are excluded." : "Complete separate rentals to earn 2%, then 4%, then 10% off rental charges. No subscription needed."}</p>
-                {me.loyaltyLevel<3&&<p className="mt-3 border-t border-white/10 pt-3 text-xs text-amber-100/60">{me.loyaltyCompleted} / 3 completed · Next: {me.loyaltyLevel===0?2:me.loyaltyLevel===1?4:10}%</p>}
+                <p className="mt-2 text-xs leading-6 text-white/45">{me.loyaltyEligible ? me.membershipActive ? "Unlocked and saved. Your subscription and Encore price benefits do not stack." : "Applied automatically when it is your best saving. Rental charges only; delivery and security are excluded." : "After each separate clean rental, leave an honest review to earn 2%, then 4%, then 10% off rental charges. Every star rating counts equally. No subscription needed."}</p>
+                {me.loyaltyLevel<3&&<p className="mt-3 border-t border-white/10 pt-3 text-xs text-amber-100/60">{me.loyaltyCompleted} / 3 reviewed · Next: {me.loyaltyLevel===0?2:me.loyaltyLevel===1?4:10}%</p>}
               </div>
               {account.token&&<ReferralPanel token={account.token}/>}
           </div>

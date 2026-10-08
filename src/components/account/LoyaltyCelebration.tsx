@@ -46,14 +46,14 @@ export function LoyaltyCelebration({ subscriptionActive, onAcknowledge,level=3 }
     <div className={s.card} role="dialog" aria-modal="true" aria-labelledby="encore-title" ref={dialog} tabIndex={-1}>
       {Array.from({length:level===3?18:level===2?10:4},(_,i)=><span key={i} className={s.spark} style={{"--angle":`${i*20}deg`} as CSSProperties}/>)}
       <EncoreCrest className={s.crest} level={level}/>
-      <p className={s.label}>{level===3?"Three shoots. A lasting connection.":level===2?"Another story. A stronger connection.":"Your first story is only the beginning."}</p>
+      <p className={s.label}>{level===3?"Three shoots. A lasting connection.":level===2?"Another story. A stronger connection.":"Your review is the start of your next story."}</p>
       <h2 id="encore-title" className={`${s.title} font-display`}>{level===3?"Encore.":level===2?"Encore II.":"Encore I."}</h2>
       <div className={s.rule}/>
-      <p className={s.copy}>{level===1?"You took the first step. You made something.":"You came back. You made something."}<br/>Now every next story gets a little more room.</p>
+      <p className={s.copy}>{level===1?"Your clean return and honest review earned this.":"Another clean return. Another honest review."}<br/>Now every next story gets a little more room.</p>
       <p className={`${s.saving} mt-6`}>{loyaltyPercent(level)}% <span className="text-lg font-normal">off rentals</span></p>
       <p className={`${s.copy} mt-3`}>{subscriptionActive ? "Your Encore tier is unlocked. Subscription perks take priority; your rental saving is ready whenever you rent without a subscription." : "Your Encore tier is unlocked. Your rental saving applies automatically when it is your best offer. No subscription needed."}</p>
       <p className={`${s.copy} mt-2 text-xs`}>Rental charges only · delivery and security excluded.<br/>Only one price benefit applies at checkout.</p>
-      {level<3&&<div className={s.progress}><div>{[1,2,3].map(n=><span key={n} className={n<=level?s.reached:""}>{n===1?"2%":n===2?"4%":"10%"}</span>)}</div><p>Next: {loyaltyPercent(level+1)}% after your {level===1?"second":"third"} separate completed rental.</p></div>}
+      {level<3&&<div className={s.progress}><div>{[1,2,3].map(n=><span key={n} className={n<=level?s.reached:""}>{n===1?"2%":n===2?"4%":"10%"}</span>)}</div><p>Next: {loyaltyPercent(level+1)}% after your {level===1?"second":"third"} separate clean rental and honest review.</p></div>}
       {error&&<p role="alert" className="mt-3 text-xs text-red-200">Couldn’t save your acknowledgement. Please try again.</p>}
       <button ref={button} className={s.button} disabled={busy} onClick={acknowledge}>{busy?"Saving…":"Here’s to your next film →"}</button>
     </div>

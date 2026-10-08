@@ -104,7 +104,7 @@ const db = {
         return query;
       },
       filter(fn) {
-        const q = { field: (k) => k, eq: (k, v) => (r) => r[k] === v,
+        const q = { field: (k) => k, eq: (k, v) => (r) => r[k] === v, neq: (k,v) => r => r[k] !== v,
           or: (...conditions) => r => conditions.some(c=>c(r)),
           and: (...conditions) => r => conditions.every(c=>c(r)),
         };

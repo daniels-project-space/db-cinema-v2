@@ -74,7 +74,16 @@ const pendingArgs=(p,a)=>({securityPolicyVersion:p.securityPolicyVersion,protect
  const restored=(await db.query('credits').collect()).filter(c=>c.accountId===mixed._id&&c.bookingId===reserve.bookingId);assert.equal(restored.reduce((n,c)=>n+c.remaining,0),70);assert(restored.every(c=>c.kind==='refund'),'cash and refund origin remain customer money');
  // A later account earns progressive levels and cannot acknowledge an unearned one.
  const progressive=await account('levels@example.invalid','levels@example.invalid');
- for(let level=1;level<=3;level++){put('bookings',{guestEmail:progressive.email,status:'returned',stripeCheckoutSessionId:'cs_level_'+level,lineItems:[{start:start+level*DAY*5,end:start+level*DAY*5}]});const me=await accounts.me.handler(ctx,{token:progressive.email});assert.equal(me.loyaltyLevel,level);assert.equal(me.loyaltyPercent,[0,2,4,10][level]);if(level<3)await assert.rejects(accounts.acknowledgeLoyalty.handler(ctx,{token:progressive.email,level:level+1}),/qualifying rental/);await accounts.acknowledgeLoyalty.handler(ctx,{token:progressive.email,level});assert.equal(progressive.loyaltyCelebratedLevel,level);}
+ for(let level=1;level<=3;level++){
+  const b=put('bookings',{accountId:progressive._id,guestEmail:progressive.email,status:'returned',stripeCheckoutSessionId:'cs_level_'+level,depositAmount:0,total:0,actualReturnedAt:now,
+   returnDecision:{inspection:[{key:'camera',title:'Camera',condition:'good',details:'',openCase:false}]},lineItems:[{start:start+level*DAY*5,end:start+level*DAY*5,qty:1,title:'Camera'}]});
+  b.reviewEligibilityFingerprint=load('convex/lib/reviewEligibility.ts').reviewSettlementFingerprint(await load('convex/lib/reviewContext.ts').reviewContext(ctx,b));
+  await load('convex/reviews.ts').submitNative.handler(ctx,{token:progressive.email,bookingId:b._id,rating:1,text:'An honest account of this rental.'});
+  const me=await accounts.me.handler(ctx,{token:progressive.email});assert.equal(me.loyaltyLevel,level);assert.equal(me.loyaltyPercent,[0,2,4,10][level]);
+  if(level<3)await assert.rejects(accounts.acknowledgeLoyalty.handler(ctx,{token:progressive.email,level:level+1}),/clean rental.*review/);
+  await accounts.acknowledgeLoyalty.handler(ctx,{token:progressive.email,level});assert.equal(progressive.loyaltyCelebratedLevel,level);
+ }
+
  const self=await account('self@example.invalid','self@example.invalid');owner.paymentIdentityHashes=['same-card'];const selfBooking=put('bookings',{guestEmail:self.email,status:'returned',pickedUpAt:now,idVerifyStatus:'verified',returnStatement:{}}),selfClaim=put('referral_redemptions',{bookingId:selfBooking._id,friendAccountId:self._id,referrerAccountId:owner._id,state:'paid'});await referral.recordPayment.handler(ctx,{bookingId:selfBooking._id,paymentHash:'same-card'});assert.equal(selfClaim.state,'void');assert.equal(await referral.qualify.handler(ctx,{bookingId:selfBooking._id}),null);
  // Owner-gated campaign, opt-outs, leases and signed unsubscribe; never mail real people.
  process.env.ADMIN_TOKEN='owned-fixture';process.env.FILM_FUND_EMAIL_SECRET='owned-test-secret';

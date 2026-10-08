@@ -18,12 +18,12 @@ import { cancellationReceipt } from "./lib/cancellationFields";
  */
 export default defineSchema({
   rental_email_deliveries: defineTable({
-    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation")),
+    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review")),
     key: v.string(), sequence: v.number(), verificationStatus: v.optional(v.string()),
     mode: v.optional(v.string()), refundAmount: v.optional(v.number()), creditAmount: v.optional(v.number()),
     state: v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("skipped"),v.literal("failed")),
     attempts: v.number(), generation: v.number(), dueAt: v.number(), createdAt: v.number(), updatedAt: v.number(), sentAt: v.optional(v.number()),
-    lastError: v.optional(v.string()), payloadStorageId:v.optional(v.id("_storage")), recipientEmail:v.optional(v.string()),
+    lastError: v.optional(v.string()), payloadStorageId:v.optional(v.id("_storage")), recipientEmail:v.optional(v.string()), preparedPromotional:v.optional(v.boolean()),preparedCleanReturnRequired:v.optional(v.boolean()),
   }).index("by_key",["key"]).index("by_booking_kind",["bookingId","kind"]).index("by_state_due",["state","dueAt"]),
   rental_cancellations: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")),
     adminReason: v.optional(v.string()), legacy: v.boolean(), status: v.union(v.literal("processing"), v.literal("attention"), v.literal("succeeded")),
@@ -418,7 +418,7 @@ export default defineSchema({
     date: v.number(),
     verifiedBookingId: v.optional(v.id("bookings")),
     published: v.boolean(),
-    incentivized: v.optional(v.boolean()),
+    incentivized: v.optional(v.boolean()),encoreReward:v.optional(v.boolean()),prizeEntry:v.optional(v.boolean()),
   })
     .index("by_listing", ["listingId"])
     .index("by_booking", ["verifiedBookingId"])
@@ -590,6 +590,7 @@ export default defineSchema({
     membershipSignupOfferUsed: v.optional(v.boolean()),
     membershipPerksPendingBookingId: v.optional(v.id("bookings")),
     referralCode:v.optional(v.string()),referralFirstUsedAt:v.optional(v.number()),firstRentalPaidAt:v.optional(v.number()),referralRewardGrantedAt:v.optional(v.number()),referralRewardUsedAt:v.optional(v.number()),paymentIdentityHashes:v.optional(v.array(v.string())),
+    loyaltyPolicyVersion:v.optional(v.string()),
     loyaltyLevel:v.optional(v.number()),loyaltyCelebratedLevel:v.optional(v.number()),
     loyaltyUnlockedAt: v.optional(v.number()),
     loyaltyCelebratedAt: v.optional(v.number()),

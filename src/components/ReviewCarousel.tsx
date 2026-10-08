@@ -69,7 +69,7 @@ export function ReviewCarousel() {
               &rdquo;
             </span>
             <Stars n={r.rating} />
-            {r.incentivized && <span className="text-[10px] text-amber-200/80">£{REVIEW_PRIZE_GBP} story-prize entrant · incentivised review</span>}
+            {r.incentivized && <span className="text-[10px] text-amber-200/80">{r.encoreReward?"Encore benefit":""}{r.encoreReward&&r.prizeEntry?" + ":""}{r.prizeEntry?`£${REVIEW_PRIZE_GBP} story-prize entrant`:""} · incentivised review</span>}
             <blockquote className="flex-1 text-sm leading-relaxed text-white/70">
               {r.text}
             </blockquote>

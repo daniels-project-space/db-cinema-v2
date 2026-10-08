@@ -2,7 +2,7 @@ import { internal } from "../_generated/api";
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 
-export type RentalEmailKind = "payment" | "receipt" | "verification" | "cancellation";
+export type RentalEmailKind = "payment" | "receipt" | "verification" | "cancellation" | "review";
 /** Persist in the same transaction as payment, verification or cancellation.
  * Stable financial keys prevent webhook replays from sending twice. Each real
  * verification transition gets a new sequence so returning to a status can notify. */
