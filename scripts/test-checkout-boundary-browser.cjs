@@ -23,10 +23,11 @@ const backend=process.env.DBC_CONVEX_URL||'https://deafening-stoat-340.convex.cl
   async function until(expr,label){for(let i=0;i<200;i++){if(await c.evaluate(expr))return;await delay(200)}throw Error(label)}
   await c.cmd('Page.navigate',{url:base+'/checkout'});await until(`document.querySelector('main')&&location.pathname==='/checkout'`,'Checkout loads');
   const item={key:listing._id+':boundary-proof',listingId:listing._id,slug:listing.slug,title:listing.title,heroImage:listing.heroImage??null,start:dateString,end:dateString,pickupTime:'18:00',returnTime:'20:00',days:1,perDay:listing.pricing.daily,total:listing.pricing.daily,deposit:listing.depositAmount};
-  await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([item]))});localStorage.removeItem('dbc_membership_selection_v1');true`);await c.cmd('Page.reload');
+  const seed=await c.cmd('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([item]))});localStorage.removeItem('dbc_membership_selection_v1');`});await c.cmd('Page.reload');
   const picker=n=>`document.querySelectorAll('[data-checkout-item-times] [role=combobox]')[${n}]`;
   async function ready(){await until(`${picker(0)}&&!${picker(0)}.disabled`,'Item time controls settle')}
   async function select(n,time){await ready();await c.evaluate(`${picker(n)}.click()`);await until(`!!document.querySelector('[role=listbox]')`,'Time choices open');assert.equal(await c.evaluate(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent===${JSON.stringify(time)})?.getAttribute('aria-disabled')`),'false',`${time} is stock-free independently of clock ordering`);await c.evaluate(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent===${JSON.stringify(time)}).click()`)}
+  await ready();await c.cmd('Page.removeScriptToEvaluateOnNewDocument',{identifier:seed.identifier});
   await select(0,'21:00');await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].pickupTime==='21:00'&&JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].returnTime==='22:00'`,'Return auto-adjusts after changed pickup');assert(await c.evaluate(`document.body.innerText.includes('Return moved to 22:00')`),'Adjustment is visibly announced');
   await select(1,'09:00');await until(`document.querySelector('[data-checkout-item-times]').innerText.includes('Return must be later than pickup')`,'Clock ordering is explained separately');assert.equal(await c.evaluate(`document.querySelector('main').innerText.includes('Some gear is unavailable')`),false,'Order is not reported as unavailable stock');assert.equal(await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].returnTime`),'09:00');
   await select(0,'22:00');await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].pickupTime==='22:00'&&document.querySelector('[data-checkout-item-times]').innerText.includes('change the return date')`,'Last free pickup needs a later return date, not a false stock block');
@@ -34,6 +35,23 @@ const backend=process.env.DBC_CONVEX_URL||'https://deafening-stoat-340.convex.cl
   await c.cmd('Page.reload');await ready();assert.equal(await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].pickupTime`),'18:00');assert.equal(await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].returnTime`),'19:00');
   const screenshots=[];
   for(const width of [1440,390]){await c.cmd('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<600});await c.evaluate(`document.querySelector('[data-checkout-item-times]').scrollIntoView({block:'center',behavior:'instant'})`);await delay(200);await c.evaluate(`${picker(0)}.click()`);await until(`!!document.querySelector('[role=listbox]')`,'Choices open');assert.equal(await c.evaluate(`document.documentElement.scrollWidth>innerWidth`),false);const shot=await c.cmd('Page.captureScreenshot',{format:'png'}),path=art+'/boundary-times-'+width+'.png';fs.writeFileSync(path,Buffer.from(shot.data,'base64'));screenshots.push(path);await c.evaluate(`${picker(0)}.click()`)}
-  const receipt={result:'PASS',checkedAt:new Date().toISOString(),base,backend,listingId:listing._id,date:dateString,independentBoundarySlots:true,automaticReturnAdjustmentVisible:true,orderErrorSeparate:true,lastPickupSelectable:true,persistedAfterReload:true,desktopMobileNoOverflow:true,paymentSubmitted:false,accountOrCustomerCreated:false,screenshots};fs.writeFileSync(art+'/boundary-times-receipt.json',JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));
+
+  // The same clock order is valid across different dates: test the real backend
+  // and persisted customer controls with a full three-day rental.
+  const end=date+2*86400000,endString=new Date(end).toISOString().slice(0,10);
+  const periodSlots=await client.query(api.availability.forTimeSlots,{listingId:listing._id,start:date,end,pickupTime:'21:00',returnTime:'09:00',items:[]});
+  assert.equal(periodSlots.available>=1,true,'Real catalogue equipment is free for the full selected multi-day period');
+  const periodItem={...item,end:endString,pickupTime:'21:00',returnTime:'09:00',days:3,total:3*item.perDay};
+  const periodSeed=await c.cmd('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([periodItem]))});`});
+  await c.cmd('Page.reload');await ready();await c.cmd('Page.removeScriptToEvaluateOnNewDocument',{identifier:periodSeed.identifier});
+  assert.equal(await c.evaluate(`document.querySelector('[data-checkout-item-times]').innerText.includes('Return must be later than pickup')`),false,'Evening pickup followed by morning return on a later date has no ordering error');
+  for(const [n,allowed]of [[0,periodSlots.pickupBoundarySlots],[1,periodSlots.returnBoundarySlots]]){
+   await c.evaluate(`${picker(n)}.click()`);await until(`!!document.querySelector('[role=listbox]')`,'Multi-day choices open');
+   const actual=await c.evaluate(`[...document.querySelectorAll('[role=option]')].filter(e=>e.getAttribute('aria-disabled')==='false').map(e=>e.textContent)`);
+   assert.deepEqual(actual,allowed,'Customer menu matches actual full-period stock');await c.evaluate(`${picker(n)}.click()`);
+  }
+  const persisted=await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0]`);assert.equal(persisted.pickupTime,'21:00');assert.equal(persisted.returnTime,'09:00');assert.equal(persisted.end,endString);
+  const full=await client.query(api.availability.forCart,{items:[{listingId:listing._id,start:date,end,pickupTime:'21:00',returnTime:'09:00'}]});assert.equal(full[listing._id].ok,true,'Complete period passes the authoritative basket check');
+  const receipt={result:'PASS',checkedAt:new Date().toISOString(),base,backend,listingId:listing._id,date:dateString,independentBoundarySlots:true,multiDayFullPeriodVerified:true,automaticReturnAdjustmentVisible:true,orderErrorSeparate:true,lastPickupSelectable:true,persistedAfterReload:true,desktopMobileNoOverflow:true,paymentSubmitted:false,accountOrCustomerCreated:false,screenshots};fs.writeFileSync(art+'/boundary-times-receipt.json',JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));
  }finally{c?.close();await browser('Target.disposeBrowserContext',{browserContextId:context.browserContextId});ws.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});
