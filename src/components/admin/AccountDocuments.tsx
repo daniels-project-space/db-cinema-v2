@@ -100,6 +100,7 @@ export function AccountDocuments({
       url: string;
       type: string;
       title: string;
+      documentId:string;
       accountId: string;
       token: string;
     } | null>(null),
@@ -110,6 +111,16 @@ export function AccountDocuments({
   const scope = useRef(0);
   const [holdEditor, setHoldEditor] = useState<string | null>(null);
   const [holdReason, setHoldReason] = useState("");
+  useEffect(()=>{
+    if(!preview || !archives)return;
+    const archive=archives.find(a=>a.documents.some(d=>d.id===preview.documentId));
+    const clear=()=>{scope.current++;request.current?.abort();setPreview(null);setBusy(false);if(activeUrl.current)URL.revokeObjectURL(activeUrl.current);activeUrl.current=null;};
+    if(!archive || archive.status==="deleted" || !archive.retention.viewable){clear();return;}
+    const expiresAt=archive.retention.expiresAt;if(expiresAt===null)return;
+    let timer:ReturnType<typeof setTimeout>;
+    const check=()=>{const remaining=expiresAt-Date.now();if(remaining<=0)clear();else timer=setTimeout(check,Math.min(remaining,86400000));};
+    check();return()=>clearTimeout(timer);
+  },[archives,preview]);
   useEffect(() => {
     scope.current++;
     request.current?.abort();
@@ -163,7 +174,7 @@ export function AccountDocuments({
       if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
       const url = URL.createObjectURL(blob);
       activeUrl.current = url;
-      setPreview({ url, type: document.contentType, title: documentTitle(document.kind), accountId, token });
+      setPreview({ url, type: document.contentType, title: documentTitle(document.kind),documentId:document.id,accountId,token });
     } catch (e) {
       if (!controller.signal.aborted && currentScope === scope.current)
         setError(e instanceof Error ? e.message : "Could not open document.");

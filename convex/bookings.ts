@@ -1531,7 +1531,7 @@ export const setDiditResult = internalMutation({
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
     if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
         (b.diditManualDecisionAt ?? 0) >= eventAt) return true;
-    if (["verified", "manual_review", "rejected", "requires_input"].includes(status)) await queueVerificationArchive(ctx, b);
+    if (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting")) await queueVerificationArchive(ctx, b,true);
     // The provider checks the bill and its holder. Also require its UK postcode
     // to match the address this renter supplied for the booking.
     const postcode = (s: string) => s.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";

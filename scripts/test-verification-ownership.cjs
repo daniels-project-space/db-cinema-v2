@@ -7,13 +7,14 @@ process.env.ADMIN_TOKEN = 'ownership-test';
 
 (async () => {
   const scheduled = [];
-  const ctx = { db, scheduler: { runAfter: async (_delay, ref, args) => scheduled.push({ ref, args }) } };
+  const ctx = { db, storage:{delete:async()=>{}},scheduler: { runAfter: async (_delay, ref, args) => scheduled.push({ ref, args }) } };
   const booking = put('bookings', { status: 'pending_payment', guestEmail: 'late-account@example.invalid', guestName: 'Rental customer', diditSessionId: 'pre-account-session' });
   await archive.queueVerificationArchive(ctx, booking);
   const saved = tables.get('verification_archives')[0];
   assert.equal(saved.accountId, undefined);
-  await archive.save.handler(ctx, { archiveId: saved._id, kind: 'identity-0-front_image', storageId: 'owned-file', sha256: 'immutable-hash', size: 100, contentType: 'image/jpeg' });
-  await archive.finish.handler(ctx, { archiveId: saved._id, complete: true });
+  const lease=await archive.claim.handler(ctx,{archiveId:saved._id});
+  await archive.save.handler(ctx, { archiveId: saved._id,generation:lease.generation, kind: 'identity-0-front_image', storageId: 'owned-file', sha256: 'immutable-hash', size: 100, contentType: 'image/jpeg' });
+  await archive.finish.handler(ctx, { archiveId: saved._id,generation:lease.generation, complete: true });
   const copy = tables.get('verification_documents')[0];
   assert.equal(copy.accountId, undefined);
   assert.equal(await claims.ensurePaidBookingAccount(ctx, booking), null, 'Unpaid rentals cannot acquire an account');
@@ -27,7 +28,8 @@ process.env.ADMIN_TOKEN = 'ownership-test';
   assert.equal((await archive.accountDocuments.handler(ctx, { token: 'ownership-test', accountId: account._id }))[0].documents[0].id, copy._id, 'Existing copies become visible through the actual account query');
   await claims.ensurePaidBookingAccount(ctx, booking);
   assert.equal(tables.get('verification_archives').length, 1, 'Payment replay creates no extra archive');
-  await archive.save.handler(ctx, { archiveId: saved._id, kind: 'address-0', storageId: 'late-worker-file', sha256: 'late-worker-hash', size: 90, contentType: 'image/png' });
+  await archive.queueVerificationArchive(ctx,booking);const lateLease=await archive.claim.handler(ctx,{archiveId:saved._id});
+  await archive.save.handler(ctx, { archiveId: saved._id,generation:lateLease.generation, kind: 'address-0', storageId: 'late-worker-file', sha256: 'late-worker-hash', size: 90, contentType: 'image/png' });
   assert.equal(tables.get('verification_documents')[1].accountId, account._id, 'A capture finishing after account creation uses current archive ownership');
 
   // Historical account-linked rentals may still contain unlinked archives.

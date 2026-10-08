@@ -12,10 +12,11 @@ const booking=put('bookings',{accountId:account._id,guestEmail:account.email,did
  const job=tables.get('verification_archives')[0];assert.equal(job.accountId,account._id);
  await archive.queueVerificationArchive(ctx,booking);assert.equal(tables.get('verification_archives').length,1);
  await assert.rejects(()=>archive.assertVerificationArchive(ctx,booking),/fully archived/);
- const file={archiveId:job._id,kind:'identity-0-front_image',storageId:'file-one',sha256:'hash',size:100,contentType:'image/jpeg'};
+ const lease=await archive.claim.handler(ctx,{archiveId:job._id});
+ const file={archiveId:job._id,generation:lease.generation,kind:'identity-0-front_image',storageId:'file-one',sha256:'hash',size:100,contentType:'image/jpeg'};
  await archive.save.handler(ctx,file);await archive.save.handler(ctx,{...file,storageId:'duplicate'});assert(deleted.includes('duplicate'));assert.equal(tables.get('verification_documents').length,1);
- await archive.finish.handler(ctx,{archiveId:job._id,complete:false});assert.equal(job.status,'pending');assert(job.dueAt>Date.now());
- await archive.finish.handler(ctx,{archiveId:job._id,complete:true});await archive.assertVerificationArchive(ctx,booking);
+ await archive.finish.handler(ctx,{archiveId:job._id,generation:lease.generation,complete:false});assert.equal(job.status,'pending');assert(job.dueAt>Date.now());
+ job.dueAt=Date.now();const nextLease=await archive.claim.handler(ctx,{archiveId:job._id});await archive.finish.handler(ctx,{archiveId:job._id,generation:nextLease.generation,complete:true});await archive.assertVerificationArchive(ctx,booking);
  await assert.rejects(()=>archive.downloadAccess.handler(ctx,{token:'bad',documentId:tables.get('verification_documents')[0]._id}),/unauthorized/);
  const listed=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(listed[0].documents[0].storageId,undefined,'No public storage URL/id exposed in listing');
  assert.equal(listed[0].retention.status,'active-rental');assert.equal(listed[0].retention.activeRentals,1);assert.equal(listed[0].retention.expiresAt,null);
