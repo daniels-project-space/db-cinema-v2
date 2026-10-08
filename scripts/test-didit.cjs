@@ -17,6 +17,7 @@ function load(file) {
     './_generated/api': { internal: refs, api: refs },
     './adminAuth': { assertAdmin: () => {} },
     './availability': { peak: () => 0 },
+    './lib/rmv2SyncQueue': { queueRmv2Sync: async () => {} },
     './verificationArchive': { queueVerificationArchive: async () => {}, assertVerificationArchive: async () => {} },
   };
   new Function('require', 'module', 'exports', source)((name) => {

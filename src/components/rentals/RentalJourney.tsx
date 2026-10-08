@@ -1,6 +1,6 @@
 "use client";
 import { rentalProgress, type ProgressBooking } from "../../../shared/rentalProgress";
-const stops = ["Booked", "Verified", "On rental", "Return check", "Completed"];
+const stops = ["Payment", "Verification", "On rental", "Return check", "Completed"];
 const paths = [
   <><path d="M6 3v4m12-4v4M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/><path d="m8 14 2 2 5-5"/></>,
   <><path d="m12 3 8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/></>,

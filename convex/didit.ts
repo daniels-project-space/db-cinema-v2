@@ -204,6 +204,49 @@ export const adminReview = action({
   },
 });
 
+/** Read the current provider decision for an authenticated, visible rental.
+ * Browser-supplied results are never accepted. Webhooks remain authoritative,
+ * and this closes the progress gap when a callback is delayed or missed. */
+export const refreshProgress = action({
+  args: { bookingId: v.id("bookings"), accountToken: v.optional(v.string()), checkoutSessionId: v.optional(v.string()), admin: v.optional(v.boolean()) },
+  handler: async (ctx, a): Promise<{status: string}> => {
+    const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
+    let authorized = false;
+    if (a.admin && a.accountToken) {
+      await ctx.runMutation(internal.adminAuth.assertAdminInternal, {token: a.accountToken, fn: "didit.refreshProgress"});
+      authorized = true;
+    } else if (a.accountToken) {
+      const account: any = await ctx.runQuery(internal.accounts._byToken, {token: a.accountToken});
+      authorized = !!booking && !!account && belongsToRentalAccount(booking, account);
+    }
+    // The completed session is an existing bearer capability on the success
+    // page; it must be the exact session already bound by Stripe fulfilment.
+    if (!authorized && a.checkoutSessionId && booking?.stripeCheckoutSessionId === a.checkoutSessionId && ["confirmed", "active"].includes(booking.status)) authorized = true;
+    if (!authorized || !booking) throw Error("Sign in to view this rental's verification.");
+    if (!["confirmed", "active"].includes(booking.status)) return {status: "closed"};
+    if (booking.verificationProvider !== "didit" || !booking.diditSessionId) return {status: "not_started"};
+    const claimed = await ctx.runMutation(internal.bookings.claimDiditProgressRefresh, {bookingId:a.bookingId, sessionId:booking.diditSessionId});
+    if (!claimed) return {status: "unchanged"};
+    const cfg = config();
+    const report = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
+    if (report.workflow_id !== cfg.workflowId) throw Error("Verification workflow does not match this rental.");
+    const mapped = mapDecision(report.status, report);
+    if (!mapped) throw Error("Unknown verification status.");
+    // Polling is for progress, not a synthetic new document event on every
+    // tick. Signed data.updated webhooks and full reconciliation still capture
+    // document changes; identical progress must not reset a completed archive.
+    if (booking.idVerifyStatus === mapped.status && (["identity", "selfie", "address"] as const).every(key => booking.verificationChecks?.[key] === mapped.checks[key]) &&
+        (booking.verificationNote ?? null) === (mapped.note ?? null) && (booking.documentExpiresAt ?? null) === (mapped.documentExpiresAt ?? null) &&
+        (!mapped.personKey || booking.renterPersonKey === mapped.personKey)) return {status: "unchanged"};
+    const saved = await ctx.runMutation(internal.bookings.setDiditResult, {
+      bookingId: a.bookingId, sessionId: booking.diditSessionId,
+      eventId: `progress-${booking.diditSessionId}-${Date.now()}`, eventAt: Date.now(), providerStatus: report.status, ...mapped,
+    });
+    if (!saved) throw Error("The verification session changed. Refresh this rental.");
+    return {status: "updated"};
+  },
+});
+
 /** Webhook delivery is normally immediate. Re-read a bounded set of open
  * rentals hourly so a missed callback cannot leave verification stuck. */
 export const reconcileOpenSessions = internalAction({

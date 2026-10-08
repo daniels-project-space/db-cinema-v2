@@ -8,6 +8,7 @@ import { api } from "@cvx/_generated/api";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { RentalConversation } from "@/components/rentals/RentalConversation";
 import { SmartImage } from "@/components/SmartImage";
+import { rentalStageLabel } from "../../../shared/rentalReadiness";
 import {
   rentalTitle,
   rentalDate,
@@ -241,7 +242,7 @@ export function RentalInbox({
                   )}
                 </div>
                 <div className="mt-3 flex items-center justify-between text-[10px] text-white/35">
-                  <span>{RENTAL_STAGE_LABELS[r.status] ?? "Support"}</span>
+                  <span>{r.status === "support" ? "Support" : rentalStageLabel(r)}</span>
                   <span>
                     {r.start ? rentalDate(r.start, r.end) : "Account support"}
                   </span>
@@ -286,6 +287,7 @@ export function RentalInbox({
               accountId={focus.accountId ?? undefined}
               title={rentalTitle(focus.items[0]?.title ?? "General support")}
               stage={focus.status}
+              stageLabel={focus.status === "support" ? "Support" : rentalStageLabel(focus)}
               bookingSummary={{image: focus.items[0]?.heroImage, imageSources: focus.items[0]?.imageSources, dates: focus.start ? rentalDate(focus.start, focus.end) : "Account support", count: focus.items.length}}
               escalated={focus.escalated}
               tools={

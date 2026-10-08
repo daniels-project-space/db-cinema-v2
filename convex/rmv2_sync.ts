@@ -16,6 +16,11 @@ import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
 import { checkAdminToken } from "./adminAuth";
 import { paginationOptsValidator } from "convex/server";
+import { accountForRental } from "./lib/rentalAccount";
+import { assertVerificationArchive } from "./verificationArchive";
+import { requiresDroneLicence } from "./lib/droneVerification";
+import { securityReady } from "../shared/verificationProgress";
+import { VERIFICATION_REUSE_DAYS } from "./lib/verificationReuse";
 
 const PAID_STATUSES = new Set(["confirmed", "active", "returned"]);
 
@@ -37,6 +42,7 @@ export function mapBookingForSync(
   custById: Map<string, Doc<"customers">>,
   reservations?: Doc<"reservations">[],
   damageCases?: Doc<"rental_damage_cases">[],
+  verificationReadiness?: {archiveReady: boolean; requiresDroneLicence: boolean; accountId: string | null; sessionId: string | null},
 ) {
   const lineItems = (b.lineItems ?? []).map((li) => {
     const listing = listingById.get(String(li.listingId));
@@ -81,6 +87,24 @@ export function mapBookingForSync(
     id: String(b._id),
     revision: b.rmv2Revision ?? 0,
     status: b.status,
+    verification: {
+      version: 1,
+      provider: b.verificationProvider ?? "stripe",
+      status: b.idVerifyStatus ?? "required",
+      checks: b.verificationChecks ?? {identity:"waiting",selfie:"waiting",address:"waiting"},
+      accountId: verificationReadiness?.accountId ?? null,
+      sessionId: verificationReadiness?.sessionId ?? null,
+      updatedAt: b.verificationUpdatedAt ?? null,
+      securityReady: securityReady(b) && (!(b.depositHoldAmount ?? 0) || (b.depositHoldExpiresAt ?? 0) > Date.now()),
+      archiveReady: verificationReadiness?.archiveReady ?? false,
+      requiresDroneLicence: verificationReadiness?.requiresDroneLicence ?? true,
+      droneLicenceStatus: b.droneLicenceStatus ?? "required",
+      approved: !!verificationReadiness?.accountId && b.idVerifyStatus === "verified" &&
+        Math.min(b.verificationExpiresAt ?? ((b.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * 86400000), b.documentExpiresAt ?? Infinity) > Date.now() &&
+        securityReady(b) && (!(b.depositHoldAmount ?? 0) || (b.depositHoldExpiresAt ?? 0) > Date.now()) &&
+        verificationReadiness?.archiveReady === true &&
+        verificationReadiness.requiresDroneLicence !== undefined && (!verificationReadiness.requiresDroneLicence || b.droneLicenceStatus === "approved"),
+    },
     customerName: cust?.name ?? b.guestName ?? null,
     customerEmail: cust?.email ?? b.guestEmail ?? null,
     fulfilment: b.fulfilment,
@@ -140,9 +164,7 @@ export const forRmv2Sync = query({
     const customers = await ctx.db.query("customers").collect();
     const custById = new Map(customers.map((c) => [String(c._id), c]));
 
-    const bookings = paid.map((b) =>
-      mapBookingForSync(b, listingById, unitById, custById),
-    );
+    const bookings = await Promise.all(paid.map(async b => mapBookingForSync(b, listingById, unitById, custById, undefined, undefined, await verificationReadiness(ctx,b))));
 
     return { authorized: true as const, bookings };
   },
@@ -204,7 +226,15 @@ async function loadBookingProjection(ctx: any, b: Doc<"bookings">) {
       const unit = await ctx.db.get(record.inventoryUnitId);
       if (unit) unitById.set(String(unit._id), unit);
     }
-    return mapBookingForSync(b, listingById, unitById, custById, reservations, damageCases);
+    return mapBookingForSync(b, listingById, unitById, custById, reservations, damageCases, await verificationReadiness(ctx,b));
+}
+
+async function verificationReadiness(ctx: any, b: Doc<"bookings">) {
+  let archiveReady = false;
+  if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx,b); archiveReady = true; } catch {} }
+  const account = await accountForRental(ctx,b);
+  const source = b.verificationReusedFrom ? await ctx.db.get(b.verificationReusedFrom) : b;
+  return {archiveReady, requiresDroneLicence: await requiresDroneLicence(ctx,b), accountId: account ? String(account._id) : null, sessionId: source?.diditSessionId ?? null};
 }
 
 /** Explicit lifecycle records in bounded pages; absence never means cancellation. */

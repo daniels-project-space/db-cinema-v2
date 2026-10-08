@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { accountForRental } from "./lib/rentalAccount";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
 
 const DOCUMENT_RETENTION_MS = 30 * 86400000;
@@ -79,6 +80,13 @@ export const finish = internalMutation({ args: { archiveId: v.id("verification_a
   if (!archive || archive.status === "complete" || archive.status === "deleted") return;
   const attempts = archive.attempts + 1;
   await ctx.db.patch(archive._id, args.complete ? { status: "complete", completedAt: Date.now(), error: undefined } : { status: attempts >= 12 ? "attention" : "pending", attempts, dueAt: Date.now() + Math.min(3600000, 30000 * 2 ** Math.min(attempts, 7)), error: "Document archive incomplete. Provider documents must be checked and retried." });
+  if (args.complete) {
+    const reused = await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", archive.bookingId)).collect();
+    for (const bookingId of [archive.bookingId, ...reused.map((b: any) => b._id)]) {
+      const booking = await ctx.db.get(bookingId as typeof archive.bookingId);
+      if (booking && ["confirmed", "active"].includes(booking.status)) await queueRmv2Sync(ctx, bookingId);
+    }
+  }
 } });
 export const due = internalQuery({ args: {}, handler: async ctx => ctx.db.query("verification_archives").withIndex("by_status_due", q => q.eq("status", "pending").lte("dueAt", Date.now())).take(10) });
 export const accountDocuments = query({ args: { token: v.string(), accountId: v.id("accounts") }, handler: async (ctx, args) => {

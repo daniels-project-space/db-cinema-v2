@@ -77,7 +77,7 @@ export function BookingTile({
       <div className="min-w-0">
       <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
         <div>
-          <StatusPill status={booking.status} />
+          <StatusPill status={booking.status} booking={booking} />
           {featured && <h2 className="mt-4 font-display text-2xl leading-tight text-white sm:text-3xl">{rentalTitle(first?.title ?? "Your rental")}</h2>}
           {start != null && end != null && <h3 className="mt-3 font-display text-sm font-semibold text-white/90">{fmtRange(start, end)}</h3>}
           <p className="mt-1 text-xs text-white/40">{isHistory && start != null ? new Date(start).getUTCFullYear() : days != null ? `${days} ${days === 1 ? "day" : "days"}` : "Dates to be confirmed"}

@@ -137,10 +137,10 @@ function SuccessInner() {
         <span className="rec-dot" /> Scene locked
       </div>
       <h1 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
-        {holdStatus === "held" ? "Booking " : "Payment "}<span className="serif-accent gradient-text text-[1.06em]">{holdStatus === "held" ? "confirmed" : "received"}</span>
+        Payment <span className="serif-accent gradient-text text-[1.06em]">received</span>
       </h1>
       <p className="mt-3 text-white/40">
-        Your rental payment was received. Keep this page open to complete security and verification.
+        Your payment is received and your kit is reserved. Rental approval is pending the required security and document verification. Keep this page open to complete the checks.
       </p>
 
       {bookingId && <div className="mt-8"><VerificationProgress bookingId={bookingId} checkoutSessionId={sessionId} autoStart /></div>}

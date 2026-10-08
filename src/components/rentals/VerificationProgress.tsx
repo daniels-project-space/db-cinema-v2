@@ -7,13 +7,15 @@ import { IdVerify } from "@/components/IdVerify";
 import { formatGbp } from "@/lib/pricing";
 import { securityReady } from "../../../shared/verificationProgress";
 import { DroneLicenceUpload } from "./DroneLicence";
+import { useVerificationRefresh } from "./useVerificationRefresh";
+import { rentalStageLabel } from "../../../shared/rentalReadiness";
 
-export function VerificationBar({ booking }: { booking: { status: string; idVerifyStatus?: string; depositHoldAmount?: number; depositHoldStatus?: string | null; requiresDroneLicence?: boolean; droneLicenceStatus?: string } }) {
+export function VerificationBar({ booking }: { booking: { status: string; idVerifyStatus?: string; depositHoldAmount?: number; depositHoldStatus?: string | null; requiresDroneLicence?: boolean; droneLicenceStatus?: string; verificationArchiveReady?: boolean } }) {
   const paid = ["confirmed", "active", "returned"].includes(booking.status);
   const ready = securityReady(booking) || booking.status === "returned";
   const verified = booking.idVerifyStatus === "verified";
   const droneApproved = !booking.requiresDroneLicence || booking.droneLicenceStatus === "approved";
-  const stages = [{ label: "Payment", done: paid }, { label: "Security", done: ready }, { label: "Documents", done: verified }, ...(booking.requiresDroneLicence ? [{ label: "Drone licence", done: droneApproved }] : []), { label: "Approved", done: paid && ready && verified && droneApproved }];
+  const stages = [{ label: "Payment", done: paid }, { label: "Security", done: ready }, { label: "Documents", done: verified }, ...(booking.requiresDroneLicence ? [{ label: "Drone licence", done: droneApproved }] : []), { label: "Approved", done: paid && ready && verified && droneApproved && booking.verificationArchiveReady !== false }];
   const current = stages.findIndex(step => !step.done);
   return <ol aria-label="Verification progress" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }} className="grid gap-2 border-b border-white/10 pb-4">
     {stages.map((step, i) => <li key={step.label} aria-current={i === current ? "step" : undefined} className={`min-w-0 text-center text-[10px] sm:text-xs ${step.done ? "text-accent-300" : i === current ? "text-white" : "text-white/35"}`}>
@@ -37,6 +39,7 @@ const statusLabels: Record<string, string> = { required: "Verify your rental", p
 export function VerificationProgress({ bookingId, checkoutSessionId, autoStart = false }: { bookingId: string; checkoutSessionId?: string | null; autoStart?: boolean }) {
   const account = useAccount();
   const booking = useQuery(api.bookings.verificationProgress, account.token || checkoutSessionId ? { bookingId: bookingId as any, token: account.token ?? undefined, checkoutSessionId: checkoutSessionId ?? undefined } : "skip");
+  const refreshError = useVerificationRefresh(bookingId, account.token, checkoutSessionId, false, !!booking && !["cancelled", "returned"].includes(booking.status) && booking.idVerifyStatus !== "verified");
   if (account.loading || ((account.token || checkoutSessionId) && booking === undefined)) return <p role="status" className="py-6 text-sm text-white/50">Loading verification progress…</p>;
   if (!booking) return <div className="rounded-2xl border border-white/10 p-6"><h2 className="font-display text-xl text-white">Sign in to view this rental</h2><p className="mt-2 text-sm text-white/50">Use the account linked to your booking to see its verification and upload documents.</p><Link href={`/account?rental=${encodeURIComponent(bookingId)}`} className="btn-primary mt-4 px-5 py-2">Go to my account</Link></div>;
   const ready = securityReady(booking);
@@ -44,6 +47,8 @@ export function VerificationProgress({ bookingId, checkoutSessionId, autoStart =
   const approved = booking.idVerifyStatus === "verified";
   return <section aria-label="Rental verification" className="rounded-3xl border border-accent-400/20 bg-[#131713] p-5 text-left sm:p-7">
     <VerificationBar booking={booking} />
+    <p className="mt-3 text-sm font-medium text-accent-300">{rentalStageLabel(booking)}</p>
+    {refreshError && <p role="status" className="mt-2 text-xs text-amber-200">The latest provider check is delayed. Your last confirmed progress is shown; this page will retry automatically.</p>}
     <div className="hud-label mt-5 !text-accent-300">Your rental · verification</div>
     <h2 className="mt-2 font-display text-2xl font-semibold text-white">{closed ? "Rental closed" : !ready ? "Complete payment and security" : statusLabels[booking.idVerifyStatus] ?? "Verify your rental"}</h2>
     <p role="status" aria-live="polite" className="mt-2 text-sm leading-6 text-white/60">{closed ? "This rental no longer accepts document uploads." : !ready ? "Finish the rental payment, refundable security payment and any required bank approval for the card hold. Verification opens immediately afterwards." : approved ? booking.verificationReused ? "Your recent Didit check was checked again and reused. You do not need to upload those documents again." : "Your identity and address have been approved for this rental." : "Your payment is confirmed. Complete your ID, selfie and proof of address below before equipment handover. This page updates as results arrive."}</p>
