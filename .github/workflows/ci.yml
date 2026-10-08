@@ -91,3 +91,4 @@ jobs:
           fi
           node scripts/test-browser-cdp.cjs
           npm run test:membership-browser
+          DBC_CHECKOUT_ROOT=http://127.0.0.1:41795 node scripts/test-checkout-boundary-browser.cjs
