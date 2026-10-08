@@ -2,6 +2,14 @@
 
 This checklist extends the original goal; no original integration requirement is removed.
 
+### 8 October 2026 — explicit backend acceptance binding
+
+- [x] Inspect current public client code: actual `ConvexReactClient` binds to `https://zany-wolf-18.convex.cloud`; a second example URL appears only in a library error message. Correct CI's main backend from historical veracious-wombat to the live client target.
+- [x] Add a read-only runtime check before hosted browser acceptance. Require matching frontend/backend deployment URLs and the stock action's array argument validator, which rejects null before its body can run. Distinguish absent function, unreachable provider and unexpected response; keep all browser assertions required.
+- [x] Actual staged endpoint reports `STOCK_FUNCTION_NOT_DEPLOYED`. Test real source action rejection plus Convex 560 semantics, binding mismatches, missing functions, unexpected/unreachable responses and redacted provider errors.
+- [x] Local full tests, TypeScript and app build pass; final runtime-check regression uses invalid argument types so the deployed action body cannot run. Final graph refreshed before commit.
+- [ ] Compatible staged rollout remains required: staged action is absent; the older live target returns an unexpected contract response rather than passing. Prior 3f24c8c CI 37744966443 failed the unchanged secure-checkout-enabled browser wait. Shared atomic reservation authority, legacy allocation recovery, real provider acceptance and remaining original visual/render work remain open.
+
 ### 8 October 2026 — physical allocation consistency for amendments
 
 - [x] Require current kit components, quantities and exact per-line periods to match confirmed/active physical reservations before rescheduling or removing kit. Share the same check with extension handling; aggregate equivalent split rows without guessing missing legacy evidence. Unresolved holds preserve the rental for reconciliation.

@@ -15,8 +15,8 @@ jobs:
     timeout-minutes: 12
     # PRs exercise the staged backend; main exercises the published backend.
     env:
-      NEXT_PUBLIC_CONVEX_URL: ${{ github.event_name == 'pull_request' && 'https://deafening-stoat-340.convex.cloud' || 'https://veracious-wombat-196.convex.cloud' }}
-      DBC_CONVEX_URL: ${{ github.event_name == 'pull_request' && 'https://deafening-stoat-340.convex.cloud' || 'https://veracious-wombat-196.convex.cloud' }}
+      NEXT_PUBLIC_CONVEX_URL: ${{ github.event_name == 'pull_request' && 'https://deafening-stoat-340.convex.cloud' || 'https://zany-wolf-18.convex.cloud' }}
+      DBC_CONVEX_URL: ${{ github.event_name == 'pull_request' && 'https://deafening-stoat-340.convex.cloud' || 'https://zany-wolf-18.convex.cloud' }}
     steps:
       - uses: actions/checkout@v4
       - name: Detect package manager
@@ -56,6 +56,10 @@ jobs:
           else
             echo "no test script — skipping"
           fi
+      - name: Verify checkout backend binding and required stock function
+        # Invalid argument types are rejected before the action body runs.
+        # A missing staged function must not be disguised as a browser timeout.
+        run: node scripts/check-stock-backend.cjs
       - name: Build production app for browser regression
         run: npm run build
       - name: Membership basket and checkout browser regression
