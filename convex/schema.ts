@@ -387,6 +387,8 @@ export default defineSchema({
     .index("by_rmv2_sync_due", ["rmv2SyncStatus", "rmv2SyncDueAt"])
     .index("by_status_chat_updated",["status","chatUpdatedAt"])
     .index("by_guest_chat_updated",["guestEmail","chatUpdatedAt"])
+    .index("by_account_chat_updated",["accountId","chatUpdatedAt"])
+    .index("by_account_guest_chat_updated",["accountId","guestEmail","chatUpdatedAt"])
     .index("by_owner_unread_updated",["chatUnreadOwner","chatUpdatedAt"])
     .index("by_status", ["status"])
     .index("by_security_hold_due", ["securityHoldPolicyVersion", "securityHoldRetryAt"])

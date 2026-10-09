@@ -126,7 +126,7 @@ export function RenterChat({
                 {rentalTitle(r.items[0]?.title ?? "Rental")}
               </p>
               <p className="mt-1 text-[10px] text-white/40">
-                {RENTAL_STAGE_LABELS[r.status]} · {rentalDate(r.start, r.end)}
+                {rentalStageLabel(r)} · {rentalDate(r.start, r.end)}
               </p>
             </div>
             {r.unreadRenter > 0 && (

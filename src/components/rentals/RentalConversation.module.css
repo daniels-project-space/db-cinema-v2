@@ -146,3 +146,5 @@
 .extensionLink{color:#d1a17d;font-size:11px;border:1px solid #76533b;padding:7px 10px;white-space:nowrap;border-radius:4px}
 @media(max-width:767px){.extensionLink{margin-left:auto}}
 @media(min-width:1151px){.withTools .main{overflow-y:auto;scrollbar-width:thin;scrollbar-color:#ffffff20 transparent}}
+.bookingStrip>.kitImage{flex:0 0 84px}
+@media(max-width:767px){.bookingStrip>.kitImage{flex:0 0 62px}.bookingStrip>div:not(.kitImage){flex:1 1 calc(100% - 86px);min-width:120px}}
