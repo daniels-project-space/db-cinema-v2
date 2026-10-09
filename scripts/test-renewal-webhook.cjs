@@ -15,7 +15,7 @@ const other=put('accounts',{email:'foreign@example.invalid'});put('sessions',{to
 const b=put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',depositHoldAmount:100,depositHoldStatus:'held',depositHoldExpiresAt:now+3600000,stripeDepositIntentId:'old-hold',depositHoldRenewalIntentId:'new-hold',depositHoldRenewalStatus:'requires_action',rmv2Revision:10,
  securityHoldPolicyVersion:PICKUP_HOLD_POLICY,securityHoldGeneration:1,securityHoldCustomerId:'cus_owned',securityHoldPaymentMethodId:'pm_owned',lineItems:[{start:Date.UTC(2026,10,1),end:Date.UTC(2026,10,2),pickupTime:'12:00'}]});
 b.securityHoldDueAt=pickupHoldAt(b);
-const old={id:'old-hold',status:'requires_capture',capture_method:'manual',currency:'gbp',amount:10000,amount_received:0,customer:'cus_owned',payment_method:'pm_owned',metadata:{bookingId:b._id,purpose:'pickup_security_hold',generation:'1'}};
+const old={id:'old-hold',status:'requires_capture',capture_method:'manual',currency:'gbp',amount:10000,amount_capturable:10000,amount_received:0,customer:'cus_owned',payment_method:'pm_owned',metadata:{bookingId:b._id,purpose:'pickup_security_hold',generation:'1'}};
 const next={...old,id:'new-hold',status:'requires_action',client_secret:'fixture_private_secret',metadata:{bookingId:b._id,purpose:'security_hold_renewal',replaces:old.id},latest_charge:{payment_method_details:{card:{capture_before:(now+7*86400000)/1000}}}};
 intents.set(old.id,old);intents.set(next.id,next);
 const modules={bookings,holdRenewal:renew,pickupSecurity:pickup,accounts};

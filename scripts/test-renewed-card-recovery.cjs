@@ -14,7 +14,7 @@ const now=Date.now(),account=put('accounts',{email:'original@example.invalid'}),
 put('sessions',{token:'owner',accountId:account._id,expiresAt:now+86400000});put('sessions',{token:'foreign',accountId:other._id,expiresAt:now+86400000});
 const start=Math.floor(now/86400000)*86400000;
 const b=put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',depositHoldStatus:'failed',depositHoldAmount:100,stripeDepositIntentId:'pi_renewal',securityHoldPolicyVersion:PICKUP_HOLD_POLICY,securityHoldGeneration:1,securityHoldCustomerId:'cus_owner',securityHoldPaymentMethodId:'pm_old',lineItems:[{start,end:start+86400000,pickupTime:'00:00'}]});b.securityHoldDueAt=pickupHoldAt(b);
-const old={id:'pi_original',status:'canceled',amount:10000,amount_received:0,currency:'gbp',capture_method:'manual',customer:'cus_owner',payment_method:'pm_old',metadata:{bookingId:b._id,purpose:'pickup_security_hold'}};
+const old={id:'pi_original',status:'canceled',amount:10000,amount_capturable:10000,amount_received:0,currency:'gbp',capture_method:'manual',customer:'cus_owner',payment_method:'pm_old',metadata:{bookingId:b._id,purpose:'pickup_security_hold'}};
 const renewed={...old,id:'pi_renewal',metadata:{bookingId:b._id,purpose:'security_hold_renewal',replaces:old.id},client_secret:'fixture_secret',latest_charge:{payment_method_details:{card:{capture_before:(now+7*86400000)/1000}}}};
 intents.set(old.id,old);intents.set(renewed.id,renewed);
 const modules={bookings,holdRenewal:holds,pickupSecurity:pickup,accounts};

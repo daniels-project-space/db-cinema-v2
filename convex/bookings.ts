@@ -940,7 +940,8 @@ export const replaceHold = internalMutation({
   args: { bookingId: v.id("bookings"), oldIntentId: v.string(), newIntentId: v.string(), expiresAt: v.number() },
   handler: async (ctx, { bookingId, oldIntentId, newIntentId, expiresAt }) => {
     const b = await ctx.db.get(bookingId);
-    if (!b || b.cancellationDecision || b.returnDecision || b.stripeDepositIntentId !== oldIntentId || !["confirmed", "active"].includes(b.status)) return false;
+    if (!b || b.cancellationDecision || b.returnDecision || b.stripeDepositIntentId !== oldIntentId || !["confirmed", "active"].includes(b.status) ||
+      ["captured", "released"].includes(b.depositHoldStatus ?? "") || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
     await ctx.db.patch(bookingId, {
       stripeDepositIntentId: newIntentId,
       depositHoldStatus: "held",
