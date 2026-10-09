@@ -1875,11 +1875,17 @@ export const applyVerificationReuse = internalMutation({
 });
 export const expireRentalVerifications = internalMutation({
   args: {}, handler: async (ctx) => {
+    const now = Date.now();
     const rows = await ctx.db.query("bookings").withIndex("by_status", q => q.eq("status", "confirmed")).collect();
-    for (const b of rows) if (b.idVerifyStatus === "verified" && b.verificationExpiresAt != null && b.verificationExpiresAt <= Date.now()) {
+    // Match handover and the manager feed: the earliest identity/document
+    // expiry wins, including legacy approvals with only an approval timestamp.
+    // Commit the changed approval and delivery revision together so the
+    // receiver can accept the downgrade without relaxing its revision fence.
+    for (const b of rows) if (b.idVerifyStatus === "verified" &&
+      Math.min(b.verificationExpiresAt ?? ((b.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * 86400000), b.documentExpiresAt ?? Infinity) <= now) {
       await revokeReuse(ctx, b._id);
       await ctx.db.patch(b._id, { idVerifyStatus: "requires_input", diditSessionId: undefined, verificationReusedFrom: undefined,
-        verificationExpiresAt: undefined, verificationNote: "Your verification expired. Complete a new check before handover." });
+        verificationExpiresAt: undefined, verificationUpdatedAt: now, verificationNote: "Your verification expired. Complete a new check before handover." });
       await verificationUpdateMessage(ctx, b._id, "verified", "requires_input");
       await queueRmv2Sync(ctx, b._id);
     }
