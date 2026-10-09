@@ -9,7 +9,9 @@ put('sessions', { token: 'owner-session', accountId: owner._id, expiresAt: Date.
 put('sessions', { token: 'stranger-session', accountId: stranger._id, expiresAt: Date.now() + 600000 });
 put('sessions', { token: 'expired-session', accountId: owner._id, expiresAt: Date.now() - 1 });
 put('sessions', { token: 'missing-expiry', accountId: owner._id });
-const booking = put('bookings', { accountId: owner._id, guestEmail: owner.email, status: 'confirmed', lineItems: [{ start: Date.UTC(2030, 0, 1), end: Date.UTC(2030, 0, 2), qty: 1 }], total: 45 });
+const image='https://pub-761e4d18b3b84542809dddc11936a8df.r2.dev/listings/1048286/0.jpg';
+const listing=put('listings',{title:'Sony FX3',r2Images:[image],internalNote:'private catalogue note'});
+const booking = put('bookings', { accountId: owner._id, guestEmail: owner.email, status: 'confirmed', lineItems: [{ listingId:listing._id,title:listing.title,start: Date.UTC(2030, 0, 1), end: Date.UTC(2030, 0, 2), qty: 1 }], total: 45 });
 const otherBooking = put('bookings', { accountId: stranger._id, status: 'confirmed' });
 const view = { token: 'owner-session', bookingId: booking._id, paginationOpts: {numItems:30,cursor:null} };
 const admin = { token: process.env.ADMIN_TOKEN, bookingId: booking._id, paginationOpts: {numItems:30,cursor:null} };
@@ -43,7 +45,8 @@ const admin = { token: process.env.ADMIN_TOKEN, bookingId: booking._id, paginati
   await assert.rejects(requests.review.handler(ctx, { ...decision, note: 'A different reply.' }), /already been reviewed/);
   const renter = (await requests.list.handler(ctx, view)).page[0];
   assert.equal(renter.decisionNote, decision.note); assert.equal(renter.status, 'approved');
-  assert.deepEqual(Object.keys(renter).sort(), ['_id', 'kind', 'detail', 'createdAt', 'status', 'decisionNote', 'decidedAt', 'execution', 'extension', 'addition'].sort(), 'Public view contains no credential or foreign account metadata');
+  assert.deepEqual(Object.keys(renter).sort(), ['_id', 'kind', 'detail', 'createdAt', 'status', 'decisionNote', 'decidedAt', 'execution', 'extension', 'addition', 'equipment'].sort(), 'Public view contains no credential or foreign account metadata');
+  assert.equal(renter.equipment[0].heroImage,image);assert.deepEqual(Object.keys(renter.equipment[0]).sort(),['listingId','title','qty','role','heroImage','imageSources'].sort());assert(!JSON.stringify(renter.equipment).includes('private catalogue note'));
   const legacy = put('rental_change_requests', { bookingId: booking._id, accountId: owner._id, kind: 'items', detail: 'Please add another camera.', createdAt: Date.now(), messageId: 'old-message' });
   assert.equal((await requests.list.handler(ctx, view)).page[0].status, 'pending');
   await requests.review.handler(ctx, { ...admin, id: legacy._id, decision: 'declined', note: 'The extra camera is reserved. We can discuss an alternative.' });
@@ -58,7 +61,9 @@ const admin = { token: process.env.ADMIN_TOKEN, bookingId: booking._id, paginati
   assert(!(await requests.list.handler(ctx, view)).page.some(r => r._id === foreign._id));
   await assert.rejects(requests.review.handler(ctx, { ...admin, id: foreign._id, decision: 'declined', note: 'Account identity mismatch.' }), /not available/);
   for (let i = 0; i < 35; i++) put('rental_change_requests', { bookingId: booking._id, accountId: owner._id, kind: 'dates', detail: 'History request ' + i, createdAt: i, messageId: 'history-message' });
-  const history = await requests.list.handler(ctx, { ...admin, admin: true });
+  let imageReads=0;const measured={...ctx,db:{...db,get:async id=>{if(id===listing._id)imageReads++;return db.get(id)}}};
+  const history = await requests.list.handler(measured, { ...admin, admin: true });
+  assert.equal(imageReads,1,'same equipment photo is read once for the entire bounded history page');
   assert.equal(history.page.length, 30); assert.equal(history.isDone, false);
   assert.equal(history.page[0].detail, 'History request 34');
   const older=await requests.list.handler(ctx,{...admin,admin:true,paginationOpts:{numItems:30,cursor:history.continueCursor}});

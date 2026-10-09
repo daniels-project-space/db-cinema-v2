@@ -18,17 +18,21 @@ export const list = query({
   handler: async (ctx, { token, bookingId, admin, paginationOpts }) => {
     if (!Number.isSafeInteger(paginationOpts.numItems) || paginationOpts.numItems < 1 || paginationOpts.numItems > 50) throw Error("Choose 1–50 requests per page.");
     let accountId: Id<"accounts"> | undefined;
+    let booking: Doc<"bookings"> | null;
     if (admin) {
       if (!checkAdminToken(token)) throw Error("unauthorized");
-      if (!await ctx.db.get(bookingId)) return { page: [], isDone: true, continueCursor: "" };
+      booking=await ctx.db.get(bookingId);
+      if (!booking) return { page: [], isDone: true, continueCursor: "" };
     } else {
       const account = await accountForToken(ctx, token, true);
       if (!account) throw Error("Please sign in.");
-      await ownedBooking(ctx, account, bookingId);
+      booking=await ownedBooking(ctx, account, bookingId);
       accountId = account._id;
     }
     const scoped = ctx.db.query("rental_change_requests").withIndex("by_booking", q => q.eq("bookingId", bookingId)).order("desc");
     const rows = await (admin ? scoped : scoped.filter(q => q.eq(q.field("accountId"), accountId))).paginate(paginationOpts);
+    const imagesByListing=new Map<string,Promise<string[]>>();
+    function imagesFor(id:Id<"listings">){let pending=imagesByListing.get(id);if(!pending){pending=ctx.db.get(id).then(listingImages);imagesByListing.set(id,pending);}return pending;}
     return { ...rows, page: await Promise.all(rows.page.map(async row => {
       const linked = row.extensionRequestId ? await ctx.db.get(row.extensionRequestId) : null;
       const validExtension = row.kind === "extension" && linked?.type === "extend" && linked.bookingId === row.bookingId && linked.accountId === row.accountId;
@@ -36,11 +40,14 @@ export const list = query({
       const linkedAddition=row.additionRequestId?await ctx.db.get(row.additionRequestId):null;
       const validAddition=row.kind==="items"&&linkedAddition?.bookingId===row.bookingId&&linkedAddition.changeRequestId===row._id;
       const addition=row.additionRequestId?(validAddition?{id:linkedAddition!._id,status:linkedAddition!.status,title:linkedAddition!.title,qty:linkedAddition!.qty,start:linkedAddition!.start,end:linkedAddition!.end,amount:(linkedAddition!.draftReplacement?linkedAddition!.baseTotal??0:0)+linkedAddition!.lineTotal+linkedAddition!.securityCharge+(linkedAddition!.membershipFee??0),paymentReceived:!!linkedAddition!.paymentIntentId,updatedAt:linkedAddition!.updatedAt}:{id:null,status:"unavailable",title:null,qty:null,start:null,end:null,amount:null,paymentReceived:false,updatedAt:null}):undefined;
+      const selection=row.kitSelection;
+      const selectedEquipment=selection?[...(selection.sourceListingId?[{listingId:selection.sourceListingId,title:selection.sourceTitle??"Requested equipment",qty:selection.change==="remove"?selection.quantity:selection.sourceQty??selection.quantity,role:"current"}]:[]),...(selection.listingId?[{listingId:selection.listingId,title:selection.additionTitle??"Requested equipment",qty:selection.quantity,role:"requested"}]:[])]:validAddition?[{listingId:linkedAddition!.listingId,title:linkedAddition!.title,qty:linkedAddition!.qty,role:"requested"}]:booking!.lineItems.slice(0,1).map(line=>({listingId:line.listingId,title:line.title,qty:line.qty,role:"current"}));
+      const equipment=await Promise.all(selectedEquipment.map(async item=>{const images=await imagesFor(item.listingId);return {...item,heroImage:images[0]??null,imageSources:images};}));
       return {
       _id: row._id, kind: row.kind, detail: row.detail, createdAt: row.createdAt,
       status: extension ? extension.status === "pending" ? "pending" as const : ["declined", "withdrawn", "expired", "refunded"].includes(extension.status) ? "declined" as const : "approved" as const : row.status ?? "pending", decisionNote: row.decisionNote, decidedAt: row.decidedAt,
       execution: row.execution ? { operation: row.execution.operation, status: row.execution.status, appliedAt: row.execution.appliedAt, detail: row.execution.detail } : undefined,
-      extension,addition,...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
+      extension,addition,equipment,...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
     }; })) };
   },
 });
