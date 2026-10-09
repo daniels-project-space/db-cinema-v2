@@ -14,3 +14,5 @@
 .card input[type=date]{display:block;margin:8px 0 12px;max-width:100%;border:1px solid #51473c;border-radius:7px;background:#141413;color:#f2ece4;padding:9px;color-scheme:dark}.card .check{display:flex;align-items:flex-start;gap:8px;margin:12px 0;line-height:1.6}.check input{margin-top:3px;accent-color:#b98160}
 .error{margin-top:10px;font-size:12px;color:#edb0ad}.notice{margin-top:10px;font-size:12px;color:#bad6b6}
 @media(max-width:480px){.root{padding:12px}.card{padding:10px}.history{max-height:360px}.heading{align-items:flex-start}}
+
+.extensionActivity{border-top:1px solid #363931;padding:12px 0;color:#bdbdb3;font-size:12px}.extensionActivity summary{display:flex;justify-content:space-between;gap:12px;cursor:pointer;list-style:none}.extensionActivity summary>span:first-child{color:#ddd8ce}.extensionActivity summary>span:last-child{color:#d2a27c;font-size:11px}.extensionActivity p{margin:10px 0 6px}.extensionActivity time{display:block;font-size:10px;color:#969a90}.extensionActivity a{display:inline-block;color:#d2a27c;margin-top:10px}.extensionActivity summary:focus-visible{outline:2px solid #d2a27c;outline-offset:3px}

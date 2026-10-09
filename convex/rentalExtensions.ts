@@ -14,12 +14,25 @@ import { lateFeeQuote } from "./lib/lateFee";
 import { londonStartOfDay } from "../src/lib/cancellationPolicy";
 
 import { isAllowedReturnTime, HOURS_LABEL } from "../src/lib/site";
+import { listingImages } from "./lib/catalogImages";
 
 const DAY = 86400000;
 const iso = (at: number) => new Date(at).toISOString().slice(0, 10);
 const baseLines = (b: any) => JSON.stringify([b.lineItems, b.returnTime ?? null]);
 const openStatuses = ["pending", "approved", "awaiting_payment", "refund_pending"];
 const quoteIdentity = (items: any[]) => JSON.stringify(items.map(i => [i.lineIndex, i.listingId, i.title, i.start, i.end, i.qty, i.dailyRate, i.lineTotal]));
+
+/** Project only the originally agreed dates, never the saved internal quote fingerprint. */
+function originalPeriods(request: any) {
+  let original: any[] = [], returnTime: string | null = null;
+  try { const saved = JSON.parse(request.baseLines ?? "null"); if (Array.isArray(saved?.[0])) { original = saved[0]; returnTime = typeof saved[1] === "string" ? saved[1] : null; } } catch {}
+  return (request.quoteItems ?? []).map((item: any) => {
+    const line = original[item.lineIndex];
+    const bound = line?.listingId === item.listingId && line?.qty === item.qty;
+    return { lineIndex: item.lineIndex, end: bound && Number.isFinite(line.end) ? line.end : item.start - DAY,
+      returnTime: bound ? line.returnTime === undefined ? returnTime : line.returnTime : null };
+  });
+}
 
 async function mutableRental(ctx: any, b: any, ownRequest?: any) {
   if (!b || !["confirmed", "active"].includes(b.status)) throw Error("Only confirmed or collected rentals can be extended.");
@@ -108,12 +121,19 @@ export const request = mutation({
 export const state = query({
   args: { token: v.string(), bookingId: v.id("bookings"), admin: v.optional(v.boolean()) },
   handler: async (ctx, { token, bookingId, admin }) => {
+    let accountId: Id<"accounts"> | undefined;
     if (admin) { if (!checkAdminToken(token)) return null; }
-    else await customer(ctx, token, bookingId);
+    else accountId = (await customer(ctx, token, bookingId)).a._id;
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     const rows = await ctx.db.query("booking_change_requests").withIndex("by_booking", q => q.eq("bookingId", bookingId)).order("desc").take(20);
-    return { status: b.status, locked: !!(b.activeAdditionId || b.activeExtensionId || b.returnDecision || b.cancellationDecision), items: b.lineItems.map((li, i) => ({ index: i, title: li.title, qty: li.qty, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime })), requests: rows.filter(r => r.type === "extend").map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
+    const items = await Promise.all(b.lineItems.map(async (li, i) => {
+      const images = listingImages(await ctx.db.get(li.listingId));
+      return { index: i, listingId: li.listingId, title: li.title, qty: li.qty, start: li.start, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime, heroImage: images[0] ?? null, imageSources: images };
+    }));
+    return { status: b.status, locked: !!(b.activeAdditionId || b.activeExtensionId || b.returnDecision || b.cancellationDecision), items,
+      requests: rows.filter(r => r.type === "extend" && (!accountId || r.accountId === accountId) && (!b.accountId || r.accountId === b.accountId)).map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], originalItems: originalPeriods(r), amount: r.priceDelta ?? null, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt, approvedAt: r.approvedAt, completedAt: r.status === "applied" ? r.resolvedAt : undefined })),
+      paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
   },
 });
 
