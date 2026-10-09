@@ -15,6 +15,17 @@ const ctx={db,scheduler:{runAfter:async()=>{}}};
  assert.ok(validReuse(record,next));assert.ok(!validReuse(record,{...next,agreementName:'Different Person'}));assert.ok(!validReuse(record,{...next,billingAddress:'Different street WC2H 7ER'}));assert.ok(!validReuse({...record,expiresAt:now-1},next));assert.ok(!validReuse({...record,expiresAt:now+1000},next));
  await db.patch(next._id,{depositHoldAmount:20,depositHoldStatus:'requires_action'});assert.equal(await bookings.reuseVerificationCandidate.handler(ctx,{bookingId:next._id}),null,'reuse waits for the required security hold');assert.equal(await bookings.applyVerificationReuse.handler(ctx,{bookingId:next._id,sourceBookingId:source._id,documentExpiresAt:now+30*86400000}),false);await db.patch(next._id,{depositHoldStatus:'held'});
  assert.ok(await bookings.reuseVerificationCandidate.handler(ctx,{bookingId:next._id}));
+ const originalNow=Date.now;Date.now=()=>now;
+ source.returnedAt=now-30*86400000;
+ assert.equal(await bookings.reuseVerificationCandidate.handler(ctx,{bookingId:next._id}),null,'Expired copies cannot be proposed before the purge job runs');
+ assert.equal(await bookings.applyVerificationReuse.handler(ctx,{bookingId:next._id,sourceBookingId:source._id,documentExpiresAt:now+30*86400000}),false,'Expired complete copies cannot be reused or extend their own retention');
+ assert.equal(next.idVerifyStatus,'required');assert.equal(next.verificationReusedFrom,undefined);
+ source.returnedAt=now-30*86400000+1;
+ assert.ok(await bookings.reuseVerificationCandidate.handler(ctx,{bookingId:next._id}),'Copies remain reusable until the last retained millisecond');
+ Date.now=()=>now+1;
+ assert.equal(await bookings.applyVerificationReuse.handler(ctx,{bookingId:next._id,sourceBookingId:source._id,documentExpiresAt:now+30*86400000}),false,'Apply rechecks expiry after a candidate was offered');
+ Date.now=originalNow;source.returnedAt=now;
+
  await db.patch(source._id,{idVerificationSource:'manual'});assert.equal(await bookings.reuseVerificationCandidate.handler(ctx,{bookingId:next._id}),null);await db.patch(source._id,{idVerificationSource:'didit'});
  assert.equal(await bookings.applyVerificationReuse.handler(ctx,{bookingId:next._id,sourceBookingId:source._id,documentExpiresAt:now-1}),false);
  assert.equal(await bookings.applyVerificationReuse.handler(ctx,{bookingId:next._id,sourceBookingId:source._id,documentExpiresAt:now+30*86400000}),true);
