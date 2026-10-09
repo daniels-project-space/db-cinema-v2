@@ -57,8 +57,20 @@ export async function rentalSwapQuote(ctx:any,booking:Doc<"bookings">,request:an
  const sourceCatalog=await ctx.db.get(source.listingId);
  const componentFingerprint=(l:any)=>JSON.stringify(l.components.map((c:any)=>[c.inventoryUnitId,c.qty]).sort((a:any,b:any)=>String(a[0]).localeCompare(String(b[0]))));
  const catalogSnapshot=(l:any)=>[l._id,l.title,l.active,l.suppressed??false,l.marketingOnly??false,l.depositAmount,l.pricing,componentFingerprint(l)];
+ // Consent belongs to the actual payment and hold generation, not just their amounts.
+ // Keep these provider identifiers private: a replacement card or rescheduled hold
+ // requires a fresh offer even when the displayed totals happen to stay identical.
+ const paymentSnapshot={
+  rentalIntent:booking.stripePaymentIntentId??null,membershipCheckout:booking.membershipCheckoutId??null,
+  holdStatus:booking.depositHoldStatus??null,holdExpiresAt:booking.depositHoldExpiresAt??null,
+  renewalIntent:booking.depositHoldRenewalIntentId??null,renewalStatus:booking.depositHoldRenewalStatus??null,
+  holdGeneration:booking.securityHoldGeneration??null,holdDueAt:booking.securityHoldDueAt??null,
+  holdCustomer:booking.securityHoldCustomerId??null,holdPaymentMethod:booking.securityHoldPaymentMethodId??null,
+  holdConsentAt:booking.securityHoldConsentAt??null,
+  recoverySession:booking.securityHoldRecoverySessionId??null,recoveryGeneration:booking.securityHoldRecoveryGeneration??null,
+ };
  const snapshot=JSON.stringify([booking.status,booking.lineItems,booking.pickupTime??null,booking.returnTime??null,booking.subtotal,booking.total,booking.depositAmount,booking.depositHoldAmount??0,booking.securityPolicyVersion??null,booking.securityWaiverReason??null,booking.securityHoldPolicyVersion??null,booking.stripeDepositIntentId??null,booking.creditApplied??0,booking.rentalPaidPence??null,booking.deliveryFee??0,booking.discount??0,booking.pricingVersion??null,booking.benefitKind??null,booking.creditAllocations??[],booking.refundCreditApplied??0,booking.earnedCreditApplied??0,booking.membershipCreditApplied??0,booking.membershipSignupOfferSaving??0,booking.agreementDocs??[],catalogSnapshot(sourceCatalog),catalog.map(catalogSnapshot),refunds.map((r:any)=>[r._id,r.status,r.amountPence,r.parts??null]).sort((a:any,b:any)=>String(a[0]).localeCompare(String(b[0])))]);
- return {source,target,selection,replacement,finalLines,allocationMode,snapshot,removedLinePence,replacementLinePence,differencePence,refundPence,nonCashDifferencePence,chargePence:Math.max(0,differencePence)+pence(securityCharge),securityCharge,holdTotal:security.hold,equipmentValue};
+ return {source,target,selection,replacement,finalLines,allocationMode,snapshot:JSON.stringify([snapshot,paymentSnapshot]),removedLinePence,replacementLinePence,differencePence,refundPence,nonCashDifferencePence,chargePence:Math.max(0,differencePence)+pence(securityCharge),securityCharge,holdTotal:security.hold,equipmentValue};
 }
 
 /** An opaque equality token; internal booking/catalogue details never reach the renter. */

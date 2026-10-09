@@ -30,6 +30,15 @@ const count=table=>(h.tables.get(table)??[]).length;
  target.pricing.daily=40;const changed=await view(b,r);assert(!changed.current);assert.equal(changed.charge,30,'saved offer never silently reprices');await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/changed/);assert.equal(row.state,'offered');target.pricing.daily=35;
  b.pickupTime='11:00';assert(!(await view(b,r)).current,'changed agreed clock invalidates saved consent basis');await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/changed/);b.pickupTime='10:00';
  b.creditAllocations=[{creditId:'credit-other-origin',amount:5,kind:'earned'}];assert(!(await view(b,r)).current,'changed redeemed-credit allocation invalidates the financial consent basis');delete b.creditAllocations;
+ for(const [field,value] of Object.entries({stripePaymentIntentId:'pi_replaced_private',membershipCheckoutId:'membership_replaced_private',depositHoldStatus:'authorised',depositHoldExpiresAt:Date.now()+8*86400000,depositHoldRenewalIntentId:'pi_renewed_private',depositHoldRenewalStatus:'succeeded',securityHoldGeneration:2,securityHoldDueAt:start+3600000,securityHoldCustomerId:'cus_replaced_private',securityHoldPaymentMethodId:'pm_replaced_private',securityHoldConsentAt:Date.now(),securityHoldRecoverySessionId:'cs_recovery_private',securityHoldRecoveryGeneration:3})){
+  const prior=b[field];b[field]=value;
+  const invalidated=await view(b,r);assert(!invalidated.current,`${field} changes require a fresh payment/security consent basis`);
+  assert.equal(invalidated.charge,30,'saved amounts remain frozen');assert(!(field in invalidated),'private provider fields are not exposed');
+  if(typeof value==='string'&&value.endsWith('_private'))assert(!JSON.stringify(invalidated).includes(value),'private provider identifiers are not exposed');
+  await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/has changed/);assert.equal(row.state,'offered');
+  if(prior===undefined)delete b[field];else b[field]=prior;
+  assert((await view(b,r)).current,`restoring ${field} restores the exact offer basis`);
+ }
  lens.quantityOwned=0;assert(!(await view(b,r)).current);await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/has changed/);assert(!((await view(b,r)).reason.includes(lens.name)),'renter errors hide internal physical stock names');assert.match((await view(b,r,'proposal-owner',true)).reason,/already reserved/,'owner retains the actionable stock diagnosis');lens.quantityOwned=10;
  row.expiresAt=Date.now()-1;await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/expired/);row.expiresAt=Date.now()+3600000;
  const accepted=await respond(b,r,row.quoteKey,'accepted');assert.equal(accepted.state,'accepted');assert.equal(row.consentVersion,'rental-swap-price-difference-v1');const after=count('messages');await respond(b,r,row.quoteKey,'accepted');assert.equal(count('messages'),after,'decision retry is one receipt and one message');assert.equal(count('admin_notifications'),1);assert.equal(h.tables.get('admin_notifications')[0].bookingId,b._id);
