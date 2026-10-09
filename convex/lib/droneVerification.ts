@@ -27,6 +27,6 @@ export async function requiresDroneLicence(ctx: any, booking: any): Promise<bool
 
 export async function assertDroneApproval(ctx: any, booking: any) {
   if (await requiresDroneLicence(ctx, booking) &&
-      (!booking.droneLicenceStorageId || booking.droneLicenceStatus !== "approved"))
+      (!booking.droneLicenceStorageId || !booking.droneLicenceDocumentId || booking.droneLicenceStatus !== "approved"))
     throw Error("A drone operator licence must be uploaded and approved by the team before handover.");
 }

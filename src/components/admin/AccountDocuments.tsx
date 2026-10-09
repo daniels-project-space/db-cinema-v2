@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 
 function documentTitle(kind: string) {
-  return kind.startsWith("address-") ? "Proof of address" : kind.includes("back") ? "Proof of identity · back" : "Proof of identity · front";
+  return kind === "drone-operator-licence" ? "Drone operator licence" : kind.startsWith("address-") ? "Proof of address" : kind.includes("back") ? "Proof of identity · back" : "Proof of identity · front";
 }
 
 export function AccountDocumentSummary({

@@ -14,6 +14,7 @@ const registered = Object.fromEntries(
     "internalMutation",
     "internalAction",
     "action",
+    "httpAction",
   ].map((k) => [k, (x) => x]),
 );
 const refs = new Proxy(

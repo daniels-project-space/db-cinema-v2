@@ -20,10 +20,10 @@ function rentalClosedAt(booking: any): number | undefined {
 }
 
 /** One retention decision shared by the admin screen and byte deletion. */
-async function archiveRetention(ctx: any, archive: any) {
+export async function archiveRetention(ctx: any, archive: any) {
   if (archive.status === "deleted") return { status: "deleted" as const, expiresAt: null, activeRentals: 0, openCases: 0, viewable: false };
   const booking = await ctx.db.get(archive.bookingId);
-  const reused = await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", archive.bookingId)).collect();
+  const reused = archive.source === "drone" ? [] : await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", archive.bookingId)).collect();
   const rentals = [booking, ...reused].filter(Boolean);
   const activeRentals = rentals.filter((b: any) => !["returned", "cancelled"].includes(b.status)).length;
   let openCases = 0;
@@ -56,7 +56,7 @@ export async function queueVerificationArchive(ctx: any, booking: any,refresh=fa
     await ctx.scheduler.runAfter(0, internal.verificationArchiveWorker.capture, { archiveId: previous._id });
     return;
   }
-  const archiveId = await ctx.db.insert("verification_archives", { bookingId: booking._id, accountId: account?._id, sessionId: booking.diditSessionId, email: booking.guestEmail ?? account?.email ?? "", status: "pending", attempts: 0, dueAt: Date.now(), createdAt: Date.now() });
+  const archiveId = await ctx.db.insert("verification_archives", { bookingId: booking._id, accountId: account?._id, sessionId: booking.diditSessionId, source:"didit", email: booking.guestEmail ?? account?.email ?? "", status: "pending", attempts: 0, dueAt: Date.now(), createdAt: Date.now() });
   await ctx.scheduler.runAfter(0, internal.verificationArchiveWorker.capture, { archiveId });
 }
 export async function assertVerificationArchive(ctx: any, booking: any) {
@@ -72,7 +72,7 @@ export const context = internalQuery({ args: { archiveId: v.id("verification_arc
 } });
 export const claim=internalMutation({args:{archiveId:v.id("verification_archives")},handler:async(ctx,{archiveId})=>{
  const archive=await ctx.db.get(archiveId),now=Date.now();
- if(!archive || archive.status!=="pending" || archive.dueAt>now || (archive.leaseUntil??0)>now || !(await archiveRetention(ctx,archive)).viewable)return null;
+ if(!archive || archive.source==="drone" || archive.status!=="pending" || archive.dueAt>now || (archive.leaseUntil??0)>now || !(await archiveRetention(ctx,archive)).viewable)return null;
  if(archive.attempts>=12){await ctx.db.patch(archiveId,{status:"attention",leaseUntil:undefined,error:"Document copying could not finish. Retry the archive from account documents."});await flagArchiveFailure(ctx,archive);return null;}
  const patch={generation:(archive.generation??0)+1,leaseUntil:now+CAPTURE_LEASE_MS,dueAt:now+CAPTURE_LEASE_MS,attempts:archive.attempts+1};
  await ctx.db.patch(archiveId,patch);
@@ -142,6 +142,7 @@ async function backfillPage(ctx: any, accountId: any, legacy: boolean, cursor: s
     : ctx.db.query("bookings").withIndex("by_account", (q: any) => q.eq("accountId", accountId));
   const page = await rentals.order("desc").paginate({ numItems: 25, cursor });
   for (const booking of page.page) {
+    if(booking.droneLicenceStorageId && !booking.droneLicenceDocumentId)await ctx.scheduler.runAfter(0,internal.droneArchive.captureLegacy,{bookingId:booking._id});
     if (!booking.diditSessionId) continue;
     const archives = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", booking._id)).collect();
     const existing = archives.find((a: any) => a.sessionId === booking.diditSessionId);
