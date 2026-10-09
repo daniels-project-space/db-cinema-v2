@@ -38,6 +38,7 @@ function RentalTools({ token, bookingId }: { token: string; bookingId: string })
   const requestId = useRef<string | null>(null);
   const [start, setStart] = useState(""), [end, setEnd] = useState(""), [pickup, setPickup] = useState(""), [dropoff, setDropoff] = useState("");
   const [change, setChange] = useState<"add" | "swap" | "remove">("add"), [itemIndex, setItemIndex] = useState(0), [addition, setAddition] = useState(""), [qty, setQty] = useState(1);
+  const [source, setSource] = useState<{ listingId: string; title: string; qty: number; start: number; end: number } | null>(null);
   const [search, setSearch] = useState(""), [searchTerm, setSearchTerm] = useState(""), [manual, setManual] = useState(false);
   const [selected, setSelected] = useState<{ id: string; title: string; heroImage: string | null; imageSources: string[] } | null>(null);
   useEffect(() => { const timer = setTimeout(() => setSearchTerm(search), 250); return () => clearTimeout(timer); }, [search]);
@@ -49,11 +50,11 @@ function RentalTools({ token, bookingId }: { token: string; bookingId: string })
     if (node && !node.open) node.showModal();
     return () => { if (node?.open) node.close(); launcher.current?.focus(); };
   }, [mode, !!context]);
-  useEffect(() => { requestId.current = null; }, [detail, start, end, pickup, dropoff, change, itemIndex, addition, qty, selected, manual]);
+  useEffect(() => { requestId.current = null; }, [detail, start, end, pickup, dropoff, change, itemIndex, addition, qty, selected, manual, source]);
   if (!context) return null;
   if (!["pending_payment", "confirmed", "active"].includes(context.status)) return <RentalRequestHistory token={token} bookingId={bookingId} />;
   const canCancel = context.direct && (context.status === "pending_payment" || context.selfService);
-  function open(next: typeof mode, button: HTMLButtonElement) { launcher.current = button; setStart(""); setEnd(""); setPickup(context?.lineItems[0]?.pickupTime ?? ""); setDropoff(context?.lineItems[0]?.returnTime ?? ""); setChange("add"); setItemIndex(0); setAddition(""); setSelected(null); setSearch(""); setSearchTerm(""); setManual(false); setQty(1); setMode(next); setDetail(""); setConsent(false); setError(""); setResult(""); requestId.current = null; }
+  function open(next: typeof mode, button: HTMLButtonElement) { launcher.current = button; setStart(""); setEnd(""); setPickup(context?.lineItems[0]?.pickupTime ?? ""); setDropoff(context?.lineItems[0]?.returnTime ?? ""); setChange("add"); setItemIndex(0); setSource(context?.lineItems[0] ?? null); setAddition(""); setSelected(null); setSearch(""); setSearchTerm(""); setManual(false); setQty(1); setMode(next); setDetail(""); setConsent(false); setError(""); setResult(""); requestId.current = null; }
   async function submit() {
     if (inFlight.current || !mode || context!.locked) return;
     inFlight.current = true; setBusy(true); setError("");
@@ -65,8 +66,8 @@ function RentalTools({ token, bookingId }: { token: string; bookingId: string })
         setResult("Rental cancelled. The settlement details are saved in this conversation.");
       } else {
         requestId.current ??= crypto.randomUUID();
-        await request({ token, bookingId: bookingId as any, requestId: requestId.current, kind: mode, detail: rentalRequestDetail({ kind: mode, note: detail, start, end, pickup, dropoff, change, item: context!.lineItems[itemIndex]?.title, currentQty: context!.lineItems[itemIndex]?.qty, addition: manual ? addition : selected?.title, qty }),
-          kit: mode === "items" && (change === "remove" || !manual) ? { change, listingId: change === "remove" ? undefined : selected?.id as any, lineIndex: change === "add" ? undefined : itemIndex, source: change === "add" ? undefined : { listingId: context!.lineItems[itemIndex].listingId, qty: context!.lineItems[itemIndex].qty, start: context!.lineItems[itemIndex].start, end: context!.lineItems[itemIndex].end }, quantity: qty, note: detail } : undefined });
+        await request({ token, bookingId: bookingId as any, requestId: requestId.current, kind: mode, detail: rentalRequestDetail({ kind: mode, note: detail, start, end, pickup, dropoff, change, item: source?.title, currentQty: source?.qty, addition: manual ? addition : selected?.title, qty }),
+          kit: mode === "items" && (change === "remove" || !manual) ? { change, listingId: change === "remove" ? undefined : selected?.id as any, lineIndex: change === "add" ? undefined : itemIndex, source: change === "add" || !source ? undefined : { listingId: source.listingId as any, qty: source.qty, start: source.start, end: source.end }, quantity: qty, note: detail } : undefined });
         setResult("Request sent to the team in this conversation. Your rental stays unchanged until the team confirms it.");
       }
       setMode(null);
@@ -93,9 +94,9 @@ function RentalTools({ token, bookingId }: { token: string; bookingId: string })
             <label>Collection · London time<input required type="time" min="09:00" max="22:00" value={pickup} disabled={busy} onChange={e => setPickup(e.target.value)}/></label><label>Return · London time<input required type="time" min="09:00" max="22:00" value={dropoff} disabled={busy} onChange={e => setDropoff(e.target.value)}/></label></div></div></section>
         </>}
         {mode === "items" && <>
-          <section className={styles.section}><h3>Current kit ({context.lineItems.length} item{context.lineItems.length === 1 ? "" : "s"})</h3><div className={customerStyles.kit}>{context.lineItems.map((li, index) => <button type="button" disabled={busy} aria-pressed={itemIndex === index} key={index} className={customerStyles.tile} onClick={() => { setItemIndex(index); setQty(1); }}><SmartImage src={li.heroImage} fallbackSources={li.imageSources} alt={li.title} className={customerStyles.thumbnail}/><span><strong>{rentalTitle(li.title)}</strong><small>× {li.qty} · {day(li.start)} – {day(li.end)}</small></span></button>)}</div></section>
+          <section className={styles.section}><h3>Current kit ({context.lineItems.length} item{context.lineItems.length === 1 ? "" : "s"})</h3><div className={customerStyles.kit}>{context.lineItems.map((li, index) => <button type="button" disabled={busy} aria-pressed={itemIndex === index} key={index} className={customerStyles.tile} onClick={() => { setItemIndex(index); setSource(li); setQty(1); }}><SmartImage src={li.heroImage} fallbackSources={li.imageSources} alt={li.title} className={customerStyles.thumbnail}/><span><strong>{rentalTitle(li.title)}</strong><small>× {li.qty} · {day(li.start)} – {day(li.end)}</small></span></button>)}</div></section>
           <div className={customerStyles.tabs} aria-label="Type of kit request">{(["add", "swap", "remove"] as const).map(value => <button type="button" key={value} disabled={busy} aria-pressed={change === value} onClick={() => { setChange(value); setSelected(null); setQty(1); }}>{value === "add" ? "+ Add" : value === "swap" ? "⇄ Swap" : "− Remove"}</button>)}</div>
-          <section className={styles.section}><h3>Request summary</h3>{change !== "add" && <p className={customerStyles.selection}>{change === "remove" ? "Remove from" : "Replace in"} your kit: <strong>{context.lineItems[itemIndex]?.title ?? "Select a current item"}</strong></p>}
+          <section className={styles.section}><h3>Request summary</h3>{change !== "add" && <p className={customerStyles.selection}>{change === "remove" ? "Remove from" : "Replace in"} your kit: <strong>{source?.title ?? "Select a current item"}</strong></p>}
             {change !== "remove" && <>
               <div className={customerStyles.searchHeading}><span>Choose equipment{change === "swap" ? " to swap in" : " to add"}</span><button type="button" disabled={busy} className={customerStyles.textButton} onClick={() => { setManual(value => !value); setSelected(null); setAddition(""); }}>{manual ? "Browse catalogue" : "Can’t find your item?"}</button></div>
               {manual ? <label>Describe the equipment you need<input required maxLength={200} disabled={busy} value={addition} onChange={e => setAddition(e.target.value)} placeholder="Equipment name or model"/></label> : <>
@@ -104,7 +105,7 @@ function RentalTools({ token, bookingId }: { token: string; bookingId: string })
                 {selected && <div className={customerStyles.chosen}><SmartImage src={selected.heroImage} fallbackSources={selected.imageSources} alt={selected.title} className={customerStyles.thumbnail}/><span><small>Selected equipment</small><strong>{rentalTitle(selected.title)}</strong></span><button type="button" disabled={busy} aria-label="Clear selected equipment" onClick={() => setSelected(null)}>×</button></div>}
               </>}
             </>}
-            <label className={customerStyles.quantity}>Quantity<input type="number" required min={1} max={change === "add" ? 99 : context.lineItems[itemIndex]?.qty ?? 1} disabled={busy} value={qty} onChange={e => setQty(Number(e.target.value))}/></label><p className={styles.note}>Availability and any price change will be checked by the team.</p></section>
+            <label className={customerStyles.quantity}>Quantity<input type="number" required min={1} max={change === "add" ? 99 : source?.qty ?? 1} disabled={busy} value={qty} onChange={e => setQty(Number(e.target.value))}/></label><p className={styles.note}>Availability and any price change will be checked by the team.</p></section>
         </>}
         {mode === "cancel" ? <>
           <ol className={styles.steps}><li data-active="true"><span>1</span><strong>Review</strong><small>Agreed terms</small></li><li><span>2</span><strong>Processing</strong><small>Team & payment provider</small></li><li><span>3</span><strong>Completed</strong><small>Receipt and confirmation</small></li></ol>
