@@ -28,6 +28,7 @@ const list=()=>archive.accountDocuments.handler(ctx,{token:process.env.ADMIN_TOK
  for(const patch of [{accountId:'foreign-account'},{bookingId:'foreign-booking'},{sessionId:'foreign-session'}]){
   const original={accountId:files[0].accountId,bookingId:files[0].bookingId,sessionId:files[0].sessionId};await db.patch(files[0]._id,patch);await assert.rejects(check,/fully archived/);await assert.rejects(()=>archive.downloadAccess.handler(ctx,{token:process.env.ADMIN_TOKEN,documentId:files[0]._id}),/missing or invalid/);await db.patch(files[0]._id,original);
  }
+ job.accountId='foreign-account';files.forEach(f=>f.accountId=job.accountId);await assert.rejects(check,/fully archived/,'An internally consistent archive cannot be assigned to another rental account');job.accountId=account._id;files.forEach(f=>f.accountId=account._id);await check();
  await db.delete(files[1]._id);await assert.rejects(check,/fully archived/,'Identity alone cannot replace required proof of address');put('verification_documents',files[1]);await check();
  booking.status='returned';booking.returnedAt=Date.now()-31*86400000;await assert.rejects(()=>archive.retry.handler(ctx,{token:process.env.ADMIN_TOKEN,archiveId:job._id}),/retention period/,'Expired healthy archives cannot be retried');
  await assert.rejects(()=>archive.retry.handler(ctx,{token:'wrong',archiveId:job._id}),/unauthorized/);

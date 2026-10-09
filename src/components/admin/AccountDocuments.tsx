@@ -274,7 +274,7 @@ export function AccountDocuments({
             {archive.status !== "deleted" && archive.retention.viewable && (archive.status !== "complete" || !archive.copiesReady) && (
               <>
                 <p className="mt-2 text-xs text-amber-200">
-                  {archive.status === "complete" ? "A saved copy is missing, invalid or incomplete. Handover remains blocked until the document archive is repaired." : archive.error ??
+                  {archive.status === "complete" ? archive.source === "drone" ? "An archived licence copy is missing or invalid. A current saved and approved licence is required before handover." : "A saved copy is missing, invalid or incomplete. Handover remains blocked until the document archive is repaired." : archive.error ??
                     "Provider documents are being copied. Do not rely on this archive until it is complete."}
                 </p>
                 {archive.source === "drone" ? <p className="mt-2 text-xs text-white/60">Ask the renter to upload a new licence copy from their rental.</p> : <button

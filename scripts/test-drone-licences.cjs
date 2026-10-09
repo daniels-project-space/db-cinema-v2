@@ -47,6 +47,12 @@ const upload=storageId=>({bookingId:booking._id,token:'owner',storageId,sha256:'
  await assert.rejects(()=>licences.review.handler(ctx,{token:'fixture-admin',bookingId:booking._id,documentId:result.documentId,decision:'approved',note:'ok'}),/Record/);
  const approval={token:'fixture-admin',bookingId:booking._id,documentId:result.documentId,decision:'approved',note:'Operator details and evidence assessed.'};
  await licences.review.handler(ctx,approval);await assertDroneApproval(ctx,booking);
+ const originalFile=files.get('valid-file');files.delete('valid-file');
+ await assert.rejects(()=>assertDroneApproval(ctx,booking),/missing or invalid/,'An approval label cannot release kit when the private licence is missing');
+ const renterRows=await load('convex/accounts.ts').myBookings.handler(ctx,{token:'owner'});assert.equal(renterRows.find(b=>b._id===booking._id).droneLicenceStatus,'requires_input','Actual account projection requests replacement instead of claiming ready');assert.equal(booking.droneLicenceStatus,'approved','Readiness never rewrites the original review decision');
+ await licences.uploadAccess.handler(ctx,{bookingId:booking._id,token:'owner'});await assert.rejects(()=>licences.review.handler(ctx,approval),/missing or invalid/,'Admin approval cannot bypass missing bytes');assert.equal((await licences.adminDetails.handler(ctx,{token:'fixture-admin',bookingId:booking._id})).status,'requires_input');
+ files.set('valid-file',originalFile);await assertDroneApproval(ctx,booking);
+
  assert(scheduled.some(s=>s.fn==='rmv2_webhook.push'),'Approval queues actual Rental Manager readiness synchronization');
  const messages=await db.query('messages').collect();assert.equal(messages.length,2);assert(messages[1].text.includes('approved'));
  await licences.review.handler(ctx,approval);assert.equal((await db.query('messages').collect()).length,2,'Identical retries do not duplicate review correspondence');
@@ -63,6 +69,6 @@ const upload=storageId=>({bookingId:booking._id,token:'owner',storageId,sha256:'
  const old=put('bookings',{accountId:account._id,status:'confirmed',lineItems:[{listingId:drone._id}],droneLicenceStorageId:'legacy-file',droneLicenceStatus:'approved'});
  await legacy.saveLegacy.handler(ctx,{bookingId:old._id,storageId:'legacy-file',sha256:'b'.repeat(64),size:512,contentType:'application/pdf'});
  assert(old.droneLicenceDocumentId);assert.equal(old.droneLicenceStatus,'approved','Legacy archive does not reset an existing decision');
- await assertDroneApproval(ctx,old);
+ files.get('legacy-file').sha256='b'.repeat(64);await assertDroneApproval(ctx,old);
  console.log('PASS pre-pickup drone upload, permanent ownership, MIME bytes, private archive/view/30-day purge, real team/chat notifications, approval/replacement/RM readiness, retry idempotency and legacy preservation. No live writes.');
 })().catch(e=>{console.error(e);process.exitCode=1});

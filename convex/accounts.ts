@@ -2,7 +2,7 @@ import { assertVerificationArchive } from "./verificationArchive";
 import { renterVerificationNote } from "../shared/verificationProgress";
 import { ensureReferralCode } from "./lib/referrals";
 import { rentalsForAccount } from "./lib/rentalAccount";
-import { requiresDroneLicence } from "./lib/droneVerification";
+import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { creditKind } from "./lib/checkoutCredit";
 import { loyaltyProgress, celebratedLoyaltyLevel, ENCORE_POLICY_VERSION } from "./lib/loyalty";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
@@ -523,7 +523,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
         cancellationPending: !!b.cancellationDecision && b.status !== "cancelled",
         returnPending: !!b.returnDecision && b.status !== "returned",
         requiresDroneLicence: await requiresDroneLicence(ctx, b),
-        droneLicenceStatus: b.droneLicenceStatus ?? "required",
+        droneLicenceStatus: await droneLicenceStatusForRental(ctx, b),
         reviewed: reviewed.has(b._id),
         firstSlug: lines[0]?.slug ?? null,
         start: starts.length ? Math.min(...starts) : null,

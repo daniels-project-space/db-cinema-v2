@@ -61,12 +61,20 @@ export async function queueVerificationArchive(ctx: any, booking: any,refresh=fa
 }
 /** Private metadata checks subscribe to the real storage objects; no file URLs
  * or document bytes are exposed by these reactive readiness queries. */
-async function documentCopyAvailable(ctx: any, archive: any, document: any) {
+async function archiveOwnerMatches(ctx: any, archive: any) {
+  const booking = await ctx.db.get(archive.bookingId);
+  // Preserve private insurance access for archives with an unknown closure.
+  if (!booking) return true;
+  const accountId = booking.accountId ?? (await accountForRental(ctx, booking))?._id;
+  return archive.accountId === accountId;
+}
+export async function documentCopyAvailable(ctx: any, archive: any, document: any, ownerMatches?: boolean) {
   if (document.archiveId !== archive._id || document.bookingId !== archive.bookingId ||
       document.sessionId !== archive.sessionId || document.accountId !== archive.accountId ||
       !Number.isSafeInteger(document.size) || document.size <= 0 ||
       !/^[a-f0-9]{64}$/.test(document.sha256) ||
       !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(document.contentType)) return false;
+  if (!(ownerMatches ?? await archiveOwnerMatches(ctx, archive))) return false;
   // System metadata uses base64; legacy metadata APIs can return hexadecimal.
   const encodedHash = btoa(String.fromCharCode(...document.sha256.match(/../g).map((byte: string) => parseInt(byte, 16))));
   const metadata = await ctx.db.system.get(document.storageId);
@@ -76,7 +84,8 @@ async function documentCopyAvailable(ctx: any, archive: any, document: any) {
 }
 async function archiveCopies(ctx: any, archive: any) {
   const documents = await ctx.db.query("verification_documents").withIndex("by_archive", (q: any) => q.eq("archiveId", archive._id)).collect();
-  const copies = await Promise.all(documents.map(async (document: any) => ({ document, available: await documentCopyAvailable(ctx, archive, document) })));
+  const ownerMatches = await archiveOwnerMatches(ctx, archive);
+  const copies = await Promise.all(documents.map(async (document: any) => ({ document, available: await documentCopyAvailable(ctx, archive, document, ownerMatches) })));
   const required = archive.source === "drone"
     ? documents.some((d: any) => d.kind === "drone-operator-licence")
     : documents.some((d: any) => d.kind.startsWith("identity-")) && documents.some((d: any) => d.kind.startsWith("address-"));

@@ -19,7 +19,7 @@ import { stopMatchingRecovery, linkMatchingRecovery } from "./lib/checkoutRecove
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 import { assertRenterExposure, renterExposure, replacementValues, attachRenterPerson } from "./lib/rentalExposure";
 import { securityReady, verificationCanStart, verificationSessionCanOpen, renterVerificationNote } from "../shared/verificationProgress";
-import { assertDroneApproval, requiresDroneLicence } from "./lib/droneVerification";
+import { assertDroneApproval, requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { queueVerificationArchive, assertVerificationArchive } from "./verificationArchive";
 import { listingImages } from "./lib/catalogImages";
 import { accountForToken, ownedBooking } from "./lib/rentalChat";
@@ -1924,7 +1924,7 @@ export const verificationProgress = query({
       returnPending: !!b.returnDecision && b.status !== "returned",
       idVerificationSource: b.idVerificationSource ?? null,
       securityHoldPolicyVersion:b.securityHoldPolicyVersion??null, verificationArchiveReady, verificationExpiresAt: b.verificationExpiresAt ?? null, documentExpiresAt: b.documentExpiresAt ?? null,
-      requiresDroneLicence: await requiresDroneLicence(ctx, b), droneLicenceStatus: b.droneLicenceStatus ?? "required", droneLicenceNote: b.droneLicenceNote ?? null,
+      requiresDroneLicence: await requiresDroneLicence(ctx, b), droneLicenceStatus: await droneLicenceStatusForRental(ctx, b), droneLicenceNote: b.droneLicenceNote ?? null,
       verificationNote: renterVerificationNote(b.verificationNote), verificationChecks: b.verificationChecks ?? null,
       verificationUpdatedAt: b.verificationUpdatedAt ?? null, verificationReused: !!b.verificationReusedFrom,
       depositHoldAmount: b.depositHoldAmount ?? 0, depositHoldStatus: b.depositHoldStatus ?? null,
