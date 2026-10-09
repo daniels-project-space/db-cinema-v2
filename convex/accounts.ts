@@ -502,6 +502,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
         securityHoldPolicyVersion:b.securityHoldPolicyVersion??null,securityHoldDueAt:b.securityHoldDueAt??null,
         depositHoldExpiresAt: b.depositHoldExpiresAt ?? null,
         depositHoldRenewalStatus: b.depositHoldRenewalStatus ?? null,
+        depositHoldReleasePending: (b.depositHoldPreviousIntentIds?.length ?? 0) > 0,
         depositRefunded: b.depositRefunded ?? false,
         hasReturnStatement: !!b.returnStatement,
         returnStatementIssuedAt:b.returnStatement?.issuedAt,

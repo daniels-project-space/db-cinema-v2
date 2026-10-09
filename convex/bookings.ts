@@ -885,6 +885,7 @@ export const renewalContext = internalQuery({
     if (!b) return null;
     return {
       status: b.status, guestEmail: b.guestEmail ?? null,
+      accountId: b.accountId,
       cancellationPending: !!b.cancellationDecision, returnPending: !!b.returnDecision,
       amount: b.depositHoldAmount ?? 0, oldIntentId: b.stripeDepositIntentId ?? null,
       expiresAt: b.depositHoldExpiresAt ?? null,

@@ -102,7 +102,7 @@ export function BookingTile({
       {err && <div className="mt-1 text-[11px] text-rose-300">{err}</div>}
 
       {token && token !== "preview" && <PickupHold bookingId={booking._id} token={token} policy={booking.securityHoldPolicyVersion} status={booking.depositHoldStatus} dueAt={booking.securityHoldDueAt} />}
-      {token && token !== "preview" && <HoldRenewal bookingId={booking._id} token={token} status={booking.depositHoldRenewalStatus} expiresAt={booking.depositHoldExpiresAt} />}
+      {token && token !== "preview" && <HoldRenewal bookingId={booking._id} token={token} status={booking.depositHoldRenewalStatus} expiresAt={booking.depositHoldExpiresAt} releasePending={booking.depositHoldReleasePending} />}
       {token && token !== "preview" && <LateFeeApproval bookingId={booking._id} token={token} status={booking.lateFeeStatus} amount={booking.lateFeeAmount} />}
 
       <div data-rental-actions className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
