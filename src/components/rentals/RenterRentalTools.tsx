@@ -11,11 +11,11 @@ import styles from "./RentalRequestApply.module.css";
 import customerStyles from "./RenterRentalTools.module.css";
 import { RentalRequestHistory } from "./RentalRequestHistory";
 
-export function RenterRentalTools({ token, bookingId }: { token: string; bookingId: string }) {
-  return <RentalTools key={JSON.stringify([token, bookingId])} token={token} bookingId={bookingId} />;
+export function RenterRentalTools({ token, bookingId, consolidatedExtensions = false }: { token: string; bookingId: string; consolidatedExtensions?: boolean }) {
+  return <RentalTools key={JSON.stringify([token, bookingId])} token={token} bookingId={bookingId} consolidatedExtensions={consolidatedExtensions} />;
 }
 
-function RentalTools({ token, bookingId }: { token: string; bookingId: string }) {
+function RentalTools({ token, bookingId, consolidatedExtensions = false }: { token: string; bookingId: string; consolidatedExtensions?: boolean }) {
   const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => { const timer = setInterval(() => setRefreshKey(Date.now()), 60000); return () => clearInterval(timer); }, []);
   const receivedContext = useQuery(api.rentalRequests.context, { token, bookingId: bookingId as any, refreshKey });
@@ -53,7 +53,7 @@ function RentalTools({ token, bookingId }: { token: string; bookingId: string })
   }, [mode, !!context]);
   useEffect(() => { requestId.current = null; }, [detail, start, end, pickup, dropoff, change, itemIndex, addition, qty, selected, manual, source,dateSource]);
   if (!context) return null;
-  if (!["pending_payment", "confirmed", "active"].includes(context.status)) return <RentalRequestHistory token={token} bookingId={bookingId} />;
+  if (!["pending_payment", "confirmed", "active"].includes(context.status)) return <RentalRequestHistory token={token} bookingId={bookingId} consolidatedExtensions={consolidatedExtensions} />;
   const canCancel = context.direct && (context.status === "pending_payment" || context.selfService);
   function open(next: typeof mode, button: HTMLButtonElement) { launcher.current = button; setDateSource(context!.lineItems.map(li=>({listingId:li.listingId,qty:li.qty,start:li.start,end:li.end,pickupTime:li.pickupTime,returnTime:li.returnTime}))); setStart(""); setEnd(""); setPickup(context?.lineItems.find(li=>li.start===context.start)?.pickupTime ?? ""); setDropoff(context?.lineItems.find(li=>li.end===context.end)?.returnTime ?? ""); setChange("add"); setItemIndex(0); setSource(context?.lineItems[0] ?? null); setAddition(""); setSelected(null); setSearch(""); setSearchTerm(""); setManual(false); setQty(1); setMode(next); setDetail(""); setConsent(false); setError(""); setResult(""); requestId.current = null; }
   async function submit() {
@@ -80,7 +80,7 @@ function RentalTools({ token, bookingId }: { token: string; bookingId: string })
   const day = (at: number | null) => at === null ? "To confirm" : new Date(at).toLocaleDateString("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" });
   const selectedDay = (value: string) => value ? day(Date.parse(value + "T00:00:00Z")) : "Choose dates";
   return <div className="mt-3" data-testid="renter-rental-tools">
-    <RentalRequestHistory token={token} bookingId={bookingId} />
+    <RentalRequestHistory token={token} bookingId={bookingId} consolidatedExtensions={consolidatedExtensions} />
     {cancellation && cancellation.status !== "succeeded" && <p role="status" className="mb-3 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-100">{cancellation.status === "attention" ? "The team is reviewing your cancellation settlement. Please message us if you need help." : "Your cancellation is processing. We will confirm once the refund and security release are complete."}</p>}
     <div className="flex flex-wrap gap-2" aria-label="Rental requests">
       {(context.status === "active" ? [["items", "Request kit change"]] : [["dates", "Request dates"], ["items", "Request kit change"], ["cancel", "Cancel rental"]]).map(([kind, label]) => <button key={kind} disabled={busy || context.locked} onClick={e => open(kind as typeof mode, e.currentTarget)} className={`rounded-full border px-3 py-2 text-xs ${mode === kind ? "border-accent-400/50 bg-accent-500/10 text-white" : "border-white/10 text-white/60 hover:text-white"} disabled:opacity-35`}>{label}</button>)}

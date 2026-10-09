@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { formatGbp } from "@/lib/pricing";
@@ -25,6 +26,9 @@ function ExtensionPanel({ token, bookingId, admin = false, embeddedHeader = fals
   const [refreshKey, setRefreshKey] = useState(0), [reviewId, setReviewId] = useState<string | null>(null), [reason, setReason] = useState("");
   const [returnTime, setReturnTime] = useState(""), [approvedTime, setApprovedTime] = useState("");
   const key = useRef<string | null>(null), inFlight = useRef(false);
+  const [detailsOpen,setDetailsOpen]=useState(false);
+  const drawer=useRef<HTMLDialogElement>(null),detailsLauncher=useRef<HTMLButtonElement>(null),drawerTitle=useId();
+  useEffect(()=>{if(!detailsOpen)return;const node=drawer.current;if(node&&!node.open)node.showModal();return()=>{if(node?.open)node.close();detailsLauncher.current?.focus();};},[detailsOpen]);
   const quote = useQuery(api.rentalExtensions.quote, open && !admin ? { token, bookingId: bookingId as any, extraDays: days, lineItemIndexes: selected.length ? selected : undefined, refreshKey } : "skip");
   const request = useMutation(api.rentalExtensions.request), decline = useMutation(api.rentalExtensions.decline);
   const approve = useAction(api.rentalExtensionPayments.approve), withdraw = useAction(api.rentalExtensionPayments.withdraw);
@@ -74,13 +78,10 @@ function ExtensionPanel({ token, bookingId, admin = false, embeddedHeader = fals
     finally { inFlight.current = false; setBusy(false); }
   }
   function review() { if (!recent) return; setReviewId(recent.id); setApprovedTime(recent.approvedReturnTime ?? recent.requestedReturnTime ?? ""); setReason(recent.status === "approved" ? recent.reason ?? "Recovering approved extension" : ""); setError(""); }
-  return <aside id="rental-extension-panel" tabIndex={-1} data-booking-id={bookingId} data-testid="rental-extension-panel" className={styles.panel}>
-    <header className={styles.header}>
-      {!embeddedHeader && <div><span className={styles.eyebrow}>{admin ? "Rental management" : "Your rental"}</span><h2>{admin ? "Rental extension" : "Keep the shoot going"}</h2></div>}
-      {activeRequest && <span data-testid="extension-request-status" className={styles.badge} data-status={activeRequest.status}><ClockIcon/>{labels[activeRequest.status] ?? "Team review required"}</span>}
-      {!admin && eligible && !current && <button type="button" data-testid="request-extension-open" className={styles.secondary} disabled={state.locked || busy} onClick={() => { setOpen(!open); setError(""); setNotice(""); key.current = null; }}>{open ? "Close" : "Request extension"}</button>}
-    </header>
-    {detailed && <div className={styles.workspace}>
+  const workflow=<section className={styles.workflow} aria-label="Extension progress"><h3>Extension workflow</h3><ol>
+          {[{label:"Requested",done:!!activeRequest,active:!activeRequest,detail:activeRequest ? date(activeRequest.createdAt) : "Choose the extra days"},{label:"Team approval",done:approved,active:!!activeRequest&&!approved&&!stopped,detail:approved ? "Approved by the team" : stopped ? "Request closed" : "Review and approve"},{label:"Payment",done:paymentDone,active:approved&&!paymentDone&&!stopped,detail:paymentDone ? "Payment confirmed" : stopped ? "Not applied" : "Confirm extra rental days"}].map((step,i)=><li key={step.label} data-done={step.done} data-active={step.active}><span className={styles.step}>{step.done ? "✓" : i+1}</span><strong>{step.label}</strong><small>{step.detail}</small></li>)}
+        </ol></section>;
+  const controls=<>    {detailed && <div className={styles.workspace}>
       <div className={styles.main}>
         {hero && <div className={styles.hero}>
           <SmartImage src={hero.heroImage} fallbackSources={hero.imageSources} alt={hero.title} className={styles.heroImage} imgClassName={styles.productImage}/>
@@ -98,17 +99,17 @@ function ExtensionPanel({ token, bookingId, admin = false, embeddedHeader = fals
             </div>;
           })}
         </section>
-        <section className={styles.workflow} aria-label="Extension progress"><h3>Extension workflow</h3><ol>
-          {[{label:"Requested",done:!!activeRequest,active:!activeRequest,detail:activeRequest ? date(activeRequest.createdAt) : "Choose the extra days"},{label:"Team approval",done:approved,active:!!activeRequest&&!approved&&!stopped,detail:approved ? "Approved by the team" : stopped ? "Request closed" : "Review and approve"},{label:"Payment",done:paymentDone,active:approved&&!paymentDone&&!stopped,detail:paymentDone ? "Payment confirmed" : stopped ? "Not applied" : "Confirm extra rental days"}].map((step,i)=><li key={step.label} data-done={step.done} data-active={step.active}><span className={styles.step}>{step.done ? "✓" : i+1}</span><strong>{step.label}</strong><small>{step.detail}</small></li>)}
-        </ol></section>
-        {activeRequest?.reason && <section className={styles.teamReply}><h3>Team decision</h3><p>{activeRequest.reason}</p></section>}
+        {admin&&workflow}
+        {admin&&activeRequest?.reason && <section className={styles.teamReply}><h3>Team decision</h3><p>{activeRequest.reason}</p></section>}
       </div>
       <div className={styles.side}>
         <section className={styles.quote} aria-label="Extension quote" data-testid={open && quote?.available ? "extension-live-quote" : undefined}>
           <h3>Extension quote</h3>
           <dl>{proposed.map(item => "dailyRate" in item ? <div key={item.lineIndex}><dt>{rentalTitle(item.title)} · daily</dt><dd>{formatGbp(item.dailyRate)}</dd></div> : null)}<div><dt>Extra days</dt><dd>{extraDays ?? "—"}</dd></div></dl>
           <div className={styles.total}><span>{paymentDone ? "Extension paid" : "Due for extension"}</span><strong>{amount === undefined || amount === null ? "—" : formatGbp(amount)}</strong></div>
+          {!admin&&workflow}
           <div className={styles.security}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><div><strong>Existing security unchanged</strong><p>Your existing deposit and authorisation remain in place.</p></div></div>
+          {!admin&&activeRequest?.reason&&<details className={styles.renterNote}><summary>Team note</summary><p>{activeRequest.reason}</p></details>}
           {open && !admin && <form onSubmit={e=>{e.preventDefault();void send();}} data-testid="extension-request-form" className={styles.form}>
             <label>Extra rental days<select data-testid="extension-extra-days" value={days} disabled={busy} onChange={e=>{setDays(Number(e.target.value));key.current=null;}}>{Array.from({length:30},(_,i)=><option key={i} value={i+1}>{i+1} {i ? "days" : "day"}</option>)}</select></label>
             <label>Proposed return time · London<select required data-testid="extension-return-time" value={returnTime} disabled={busy} onChange={e=>{setReturnTime(e.target.value);key.current=null;}}><option value="">Choose time</option>{PICKUP_SLOTS.map(time=><option key={time} value={time}>{time}</option>)}</select></label>
@@ -135,6 +136,29 @@ function ExtensionPanel({ token, bookingId, admin = false, embeddedHeader = fals
       </div>
     </div>}
     {error&&<p role="alert" className={styles.error}>{error}</p>}{notice&&<p role="status" className={styles.notice}>{notice}</p>}
+</>;
+  return <aside id="rental-extension-panel" tabIndex={-1} data-booking-id={bookingId} data-testid="rental-extension-panel" className={`${styles.panel} ${admin?styles.adminOverview:""}`}>
+    <header className={styles.header}>
+      {!embeddedHeader && <div><span className={styles.eyebrow}>{admin ? "Requests & changes" : "Your rental"}</span><h2>{admin ? "Rental extension" : "Keep the shoot going"}</h2></div>}
+      {activeRequest && <span data-testid="extension-request-status" className={styles.badge} data-status={activeRequest.status}><ClockIcon/>{labels[activeRequest.status] ?? "Team review required"}</span>}
+      {!admin && eligible && !current && <button type="button" data-testid="request-extension-open" className={styles.secondary} disabled={state.locked || busy} onClick={() => { setOpen(!open); setError(""); setNotice(""); key.current = null; }}>{open ? "Close" : "Request extension"}</button>}
+    </header>
+    {admin&&recent?<>
+      <div className={styles.requestHero}>
+        <div className={styles.requestHeading}><span className={styles.eyebrow}>Extension request</span><h3>{extraDays} extra shoot day{extraDays===1?"":"s"}</h3>{hero&&<p>{hero.qty}× {rentalTitle(hero.title)}{chosen.length>1?` · ${chosen.length} equipment lines`:""}</p>}</div>
+        {hero&&<SmartImage src={hero.heroImage} fallbackSources={hero.imageSources} alt={hero.title} className={styles.requestImage}/>}
+      </div>
+      <div className={styles.requestSummary}>
+        <div className={styles.comparison}>{proposed.map(item=>{const original=recent.originalItems.find((line:{lineIndex:number;end:number;returnTime?:string|null})=>line.lineIndex===item.lineIndex);return original?<div key={item.lineIndex}>{proposed.length>1&&<p>{rentalTitle(item.title)}</p>}<div className={styles.dateGrid}><div className={styles.dateCard}><CalendarIcon/><div><span>{paymentDone?"Previous return":"Current return"}</span><strong>{date(original.end)}</strong><p>{original.returnTime??"Time to confirm"} · London</p></div></div><span className={styles.arrow} aria-hidden="true">→</span><div className={`${styles.dateCard} ${styles.newDate}`}><CalendarIcon/><div><span>{paymentDone?"Confirmed return":approved?"Approved return":"Requested return"}</span><strong>{date(item.end)}</strong><p>{proposedTime??"Time to confirm"} · London</p></div></div></div></div>:null;})}</div>
+        <div className={styles.cardQuote}><span>{paymentDone?"Extension paid":"Total due"}</span><strong>{amount==null?"—":formatGbp(amount)}</strong><small>{extraDays} extra day{extraDays===1?"":"s"}</small></div>
+      </div>
+      <ol className={styles.cardProgress} aria-label="Extension request progress"><li data-done="true"><span>✓</span><strong>Requested</strong><small>{date(recent.createdAt)}</small></li><li data-done={approved} data-active={!approved&&!stopped}><span>{approved?"✓":"2"}</span><strong>{stopped&&!approved?"Request closed":"Team approval"}</strong><small>{recent.approvedAt?date(recent.approvedAt):stopped?labels[recent.status]:"Awaiting review"}</small></li><li data-done={paymentDone} data-active={approved&&!paymentDone&&!stopped}><span>{paymentDone?"✓":"3"}</span><strong>{paymentDone?"Confirmed":stopped?labels[recent.status]:"Awaiting payment"}</strong><small>{paymentDone?"Rental dates updated":stopped?"Update not applied":"Original dates retained"}</small></li></ol>
+      {recent.reason&&<div className={styles.cardNote}><span aria-hidden="true">▤</span><div><strong>Team note</strong><p>{recent.reason}</p></div></div>}
+      <div className={styles.cardActions}><button ref={detailsLauncher} type="button" className={styles.primary} data-testid="extension-view-details" onClick={()=>setDetailsOpen(true)}>View extension <span aria-hidden="true">↗</span></button>{["approved","awaiting_payment"].includes(recent.status)&&<button type="button" className={styles.secondary} data-testid="extension-card-withdraw" disabled={busy} onClick={()=>void withdrawRequest()}>Withdraw unpaid approval</button>}</div>
+      {!paymentDone&&!stopped&&<p className={styles.note}>Original return applies until approval and payment succeed.</p>}
+      {!detailsOpen&&error&&<p role="alert" className={styles.error}>{error}</p>}{!detailsOpen&&notice&&<p role="status" className={styles.notice}>{notice}</p>}
+      {detailsOpen&&createPortal(<dialog ref={drawer} className={`${styles.panel} ${styles.dialog}`} aria-labelledby={drawerTitle} onCancel={event=>{event.preventDefault();if(!busy)setDetailsOpen(false);}}><header className={styles.drawerHeader}><div><span className={styles.brand}>DB <span>CINEMA</span><small>RENTALS</small></span><h2 id={drawerTitle}>Extension approval</h2><p>{hero?rentalTitle(hero.title):"Rental extension"}</p></div><button type="button" aria-label="Close extension details" className={styles.close} disabled={busy} onClick={()=>setDetailsOpen(false)}>×</button></header>{controls}<button type="button" className={styles.drawerBack} disabled={busy} onClick={()=>setDetailsOpen(false)}>← Back to requests</button></dialog>,document.body)}
+    </>:controls}
   </aside>;
 }
 function DateStrip({ original, proposed }: { original: number; proposed: number }) {

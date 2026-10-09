@@ -129,7 +129,7 @@ function Workspace({
       )}
       {section==="requests"&&<div className={styles.requests}>
         <RentalExtensionPanel token={token} bookingId={bookingId} admin embeddedHeader/>
-        {b.activeAdditionId?<RentalOrderTools token={token} bookingId={bookingId} showReturn={false}/>:<><RentalRequestHistory token={token} bookingId={bookingId} admin/><button type="button" className={styles.conversation} onClick={()=>setSection("order")}>Open order controls</button></>}
+        {b.activeAdditionId?<RentalOrderTools token={token} bookingId={bookingId} showReturn={false}/>:<><RentalRequestHistory token={token} bookingId={bookingId} admin consolidatedExtensions/><button type="button" className={styles.conversation} onClick={()=>setSection("order")}>Open order controls</button></>}
       </div>}
       {section === "order" && (
         <div className="mt-5 grid gap-6 lg:grid-cols-[1fr_1fr]">
