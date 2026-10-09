@@ -11,10 +11,10 @@ import styles from "./RentalRequestApply.module.css";
 
 const DAY=86400000;
 const date=(at:number)=>new Date(at).toLocaleDateString("en-GB",{timeZone:"UTC",day:"numeric",month:"short",year:"numeric"});
-type Props={token:string;bookingId:string;id:string;kind:"dates"|"cancel";decisionNote?:string;disabled?:boolean};
+type Props={token:string;bookingId:string;id?:string;label?:string;kind:"dates"|"cancel";decisionNote?:string;disabled?:boolean};
 type Preview={kind:"full_refund"|"store_credit";refundAmount:number;creditAmount:number;holdReleaseAmount:number;checkedAt:number};
 export function RentalRequestApply(props:Props){return <RequestApply key={JSON.stringify([props.token,props.bookingId,props.id,props.kind])} {...props}/>;}
-function RequestApply({token,bookingId,id,kind,decisionNote,disabled=false}:Props){
+function RequestApply({token,bookingId,id,label,kind,decisionNote,disabled=false}:Props){
   const [open,setOpen]=useState(false),[start,setStart]=useState(""),[end,setEnd]=useState(""),[keepPrice,setKeepPrice]=useState(false),[consent,setConsent]=useState(false);
   const [reason,setReason]=useState((decisionNote??"Apply the agreed customer request.").slice(0,400)),[busy,setBusy]=useState(false),[error,setError]=useState(""),[refreshKey,setRefreshKey]=useState(0);
   const [preview,setPreview]=useState<Preview|null>(null),[previewError,setPreviewError]=useState("");
@@ -45,7 +45,7 @@ function RequestApply({token,bookingId,id,kind,decisionNote,disabled=false}:Prop
   const chosenStart=start?Date.parse(start+"T00:00:00Z"):undefined;
   const chosenEnd=end?Date.parse(end+"T00:00:00Z"):chosenStart!==undefined&&currentStart!==undefined&&currentEnd!==undefined?currentEnd+chosenStart-currentStart:undefined;
   const hero=details?.lineItems[0],itemQuantity=details?.lineItems.reduce((n,li)=>n+li.qty,0)??0;
-  return <><button ref={launcher} type="button" className={styles.launch} disabled={disabled||busy} onClick={()=>{setOpen(true);setError("");}}>{kind==="dates"?"Apply agreed dates":"Process agreed cancellation"}</button>{open&&createPortal(<dialog ref={dialog} className={styles.dialog} aria-labelledby={titleId} onCancel={event=>{event.preventDefault();if(!busy)setOpen(false);}}>
+  return <><button ref={launcher} type="button" className={styles.launch} disabled={disabled||busy} onClick={()=>{setOpen(true);setError("");}}>{label??(kind==="dates"?"Apply agreed dates":"Process agreed cancellation")}</button>{open&&createPortal(<dialog ref={dialog} className={styles.dialog} aria-labelledby={titleId} onCancel={event=>{event.preventDefault();if(!busy)setOpen(false);}}>
     <form className={styles.panel} data-testid="rental-request-drawer" onSubmit={e=>{e.preventDefault();void submit();}}>
       <header className={styles.header}><div><span className={styles.brand}>DB <span>CINEMA</span><small>RENTALS</small></span><h2 id={titleId}>{kind==="dates"?"Change rental dates":"Cancel & settle rental"}</h2></div><button type="button" className={styles.close} aria-label="Close request panel" disabled={busy} onClick={()=>setOpen(false)}>×</button></header>
       {!details?<p role="status">Loading rental details…</p>:<>

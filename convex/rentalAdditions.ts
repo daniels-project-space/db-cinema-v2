@@ -80,6 +80,8 @@ async function ensureSession(ctx: any, id: any) {
     throw Error("The rental update has no payable amount");
   const origin = new URL(process.env.APP_URL ?? "https://dbcinemarentals.com")
     .origin;
+  const customerEmail = state.account?.email ?? (!b.accountId ? b.guestEmail : undefined);
+  if(!customerEmail)throw Error("The associated rental account needs review before a payment link can be sent.");
   let params: Stripe.Checkout.SessionCreateParams = {
       integration_identifier: `db-rental-update-${Array.from(createHash("sha256").update(r.requestId).digest().subarray(0, 8), (n) => String.fromCharCode(97 + (n % 26))).join("")}`,
       custom_text: {
@@ -90,7 +92,7 @@ async function ensureSession(ctx: any, id: any) {
       mode: "payment",
       adaptive_pricing: {enabled:false},
       expires_at: Math.floor(r.createdAt / 1000) + 24 * 60 * 60,
-      customer_email: b.guestEmail,
+      customer_email: customerEmail,
       customer_creation: "always",
       payment_intent_data: { setup_future_usage: "off_session" },
       line_items: [
@@ -450,6 +452,8 @@ export const start = action({
     listingId: v.id("listings"),
     qty: v.number(),
     reason: v.string(),
+    expectedAmount: v.optional(v.number()),
+    expectedHoldTotal: v.optional(v.number()),
     start: v.optional(v.number()),
     end: v.optional(v.number()),
     complimentary: v.optional(v.boolean()),

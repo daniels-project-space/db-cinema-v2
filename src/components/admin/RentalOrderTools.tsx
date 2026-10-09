@@ -11,9 +11,14 @@ import { rentalTitle } from "@/lib/rentalPresentation";
 import { formatGbp } from "@/lib/pricing";
 import { rentalHandoverLabel } from "../../../shared/rentalHandover";
 import { rentalDate } from "@/lib/rentalPresentation";
+import { RentalRequestApply } from "@/components/rentals/RentalRequestApply";
+import { RentalKitProposal } from "./RentalKitProposal";
 import { RentalRequestHistory } from "@/components/rentals/RentalRequestHistory";
 
-export function RentalOrderTools({
+export function RentalOrderTools(props:{token:string;bookingId:string;showReturn?:boolean}) {
+  return <OrderTools key={JSON.stringify([props.token,props.bookingId,props.showReturn??true])} {...props}/>;
+}
+function OrderTools({
   token,
   bookingId,
   showReturn = true,
@@ -23,6 +28,7 @@ export function RentalOrderTools({
   /** Return settlement belongs in the rental conversation, where the customer record is visible. */
   showReturn?: boolean;
 }) {
+  const [kitOpen,setKitOpen]=useState(false);
   const b = useQuery(api.rentalOperations.details, {
     token,
     bookingId: bookingId as any,
@@ -236,7 +242,7 @@ export function RentalOrderTools({
             }
             onClick={() => {
               request.current = null;
-              setMode("add");
+              setKitOpen(true);
               setError("");
             }}
             className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35"
@@ -244,39 +250,8 @@ export function RentalOrderTools({
             Add items
           </button>
         )}
-        {b.status === "confirmed" && (
-          <button
-            disabled={
-              busy ||
-              !!b.returnDecision ||
-              !!processing ||
-              !!b.cancellationDecision ||
-              !!(b.activeAdditionId || b.activeExtensionId)
-            }
-            onClick={() => {
-              setDate(new Date(Math.min(...b.lineItems.map(l => l.start))).toISOString().slice(0, 10));
-              setEndDate("");
-              setKeepAgreedPrice(false);
-              setMode("reschedule");
-              setError("");
-            }}
-            className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35"
-          >
-            Change dates / reschedule
-          </button>
-        )}
-        {["confirmed", "pending_payment"].includes(b.status) && (
-          <button
-            disabled={busy || !!b.returnDecision || !!processing || !!(b.activeAdditionId || b.activeExtensionId)}
-            onClick={() => {
-              setMode("cancel");
-              setError("");
-            }}
-            className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35"
-          >
-            {b.cancellationDecision ? "Resume cancellation" : "Cancel rental"}
-          </button>
-        )}
+        {b.status === "confirmed" && <RentalRequestApply token={token} bookingId={bookingId} kind="dates" label="Change dates / reschedule" decisionNote="Update the agreed rental dates." disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || !!(b.activeAdditionId || b.activeExtensionId)} />}
+        {["confirmed", "pending_payment"].includes(b.status) && <RentalRequestApply token={token} bookingId={bookingId} kind="cancel" label={b.cancellationDecision ? "Resume cancellation" : "Cancel rental"} decisionNote="Cancel the rental under the agreed terms." disabled={busy || !!b.returnDecision || !!processing || !!(b.activeAdditionId || b.activeExtensionId)} />}
         {b.status === "confirmed" &&
           b.cancellationKind === "full_refund" &&
           b.stripePaymentIntentId && (
@@ -299,6 +274,7 @@ export function RentalOrderTools({
       </div>
       {showReturn && returnOpen && <ReturnRentalForm booking={b} token={token} onClose={() => setReturnOpen(false)} />}
       {showReturn && (b.returnDecision || b.status === "returned") && <ReturnInspectionHistory token={token} bookingId={bookingId} />}
+      {kitOpen&&<RentalKitProposal token={token} bookingId={bookingId} onClose={()=>setKitOpen(false)}/>}
       <RentalManagerDelivery token={token} bookingId={bookingId} />
       {additions
         .filter(
@@ -314,7 +290,7 @@ export function RentalOrderTools({
           >
             <p>
               {r.qty}× {rentalTitle(r.title)} · £
-              {(r.lineTotal + r.securityCharge).toFixed(2)} ·{" "}
+              {((r.draftReplacement?r.baseTotal??0:0)+r.lineTotal+r.securityCharge+(r.membershipFee??0)).toFixed(2)} ·{" "}
               {r.status.replaceAll("_", " ")}
             </p>
             <div className="mt-2 flex gap-3">

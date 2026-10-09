@@ -1,3 +1,5 @@
+import { accountForRental } from "./lib/rentalAccount";
+import { listingImages } from "./lib/catalogImages";
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
 import {schedulePickupHold} from "./pickupSecurity";
 import { tierByKey } from "../shared/membership";
@@ -5,7 +7,8 @@ import { internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
-import type { Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { assertRenterExposure, replacementValues } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
@@ -18,12 +21,7 @@ import { quote } from "./lib/pricing";
 import { securityForPolicy } from "../shared/rentalSecurity";
 
 async function note(ctx: any, b: any, text: string, meta?: any) {
-  const a = await ctx.db
-    .query("accounts")
-    .withIndex("by_email", (q: any) =>
-      q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
-    )
-    .first();
+  const a = await accountForRental(ctx, b);
   if (a)
     await postRentalMessage(ctx, {
       accountId: a._id,
@@ -39,7 +37,8 @@ export const context = internalQuery({
     const addition = await ctx.db.get(id);
     if (!addition) return null;
     const membershipCheckout = addition.membershipCheckoutId ? await ctx.db.get(addition.membershipCheckoutId) : null;
-    return { addition, booking: await ctx.db.get(addition.bookingId), membershipCheckout,
+    const booking = await ctx.db.get(addition.bookingId);
+    return { addition, booking, account: booking ? await accountForRental(ctx, booking) : null, membershipCheckout,
       membershipAccount: membershipCheckout ? await ctx.db.get(membershipCheckout.accountId) : null };
   },
 });
@@ -59,32 +58,7 @@ export const list = query({
     return rows.map(({ securityCreationParams: _privateParams, ...row }) => row);
   },
 });
-export const prepare = internalMutation({
-  args: {
-    token: v.string(),
-    bookingId: v.id("bookings"),
-    requestId: v.string(),
-    listingId: v.id("listings"),
-    qty: v.number(),
-    reason: v.string(),
-    start: v.optional(v.number()),
-    end: v.optional(v.number()),
-    complimentary: v.optional(v.boolean()),
-  },
-  handler: async (ctx, a) => {
-    await assertAdmin(ctx, a.token, "rentalAdditions.prepare");
-    if (!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))
-      throw Error("Invalid addition request");
-    const prior = await ctx.db
-      .query("rental_additions")
-      .withIndex("by_request", (q) => q.eq("requestId", a.requestId))
-      .first();
-    if (prior) {
-      if (prior.bookingId !== a.bookingId)
-        throw Error("Request belongs to another rental");
-      return prior;
-    }
-    const b = await ctx.db.get(a.bookingId);
+async function additionQuote(ctx: QueryCtx, b: Doc<"bookings"> | null, a: {listingId:Id<"listings">;qty:number;start?:number;end?:number;complimentary?:boolean}) {
     if (
       !b ||
       !["pending_payment", "confirmed", "active"].includes(b.status) ||
@@ -121,7 +95,6 @@ export const prepare = internalMutation({
     if (reservations.some((r) => r.source !== "site"))
       throw Error("Use the original booking platform for this rental");
     if (
-      a.reason.trim().length < 5 ||
       !Number.isSafeInteger(a.qty) ||
       a.qty < 1 ||
       a.qty > 20
@@ -132,10 +105,10 @@ export const prepare = internalMutation({
     const start =
       a.start ??
       Math.max(
-        Math.min(...b.lineItems.map((li) => li.start)),
+        Math.min(...b.lineItems.map((li: any) => li.start)),
         new Date().setUTCHours(0, 0, 0, 0),
       );
-    const end = a.end ?? Math.max(...b.lineItems.map((li) => li.end));
+    const end = a.end ?? Math.max(...b.lineItems.map((li: any) => li.end));
     if (
       !Number.isSafeInteger(start) ||
       !Number.isSafeInteger(end) ||
@@ -159,11 +132,11 @@ export const prepare = internalMutation({
     await assertRenterExposure(ctx, b, [...b.lineItems, line]);
     await assertRentalInventory(ctx, [...b.lineItems, line], b._id);
     const catalog = await Promise.all(
-      b.lineItems.map((li) => ctx.db.get(li.listingId)),
+      b.lineItems.map((li: any) => ctx.db.get(li.listingId)),
     );
     const value =
       catalog.reduce(
-        (sum, item, i) => sum + (item?.depositAmount ?? 0) * b.lineItems[i].qty,
+        (sum: number, item: any, i: number) => sum + (item?.depositAmount ?? 0) * b.lineItems[i].qty,
         0,
       ) +
       l.depositAmount * a.qty;
@@ -180,7 +153,53 @@ export const prepare = internalMutation({
     if(membership&&(!membership.sessionParams||!["creating","open"].includes(membership.state)||membership.bookingId!==b._id))throw Error("Refresh the initial membership checkout before changing its order.");
     const membershipParams=membership?.sessionParams?JSON.parse(membership.sessionParams):null;
     const membershipFee=membership?membershipParams?.metadata?.membershipFeePence?Number(membershipParams.metadata.membershipFeePence)/100:membership.intro==="trial"?0:tierByKey(membership.tier)?.monthlyGbp:undefined;
-    if(membership&&membershipFee===undefined)throw Error("Membership price snapshot is unavailable.");
+    if(membership&&(typeof membershipFee!=="number"||!Number.isFinite(membershipFee)||membershipFee<0))throw Error("Membership price snapshot is unavailable.");
+    return {l,line,start,end,securityCharge,holdTotal,membership,membershipFee};
+}
+export const proposalQuote = query({
+ args:{token:v.string(),bookingId:v.id("bookings"),listingId:v.id("listings"),qty:v.number(),start:v.optional(v.number()),end:v.optional(v.number()),complimentary:v.optional(v.boolean())},
+ handler:async(ctx,args)=>{
+  if(!checkAdminToken(args.token))return null;
+  const b=await ctx.db.get(args.bookingId);
+  try{
+   const q=await additionQuote(ctx,b,args),images=listingImages(q.l);
+   return {available:true,reason:null,title:q.line.title,start:q.start,end:q.end,qty:q.line.qty,lineTotal:q.line.lineTotal,securityCharge:q.securityCharge,holdTotal:q.holdTotal,baseAmount:b!.status==="pending_payment"?b!.total:0,membershipFee:q.membershipFee??0,amount:(b!.status==="pending_payment"?b!.total:0)+q.line.lineTotal+q.securityCharge+(q.membershipFee??0),heroImage:images[0]??null,imageSources:images};
+  }catch(e:any){return {available:false,reason:e.message??"Unable to quote this proposal."};}
+ }
+});
+export const prepare = internalMutation({
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    requestId: v.string(),
+    listingId: v.id("listings"),
+    qty: v.number(),
+    reason: v.string(),
+    expectedAmount: v.optional(v.number()),
+    expectedHoldTotal: v.optional(v.number()),
+    start: v.optional(v.number()),
+    end: v.optional(v.number()),
+    complimentary: v.optional(v.boolean()),
+  },
+  handler: async (ctx, a) => {
+    await assertAdmin(ctx, a.token, "rentalAdditions.prepare");
+    if (!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))
+      throw Error("Invalid addition request");
+    const prior = await ctx.db
+      .query("rental_additions")
+      .withIndex("by_request", (q) => q.eq("requestId", a.requestId))
+      .first();
+    if (prior) {
+      if (prior.bookingId !== a.bookingId)
+        throw Error("Request belongs to another rental");
+      return prior;
+    }
+    const b = await ctx.db.get(a.bookingId);
+    if(!b)throw Error("This rental cannot accept items");
+    if (a.reason.trim().length < 5) throw Error("Choose a quantity from 1–20 and record the reason");
+    const {l,line,start,end,securityCharge,holdTotal,membership,membershipFee}=await additionQuote(ctx,b,a);
+    const amount=(b!.status==="pending_payment"?b!.total:0)+line.lineTotal+securityCharge+(membershipFee??0);
+    if(a.expectedAmount!==undefined&&Math.round(a.expectedAmount*100)!==Math.round(amount*100)||a.expectedHoldTotal!==undefined&&Math.round(a.expectedHoldTotal*100)!==Math.round(holdTotal*100))throw Error("The proposal quote changed. Review its current price and security before sending.");
     const id = await ctx.db.insert("rental_additions", {
       ...line,
       bookingId: b._id,
@@ -566,16 +585,31 @@ export const customerState = query({
     const b = await ownedBooking(ctx, account, bookingId);
     if (!b.activeAdditionId) return null;
     const r = await ctx.db.get(b.activeAdditionId as Id<"rental_additions">);
-    if (!r) return null;
+    if (!r || r.bookingId !== b._id) return null;
+    const sources = listingImages(await ctx.db.get(r.listingId));
+    const currentItems = await Promise.all(b.lineItems.map(async (line: any) => {
+      const images = listingImages(await ctx.db.get(line.listingId));
+      return { title: line.title, qty: line.qty, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
+    }));
+    let securityDeferred = false;
+    try { securityDeferred = !r.draftReplacement && canDeferAdditionSecurity(b); } catch {}
     return {
       id: r._id,
+      start: r.start, end: r.end,
+      lineTotal: r.lineTotal,
+      baseAmount: r.draftReplacement ? r.baseTotal ?? 0 : 0,
+      currentItems,
+      heroImage: sources[0] ?? null, imageSources: sources,
+      securityDeferred,
+      paymentReceived: !!r.paymentIntentId,
+      membershipFee: r.membershipFee ?? 0,
       status: r.status,
       title: r.title,
       qty: r.qty,
       amount:
         (r.draftReplacement ? (r.baseTotal ?? 0) : 0) +
         r.lineTotal +
-        r.securityCharge,
+        r.securityCharge + (r.membershipFee ?? 0),
       securityCharge: r.securityCharge,
       holdTotal: r.holdTotal,
       url: r.withdrawalRequestedAt ? null : r.paymentUrl ?? null,
