@@ -4,7 +4,7 @@ let outcome='requires_capture',expired=false,failRelease=false,events=[];
 const originals=new Map(),created=new Map();
 class StripeFixture {
  paymentIntents={
-  retrieve:async id=>id.startsWith('old')?{id,status:'requires_capture',customer:'cus_test',payment_method:'pm_test',metadata:{bookingId:originals.get(id)}}:{...created.get(id),id,status:outcome,amount_received:0,latest_charge:{payment_method_details:{card:{capture_before:Date.now()/1000+(expired?-1:7*86400)}}}},
+  retrieve:async id=>id.startsWith('old')?{id,status:'requires_capture',customer:'cus_test',payment_method:'pm_test',metadata:{bookingId:originals.get(id)}}:{...created.get(id),id,status:outcome,amount_capturable:created.get(id).amount,amount_received:0,latest_charge:{payment_method_details:{card:{capture_before:Date.now()/1000+(expired?-1:7*86400)}}}},
   create:async(args,opts)=>{events.push(['create',args,opts]);const id='new-'+args.metadata.bookingId;created.set(id,args);return {id};},
   cancel:async id=>{events.push(['cancel',id]);if(failRelease&&id.startsWith('old'))throw Error('Isolated old-hold release failure');return {id,status:'canceled'};}
  };

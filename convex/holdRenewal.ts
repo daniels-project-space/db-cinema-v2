@@ -21,6 +21,15 @@ function captureBefore(intent: Stripe.PaymentIntent): number | undefined {
   return typeof seconds === "number" ? seconds * 1000 : undefined;
 }
 
+/** A requested amount is not proof that the full value remains authorised. */
+function renewedHoldExpiry(intent: Stripe.PaymentIntent): number | undefined {
+  const expiresAt = captureBefore(intent);
+  return intent.status === "requires_capture" && intent.amount_received === 0 &&
+    Number.isSafeInteger(intent.amount) && intent.amount > 0 &&
+    intent.amount_capturable === intent.amount && Number.isFinite(expiresAt) && expiresAt! > Date.now()
+    ? expiresAt : undefined;
+}
+
 async function notify(email: string | null, subject: string, html: string) {
   if (email) await sendMail({ to: email, subject, html });
 }
@@ -57,9 +66,11 @@ async function reconcile(ctx: any, bookingId: any, oldId: string, newId: string,
   const intent = await sb.paymentIntents.retrieve(newId, { expand: ["latest_charge"] });
   if (!await renewalIntentMatches(ctx, bookingId, oldId, intent, sb)) throw Error("Rental card authorisation does not match. Please contact us.");
   if (intent.status === "requires_capture") {
-    const expiresAt = captureBefore(intent);
-    if (!expiresAt || expiresAt <= Date.now()) {
-      await sb.paymentIntents.cancel(newId).catch(console.error);
+    const expiresAt = renewedHoldExpiry(intent);
+    if (expiresAt === undefined) {
+      // Never cancel captured funds or retire the earlier hold for an
+      // incomplete replacement. Captured receipts need team settlement.
+      if (intent.amount_received === 0) await sb.paymentIntents.cancel(newId).catch(console.error);
       await ctx.runMutation(internal.bookings.setRenewalResult, {
         bookingId, oldIntentId: oldId, intentId: newId, status: "failed",
       });
@@ -181,9 +192,9 @@ export const reconcileRenewalWebhook = internalAction({
       if (oldId === b.oldIntentId) await reconcile(ctx, a.bookingId, oldId, intent.id, sb);
       return;
     }
-    const expiresAt = captureBefore(intent);
+    const expiresAt = renewedHoldExpiry(intent);
     const status = intent.status === "succeeded" || intent.amount_received > 0 ? "captured" :
-      intent.status === "requires_capture" && expiresAt != null && expiresAt > Date.now() ? "held" :
+      expiresAt !== undefined ? "held" :
       intent.status === "requires_action" ? "requires_action" : intent.status === "processing" ? "processing" : "failed";
     await ctx.runMutation(internal.bookings.reconcileRenewedHold, { bookingId: a.bookingId, intentId: intent.id, status,
       ...(status === "held" ? { expiresAt } : {}) });
