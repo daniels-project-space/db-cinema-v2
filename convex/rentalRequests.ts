@@ -1,3 +1,4 @@
+import { assertCurrentKitSource } from "./lib/rentalSwapQuote";
 import {dateRequestSelection} from "./lib/rentalDateSelectionFields";
 import {resolveDateRequest,sameDateInput,assertDateSelection} from "./lib/rentalDateSelection";
 import { query, mutation } from "./_generated/server";
@@ -74,6 +75,7 @@ export const review = mutation({
     }
     if (decision === "approved" && (!["pending_payment", "confirmed", "active"].includes(booking!.status) || booking!.cancellationDecision || booking!.returnDecision)) throw Error("This rental can no longer accept a new change. Reply in the conversation instead.");
     if (decision === "approved" && request.kind === "cancel" && booking!.status === "active") throw Error("This rental has started. Arrange an early return in the conversation instead.");
+    if(decision==="approved")assertCurrentKitSource(booking,request);
     if(decision==="approved"&&request.dateSelection)assertDateSelection(request.dateSelection,booking,request.dateSelection.start,request.dateSelection.end,request.dateSelection.pickupTime,request.dateSelection.returnTime);
     const messageId = await postRentalMessage(ctx, { accountId: request.accountId, bookingId, sender: "system",
       text: decision === "approved"

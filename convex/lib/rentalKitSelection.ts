@@ -18,6 +18,7 @@ export async function resolveKitRequest(ctx: { db: { get: (id: any) => Promise<a
   if (source && (!input.source || input.source.listingId !== source.listingId || input.source.qty !== source.qty || input.source.start !== source.start || input.source.end !== source.end)) throw Error("Your current kit changed. Reopen the request and choose the item again.");
   const addition = input.change !== "remove" && input.listingId ? await ctx.db.get(input.listingId) as Doc<"listings"> | null : null;
   if (input.change !== "remove" && !requestableListing(addition)) throw Error("This equipment can no longer be requested. Choose another item or message the team.");
+  if(input.change==="swap"&&input.listingId===source?.listingId)throw Error("Choose a different item for the equipment swap.");
   const detail = rentalRequestDetail({ kind: "items", note: input.note, change: input.change, qty: input.quantity, item: source?.title, currentQty: source?.qty, addition: addition?.title });
   const snapshot: Infer<typeof kitRequestSnapshot> = { ...input, note: input.note.trim(),
     ...(addition ? { additionTitle: addition.title } : {}),

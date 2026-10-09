@@ -326,12 +326,7 @@ export const recordRefund = internalMutation({
     await ctx.db.patch(id, { stripeRefundId, status, updatedAt: Date.now() });
     const b = await ctx.db.get(r.bookingId);
     if (!b) return;
-    const a = await ctx.db
-      .query("accounts")
-      .withIndex("by_email", (q) =>
-        q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
-      )
-      .first();
+    const a = await accountForRental(ctx, b);
     if (a)
       await postRentalMessage(ctx, {
         accountId: a._id,
@@ -419,12 +414,7 @@ export const recordRefundPart = internalMutation({
     if (aggregate !== "prepared" && aggregate !== r.status) {
       const b = await ctx.db.get(r.bookingId);
       if (!b) return;
-      const a = await ctx.db
-        .query("accounts")
-        .withIndex("by_email", (q) =>
-          q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
-        )
-        .first();
+      const a = await accountForRental(ctx, b);
       if (a)
         await postRentalMessage(ctx, {
           accountId: a._id,

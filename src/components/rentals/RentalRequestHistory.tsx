@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import styles from "./RentalRequestHistory.module.css";
+import { RentalKitSwap } from "@/components/admin/RentalKitSwap";
 import { RentalKitRemoval } from "@/components/admin/RentalKitRemoval";
 import { RentalKitProposal } from "@/components/admin/RentalKitProposal";
 import { SmartImage } from "@/components/SmartImage";
@@ -25,6 +26,8 @@ function RequestHistory({ token, bookingId, admin = false, consolidatedExtension
   const { results: requests, status, loadMore } = usePaginatedQuery(api.rentalRequests.list, { token, bookingId: bookingId as any, admin }, { initialNumItems: 30 });
   const review = useMutation(api.rentalRequests.review);
   const [kitRequest,setKitRequest]=useState<string|null>(null);
+  const swapLauncher=useRef<HTMLButtonElement|null>(null);
+  const [swapRequest,setSwapRequest]=useState<string|null>(null);
   const [removeRequest,setRemoveRequest]=useState<string|null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [decision, setDecision] = useState<"approved" | "declined">("approved");
@@ -76,7 +79,7 @@ function RequestHistory({ token, bookingId, admin = false, consolidatedExtension
         {admin && request.status === "approved" && request.kind === "items" && !request.execution && <div className={styles.actions}>
           {(!request.kitSelection || request.kitSelection.change === "add") && <button type="button" disabled={busy} onClick={()=>setKitRequest(request._id)}>Create agreed kit proposal</button>}
           {(!request.kitSelection || request.kitSelection.change === "remove") && <button type="button" disabled={busy} onClick={()=>setRemoveRequest(request._id)}>Apply agreed equipment removal</button>}
-          {request.kitSelection?.change === "swap" && <a href={ownerConversationUrl({bookingId})}>Discuss agreed swap</a>}
+          {request.kitSelection?.change === "swap" && <button type="button" disabled={busy} onClick={event=>{swapLauncher.current=event.currentTarget;setSwapRequest(request._id);}}>Review agreed swap</button>}
         </div>}
         {admin && request.status === "pending" && !request.extension && <div className={styles.actions}>
           <button type="button" disabled={busy} onClick={() => open(request._id, "approved")}>Approve for arrangement</button>
@@ -91,6 +94,7 @@ function RequestHistory({ token, bookingId, admin = false, consolidatedExtension
     </div>
     {(status === "CanLoadMore" || status === "LoadingMore") && <div className={styles.actions}><button type="button" disabled={status === "LoadingMore" || busy} onClick={() => loadMore(30)}>{status === "LoadingMore" ? "Loading earlier requests…" : "Show earlier requests"}</button></div>}
     {admin&&kitRequest&&<RentalKitProposal token={token} bookingId={bookingId} changeRequestId={kitRequest} decisionNote={requests.find(r=>r._id===kitRequest)?.decisionNote} onClose={()=>setKitRequest(null)}/>}
+    {admin&&swapRequest&&<RentalKitSwap token={token} bookingId={bookingId} id={swapRequest} returnFocus={swapLauncher.current} onClose={()=>setSwapRequest(null)}/>}
     {admin&&removeRequest&&<RentalKitRemoval token={token} bookingId={bookingId} id={removeRequest} onClose={()=>setRemoveRequest(null)}/>}
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {notice && <p role="status" className={styles.notice}>{notice}</p>}
