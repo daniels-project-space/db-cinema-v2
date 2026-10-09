@@ -44,13 +44,15 @@ export const list = query({
       const validAddition=row.kind==="items"&&linkedAddition?.bookingId===row.bookingId&&linkedAddition.changeRequestId===row._id;
       const addition=row.additionRequestId?(validAddition?{id:linkedAddition!._id,status:linkedAddition!.status,title:linkedAddition!.title,qty:linkedAddition!.qty,start:linkedAddition!.start,end:linkedAddition!.end,amount:(linkedAddition!.draftReplacement?linkedAddition!.baseTotal??0:0)+linkedAddition!.lineTotal+linkedAddition!.securityCharge+(linkedAddition!.membershipFee??0),paymentReceived:!!linkedAddition!.paymentIntentId,updatedAt:linkedAddition!.updatedAt}:{id:null,status:"unavailable",title:null,qty:null,start:null,end:null,amount:null,paymentReceived:false,updatedAt:null}):undefined;
       const selection=row.kitSelection;
+      const linkedSwap=row.swapProposalId?await ctx.db.get(row.swapProposalId):null;
+      const validSwap=row.kind==="items"&&selection?.change==="swap"&&linkedSwap?.bookingId===row.bookingId&&linkedSwap.accountId===row.accountId&&linkedSwap.changeRequestId===row._id;
       const selectedEquipment=selection?[...(selection.sourceListingId?[{listingId:selection.sourceListingId,title:selection.sourceTitle??"Requested equipment",qty:selection.quantity,role:"current"}]:[]),...(selection.listingId?[{listingId:selection.listingId,title:selection.additionTitle??"Requested equipment",qty:selection.quantity,role:"requested"}]:[])]:validAddition?[{listingId:linkedAddition!.listingId,title:linkedAddition!.title,qty:linkedAddition!.qty,role:"requested"}]:booking!.lineItems.slice(0,1).map(line=>({listingId:line.listingId,title:line.title,qty:line.qty,role:"current"}));
       const equipment=await Promise.all(selectedEquipment.map(async item=>{const images=await imagesFor(item.listingId);return {...item,heroImage:images[0]??null,imageSources:images};}));
       return {
       _id: row._id, kind: row.kind, detail: row.detail, createdAt: row.createdAt,
       status: extension ? extension.status === "pending" ? "pending" as const : ["declined", "withdrawn", "expired", "refunded"].includes(extension.status) ? "declined" as const : "approved" as const : row.status ?? "pending", decisionNote: row.decisionNote, decidedAt: row.decidedAt,
       execution: row.execution ? { operation: row.execution.operation, status: row.execution.status, appliedAt: row.execution.appliedAt, detail: row.execution.detail } : undefined,
-      extension,addition,equipment,...(row.dateSelection?{dateSelection:row.dateSelection}:{}),...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
+      extension,addition,equipment,...(validSwap?{swapProposalId:linkedSwap!._id,swapProposalState:linkedSwap!.state}:{}),...(row.dateSelection?{dateSelection:row.dateSelection}:{}),...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
     }; })) };
   },
 });

@@ -50,12 +50,19 @@ export async function rentalSwapQuote(ctx:any,booking:Doc<"bookings">,request:an
  // Redeemed credits are not cash. A swap may refund only the rental cash still represented in the booking.
  const totalPence=pence(booking.total),depositPence=pence(booking.depositAmount);
  if(totalPence<depositPence)throw Error("The saved rental payment and security amounts need review.");
- const rentalCashPence=totalPence-depositPence;
+ const rentalCashPence=Math.max(0,totalPence-depositPence-pence(booking.deliveryFee??0));
  const priorRefundPence=refunds.reduce((sum:number,r:any)=>sum+(r.parts?r.parts.filter((part:any)=>part.status==="succeeded").reduce((n:number,part:any)=>n+part.amountPence,0):r.status==="succeeded"?r.amountPence:0),0);
  const refundPence=Math.min(Math.max(0,-differencePence),Math.max(0,rentalCashPence-priorRefundPence));
  const nonCashDifferencePence=Math.max(0,-differencePence-refundPence);
  const sourceCatalog=await ctx.db.get(source.listingId);
  const componentFingerprint=(l:any)=>JSON.stringify(l.components.map((c:any)=>[c.inventoryUnitId,c.qty]).sort((a:any,b:any)=>String(a[0]).localeCompare(String(b[0]))));
- const snapshot=JSON.stringify([booking.lineItems,booking.pickupTime??null,booking.returnTime??null,booking.subtotal,booking.total,booking.depositAmount,booking.depositHoldAmount??0,booking.securityPolicyVersion??null,booking.securityWaiverReason??null,componentFingerprint(sourceCatalog),componentFingerprint(target)]);
+ const catalogSnapshot=(l:any)=>[l._id,l.title,l.active,l.suppressed??false,l.marketingOnly??false,l.depositAmount,l.pricing,componentFingerprint(l)];
+ const snapshot=JSON.stringify([booking.status,booking.lineItems,booking.pickupTime??null,booking.returnTime??null,booking.subtotal,booking.total,booking.depositAmount,booking.depositHoldAmount??0,booking.securityPolicyVersion??null,booking.securityWaiverReason??null,booking.securityHoldPolicyVersion??null,booking.stripeDepositIntentId??null,booking.creditApplied??0,booking.rentalPaidPence??null,booking.deliveryFee??0,booking.discount??0,booking.pricingVersion??null,booking.benefitKind??null,booking.creditAllocations??[],booking.refundCreditApplied??0,booking.earnedCreditApplied??0,booking.membershipCreditApplied??0,booking.membershipSignupOfferSaving??0,booking.agreementDocs??[],catalogSnapshot(sourceCatalog),catalog.map(catalogSnapshot),refunds.map((r:any)=>[r._id,r.status,r.amountPence,r.parts??null]).sort((a:any,b:any)=>String(a[0]).localeCompare(String(b[0])))]);
  return {source,target,selection,replacement,finalLines,allocationMode,snapshot,removedLinePence,replacementLinePence,differencePence,refundPence,nonCashDifferencePence,chargePence:Math.max(0,differencePence)+pence(securityCharge),securityCharge,holdTotal:security.hold,equipmentValue};
+}
+
+/** An opaque equality token; internal booking/catalogue details never reach the renter. */
+export async function swapQuoteKey(booking:any,request:any,q:any){
+ const basis=JSON.stringify(["swap-difference-v1",booking._id,request._id,request.accountId,request.kitSelection,q.snapshot,q.finalLines,q.allocationMode,q.removedLinePence,q.replacementLinePence,q.differencePence,q.refundPence,q.nonCashDifferencePence,q.chargePence,q.securityCharge,q.holdTotal]);
+ return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(basis))),byte=>byte.toString(16).padStart(2,"0")).join("");
 }
