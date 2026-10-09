@@ -6,6 +6,7 @@ import { assertRentalInventory } from "./rentalInventory";
 import { assertRenterExposure } from "./rentalExposure";
 import { requestableListing } from "./rentalKitSelection";
 import { quote } from "./pricing";
+import { canDeferAdditionSecurity } from "../../shared/pickupSecurity";
 
 const pence=(amount:number)=>{if(!Number.isFinite(amount)||amount<0||!Number.isSafeInteger(Math.round(amount*100)))throw Error("The saved rental price needs review.");return Math.round(amount*100);};
 /** A selected source is an immutable identity, not a mutable position in a kit. */
@@ -22,8 +23,10 @@ export function assertCurrentKitSource(booking:any,request:any){
 export async function rentalSwapQuote(ctx:any,booking:Doc<"bookings">,request:any){
  const selection=request?.kitSelection;
  if(selection?.change!=="swap")throw Error("Choose an approved equipment swap.");
- if(!["confirmed","active"].includes(booking.status)||booking.cancellationDecision||booking.returnDecision)throw Error("This paid rental cannot be swapped now.");
+ if(!["confirmed","active"].includes(booking.status)||booking.cancellationDecision||booking.returnDecision||booking.returnedAt)throw Error("This paid rental cannot be swapped now.");
  if(booking.activeAdditionId||booking.activeExtensionId)throw Error("Finish or withdraw the open kit or extension proposal first.");
+ if(["starting","requires_action","failed"].includes(booking.depositHoldRenewalStatus??""))throw Error("Resolve the existing card hold renewal before swapping equipment.");
+ if((booking.depositHoldAmount??0)>0&&!canDeferAdditionSecurity(booking)&&(booking.depositHoldExpiresAt??0)<=Date.now()+36*3600000)throw Error("Renew the current security hold before swapping equipment; the proposal must not interrupt rental coverage.");
  const source=assertCurrentKitSource(booking,request)!;
  const target=await ctx.db.get(selection.listingId);
  if(!requestableListing(target))throw Error("The replacement equipment is unavailable.");
@@ -45,7 +48,9 @@ export async function rentalSwapQuote(ctx:any,booking:Doc<"bookings">,request:an
  const securityCharge=["paid_membership","new_paid_membership"].includes(booking.securityWaiverReason??"")?0:Math.max(0,security.deposit-booking.depositAmount);
  const differencePence=replacementLinePence-removedLinePence;
  // Redeemed credits are not cash. A swap may refund only the rental cash still represented in the booking.
- const rentalCashPence=pence(Math.max(0,booking.total-booking.depositAmount));
+ const totalPence=pence(booking.total),depositPence=pence(booking.depositAmount);
+ if(totalPence<depositPence)throw Error("The saved rental payment and security amounts need review.");
+ const rentalCashPence=totalPence-depositPence;
  const priorRefundPence=refunds.reduce((sum:number,r:any)=>sum+(r.parts?r.parts.filter((part:any)=>part.status==="succeeded").reduce((n:number,part:any)=>n+part.amountPence,0):r.status==="succeeded"?r.amountPence:0),0);
  const refundPence=Math.min(Math.max(0,-differencePence),Math.max(0,rentalCashPence-priorRefundPence));
  const nonCashDifferencePence=Math.max(0,-differencePence-refundPence);
