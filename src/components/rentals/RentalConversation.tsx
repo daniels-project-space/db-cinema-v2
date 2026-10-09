@@ -37,6 +37,7 @@ export function RentalConversation({
   openRevision?: number;
   bookingSummary?: { image?: string | null; imageSources?: string[]; dates: string; count: number };
 }) {
+  const extension = useQuery(api.rentalExtensions.state, bookingId ? {token,bookingId:bookingId as any,admin} : "skip");
   const thread = useQuery(api.rentalChat.messages, {
     token,
     bookingId: bookingId as any,
@@ -208,6 +209,7 @@ export function RentalConversation({
     ).values(),
   ].sort((a, b) => a.at - b.at);
   const teamHandling = thread?.escalated ?? escalated;
+  const displayedStage = stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage;
   return (
     <section
       ref={container}
@@ -227,17 +229,18 @@ export function RentalConversation({
           {admin ? teamHandling ? "Hand to Gaffer" : "Take over" : teamHandling ? "Team notified" : "Request a human"}
         </button>
       </header>
-      {bookingId && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin} compact/>}
       <div className={`management-conversation-main ${styles.main}`}>
+      {bookingId && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin} compact/>}
       <div className={styles.bookingStrip}>
         {bookingSummary?.image && <SmartImage src={bookingSummary.image} fallbackSources={bookingSummary.imageSources} alt={title} className={styles.kitImage} />}
         <div><h4>{title}</h4><p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
-        <span className={styles.stage}>{stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage}</span>
+        <span className={styles.stage} data-ready={["Verification approved","On hire","Returned"].includes(displayedStage)}>{displayedStage}</span>
+        {!!extension?.requests.length && <button type="button" data-testid="chat-open-extension" className={styles.extensionLink} onClick={()=>{const panel=container.current?.querySelector<HTMLElement>("[data-testid=rental-extension-panel]");panel?.scrollIntoView({block:"start",behavior:"auto"});panel?.focus({preventScroll:true});}}>Extension details ↗</button>}
       </div>
       {!admin && bookingId && (
         <RentalAdditionApproval token={token} bookingId={bookingId} />
       )}
-      {bookingId && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
+      {bookingId && !tools && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
       <div
         ref={body}
         className={`management-conversation-messages ${styles.messages}`}
@@ -366,7 +369,7 @@ export function RentalConversation({
       </footer>
       </div>
       {tools && (
-        <aside aria-label={admin ? "Rental management controls" : "Your rental details"} className={`management-conversation-tools ${styles.tools}`}><div className={styles.toolsHeading}><p className={styles.eyebrow}>{admin ? "Operations" : "Your booking"}</p><h4>{admin ? "Booking details" : "Rental details"}</h4></div>{tools}</aside>
+        <aside aria-label={admin ? "Rental management controls" : "Your rental details"} className={`management-conversation-tools ${styles.tools}`}><div className={styles.toolsHeading}><p className={styles.eyebrow}>{admin ? "Operations" : "Your booking"}</p><h4>{admin ? "Booking details" : "Rental details"}</h4></div>{bookingId && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}{tools}</aside>
       )}
     </section>
   );

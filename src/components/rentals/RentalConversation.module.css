@@ -140,3 +140,9 @@
 .inboxScreen .inboxHeading button[aria-pressed=true] { border-color:#b9816066; }
 .inboxScreen .tabs button { padding:8px 12px; }
 .inboxScreen .attentionToggle { padding:0; border:0; }
+
+.tools :global([data-testid=rental-extension-panel]){margin:0 0 24px;padding:16px;border-color:#3b3b39;background:#171818}.tools :global([data-testid=rental-extension-panel]) h2{font-size:27px}
+.stage[data-ready=false]{color:#dcb089;border-color:#76513a;background:#9b6b431c}
+.extensionLink{color:#d1a17d;font-size:11px;border:1px solid #76533b;padding:7px 10px;white-space:nowrap;border-radius:4px}
+@media(max-width:767px){.extensionLink{margin-left:auto}}
+@media(min-width:1151px){.withTools .main{overflow-y:auto;scrollbar-width:thin;scrollbar-color:#ffffff20 transparent}}
