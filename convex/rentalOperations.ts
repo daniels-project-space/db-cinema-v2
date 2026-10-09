@@ -1,3 +1,4 @@
+import {rescheduledLines} from "../shared/rentalReschedule";
 import {stockWindow} from "./lib/stockWindows";
 import {schedulePickupHold} from "./pickupSecurity";
 import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
@@ -66,8 +67,8 @@ export const details = query({
 });
 /** Availability preview uses the same exact-time stock checks as the final date update. */
 export const reschedulePreview = query({
- args:{token:v.string(),bookingId:v.id("bookings"),start:v.number(),end:v.optional(v.number()),refreshKey:v.optional(v.number())},
- handler:async(ctx,{token,bookingId,start,end})=>{
+ args:{token:v.string(),bookingId:v.id("bookings"),start:v.number(),end:v.optional(v.number()),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),refreshKey:v.optional(v.number())},
+ handler:async(ctx,{token,bookingId,start,end,pickupTime,returnTime})=>{
   if(!checkAdminToken(token))return null;
   const b=await ctx.db.get(bookingId);
   try{
@@ -80,9 +81,7 @@ export const reschedulePreview = query({
    const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
    if(reservations.some(r=>r.source!=="site"||r.status==="hold"))throw Error("Resolve stock holds or manage this rental through its original platform.");
    await assertRentalAllocation(ctx,b,reservations);
-   const previous=Math.min(...b.lineItems.map(li=>li.start)),shift=start-previous,previousEnd=Math.max(...b.lineItems.map(li=>li.end));
-   const endShift=end===undefined?0:end-(previousEnd+shift);
-   const lines=bookingStockLines(b).map(li=>({...li,start:li.start+shift,end:li.end+shift+endShift}));
+   const {lines}=rescheduledLines(b,start,end,pickupTime,returnTime);
    await assertRenterExposure(ctx,b,lines);await assertRentalInventory(ctx,lines,bookingId);
    return {available:true,reason:null};
   }catch(e:any){return {available:false,reason:e.message??"Unable to check these dates."};}
@@ -95,13 +94,14 @@ export const reschedule = mutation({
     start: v.number(),
     end: v.optional(v.number()),
     keepAgreedPrice: v.optional(v.boolean()),
+    pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
     reason: v.string(),
     changeRequestId: v.optional(v.id("rental_change_requests")),
   },
-  handler: async (ctx, { token, bookingId, start, end, keepAgreedPrice, reason, changeRequestId }) => {
+  handler: async (ctx, { token, bookingId, start, end, pickupTime, returnTime, keepAgreedPrice, reason, changeRequestId }) => {
     await assertAdmin(ctx, token, "rentalOperations.reschedule");
     const b = await ctx.db.get(bookingId);
-    const operationKey = rescheduleRequestKey(start, end, keepAgreedPrice, reason);
+    const operationKey = rescheduleRequestKey(start, end, keepAgreedPrice, reason, pickupTime, returnTime);
     const request = await approvedRequest(ctx, b, changeRequestId, "reschedule", operationKey);
     if (request?.execution?.status === "applied") return { ok: true };
     if (!b || b.status !== "confirmed")
@@ -126,29 +126,23 @@ export const reschedule = mutation({
       throw Error("Manage this rental through its original booking platform");
     if (reservations.some(r => r.status === "hold")) throw Error("Resolve the open stock hold before changing this rental.");
     const allocationMode=await assertRentalAllocation(ctx, b, reservations);
-    const previous = Math.min(...b.lineItems.map((li) => li.start));
-    const shift = start - previous;
-    const previousEnd = Math.max(...b.lineItems.map(li => li.end));
     if (end !== undefined && (!Number.isSafeInteger(end) || end % 86400000 !== 0 || end < start)) throw Error("Choose a valid return date on or after the start.");
-    const endShift = end === undefined ? 0 : end - (previousEnd + shift);
+    const {lines,endShift}=rescheduledLines(b,start,end,pickupTime,returnTime);
     if (endShift !== 0 && keepAgreedPrice !== true) throw Error("Confirm that the changed duration keeps the agreed charges; extra days are complimentary.");
-    const lines = bookingStockLines(b).map((li) => ({
-      ...li,
-      start: li.start + shift,
-      end: li.end + shift + endShift,
-    }));
     await assertRenterExposure(ctx, b, lines);
     await assertRentalInventory(ctx, lines, bookingId);
-    await ctx.db.patch(bookingId, { lineItems: lines, cancellationPolicyStart: start });
-    await schedulePickupHold(ctx,{...b,lineItems:lines});
+    const clockPatch={...(pickupTime!==undefined?{pickupTime}:{}),...(returnTime!==undefined?{returnTime}:{})};
+    await schedulePickupHold(ctx,{...b,...clockPatch,lineItems:lines});
+    await ctx.db.patch(bookingId, { lineItems: lines, ...clockPatch, cancellationPolicyStart: start });
     for (const r of reservations) if (["confirmed","hold"].includes(r.status)) await ctx.db.patch(r._id,{status:"cancelled"});
     for(const li of lines){
       const listing=await ctx.db.get(li.listingId);
-      const window=allocationMode==="legacy"?{start:li.start,end:li.end}:stockWindow(li,allocationMode==="precise");
+      const clockChange=pickupTime!==undefined||returnTime!==undefined;
+      const window=allocationMode==="legacy"&&!clockChange?{start:li.start,end:li.end}:stockWindow(li,clockChange||allocationMode==="precise");
       for(const comp of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:li.listingId,bookingId,...window,qty:comp.qty*li.qty,source:"site",status:"confirmed"});
     }
     const a = await accountForRental(ctx, b);
-    const detail = `${new Date(start).toISOString().slice(0, 10)} → ${new Date(Math.max(...lines.map((li) => li.end))).toISOString().slice(0, 10)}`;
+    const detail = `${new Date(start).toISOString().slice(0, 10)} → ${new Date(Math.max(...lines.map((li) => li.end))).toISOString().slice(0, 10)}${pickupTime!==undefined?` · Collection ${pickupTime} London time`:""}${returnTime!==undefined?` · Return ${returnTime} London time`:""}`;
     if (a)
       await postRentalMessage(ctx, {
         accountId: a._id,

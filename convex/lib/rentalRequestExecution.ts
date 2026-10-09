@@ -29,8 +29,10 @@ export async function finishRequest(ctx: any, booking: any, id: any, operation: 
   await ctx.db.patch(request._id, { execution: { operation, operationKey, status: "applied", startedAt: request.execution?.startedAt ?? Date.now(), appliedAt: Date.now(), detail } });
 }
 
-export function rescheduleRequestKey(start: number, end: number | undefined, keepAgreedPrice: boolean | undefined, reason: string) {
-  return JSON.stringify(["reschedule", start, end ?? null, keepAgreedPrice === true, reason.trim()]);
+export function rescheduleRequestKey(start: number, end: number | undefined, keepAgreedPrice: boolean | undefined, reason: string, pickupTime?:string, returnTime?:string) {
+  const key:any[]=["reschedule", start, end ?? null, keepAgreedPrice === true, reason.trim()];
+  if(pickupTime!==undefined||returnTime!==undefined)key.push({pickupTime:pickupTime??null,returnTime:returnTime??null});
+  return JSON.stringify(key);
 }
 export function cancellationRequestKey(bookingId: string, requestId: string) {
   return `cancellation:${bookingId}:${requestId}`;

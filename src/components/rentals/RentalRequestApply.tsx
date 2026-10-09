@@ -6,6 +6,7 @@ import { api } from "@cvx/_generated/api";
 import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
 import { rentalTitle } from "@/lib/rentalPresentation";
+import { RENTAL_TIME_SLOTS } from "../../../shared/rentalWindow";
 import { RentalRequestCalendar } from "./RentalRequestCalendar";
 import styles from "./RentalRequestApply.module.css";
 
@@ -17,13 +18,14 @@ export function RentalRequestApply(props:Props){return <RequestApply key={JSON.s
 function RequestApply({token,bookingId,id,label,kind,decisionNote,disabled=false}:Props){
   const [open,setOpen]=useState(false),[start,setStart]=useState(""),[end,setEnd]=useState(""),[keepPrice,setKeepPrice]=useState(false),[consent,setConsent]=useState(false);
   const [reason,setReason]=useState((decisionNote??"Apply the agreed customer request.").slice(0,400)),[busy,setBusy]=useState(false),[error,setError]=useState(""),[refreshKey,setRefreshKey]=useState(0);
+  const [pickupTime,setPickupTime]=useState(""),[returnTime,setReturnTime]=useState("");
   const [preview,setPreview]=useState<Preview|null>(null),[previewError,setPreviewError]=useState("");
   const inFlight=useRef(false),dialog=useRef<HTMLDialogElement>(null),launcher=useRef<HTMLButtonElement>(null),titleId=useId();
   const details=useQuery(api.rentalOperations.details,open?{token,bookingId:bookingId as any,refreshKey}:"skip");
-  const stock=useQuery(api.rentalOperations.reschedulePreview,open&&kind==="dates"&&start?{token,bookingId:bookingId as any,start:Date.parse(start+"T00:00:00Z"),end:end?Date.parse(end+"T00:00:00Z"):undefined,refreshKey}:"skip");
+  const stock=useQuery(api.rentalOperations.reschedulePreview,open&&kind==="dates"&&start?{token,bookingId:bookingId as any,start:Date.parse(start+"T00:00:00Z"),end:end?Date.parse(end+"T00:00:00Z"):undefined,pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,refreshKey}:"skip");
   const reschedule=useMutation(api.rentalOperations.reschedule),cancel=useAction(api.checkout.cancelByAdmin),getPreview=useAction(api.checkout.cancellationPreview);
   useEffect(()=>{if(!open)return;const node=dialog.current;if(node&&!node.open)node.showModal();return()=>{if(node?.open)node.close();launcher.current?.focus();};},[open]);
-  useEffect(()=>{if(!open||kind!=="cancel")return;const timer=setInterval(()=>setRefreshKey(k=>k+1),60000);return()=>clearInterval(timer);},[open,kind]);
+  useEffect(()=>{if(!open)return;const timer=setInterval(()=>setRefreshKey(k=>k+1),60000);return()=>clearInterval(timer);},[open,kind]);
   useEffect(()=>{if(!open||kind!=="cancel")return;let active=true;setPreview(null);setPreviewError("");setConsent(false);getPreview({token,bookingId:bookingId as any}).then(value=>{if(active)setPreview(value);}).catch(e=>{if(active)setPreviewError(e.data?.message??e.message??"Unable to verify the current settlement.");});return()=>{active=false;};},[open,kind,token,bookingId,refreshKey,getPreview]);
   useEffect(()=>{setConsent(false);},[details?.cancellationKind]);
   async function submit(){
@@ -31,7 +33,7 @@ function RequestApply({token,bookingId,id,label,kind,decisionNote,disabled=false
     try{
       if(kind==="dates"){
         if(!start)throw Error("Choose the agreed collection date.");
-        await reschedule({token,bookingId:bookingId as any,changeRequestId:id as any,start:Date.parse(start+"T00:00:00Z"),end:end?Date.parse(end+"T00:00:00Z"):undefined,keepAgreedPrice:keepPrice,reason});
+        await reschedule({token,bookingId:bookingId as any,changeRequestId:id as any,start:Date.parse(start+"T00:00:00Z"),end:end?Date.parse(end+"T00:00:00Z"):undefined,keepAgreedPrice:keepPrice,pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,reason});
       }else{
         if(!consent||!preview||preview.kind!==details.cancellationKind)throw Error("Review and confirm the current cancellation settlement.");
         await cancel({token,bookingId:bookingId as any,changeRequestId:id as any,reason,expectedCancellationKind:preview.kind});
@@ -54,8 +56,9 @@ function RequestApply({token,bookingId,id,label,kind,decisionNote,disabled=false
         {kind==="dates"?<>
           <section className={styles.periods}><div><span>Current hire</span><strong>{currentStart===undefined?"—":date(currentStart)} – {currentEnd===undefined?"—":date(currentEnd)}</strong><small>Original agreed dates</small></div><span className={styles.arrow}>→</span><div className={styles.agreed}><span>Agreed hire</span><strong>{chosenStart===undefined?"Choose dates":date(chosenStart)}{chosenEnd===undefined?"":` – ${date(chosenEnd)}`}</strong><small>{chosenStart!==undefined&&chosenEnd!==undefined?`${Math.round((chosenEnd-chosenStart)/DAY)+1} rental days`:"Select the new collection date"}</small></div></section>
           <section className={styles.section}><h3>Select new rental dates</h3><div className={styles.calendarLayout}>{currentStart!==undefined&&<RentalRequestCalendar initial={currentStart} start={start} end={end} onStart={setStart} onEnd={setEnd} disabled={busy}/>}<div className={styles.inputs}><label>Agreed collection date<input required type="date" value={start} disabled={busy} onChange={e=>setStart(e.target.value)}/></label><label>Agreed return date · optional<input type="date" min={start||undefined} value={end} disabled={busy} onChange={e=>setEnd(e.target.value)}/></label></div></div><p className={styles.note}>Leave return blank to keep the duration.</p></section>
-          <section className={styles.section}><h3>Equipment & agreed times</h3>{details.lineItems.map((li,i)=><div className={styles.item} key={i}><span>{li.qty}× {rentalTitle(li.title)}</span><small>Pickup {li.pickupTime??details.pickupTime??"to confirm"} · Return {li.returnTime??details.returnTime??"to confirm"} · London</small></div>)}</section>
-          <div className={styles.info} data-available={stock?.available}><span>{stock?.available?"✓":"◷"}</span><div><strong>{!start?"Choose dates to check availability":!stock?"Checking stock…":stock.available?"Stock available for the selected period":"Selected dates unavailable"}</strong><p>{stock?.reason??"Existing collection and return times are retained. Stock is checked again when confirmed."}</p></div></div><div className={styles.info}><span>£</span><div><strong>Agreed rental charge unchanged</strong><p>Any eligible refund is handled separately.</p></div></div>
+          <section className={styles.section}><h3>Agreed London times</h3><div className={styles.inputs}><label>First collection time<select aria-label="Agreed collection time" value={pickupTime} disabled={busy} onChange={e=>setPickupTime(e.target.value)}><option value="">Keep recorded collection times</option>{RENTAL_TIME_SLOTS.map(time=><option key={time} value={time}>{time}</option>)}</select></label><label>Final return time<select aria-label="Agreed return time" value={returnTime} disabled={busy} onChange={e=>setReturnTime(e.target.value)}><option value="">Keep recorded return times</option>{RENTAL_TIME_SLOTS.map(time=><option key={time} value={time}>{time}</option>)}</select></label></div><p className={styles.note}>New times apply to the first collection and final return. Intermediate equipment handovers keep their recorded times.</p></section>
+          <section className={styles.section}><h3>Recorded equipment times</h3>{details.lineItems.map((li,i)=><div className={styles.item} key={i}><span>{li.qty}× {rentalTitle(li.title)}</span><small>Pickup {li.pickupTime??"to confirm"} · Return {li.returnTime??"to confirm"} · London</small></div>)}</section>
+          <div className={styles.info} data-available={stock?.available}><span>{stock?.available?"✓":"◷"}</span><div><strong>{!start?"Choose dates to check availability":!stock?"Checking stock…":stock.available?"Stock available for the selected period":"Selected dates unavailable"}</strong><p>{stock?.reason??"The selected dates and clocks are checked together, including the existing stock buffer. Stock is checked again when confirmed."}</p></div></div><div className={styles.info}><span>£</span><div><strong>Agreed rental charge unchanged</strong><p>Any eligible refund is handled separately.</p></div></div>
           {end&&<label className={styles.check}><input required type="checkbox" disabled={busy} checked={keepPrice} onChange={e=>setKeepPrice(e.target.checked)}/>Keep the agreed charge. Additional days are complimentary; any refund is handled separately.</label>}
         </>:<>
           <ol className={styles.steps}><li data-active="true"><span>1</span><strong>Confirm cancellation</strong><small>Review settlement</small></li><li><span>2</span><strong>Refund & release</strong><small>Payment provider</small></li><li><span>3</span><strong>Completed</strong><small>Receipt and confirmation</small></li></ol>
