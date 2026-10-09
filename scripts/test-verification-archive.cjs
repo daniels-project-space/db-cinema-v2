@@ -13,10 +13,13 @@ const booking=put('bookings',{accountId:account._id,guestEmail:account.email,did
  await archive.queueVerificationArchive(ctx,booking);assert.equal(tables.get('verification_archives').length,1);
  await assert.rejects(()=>archive.assertVerificationArchive(ctx,booking),/fully archived/);
  const lease=await archive.claim.handler(ctx,{archiveId:job._id});
- const file={archiveId:job._id,generation:lease.generation,kind:'identity-0-front_image',storageId:'file-one',sha256:'hash',size:100,contentType:'image/jpeg'};
+ const file={archiveId:job._id,generation:lease.generation,kind:'identity-0-front_image',storageId:'file-one',sha256:'a'.repeat(64),size:100,contentType:'image/jpeg'};
  await archive.save.handler(ctx,file);await archive.save.handler(ctx,{...file,storageId:'duplicate'});assert(deleted.includes('duplicate'));assert.equal(tables.get('verification_documents').length,1);
  await archive.finish.handler(ctx,{archiveId:job._id,generation:lease.generation,complete:false});assert.equal(job.status,'pending');assert(job.dueAt>Date.now());
- job.dueAt=Date.now();const nextLease=await archive.claim.handler(ctx,{archiveId:job._id});await archive.finish.handler(ctx,{archiveId:job._id,generation:nextLease.generation,complete:true});await archive.assertVerificationArchive(ctx,booking);
+ job.dueAt=Date.now();const nextLease=await archive.claim.handler(ctx,{archiveId:job._id});
+ put('_storage',{_id:'file-one',sha256:file.sha256,size:file.size,contentType:file.contentType});
+ await archive.save.handler(ctx,{...file,generation:nextLease.generation,kind:'address-0',storageId:'file-address',contentType:'application/pdf'});put('_storage',{_id:'file-address',sha256:file.sha256,size:file.size,contentType:'application/pdf'});
+ await archive.finish.handler(ctx,{archiveId:job._id,generation:nextLease.generation,complete:true});await archive.assertVerificationArchive(ctx,booking);
  await assert.rejects(()=>archive.downloadAccess.handler(ctx,{token:'bad',documentId:tables.get('verification_documents')[0]._id}),/unauthorized/);
  const listed=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(listed[0].documents[0].storageId,undefined,'No public storage URL/id exposed in listing');
  assert.equal(listed[0].retention.status,'active-rental');assert.equal(listed[0].retention.activeRentals,1);assert.equal(listed[0].retention.expiresAt,null);
@@ -46,7 +49,7 @@ const booking=put('bookings',{accountId:account._id,guestEmail:account.email,did
  booking.returnedAt=now-30*86400000+1;
  assert.equal(await archive.purgeExpired.handler(ctx,{}),0,'Retain through the full 30 days, even one millisecond before expiry');
  booking.returnedAt=now-30*86400000;
- assert.equal(await archive.purgeExpired.handler(ctx,{}),1);assert.equal(job.status,'deleted');assert(deleted.includes('file-one'));assert.equal(tables.get('verification_documents')[0].sha256,'hash','Keep integrity audit after file deletion');
+ assert.equal(await archive.purgeExpired.handler(ctx,{}),1);assert.equal(job.status,'deleted');assert(deleted.includes('file-one'));assert.equal(tables.get('verification_documents')[0].sha256,'a'.repeat(64),'Keep integrity audit after file deletion');
  Date.now=originalNow;
  await assert.rejects(()=>archive.retry.handler(ctx,{token:'archive-test',archiveId:job._id}),/cannot be reopened/);
  assert.equal(job.status,'deleted','Retries cannot resurrect expired evidence');

@@ -23,7 +23,7 @@ export function AccountDocumentSummary({
   const files = (archives ?? [])
     .filter((a) => a.status !== "deleted")
     .flatMap((a) =>
-      a.documents.map((d) => ({ ...d, complete: a.status === "complete" })),
+      a.documents.map((d) => ({ ...d, complete: a.status === "complete" && a.copiesReady && d.available })),
     )
     .slice(-3);
   return (
@@ -115,7 +115,7 @@ export function AccountDocuments({
     if(!preview || !archives)return;
     const archive=archives.find(a=>a.documents.some(d=>d.id===preview.documentId));
     const clear=()=>{scope.current++;request.current?.abort();setPreview(null);setBusy(false);if(activeUrl.current)URL.revokeObjectURL(activeUrl.current);activeUrl.current=null;};
-    if(!archive || archive.status==="deleted" || !archive.retention.viewable){clear();return;}
+    if(!archive || archive.status==="deleted" || !archive.retention.viewable || !archive.documents.find(d=>d.id===preview.documentId)?.available){clear();return;}
     const expiresAt=archive.retention.expiresAt;if(expiresAt===null)return;
     let timer:ReturnType<typeof setTimeout>;
     const check=()=>{const remaining=expiresAt-Date.now();if(remaining<=0)clear();else timer=setTimeout(check,Math.min(remaining,86400000));};
@@ -231,7 +231,7 @@ export function AccountDocuments({
               {archive.status === "deleted"
                 ? "Files deleted after retention period"
                 : archive.status === "complete"
-                  ? "Archive complete"
+                  ? !archive.retention.viewable ? "Retention ended" : archive.copiesReady ? "Archive complete" : "Saved copies need repair"
                   : archive.status === "attention"
                     ? "Archive needs attention"
                     : "Saving documents"}
@@ -271,19 +271,19 @@ export function AccountDocuments({
                 {!!archive.retention.openCases && <p className="mt-2 text-[11px] text-white/45">Open cases must be closed through the rental controls before their automatic retention ends.</p>}
               </div>
             )}
-            {!["complete", "deleted"].includes(archive.status) && (
+            {archive.status !== "deleted" && archive.retention.viewable && (archive.status !== "complete" || !archive.copiesReady) && (
               <>
                 <p className="mt-2 text-xs text-amber-200">
-                  {archive.error ??
+                  {archive.status === "complete" ? "A saved copy is missing, invalid or incomplete. Handover remains blocked until the document archive is repaired." : archive.error ??
                     "Provider documents are being copied. Do not rely on this archive until it is complete."}
                 </p>
-                <button
+                {archive.source === "drone" ? <p className="mt-2 text-xs text-white/60">Ask the renter to upload a new licence copy from their rental.</p> : <button
                   disabled={busy}
                   onClick={() => void perform(() => retry({ token, archiveId: archive._id }))}
                   className="mt-2 text-xs text-accent-300"
                 >
-                  Retry document archive
-                </button>
+                  {archive.status === "complete" ? "Repair document archive" : "Retry document archive"}
+                </button>}
               </>
             )}
             <ul className="mt-3 space-y-2">
@@ -294,9 +294,9 @@ export function AccountDocuments({
                 >
                   <span className="text-white/60">
                     {documentTitle(document.kind)} ·{" "}
-                    {Math.ceil(document.size / 1024)} KB
+                    {Math.ceil(document.size / 1024)} KB{archive.retention.viewable && !document.available ? " · Copy unavailable" : ""}
                   </span>
-                  {archive.retention.viewable && (
+                  {archive.retention.viewable && document.available && (
                     <button
                       disabled={busy}
                       onClick={() => void view(document)}

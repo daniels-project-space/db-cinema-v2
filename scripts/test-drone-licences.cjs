@@ -14,7 +14,7 @@ put('sessions',{token:'owner',accountId:account._id,expiresAt:Date.now()+60000})
 put('sessions',{token:'other',accountId:other._id,expiresAt:Date.now()+60000});
 put('sessions',{token:'expired',accountId:account._id,expiresAt:Date.now()-1});
 const booking=put('bookings',{accountId:account._id,status:'confirmed',depositHoldAmount:100,depositHoldStatus:'waiting',securityHoldPolicyVersion:PICKUP_HOLD_POLICY,lineItems:[{listingId:drone._id}],stripeCheckoutSessionId:'cs_fixture'});
-const files=new Map([['valid-file',{size:512,contentType:'application/pdf'}],['replacement',{size:512,contentType:'application/pdf'}],['legacy-file',{size:512,contentType:'application/pdf'}]]),scheduled=[];
+const files=new Map([['valid-file',{size:512,contentType:'application/pdf',sha256:'a'.repeat(64)}],['replacement',{size:512,contentType:'application/pdf',sha256:'a'.repeat(64)}],['legacy-file',{size:512,contentType:'application/pdf',sha256:'a'.repeat(64)}]]),scheduled=[];
 db.system={get:async id=>files.get(id)??null};
 const ctx={db,scheduler:{runAfter:async(ms,fn,args)=>scheduled.push({ms,fn,args})},storage:{delete:async id=>files.delete(id)}};
 const upload=storageId=>({bookingId:booking._id,token:'owner',storageId,sha256:'a'.repeat(64),contentType:'application/pdf',size:512});
