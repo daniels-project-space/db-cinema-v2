@@ -1349,6 +1349,41 @@ export const acceptFullCredit = action({
   await ctx.runMutation(internal.rentalCreditOffers.accepted,{offerId});return result;
  }
 });
+/** Read-only provider-backed settlement preview; never expires checkout or releases a hold. */
+export const cancellationPreview = action({
+ args:{token:v.string(),bookingId:v.id("bookings")},
+ handler:async(ctx,{token,bookingId}):Promise<{kind:"full_refund"|"store_credit";refundAmount:number;creditAmount:number;holdReleaseAmount:number;checkedAt:number}>=>{
+  await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"checkout.cancellationPreview"});
+  const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
+  if(!b||!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Only unstarted direct bookings can be previewed here.");
+  if(b.cancellationDecision?.fullCreditOfferId)throw Error("An accepted credit offer is already processing. Use its settlement controls.");
+  let sources=b.paymentSources??[];
+  if(!sources.length&&b.status==="pending_payment"&&b.stripeCheckoutSessionId){
+   const session=await stripe().checkout.sessions.retrieve(b.stripeCheckoutSessionId);
+   if(session.status==="complete"&&checkoutCompleted(session)){
+    const intent=await checkoutPaymentIntent(session);
+    if(intent)sources=[{paymentIntentId:intent,securityPence:pence(b.depositAmount)}];
+   }else if(!["open","expired"].includes(session.status??""))throw Error("Checkout payment is still processing. Wait before cancellation.");
+  }
+  const balances=await Promise.all(sources.map(async(source:any)=>{
+   const payment=await stripe().paymentIntents.retrieve(source.paymentIntentId);
+   if(payment.status!=="succeeded"||payment.currency!=="gbp")throw Error("A rental payment needs review before settlement can be previewed.");
+   return {...source,availablePence:await remainingCancellationPayment(payment,source.maxPaidPence)};
+  }));
+  const plan=cancellationPaymentPlan(b.cancellationKind,balances,b.status==="confirmed"?pence(b.creditApplied??0):0);
+  let holdPence=0;
+  const ids=[...new Set([b.stripeDepositIntentId,b.depositHoldRenewalIntentId,...(b.depositHoldPreviousIntentIds??[])].filter((id):id is string=>!!id))];
+  for(const id of ids){
+   const hold=await stripe().paymentIntents.retrieve(id);
+   if(hold.status==="succeeded"||hold.amount_received>0)throw Error("The security authorisation has a captured charge. Review its settlement first.");
+   if(hold.status==="requires_capture"){
+    if(hold.currency!=="gbp"||!Number.isSafeInteger(hold.amount_capturable)||hold.amount_capturable<0)throw Error("The security authorisation needs review.");
+    holdPence+=hold.amount_capturable;
+   }else if(!["canceled","requires_action","requires_confirmation","requires_payment_method"].includes(hold.status))throw Error("The security authorisation is still processing.");
+  }
+  return {kind:b.cancellationKind,refundAmount:plan.refundPence/100,creditAmount:plan.creditPence/100,holdReleaseAmount:holdPence/100,checkedAt:Date.now()};
+ }
+});
 export const cancelByAdmin = action({
  args:{token:v.string(),bookingId:v.id("bookings"),reason:v.string(),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit")))},
  handler:async(ctx,{token,bookingId,reason,changeRequestId,expectedCancellationKind}):Promise<{refundAmount:number;creditAmount:number;mode:string}>=>{

@@ -1703,6 +1703,7 @@ export const getForCancel = internalQuery({
     const completedChangeRequestId=linkedRequest?.bookingId===bookingId && linkedRequest.kind==="cancel" && linkedRequest.status==="approved" && linkedRequest.execution?.operation==="cancellation" && linkedRequest.execution.status==="applied" && linkedRequest.execution.operationKey===cancellationRequestKey(bookingId,linkedRequest._id) ? linkedRequest._id : undefined;
     return {
       completedChangeRequestId,
+      cancellationKind: b.cancellationDecision?.kind ?? bookingCancelKind(b, Date.now()),
       paymentSources:await rentalPaymentSources(ctx,b),
       cancellationDecision:b.cancellationDecision??null,
       accountId: acct?._id ?? null,

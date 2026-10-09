@@ -47,8 +47,10 @@ export const details = query({
       .query("rental_refunds")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
       .collect();
+    const account = await accountForRental(ctx, b);
     return {
       ...b,
+      customer: account ? { name: account.name ?? null, email: account.email, phone: account.phone ?? null } : null,
       requiresDroneLicence: await requiresDroneLicence(ctx, b),
       droneLicenceStatus: await droneLicenceStatusForRental(ctx, b),
       verificationArchiveReady,
@@ -61,6 +63,30 @@ export const details = query({
       cancellationKind: bookingCancelKind(b, Date.now()),
     };
   },
+});
+/** Availability preview uses the same exact-time stock checks as the final date update. */
+export const reschedulePreview = query({
+ args:{token:v.string(),bookingId:v.id("bookings"),start:v.number(),end:v.optional(v.number()),refreshKey:v.optional(v.number())},
+ handler:async(ctx,{token,bookingId,start,end})=>{
+  if(!checkAdminToken(token))return null;
+  const b=await ctx.db.get(bookingId);
+  try{
+   if(!b||b.status!=="confirmed")throw Error("Only an upcoming rental can be rescheduled.");
+   if(b.cancellationDecision||b.activeAdditionId||b.activeExtensionId||b.returnDecision)throw Error("Finish the open rental operation first.");
+   if(!Number.isSafeInteger(start)||start%86400000!==0||start<londonStartOfDay(Date.now()))throw Error("Choose a future start date.");
+   if(end!==undefined&&(!Number.isSafeInteger(end)||end%86400000!==0||end<start))throw Error("Choose a valid return date.");
+   const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+   if(refunds.some(r=>["prepared","pending"].includes(r.status)))throw Error("Wait for the open refund to settle first.");
+   const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
+   if(reservations.some(r=>r.source!=="site"||r.status==="hold"))throw Error("Resolve stock holds or manage this rental through its original platform.");
+   await assertRentalAllocation(ctx,b,reservations);
+   const previous=Math.min(...b.lineItems.map(li=>li.start)),shift=start-previous,previousEnd=Math.max(...b.lineItems.map(li=>li.end));
+   const endShift=end===undefined?0:end-(previousEnd+shift);
+   const lines=bookingStockLines(b).map(li=>({...li,start:li.start+shift,end:li.end+shift+endShift}));
+   await assertRenterExposure(ctx,b,lines);await assertRentalInventory(ctx,lines,bookingId);
+   return {available:true,reason:null};
+  }catch(e:any){return {available:false,reason:e.message??"Unable to check these dates."};}
+ }
 });
 export const reschedule = mutation({
   args: {
