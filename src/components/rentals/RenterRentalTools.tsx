@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { RentalRequestHistory } from "./RentalRequestHistory";
 
 export function RenterRentalTools({ token, bookingId }: { token: string; bookingId: string }) {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -18,7 +19,8 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
   const requestId = useRef<string | null>(null);
-  if (!context || !["pending_payment", "confirmed", "active"].includes(context.status)) return null;
+  if (!context) return null;
+  if (!["pending_payment", "confirmed", "active"].includes(context.status)) return <RentalRequestHistory token={token} bookingId={bookingId} />;
   const canCancel = context.direct && (context.status === "pending_payment" || context.selfService);
   function open(next: typeof mode) { setMode(next); setDetail(""); setConsent(false); setError(""); setResult(""); requestId.current = null; }
   async function submit() {
@@ -40,6 +42,7 @@ export function RenterRentalTools({ token, bookingId }: { token: string; booking
     finally { setBusy(false); }
   }
   return <div className="mt-3" data-testid="renter-rental-tools">
+    <RentalRequestHistory token={token} bookingId={bookingId} />
     {cancellation && cancellation.status !== "succeeded" && <p role="status" className="mb-3 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-100">{cancellation.status === "attention" ? "The team is reviewing your cancellation settlement. Please message us if you need help." : "Your cancellation is processing. We will confirm once the refund and security release are complete."}</p>}
     <div className="flex flex-wrap gap-2" aria-label="Rental requests">
       {(context.status === "active" ? [["items", "Request kit change"]] : [["dates", "Request dates"], ["items", "Request kit change"], ["cancel", "Cancel rental"]]).map(([kind, label]) => <button key={kind} disabled={busy || context.locked} onClick={() => open(kind as typeof mode)} className={`rounded-full border px-3 py-2 text-xs ${mode === kind ? "border-accent-400/50 bg-accent-500/10 text-white" : "border-white/10 text-white/60 hover:text-white"} disabled:opacity-35`}>{label}</button>)}
