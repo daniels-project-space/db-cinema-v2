@@ -89,7 +89,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}}};
  const mine=load('convex/accounts.ts').myBookings;
  let ownSummary=(await mine.handler(ctx,{token:'own'})).find(row=>row._id===b._id);
  assert.equal(ownSummary.verificationArchiveReady,false,'account cards cannot approve a missing archive');assert.equal(ownSummary.verificationExpiresAt,b.verificationExpiresAt);assert.deepEqual(ownSummary.verificationChecks,b.verificationChecks);
- const archived=put('verification_archives',{bookingId:b._id,sessionId:b.diditSessionId,status:'complete'});
+ const archived=put('verification_archives',{accountId:account._id,bookingId:b._id,sessionId:b.diditSessionId,status:'complete'});require('./lib/verificationFiles.cjs').seedVerificationFiles(put,archived);
  ownSummary=(await mine.handler(ctx,{token:'own'})).find(row=>row._id===b._id);assert.equal(ownSummary.verificationArchiveReady,true,'real completed archive is reflected in account cards');await db.patch(archived._id,{status:'pending'});
  const second=put('bookings',{guestEmail:foreign.email,status:'confirmed',verificationProvider:'didit',diditSessionId:'session-second',billingAddress:b.billingAddress,lineItems:[line(camera)],idVerifyStatus:'processing'});
  assert.equal(await didit.webhook.handler(webCtx,signed({...event,event_id:'identity-progress-2',session_id:'session-second',vendor_data:'dbc-booking-'+second._id})),true);

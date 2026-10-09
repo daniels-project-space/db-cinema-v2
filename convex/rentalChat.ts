@@ -8,7 +8,7 @@ import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
 import { acknowledgeOwnerNotifications } from "./lib/adminPush";
 import { accountForRental, rentalsForAccount } from "./lib/rentalAccount";
 import { bookingStockLines } from "../shared/rentalWindow";
-import { requiresDroneLicence } from "./lib/droneVerification";
+import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { assertVerificationArchive } from "./verificationArchive";
 import {
   accountForToken,
@@ -51,7 +51,7 @@ async function bookingView(ctx: any, b: any, account: any) {
     documentExpiresAt: b.documentExpiresAt ?? null,
     verificationUpdatedAt: b.verificationUpdatedAt ?? null,
     requiresDroneLicence: await requiresDroneLicence(ctx, b),
-    droneLicenceStatus: b.droneLicenceStatus ?? "required",
+    droneLicenceStatus: await droneLicenceStatusForRental(ctx, b),
     depositHoldAmount: b.depositHoldAmount ?? 0,
     depositHoldStatus: b.depositHoldStatus ?? null,
     depositHoldExpiresAt: b.depositHoldExpiresAt ?? null,

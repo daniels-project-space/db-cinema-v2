@@ -4,7 +4,7 @@ import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { accountForRental } from "./lib/rentalAccount";
 import { listingImages } from "./lib/catalogImages";
-import { requiresDroneLicence } from "./lib/droneVerification";
+import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { assertVerificationArchive } from "./verificationArchive";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
 import {
@@ -49,6 +49,7 @@ export const details = query({
     return {
       ...b,
       requiresDroneLicence: await requiresDroneLicence(ctx, b),
+      droneLicenceStatus: await droneLicenceStatusForRental(ctx, b),
       verificationArchiveReady,
       lineItems: await Promise.all(bookingStockLines(b).map(async (line) => {
         const listing = await ctx.db.get(line.listingId);

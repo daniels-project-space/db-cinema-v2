@@ -18,7 +18,7 @@ import { checkAdminToken } from "./adminAuth";
 import { paginationOptsValidator } from "convex/server";
 import { accountForRental } from "./lib/rentalAccount";
 import { assertVerificationArchive } from "./verificationArchive";
-import { requiresDroneLicence } from "./lib/droneVerification";
+import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { securityReady } from "../shared/verificationProgress";
 import { VERIFICATION_REUSE_DAYS } from "./lib/verificationReuse";
 import { stockWindow } from "./lib/stockWindows";
@@ -44,7 +44,7 @@ export function mapBookingForSync(
   custById: Map<string, Doc<"customers">>,
   reservations?: Doc<"reservations">[],
   damageCases?: Doc<"rental_damage_cases">[],
-  verificationReadiness?: {archiveReady: boolean; requiresDroneLicence: boolean; accountId: string | null; sessionId: string | null},
+  verificationReadiness?: {archiveReady: boolean; requiresDroneLicence: boolean; droneLicenceStatus?: string; accountId: string | null; sessionId: string | null},
 ) {
   const lineItems = (b.lineItems ?? []).map((li) => {
     const listing = listingById.get(String(li.listingId));
@@ -101,12 +101,12 @@ export function mapBookingForSync(
       securityReady: securityReady(b) && (!(b.depositHoldAmount ?? 0) || (b.depositHoldExpiresAt ?? 0) > Date.now()),
       archiveReady: verificationReadiness?.archiveReady ?? false,
       requiresDroneLicence: verificationReadiness?.requiresDroneLicence ?? true,
-      droneLicenceStatus: b.droneLicenceStatus ?? "required",
+      droneLicenceStatus: verificationReadiness?.droneLicenceStatus ?? b.droneLicenceStatus ?? "required",
       approved: !!verificationReadiness?.accountId && b.idVerifyStatus === "verified" &&
         Math.min(b.verificationExpiresAt ?? ((b.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * 86400000), b.documentExpiresAt ?? Infinity) > Date.now() &&
         securityReady(b) && (!(b.depositHoldAmount ?? 0) || (b.depositHoldExpiresAt ?? 0) > Date.now()) &&
         verificationReadiness?.archiveReady === true &&
-        verificationReadiness.requiresDroneLicence !== undefined && (!verificationReadiness.requiresDroneLicence || b.droneLicenceStatus === "approved"),
+        verificationReadiness.requiresDroneLicence !== undefined && (!verificationReadiness.requiresDroneLicence || (verificationReadiness.droneLicenceStatus ?? b.droneLicenceStatus) === "approved"),
     },
     customerName: cust?.name ?? b.guestName ?? null,
     customerEmail: cust?.email ?? b.guestEmail ?? null,
@@ -252,7 +252,7 @@ async function verificationReadiness(ctx: any, b: Doc<"bookings">) {
   if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx,b); archiveReady = true; } catch {} }
   const account = await accountForRental(ctx,b);
   const source = b.verificationReusedFrom ? await ctx.db.get(b.verificationReusedFrom) : b;
-  return {archiveReady, requiresDroneLicence: await requiresDroneLicence(ctx,b), accountId: account ? String(account._id) : null, sessionId: source?.diditSessionId ?? null};
+  return {archiveReady, droneLicenceStatus: await droneLicenceStatusForRental(ctx,b), requiresDroneLicence: await requiresDroneLicence(ctx,b), accountId: account ? String(account._id) : null, sessionId: source?.diditSessionId ?? null};
 }
 
 /** Explicit lifecycle records in bounded pages; absence never means cancellation. */

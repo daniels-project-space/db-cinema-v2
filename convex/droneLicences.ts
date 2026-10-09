@@ -4,11 +4,11 @@ import { internal } from "./_generated/api";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { accountForToken, ownedBooking, postRentalMessage } from "./lib/rentalChat";
 import { accountForRental } from "./lib/rentalAccount";
-import { requiresDroneLicence } from "./lib/droneVerification";
+import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { verificationCanStart } from "../shared/verificationProgress";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { saveDroneCopy } from "./droneArchive";
-import { archiveRetention } from "./verificationArchive";
+import { archiveRetention, documentCopyAvailable } from "./verificationArchive";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { DRONE_DOCUMENT_LIMIT } from "./lib/droneDocument";
 
@@ -22,7 +22,7 @@ async function renterBooking(ctx: any, args: any) {
   else if (!args.checkoutSessionId || args.checkoutSessionId !== booking.stripeCheckoutSessionId) throw Error("Sign in to the account linked to this rental.");
   if (booking.status !== "confirmed" || !verificationCanStart(booking)) throw Error("Upload documents after payment, before collection.");
   if (!await requiresDroneLicence(ctx, booking)) throw Error("This rental does not require a drone licence.");
-  if (booking.droneLicenceStatus === "approved") throw Error("The licence is already approved. Ask the team to reopen review.");
+  if (await droneLicenceStatusForRental(ctx, booking) === "approved") throw Error("The licence is already approved. Ask the team to reopen review.");
   const owner = account ?? await accountForRental(ctx, booking);
   if (!owner || owner.blockedAt != null) throw Error("Sign in to the account linked to this rental.");
   return {booking,account:owner};
@@ -49,7 +49,8 @@ export const adminDetails=query({args:{token:v.string(),bookingId:v.id("bookings
   const document=booking.droneLicenceDocumentId?await ctx.db.get(booking.droneLicenceDocumentId):null;
   const archive=document?await ctx.db.get(document.archiveId):null;
   const retention=archive?await archiveRetention(ctx,archive):null;
-  return {status:booking.droneLicenceStatus??"required",note:booking.droneLicenceNote,documentId:retention?.viewable?document!._id:null,expiresAt:retention?.expiresAt??null,legacy:!!booking.droneLicenceStorageId&&!booking.droneLicenceDocumentId,canReview:booking.status==="confirmed"&&verificationCanStart(booking)};
+  const available=!!document && !!archive && !!retention?.viewable && await documentCopyAvailable(ctx,archive,document);
+  return {status:await droneLicenceStatusForRental(ctx,booking),note:booking.droneLicenceNote,documentId:available?document!._id:null,expiresAt:retention?.expiresAt??null,legacy:!!booking.droneLicenceStorageId&&!booking.droneLicenceDocumentId,canReview:booking.status==="confirmed"&&verificationCanStart(booking)};
 }});
 export const archiveExisting=mutation({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,args)=>{
   await assertAdmin(ctx,args.token,"droneLicences.archiveExisting");
@@ -62,12 +63,13 @@ export const review=mutation({args:{token:v.string(),bookingId:v.id("bookings"),
   const booking=await ctx.db.get(args.bookingId);
   if(!booking || booking.status!=="confirmed" || !verificationCanStart(booking) || !await requiresDroneLicence(ctx,booking))throw Error("This rental cannot be reviewed.");
   if(booking.droneLicenceDocumentId!==args.documentId)throw Error("The uploaded licence changed. Open the latest document before reviewing it.");
-  if(!booking.droneLicenceStorageId || !booking.droneLicenceDocumentId || !await ctx.db.system.get(booking.droneLicenceStorageId))throw Error("The renter must upload their licence first.");
+  if(!booking.droneLicenceStorageId || !booking.droneLicenceDocumentId)throw Error("The renter must upload their licence first.");
   if(args.note.trim().length<10)throw Error("Record what was checked or why a replacement is required.");
   const account=await accountForRental(ctx,booking);
   if(!account)throw Error("This rental must be linked to its account.");
   const document=await ctx.db.get(booking.droneLicenceDocumentId),archive=document?await ctx.db.get(document.archiveId):null;
   if(!document || document.bookingId!==booking._id || document.accountId!==account._id || document.storageId!==booking.droneLicenceStorageId || !archive || !(await archiveRetention(ctx,archive)).viewable)throw Error("The operator document must be privately archived for this rental before review.");
+  if(args.decision==="approved" && !await documentCopyAvailable(ctx,archive,document))throw Error("The saved licence copy is missing or invalid. Ask the renter to upload a new copy before approval.");
   const note=args.note.trim().slice(0,2000);
   if(booking.droneLicenceStatus===args.decision && booking.droneLicenceNote===note)return;
   await ctx.db.patch(booking._id,{droneLicenceStatus:args.decision,droneLicenceNote:note,droneLicenceReviewedAt:Date.now()});
