@@ -109,6 +109,10 @@
  .shell[data-management-role=admin][data-management-screen=invoices] .content { padding:24px 0 40px 21px; }
 }
 @media(max-width:1023px) { .chatBrand,.chatNav { display:none; } }
+/* Keep account actions and the full navigation menu reachable on tablets. */
+@media(min-width:1024px) and (max-width:1150px) {
+ .shell[data-management-screen=messages] .chatNav { display:none; }
+}
 
 @media(min-width:1101px) { .shell[data-management-screen=insights] .brand { padding-top:18px; padding-bottom:10px; } }
 .sidebar { scrollbar-width:thin; scrollbar-color:#343737 transparent; }

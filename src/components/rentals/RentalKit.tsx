@@ -1,6 +1,7 @@
 "use client";
 
 import { SmartImage } from "@/components/SmartImage";
+import { rentalClockLabel } from "../../../shared/rentalHandover";
 import { rentalTitle } from "@/lib/rentalPresentation";
 import { formatGbp } from "@/lib/pricing";
 import { groupRentalKit, uniqueKitPhotos, type RentalKitItem } from "@/lib/rentalKit";
@@ -33,7 +34,7 @@ export function RentalKit({ items, compact = false, prices = false, showcase = f
       </summary>
       <ul className="mt-2 divide-y divide-white/[0.06]">
         {grouped.map((item, i) => <li key={i} className="flex items-start gap-3 py-3">
-          <span className="min-w-0 flex-1 text-xs leading-5 text-white/75">{item.title}{item.start != null && item.end != null && <span className="mt-1 block text-[10px] text-white/35">{new Date(item.start).toLocaleDateString("en-GB",{timeZone:"UTC",day:"numeric",month:"short"})} – {new Date(item.end).toLocaleDateString("en-GB",{timeZone:"UTC",day:"numeric",month:"short"})}</span>}</span>
+          <span className="min-w-0 flex-1 text-xs leading-5 text-white/75">{item.title}{item.start != null && item.end != null && <span className="mt-1 block text-[10px] text-white/35">{new Date(item.start).toLocaleDateString("en-GB",{timeZone:"UTC",day:"numeric",month:"short"})} – {new Date(item.end).toLocaleDateString("en-GB",{timeZone:"UTC",day:"numeric",month:"short"})}</span>}{item.start != null && item.end != null && <span className="mt-1 block text-[10px] text-white/50">Pickup {rentalClockLabel(item.pickupTime)} · Return {rentalClockLabel(item.returnTime)}</span>}</span>
           <span className="shrink-0 text-xs text-white/40">×{item.qty ?? 1}</span>
           {prices && item.lineTotal != null && <span className="shrink-0 text-xs text-white/65">{formatGbp(item.lineTotal)}</span>}
         </li>)}

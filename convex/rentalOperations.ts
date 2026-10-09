@@ -50,7 +50,7 @@ export const details = query({
       ...b,
       requiresDroneLicence: await requiresDroneLicence(ctx, b),
       verificationArchiveReady,
-      lineItems: await Promise.all(b.lineItems.map(async (line) => {
+      lineItems: await Promise.all(bookingStockLines(b).map(async (line) => {
         const listing = await ctx.db.get(line.listingId);
         const imageSources = listingImages(listing);
         return { ...line, heroImage: imageSources[0] ?? null, imageSources };

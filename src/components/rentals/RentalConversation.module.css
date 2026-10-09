@@ -61,8 +61,8 @@
 .paymentSummary dt { color:#a49f97; font-size:11px; }
 .paymentSummary dd { font-size:12px; color:#e4ddd1; font-variant-numeric:tabular-nums; white-space:nowrap; margin:0; }
 .inboxScreen { margin-top:0; }
-.inboxScreen > div:first-child h2 { font-family:Georgia,serif; font-size:28px; font-weight:400; }
-.inboxScreen > div:first-child p { font-size:12px; margin-top:6px; }
+.inboxScreen .inboxHeading h2 { font-family:Georgia,serif; font-size:28px; font-weight:400; }
+.inboxScreen .inboxHeading p { font-size:12px; margin-top:6px; }
 .inboxScreen .inbox { margin-top:18px; }
 @media (min-width:1151px) { .inboxScreen .header { padding-top:18px; padding-bottom:18px; } .inboxScreen .messages { height:410px; } }
 @media (min-width:768px) and (max-width:1023px) { .inbox { display:block; border:0; background:transparent; } .directory { border-right:0; } .renterDirectory { padding:0 0 14px; } .renterDirectory > button { min-width:220px; flex-shrink:0; } }
@@ -84,13 +84,15 @@
 @media(min-width:1151px) {
  .inbox { grid-template-columns:369px minmax(0,1fr); margin-top:0; border-radius:0; border:0; min-height:calc(100dvh - 61px); }
  .inboxScreen { position:relative; }
- .inboxScreen > div:first-child { position:absolute; top:17px; left:21px; width:327px; z-index:1; }
- .inboxScreen > div:first-child h2 { font-size:23px; }
- .inboxScreen > div:first-child p { font-size:11px; }
- .inboxScreen > .tabs { position:absolute; top:86px; left:21px; width:327px; margin:0; z-index:1; }
+ .inboxScreen .directory { display:flex; flex-direction:column; height:calc(100dvh - 61px); padding:17px 21px 20px; min-height:0; overflow:hidden; }
+ .inboxScreen .inboxHeading h2 { font-size:23px; }
+ .inboxScreen .inboxHeading p { font-size:11px; }
+ .inboxScreen .directory .tabs { flex-shrink:0; margin:18px 0 16px; }
  .inboxScreen .inbox { margin-top:0; }
  .directory { padding:135px 21px 20px; background:#171a1a; }
  .directory > div { max-height:calc(100dvh - 240px); }
+ .inboxScreen .directory > div { max-height:none; }
+ .inboxScreen .directory .conversationList { flex:1; min-height:0; overflow-y:auto; }
  .directory button { padding:18px 10px; border-radius:0; }
  .renterDirectory { padding:23px 21px; }
  .withTools { grid-template-columns:minmax(0,1.344fr) minmax(350px,1fr); grid-template-rows:auto minmax(0,1fr); height:calc(100dvh - 61px); }
@@ -121,3 +123,20 @@
 .bookingFacts dt { color:#a5a6a8; }
 .bookingFacts dd { margin:0; text-align:right; color:#d4d6d0; max-width:65%; overflow-wrap:anywhere; }
 .bookingFacts dd[data-verified=true] { color:#68b68e; }
+
+/* Admin navigation stays in the directory's normal flow. Notifications must
+   never displace or cover the independently scrolling rental conversation. */
+.inboxHeading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
+.inboxScreen .tabs { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin:18px 0 16px; }
+.inboxScreen .tabs button { flex-shrink:0; white-space:nowrap; }
+.conversationList { display:flex; flex-direction:column; gap:8px; max-height:560px; overflow-y:auto; }
+.attentionPanel { margin-top:16px; flex-shrink:0; border:1px solid #6d4d39; border-radius:6px; background:#241f1c; padding:12px; }
+.attentionToggle { display:flex; width:100%; justify-content:space-between; align-items:center; gap:10px; color:#d7b49b; font-size:12px; }
+.attentionList { display:grid; gap:8px; max-height:240px; overflow-y:auto; margin-top:12px; }
+.attentionItem { padding:12px!important; border:1px solid #ffffff0c!important; border-radius:4px!important; background:#ffffff03; text-align:left; overflow-wrap:anywhere; }
+@media(max-width:1023px) { .inboxScreen .directory[data-conversation-open=true] { display:none; } }
+
+.inboxScreen .inboxHeading button { padding:8px 12px; border:1px solid #ffffff1a; border-radius:999px; }
+.inboxScreen .inboxHeading button[aria-pressed=true] { border-color:#b9816066; }
+.inboxScreen .tabs button { padding:8px 12px; }
+.inboxScreen .attentionToggle { padding:0; border:0; }
