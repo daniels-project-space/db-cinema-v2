@@ -1,3 +1,4 @@
+import { approvedKitRequest } from "./lib/kitRequestBinding";
 import { accountForRental } from "./lib/rentalAccount";
 import { listingImages } from "./lib/catalogImages";
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
@@ -175,6 +176,7 @@ export const prepare = internalMutation({
     token: v.string(),
     bookingId: v.id("bookings"),
     requestId: v.string(),
+    changeRequestId:v.optional(v.id("rental_change_requests")),
     listingId: v.id("listings"),
     qty: v.number(),
     reason: v.string(),
@@ -195,10 +197,12 @@ export const prepare = internalMutation({
     if (prior) {
       if (prior.bookingId !== a.bookingId)
         throw Error("Request belongs to another rental");
+      if(a.changeRequestId&&prior.changeRequestId!==a.changeRequestId)throw Error("This saved proposal belongs to a different customer request");
       return prior;
     }
     const b = await ctx.db.get(a.bookingId);
     if(!b)throw Error("This rental cannot accept items");
+    const linkedRequest=await approvedKitRequest(ctx,b,a.changeRequestId);
     if (a.reason.trim().length < 5) throw Error("Choose a quantity from 1–20 and record the reason");
     const {l,line,start,end,securityCharge,holdTotal,membership,membershipFee}=await additionQuote(ctx,b,a);
     const amount=(b!.status==="pending_payment"?b!.total:0)+line.lineTotal+securityCharge+(membershipFee??0);
@@ -207,6 +211,7 @@ export const prepare = internalMutation({
       ...line,
       bookingId: b._id,
       requestId: a.requestId,
+      changeRequestId:a.changeRequestId,
       dailyRate: a.complimentary ? 0 : l.pricing.daily * a.qty,
       complimentary: !!a.complimentary || line.lineTotal === 0,
       securityCharge,
@@ -222,6 +227,7 @@ export const prepare = internalMutation({
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    if(linkedRequest)await ctx.db.patch(linkedRequest._id,{additionRequestId:id});
     await ctx.db.patch(b._id, { activeAdditionId: id });
     for (const comp of l.components)
       await ctx.db.insert("reservations", {
@@ -348,6 +354,7 @@ export const apply = internalMutation({
       (r.draftReplacement && b.status !== "pending_payment")
     )
       return { closed: true };
+    await approvedKitRequest(ctx,b,r.changeRequestId,r._id);
     if (
       (!r.paymentIntentId && !r.complimentary) ||
       (!r.draftReplacement && r.holdTotal > 0 && r.status !== "held" && !canDeferAdditionSecurity(b))

@@ -449,6 +449,7 @@ export const start = action({
     token: v.string(),
     bookingId: v.id("bookings"),
     requestId: v.string(),
+    changeRequestId:v.optional(v.id("rental_change_requests")),
     listingId: v.id("listings"),
     qty: v.number(),
     reason: v.string(),
@@ -471,6 +472,7 @@ export const start = action({
     });
     if (r && r.bookingId !== args.bookingId)
       throw Error("Request belongs to another rental");
+    if(r&&args.changeRequestId&&r.changeRequestId!==args.changeRequestId)throw Error("This saved proposal belongs to a different customer request");
     if (!r) {
       const b: any = await ctx.runQuery(
         internal.rentalOperations.refundContext,

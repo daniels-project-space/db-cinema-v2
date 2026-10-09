@@ -3,10 +3,13 @@ import { useRef, useState } from "react";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import styles from "./RentalRequestHistory.module.css";
+import { RentalKitProposal } from "@/components/admin/RentalKitProposal";
+import { formatGbp } from "@/lib/pricing";
 import { RentalRequestApply } from "./RentalRequestApply";
 import { ownerConversationUrl } from "../../../shared/ownerConversationRoute";
 
 const labels = { dates: "Date change", items: "Kit change", extension: "Extension", cancel: "Cancellation" };
+const additionLabels:Record<string,string>={prepared:"Preparing proposal",awaiting_payment:"Payment required",paid:"Payment received · security pending",requires_action:"Customer bank approval required",held:"Security authorised · updating kit",failed:"Security needs review",applied:"Kit updated",applied_draft:"Kit updated · checkout verification continues",withdrawing:"Withdrawal processing",refund_pending:"Refund processing",refund_failed:"Refund needs attention",refunded:"Proposal refunded",expired:"Proposal closed",unavailable:"Proposal needs review"};
 const extensionLabels: Record<string, string> = { pending: "Awaiting team approval", approved: "Preparing payment link", awaiting_payment: "Payment required", applied: "Extension confirmed", declined: "Declined", expired: "Expired", withdrawn: "Withdrawn", refund_pending: "Refund processing", refunded: "Refunded", unavailable: "Extension needs review" };
 
 export function RentalRequestHistory(props: { token: string; bookingId: string; admin?: boolean }) {
@@ -17,6 +20,7 @@ export function RentalRequestHistory(props: { token: string; bookingId: string; 
 function RequestHistory({ token, bookingId, admin = false }: { token: string; bookingId: string; admin?: boolean }) {
   const { results: requests, status, loadMore } = usePaginatedQuery(api.rentalRequests.list, { token, bookingId: bookingId as any, admin }, { initialNumItems: 30 });
   const review = useMutation(api.rentalRequests.review);
+  const [kitRequest,setKitRequest]=useState<string|null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [decision, setDecision] = useState<"approved" | "declined">("approved");
   const [note, setNote] = useState("");
@@ -41,7 +45,7 @@ function RequestHistory({ token, bookingId, admin = false }: { token: string; bo
   return <section className={styles.root} aria-label={admin ? "Review customer requests" : "Your rental requests"}>
     <header><h3>{admin ? "Customer requests" : "Your requests"}</h3><span>{requests.filter(r => r.status === "pending").length} awaiting review{status !== "Exhausted" ? " shown" : ""}</span></header>
     <div className={styles.history}>
-      {requests.map(request => request.extension ? <details key={request._id} className={styles.extensionActivity}><summary><span>Extension activity</span><span>{extensionLabels[request.extension.status] ?? "Extension needs review"}</span></summary><p>{request.detail}</p><time>{new Date(request.createdAt).toLocaleString("en-GB", {timeZone:"Europe/London",dateStyle:"medium",timeStyle:"short"})} · London</time>{request.extension.status === "applied" && <p>Payment confirmed and rental dates updated.</p>}<a href={admin ? ownerConversationUrl({ bookingId }) : `/account?rental=${encodeURIComponent(bookingId)}#chat`} onClick={event => { const panel = document.getElementById("rental-extension-panel"); if (panel?.dataset.bookingId === bookingId) { event.preventDefault(); panel.scrollIntoView({behavior:"smooth",block:"start"}); panel.focus({preventScroll:true}); } }}>Open rental extension controls</a></details> : <article key={request._id} className={styles.card}>
+      {requests.map(request => request.addition ? <details key={request._id} className={styles.extensionActivity}><summary><span>Kit-change activity</span><span>{additionLabels[request.addition.status]??"Proposal needs review"}</span></summary><p>{request.detail}</p>{request.decisionNote&&<div className={styles.reply}><strong>Team reply</strong><p>{request.decisionNote}</p></div>}{request.addition.title&&<p>{request.addition.qty}× {request.addition.title}{request.addition.amount!==null?` · ${formatGbp(request.addition.amount)} checkout`:""}</p>}<p>{["applied","applied_draft"].includes(request.addition.status)?"The agreed equipment update has been applied. Rental verification and pickup requirements still apply.":["withdrawing","refund_pending","refund_failed"].includes(request.addition.status)?"The proposal is being withdrawn. Any captured payment must be settled before further rental changes.":["refunded","expired"].includes(request.addition.status)?"This proposal is closed. It does not confirm a new kit update.":"The rental kit stays unchanged until payment and the required security checks succeed."}</p><a href={admin?ownerConversationUrl({bookingId}):`/account?rental=${encodeURIComponent(bookingId)}#chat`} onClick={event=>{const panel=document.getElementById(`kit-proposal-${request.addition?.id}`);if(panel?.dataset.bookingId===bookingId){event.preventDefault();panel.scrollIntoView({behavior:"smooth",block:"start"});panel.focus({preventScroll:true});}}}>Open kit proposal controls</a></details> : request.extension ? <details key={request._id} className={styles.extensionActivity}><summary><span>Extension activity</span><span>{extensionLabels[request.extension.status] ?? "Extension needs review"}</span></summary><p>{request.detail}</p><time>{new Date(request.createdAt).toLocaleString("en-GB", {timeZone:"Europe/London",dateStyle:"medium",timeStyle:"short"})} · London</time>{request.extension.status === "applied" && <p>Payment confirmed and rental dates updated.</p>}<a href={admin ? ownerConversationUrl({ bookingId }) : `/account?rental=${encodeURIComponent(bookingId)}#chat`} onClick={event => { const panel = document.getElementById("rental-extension-panel"); if (panel?.dataset.bookingId === bookingId) { event.preventDefault(); panel.scrollIntoView({behavior:"smooth",block:"start"}); panel.focus({preventScroll:true}); } }}>Open rental extension controls</a></details> : <article key={request._id} className={styles.card}>
         <div className={styles.heading}><h4>{labels[request.kind]}</h4><span className={styles.status} data-status={request.status}>{request.execution?.status === "applied" ? "Completed" : request.execution?.status === "processing" ? "Settlement processing" : request.status === "approved" ? "Approved for arrangement" : request.status === "declined" ? "Declined" : "Awaiting team review"}</span></div>
         <time dateTime={new Date(request.createdAt).toISOString()}>{new Date(request.createdAt).toLocaleString("en-GB", { timeZone: "Europe/London", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })} · London</time>
         <p>{request.detail}</p>
@@ -50,6 +54,7 @@ function RequestHistory({ token, bookingId, admin = false }: { token: string; bo
           : request.execution?.status === "processing" ? <p className={styles.explanation}>Cancellation and settlement are processing. The rental remains reserved until refunds and card authorisation releases are confirmed.</p>
           : request.status === "approved" && <p className={styles.explanation}>Your rental stays unchanged until the team confirms the update and any payment or refund separately.</p>}
         {admin && request.status === "approved" && !request.execution && (request.kind === "dates" || request.kind === "cancel") && <RentalRequestApply token={token} bookingId={bookingId} id={request._id} kind={request.kind} decisionNote={request.decisionNote} disabled={busy} />}
+        {admin && request.status === "approved" && request.kind === "items" && !request.execution && <button type="button" disabled={busy} onClick={()=>setKitRequest(request._id)}>Create agreed kit proposal</button>}
         {admin && request.status === "pending" && !request.extension && <div className={styles.actions}>
           <button type="button" disabled={busy} onClick={() => open(request._id, "approved")}>Approve for arrangement</button>
           <button type="button" disabled={busy} onClick={() => open(request._id, "declined")}>Decline request</button>
@@ -62,6 +67,7 @@ function RequestHistory({ token, bookingId, admin = false }: { token: string; bo
       </article>)}
     </div>
     {(status === "CanLoadMore" || status === "LoadingMore") && <div className={styles.actions}><button type="button" disabled={status === "LoadingMore" || busy} onClick={() => loadMore(30)}>{status === "LoadingMore" ? "Loading earlier requests…" : "Show earlier requests"}</button></div>}
+    {admin&&kitRequest&&<RentalKitProposal token={token} bookingId={bookingId} changeRequestId={kitRequest} decisionNote={requests.find(r=>r._id===kitRequest)?.decisionNote} onClose={()=>setKitRequest(null)}/>}
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {notice && <p role="status" className={styles.notice}>{notice}</p>}
   </section>;

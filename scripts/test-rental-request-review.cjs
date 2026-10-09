@@ -43,7 +43,7 @@ const admin = { token: process.env.ADMIN_TOKEN, bookingId: booking._id, paginati
   await assert.rejects(requests.review.handler(ctx, { ...decision, note: 'A different reply.' }), /already been reviewed/);
   const renter = (await requests.list.handler(ctx, view)).page[0];
   assert.equal(renter.decisionNote, decision.note); assert.equal(renter.status, 'approved');
-  assert.deepEqual(Object.keys(renter).sort(), ['_id', 'kind', 'detail', 'createdAt', 'status', 'decisionNote', 'decidedAt', 'execution', 'extension'].sort(), 'Public view contains no credential or foreign account metadata');
+  assert.deepEqual(Object.keys(renter).sort(), ['_id', 'kind', 'detail', 'createdAt', 'status', 'decisionNote', 'decidedAt', 'execution', 'extension', 'addition'].sort(), 'Public view contains no credential or foreign account metadata');
   const legacy = put('rental_change_requests', { bookingId: booking._id, accountId: owner._id, kind: 'items', detail: 'Please add another camera.', createdAt: Date.now(), messageId: 'old-message' });
   assert.equal((await requests.list.handler(ctx, view)).page[0].status, 'pending');
   await requests.review.handler(ctx, { ...admin, id: legacy._id, decision: 'declined', note: 'The extra camera is reserved. We can discuss an alternative.' });

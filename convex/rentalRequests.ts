@@ -31,11 +31,14 @@ export const list = query({
       const linked = row.extensionRequestId ? await ctx.db.get(row.extensionRequestId) : null;
       const validExtension = row.kind === "extension" && linked?.type === "extend" && linked.bookingId === row.bookingId && linked.accountId === row.accountId;
       const extension = row.extensionRequestId ? validExtension ? { status: linked!.status, amount: linked!.priceDelta ?? null, returnTime: linked!.approvedReturnTime ?? linked!.requestedReturnTime ?? null, returnTimeApproved: !!linked!.approvedReturnTime, reason: linked!.approvalReason, completedAt: linked!.status === "applied" ? linked!.resolvedAt : undefined } : { status: "unavailable" as const, amount: null, returnTime: null, returnTimeApproved: false, reason: undefined, completedAt: undefined } : undefined;
+      const linkedAddition=row.additionRequestId?await ctx.db.get(row.additionRequestId):null;
+      const validAddition=row.kind==="items"&&linkedAddition?.bookingId===row.bookingId&&linkedAddition.changeRequestId===row._id;
+      const addition=row.additionRequestId?(validAddition?{id:linkedAddition!._id,status:linkedAddition!.status,title:linkedAddition!.title,qty:linkedAddition!.qty,start:linkedAddition!.start,end:linkedAddition!.end,amount:(linkedAddition!.draftReplacement?linkedAddition!.baseTotal??0:0)+linkedAddition!.lineTotal+linkedAddition!.securityCharge+(linkedAddition!.membershipFee??0),paymentReceived:!!linkedAddition!.paymentIntentId,updatedAt:linkedAddition!.updatedAt}:{id:null,status:"unavailable",title:null,qty:null,start:null,end:null,amount:null,paymentReceived:false,updatedAt:null}):undefined;
       return {
       _id: row._id, kind: row.kind, detail: row.detail, createdAt: row.createdAt,
       status: extension ? extension.status === "pending" ? "pending" as const : ["declined", "withdrawn", "expired", "refunded"].includes(extension.status) ? "declined" as const : "approved" as const : row.status ?? "pending", decisionNote: row.decisionNote, decidedAt: row.decidedAt,
       execution: row.execution ? { operation: row.execution.operation, status: row.execution.status, appliedAt: row.execution.appliedAt, detail: row.execution.detail } : undefined,
-      extension,
+      extension,addition,
     }; })) };
   },
 });

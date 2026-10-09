@@ -68,6 +68,7 @@ import type * as lib_droneVerification from "../lib/droneVerification.js";
 import type * as lib_gafferDiscount from "../lib/gafferDiscount.js";
 import type * as lib_inventoryCapacity from "../lib/inventoryCapacity.js";
 import type * as lib_kitPlanning from "../lib/kitPlanning.js";
+import type * as lib_kitRequestBinding from "../lib/kitRequestBinding.js";
 import type * as lib_lateFee from "../lib/lateFee.js";
 import type * as lib_loyalty from "../lib/loyalty.js";
 import type * as lib_mailer from "../lib/mailer.js";
@@ -224,6 +225,7 @@ declare const fullApi: ApiFromModules<{
   "lib/gafferDiscount": typeof lib_gafferDiscount;
   "lib/inventoryCapacity": typeof lib_inventoryCapacity;
   "lib/kitPlanning": typeof lib_kitPlanning;
+  "lib/kitRequestBinding": typeof lib_kitRequestBinding;
   "lib/lateFee": typeof lib_lateFee;
   "lib/loyalty": typeof lib_loyalty;
   "lib/mailer": typeof lib_mailer;

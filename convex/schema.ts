@@ -117,6 +117,7 @@ export default defineSchema({
     status: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("declined"))),
     decisionNote: v.optional(v.string()), decidedAt: v.optional(v.number()), decisionMessageId: v.optional(v.id("messages")),
     extensionRequestId: v.optional(v.id("booking_change_requests")),
+    additionRequestId: v.optional(v.id("rental_additions")),
     execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
   }).index("by_request", ["requestId"]).index("by_account", ["accountId"]).index("by_booking", ["bookingId"]),
   reservations: defineTable({
@@ -769,7 +770,7 @@ export default defineSchema({
   referral_campaigns:defineTable({createdAt:v.number(),enqueuedAt:v.optional(v.number()),status:v.union(v.literal("queued"),v.literal("complete"),v.literal("stopped")),recipientCount:v.number(),sent:v.number(),failed:v.number()}),
   referral_campaign_messages:defineTable({campaignId:v.id("referral_campaigns"),accountId:v.id("accounts"),state:v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("stopped")),dueAt:v.number(),attempts:v.number(),leaseUntil:v.optional(v.number()),sentAt:v.optional(v.number())}).index("by_campaign_account",["campaignId","accountId"]).index("by_state_due",["state","dueAt"]),
   rental_additions:defineTable({
-    bookingId:v.id("bookings"),requestId:v.string(),listingId:v.id("listings"),title:v.string(),
+    bookingId:v.id("bookings"),requestId:v.string(),changeRequestId:v.optional(v.id("rental_change_requests")),listingId:v.id("listings"),title:v.string(),
     start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number(),
     complimentary:v.optional(v.boolean()),draftReplacement:v.optional(v.boolean()),baseTotal:v.optional(v.number()),baseSecurity:v.optional(v.number()),baseSessionId:v.optional(v.string()),
     membershipCheckoutId:v.optional(v.id("membership_checkouts")),membershipFee:v.optional(v.number()),membershipSessionParams:v.optional(v.string()),

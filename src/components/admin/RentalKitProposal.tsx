@@ -9,11 +9,11 @@ import {rentalTitle} from "@/lib/rentalPresentation";
 import drawer from "@/components/rentals/RentalRequestApply.module.css";
 import styles from "@/components/rentals/RentalAdditionApproval.module.css";
 const iso=(at:number)=>new Date(at).toISOString().slice(0,10);
-type Props={token:string;bookingId:string;onClose:()=>void};
-export function RentalKitProposal(props:Props){return <KitProposal key={JSON.stringify([props.token,props.bookingId])} {...props}/>;}
-function KitProposal({token,bookingId,onClose}:Props){
+type Props={token:string;bookingId:string;changeRequestId?:string;decisionNote?:string;onClose:()=>void};
+export function RentalKitProposal(props:Props){return <KitProposal key={JSON.stringify([props.token,props.bookingId,props.changeRequestId])} {...props}/>;}
+function KitProposal({token,bookingId,changeRequestId,decisionNote,onClose}:Props){
  const titleId=useId(),dialog=useRef<HTMLDialogElement>(null),inFlight=useRef(false),request=useRef<string|null>(null);
- const [search,setSearch]=useState(""),[lookup,setLookup]=useState(""),[listingId,setListingId]=useState(""),[qty,setQty]=useState(1),[start,setStart]=useState(""),[end,setEnd]=useState(""),[reason,setReason]=useState(""),[complimentary,setComplimentary]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ const [search,setSearch]=useState(""),[lookup,setLookup]=useState(""),[listingId,setListingId]=useState(""),[qty,setQty]=useState(1),[start,setStart]=useState(""),[end,setEnd]=useState(""),[reason,setReason]=useState((decisionNote??"").slice(0,400)),[complimentary,setComplimentary]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
  const b=useQuery(api.rentalOperations.details,{token,bookingId:bookingId as any});
  const catalog=useQuery(api.catalog.listListings,{search:lookup,limit:24});
  const [selection,setSelection]=useState<NonNullable<typeof catalog>[number]|null>(null);
@@ -25,7 +25,7 @@ function KitProposal({token,bookingId,onClose}:Props){
  async function submit(){
   if(inFlight.current||!q?.available||q.amount===undefined||q.holdTotal===undefined||q.start===undefined||q.end===undefined)return;
   inFlight.current=true;setBusy(true);setError("");
-  try{request.current??=crypto.randomUUID();await send({token,bookingId:bookingId as any,requestId:request.current,listingId:listingId as any,qty,reason,complimentary,start:q.start,end:q.end,expectedAmount:q.amount,expectedHoldTotal:q.holdTotal});onClose();}
+  try{request.current??=crypto.randomUUID();await send({token,bookingId:bookingId as any,requestId:request.current,changeRequestId:changeRequestId as any,listingId:listingId as any,qty,reason,complimentary,start:q.start,end:q.end,expectedAmount:q.amount,expectedHoldTotal:q.holdTotal});onClose();}
   catch(e:any){setError(e.data?.message??e.message??"The proposal could not be saved. Check the rental and retry.");}
   finally{inFlight.current=false;setBusy(false);}
  }
