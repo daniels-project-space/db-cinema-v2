@@ -8,6 +8,7 @@ import { belongsToRentalAccount } from "./lib/rentalAccount";
 import type { Doc, Id } from "./_generated/dataModel";
 import { paginationOptsValidator } from "convex/server";
 import { listingImages } from "./lib/catalogImages";
+import { kitRequestInput, requestableListing, resolveKitRequest, sameKitInput } from "./lib/rentalKitSelection";
 
 const labels = { dates: "Change dates", items: "Change kit", extension: "Extend rental", cancel: "Cancel rental" };
 
@@ -39,7 +40,7 @@ export const list = query({
       _id: row._id, kind: row.kind, detail: row.detail, createdAt: row.createdAt,
       status: extension ? extension.status === "pending" ? "pending" as const : ["declined", "withdrawn", "expired", "refunded"].includes(extension.status) ? "declined" as const : "approved" as const : row.status ?? "pending", decisionNote: row.decisionNote, decidedAt: row.decidedAt,
       execution: row.execution ? { operation: row.execution.operation, status: row.execution.status, appliedAt: row.execution.appliedAt, detail: row.execution.detail } : undefined,
-      extension,addition,
+      extension,addition,...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
     }; })) };
   },
 });
@@ -83,7 +84,7 @@ export const context = query({
     const reservations = await ctx.db.query("reservations").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
     const lineItems = await Promise.all(b.lineItems.map(async (line: Doc<"bookings">["lineItems"][number], index: number) => {
       const images = listingImages(await ctx.db.get(line.listingId));
-      return { index, title: line.title, qty: line.qty, start: line.start, end: line.end,
+      return { index, listingId: line.listingId, title: line.title, qty: line.qty, start: line.start, end: line.end,
         pickupTime: line.pickupTime === undefined ? b.pickupTime ?? null : line.pickupTime,
         returnTime: line.returnTime === undefined ? b.returnTime ?? null : line.returnTime,
         heroImage: images[0] ?? null, imageSources: images };
@@ -97,18 +98,40 @@ export const context = query({
   },
 });
 
+/** Visible request drawer only: indexed, bounded catalogue results; no stock promise. */
+export const equipment = query({
+  args: { token: v.string(), bookingId: v.id("bookings"), search: v.string() },
+  handler: async (ctx, { token, bookingId, search }) => {
+    const account = await accountForToken(ctx, token, true);
+    if (!account) throw Error("Please sign in.");
+    const booking = await ownedBooking(ctx, account, bookingId);
+    if (!["pending_payment", "confirmed", "active"].includes(booking.status)) return [];
+    const term = search.trim();
+    if (term.length > 100) throw Error("Search using a short equipment name.");
+    // A pasted title may contain many hyphenated model tokens. Stay within
+    // the search provider's term limit without crashing the request drawer.
+    if (term && (!(term.match(/[\p{L}\p{N}]+/gu)?.length) || (term.match(/[\p{L}\p{N}]+/gu)?.length ?? 0) > 12)) return [];
+    const rows = term ? await ctx.db.query("listings").withSearchIndex("search_request_title", q => q.search("title", term).eq("active", true)).take(32)
+      : await ctx.db.query("listings").withIndex("by_active", q => q.eq("active", true)).take(32);
+    return rows.filter(requestableListing).slice(0, 12).map(listing => {
+      const images = listingImages(listing);
+      return { id: listing._id, title: listing.title, category: listing.category, heroImage: images[0] ?? null, imageSources: images };
+    });
+  },
+});
+
 /** Requests reach a human; they never mutate dates, prices or payments. */
 export const submit = mutation({
   args: { token: v.string(), bookingId: v.id("bookings"), requestId: v.string(),
-    kind: v.union(v.literal("dates"), v.literal("items"), v.literal("extension"), v.literal("cancel")), detail: v.string() },
-  handler: async (ctx, { token, bookingId, requestId, kind, detail }) => {
+    kind: v.union(v.literal("dates"), v.literal("items"), v.literal("extension"), v.literal("cancel")), detail: v.string(), kit: v.optional(kitRequestInput) },
+  handler: async (ctx, { token, bookingId, requestId, kind, detail, kit }) => {
     const a = await accountForToken(ctx, token, true);
     if (!a) throw Error("Please sign in.");
     const b = await ownedBooking(ctx, a, bookingId);
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestId)) throw Error("Invalid request.");
     const previous = await ctx.db.query("rental_change_requests").withIndex("by_request", q => q.eq("requestId", requestId)).first();
     if (previous) {
-      if (previous.accountId !== a._id || previous.bookingId !== bookingId || previous.kind !== kind || previous.detail !== detail.trim()) throw Error("Request belongs to a different change.");
+      if (previous.accountId !== a._id || previous.bookingId !== bookingId || previous.kind !== kind || previous.detail !== detail.trim() || !sameKitInput(previous.kitSelection, kit)) throw Error("Request belongs to a different change.");
       return { ok: true, messageId: previous.messageId };
     }
     if (!["pending_payment", "confirmed", "active"].includes(b.status)) throw Error("This rental has finished. Please message the team instead.");
@@ -116,6 +139,9 @@ export const submit = mutation({
     if (b.cancellationDecision || b.returnDecision) throw Error("A cancellation or return is already being processed.");
     const text = detail.trim();
     if (text.length < 5 || text.length > 1000) throw Error("Describe your request in 5–1000 characters.");
+    if (kit && kind !== "items") throw Error("Equipment selection requires a kit request.");
+    const selection = kit ? await resolveKitRequest(ctx, b, kit) : undefined;
+    if (selection && selection.detail !== text) throw Error("Equipment changed. Review the selected item and send the request again.");
     const recent = await ctx.db.query("rental_change_requests").withIndex("by_account", q => q.eq("accountId", a._id)).order("desc").take(10);
     if (recent.filter(r => r.createdAt > Date.now() - 60000).length >= 3) throw Error("Please wait a minute before sending another request.");
     const thread = await rentalThread(ctx, a._id, bookingId);
@@ -123,7 +149,7 @@ export const submit = mutation({
     else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, updatedAt: Date.now(), unreadOwner: 0, unreadRenter: 0 });
     const label = labels[kind];
     const messageId = await postRentalMessage(ctx, { accountId: a._id, bookingId, sender: "renter", text: `${label} request: ${text}`, meta: { type: "rental_change_request", kind, requestedStage: b.status } });
-    await ctx.db.insert("rental_change_requests", { requestId, accountId: a._id, bookingId, kind, detail: text, messageId, createdAt: Date.now(), status: "pending" });
+    await ctx.db.insert("rental_change_requests", { requestId, accountId: a._id, bookingId, kind, detail: text, messageId, createdAt: Date.now(), status: "pending", ...(selection ? { kitSelection: selection.snapshot } : {}) });
     await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: a.email, bookingId, text: `${label} request: ${text}` });
     return { ok: true, messageId };
   },

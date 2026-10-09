@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { inspectionRecord } from "./lib/returnInspectionFields";
 import { cancellationReceipt } from "./lib/cancellationFields";
+import { kitRequestSnapshot } from "./lib/rentalKitSelectionFields";
 
 /**
  * Db Cinema Rentals v2 — standalone storefront schema.
@@ -107,6 +108,7 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_category", ["category"])
     .index("by_active", ["active"])
+    .searchIndex("search_request_title", { searchField: "title", filterFields: ["active"] })
     .index("by_hyggloProductId", ["hyggloProductId"]),
 
   // ── Layer 3: the availability ledger (double-booking guard) ───
@@ -118,6 +120,7 @@ export default defineSchema({
     decisionNote: v.optional(v.string()), decidedAt: v.optional(v.number()), decisionMessageId: v.optional(v.id("messages")),
     extensionRequestId: v.optional(v.id("booking_change_requests")),
     additionRequestId: v.optional(v.id("rental_additions")),
+    kitSelection: v.optional(kitRequestSnapshot),
     execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
   }).index("by_request", ["requestId"]).index("by_account", ["accountId"]).index("by_booking", ["bookingId"]),
   reservations: defineTable({
