@@ -39,6 +39,7 @@ import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { belongsToRentalAccount, accountForRental } from "./lib/rentalAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
+import { startRequest, finishRequest, cancellationRequestKey } from "./lib/rentalRequestExecution";
 import { inspectionInput } from "./lib/returnInspectionFields";
 import { returnInspectionSchedule } from "./lib/returnInspection";
 import { normalizeReturnInspection } from "../shared/returnInspection";
@@ -1698,7 +1699,10 @@ export const getForCancel = internalQuery({
       .collect();
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("A rental refund is still processing. Wait for settlement before cancellation.");
+    const linkedRequest=b.cancellationDecision?.changeRequestId?await ctx.db.get(b.cancellationDecision.changeRequestId):null;
+    const completedChangeRequestId=linkedRequest?.bookingId===bookingId && linkedRequest.kind==="cancel" && linkedRequest.status==="approved" && linkedRequest.execution?.operation==="cancellation" && linkedRequest.execution.status==="applied" && linkedRequest.execution.operationKey===cancellationRequestKey(bookingId,linkedRequest._id) ? linkedRequest._id : undefined;
     return {
+      completedChangeRequestId,
       paymentSources:await rentalPaymentSources(ctx,b),
       cancellationDecision:b.cancellationDecision??null,
       accountId: acct?._id ?? null,
@@ -1723,19 +1727,23 @@ export const getForCancel = internalQuery({
 });
 
 /** Freeze cancellation policy and order edits before any external payment call. */
-export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers"))},handler:async(ctx,{bookingId,fullCreditOfferId})=>{
+export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers")),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit")))},handler:async(ctx,{bookingId,fullCreditOfferId,changeRequestId,expectedCancellationKind})=>{
  const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeAdditionId || b?.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
  if(!b.cancellationDecision && (["starting","processing"].includes(b.depositHoldRenewalStatus ?? "") ||
   (b.status === "confirmed" && b.depositHoldAmount && b.depositHoldStatus === "awaiting_payment"))) throw Error("Security hold setup or renewal is still processing. Please retry once it is resolved.");
  if(b.cancellationDecision){
+  if(expectedCancellationKind && b.cancellationDecision.kind!==expectedCancellationKind)throw Error("Cancellation eligibility changed. Review the current terms before confirming again.");
   if(b.cancellationDecision.fullCreditOfferId !== fullCreditOfferId)throw Error("Another cancellation choice is already processing. Contact the team.");
+  if(changeRequestId !== undefined && b.cancellationDecision.changeRequestId !== changeRequestId)throw Error("Another cancellation request is already processing. Contact the team.");
   return b.cancellationDecision;
  }
  if(fullCreditOfferId){const offer=await ctx.db.get(fullCreditOfferId);assertCreditOffer(offer,b);if(offer?.status!=="offered")throw Error("Credit offer already settled");}
  const jobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
  if(jobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("A refund is still processing");
  const kind=bookingCancelKind(b,Date.now());
- const decision={kind,createdAt:Date.now(),...(fullCreditOfferId?{fullCreditOfferId}:{})};await ctx.db.patch(bookingId,{cancellationDecision:decision,...(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY?{securityHoldRetryAt:undefined}:{})});return decision;
+ if(expectedCancellationKind && kind!==expectedCancellationKind)throw Error("Cancellation eligibility changed. Review the current terms before confirming again.");
+ if(changeRequestId)await startRequest(ctx,b,changeRequestId,"cancellation",cancellationRequestKey(bookingId,changeRequestId));
+ const decision={kind,createdAt:Date.now(),...(fullCreditOfferId?{fullCreditOfferId}:{}),...(changeRequestId?{changeRequestId}:{})};await ctx.db.patch(bookingId,{cancellationDecision:decision,...(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY?{securityHoldRetryAt:undefined}:{})});return decision;
 }});
 export const recordCancellationQuote=internalMutation({args:{bookingId:v.id("bookings"),quote:v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})},handler:async(ctx,{bookingId,quote})=>{
  const b=await ctx.db.get(bookingId);if(!b?.cancellationDecision)throw Error("Cancellation has not been prepared");
@@ -1760,6 +1768,7 @@ export const _finalizeCancellation = internalMutation({
     const b = await ctx.db.get(bookingId);
     if (!b) return { ok: false as const };
     const cancellationJob = await ctx.db.query("rental_cancellations").withIndex("by_booking", q => q.eq("bookingId", bookingId)).unique();
+    if (b.cancellationDecision?.changeRequestId && !cancellationJob) throw Error("The linked cancellation settlement has not been prepared.");
     if (cancellationJob?.receipts.some(r => r.status !== "succeeded")) throw Error("Stripe cancellation settlement is incomplete.");
     if (cancellationJob && (!b.cancellationDecision?.quote ||
         b.cancellationDecision.quote.mode !== mode || b.cancellationDecision.quote.refundAmount !== refundAmount ||
@@ -1843,10 +1852,11 @@ export const _finalizeCancellation = internalMutation({
           : mode === "refund"
             ? `Your booking was cancelled. £${refundAmount} is being returned to your card.${creditAmount > 0 ? ` £${creditAmount} of previously used credit has been restored to your account for ${CANCELLATION_CREDIT_DAYS} days.` : ""}`
             : `Your booking was cancelled.`;
-      await postRentalMessage(ctx,{accountId,bookingId,sender:"system",text:note});
+      await postRentalMessage(ctx,{accountId,bookingId,sender:"system",text:note,...(b.cancellationDecision?.changeRequestId ? {meta:{type:"rental_change_applied",changeRequestId:b.cancellationDecision.changeRequestId}}:{})});
     }
     await queueRentalEmail(ctx,bookingId,"cancellation",{mode,refundAmount,creditAmount});
     await queueRmv2Sync(ctx, bookingId);
+    if(b.cancellationDecision?.changeRequestId)await finishRequest(ctx,b,b.cancellationDecision.changeRequestId,"cancellation",cancellationRequestKey(bookingId,b.cancellationDecision.changeRequestId),`Rental cancelled. Card refund £${refundAmount.toFixed(2)}; account credit £${creditAmount.toFixed(2)}. Any uncaptured card authorisations have been released.`);
     return { ok: true as const, creditId };
   },
 });

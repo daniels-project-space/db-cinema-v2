@@ -1,7 +1,8 @@
-.root{margin:16px 0;border:1px solid #373633;border-radius:12px;background:#1b1b19;padding:16px;color:#e8e4de}
+.root{margin:16px 0;border:1px solid #373633;border-radius:12px;background:#1b1b19;padding:16px;color:#e8e4de;color-scheme:dark}
 .root header,.heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .root h3{font-family:Georgia,serif;font-size:18px}.root header>span,.card time{font-size:11px;color:#aaa69d}
 .history{max-height:420px;overflow:auto;margin-top:12px;display:grid;gap:10px}
+.history:has(form){max-height:none;overflow:visible}
 .card{border:1px solid #3b3934;border-radius:8px;padding:12px;min-width:0}.card h4{font-size:13px;font-weight:600}.card time{display:block;margin-top:6px}
 .card p{margin-top:8px;font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
 .status{font-size:10px;padding:4px 7px;border-radius:5px;background:#b9816026;color:#dcc3ab}.status[data-status=approved]{background:#649c6c26;color:#b0d7b6}.status[data-status=declined]{background:#b57a7a20;color:#e1b6b6}
@@ -10,5 +11,6 @@
 .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.actions button{border:1px solid #80634d;border-radius:6px;padding:7px 10px;font-size:11px;color:#ebd2bd;background:#b9816015}.actions button:hover{background:#b9816030}.actions button:disabled{opacity:.45}
 .actions button:focus-visible,.root textarea:focus-visible{outline:2px solid #c79d7e;outline-offset:2px}
 .card form{margin-top:12px;border-top:1px solid #3b3934;padding-top:12px}.card label{font-size:12px;display:block}.root textarea{margin-top:8px;display:block;width:100%;min-height:90px;resize:vertical;background:#141413;border:1px solid #51473c;border-radius:7px;padding:10px;color:#f2ece4;font-size:13px}
+.card input[type=date]{display:block;margin:8px 0 12px;max-width:100%;border:1px solid #51473c;border-radius:7px;background:#141413;color:#f2ece4;padding:9px;color-scheme:dark}.card .check{display:flex;align-items:flex-start;gap:8px;margin:12px 0;line-height:1.6}.check input{margin-top:3px;accent-color:#b98160}
 .error{margin-top:10px;font-size:12px;color:#edb0ad}.notice{margin-top:10px;font-size:12px;color:#bad6b6}
 @media(max-width:480px){.root{padding:12px}.card{padding:10px}.history{max-height:360px}.heading{align-items:flex-start}}
