@@ -12,6 +12,10 @@ export function RentalAdditionApproval({
   token: string;
   bookingId: string;
 }) {
+  return <AdditionApproval key={JSON.stringify([token, bookingId])} token={token} bookingId={bookingId} />;
+}
+
+function AdditionApproval({ token, bookingId }: { token: string; bookingId: string }) {
   const r = useQuery(api.rentalAdditionState.customerState, {
     token,
     bookingId: bookingId as any,

@@ -1,0 +1,4 @@
+.panel{margin:16px;border:1px solid #373633;border-radius:12px;background:#1b1b19;padding:16px;color:#e8e4de;color-scheme:dark;--color-sky-100:#ead5c4;--color-sky-200:#d1aa8c;--color-sky-300:#b98160;--color-sky-950:#1b1b19}
+.panel:focus-visible{outline:2px solid #c79d7e;outline-offset:3px}
+.panel button:focus-visible,.panel input:focus-visible,.panel select:focus-visible{outline:2px solid #c79d7e;outline-offset:2px}
+@media(max-width:480px){.panel{margin:12px;padding:12px}}

@@ -5,6 +5,10 @@ import { api } from "@cvx/_generated/api";
 import { RentalRequestHistory } from "./RentalRequestHistory";
 
 export function RenterRentalTools({ token, bookingId }: { token: string; bookingId: string }) {
+  return <RentalTools key={JSON.stringify([token, bookingId])} token={token} bookingId={bookingId} />;
+}
+
+function RentalTools({ token, bookingId }: { token: string; bookingId: string }) {
   const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => { const timer = setInterval(() => setRefreshKey(Date.now()), 60000); return () => clearInterval(timer); }, []);
   const context = useQuery(api.rentalRequests.context, { token, bookingId: bookingId as any, refreshKey });

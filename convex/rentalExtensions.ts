@@ -97,7 +97,9 @@ export const request = mutation({
     const thread = await rentalThread(ctx, a._id, b._id);
     if (thread) await ctx.db.patch(thread._id, { escalated: true });
     else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId: b._id, escalated: true, updatedAt: Date.now(), unreadOwner: 0, unreadRenter: 0 });
-    await postRentalMessage(ctx, { accountId: a._id, bookingId: b._id, sender: "renter", text: `Extension request · ${args.extraDays} extra day${args.extraDays === 1 ? "" : "s"} · £${q.priceDelta.toFixed(2)}\n${q.items.map(i => `${i.qty}× ${i.title} → ${iso(i.end)} at ${args.requestedReturnTime} London time`).join("\n")}\nPlease approve this request. The team may adjust the proposed time. The original return deadlines remain in place until approval and payment.`, meta: { kind: "extension_request", requestId } });
+    const detail = `${args.extraDays} extra day${args.extraDays === 1 ? "" : "s"} · £${q.priceDelta.toFixed(2)}\n${q.items.map(i => `${i.qty}× ${i.title} → ${iso(i.end)} at ${args.requestedReturnTime} London time`).join("\n")}`;
+    const messageId = await postRentalMessage(ctx, { accountId: a._id, bookingId: b._id, sender: "renter", text: `Extension request · ${detail}\nPlease approve this request. The team may adjust the proposed time. The original return deadlines remain in place until approval and payment.`, meta: { kind: "extension_request", requestId } });
+    await ctx.db.insert("rental_change_requests", { requestId: `extension:${requestId}`, accountId: a._id, bookingId: b._id, kind: "extension", detail, messageId, createdAt: Date.now(), status: "pending", extensionRequestId: requestId });
     await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: a.email, bookingId: b._id, text: "Rental extension requested — owner approval required." });
     return { ok: true, requestId };
   },

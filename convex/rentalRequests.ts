@@ -27,11 +27,16 @@ export const list = query({
     }
     const scoped = ctx.db.query("rental_change_requests").withIndex("by_booking", q => q.eq("bookingId", bookingId)).order("desc");
     const rows = await (admin ? scoped : scoped.filter(q => q.eq(q.field("accountId"), accountId))).paginate(paginationOpts);
-    return { ...rows, page: rows.page.map(row => ({
+    return { ...rows, page: await Promise.all(rows.page.map(async row => {
+      const linked = row.extensionRequestId ? await ctx.db.get(row.extensionRequestId) : null;
+      const validExtension = row.kind === "extension" && linked?.type === "extend" && linked.bookingId === row.bookingId && linked.accountId === row.accountId;
+      const extension = row.extensionRequestId ? validExtension ? { status: linked!.status, amount: linked!.priceDelta ?? null, returnTime: linked!.approvedReturnTime ?? linked!.requestedReturnTime ?? null, returnTimeApproved: !!linked!.approvedReturnTime, reason: linked!.approvalReason, completedAt: linked!.status === "applied" ? linked!.resolvedAt : undefined } : { status: "unavailable" as const, amount: null, returnTime: null, returnTimeApproved: false, reason: undefined, completedAt: undefined } : undefined;
+      return {
       _id: row._id, kind: row.kind, detail: row.detail, createdAt: row.createdAt,
-      status: row.status ?? "pending", decisionNote: row.decisionNote, decidedAt: row.decidedAt,
+      status: extension ? extension.status === "pending" ? "pending" as const : ["declined", "withdrawn", "expired", "refunded"].includes(extension.status) ? "declined" as const : "approved" as const : row.status ?? "pending", decisionNote: row.decisionNote, decidedAt: row.decidedAt,
       execution: row.execution ? { operation: row.execution.operation, status: row.execution.status, appliedAt: row.execution.appliedAt, detail: row.execution.detail } : undefined,
-    })) };
+      extension,
+    }; })) };
   },
 });
 
@@ -46,6 +51,7 @@ export const review = mutation({
     const booking = await ctx.db.get(bookingId);
     const account = request ? await ctx.db.get(request.accountId) : null;
     if (!request || request.bookingId !== bookingId || !belongsToRentalAccount(booking, account)) throw Error("This request is not available for this rental.");
+    if (request.extensionRequestId) throw Error("Review this extension using its quote and payment controls.");
     const text = note.trim();
     if (text.length < 5 || text.length > 1000) throw Error("Record a reply in 5–1000 characters.");
     if (request.status && request.status !== "pending") {

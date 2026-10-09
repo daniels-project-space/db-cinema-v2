@@ -116,6 +116,7 @@ export default defineSchema({
     detail: v.string(), messageId: v.id("messages"), createdAt: v.number(),
     status: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("declined"))),
     decisionNote: v.optional(v.string()), decidedAt: v.optional(v.number()), decisionMessageId: v.optional(v.id("messages")),
+    extensionRequestId: v.optional(v.id("booking_change_requests")),
     execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
   }).index("by_request", ["requestId"]).index("by_account", ["accountId"]).index("by_booking", ["bookingId"]),
   reservations: defineTable({
