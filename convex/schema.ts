@@ -1,3 +1,4 @@
+import { dateRequestSelection } from "./lib/rentalDateSelectionFields";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { inspectionRecord } from "./lib/returnInspectionFields";
@@ -121,6 +122,7 @@ export default defineSchema({
     extensionRequestId: v.optional(v.id("booking_change_requests")),
     additionRequestId: v.optional(v.id("rental_additions")),
     kitSelection: v.optional(kitRequestSnapshot),
+    dateSelection:v.optional(dateRequestSelection),
     execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation"),v.literal("kit_removal")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
   }).index("by_request", ["requestId"]).index("by_account", ["accountId"]).index("by_booking", ["bookingId"]),
   reservations: defineTable({

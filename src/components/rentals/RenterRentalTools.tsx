@@ -38,6 +38,7 @@ function RentalTools({ token, bookingId }: { token: string; bookingId: string })
   const requestId = useRef<string | null>(null);
   const [start, setStart] = useState(""), [end, setEnd] = useState(""), [pickup, setPickup] = useState(""), [dropoff, setDropoff] = useState("");
   const [change, setChange] = useState<"add" | "swap" | "remove">("add"), [itemIndex, setItemIndex] = useState(0), [addition, setAddition] = useState(""), [qty, setQty] = useState(1);
+  const [dateSource,setDateSource]=useState<{listingId:string;qty:number;start:number;end:number;pickupTime:string|null;returnTime:string|null}[]>([]);
   const [source, setSource] = useState<{ listingId: string; title: string; qty: number; start: number; end: number } | null>(null);
   const [search, setSearch] = useState(""), [searchTerm, setSearchTerm] = useState(""), [manual, setManual] = useState(false);
   const [selected, setSelected] = useState<{ id: string; title: string; heroImage: string | null; imageSources: string[] } | null>(null);
@@ -50,11 +51,11 @@ function RentalTools({ token, bookingId }: { token: string; bookingId: string })
     if (node && !node.open) node.showModal();
     return () => { if (node?.open) node.close(); launcher.current?.focus(); };
   }, [mode, !!context]);
-  useEffect(() => { requestId.current = null; }, [detail, start, end, pickup, dropoff, change, itemIndex, addition, qty, selected, manual, source]);
+  useEffect(() => { requestId.current = null; }, [detail, start, end, pickup, dropoff, change, itemIndex, addition, qty, selected, manual, source,dateSource]);
   if (!context) return null;
   if (!["pending_payment", "confirmed", "active"].includes(context.status)) return <RentalRequestHistory token={token} bookingId={bookingId} />;
   const canCancel = context.direct && (context.status === "pending_payment" || context.selfService);
-  function open(next: typeof mode, button: HTMLButtonElement) { launcher.current = button; setStart(""); setEnd(""); setPickup(context?.lineItems[0]?.pickupTime ?? ""); setDropoff(context?.lineItems[0]?.returnTime ?? ""); setChange("add"); setItemIndex(0); setSource(context?.lineItems[0] ?? null); setAddition(""); setSelected(null); setSearch(""); setSearchTerm(""); setManual(false); setQty(1); setMode(next); setDetail(""); setConsent(false); setError(""); setResult(""); requestId.current = null; }
+  function open(next: typeof mode, button: HTMLButtonElement) { launcher.current = button; setDateSource(context!.lineItems.map(li=>({listingId:li.listingId,qty:li.qty,start:li.start,end:li.end,pickupTime:li.pickupTime,returnTime:li.returnTime}))); setStart(""); setEnd(""); setPickup(context?.lineItems.find(li=>li.start===context.start)?.pickupTime ?? ""); setDropoff(context?.lineItems.find(li=>li.end===context.end)?.returnTime ?? ""); setChange("add"); setItemIndex(0); setSource(context?.lineItems[0] ?? null); setAddition(""); setSelected(null); setSearch(""); setSearchTerm(""); setManual(false); setQty(1); setMode(next); setDetail(""); setConsent(false); setError(""); setResult(""); requestId.current = null; }
   async function submit() {
     if (inFlight.current || !mode || context!.locked) return;
     inFlight.current = true; setBusy(true); setError("");
@@ -67,6 +68,7 @@ function RentalTools({ token, bookingId }: { token: string; bookingId: string })
       } else {
         requestId.current ??= crypto.randomUUID();
         await request({ token, bookingId: bookingId as any, requestId: requestId.current, kind: mode, detail: rentalRequestDetail({ kind: mode, note: detail, start, end, pickup, dropoff, change, item: source?.title, currentQty: source?.qty, addition: manual ? addition : selected?.title, qty }),
+          dates:mode==="dates"?{start:Date.parse(start+"T00:00:00Z"),end:Date.parse(end+"T00:00:00Z"),pickupTime:pickup,returnTime:dropoff,note:detail,source:dateSource.map(line=>({...line,listingId:line.listingId as any}))}:undefined,
           kit: mode === "items" && (change === "remove" || !manual) ? { change, listingId: change === "remove" ? undefined : selected?.id as any, lineIndex: change === "add" ? undefined : itemIndex, source: change === "add" || !source ? undefined : { listingId: source.listingId as any, qty: source.qty, start: source.start, end: source.end }, quantity: qty, note: detail } : undefined });
         setResult("Request sent to the team in this conversation. Your rental stays unchanged until the team confirms it.");
       }

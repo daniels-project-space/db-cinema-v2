@@ -1,3 +1,5 @@
+import {dateRequestSelection} from "./lib/rentalDateSelectionFields";
+import {resolveDateRequest,sameDateInput,assertDateSelection} from "./lib/rentalDateSelection";
 import { query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -47,7 +49,7 @@ export const list = query({
       _id: row._id, kind: row.kind, detail: row.detail, createdAt: row.createdAt,
       status: extension ? extension.status === "pending" ? "pending" as const : ["declined", "withdrawn", "expired", "refunded"].includes(extension.status) ? "declined" as const : "approved" as const : row.status ?? "pending", decisionNote: row.decisionNote, decidedAt: row.decidedAt,
       execution: row.execution ? { operation: row.execution.operation, status: row.execution.status, appliedAt: row.execution.appliedAt, detail: row.execution.detail } : undefined,
-      extension,addition,equipment,...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
+      extension,addition,equipment,...(row.dateSelection?{dateSelection:row.dateSelection}:{}),...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
     }; })) };
   },
 });
@@ -72,6 +74,7 @@ export const review = mutation({
     }
     if (decision === "approved" && (!["pending_payment", "confirmed", "active"].includes(booking!.status) || booking!.cancellationDecision || booking!.returnDecision)) throw Error("This rental can no longer accept a new change. Reply in the conversation instead.");
     if (decision === "approved" && request.kind === "cancel" && booking!.status === "active") throw Error("This rental has started. Arrange an early return in the conversation instead.");
+    if(decision==="approved"&&request.dateSelection)assertDateSelection(request.dateSelection,booking,request.dateSelection.start,request.dateSelection.end,request.dateSelection.pickupTime,request.dateSelection.returnTime);
     const messageId = await postRentalMessage(ctx, { accountId: request.accountId, bookingId, sender: "system",
       text: decision === "approved"
         ? `The team approved your ${labels[request.kind].toLowerCase()} request for arrangement: ${text} Your rental is unchanged until the team confirms the actual update and any settlement separately.`
@@ -142,18 +145,26 @@ export const agreedKit = query({
   },
 });
 
+/** Owner-only saved date request used by the actual reschedule drawer. */
+export const agreedDates=query({args:{token:v.string(),bookingId:v.id("bookings"),id:v.id("rental_change_requests")},handler:async(ctx,{token,bookingId,id})=>{
+ if(!checkAdminToken(token))return null;
+ const booking=await ctx.db.get(bookingId),request=await ctx.db.get(id),account=request?await ctx.db.get(request.accountId):null;
+ if(!request||request.kind!=="dates"||request.bookingId!==bookingId||!belongsToRentalAccount(booking,account))return null;
+ return {id:request._id,status:request.status??"pending",dateSelection:request.dateSelection??null,execution:request.execution?{status:request.execution.status}:null};
+}});
+
 /** Requests reach a human; they never mutate dates, prices or payments. */
 export const submit = mutation({
   args: { token: v.string(), bookingId: v.id("bookings"), requestId: v.string(),
-    kind: v.union(v.literal("dates"), v.literal("items"), v.literal("extension"), v.literal("cancel")), detail: v.string(), kit: v.optional(kitRequestInput) },
-  handler: async (ctx, { token, bookingId, requestId, kind, detail, kit }) => {
+    kind: v.union(v.literal("dates"), v.literal("items"), v.literal("extension"), v.literal("cancel")), detail: v.string(), kit: v.optional(kitRequestInput),dates:v.optional(dateRequestSelection) },
+  handler: async (ctx, { token, bookingId, requestId, kind, detail, kit, dates }) => {
     const a = await accountForToken(ctx, token, true);
     if (!a) throw Error("Please sign in.");
     const b = await ownedBooking(ctx, a, bookingId);
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestId)) throw Error("Invalid request.");
     const previous = await ctx.db.query("rental_change_requests").withIndex("by_request", q => q.eq("requestId", requestId)).first();
     if (previous) {
-      if (previous.accountId !== a._id || previous.bookingId !== bookingId || previous.kind !== kind || previous.detail !== detail.trim() || !sameKitInput(previous.kitSelection, kit)) throw Error("Request belongs to a different change.");
+      if (previous.accountId !== a._id || previous.bookingId !== bookingId || previous.kind !== kind || previous.detail !== detail.trim() || !sameKitInput(previous.kitSelection, kit)||!sameDateInput(previous.dateSelection,dates)) throw Error("Request belongs to a different change.");
       return { ok: true, messageId: previous.messageId };
     }
     if (!["pending_payment", "confirmed", "active"].includes(b.status)) throw Error("This rental has finished. Please message the team instead.");
@@ -161,6 +172,10 @@ export const submit = mutation({
     if (b.cancellationDecision || b.returnDecision) throw Error("A cancellation or return is already being processed.");
     const text = detail.trim();
     if (text.length < 5 || text.length > 1000) throw Error("Describe your request in 5–1000 characters.");
+    if(dates&&kind!=="dates")throw Error("Date selection requires a date request.");
+    if(kind==="dates"&&b.status==="active")throw Error("This rental has started. Discuss a change with the team instead.");
+    const dateSelection=dates?resolveDateRequest(b,dates):undefined;
+    if(dateSelection&&dateSelection.detail!==text)throw Error("The selected dates changed. Review the request and try again.");
     if (kit && kind !== "items") throw Error("Equipment selection requires a kit request.");
     const selection = kit ? await resolveKitRequest(ctx, b, kit) : undefined;
     if (selection && selection.detail !== text) throw Error("Equipment changed. Review the selected item and send the request again.");
@@ -171,7 +186,7 @@ export const submit = mutation({
     else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, updatedAt: Date.now(), unreadOwner: 0, unreadRenter: 0 });
     const label = labels[kind];
     const messageId = await postRentalMessage(ctx, { accountId: a._id, bookingId, sender: "renter", text: `${label} request: ${text}`, meta: { type: "rental_change_request", kind, requestedStage: b.status } });
-    await ctx.db.insert("rental_change_requests", { requestId, accountId: a._id, bookingId, kind, detail: text, messageId, createdAt: Date.now(), status: "pending", ...(selection ? { kitSelection: selection.snapshot } : {}) });
+    await ctx.db.insert("rental_change_requests", { requestId, accountId: a._id, bookingId, kind, detail: text, messageId, createdAt: Date.now(), status: "pending", ...(selection ? { kitSelection: selection.snapshot } : {}),...(dateSelection?{dateSelection:dateSelection.snapshot}:{}) });
     await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: a.email, bookingId, text: `${label} request: ${text}` });
     return { ok: true, messageId };
   },

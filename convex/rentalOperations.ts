@@ -1,3 +1,4 @@
+import {assertDateSelection} from "./lib/rentalDateSelection";
 import {rescheduledLines} from "../shared/rentalReschedule";
 import {stockWindow} from "./lib/stockWindows";
 import {schedulePickupHold} from "./pickupSecurity";
@@ -67,8 +68,8 @@ export const details = query({
 });
 /** Availability preview uses the same exact-time stock checks as the final date update. */
 export const reschedulePreview = query({
- args:{token:v.string(),bookingId:v.id("bookings"),start:v.number(),end:v.optional(v.number()),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),refreshKey:v.optional(v.number())},
- handler:async(ctx,{token,bookingId,start,end,pickupTime,returnTime})=>{
+ args:{token:v.string(),bookingId:v.id("bookings"),start:v.number(),end:v.optional(v.number()),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),changeRequestId:v.optional(v.id("rental_change_requests")),refreshKey:v.optional(v.number())},
+ handler:async(ctx,{token,bookingId,start,end,pickupTime,returnTime,changeRequestId})=>{
   if(!checkAdminToken(token))return null;
   const b=await ctx.db.get(bookingId);
   try{
@@ -81,6 +82,8 @@ export const reschedulePreview = query({
    const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
    if(reservations.some(r=>r.source!=="site"||r.status==="hold"))throw Error("Resolve stock holds or manage this rental through its original platform.");
    await assertRentalAllocation(ctx,b,reservations);
+   const request=await approvedRequest(ctx,b,changeRequestId,"reschedule","reschedule-preview");
+   assertDateSelection(request?.dateSelection,b,start,end,pickupTime,returnTime);
    const {lines}=rescheduledLines(b,start,end,pickupTime,returnTime);
    await assertRenterExposure(ctx,b,lines);await assertRentalInventory(ctx,lines,bookingId);
    return {available:true,reason:null};
@@ -104,6 +107,7 @@ export const reschedule = mutation({
     const operationKey = rescheduleRequestKey(start, end, keepAgreedPrice, reason, pickupTime, returnTime);
     const request = await approvedRequest(ctx, b, changeRequestId, "reschedule", operationKey);
     if (request?.execution?.status === "applied") return { ok: true };
+    if(b)assertDateSelection(request?.dateSelection,b,start,end,pickupTime,returnTime);
     if (!b || b.status !== "confirmed")
       throw Error("Only an upcoming rental can be rescheduled");
     if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision)

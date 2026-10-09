@@ -86,6 +86,8 @@ import type * as lib_rentalAllocation from "../lib/rentalAllocation.js";
 import type * as lib_rentalBillingLines from "../lib/rentalBillingLines.js";
 import type * as lib_rentalChat from "../lib/rentalChat.js";
 import type * as lib_rentalCreditPolicy from "../lib/rentalCreditPolicy.js";
+import type * as lib_rentalDateSelection from "../lib/rentalDateSelection.js";
+import type * as lib_rentalDateSelectionFields from "../lib/rentalDateSelectionFields.js";
 import type * as lib_rentalEmailQueue from "../lib/rentalEmailQueue.js";
 import type * as lib_rentalExposure from "../lib/rentalExposure.js";
 import type * as lib_rentalInventory from "../lib/rentalInventory.js";
@@ -245,6 +247,8 @@ declare const fullApi: ApiFromModules<{
   "lib/rentalBillingLines": typeof lib_rentalBillingLines;
   "lib/rentalChat": typeof lib_rentalChat;
   "lib/rentalCreditPolicy": typeof lib_rentalCreditPolicy;
+  "lib/rentalDateSelection": typeof lib_rentalDateSelection;
+  "lib/rentalDateSelectionFields": typeof lib_rentalDateSelectionFields;
   "lib/rentalEmailQueue": typeof lib_rentalEmailQueue;
   "lib/rentalExposure": typeof lib_rentalExposure;
   "lib/rentalInventory": typeof lib_rentalInventory;

@@ -11,6 +11,7 @@ import { formatGbp } from "@/lib/pricing";
 import { RentalRequestApply } from "./RentalRequestApply";
 import { ownerConversationUrl } from "../../../shared/ownerConversationRoute";
 
+const dayLabel=(at:number)=>new Date(at).toLocaleDateString("en-GB",{timeZone:"UTC",day:"numeric",month:"short",year:"numeric"});
 const labels = { dates: "Date change", items: "Kit change", extension: "Extension", cancel: "Cancellation" };
 const additionLabels:Record<string,string>={prepared:"Preparing proposal",awaiting_payment:"Payment required",paid:"Payment received · security pending",requires_action:"Customer bank approval required",held:"Security authorised · updating kit",failed:"Security needs review",applied:"Kit updated",applied_draft:"Kit updated · checkout verification continues",withdrawing:"Withdrawal processing",refund_pending:"Refund processing",refund_failed:"Refund needs attention",refunded:"Proposal refunded",expired:"Proposal closed",unavailable:"Proposal needs review"};
 const extensionLabels: Record<string, string> = { pending: "Awaiting team approval", approved: "Preparing payment link", awaiting_payment: "Payment required", applied: "Extension confirmed", declined: "Declined", expired: "Expired", withdrawn: "Withdrawn", refund_pending: "Refund processing", refunded: "Refunded", unavailable: "Extension needs review" };
@@ -58,6 +59,7 @@ function RequestHistory({ token, bookingId, admin = false }: { token: string; bo
             {request.equipment.slice(1).map(item=><div className={styles.swapEquipment} key={item.listingId}><span aria-hidden="true">→</span><SmartImage src={item.heroImage} fallbackSources={item.imageSources} alt={item.title} className={styles.equipmentThumb}/><span>{item.qty}× {rentalTitle(item.title)}</span></div>)}
           </div>
         </div>}
+        {request.dateSelection&&<div className={styles.dateComparison} aria-label="Requested rental period"><div><span>Original hire</span><strong>{dayLabel(Math.min(...request.dateSelection.source.map(line=>line.start)))} – {dayLabel(Math.max(...request.dateSelection.source.map(line=>line.end)))}</strong><small>Saved period at request</small></div><span aria-hidden="true">→</span><div><span>{request.execution?.status==="applied"?"Confirmed hire":"Requested hire"}</span><strong>{dayLabel(request.dateSelection.start)} – {dayLabel(request.dateSelection.end)}</strong><small>Collection {request.dateSelection.pickupTime} · Return {request.dateSelection.returnTime} · London</small></div></div>}
         {!request.execution || request.execution.status !== "applied" ? <ol className={styles.progress} aria-label="Request progress">
           <li data-done="true"><span>✓</span><strong>Requested</strong></li>
           <li data-done={request.status === "approved"} data-active={request.status === "pending"}><span>{request.status === "approved" ? "✓" : "2"}</span><strong>{request.status === "declined" ? "Declined" : "Team review"}</strong></li>
