@@ -114,7 +114,9 @@ export default defineSchema({
     requestId: v.string(), accountId: v.id("accounts"), bookingId: v.id("bookings"),
     kind: v.union(v.literal("dates"), v.literal("items"), v.literal("extension"), v.literal("cancel")),
     detail: v.string(), messageId: v.id("messages"), createdAt: v.number(),
-  }).index("by_request", ["requestId"]).index("by_account", ["accountId"]),
+    status: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("declined"))),
+    decisionNote: v.optional(v.string()), decidedAt: v.optional(v.number()), decisionMessageId: v.optional(v.id("messages")),
+  }).index("by_request", ["requestId"]).index("by_account", ["accountId"]).index("by_booking", ["bookingId"]),
   reservations: defineTable({
     inventoryUnitId: v.id("inventory_units"),
     listingId: v.optional(v.id("listings")),
