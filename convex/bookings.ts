@@ -932,6 +932,9 @@ export const replaceHold = internalMutation({
       depositHoldRenewalAt: Date.now(),
       depositHoldPreviousIntentIds: [...(b.depositHoldPreviousIntentIds ?? []), oldIntentId],
     });
+    // The renewed authorisation can restore collection readiness. Commit its
+    // manager revision in this transaction before releasing the previous hold.
+    await queueRmv2Sync(ctx, bookingId);
     return true;
   },
 });
