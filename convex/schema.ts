@@ -249,6 +249,7 @@ export default defineSchema({
     securityHoldRecoveredSessionId: v.optional(v.string()),
     securityHoldRecoveryGeneration: v.optional(v.number()),
     securityHoldRecoveryReleasedIntentId: v.optional(v.string()),
+    securityHoldRecoveryRenewalIntentId: v.optional(v.string()),
     securityHoldFailureCode: v.optional(v.string()),
     depositHoldExpiresAt: v.optional(v.number()),
     depositHoldRenewalIntentId: v.optional(v.string()),
