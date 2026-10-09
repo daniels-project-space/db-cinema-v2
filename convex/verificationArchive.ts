@@ -63,7 +63,13 @@ export async function assertVerificationArchive(ctx: any, booking: any) {
   const source = booking.verificationReusedFrom ? await ctx.db.get(booking.verificationReusedFrom) : booking;
   if (!source?.diditSessionId) return;
   const archives = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", source._id)).collect();
-  if (!archives.some((a: any) => a.sessionId === source.diditSessionId && a.status === "complete")) throw Error("Verification document copies must be fully archived before handover. Check account documents and retry the archive.");
+  // A completed copy can already be outside retention while the deletion job
+  // is still pending. Do not reuse it and thereby revive expired documents.
+  for (const archive of archives) {
+    if (archive.sessionId === source.diditSessionId && archive.status === "complete" &&
+        (await archiveRetention(ctx, archive)).viewable) return;
+  }
+  throw Error("Verification document copies must be fully archived and within their retention period before handover. Check account documents or complete a new verification.");
 }
 export const context = internalQuery({ args: { archiveId: v.id("verification_archives") }, handler: async (ctx, { archiveId }) => {
   const archive = await ctx.db.get(archiveId);

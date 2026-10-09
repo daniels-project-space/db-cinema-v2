@@ -24,13 +24,17 @@ const booking=put('bookings',{accountId:account._id,guestEmail:account.email,did
  booking.status='returned';booking.returnedAt=Date.now()-31*86400000;
  const expiredView=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(expiredView[0].retention.expiresAt,booking.returnedAt+30*86400000);assert.equal(expiredView[0].retention.viewable,false);
  await assert.rejects(()=>archive.downloadAccess.handler(ctx,{token:'archive-test',documentId:tables.get('verification_documents')[0]._id}),/retention period/,'Expiry blocks viewing before the deletion worker runs');
+ await assert.rejects(()=>archive.assertVerificationArchive(ctx,booking),/fully archived/,'Readiness must reject expired complete copies before the purge runs');
  const damageCase=put('rental_damage_cases',{bookingId:booking._id,status:'open'});
+ await archive.assertVerificationArchive(ctx,booking);
  const caseView=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(caseView[0].retention.status,'insurance-case');assert.equal(caseView[0].retention.openCases,1);assert.equal(await archive.purgeExpired.handler(ctx,{}),0,'Displayed case preservation agrees with deletion gate');damageCase.status='closed';
  await archive.retentionHold.handler(ctx,{token:'archive-test',archiveId:job._id,reason:'Insurance damage claim still open'});
  assert.equal(await archive.purgeExpired.handler(ctx,{}),0);
+ await archive.assertVerificationArchive(ctx,booking);
  const holdView=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(holdView[0].retention.status,'manual-hold');assert.equal(holdView[0].retentionHoldReason,'Insurance damage claim still open');
  await archive.retentionHold.handler(ctx,{token:'archive-test',archiveId:job._id,reason:''});
  const reuse=put('bookings',{status:'active',verificationReusedFrom:booking._id});assert.equal(await archive.purgeExpired.handler(ctx,{}),0,'Active reused verification preserves documents');
+ await archive.assertVerificationArchive(ctx,booking);
  reuse.status='returned';reuse.returnedAt=Date.now()-29*86400000;
  assert.equal(await archive.purgeExpired.handler(ctx,{}),0,'A subsequent rental starts its own 30-day window');
  const reusedView=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(reusedView[0].retention.expiresAt,reuse.returnedAt+30*86400000);
