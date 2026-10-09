@@ -885,6 +885,7 @@ export const renewalContext = internalQuery({
     if (!b) return null;
     return {
       status: b.status, guestEmail: b.guestEmail ?? null,
+      cancellationPending: !!b.cancellationDecision, returnPending: !!b.returnDecision,
       amount: b.depositHoldAmount ?? 0, oldIntentId: b.stripeDepositIntentId ?? null,
       expiresAt: b.depositHoldExpiresAt ?? null,
       renewalIntentId: b.depositHoldRenewalIntentId ?? null,
@@ -892,6 +893,22 @@ export const renewalContext = internalQuery({
       renewalAt: b.depositHoldRenewalAt ?? null,
       previousIntentIds: b.depositHoldPreviousIntentIds ?? [],
     };
+  },
+});
+
+/** Provider reconciliation cannot update a superseded or settled hold. */
+export const reconcileRenewedHold = internalMutation({
+  args: { bookingId: v.id("bookings"), intentId: v.string(), status: v.string(), expiresAt: v.optional(v.number()) },
+  handler: async (ctx, a) => {
+    const b = await ctx.db.get(a.bookingId);
+    if (!b || !["confirmed", "active"].includes(b.status) || b.cancellationDecision || b.returnDecision ||
+      b.stripeDepositIntentId !== a.intentId || ["captured", "released"].includes(b.depositHoldStatus ?? "")) return false;
+    if (!["held", "failed", "captured", "requires_action", "processing"].includes(a.status) ||
+      (a.status === "held" && (!Number.isFinite(a.expiresAt) || a.expiresAt! <= Date.now()))) return false;
+    if (b.depositHoldStatus === a.status && b.depositHoldExpiresAt === a.expiresAt) return true;
+    await ctx.db.patch(b._id, { depositHoldStatus: a.status, depositHoldExpiresAt: a.expiresAt });
+    await queueRmv2Sync(ctx, b._id);
+    return true;
   },
 });
 
