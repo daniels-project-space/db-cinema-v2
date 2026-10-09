@@ -116,6 +116,7 @@ export default defineSchema({
     detail: v.string(), messageId: v.id("messages"), createdAt: v.number(),
     status: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("declined"))),
     decisionNote: v.optional(v.string()), decidedAt: v.optional(v.number()), decisionMessageId: v.optional(v.id("messages")),
+    execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
   }).index("by_request", ["requestId"]).index("by_account", ["accountId"]).index("by_booking", ["bookingId"]),
   reservations: defineTable({
     inventoryUnitId: v.id("inventory_units"),
@@ -200,6 +201,7 @@ export default defineSchema({
     cancellationDecision:v.optional(v.object({
       kind:v.union(v.literal("full_refund"),v.literal("store_credit")),createdAt:v.number(),
       fullCreditOfferId: v.optional(v.id("rental_credit_offers")),
+      changeRequestId: v.optional(v.id("rental_change_requests")),
       quote:v.optional(v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})),
     })),
     customerId: v.optional(v.id("customers")),

@@ -21,6 +21,7 @@ import { assertRenterExposure } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { postRentalMessage } from "./lib/rentalChat";
 import { rentalCancellationStart, bookingCancelKind, londonStartOfDay } from "../src/lib/cancellationPolicy";
+import { approvedRequest, finishRequest, rescheduleRequestKey } from "./lib/rentalRequestExecution";
 
 /** Minimal server-only address lookup: a linked rental never falls back to a reused mailbox. */
 export const changeRecipient = internalQuery({
@@ -35,7 +36,7 @@ export const changeRecipient = internalQuery({
 });
 
 export const details = query({
-  args: { token: v.string(), bookingId: v.id("bookings") },
+  args: { token: v.string(), bookingId: v.id("bookings"), refreshKey: v.optional(v.number()) },
   handler: async (ctx, { token, bookingId }) => {
     if (!checkAdminToken(token)) return null;
     const b = await ctx.db.get(bookingId);
@@ -69,10 +70,14 @@ export const reschedule = mutation({
     end: v.optional(v.number()),
     keepAgreedPrice: v.optional(v.boolean()),
     reason: v.string(),
+    changeRequestId: v.optional(v.id("rental_change_requests")),
   },
-  handler: async (ctx, { token, bookingId, start, end, keepAgreedPrice, reason }) => {
+  handler: async (ctx, { token, bookingId, start, end, keepAgreedPrice, reason, changeRequestId }) => {
     await assertAdmin(ctx, token, "rentalOperations.reschedule");
     const b = await ctx.db.get(bookingId);
+    const operationKey = rescheduleRequestKey(start, end, keepAgreedPrice, reason);
+    const request = await approvedRequest(ctx, b, changeRequestId, "reschedule", operationKey);
+    if (request?.execution?.status === "applied") return { ok: true };
     if (!b || b.status !== "confirmed")
       throw Error("Only an upcoming rental can be rescheduled");
     if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
@@ -124,6 +129,7 @@ export const reschedule = mutation({
         bookingId,
         sender: "system",
         text: `The team rescheduled your rental to ${detail}. Agreed charges and security are unchanged${endShift > 0 ? "; the additional days have no extra rental charge" : ""}. Any eligible refund is recorded separately. ${reason.trim()}`,
+        ...(changeRequestId ? { meta: { type: "rental_change_applied", changeRequestId } } : {}),
       });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
       bookingId,
@@ -131,6 +137,7 @@ export const reschedule = mutation({
       detail,
     });
     await queueRmv2Sync(ctx, bookingId);
+    await finishRequest(ctx, b, changeRequestId, "reschedule", operationKey, `Rental dates updated to ${detail}. Agreed charges are unchanged; any eligible refund is recorded separately.`);
     return { ok: true };
   },
 });

@@ -23,7 +23,7 @@ class Stripe {
 setMock('stripe', { default: Stripe });
 process.env.STRIPE_SECRET_KEY = 'sk_test_fixture'; process.env.ADMIN_TOKEN = 'fixture-owner';
 const recovery = load('convex/cancellationRecovery.ts'), bookings = load('convex/bookings.ts'), checkout = load('convex/checkout.ts');
-const helper = load('convex/lib/approvedRefund.ts');
+const helper = load('convex/lib/approvedRefund.ts'), requests = load('convex/rentalRequests.ts');
 const account = put('accounts', { email: 'changed@rental-test.invalid' });
 const b = put('bookings', { accountId: account._id, status: 'confirmed', guestEmail: 'old@rental-test.invalid',
   stripePaymentIntentId: 'pi_main', stripeDepositIntentId: 'pi_hold', depositHoldStatus: 'held', depositHoldAmount: 100,
@@ -47,9 +47,13 @@ const ctx = { db, scheduler: { runAfter: async () => {} },
   },
 };
 (async () => {
-  const args = { token: process.env.ADMIN_TOKEN, bookingId: b._id, reason: 'Explicit owner cancellation' };
+  await requests.submit.handler(ctx,{token:'renter',bookingId:b._id,requestId:'approved-cancellation-request-01',kind:'cancel',detail:'Please cancel this booking and settle under the agreed terms.'});
+  const linked=await db.query('rental_change_requests').withIndex('by_booking',q=>q.eq('bookingId',b._id)).first();
+  await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:linked._id,decision:'approved',note:'We agree to arrange cancellation under your accepted terms.'});
+  const args = { changeRequestId: linked._id, token: process.env.ADMIN_TOKEN, bookingId: b._id, reason: 'Explicit owner cancellation' };
   transientGet = true;
   await assert.rejects(checkout.cancelByAdmin.handler(ctx, args), /temporarily unavailable/);
+  assert.equal(linked.execution.status,'processing');assert.equal(b.cancellationDecision.changeRequestId,linked._id);
   let job = await db.query('rental_cancellations').withIndex('by_booking', q => q.eq('bookingId', b._id)).unique();
   assert.equal(job.receipts[0].approvalRequestId, 'apreq_fixture', 'approval ID survives a failed approval GET');
   assert.equal(b.status, 'confirmed'); assert.equal(stock.status, 'confirmed'); assert.equal(creates, 1);
@@ -69,11 +73,16 @@ const ctx = { db, scheduler: { runAfter: async () => {} },
   job.retryAt = Date.now() - 1;
   await checkout.reconcileCancellations.handler(ctx, {});
   assert.equal(b.status, 'confirmed', 'pending bank refund cannot be called refunded/cancelled');
+  assert.equal(linked.execution.status,'processing','Pending bank refund cannot fulfil the customer request');
   assert.equal(job.receipts[0].stripeRefundId, 're_approved');
   refunds.get('re_approved').status = 'succeeded'; job.retryAt = Date.now() - 1;
   await checkout.reconcileCancellations.handler(ctx, {});
   assert.equal(b.status, 'cancelled'); assert.equal(stock.status, 'cancelled'); assert.equal(b.refundAmount, 45);
   assert.equal(b.depositHoldStatus, 'released', 'an already-canceled Stripe hold reconciles locally');
+  assert.equal(linked.execution.status,'applied');assert.match(linked.execution.detail,/Card refund £45.00; account credit £0.00/);
+  const visible=(await requests.list.handler(ctx,{token:'renter',bookingId:b._id,paginationOpts:{numItems:30,cursor:null}})).page[0];assert.equal(visible.execution.status,'applied');assert(!('operationKey' in visible.execution));
+  const completedMessages=(await db.query('messages').collect()).length;
+  await checkout.cancelByAdmin.handler(ctx,args);assert.equal((await db.query('messages').collect()).length,completedMessages,'Completed linked cancellation retry cannot send another customer confirmation');
   assert.equal(job.status, 'succeeded'); assert.equal(job.retryAt, undefined); assert.equal(creates, 1);
   const reads = approvalGets; await checkout.reconcileCancellations.handler(ctx, {}); assert.equal(approvalGets, reads);
 
@@ -116,7 +125,7 @@ const ctx = { db, scheduler: { runAfter: async () => {} },
   const captured = put('bookings', { accountId: account._id, guestEmail: account.email, status: 'confirmed',
     stripeDepositIntentId: 'pi_captured_security', depositHoldAmount: 100, depositHoldStatus: 'held', total: 0,
     depositAmount: 0, currency: 'GBP', lineItems: b.lineItems });
-  await assert.rejects(checkout.cancelByAdmin.handler(ctx, { ...args, bookingId: captured._id }), /captured charge/);
+  await assert.rejects(checkout.cancelByAdmin.handler(ctx, { ...args, changeRequestId:undefined, bookingId: captured._id }), /captured charge/);
   const capturedJob = await db.query('rental_cancellations').withIndex('by_booking', q => q.eq('bookingId', captured._id)).unique();
   assert.equal(capturedJob.status, 'attention'); assert.equal(capturedJob.retryAt, undefined);
   assert.equal(captured.status, 'confirmed', 'captured security cannot be mislabelled as a released hold');

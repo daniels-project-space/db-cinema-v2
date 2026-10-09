@@ -1257,8 +1257,9 @@ async function remainingCancellationPayment(payment: Stripe.PaymentIntent, maxPa
   return rentalRefundBalance(payment.amount_received,maxPaidPence,refunds,memberRefunds);
 }
 
-async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReason?:string,fullCreditOfferId?:any){
- const decision=await ctx.runMutation(internal.bookings.prepareCancellation,{bookingId,fullCreditOfferId});
+async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReason?:string,fullCreditOfferId?:any,changeRequestId?:any,expectedCancellationKind?:"full_refund"|"store_credit"){
+ const requestId=changeRequestId??b.cancellationDecision?.changeRequestId;
+ const decision=await ctx.runMutation(internal.bookings.prepareCancellation,{bookingId,fullCreditOfferId,...(requestId?{changeRequestId:requestId}:{}),...(expectedCancellationKind?{expectedCancellationKind}:{})});
  let quote=decision.quote;
  if(!quote){
   const paidIntentId=await paymentBeforeCancellation(b);
@@ -1349,13 +1350,14 @@ export const acceptFullCredit = action({
  }
 });
 export const cancelByAdmin = action({
- args:{token:v.string(),bookingId:v.id("bookings"),reason:v.string()},
- handler:async(ctx,{token,bookingId,reason}):Promise<{refundAmount:number;creditAmount:number;mode:string}>=>{
+ args:{token:v.string(),bookingId:v.id("bookings"),reason:v.string(),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit")))},
+ handler:async(ctx,{token,bookingId,reason,changeRequestId,expectedCancellationKind}):Promise<{refundAmount:number;creditAmount:number;mode:string}>=>{
   await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"checkout.cancelByAdmin"});
   if(reason.trim().length<5)throw Error("Record the cancellation reason");
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
+  if(changeRequestId && b?.status==="cancelled" && b.completedChangeRequestId===changeRequestId && b.cancellationDecision?.quote)return {refundAmount:b.cancellationDecision.quote.refundAmount,creditAmount:b.cancellationDecision.quote.creditAmount,mode:b.cancellationDecision.quote.mode};
   if(!b||!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Only unstarted direct bookings can be cancelled here");
-  return cancelRental(ctx,bookingId,b,b.accountId??undefined,reason.trim().slice(0,400));
+  return cancelRental(ctx,bookingId,b,b.accountId??undefined,reason.trim().slice(0,400),undefined,changeRequestId,expectedCancellationKind);
  }
 });
 /** Abandoning an unpaid checkout remains available without enabling paid self-service actions. */

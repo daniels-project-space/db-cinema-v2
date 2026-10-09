@@ -46,7 +46,8 @@ process.env.ADMIN_TOKEN = "fixture-owner";
 const recovery = load("convex/cancellationRecovery.ts");
 const bookings = load("convex/bookings.ts"),
   checkout = load("convex/checkout.ts");
-put("accounts", { email: "cancellation@rental-test.invalid" });
+const account=put("accounts", { email: "cancellation@rental-test.invalid" });
+put("sessions",{token:"request-renter",accountId:account._id,expiresAt:Date.now()+600000});
 const b = put("bookings", {
   status: "confirmed",
   guestEmail: "cancellation@rental-test.invalid",
@@ -88,7 +89,11 @@ const ctx = {
   },
 };
 (async () => {
-  const args = {
+  const requests=load("convex/rentalRequests.ts");
+  await requests.submit.handler(ctx,{token:"request-renter",bookingId:b._id,requestId:"retry-linked-cancellation-01",kind:"cancel",detail:"Please cancel and refund the booking under its agreed terms."});
+  const linked=await db.query("rental_change_requests").withIndex("by_booking",q=>q.eq("bookingId",b._id)).first();
+  await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:linked._id,decision:"approved",note:"We agree to arrange the cancellation under the accepted terms."});
+  const args = { changeRequestId:linked._id,
     token: process.env.ADMIN_TOKEN,
     bookingId: b._id,
     reason: "Owner cancellation request",
@@ -97,7 +102,7 @@ const ctx = {
     checkout.cancelByAdmin.handler(ctx, args),
     /database outage/,
   );
-  assert.equal(created, 1);
+  assert.equal(created, 1);assert.equal(linked.execution.status,"processing","Lost database finalisation cannot complete the request");
   assert.equal(b.status, "confirmed");
   assert.equal(b.cancellationDecision.quote.refundAmount, 120);
   await checkout.cancelByAdmin.handler(ctx, args);
@@ -108,13 +113,13 @@ const ctx = {
     "retry does not reprice against already refunded balance",
   );
   assert.equal(b.status, "cancelled");
-  assert.equal(b.refundAmount, 120);
+  assert.equal(b.refundAmount, 120);assert.equal(linked.execution.status,"applied");
   const member = put("accounts", {email:"credit-only@rental-test.invalid"});
   const creditOnly = put("bookings", {status:"confirmed", guestEmail:member.email,
     accountId:member._id, currency:"GBP", total:0, creditApplied:53, depositAmount:0,
     lineItems:[{listingId:"fixture-listing",title:"Camera",qty:1,lineTotal:53,
       start:Date.UTC(2030,10,1),end:Date.UTC(2030,10,2)}]});
-  const restored=await checkout.cancelByAdmin.handler(ctx,{...args,bookingId:creditOnly._id});
+  const restored=await checkout.cancelByAdmin.handler(ctx,{...args,changeRequestId:undefined,bookingId:creditOnly._id});
   assert.equal(restored.refundAmount,0);
   assert.equal(restored.creditAmount,53,"setup-only booking restores tender despite having no payment intent");
   assert.equal(created,1,"credit-only cancellation does not create a cash refund");
@@ -149,7 +154,7 @@ const ctx = {
         stripePaymentIntentId:paymentIntentId,total:120,depositAmount:20,currency:'GBP',
         agreementDocs:[{kind:'cancellation',version}],
         lineItems:[{listingId:'fixture-listing',title:'Camera',qty:1,lineTotal:100,start,end:start+86400000}]});
-      const result=await checkout.cancelByAdmin.handler(ctx,{...args,bookingId:rental._id});
+      const result=await checkout.cancelByAdmin.handler(ctx,{...args,changeRequestId:undefined,bookingId:rental._id});
       assert.equal(result.refundAmount,refundAmount,label);
       assert.equal(result.creditAmount,creditAmount,label);
       assert.equal(rental.status,'cancelled');

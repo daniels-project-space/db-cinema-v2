@@ -30,6 +30,7 @@ export const list = query({
     return { ...rows, page: rows.page.map(row => ({
       _id: row._id, kind: row.kind, detail: row.detail, createdAt: row.createdAt,
       status: row.status ?? "pending", decisionNote: row.decisionNote, decidedAt: row.decidedAt,
+      execution: row.execution ? { operation: row.execution.operation, status: row.execution.status, appliedAt: row.execution.appliedAt, detail: row.execution.detail } : undefined,
     })) };
   },
 });
