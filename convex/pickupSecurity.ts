@@ -39,6 +39,7 @@ export async function schedulePickupHold(ctx: any, b: any, force=false) {
     securityHoldRecoverySessionId: undefined,
     securityHoldRecoveryGeneration: undefined,
     securityHoldRecoveryReleasedIntentId: undefined,
+    securityHoldRecoveryRenewalIntentId: undefined,
   });
   await queueRmv2Sync(ctx, b._id);
 }
@@ -187,15 +188,16 @@ export const due = internalQuery({
   },
 });
 export const bindRecovery = internalMutation({
-  args: { bookingId: v.id("bookings"), sessionId: v.string(), generation: v.optional(v.number()), releasedIntentId: v.optional(v.string()) },
+  args: { bookingId: v.id("bookings"), sessionId: v.string(), generation: v.optional(v.number()), releasedIntentId: v.optional(v.string()), renewalIntentId: v.optional(v.string()) },
   handler: async (ctx, a) => {
     const b = await ctx.db.get(a.bookingId);
-    if (!pickupHoldEligible(b) || !["failed", "requires_action"].includes(b!.depositHoldStatus ?? "") || b!.securityHoldGeneration !== a.generation || b!.stripeDepositIntentId !== a.releasedIntentId)
+    if (!pickupHoldEligible(b) || !["failed", "requires_action"].includes(b!.depositHoldStatus ?? "") || b!.securityHoldGeneration !== a.generation || b!.stripeDepositIntentId !== a.releasedIntentId || b!.depositHoldRenewalIntentId !== a.renewalIntentId)
       throw Error("Rental security changed. Refresh your rental before updating the card.");
     await ctx.db.patch(a.bookingId, {
       securityHoldRecoverySessionId: a.sessionId,
       securityHoldRecoveryGeneration: a.generation,
       securityHoldRecoveryReleasedIntentId: a.releasedIntentId,
+      securityHoldRecoveryRenewalIntentId: a.renewalIntentId,
     });
   },
 });
@@ -214,7 +216,8 @@ export const recoverCard = internalMutation({
       b!.securityHoldCustomerId !== a.customerId ||
       !["failed", "requires_action"].includes(b!.depositHoldStatus ?? "") ||
       b!.securityHoldRecoveryGeneration !== b!.securityHoldGeneration ||
-      b!.securityHoldRecoveryReleasedIntentId !== b!.stripeDepositIntentId
+      b!.securityHoldRecoveryReleasedIntentId !== b!.stripeDepositIntentId ||
+      b!.securityHoldRecoveryRenewalIntentId !== b!.depositHoldRenewalIntentId
     )
       return false;
     await ctx.db.patch(a.bookingId, {
@@ -223,8 +226,12 @@ export const recoverCard = internalMutation({
       securityHoldRecoverySessionId: undefined,
       securityHoldRecoveryGeneration: undefined,
       securityHoldRecoveryReleasedIntentId: undefined,
+      securityHoldRecoveryRenewalIntentId: undefined,
       securityHoldJobId: undefined,
       stripeDepositIntentId: undefined,
+      depositHoldRenewalIntentId: undefined,
+      depositHoldRenewalStatus: undefined,
+      depositHoldRenewalAt: undefined,
     });
     await schedulePickupHold(ctx, {
       ...b,

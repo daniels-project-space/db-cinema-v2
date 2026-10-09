@@ -271,9 +271,56 @@ export const pickupsDue = internalAction({args:{},handler:async(ctx)=>{const row
 async function ownPickup(ctx:any,token:string,bookingId:any){const account:any=await ctx.runQuery(api.accounts.me,{token}),b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId});if(!account||!b||!pickupHoldEligible(b)||(b.accountId?b.accountId!==account._id:account.email?.trim().toLowerCase()!==b.guestEmail?.trim().toLowerCase()))throw Error("Booking access denied");return b;}
 export const resumePickup = action({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a)=>{const b=await ownPickup(ctx,a.token,a.bookingId);if(b.depositHoldStatus!=="requires_action"||!b.stripeDepositIntentId)return {status:b.depositHoldStatus,clientSecret:null};const sb=stripe(),intent=await sb.paymentIntents.retrieve(b.stripeDepositIntentId);if(!await pickupRecoveryIntentMatches(ctx,b,intent,sb))throw Error("Rental card authorisation does not match. Please contact us.");return {status:intent.status,clientSecret:intent.status==="requires_action"?intent.client_secret:null};}});
 export const syncPickup = action({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a):Promise<{status:string}>=>{const b=await ownPickup(ctx,a.token,a.bookingId);if(!b.stripeDepositIntentId)return {status:b.depositHoldStatus??"none"};const sb=stripe(),intent=await sb.paymentIntents.retrieve(b.stripeDepositIntentId,{expand:["latest_charge"]});return {status:await reconcilePickup(ctx,b,intent,sb)};}});
-export const updatePickupCard = action({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a):Promise<{url:string}>=>{const b=await ownPickup(ctx,a.token,a.bookingId);if(!pickupHoldEligible(b)||!["failed","requires_action"].includes(b.depositHoldStatus??""))throw Error("This rental does not need a replacement card.");if(!b.stripeDepositIntentId && (b.securityHoldAttempts??0)>0 && ["provider_unavailable","provider_outcome_unknown"].includes(b.securityHoldFailureCode??""))throw Error("The previous authorisation outcome is still unknown. Please contact us before replacing the card.");if(!b.securityHoldCustomerId)throw Error("Your saved rental card account is temporarily unavailable. Please contact us.");const sb=stripe();if(b.stripeDepositIntentId){const old=await sb.paymentIntents.retrieve(b.stripeDepositIntentId);if(!await pickupRecoveryIntentMatches(ctx,b,old,sb))throw Error("Rental card authorisation does not match. Please contact us.");if((old.amount_received??0)>0||["requires_capture","succeeded","processing"].includes(old.status))throw Error("Rental card authorisation is held, charged or still processing. Refresh your rental before updating the card.");if(old.status!=="canceled"){const released=await sb.paymentIntents.cancel(old.id,{}, {idempotencyKey:`dbc-pickup-recovery-cancel-${old.id}`});if(released.status!=="canceled")throw Error("Previous card authorisation has not been released. Try again later.");}}
- const configurationId=process.env.STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID;if(!configurationId)throw Error("Rental card setup is temporarily unavailable. Please contact us.");const configuration=await sb.paymentMethodConfigurations.retrieve(configurationId);if(!configuration.active||configuration.card?.display_preference?.value!=="on"||[configuration.apple_pay,configuration.google_pay,configuration.link].some(method=>method?.display_preference?.value!=="off"))throw Error("Rental card setup requires the configured reusable card method.");
- const session=await sb.checkout.sessions.create({mode:"setup",currency:"gbp",customer:b.securityHoldCustomerId,payment_method_configuration:configurationId,setup_intent_data:{metadata:{bookingId:a.bookingId,purpose:"pickup_card_recovery"}},metadata:{pickupCardBookingId:a.bookingId},success_url:`${new URL(process.env.APP_URL!).origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${new URL(process.env.APP_URL!).origin}/account`});if(!session.url)throw Error("Card setup could not start.");await ctx.runMutation(internal.pickupSecurity.bindRecovery,{bookingId:a.bookingId,sessionId:session.id,generation:b.securityHoldGeneration,releasedIntentId:b.stripeDepositIntentId});return {url:session.url};}});
+function assertRecoveryRetirable(intent: Stripe.PaymentIntent) {
+  if (intent.amount_received !== 0 || !["canceled", "requires_action", "requires_payment_method", "requires_confirmation"].includes(intent.status))
+    throw Error("Rental card authorisation is held, charged or still processing. Refresh your rental before updating the card.");
+}
+export const updatePickupCard = action({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, a): Promise<{ url: string }> => {
+    const b = await ownPickup(ctx, a.token, a.bookingId);
+    if (!["failed", "requires_action"].includes(b.depositHoldStatus ?? "")) throw Error("This rental does not need a replacement card.");
+    if (!b.stripeDepositIntentId && (b.securityHoldAttempts ?? 0) > 0 && ["provider_unavailable", "provider_outcome_unknown"].includes(b.securityHoldFailureCode ?? ""))
+      throw Error("The previous authorisation outcome is still unknown. Please contact us before replacing the card.");
+    if (!b.securityHoldCustomerId) throw Error("Your saved rental card account is temporarily unavailable. Please contact us.");
+    const sb = stripe(), generation = b.securityHoldGeneration, releasedIntentId = b.stripeDepositIntentId,
+      renewalIntentId = b.depositHoldRenewalIntentId;
+    const retiring: Stripe.PaymentIntent[] = [];
+    if (releasedIntentId) {
+      const old = await sb.paymentIntents.retrieve(releasedIntentId);
+      if (!await pickupRecoveryIntentMatches(ctx, b, old, sb)) throw Error("Rental card authorisation does not match. Please contact us.");
+      assertRecoveryRetirable(old);
+      retiring.push(old);
+    }
+    if (renewalIntentId && renewalIntentId !== releasedIntentId) {
+      const pending = await sb.paymentIntents.retrieve(renewalIntentId);
+      if (!releasedIntentId || stripeId(pending.customer) !== b.securityHoldCustomerId ||
+        (stripeId(pending.payment_method) !== b.securityHoldPaymentMethodId &&
+          !(!pending.payment_method && ["canceled", "requires_payment_method"].includes(pending.status) && pending.amount_received === 0)) ||
+        !await renewalIntentMatches(ctx, b._id, releasedIntentId, pending, sb))
+        throw Error("Rental card authorisation does not match. Please contact us.");
+      assertRecoveryRetirable(pending);
+      retiring.unshift(pending);
+    }
+    const configurationId = process.env.STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID;
+    if (!configurationId) throw Error("Rental card setup is temporarily unavailable. Please contact us.");
+    const configuration = await sb.paymentMethodConfigurations.retrieve(configurationId);
+    if (!configuration.active || configuration.card?.display_preference?.value !== "on" ||
+      [configuration.apple_pay, configuration.google_pay, configuration.link].some(method => method?.display_preference?.value !== "off"))
+      throw Error("Rental card setup requires the configured reusable card method.");
+    const origin = new URL(process.env.APP_URL!).origin;
+    for (const intent of retiring) {
+      const released = intent.status === "canceled" ? intent : await sb.paymentIntents.cancel(intent.id, {}, { idempotencyKey: `dbc-pickup-recovery-cancel-${intent.id}` });
+      if (released.status !== "canceled" || released.amount_received !== 0) throw Error("Previous card authorisation has not been released. Try again later.");
+    }
+    const session = await sb.checkout.sessions.create({ mode: "setup", currency: "gbp", customer: b.securityHoldCustomerId,
+      payment_method_configuration: configurationId, setup_intent_data: { metadata: { bookingId: a.bookingId, purpose: "pickup_card_recovery" } },
+      metadata: { pickupCardBookingId: a.bookingId }, success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}/account` });
+    if (!session.url) throw Error("Card setup could not start.");
+    await ctx.runMutation(internal.pickupSecurity.bindRecovery, { bookingId: a.bookingId, sessionId: session.id, generation, releasedIntentId, renewalIntentId });
+    return { url: session.url };
+  },
+});
 export const reconcilePickupWebhook = internalAction({
   args: { bookingId: v.id("bookings"), intentId: v.string() },
   handler: async (ctx, a) => {
