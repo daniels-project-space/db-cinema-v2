@@ -4,7 +4,7 @@ import {isAllowedReturnTime} from "../src/lib/site";
 import Stripe from "stripe";
 import { PICKUP_HOLD_POLICY } from "../shared/pickupSecurity";
 import { returnSecurityPlan } from "../shared/returnSettlement";
-import { returnStatementEmail, type ReturnStatementData } from "../shared/returnStatement";
+import { returnStatementEmail, damageDeductionEmail, type ReturnStatementData } from "../shared/returnStatement";
 import type { InspectionInput } from "../shared/returnInspection";
 import { rentalRefundBalance } from "./lib/rentalRefundBalance";
 import { recoverApprovedRefund, RefundReviewRequired } from "./lib/approvedRefund";
@@ -862,6 +862,8 @@ export const markReturned = action({
     const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId });
     if (!b) throw new Error("Booking not found.");
     const { returned, quotedLate, late, waiver, sources } = await validateReturnSelection(ctx, b, { bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection });
+    if ((damageKept ?? 0) > 0 && !b.depositRefunded && !b.notificationEmail)
+      throw new Error("The associated rental account email needs review before a damage deduction can be collected.");
     for (const oldId of b.depositHoldPreviousIntentIds ?? []) {
       try {
         const old = await stripe().paymentIntents.retrieve(oldId);
@@ -884,7 +886,6 @@ export const markReturned = action({
         holdAvailable = observedHoldAmounts(b, observed).available;
       }
       returnSecurityPlan({ deposit, capturedSecurity: sources.reduce((n: number, source: any) => n + source.securityPence, 0) / 100, damage: kept, holdAvailable, holdUncaptured: 0 });
-      if (!b.guestEmail) throw new Error("Customer email is required for an itemised damage notice.");
     }
     await ctx.runMutation(internal.bookings.beginReturnDecision, {
       bookingId, actualReturnedAt: returned, damageKept: kept, damageNote: kept ? damageNote?.trim() : undefined,
@@ -892,14 +893,18 @@ export const markReturned = action({
       inspection,
     });
     if (kept > 0 && !b.depositRefunded && !b.damageNoticeSentAt) {
-      const detail = (damageNote ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+      // Resolve again after freezing the decision, never fall back to a linked
+      // booking's historical email when its permanent account is missing.
+      const noticeContext: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId });
+      if (!noticeContext?.notificationEmail) throw Error("The associated rental account email needs review before a damage deduction can be collected.");
+      const notice = damageDeductionEmail({to:noticeContext.notificationEmail,bookingId:String(bookingId),damage:kept,reason:damageNote?.trim()??"",
+        url:`${process.env.APP_URL ?? "https://dbcinemarentals.com"}/account?rental=${encodeURIComponent(String(bookingId))}#chat`});
       const sent = await sendMail({
-        to: b.guestEmail,
-        subject: `Db Cinema rental: itemised £${kept} damage or loss deduction`,
-        html: `<h2>Rental return and security deduction</h2><p>We recorded a £${kept} deduction for the following documented reason:</p><p>${detail}</p><p>We will apply the available authorised hold first and use the refundable security payment only for any remaining amount. Reply to this email if the evidence or amount is wrong. We will not collect the same amount twice.</p>`,
+        ...notice,
+        deliveryKey:`rental-damage-${createHash("sha256").update(JSON.stringify([bookingId,notice.to,noticeContext.returnDecision])).digest("hex")}`,
       });
       if (!sent) throw new Error("The itemised deduction notice could not be delivered. No damage amount was captured; please retry after fixing email delivery.");
-      await ctx.runMutation(internal.bookings.markDamageNoticeSent, { bookingId });
+      await ctx.runMutation(internal.bookings.markDamageNoticeSent, { bookingId, recipientEmail: notice.to });
     }
 
     // Mark returned and free the inventory ledger after the deduction preflight.

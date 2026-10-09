@@ -770,6 +770,7 @@ export const getForRefund = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
+    const account = await accountForRental(ctx, b);
     return {
       status:b.status,
       paymentSources:await rentalPaymentSources(ctx,b),
@@ -782,6 +783,7 @@ export const getForRefund = internalQuery({
       lineItems: b.lineItems,
       returnTime: b.returnTime ?? null,
       guestEmail: b.guestEmail ?? null,
+      notificationEmail: account?.email ?? (b.accountId ? null : b.guestEmail ?? null),
       returnDecision: b.returnDecision ?? null,
       depositRefunded: b.depositRefunded ?? false,
       depositKept: b.depositKept ?? 0,
@@ -818,11 +820,15 @@ export const beginReturnDecision = internalMutation({
 });
 
 export const markDamageNoticeSent = internalMutation({
-  args: { bookingId: v.id("bookings") },
-  handler: async (ctx, { bookingId }) => {
+  args: { bookingId: v.id("bookings"), recipientEmail: v.string() },
+  handler: async (ctx, { bookingId, recipientEmail }) => {
     const b = await ctx.db.get(bookingId);
+    const account = await accountForRental(ctx, b);
+    const currentEmail = account?.email ?? (b?.accountId ? null : b?.guestEmail);
+    if (!currentEmail || recipientEmail !== currentEmail)
+      throw Error("The rental account changed while the deduction notice was sent. Review and retry before collection.");
     if (b?.returnDecision && !b.damageNoticeSentAt)
-      await ctx.db.patch(bookingId, { damageNoticeSentAt: Date.now() });
+      await ctx.db.patch(bookingId, { damageNoticeSentAt: Date.now(), damageNoticeRecipientEmail: recipientEmail });
   },
 });
 

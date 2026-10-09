@@ -340,6 +340,7 @@ export default defineSchema({
     depositHoldCapturedForDamage: v.optional(v.number()),
     depositDeductionNote: v.optional(v.string()),
     damageNoticeSentAt: v.optional(v.number()),
+    damageNoticeRecipientEmail: v.optional(v.string()),
     returnedAt: v.optional(v.number()), // when the rental was marked returned + deposit released
     actualReturnedAt: v.optional(v.number()),
     returnDecision: v.optional(v.object({

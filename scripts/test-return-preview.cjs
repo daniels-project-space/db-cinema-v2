@@ -1,12 +1,12 @@
 const assert=require('node:assert/strict');
 const {load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
 process.env.ADMIN_TOKEN='isolated-return-review';process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.INVOICE_SECRET='private-invoice-fixture';process.env.APP_URL='https://pdf.example.invalid';
-let status='requires_capture',capturable=8100,received=0,holdAmount=8100,reads=0,pdfCalls=0,events=[];
+let status='requires_capture',capturable=8100,received=0,holdAmount=8100,reads=0,pdfCalls=0,events=[],mailAccepted=true;
 class StripeFixture {
  paymentIntents={retrieve:async id=>{reads++;return {id,status,amount_capturable:capturable,amount_received:received,amount:holdAmount}},capture:async(id,args)=>{events.push(['capture',args.amount_to_capture]);received=args.amount_to_capture;capturable=0;status='succeeded';return {id,status}},cancel:async id=>{events.push(['cancel',id]);status='canceled';capturable=0;return {id,status}}};
  refunds={create:async args=>{events.push(['refund',args.amount]);return {id:'refund'}}};
 }
-setMock('stripe',{default:StripeFixture});setMock('./lib/mailer',{sendMail:async()=>{events.push(['email']);return true}});
+setMock('stripe',{default:StripeFixture});setMock('./lib/mailer',{sendMail:async message=>{events.push(['email',message]);return mailAccepted}});
 const checkout=load('convex/checkout.ts'),bookings=load('convex/bookings.ts'),inspections=load('convex/returnInspections.ts'),admin=load('convex/adminAuth.ts');
 const at=Date.now(),day=Date.UTC(new Date(at).getUTCFullYear(),new Date(at).getUTCMonth(),new Date(at).getUTCDate());
 const b=put('bookings',{status:'active',guestEmail:'client@example.invalid',guestName:'Client',fulfilment:'pickup',lineItems:[{title:'Camera <script>',qty:1,start:day,end:day,lineTotal:100}],subtotal:100,total:140.5,depositAmount:40.5,depositHoldAmount:81,depositHoldStatus:'held',stripePaymentIntentId:'pi_private_rental',stripeDepositIntentId:'pi_private_hold'});
@@ -37,7 +37,19 @@ const review=(extra={})=>checkout.previewReturned.handler(ctx,{...args,...extra}
  await db.patch(b._id,{returnTime:'00:00',lineItems:[{...b.lineItems[0],dailyRate:25}]});const late=await review({damageKept:0,inspection:[{key:'legacy:0:0',condition:'good',details:'',openCase:false}],damageNote:undefined});assert(late.financial.lateAssessed>0);assert.equal(late.financial.holdRelease,0);assert.equal(late.financial.holdRetainedForLate,81);assert(late.email.html.includes('not yet collected'));await db.patch(b._id,{returnTime:undefined,lineItems:[{...b.lineItems[0],dailyRate:undefined}]});
  global.fetch=async()=>({ok:true,arrayBuffer:async()=>Buffer.from('<html>invalid</html>')});await assert.rejects(()=>review(),/valid PDF/);assert.deepEqual(events,[]);
  // Real execution shares the same available provider balance and refund arithmetic.
+ const renter=put('accounts',{email:'changed-renter@example.invalid'}),reused=put('accounts',{email:b.guestEmail});
+ await db.patch(b._id,{accountId:'missing-permanent-account'});
+ const missing=await bookings.getForRefund.handler({db},{bookingId:b._id});assert.equal(missing.notificationEmail,null,'missing permanent account never falls back to reused email');
+ const beforeMissing=events.length;await assert.rejects(checkout.markReturned.handler(ctx,args),/associated rental account email/);assert.equal(events.length,beforeMissing,'missing account fails before provider changes or mail');assert.equal(b.returnDecision,undefined);
+ await db.patch(b._id,{accountId:renter._id});const linked=await bookings.getForRefund.handler({db},{bookingId:b._id});assert.equal(linked.notificationEmail,renter.email);assert.equal(linked.guestEmail,reused.email,'original booking contact stays intact for audit');
+ mailAccepted=false;capturable=2000;status='requires_capture';
+ await assert.rejects(checkout.markReturned.handler(ctx,args),/notice could not be delivered/);assert.equal(b.status,'active');assert(!b.damageNoticeSentAt);assert(!events.some(e=>['capture','refund','cancel'].includes(e[0])),'failed notice cannot collect damage');
+ const failedNotice=events.find(e=>e[0]==='email')[1];assert.equal(failedNotice.to,renter.email);assert.match(failedNotice.html.replace(/<[^>]+>/g,''),/DB CINEMA/);assert(failedNotice.html.includes('&lt;script&gt;'));assert(!failedNotice.html.includes('<script>'));assert(failedNotice.html.includes(`/account?rental=${b._id}#chat`));assert.match(failedNotice.deliveryKey,/^rental-damage-[a-f0-9]{64}$/);assert(!failedNotice.html.includes(reused.email));
+ mailAccepted=true;
  capturable=2000;status='requires_capture';const settled=await checkout.markReturned.handler(ctx,args);assert.equal(settled.released,35.5);assert.equal(settled.kept,25);assert(events.some(e=>e[0]==='capture'&&e[1]===2000));assert(events.some(e=>e[0]==='refund'&&e[1]===3550));assert(events.findIndex(e=>e[0]==='email')<events.findIndex(e=>e[0]==='capture'));assert.equal((await db.query('rental_damage_cases').collect()).length,1);
+ const notices=events.filter(e=>e[0]==='email').map(e=>e[1]);assert.equal(notices.length,2);assert.equal(notices[1].deliveryKey,failedNotice.deliveryKey,'notice retry uses the same frozen account/decision identity');assert.equal(notices[1].to,renter.email);
+ assert.equal(b.damageNoticeRecipientEmail,renter.email,'actual delivery recipient retained for the settlement audit');
+ const receiptAt=b.damageNoticeSentAt;await assert.rejects(bookings.markDamageNoticeSent.handler({db},{bookingId:b._id,recipientEmail:reused.email}),/account changed/);assert.equal(b.damageNoticeSentAt,receiptAt,'foreign historical recipient cannot bind a delivery receipt');
  const returned=await inspections.context.handler({db},{token:process.env.ADMIN_TOKEN,bookingId:b._id});assert.equal(returned.returnStatement.securityRefunded,35.5);assert.equal(returned.returnStatement.damageFromHold,20);
  global.fetch=async(_url,options)=>{const body=JSON.parse(options.body);assert.equal(body.draft,false);return {ok:true,arrayBuffer:async()=>Buffer.from('%PDF-1.7\nfixture')}};
  const eventsBefore=events.length;const issued=await review();assert.equal(issued.draft,false);assert.equal(issued.alreadySettled,true);assert.equal(issued.securityAlreadySettled,true);assert.equal(issued.financial.holdRelease,0);assert.equal(issued.financial.depositRefund,35.5);assert.equal(events.length,eventsBefore);assert.equal((await db.query('rental_damage_cases').collect()).length,1);
