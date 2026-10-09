@@ -8,6 +8,7 @@ import { api } from "@cvx/_generated/api";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { RentalConversation } from "@/components/rentals/RentalConversation";
 import { SmartImage } from "@/components/SmartImage";
+import { ownerConversationUrl } from "../../../shared/ownerConversationRoute";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
 import {
   rentalTitle,
@@ -55,6 +56,9 @@ export function RentalInbox({
   const notifications = useQuery(api.adminNotifications.latest, { token }) ?? [];
   const acknowledge = useMutation(api.adminNotifications.acknowledge);
   const [showAttention, setShowAttention] = useState(false);
+  const [pendingAttention,setPendingAttention]=useState<{id:any;target:string;general:boolean}|null>(null);
+  const [attentionError,setAttentionError]=useState("");
+  const [navigationRevision,setNavigationRevision]=useState(0);
   const [ping, setPing] = useState(false);
   const previous = useRef<number | null>(null);
   const audio = useRef<AudioContext | null>(null);
@@ -116,6 +120,20 @@ export function RentalInbox({
   );
   const generalDirect = useQuery(api.rentalChat.getGeneralConversation,
     selected && stage === "general" ? { token, accountId: selected as any } : "skip");
+  const selectedConversation=stage==="general"?generalDirect:direct;
+  useEffect(()=>{
+    if(!pendingAttention)return;
+    if(selected!==pendingAttention.target || (stage==="general")!==pendingAttention.general){setPendingAttention(null);return;}
+    if(selectedConversation===null){setAttentionError("This conversation is unavailable. The notification remains unread.");setPendingAttention(null);return;}
+    if(selectedConversation?._id!==pendingAttention.target)return;
+    let current=true;
+    void acknowledge({token,id:pendingAttention.id}).then(()=>{
+      if(current)setPendingAttention(null);
+    }).catch(()=>{
+      if(current){setAttentionError("The conversation opened, but the notification could not be marked read. Please retry.");setPendingAttention(null);}
+    });
+    return()=>{current=false;};
+  },[pendingAttention,selected,stage,selectedConversation?._id,selectedConversation===null,acknowledge,token]);
   const visible = rows
     .filter(
       (r) =>
@@ -138,7 +156,9 @@ export function RentalInbox({
     : visible[0];
   return (
     <section id="messages" className={chatStyles.inboxScreen}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className={chatStyles.inbox}>
+        <aside className={chatStyles.directory} data-conversation-open={!!selected} aria-label="Rental inbox navigation">
+      <div className={chatStyles.inboxHeading}>
         <div>
           <h2 className="font-display text-xl font-semibold text-white">
             Rental inbox
@@ -149,6 +169,7 @@ export function RentalInbox({
         </div>
         <div className="flex flex-wrap items-center gap-2">
         <button
+          aria-pressed={ping}
           onClick={() => {
             const enabled = !ping;
             setPing(enabled);
@@ -164,15 +185,19 @@ export function RentalInbox({
         </button>
         </div>
       </div>
-      {!!notifications.length && <div className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-300/[0.04] p-3">
-        <button type="button" onClick={() => setShowAttention(v => !v)} aria-expanded={showAttention} className="flex w-full items-center justify-between text-xs text-amber-200"><span>Needs your attention</span><span className="rounded-full bg-amber-300/15 px-2 py-1">{notifications.length}</span></button>
-        {showAttention && <div className="mt-3 grid gap-2 sm:grid-cols-2">{notifications.map(n => <button key={n._id} type="button" onClick={() => {
-          void acknowledge({ token, id: n._id }); setStage(n.bookingId ? "all" : "general"); setSelected(n.bookingId ?? n.accountId);
-        }} className="rounded-xl bg-white/[0.03] p-3 text-left">
-          <span className="text-xs font-medium text-white/85">{n.title} · {n.renterName}</span><span className="mt-1 block text-[10px] text-amber-200/70">{RENTAL_STAGE_LABELS[n.rentalStage] ?? "General support"}</span>
+      {!!notifications.length && <div className={chatStyles.attentionPanel}>
+        <button type="button" onClick={() => setShowAttention(v => !v)} aria-expanded={showAttention} aria-controls="rental-attention-list" className={chatStyles.attentionToggle}><span>Needs your attention</span><span className="rounded-full bg-[#b98160]/15 px-2 py-1">{notifications.length>=30?"30+":notifications.length}</span></button>
+        {showAttention && <div id="rental-attention-list" className={chatStyles.attentionList}>{notifications.map(n => <button key={n._id} type="button" onClick={() => {
+          const target=n.bookingId??n.accountId;
+          setAttentionError("");setSearch("");setStage(n.bookingId?"all":"general");setSelected(target);
+          setPendingAttention({id:n._id,target,general:!n.bookingId});setNavigationRevision(v=>v+1);
+          window.history.replaceState(null,"",ownerConversationUrl(n.bookingId?{bookingId:n.bookingId}:{accountId:n.accountId}));
+        }} aria-busy={pendingAttention?.id===n._id} className={chatStyles.attentionItem}>
+          <span className="block text-xs font-medium text-white/85">{n.title} · {n.renterName}</span><span className="mt-1 block text-[10px] text-[#d7b49b]">{RENTAL_STAGE_LABELS[n.rentalStage] ?? "General support"}</span><span className="mt-2 block text-[11px] leading-5 text-white/50">{n.body}</span>
         </button>)}</div>}
       </div>}
-      <div className={`${chatStyles.tabs} mt-5 flex gap-2 overflow-x-auto pb-1`}>
+      {attentionError && <p role="alert" className="mt-2 text-xs leading-5 text-rose-200">{attentionError}</p>}
+      <div className={chatStyles.tabs}>
         {[
           ["all", "All rentals"],
           ["unread", "Unread rentals"],
@@ -201,8 +226,7 @@ export function RentalInbox({
           </button>
         ))}
       </div>
-      <div className={chatStyles.inbox}>
-        <aside className={`${chatStyles.directory} ${selected ? "hidden lg:block" : ""}`}>
+
           <input
             aria-label="Search rental conversations"
             value={search}
@@ -210,7 +234,7 @@ export function RentalInbox({
             placeholder="Search loaded conversations"
             className="mb-3 w-full rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3 text-sm text-white outline-none"
           />
-          <div className="flex max-h-[560px] flex-col gap-2 overflow-y-auto">
+          <div className={chatStyles.conversationList}>
             {visible.map((r) => (
               <button
                 key={r._id}
@@ -270,19 +294,20 @@ export function RentalInbox({
             )}
           </div>
         </aside>
+        <div className={selected ? "min-w-0" : "hidden min-w-0 lg:block"}>
+          {selected && <button
+            onClick={() => {setSelected(null);window.history.replaceState(null,"",ownerConversationUrl({}));}}
+            className="mb-3 text-xs text-white/65 lg:hidden"
+          >
+            ← All rental conversations{notifications.length>0?` · ${notifications.length>=30?"30+":notifications.length} notifications`:""}
+          </button>}
         {focus ? (
-          <div className={selected ? "min-w-0" : "hidden min-w-0 lg:block"}>
-            <button
-              onClick={() => setSelected(null)}
-              className="mb-3 text-xs text-white/65 lg:hidden"
-            >
-              ← All rental conversations
-            </button>
+          <>
             <RentalConversation
               key={focus._id}
               token={token}
               admin
-              openRevision={focusRevision}
+              openRevision={focusRevision+navigationRevision}
               bookingId={focus.status === "support" ? undefined : focus._id}
               accountId={focus.accountId ?? undefined}
               title={rentalTitle(focus.items[0]?.title ?? "General support")}
@@ -296,12 +321,13 @@ export function RentalInbox({
                 ) : undefined
               }
             />
-          </div>
+          </>
         ) : (
           <div className="flex min-h-[450px] items-center justify-center rounded-3xl border border-white/[0.06] text-sm text-white/30">
             {selected ? (stage === "general" ? generalDirect : direct) === undefined ? "Opening conversation…" : "This conversation is unavailable. Choose another conversation." : "Choose a rental to start."}
           </div>
         )}
+        </div>
       </div>
     </section>
   );

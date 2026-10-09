@@ -7,6 +7,7 @@ import { listingImages } from "./lib/catalogImages";
 import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
 import { acknowledgeOwnerNotifications } from "./lib/adminPush";
 import { accountForRental, rentalsForAccount } from "./lib/rentalAccount";
+import { bookingStockLines } from "../shared/rentalWindow";
 import { requiresDroneLicence } from "./lib/droneVerification";
 import { assertVerificationArchive } from "./verificationArchive";
 import {
@@ -29,7 +30,7 @@ async function bookingView(ctx: any, b: any, account: any) {
   if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx, b); verificationArchiveReady = true; } catch {} }
   const thread = account ? await rentalThread(ctx, account._id, b._id) : null;
   const items = await Promise.all(
-    b.lineItems.map(async (li: any) => {
+    bookingStockLines(b).map(async (li: any) => {
       const l = await ctx.db.get(li.listingId);
       return {
         ...li,
