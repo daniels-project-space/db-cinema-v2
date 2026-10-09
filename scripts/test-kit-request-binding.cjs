@@ -28,5 +28,25 @@ const history=b=>requests.list.handler(ctx,{token:'renter',bookingId:b._id,pagin
  await assert.rejects(requests.list.handler(ctx,{token:'foreign',bookingId:b._id,paginationOpts:{numItems:30,cursor:null}}),/not available/);
  const forged=change(b,{status:'approved',additionRequestId:proposal._id});assert.equal((await history(b)).page.find(x=>x._id===forged._id).addition.status,'unavailable','reverse request identity is required before exposing proposal');
  const wb=fixture(),wr=change(wb,{status:'approved'}),wp=await state.prepare.handler(ctx,args(wb,wr,'withdraw-proposal-00001'));await state.beginWithdrawal.handler(ctx,{id:wp._id});assert.equal((await history(wb)).page.find(x=>x._id===wr._id).addition.status,'withdrawing');assert.equal(wb.lineItems.length,1);await assert.rejects(state.prepare.handler(ctx,args(wb,wr,'replacement-proposal-01')),/already has a saved proposal/);
+ const typedB=fixture(),typedR=change(typedB,{status:'approved',kitSelection:{change:'add',listingId:listing._id,quantity:2,note:'Add two cameras'}});
+ const typedArgs={...args(typedB,typedR,'typed-addition-0000001'),qty:2};
+ const wrongListing=h.put('listings',{active:true,title:'Different camera',pricing:listing.pricing,depositAmount:listing.depositAmount,components:listing.components});
+ for(const extra of [{qty:1},{listingId:wrongListing._id}]){
+  const rejectedQuote=await state.proposalQuote.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:typedB._id,changeRequestId:typedR._id,listingId:listing._id,qty:2,...extra});assert.equal(rejectedQuote.available,false);assert.match(rejectedQuote.reason,/does not match.*approved equipment addition/);
+  await assert.rejects(state.prepare.handler(ctx,{...typedArgs,...extra}),/does not match.*approved equipment addition/);
+ }
+ for(const kind of ['swap','remove']){
+  const other=change(typedB,{status:'approved',kitSelection:{...typedR.kitSelection,change:kind}});
+  await assert.rejects(state.prepare.handler(ctx,{...typedArgs,changeRequestId:other._id}),/does not match.*approved equipment addition/);
+ }
+ assert.equal(typedB.activeAdditionId,undefined,'invalid selections cannot reserve stock or lock rental');
+ const typedQuote=await state.proposalQuote.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:typedB._id,changeRequestId:typedR._id,listingId:listing._id,qty:2});assert.equal(typedQuote.qty,2);
+ const typedP=await state.prepare.handler(ctx,typedArgs);assert.equal(typedP.qty,2);
+ await assert.rejects(state.prepare.handler(ctx,{...typedArgs,changeRequestId:change(typedB,{status:'approved'})._id}),/different customer request/);
+ assert.equal((await state.prepare.handler(ctx,{...typedArgs,qty:1})).qty,2,'retries recover the original immutable proposal, never substitute new quantities');
+ await state.markPaid.handler(ctx,{id:typedP._id,paymentIntentId:'pi_typed_fixture'});
+ typedP.qty=1;await assert.rejects(state.apply.handler(ctx,{id:typedP._id}),/does not match.*approved equipment addition/);assert.equal(typedB.lineItems.length,1);typedP.qty=2;
+ typedR.kitSelection.change='swap';await assert.rejects(state.apply.handler(ctx,{id:typedP._id}),/does not match.*approved equipment addition/);typedR.kitSelection.change='add';
+ await state.apply.handler(ctx,{id:typedP._id});assert.equal(typedB.lineItems.at(-1).qty,2);
  console.log('PASS actual approved kit request lifecycle: identity/type/account/approval/duplicate guards, atomic immutable proposal link, unpaid history, paid attachment and saved pickup security, reverse-link isolation, withdrawal tracking and safe projection. No provider writes.');
 })().catch(e=>{console.error(e);process.exitCode=1});

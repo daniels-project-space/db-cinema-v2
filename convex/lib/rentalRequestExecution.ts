@@ -1,15 +1,16 @@
 import { belongsToRentalAccount } from "./rentalAccount";
 
-export type RequestOperation = "reschedule" | "cancellation";
+export type RequestOperation = "reschedule" | "cancellation" | "kit_removal";
 
 /** Only the existing guarded operation may attach or complete this receipt. */
 export async function approvedRequest(ctx: any, booking: any, id: any, operation: RequestOperation, operationKey: string) {
   if (!id) return null;
   const request = await ctx.db.get(id);
   const account = request ? await ctx.db.get(request.accountId) : null;
-  const kind = operation === "reschedule" ? "dates" : "cancel";
+  const kind = operation === "reschedule" ? "dates" : operation === "kit_removal" ? "items" : "cancel";
   if (!request || request.bookingId !== booking?._id || request.kind !== kind || request.status !== "approved" || !belongsToRentalAccount(booking, account))
     throw Error("Choose an approved request for this rental and operation.");
+  if(operation==="kit_removal"&&(request.additionRequestId||request.kitSelection&&request.kitSelection.change!=="remove"))throw Error("Use the approved equipment removal request.");
   if (request.execution && (request.execution.operation !== operation || request.execution.operationKey !== operationKey))
     throw Error("The agreed operation has changed. Discuss and approve a new request.");
   return request;

@@ -100,11 +100,11 @@ export const context = query({
 
 /** Visible request drawer only: indexed, bounded catalogue results; no stock promise. */
 export const equipment = query({
-  args: { token: v.string(), bookingId: v.id("bookings"), search: v.string() },
-  handler: async (ctx, { token, bookingId, search }) => {
-    const account = await accountForToken(ctx, token, true);
-    if (!account) throw Error("Please sign in.");
-    const booking = await ownedBooking(ctx, account, bookingId);
+  args: { token: v.string(), bookingId: v.id("bookings"), search: v.string(),admin:v.optional(v.boolean()) },
+  handler: async (ctx, { token, bookingId, search, admin }) => {
+    let booking;
+    if(admin){if(!checkAdminToken(token))throw Error("unauthorized");booking=await ctx.db.get(bookingId);if(!booking)throw Error("Rental unavailable.");}
+    else{const account=await accountForToken(ctx,token,true);if(!account)throw Error("Please sign in.");booking=await ownedBooking(ctx,account,bookingId);}
     if (!["pending_payment", "confirmed", "active"].includes(booking.status)) return [];
     const term = search.trim();
     if (term.length > 100) throw Error("Search using a short equipment name.");
@@ -117,6 +117,21 @@ export const equipment = query({
       const images = listingImages(listing);
       return { id: listing._id, title: listing.title, category: listing.category, heroImage: images[0] ?? null, imageSources: images };
     });
+  },
+});
+
+/** Canonical selected equipment for the real owner action; no arbitrary row IDs. */
+export const agreedKit = query({
+  args:{token:v.string(),bookingId:v.id("bookings"),id:v.id("rental_change_requests")},
+  handler:async(ctx,{token,bookingId,id})=>{
+    if(!checkAdminToken(token))return null;
+    const booking=await ctx.db.get(bookingId),request=await ctx.db.get(id),account=request?await ctx.db.get(request.accountId):null;
+    if(!request||request.bookingId!==bookingId||request.kind!=="items"||!belongsToRentalAccount(booking,account))return null;
+    const listing=request.kitSelection?.listingId?await ctx.db.get(request.kitSelection.listingId):null,images=listingImages(listing);
+    const source=request.kitSelection?.sourceListingId?await ctx.db.get(request.kitSelection.sourceListingId):null,sourceImages=listingImages(source);
+    return {id:request._id,status:request.status??"pending",detail:request.detail,decisionNote:request.decisionNote??null,kitSelection:request.kitSelection??null,execution:request.execution??null,
+      target:listing?{id:listing._id,title:listing.title,heroImage:images[0]??null,imageSources:images,requestable:requestableListing(listing)}:null,
+      sourceEquipment:source?{id:source._id,title:source.title,heroImage:sourceImages[0]??null,imageSources:sourceImages}:null};
   },
 });
 

@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import styles from "./RentalRequestHistory.module.css";
+import { RentalKitRemoval } from "@/components/admin/RentalKitRemoval";
 import { RentalKitProposal } from "@/components/admin/RentalKitProposal";
 import { formatGbp } from "@/lib/pricing";
 import { RentalRequestApply } from "./RentalRequestApply";
@@ -21,6 +22,7 @@ function RequestHistory({ token, bookingId, admin = false }: { token: string; bo
   const { results: requests, status, loadMore } = usePaginatedQuery(api.rentalRequests.list, { token, bookingId: bookingId as any, admin }, { initialNumItems: 30 });
   const review = useMutation(api.rentalRequests.review);
   const [kitRequest,setKitRequest]=useState<string|null>(null);
+  const [removeRequest,setRemoveRequest]=useState<string|null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [decision, setDecision] = useState<"approved" | "declined">("approved");
   const [note, setNote] = useState("");
@@ -54,7 +56,11 @@ function RequestHistory({ token, bookingId, admin = false }: { token: string; bo
           : request.execution?.status === "processing" ? <p className={styles.explanation}>Cancellation and settlement are processing. The rental remains reserved until refunds and card authorisation releases are confirmed.</p>
           : request.status === "approved" && <p className={styles.explanation}>Your rental stays unchanged until the team confirms the update and any payment or refund separately.</p>}
         {admin && request.status === "approved" && !request.execution && (request.kind === "dates" || request.kind === "cancel") && <RentalRequestApply token={token} bookingId={bookingId} id={request._id} kind={request.kind} decisionNote={request.decisionNote} disabled={busy} />}
-        {admin && request.status === "approved" && request.kind === "items" && !request.execution && <button type="button" disabled={busy} onClick={()=>setKitRequest(request._id)}>Create agreed kit proposal</button>}
+        {admin && request.status === "approved" && request.kind === "items" && !request.execution && <div className={styles.actions}>
+          {(!request.kitSelection || request.kitSelection.change === "add") && <button type="button" disabled={busy} onClick={()=>setKitRequest(request._id)}>Create agreed kit proposal</button>}
+          {(!request.kitSelection || request.kitSelection.change === "remove") && <button type="button" disabled={busy} onClick={()=>setRemoveRequest(request._id)}>Apply agreed equipment removal</button>}
+          {request.kitSelection?.change === "swap" && <a href={ownerConversationUrl({bookingId})}>Discuss agreed swap</a>}
+        </div>}
         {admin && request.status === "pending" && !request.extension && <div className={styles.actions}>
           <button type="button" disabled={busy} onClick={() => open(request._id, "approved")}>Approve for arrangement</button>
           <button type="button" disabled={busy} onClick={() => open(request._id, "declined")}>Decline request</button>
@@ -68,6 +74,7 @@ function RequestHistory({ token, bookingId, admin = false }: { token: string; bo
     </div>
     {(status === "CanLoadMore" || status === "LoadingMore") && <div className={styles.actions}><button type="button" disabled={status === "LoadingMore" || busy} onClick={() => loadMore(30)}>{status === "LoadingMore" ? "Loading earlier requests…" : "Show earlier requests"}</button></div>}
     {admin&&kitRequest&&<RentalKitProposal token={token} bookingId={bookingId} changeRequestId={kitRequest} decisionNote={requests.find(r=>r._id===kitRequest)?.decisionNote} onClose={()=>setKitRequest(null)}/>}
+    {admin&&removeRequest&&<RentalKitRemoval token={token} bookingId={bookingId} id={removeRequest} onClose={()=>setRemoveRequest(null)}/>}
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {notice && <p role="status" className={styles.notice}>{notice}</p>}
   </section>;

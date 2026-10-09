@@ -172,16 +172,26 @@ export const reschedule = mutation({
  * Refunds use the existing provider-backed refund control; security settles separately. */
 export const removeItem = mutation({
   args: { token: v.string(), bookingId: v.id("bookings"), requestId: v.string(),
+    changeRequestId:v.optional(v.id("rental_change_requests")),removeQty:v.optional(v.number()),keepAgreedCharges:v.optional(v.boolean()),
     lineIndex: v.number(), listingId: v.id("listings"), expectedQty: v.number(), expectedStart: v.number(), expectedEnd: v.number(), reason: v.string() },
   handler: async (ctx, args) => {
     await assertAdmin(ctx, args.token, "rentalOperations.removeItem");
     const b = await ctx.db.get(args.bookingId);
     if (!b) throw Error("Rental unavailable.");
+    const removeQty=args.removeQty??args.expectedQty;
+    if((args.changeRequestId||args.removeQty!==undefined)&&args.keepAgreedCharges!==true)throw Error("Confirm that agreed charges and security remain unchanged; any eligible refund is recorded separately.");
+    if(!Number.isSafeInteger(removeQty)||removeQty<1||removeQty>args.expectedQty)throw Error("Choose a valid quantity to remove.");
+    const operationKey=JSON.stringify(["kit_removal",args.requestId,args.lineIndex,args.listingId,args.expectedQty,args.expectedStart,args.expectedEnd,removeQty,args.reason.trim()]);
+    const request=await approvedRequest(ctx,b,args.changeRequestId,"kit_removal",operationKey);
+    const selection=request?.kitSelection;
+    if(selection&&(selection.lineIndex!==args.lineIndex||selection.quantity!==removeQty||selection.source?.listingId!==args.listingId||selection.source?.qty!==args.expectedQty||selection.source?.start!==args.expectedStart||selection.source?.end!==args.expectedEnd))throw Error("The removal does not match the approved item, quantity and dates.");
     const prior = b.removedItems?.find(l => l.requestId === args.requestId);
     if (prior) {
-      if (prior.listingId !== args.listingId || prior.qty !== args.expectedQty || prior.start !== args.expectedStart || prior.end !== args.expectedEnd || prior.reason !== args.reason.trim()) throw Error("Removal request has changed.");
+      if (prior.listingId !== args.listingId || (prior.sourceQty??prior.qty) !== args.expectedQty || prior.qty!==removeQty || prior.start !== args.expectedStart || prior.end !== args.expectedEnd || prior.reason !== args.reason.trim()||prior.changeRequestId!==args.changeRequestId) throw Error("Removal request has changed.");
+      await finishRequest(ctx,b,args.changeRequestId,"kit_removal",operationKey,`${prior.qty}× ${prior.title} removed from the kit. Agreed charges and security are unchanged; any eligible refund is recorded separately.`);
       return { ok: true };
     }
+    if(request?.execution)throw Error("The saved removal receipt needs review before another update.");
     if (b.status !== "confirmed") throw Error("Only an unstarted confirmed rental can have kit removed.");
     if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision) throw Error("Finish the open rental operation first.");
     const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
@@ -190,12 +200,13 @@ export const removeItem = mutation({
     if (!Number.isSafeInteger(args.lineIndex) || args.lineIndex < 0) throw Error("Invalid item.");
     const line = b.lineItems[args.lineIndex];
     if (!line || line.listingId !== args.listingId || line.qty !== args.expectedQty || line.start !== args.expectedStart || line.end !== args.expectedEnd) throw Error("The kit changed. Refresh and choose the item again.");
-    if (b.lineItems.length < 2) throw Error("Use Cancel rental to remove the last item.");
+    if (b.lineItems.length < 2&&removeQty===line.qty) throw Error("Use Cancel rental to remove the last item.");
     const reservations = await ctx.db.query("reservations").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
     if (reservations.some(r => r.source !== "site" || r.status === "active")) throw Error("Manage external or already collected kit through its original rental flow.");
     if (reservations.some(r => r.status === "hold")) throw Error("Resolve the open stock hold before changing this rental.");
     await assertRentalAllocation(ctx, b, reservations);
-    const lines = bookingStockLines(b).filter((_, i) => i !== args.lineIndex);
+    const removedTotal=Math.round(line.lineTotal*100*removeQty/line.qty)/100;
+    const lines = bookingStockLines(b).flatMap((item, i) => i!==args.lineIndex?[item]:removeQty===item.qty?[]:[{...item,qty:item.qty-removeQty,lineTotal:Math.round((item.lineTotal-removedTotal)*100)/100,...(item.dailyRate===undefined?{}:{dailyRate:item.dailyRate*(item.qty-removeQty)/item.qty})}]);
     await assertRentalInventory(ctx, lines, b._id);
     for (const r of reservations) if (["hold", "confirmed"].includes(r.status)) await ctx.db.patch(r._id, { status: "cancelled" });
     for (const remaining of lines) {
@@ -203,10 +214,11 @@ export const removeItem = mutation({
       for (const component of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: remaining.listingId, inventoryUnitId: component.inventoryUnitId, ...stockWindow(remaining,true), qty: component.qty * remaining.qty, source: "site", status: "confirmed" });
     }
     const { dailyRate: _, ...removed } = line;
-    await ctx.db.patch(b._id, { lineItems: lines, cancellationPolicyStart: rentalCancellationStart(b), removedItems: [...(b.removedItems ?? []), { ...removed, removedAt: Date.now(), reason: args.reason.trim(), requestId: args.requestId }] });
+    await ctx.db.patch(b._id, { lineItems: lines, cancellationPolicyStart: rentalCancellationStart(b), removedItems: [...(b.removedItems ?? []), { ...removed,qty:removeQty,lineTotal:removedTotal,sourceQty:line.qty,changeRequestId:args.changeRequestId, removedAt: Date.now(), reason: args.reason.trim(), requestId: args.requestId }] });
     const account = await accountForRental(ctx, b);
-    const detail = `${line.qty}× ${line.title} removed from your kit. Agreed charges and security are unchanged; any eligible refund is recorded separately. ${args.reason.trim()}`;
-    if (account) await postRentalMessage(ctx, { accountId: account._id, bookingId: b._id, sender: "system", text: detail });
+    const detail = `${removeQty}× ${line.title} removed from your kit. Agreed charges and security are unchanged; any eligible refund is recorded separately. ${args.reason.trim()}`;
+    if (account) await postRentalMessage(ctx, { accountId: account._id, bookingId: b._id, sender: "system", text: detail,...(args.changeRequestId?{meta:{type:"rental_change_applied",changeRequestId:args.changeRequestId}}:{}) });
+    await finishRequest(ctx,b,args.changeRequestId,"kit_removal",operationKey,detail);
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: b._id, kind: "kit updated", detail });
     await queueRmv2Sync(ctx, b._id);
     return { ok: true };

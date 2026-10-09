@@ -121,7 +121,7 @@ export default defineSchema({
     extensionRequestId: v.optional(v.id("booking_change_requests")),
     additionRequestId: v.optional(v.id("rental_additions")),
     kitSelection: v.optional(kitRequestSnapshot),
-    execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
+    execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation"),v.literal("kit_removal")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
   }).index("by_request", ["requestId"]).index("by_account", ["accountId"]).index("by_booking", ["bookingId"]),
   reservations: defineTable({
     inventoryUnitId: v.id("inventory_units"),
@@ -231,7 +231,7 @@ export default defineSchema({
         returnTime: v.optional(v.union(v.string(), v.null())),
       }),
     ),
-    removedItems: v.optional(v.array(v.object({ listingId: v.id("listings"), title: v.string(), start: v.number(), end: v.number(), qty: v.number(), lineTotal: v.number(),pickupTime:v.optional(v.union(v.string(),v.null())),returnTime:v.optional(v.union(v.string(),v.null())), removedAt: v.number(), reason: v.string(), requestId: v.string() }))),
+    removedItems: v.optional(v.array(v.object({ listingId: v.id("listings"), title: v.string(), start: v.number(), end: v.number(), qty: v.number(), lineTotal: v.number(),pickupTime:v.optional(v.union(v.string(),v.null())),returnTime:v.optional(v.union(v.string(),v.null())), removedAt: v.number(), reason: v.string(), requestId: v.string(),sourceQty:v.optional(v.number()),changeRequestId:v.optional(v.id("rental_change_requests")) }))),
     stockHoldFingerprint:v.optional(v.string()),
     cancellationPolicyStart: v.optional(v.number()),
     fulfilment: v.union(v.literal("pickup"), v.literal("delivery")),

@@ -1,4 +1,4 @@
-import { approvedKitRequest } from "./lib/kitRequestBinding";
+import { approvedKitRequest, assertKitAddition } from "./lib/kitRequestBinding";
 import { accountForRental } from "./lib/rentalAccount";
 import { listingImages } from "./lib/catalogImages";
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
@@ -161,11 +161,12 @@ async function additionQuote(ctx: QueryCtx, b: Doc<"bookings"> | null, a: {listi
     return {l,line,start,end,securityCharge,holdTotal,membership,membershipFee};
 }
 export const proposalQuote = query({
- args:{token:v.string(),bookingId:v.id("bookings"),listingId:v.id("listings"),qty:v.number(),start:v.optional(v.number()),end:v.optional(v.number()),complimentary:v.optional(v.boolean())},
+ args:{token:v.string(),bookingId:v.id("bookings"),changeRequestId:v.optional(v.id("rental_change_requests")),listingId:v.id("listings"),qty:v.number(),start:v.optional(v.number()),end:v.optional(v.number()),complimentary:v.optional(v.boolean())},
  handler:async(ctx,args)=>{
   if(!checkAdminToken(args.token))return null;
   const b=await ctx.db.get(args.bookingId);
   try{
+   assertKitAddition(await approvedKitRequest(ctx,b,args.changeRequestId),args.listingId,args.qty);
    const q=await additionQuote(ctx,b,args),images=listingImages(q.l);
    return {available:true,reason:null,title:q.line.title,start:q.start,end:q.end,qty:q.line.qty,lineTotal:q.line.lineTotal,securityCharge:q.securityCharge,holdTotal:q.holdTotal,baseAmount:b!.status==="pending_payment"?b!.total:0,membershipFee:q.membershipFee??0,amount:(b!.status==="pending_payment"?b!.total:0)+q.line.lineTotal+q.securityCharge+(q.membershipFee??0),heroImage:images[0]??null,imageSources:images};
   }catch(e:any){return {available:false,reason:e.message??"Unable to quote this proposal."};}
@@ -203,6 +204,7 @@ export const prepare = internalMutation({
     const b = await ctx.db.get(a.bookingId);
     if(!b)throw Error("This rental cannot accept items");
     const linkedRequest=await approvedKitRequest(ctx,b,a.changeRequestId);
+    assertKitAddition(linkedRequest,a.listingId,a.qty);
     if (a.reason.trim().length < 5) throw Error("Choose a quantity from 1–20 and record the reason");
     const {l,line,start,end,securityCharge,holdTotal,membership,membershipFee}=await additionQuote(ctx,b,a);
     const amount=(b!.status==="pending_payment"?b!.total:0)+line.lineTotal+securityCharge+(membershipFee??0);
@@ -354,7 +356,7 @@ export const apply = internalMutation({
       (r.draftReplacement && b.status !== "pending_payment")
     )
       return { closed: true };
-    await approvedKitRequest(ctx,b,r.changeRequestId,r._id);
+    assertKitAddition(await approvedKitRequest(ctx,b,r.changeRequestId,r._id),r.listingId,r.qty);
     if (
       (!r.paymentIntentId && !r.complimentary) ||
       (!r.draftReplacement && r.holdTotal > 0 && r.status !== "held" && !canDeferAdditionSecurity(b))

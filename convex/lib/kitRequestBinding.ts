@@ -12,3 +12,9 @@ export async function approvedKitRequest(ctx:any,booking:any,id:any,proposalId?:
     throw Error("The saved proposal no longer matches this customer request.");
   return request;
 }
+
+export function assertKitAddition(request:any,listingId:any,qty:number){
+  const selection=request?.kitSelection;
+  if(selection&&(selection.change!=="add"||selection.listingId!==listingId||selection.quantity!==qty))
+    throw Error("This proposal does not match the approved equipment addition. Use the agreed request’s item and quantity.");
+}
