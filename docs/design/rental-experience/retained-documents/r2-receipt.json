@@ -1,0 +1,27 @@
+{
+  "bucket": "db-cinema-v2",
+  "at": "2026-10-09T10:13:58.203Z",
+  "assets": [
+    {
+      "file": "docs/design/rental-experience/retained-documents/reference.png",
+      "key": "design/retained-documents-2026-10-09/9fd7b292de50da7118fd3ce0a02b4733aaf6010f3339685a71755ebf701a2773/reference.png",
+      "sha256": "9fd7b292de50da7118fd3ce0a02b4733aaf6010f3339685a71755ebf701a2773",
+      "bytes": 1687245,
+      "readbackVerified": true
+    },
+    {
+      "file": "docs/design/rental-experience/retained-documents/documents-kit-spotlight.png",
+      "key": "design/retained-documents-2026-10-09/83373cd3345123f7284afc9aec3bb66425ac6e72fe140f87fc496d978d292615/documents-kit-spotlight.png",
+      "sha256": "83373cd3345123f7284afc9aec3bb66425ac6e72fe140f87fc496d978d292615",
+      "bytes": 1925917,
+      "readbackVerified": true
+    },
+    {
+      "file": "public/images/management/documents-kit-spotlight.webp",
+      "key": "design/retained-documents-2026-10-09/9f33b5ddd92b5701e18e578192417cfc0c9c65c27edec955fb57dd7e1ba4d842/documents-kit-spotlight.webp",
+      "sha256": "9f33b5ddd92b5701e18e578192417cfc0c9c65c27edec955fb57dd7e1ba4d842",
+      "bytes": 1212264,
+      "readbackVerified": true
+    }
+  ]
+}

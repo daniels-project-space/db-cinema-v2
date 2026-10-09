@@ -23,8 +23,10 @@ export function AccountAdmin({
   token,
   onRental,
   onConversation,
+  onDocumentsChange,
 }: {
   token: string;
+  onDocumentsChange?: (customer: string | null) => void;
   onRental?: (id: string) => void;
   onConversation?: (accountId: string, bookingId: string | null) => void;
 }) {
@@ -105,6 +107,10 @@ export function AccountAdmin({
   useEffect(() => {
     if (exhausted && page >= pages) setPage(pages - 1);
   }, [exhausted, page, pages]);
+  useEffect(() => {
+    onDocumentsChange?.(section === "documents" && selected && !panelClosed ? selected.name || "DB Cinema renter" : null);
+    return () => onDocumentsChange?.(null);
+  }, [section, selected?.id, selected?.name, panelClosed, onDocumentsChange]);
   const date = (at: number | null) =>
     at
       ? new Date(at).toLocaleDateString("en-GB", {
@@ -244,6 +250,11 @@ export function AccountAdmin({
       ))
     );
   }
+  if (selected && !panelClosed && section === "documents") return (
+    <AccountDocuments key={selected.id} token={token} accountId={selected.id}
+      customer={{name:selected.name || "DB Cinema renter",email:selected.email,avatarUrl:selected.avatarUrl,verified:selected.verified}}
+      onBack={() => setSection("overview")} onSection={setSection} />
+  );
   return (
     <section data-testid="admin-accounts" className={styles.root}>
       <div className={styles.pageTools}>
