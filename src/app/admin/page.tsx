@@ -25,6 +25,7 @@ import { AdminInsights } from "@/components/admin/AdminInsights";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 
 export default function AdminPage() {
+  const [documentsOpen, setDocumentsOpen] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<
@@ -121,7 +122,7 @@ export default function AdminPage() {
   }
 
   return (
-    <ManagementShell role="admin" name="DB Cinema team" title={{ overview: "Dashboard", bookings: "Rentals", calendar: "Rental calendar", invoices: "Invoices", insights: "Insights & Demand", reports: "Reports", inbox: "Messages", accounts: "Customers & members", marketing: "Inventory & marketing", enquiries: "Enquiries", calls: "Gaffer calls", fund: "Film Fund", stories: "Story Prize", settings: "Settings" }[tab]} subtitle={tab==="invoices"?"View rental receipts, payments and issued settlements.":"Manage rentals, accounts and equipment operations."}
+    <ManagementShell screenOverride={tab === "accounts" && documentsOpen ? "documents" : undefined} breadcrumb={tab === "accounts" && documentsOpen ? <><span>Customers</span><i>/</i><strong>{documentsOpen}</strong></> : undefined} role="admin" name="DB Cinema team" title={tab === "accounts" && documentsOpen ? "Documents & verification" : { overview: "Dashboard", bookings: "Rentals", calendar: "Rental calendar", invoices: "Invoices", insights: "Insights & Demand", reports: "Reports", inbox: "Messages", accounts: "Customers & members", marketing: "Inventory & marketing", enquiries: "Enquiries", calls: "Gaffer calls", fund: "Film Fund", stories: "Story Prize", settings: "Settings" }[tab]} subtitle={tab === "accounts" && documentsOpen ? "Securely saved documents linked to this customer and their rentals." : tab==="invoices"?"View rental receipts, payments and issued settlements.":"Manage rentals, accounts and equipment operations."}
       active={tab} nav={[
         { key: "overview", label: "Dashboard", icon: "dashboard" }, { key: "bookings", label: "Rentals", icon: "rentals" },
         { key: "calendar", label: "Calendar", icon: "calendar" },
@@ -214,7 +215,7 @@ export default function AdminPage() {
         )}
 
         {tab === "fund" && <FilmFundAdmin token={token} />}
-        {tab === "accounts" && <AccountAdmin token={token} onRental={id => { setDetailId(id); setTab("bookings"); }} onConversation={(accountId, bookingId) => { setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1); setTab("inbox"); }} />}
+        {tab === "accounts" && <AccountAdmin token={token} onDocumentsChange={setDocumentsOpen} onRental={id => { setDetailId(id); setTab("bookings"); }} onConversation={(accountId, bookingId) => { setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1); setTab("inbox"); }} />}
         {tab === "marketing" && <MarketingListingsAdmin token={token} />}
         {tab === "stories" && <StoryPrizeAdmin token={token} />}
         {tab === "calls" && <AdminGafferCalls token={token} />}

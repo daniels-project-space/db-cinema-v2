@@ -1,0 +1,9 @@
+# Retained documents reference
+
+The approved GPT image is `reference.png`. The implementation is limited to the admin customer's Documents tab. It uses the existing charcoal/copper management palette, a full customer header, retention timeline, searchable saved-document cards, private previews and an insurance hold editor. All numbers, statuses, account/rental associations and activity entries come from saved records. The primary action imports existing Didit verifications through the actual capture worker. It does not claim a manually uploaded file is verified.
+
+The sidebar spotlight photograph was generated using the built-in imagegen tool. The application serves its lossless WebP; the PNG original, WebP and approved reference are retained in the DB Cinema R2 bucket with full SHA-256 readback receipts. Prompt: a photorealistic portrait of a professional cinema kit on black flight cases, viewed from the side in a charcoal room under one cool overhead spotlight, no text or interface elements.
+
+Qualification uses actual Didit sandbox hosted uploads: the built-in Spain ID front/back and utility-bill samples. A separate temporary documents-only sandbox workflow exercises capture without a physical camera; production's biometric workflow remains intact. The normal private archive worker downloads the provider media. Provider-to-saved hashes, admin HTTP readback, binding to the test account/rental, anonymous and valid customer-session denial, native desktop/mobile search/previews, insurance holds, account switching and exact retention expiry were checked. Test setup and cleanup functions are temporary staging-only code and must never enter the production source.
+
+Evidence: `/root/CODEX_ARTIFACTS/db-cinema/retained-documents-reference-2026-10-09/`. The renders are design targets; record contents and truthful controls vary with the actual customer's documents and rental status. Checkout stays paused.
