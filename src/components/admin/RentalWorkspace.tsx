@@ -2,6 +2,9 @@
 import { useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import styles from "./RentalWorkspace.module.css";
+import { RentalExtensionPanel } from "@/components/rentals/RentalExtensionPanel";
+import { RentalRequestHistory } from "@/components/rentals/RentalRequestHistory";
 import { RentalKit } from "@/components/rentals/RentalKit";
 import { RentalOrderTools } from "./RentalOrderTools";
 import {
@@ -13,7 +16,8 @@ import { formatGbp } from "@/lib/pricing";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
 import { RentalVerificationSummary } from "@/components/rentals/RentalVerificationSummary";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
-export function RentalWorkspace({
+export function RentalWorkspace(props:{token:string;bookingId:string;onClose:()=>void;onChat:()=>void}){return <Workspace key={JSON.stringify([props.token,props.bookingId])} {...props}/>;}
+function Workspace({
   token,
   bookingId,
   onClose,
@@ -28,11 +32,12 @@ export function RentalWorkspace({
     token,
     bookingId: bookingId as any,
   });
+  const extensions=useQuery(api.rentalExtensions.state,{token,bookingId:bookingId as any,admin:true});
   const setStatus = useMutation(api.bookings.adminSetStatus),
     setIdentity = useMutation(api.bookings.adminSetIdStatus),
     review = useAction(api.didit.adminReview),
     reverify = useMutation(api.bookings.adminRequireReverification);
-  const [section, setSection] = useState("order"),
+  const [chosenSection, setSection] = useState<string|null>(null),
     [note, setNote] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
@@ -49,7 +54,7 @@ export function RentalWorkspace({
       setBusy(false);
     }
   }
-  if (b === undefined)
+  if (b === undefined || extensions === undefined)
     return (
       <div
         role="status"
@@ -59,22 +64,23 @@ export function RentalWorkspace({
       </div>
     );
   if (!b) return <p className="mt-6 text-white/50">Rental unavailable.</p>;
+  const section=chosenSection??(extensions?.requests.length||b.activeAdditionId?"requests":"order");
   const start = Math.min(...b.lineItems.map((x) => x.start)),
     end = Math.max(...b.lineItems.map((x) => x.end));
   return (
     <section
-      className="mt-6 rounded-3xl border border-white/[0.08] bg-[#141414] p-5 sm:p-7"
+      className={styles.root}
       aria-label="Rental workspace"
     >
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <header className={styles.header}>
         <div className="min-w-0">
-          <p className="text-xs text-accent-300">
+          <p className={styles.stage}>
             {rentalStageLabel(b)}
           </p>
-          <h2 className="mt-2 font-display text-xl font-semibold text-white">
-            {rentalTitle(b.lineItems[0]?.title ?? "Rental")}
+          <h2 className={styles.title}>
+            {section==="requests"?(extensions?.requests.length?"Rental extension":"Rental requests"):rentalTitle(b.lineItems[0]?.title ?? "Rental")}
           </h2>
-          <p className="mt-2 break-all text-sm text-white/50">{b.guestEmail}</p>
+          <p className={styles.customer}>{b.customer?.name??b.guestName??"Rental customer"}<span>{b.customer?.email??b.guestEmail}</span></p>
           <p className="mt-1 text-xs text-white/40">
             {rentalDate(start, end)} · {formatGbp(b.total)}
           </p>
@@ -82,7 +88,7 @@ export function RentalWorkspace({
         <div className="flex items-center gap-4">
           <button
             onClick={onChat}
-            className="rounded-full bg-white px-4 py-2 text-xs font-medium text-black"
+            className={styles.conversation}
           >
             Conversation →
           </button>
@@ -95,10 +101,10 @@ export function RentalWorkspace({
           </button>
         </div>
       </header>
-      <RentalVerificationSummary bookingId={bookingId} token={token} admin/>
-      <nav className="mt-6 flex gap-2 overflow-x-auto border-b border-white/[0.06] pb-4">
+      <nav className={styles.tabs} aria-label="Rental detail sections">
         {[
           ["order", "Order & payments"],
+          ["requests", "Requests & proposals"],
           ["verification", "Verification"],
         ].map(([key, label]) => (
           <button
@@ -107,7 +113,7 @@ export function RentalWorkspace({
               setSection(key);
               setError(null);
             }}
-            className={`whitespace-nowrap rounded-full px-4 py-2 text-xs ${key === section ? "bg-white/10 text-white" : "text-white/40 hover:text-white"}`}
+            aria-current={key===section?"page":undefined}
           >
             {label}
           </button>
@@ -121,6 +127,10 @@ export function RentalWorkspace({
           {error}
         </p>
       )}
+      {section==="requests"&&<div className={styles.requests}>
+        <RentalExtensionPanel token={token} bookingId={bookingId} admin embeddedHeader/>
+        {b.activeAdditionId?<RentalOrderTools token={token} bookingId={bookingId} showReturn={false}/>:<><RentalRequestHistory token={token} bookingId={bookingId} admin/><button type="button" className={styles.conversation} onClick={()=>setSection("order")}>Open order controls</button></>}
+      </div>}
       {section === "order" && (
         <div className="mt-5 grid gap-6 lg:grid-cols-[1fr_1fr]">
           <div>
@@ -156,7 +166,7 @@ export function RentalWorkspace({
             {b.status === "confirmed" && (
               <button
                 disabled={
-                  busy || !!b.activeAdditionId || !!b.cancellationDecision || rentalStageLabel(b) !== "Verification approved"
+                  busy || !!b.activeAdditionId || !!b.activeExtensionId || !!b.cancellationDecision || rentalStageLabel(b) !== "Verification approved"
                 }
                 onClick={() =>
                   void execute(() =>
@@ -176,6 +186,7 @@ export function RentalWorkspace({
       )}
       {section === "verification" && (
         <div className="mt-6 max-w-xl">
+          <RentalVerificationSummary bookingId={bookingId} token={token} admin/>
           <AdminDroneLicence token={token} bookingId={bookingId} />
           <h3 className="text-sm font-medium text-white">
             Identity & address · {b.idVerifyStatus ?? "required"}

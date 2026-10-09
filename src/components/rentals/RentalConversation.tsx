@@ -227,7 +227,7 @@ export function RentalConversation({
           {admin ? teamHandling ? "Hand to Gaffer" : "Take over" : teamHandling ? "Team notified" : "Request a human"}
         </button>
       </header>
-      {bookingId && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin}/>}
+      {bookingId && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin} compact/>}
       <div className={`management-conversation-main ${styles.main}`}>
       <div className={styles.bookingStrip}>
         {bookingSummary?.image && <SmartImage src={bookingSummary.image} fallbackSources={bookingSummary.imageSources} alt={title} className={styles.kitImage} />}

@@ -1,5 +1,11 @@
 # Rental workflow design targets — 9 October 2026
 
+## Approved visual direction, latest render
+
+`extension-desktop-mobile-v3.png` is the latest built-in GPT image design reference for an approved, unpaid extension. Use its photographic hero, copper underlined Requests tab, before/after return cards, compact workflow and collapsed activity, and dedicated payment column. Administrator reminder/withdrawal controls and renter payment/message controls are distinct. The prompt is preserved in `extension-v3-prompt.txt`. This render does not prove that a reminder action exists; connect any implemented action to a real authorised handler before exposing it. Use the existing `kit-dates-cancellation-v2.png` references for related drawers at the same visual standard.
+
+This is illustrative, not a live screen or a publication receipt. Do not copy example customer details, totals, dates or calendar labels into the application. Preserve real account binding, verification, payment and stock states. Public checkout, gear and landing-page styling remain outside this visual change.
+
 Daniel explicitly rejected the compact, duplicated text-card interface in PR92. Keep PR92 draft and do not publish that presentation. Preserve the qualified functional changes, but rebuild the presentation around these built-in GPT image renders before release.
 
 - `extension-desktop-mobile-v2.png`: administrator extension workspace and separate renter payment screen. Equipment hero, photographic item cards, current/proposed dates, real calendar strip, three-stage approval/payment workflow, quote/decision column and one primary action area.

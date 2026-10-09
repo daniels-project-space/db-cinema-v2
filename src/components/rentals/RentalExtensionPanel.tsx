@@ -14,11 +14,11 @@ const labels: Record<string, string> = { pending: "Awaiting approval", approved:
 function ClockIcon() { return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>; }
 function CalendarIcon() { return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 10h16"/></svg>; }
 
-export function RentalExtensionPanel(props: { token: string; bookingId: string; admin?: boolean }) {
+export function RentalExtensionPanel(props: { token: string; bookingId: string; admin?: boolean; embeddedHeader?: boolean }) {
   return <ExtensionPanel key={JSON.stringify([props.token, props.bookingId, !!props.admin])} {...props} />;
 }
 
-function ExtensionPanel({ token, bookingId, admin = false }: { token: string; bookingId: string; admin?: boolean }) {
+function ExtensionPanel({ token, bookingId, admin = false, embeddedHeader = false }: { token: string; bookingId: string; admin?: boolean; embeddedHeader?: boolean }) {
   const state = useQuery(api.rentalExtensions.state, { token, bookingId: bookingId as any, admin });
   const [open, setOpen] = useState(false), [days, setDays] = useState(1), [selected, setSelected] = useState<number[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
@@ -76,7 +76,7 @@ function ExtensionPanel({ token, bookingId, admin = false }: { token: string; bo
   function review() { if (!recent) return; setReviewId(recent.id); setApprovedTime(recent.approvedReturnTime ?? recent.requestedReturnTime ?? ""); setReason(recent.status === "approved" ? recent.reason ?? "Recovering approved extension" : ""); setError(""); }
   return <aside id="rental-extension-panel" tabIndex={-1} data-booking-id={bookingId} data-testid="rental-extension-panel" className={styles.panel}>
     <header className={styles.header}>
-      <div><span className={styles.eyebrow}>{admin ? "Rental management" : "Your rental"}</span><h2>{admin ? "Rental extension" : "Keep the shoot going"}</h2></div>
+      {!embeddedHeader && <div><span className={styles.eyebrow}>{admin ? "Rental management" : "Your rental"}</span><h2>{admin ? "Rental extension" : "Keep the shoot going"}</h2></div>}
       {activeRequest && <span data-testid="extension-request-status" className={styles.badge} data-status={activeRequest.status}><ClockIcon/>{labels[activeRequest.status] ?? "Team review required"}</span>}
       {!admin && eligible && !current && <button type="button" data-testid="request-extension-open" className={styles.secondary} disabled={state.locked || busy} onClick={() => { setOpen(!open); setError(""); setNotice(""); key.current = null; }}>{open ? "Close" : "Request extension"}</button>}
     </header>
