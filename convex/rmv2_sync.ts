@@ -86,6 +86,11 @@ export function mapBookingForSync(
   const starts = (b.lineItems ?? []).map((li) => li.start);
   const ends = (b.lineItems ?? []).map((li) => li.end);
 
+  const documentsApproved = !!verificationReadiness?.accountId && b.idVerifyStatus === "verified" &&
+    Math.min(b.verificationExpiresAt ?? ((b.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * 86400000), b.documentExpiresAt ?? Infinity) > Date.now() &&
+    verificationReadiness.archiveReady === true &&
+    (!verificationReadiness.requiresDroneLicence || verificationReadiness.droneLicenceStatus === "approved");
+
   return {
     id: String(b._id),
     revision: b.rmv2Revision ?? 0,
@@ -102,11 +107,9 @@ export function mapBookingForSync(
       archiveReady: verificationReadiness?.archiveReady ?? false,
       requiresDroneLicence: verificationReadiness?.requiresDroneLicence ?? true,
       droneLicenceStatus: verificationReadiness?.droneLicenceStatus ?? b.droneLicenceStatus ?? "required",
-      approved: !!verificationReadiness?.accountId && b.idVerifyStatus === "verified" &&
-        Math.min(b.verificationExpiresAt ?? ((b.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * 86400000), b.documentExpiresAt ?? Infinity) > Date.now() &&
-        securityReady(b) && (!(b.depositHoldAmount ?? 0) || (b.depositHoldExpiresAt ?? 0) > Date.now()) &&
-        verificationReadiness?.archiveReady === true &&
-        verificationReadiness.requiresDroneLicence !== undefined && (!verificationReadiness.requiresDroneLicence || (verificationReadiness.droneLicenceStatus ?? b.droneLicenceStatus) === "approved"),
+      documentsApproved,
+      approved: documentsApproved && securityReady(b) &&
+        (!(b.depositHoldAmount ?? 0) || (b.depositHoldExpiresAt ?? 0) > Date.now()),
     },
     customerName: cust?.name ?? b.guestName ?? null,
     customerEmail: cust?.email ?? b.guestEmail ?? null,
