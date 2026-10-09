@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict');
+const {load,db,put}=require('./lib/rentalTestHarness.cjs');
+const {seedVerificationFiles}=require('./lib/verificationFiles.cjs');
+const feed=load('convex/rmv2_sync.ts');
+const account=put('accounts',{email:'approval@example.invalid'});
+const listing=put('listings',{title:'Sony FX3',itemType:'camera-body',components:[]});
+const booking=put('bookings',{accountId:account._id,status:'confirmed',idVerifyStatus:'verified',idVerifiedAt:Date.now(),verificationExpiresAt:Date.now()+86400000,diditSessionId:'actual-test-binding',verificationProvider:'didit',depositHoldAmount:100,depositHoldStatus:'scheduled',lineItems:[{listingId:listing._id,title:listing.title,start:Date.now(),end:Date.now()+86400000,qty:1}]});
+const archive=put('verification_archives',{bookingId:booking._id,accountId:account._id,sessionId:booking.diditSessionId,status:'complete'});
+const files=seedVerificationFiles(put,archive);
+const projection=()=>feed.forRmv2SyncOne.handler({db},{bookingId:booking._id});
+(async()=>{
+ let row=await projection();assert.equal(row.verification.documentsApproved,true);assert.equal(row.verification.securityReady,false);assert.equal(row.verification.approved,false,'Scheduled hold never pretends collection is ready');
+ booking.depositHoldStatus='held';booking.depositHoldExpiresAt=Date.now()+86400000;row=await projection();assert.equal(row.verification.approved,true);
+ booking.depositHoldExpiresAt=Date.now()-1;row=await projection();assert.equal(row.verification.documentsApproved,true);assert.equal(row.verification.approved,false);
+ booking.verificationExpiresAt=Date.now()-1;row=await projection();assert.equal(row.verification.documentsApproved,false);assert.equal(row.verification.approved,false);
+ booking.verificationExpiresAt=Date.now()+86400000;await db.delete(files[0].storageId);row=await projection();assert.equal(row.verification.documentsApproved,false,'Missing private bytes block confirmation');
+ console.log('PASS actual website bridge: valid account-bound private files approve documents before scheduled card hold; collection requires live hold; expired verification and missing file bytes fail closed. No provider writes.');
+})().catch(e=>{console.error(e);process.exitCode=1});
