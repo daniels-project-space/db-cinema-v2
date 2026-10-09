@@ -1121,6 +1121,9 @@ export const stripeWebhook = internalAction({
       if(intent.metadata?.purpose==="pickup_security_hold"&&intent.metadata.bookingId){
         await ctx.runAction(internal.holdRenewal.reconcilePickupWebhook,{bookingId:intent.metadata.bookingId as any,intentId:intent.id});
       }
+      if(intent.metadata?.purpose==="security_hold_renewal"&&intent.metadata.bookingId){
+        await ctx.runAction(internal.holdRenewal.reconcileRenewalWebhook,{bookingId:intent.metadata.bookingId as any,intentId:intent.id});
+      }
     }
     if (["refund.created","refund.updated","refund.failed"].includes(event.type)) {
       const refund=event.data.object as Stripe.Refund;

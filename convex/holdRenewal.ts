@@ -37,8 +37,21 @@ async function releasePrevious(ctx: any, bookingId: any, ids: string[], sb: Stri
   }
 }
 
+function stripeId(value: any): string | undefined { return typeof value === "string" ? value : value?.id; }
+async function renewalIntentMatches(ctx: any, bookingId: any, oldId: string, intent: Stripe.PaymentIntent, sb: Stripe) {
+  const b: any = await ctx.runQuery(internal.bookings.renewalContext, { bookingId });
+  if (!b || intent.metadata?.bookingId !== String(bookingId) || intent.metadata?.purpose !== "security_hold_renewal" ||
+    intent.metadata.replaces !== oldId || intent.id === oldId || intent.capture_method !== "manual" ||
+    intent.currency !== "gbp" || intent.amount !== Math.round(b.amount * 100)) return false;
+  const old = await sb.paymentIntents.retrieve(oldId);
+  const customer = stripeId(old.customer), method = stripeId(old.payment_method);
+  return old.metadata?.bookingId === String(bookingId) && !!customer && customer === stripeId(intent.customer) && !!method &&
+    (method === stripeId(intent.payment_method) || (!intent.payment_method && ["canceled", "requires_payment_method"].includes(intent.status) && intent.amount_received === 0));
+}
+
 async function reconcile(ctx: any, bookingId: any, oldId: string, newId: string, sb: Stripe): Promise<string> {
   const intent = await sb.paymentIntents.retrieve(newId, { expand: ["latest_charge"] });
+  if (!await renewalIntentMatches(ctx, bookingId, oldId, intent, sb)) throw Error("Rental card authorisation does not match. Please contact us.");
   if (intent.status === "requires_capture") {
     const expiresAt = captureBefore(intent);
     if (!expiresAt || expiresAt <= Date.now()) {
@@ -132,7 +145,8 @@ export const renewDue = internalAction({
 async function owned(ctx: any, token: string, bookingId: any) {
   const account: any = await ctx.runQuery(api.accounts.me, { token });
   const b: any = await ctx.runQuery(internal.bookings.renewalContext, { bookingId });
-  if (!account || !b || account.email?.trim().toLowerCase() !== b.guestEmail?.trim().toLowerCase())
+  if (!account || !b || !["confirmed", "active"].includes(b.status) || b.cancellationPending || b.returnPending ||
+    account.email?.trim().toLowerCase() !== b.guestEmail?.trim().toLowerCase())
     throw new Error("Booking access denied");
   return b;
 }
@@ -143,7 +157,32 @@ export const resume = action({
     const b = await owned(ctx, token, bookingId);
     if (b.renewalStatus !== "requires_action" || !b.renewalIntentId) return { status: b.renewalStatus ?? "none" };
     const intent = await stripe().paymentIntents.retrieve(b.renewalIntentId);
+    if (!b.oldIntentId || !await renewalIntentMatches(ctx, bookingId, b.oldIntentId, intent, stripe())) throw Error("Rental card authorisation does not match. Please contact us.");
     return { status: intent.status, clientSecret: intent.status === "requires_action" ? intent.client_secret : null };
+  },
+});
+
+/** The webhook identifies a candidate only; current Stripe state and linked
+ * authorisation ownership determine the update. No funds are captured here. */
+export const reconcileRenewalWebhook = internalAction({
+  args: { bookingId: v.id("bookings"), intentId: v.string() },
+  handler: async (ctx, a) => {
+    const b: any = await ctx.runQuery(internal.bookings.renewalContext, { bookingId: a.bookingId });
+    if (!b || !["confirmed", "active"].includes(b.status) || b.cancellationPending || b.returnPending ||
+      (b.oldIntentId !== a.intentId && b.renewalIntentId !== a.intentId)) return;
+    const sb = stripe(), intent = await sb.paymentIntents.retrieve(a.intentId, { expand: ["latest_charge"] });
+    const oldId = intent.metadata?.replaces;
+    if (!oldId || !await renewalIntentMatches(ctx, a.bookingId, oldId, intent, sb)) return;
+    if (b.oldIntentId !== intent.id) {
+      if (oldId === b.oldIntentId) await reconcile(ctx, a.bookingId, oldId, intent.id, sb);
+      return;
+    }
+    const expiresAt = captureBefore(intent);
+    const status = intent.status === "succeeded" || intent.amount_received > 0 ? "captured" :
+      intent.status === "requires_capture" && expiresAt != null && expiresAt > Date.now() ? "held" :
+      intent.status === "requires_action" ? "requires_action" : intent.status === "processing" ? "processing" : "failed";
+    await ctx.runMutation(internal.bookings.reconcileRenewedHold, { bookingId: a.bookingId, intentId: intent.id, status,
+      ...(status === "held" ? { expiresAt } : {}) });
   },
 });
 
@@ -209,4 +248,25 @@ export const syncPickup = action({args:{token:v.string(),bookingId:v.id("booking
 export const updatePickupCard = action({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a):Promise<{url:string}>=>{const b=await ownPickup(ctx,a.token,a.bookingId);if(!pickupHoldEligible(b)||!["failed","requires_action"].includes(b.depositHoldStatus??""))throw Error("This rental does not need a replacement card.");if(!b.stripeDepositIntentId && (b.securityHoldAttempts??0)>0 && ["provider_unavailable","provider_outcome_unknown"].includes(b.securityHoldFailureCode??""))throw Error("The previous authorisation outcome is still unknown. Please contact us before replacing the card.");if(!b.securityHoldCustomerId)throw Error("Your saved rental card account is temporarily unavailable. Please contact us.");const sb=stripe();if(b.stripeDepositIntentId){const old=await sb.paymentIntents.retrieve(b.stripeDepositIntentId);if(!pickupIntentMatches(b,old))throw Error("Rental card authorisation does not match. Please contact us.");if((old.amount_received??0)>0||["requires_capture","succeeded","processing"].includes(old.status))throw Error("Rental card authorisation is held, charged or still processing. Refresh your rental before updating the card.");if(old.status!=="canceled"){const released=await sb.paymentIntents.cancel(old.id,{}, {idempotencyKey:`dbc-pickup-recovery-cancel-${old.id}`});if(released.status!=="canceled")throw Error("Previous card authorisation has not been released. Try again later.");}}
  const configurationId=process.env.STRIPE_RENTAL_PAYMENT_METHOD_CONFIGURATION_ID;if(!configurationId)throw Error("Rental card setup is temporarily unavailable. Please contact us.");const configuration=await sb.paymentMethodConfigurations.retrieve(configurationId);if(!configuration.active||configuration.card?.display_preference?.value!=="on"||[configuration.apple_pay,configuration.google_pay,configuration.link].some(method=>method?.display_preference?.value!=="off"))throw Error("Rental card setup requires the configured reusable card method.");
  const session=await sb.checkout.sessions.create({mode:"setup",currency:"gbp",customer:b.securityHoldCustomerId,payment_method_configuration:configurationId,setup_intent_data:{metadata:{bookingId:a.bookingId,purpose:"pickup_card_recovery"}},metadata:{pickupCardBookingId:a.bookingId},success_url:`${new URL(process.env.APP_URL!).origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,cancel_url:`${new URL(process.env.APP_URL!).origin}/account`});if(!session.url)throw Error("Card setup could not start.");await ctx.runMutation(internal.pickupSecurity.bindRecovery,{bookingId:a.bookingId,sessionId:session.id,generation:b.securityHoldGeneration,releasedIntentId:b.stripeDepositIntentId});return {url:session.url};}});
-export const reconcilePickupWebhook = internalAction({args:{bookingId:v.id("bookings"),intentId:v.string()},handler:async(ctx,a)=>{const b:any=await ctx.runQuery(internal.pickupSecurity.context,{bookingId:a.bookingId});const sb=stripe(),intent=await sb.paymentIntents.retrieve(a.intentId,{expand:["latest_charge"]});if(!b||!pickupIntentOwned(b,intent))return;if(Number(intent.metadata.generation)!==b.securityHoldGeneration){if(["requires_capture","requires_action","requires_payment_method","requires_confirmation"].includes(intent.status))await sb.paymentIntents.cancel(intent.id,{}, {idempotencyKey:`dbc-pickup-stale-${intent.id}`});return;}await reconcilePickup(ctx,b,intent,sb);}});
+export const reconcilePickupWebhook = internalAction({
+  args: { bookingId: v.id("bookings"), intentId: v.string() },
+  handler: async (ctx, a) => {
+    const b: any = await ctx.runQuery(internal.pickupSecurity.context, { bookingId: a.bookingId });
+    const sb = stripe(), intent = await sb.paymentIntents.retrieve(a.intentId, { expand: ["latest_charge"] });
+    if (!b || !pickupIntentOwned(b, intent)) return;
+    if (Number(intent.metadata.generation) !== b.securityHoldGeneration) {
+      if (["requires_capture", "requires_action", "requires_payment_method", "requires_confirmation"].includes(intent.status))
+        await sb.paymentIntents.cancel(intent.id, {}, { idempotencyKey: `dbc-pickup-stale-${intent.id}` });
+      return;
+    }
+    // Renewal retires the original pickup intent without changing the pickup
+    // generation. Its later cancellation must never fail the current hold.
+    if (b.stripeDepositIntentId && b.stripeDepositIntentId !== intent.id) {
+      if (intent.capture_method === "manual" && intent.amount_received === 0 &&
+        ["requires_capture", "requires_action", "requires_payment_method", "requires_confirmation"].includes(intent.status))
+        await sb.paymentIntents.cancel(intent.id, {}, { idempotencyKey: `dbc-pickup-stale-${intent.id}` });
+      return;
+    }
+    await reconcilePickup(ctx, b, intent, sb);
+  },
+});
