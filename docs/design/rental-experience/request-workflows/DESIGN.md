@@ -1,5 +1,9 @@
 # Rental workflow design targets — 9 October 2026
 
+## Renter drawer reference
+
+`renter-request-drawers-v4.png` is the built-in GPT image reference for four customer-facing drawers: approved extension payment, kit-change request, date-change request and cancellation. Match its equipment photography, dark surfaces, serif headings, copper actions, comparative date cards and compact workflow. Use real booking data and catalogue images. The date and kit panels submit requests for team review; they must never apply changes or claim availability before the backend checks. Cancellation refund, credit and hold-release amounts require an authenticated real settlement preview. The illustration's example amounts, customer/card details, timeline states, optional notes and calendar labels are not application data or validation rules. Preserve required details, consent and provider-receipt guards. Keep admin decision controls separate. Prompt: `renter-request-v4-prompt.txt`.
+
 ## Approved visual direction, latest render
 
 `extension-desktop-mobile-v3.png` is the latest built-in GPT image design reference for an approved, unpaid extension. Use its photographic hero, copper underlined Requests tab, before/after return cards, compact workflow and collapsed activity, and dedicated payment column. Administrator reminder/withdrawal controls and renter payment/message controls are distinct. The prompt is preserved in `extension-v3-prompt.txt`. This render does not prove that a reminder action exists; connect any implemented action to a real authorised handler before exposing it. Use the existing `kit-dates-cancellation-v2.png` references for related drawers at the same visual standard.
