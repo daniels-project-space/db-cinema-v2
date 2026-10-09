@@ -5,8 +5,9 @@ import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "
 import { bookingCancelKind, cancellationDaysForBooking } from "../src/lib/cancellationPolicy";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { paginationOptsValidator } from "convex/server";
+import { listingImages } from "./lib/catalogImages";
 
 const labels = { dates: "Change dates", items: "Change kit", extension: "Extend rental", cancel: "Cancel rental" };
 
@@ -80,7 +81,14 @@ export const context = query({
     if (!a) return null;
     const b = await ownedBooking(ctx, a, bookingId);
     const reservations = await ctx.db.query("reservations").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
-    return { status: b.status, start: Math.min(...b.lineItems.map((l: { start: number }) => l.start)), end: Math.max(...b.lineItems.map((l: { end: number }) => l.end)),
+    const lineItems = await Promise.all(b.lineItems.map(async (line: Doc<"bookings">["lineItems"][number], index: number) => {
+      const images = listingImages(await ctx.db.get(line.listingId));
+      return { index, title: line.title, qty: line.qty, start: line.start, end: line.end,
+        pickupTime: line.pickupTime === undefined ? b.pickupTime ?? null : line.pickupTime,
+        returnTime: line.returnTime === undefined ? b.returnTime ?? null : line.returnTime,
+        heroImage: images[0] ?? null, imageSources: images };
+    }));
+    return { status: b.status, lineItems, start: lineItems.length ? Math.min(...lineItems.map(l => l.start)) : null, end: lineItems.length ? Math.max(...lineItems.map(l => l.end)) : null,
       cancellationKind: bookingCancelKind(b, Date.now()), cancellationFullRefundDays: cancellationDaysForBooking(b),
       cancellationTermsVersion: b.agreementDocs?.find((d: { kind: string; version: string }) => d.kind === "cancellation")?.version ?? "2026-10-v10",
       direct: reservations.every(r => r.source === "site"),
