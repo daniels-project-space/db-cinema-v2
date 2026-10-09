@@ -651,3 +651,27 @@ export const resumeByCustomer = action({
     return finish(ctx, r.id, session);
   },
 });
+
+/** Owner recovery verifies the saved provider receipt; bank challenges remain renter-only. */
+export const resumeByOwner = action({
+  args:{token:v.string(),bookingId:v.id("bookings"),id:v.id("rental_additions")},
+  handler:async(ctx,{token,bookingId,id}):Promise<{status:string}>=>{
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"rentalAdditions.resumeByOwner"});
+    const state:any=await ctx.runQuery(internal.rentalAdditionState.context,{id});
+    if(!state?.addition||!state.booking||state.addition.bookingId!==bookingId||state.booking._id!==bookingId)throw Error("Proposal belongs to another rental");
+    const r=state.addition;
+    if(["applied","applied_draft","expired","refunded"].includes(r.status))return {status:r.status};
+    if(r.withdrawalRequestedAt)throw Error("Check the saved withdrawal before continuing this proposal");
+    if(state.booking.activeAdditionId!==id)throw Error("This proposal is no longer active for the rental");
+    if(!r.sessionId)throw Error("Resume the saved proposal to prepare its payment link");
+    const session=await sb().checkout.sessions.retrieve(r.sessionId);
+    if(session.payment_status!=="paid")return {status:"awaiting_payment"};
+    if(r.draftReplacement){
+      if(session.metadata?.pendingAdditionId!==id)throw Error("Payment receipt does not match this proposal");
+      const result=await ctx.runAction(api.checkout.finalize,{sessionId:session.id});
+      return {status:result.holdStatus??"pending"};
+    }
+    const result=await finish(ctx,id,session);
+    return {status:result.status};
+  },
+});

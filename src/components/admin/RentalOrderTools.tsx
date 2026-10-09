@@ -1,6 +1,6 @@
 "use client";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { ReturnRentalForm } from "./ReturnRentalForm";
@@ -12,6 +12,7 @@ import { formatGbp } from "@/lib/pricing";
 import { rentalHandoverLabel } from "../../../shared/rentalHandover";
 import { rentalDate } from "@/lib/rentalPresentation";
 import { RentalRequestApply } from "@/components/rentals/RentalRequestApply";
+import { RentalKitProposalStatus } from "./RentalKitProposalStatus";
 import { RentalKitProposal } from "./RentalKitProposal";
 import { RentalRequestHistory } from "@/components/rentals/RentalRequestHistory";
 
@@ -39,39 +40,24 @@ function OrderTools({
       token,
       bookingId: bookingId as any,
     }) ?? [];
-  const [lookup, setLookup] = useState(""),
-    [listingId, setListingId] = useState(""),
-    [quantity, setQuantity] = useState(1),
-    [complimentary, setComplimentary] = useState(false);
   const add = useAction(api.rentalAdditions.start),
+    checkAddition=useAction(api.rentalAdditions.resumeByOwner),
     withdraw = useAction(api.rentalAdditions.withdrawByOwner);
   const setStatus = useMutation(api.bookings.adminSetStatus);
   const [returnOpen, setReturnOpen] = useState(false);
-  const reschedule = useMutation(api.rentalOperations.reschedule),
-    remove = useMutation(api.rentalOperations.removeItem),
-    cancel = useAction(api.checkout.cancelByAdmin),
+  const remove = useMutation(api.rentalOperations.removeItem),
     refund = useAction(api.checkout.refundRental);
   const [mode, setMode] = useState<
-      "reschedule" | "cancel" | "refund" | "add" | "remove" | null
+      "refund" | "remove" | null
     >(null),
-    [date, setDate] = useState(""),
-    [endDate, setEndDate] = useState(""),
     [reason, setReason] = useState(""),
     [amount, setAmount] = useState("");
   const [removeIndex, setRemoveIndex] = useState<number | null>(null);
-  const [keepAgreedPrice, setKeepAgreedPrice] = useState(false);
   const removeSelection = useRef<{ lineIndex: number; listingId: any; expectedQty: number; expectedStart: number; expectedEnd: number } | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [result, setResult] = useState("");
   const request = useRef<string | null>(null);
-  useEffect(() => {
-    if (b?.activeAdditionId && mode === "add" && !busy) setMode(null);
-  }, [b?.activeAdditionId, mode, busy]);
-  const catalog = useQuery(
-    api.catalog.listListings,
-    mode === "add" ? { search: lookup } : "skip",
-  );
   if (!b) return null;
   const processing = b.rentalRefunds.find(
     (r) => r.status === "prepared" || r.status === "pending",
@@ -88,43 +74,6 @@ function OrderTools({
         await remove({ token, bookingId: bookingId as any, requestId: request.current, ...removeSelection.current, reason });
         setResult("Item removed and inventory released. Agreed charges and security are unchanged. Use the refund control for any eligible rental refund.");
         request.current = null;
-      }
-      if (mode === "add") {
-        request.current ??= crypto.randomUUID();
-        const r = await add({
-          token,
-          bookingId: bookingId as any,
-          requestId: request.current,
-          listingId: listingId as any,
-          qty: quantity,
-          reason,
-          complimentary,
-        });
-        setResult(
-          r.applied
-            ? "Complimentary item added to the rental."
-            : "Secure payment link saved in this rental conversation. The order updates after payment and any bank hold approval.",
-        );
-        request.current = null;
-      }
-      if (mode === "reschedule") {
-        await reschedule({
-          token,
-          bookingId: bookingId as any,
-          start: Date.parse(`${date}T00:00:00Z`),
-          end: endDate ? Date.parse(`${endDate}T00:00:00Z`) : undefined,
-          keepAgreedPrice,
-          reason,
-        });
-        setResult(
-          "Rental dates updated. The customer will receive confirmation.",
-        );
-      }
-      if (mode === "cancel") {
-        const r = await cancel({ token, bookingId: bookingId as any, reason });
-        setResult(
-          `Cancelled. Card refund ${formatGbp(r.refundAmount)}${r.creditAmount ? ` · account credit ${formatGbp(r.creditAmount)}` : ""}.`,
-        );
       }
       if (mode === "refund") {
         request.current ??= crypto.randomUUID();
@@ -189,6 +138,13 @@ function OrderTools({
     } finally {
       setBusy(false);
     }
+  }
+  async function checkSavedAddition(r:any){
+    if(busy)return;setBusy(true);setError("");
+    try{const outcome=await checkAddition({token,bookingId:bookingId as any,id:r._id});
+      setResult(outcome.status==="requires_action"?"Payment received. The renter must complete bank approval in their account.":outcome.status==="awaiting_payment"?"Payment is still outstanding. The saved link remains available.":["held","scheduled","applied","applied_draft","draft_applied"].includes(outcome.status)?"The paid proposal has been processed. Check the updated rental kit.":`Proposal status: ${outcome.status.replaceAll("_"," ")}.`);
+    }catch(e:any){setError(e.data?.message??"The proposal could not be checked. Retry its saved payment status.");}
+    finally{setBusy(false);}
   }
   async function withdrawAddition(id: string) {
     setBusy(true);
@@ -283,50 +239,7 @@ function OrderTools({
               r.status,
             ),
         )
-        .map((r) => (
-          <div
-            key={r._id}
-            className="mt-3 rounded-xl bg-white/[0.035] p-3 text-xs text-white/60"
-          >
-            <p>
-              {r.qty}× {rentalTitle(r.title)} · £
-              {((r.draftReplacement?r.baseTotal??0:0)+r.lineTotal+r.securityCharge+(r.membershipFee??0)).toFixed(2)} ·{" "}
-              {r.status.replaceAll("_", " ")}
-            </p>
-            <div className="mt-2 flex gap-3">
-              {!r.paymentUrl && (
-                <button
-                  disabled={busy}
-                  onClick={() => resumeAddition(r)}
-                  className="text-accent-300"
-                >
-                  Resume proposal
-                </button>
-              )}
-              {r.paymentUrl && (
-                <a
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  href={r.paymentUrl}
-                  className="text-accent-300"
-                >
-                  Open payment link
-                </a>
-              )}
-              <button
-                disabled={busy}
-                onClick={() => withdrawAddition(r._id)}
-                className="text-rose-300"
-              >
-                Withdraw proposal
-              </button>
-            </div>
-            <p className="mt-2 text-white/35">
-              Finish or withdraw this proposal before a refund, return,
-              reschedule or cancellation.
-            </p>
-          </div>
-        ))}
+        .map((r) => <RentalKitProposalStatus key={r._id} proposal={r} busy={busy} onResume={()=>void resumeAddition(r)} onCheck={()=>void checkSavedAddition(r)} onWithdraw={()=>void withdrawAddition(r._id)} />)}
       {processing && (
         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-amber-200">
           <span>
@@ -348,15 +261,7 @@ function OrderTools({
         >
           <div className="flex justify-between">
             <h4 className="text-sm font-semibold text-white">
-              {mode === "cancel"
-                ? "Cancel this rental"
-                : mode === "reschedule"
-                  ? "Move rental dates"
-                  : mode === "remove"
-                    ? "Remove kit from this rental"
-                  : mode === "add"
-                    ? "Add items to the rental"
-                    : "Refund rental payment"}
+              {mode === "remove" ? "Remove kit from this rental" : "Refund rental payment"}
             </h4>
             <button
               type="button"
@@ -368,91 +273,9 @@ function OrderTools({
             </button>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-white/45">
-            {mode === "cancel"
-              ? b.cancellationKind === "full_refund"
-                ? "Within the refund window: remaining card payment is refunded and previously used account credit is restored."
-                : "Outside the refund window: rental cash refund is 0%. Remaining rental payment becomes one-year account credit. Refundable security is returned separately."
-              : mode === "remove"
-                ? "Remove the selected item and release its stock. This does not change the agreed payment or security: use the separate refund control within the refund window. The original charge remains itemised on the receipt. To remove all kit, cancel the rental."
-              : mode === "add"
-                ? "Choose real catalogue items. We check stock and calculate the rental charge and any security increase, then send a secure checkout link in this conversation. Items are confirmed after payment and bank approval."
-                : mode === "reschedule"
-                  ? "Move the rental or set a new return date. Agreed charges and security stay the same: extra days are complimentary. Any eligible refund uses the separate refund control. Stock is checked before saving."
-                  : "Refund all remaining rental payment, or specify a smaller amount. Security payment is handled separately on return or cancellation."}
+            {mode === "remove" ? "Remove the selected item and release its stock. Agreed payment and security stay unchanged; use the refund control for an eligible rental refund. To remove all kit, cancel the rental." : "Refund all remaining rental payment, or specify a smaller amount. Security payment is handled separately on return or cancellation."}
           </p>
           {mode === "remove" && <div className="mt-3 grid gap-2">{b.lineItems.map((line, i) => <button type="button" key={i} onClick={() => { setRemoveIndex(i); removeSelection.current = { lineIndex: i, listingId: line.listingId, expectedQty: line.qty, expectedStart: line.start, expectedEnd: line.end }; request.current = null; }} className={`rounded-xl border p-3 text-left text-xs ${removeIndex === i ? "border-rose-400/60 text-white" : "border-white/10 text-white/60"}`}>{line.qty}× {rentalTitle(line.title)} · {formatGbp(line.lineTotal)}</button>)}</div>}
-          {mode === "add" && (
-            <div className="mt-3">
-              <input
-                aria-label="Search items to add"
-                placeholder="Search kit"
-                value={lookup}
-                onChange={(e) => setLookup(e.target.value)}
-                className="w-full rounded-xl bg-[#151515] p-3 text-sm text-white"
-              />
-              <div className="mt-2 grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
-                {catalog
-                  ?.filter((l) => !l.displayOnly)
-                  .slice(0, 10)
-                  .map((l) => (
-                    <button
-                      type="button"
-                      key={l._id}
-                      onClick={() => setListingId(l._id)}
-                      title={l.title}
-                      className={`flex items-center gap-2 rounded-xl border p-2 text-left ${listingId === l._id ? "border-accent-400/60" : "border-white/10"}`}
-                    >
-                      <SmartImage
-                        src={l.heroImage}
-                        alt=""
-                        className="h-9 w-9 shrink-0 overflow-hidden rounded-lg"
-                      />
-                      <span className="text-xs text-white/70">
-                        {rentalTitle(l.title)}
-                      </span>
-                    </button>
-                  ))}
-              </div>
-              <label className="mt-3 block text-xs text-white/55">
-                Quantity
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  required
-                  value={quantity}
-                  onChange={(e) => setQuantity(Number(e.target.value))}
-                  className="ml-3 w-20 rounded-lg bg-[#151515] p-2 text-white"
-                />
-              </label>
-              <label className="mt-3 flex items-center gap-2 text-xs text-white/55">
-                <input
-                  type="checkbox"
-                  checked={complimentary}
-                  onChange={(e) => setComplimentary(e.target.checked)}
-                />{" "}
-                No rental charge · any required refundable security still
-                applies
-              </label>
-            </div>
-          )}
-          {mode === "reschedule" && (
-            <div className="grid gap-3 sm:grid-cols-2"><label className="mt-3 block text-xs text-white/55">
-              New start date
-              <input
-                required
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="mt-1 block rounded-xl border border-white/10 bg-[#151515] p-3 text-white [color-scheme:dark]"
-              />
-            </label>
-            <label className="mt-3 block text-xs text-white/55">New return date · optional
-              <input type="date" min={date || undefined} value={endDate} onChange={e => setEndDate(e.target.value)} className="mt-1 block max-w-full rounded-xl border border-white/10 bg-[#151515] p-3 text-white [color-scheme:dark]" />
-              <span className="mt-1 block text-white/35">Leave blank to keep the same duration.</span>
-            </label></div>
-          )}
-          {mode === "reschedule" && endDate && <label className="mt-3 flex items-start gap-2 text-xs text-white/60"><input type="checkbox" required checked={keepAgreedPrice} onChange={e => setKeepAgreedPrice(e.target.checked)} className="mt-0.5" />Keep the agreed rental charge for these dates. I approve any extra days as complimentary; any eligible refund is handled separately.</label>}
           {mode === "refund" && (
             <label className="mt-3 block text-xs text-white/55">
               Amount in £ · leave blank for full remaining rental payment
@@ -481,20 +304,10 @@ function OrderTools({
             />
           </label>
           <button
-            disabled={busy || (mode === "add" && !listingId) || (mode === "remove" && removeIndex === null)}
-            className={`mt-3 rounded-full px-4 py-2 text-xs font-semibold text-white ${mode === "cancel" ? "bg-rose-600" : "bg-accent-500"}`}
+            disabled={busy || (mode === "remove" && removeIndex === null)}
+            className="mt-3 rounded-full bg-accent-500 px-4 py-2 text-xs font-semibold text-white"
           >
-            {busy
-              ? "Processing…"
-              : mode === "cancel"
-                ? "Confirm cancellation"
-                : mode === "reschedule"
-                  ? "Save new dates"
-                  : mode === "remove"
-                    ? "Confirm item removal"
-                  : mode === "add"
-                    ? "Create payment link"
-                    : "Confirm refund"}
+            {busy ? "Processing…" : mode === "remove" ? "Confirm item removal" : "Confirm refund"}
           </button>
         </form>
       )}

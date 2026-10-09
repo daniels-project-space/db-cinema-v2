@@ -55,7 +55,10 @@ export const list = query({
   handler: async (ctx, { token, bookingId }) => {
     if (!checkAdminToken(token)) return [];
     const rows = await ctx.db.query("rental_additions").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
-    return rows.map(({ securityCreationParams: _privateParams, ...row }) => row);
+    return Promise.all(rows.map(async ({ securityCreationParams: _privateParams, ...row }) => {
+      const images=listingImages(await ctx.db.get(row.listingId));
+      return {...row,heroImage:images[0]??null,imageSources:images};
+    }));
   },
 });
 async function additionQuote(ctx: QueryCtx, b: Doc<"bookings"> | null, a: {listingId:Id<"listings">;qty:number;start?:number;end?:number;complimentary?:boolean}) {
