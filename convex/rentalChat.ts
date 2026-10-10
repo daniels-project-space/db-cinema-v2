@@ -182,6 +182,7 @@ export const messages = query({
     return { ...page, escalated: !!thread?.escalated,
       quickReplies: admin ? rentalReplyTemplates(bookingId ? await ctx.db.get(bookingId) : null, await ctx.db.query("settings").first()) : [],
       renter: { name: (admin ? a.name : a.name?.split(/\s+/)[0]) ?? "Renter",
+        ...(admin ? { email: a.email ?? null, phone: a.phone ?? null } : {}),
         photo: (a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : null) ?? a.googleAvatarUrl ?? null },
     };
   },

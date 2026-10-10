@@ -12,6 +12,12 @@ The booking strip uses the actual selected booking's dates, listing count and ca
 
 The reference is `admin-chat.png`, adapted to the requested dark theme and existing management navigation. This is not pixel-perfect acceptance of the entire approved reference: its full-width header differs from the shared sidebar shell; synthetic records lack real equipment/customer images, and the fixtures contain fewer conversations. Remaining management screens and production visual acceptance stay open. No placeholder controls were added for attachment or emoji features that are not wired.
 
+## Contact and message-detail comparison, 10 October
+
+The actual admin conversation header now includes the permanent account's current email and phone from the existing authenticated message query. Renter responses omit both fields; missing associated accounts never fall back to historical booking email. Message rows use the reference's larger circular avatar and metadata proportions, with smaller avatars and stacked contacts on phones. The booking panel places its working admin actions above a titled payment breakdown, preserving distinct deposit and recorded card-authorisation states.
+
+Five local capture/review passes at 1440 and 390 are retained in `/root/CODEX_ARTIFACTS/db-cinema/chat-details-reference-2026-10-10`. They inspect multiline messages, contact wrapping, the actual composer sending once into the correct account/rental, extension shortcut expansion/focus and missing-account contact suppression, with the actual management shell/components and isolated native handlers. No provider/customer/email/payment writes occurred. This is an additional conversation refinement cycle, not proof of five complete passes for every reference or exact full-screen parity. The missing-account capture still shows available-looking Gaffer/owner controls whose backend guards reject execution; that recovery presentation remains unfinished.
+
 ## Validation
 
 - Default test suite, TypeScript check and final Next production build passed.

@@ -222,6 +222,7 @@ export function RentalConversation({
           <ChatAvatar sender={admin ? "renter" : "owner"} name={thread && "renter" in thread ? thread.renter?.name : null} photo={thread && "renter" in thread ? thread.renter?.photo : null} />
           <div><p className={styles.eyebrow}>{admin ? "Rental conversation" : "Your rental team"}</p>
             <h3>{admin ? thread && "renter" in thread ? thread.renter?.name || "Guest renter" : thread === undefined ? "Loading conversation…" : "Customer account unavailable" : "DB Cinema Rentals"}</h3>
+            {admin && thread && "renter" in thread && (thread.renter?.email || thread.renter?.phone) && <p className={styles.contactDetails} data-testid="conversation-current-contact">{thread.renter.email && <span>{thread.renter.email}</span>}{thread.renter.phone && <span>{thread.renter.phone}</span>}</p>}
             <p className={styles.supportStatus}><span />{teamHandling ? "Team handling your conversation" : "Gaffer available · team can join"}</p>
           </div>
         </div>

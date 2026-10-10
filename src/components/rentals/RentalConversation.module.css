@@ -110,6 +110,18 @@
 .header h3 { margin:0 0 5px; }
 .header .identity { gap:14px; }
 .header .identity > span { width:48px; height:48px; }
+.contactDetails{display:flex;flex-wrap:wrap;gap:4px 12px;margin:0 0 5px;color:#b3b0aa;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.contactDetails>span+span::before{content:'·';margin-right:12px;color:#777a76}
+.message :global(.management-conversation-message-row)>span{width:48px;height:48px;font-size:13px}
+.message :global(.management-conversation-message-row){gap:16px;max-width:88%}
+.messageMeta{font-size:12px;margin-bottom:8px}
+.messageMeta time{font-size:11px}
+.toolsSectionTitle{font:19px Georgia,serif;color:#e6e3df;display:flex;justify-content:space-between;gap:12px;margin:0 0 14px}
+.toolsSectionTitle>span{font:11px var(--font-inter,Arial),sans-serif;color:#a5a6a8;align-self:center}
+.financialSection{margin-top:24px;border-top:1px solid #353737;padding-top:20px}
+.financialSection .paymentSummary{padding:0;border:0;border-radius:0;background:transparent;margin-bottom:0}
+.financialSection .paymentSummary dt,.financialSection .paymentSummary dd{font-size:12px}
+@media(max-width:767px){.contactDetails{font-size:10px;gap:2px;flex-direction:column}.contactDetails>span+span::before{content:none}.message :global(.management-conversation-message-row){gap:10px;max-width:100%}.message :global(.management-conversation-message-row)>span{width:36px;height:36px;font-size:11px}.header .identity>span{width:40px;height:40px}.header h3{font-size:17px}.supportStatus{font-size:10px}}
 @media(min-width:1151px) { .header { height:84px; } .bookingStrip { min-height:112px; } }
 
 .bookingFacts { margin-bottom:23px; border-bottom:1px solid #353737; padding-bottom:20px; }

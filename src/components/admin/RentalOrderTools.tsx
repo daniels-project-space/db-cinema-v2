@@ -187,12 +187,7 @@ function OrderTools({
         <div className={chatStyles.factsIdentity}><SmartImage src={b.lineItems[0]?.heroImage} fallbackSources={b.lineItems[0]?.imageSources} alt={b.lineItems[0]?.title ?? "Rental kit"} className={chatStyles.factsPhoto} /><div><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
         <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{rentalHandoverLabel(b,"pickup")}</dd></div><div><dt>Return</dt><dd>{rentalHandoverLabel(b,"return")}</dd></div><div data-testid="owner-current-customer"><dt>Customer</dt><dd>{b.customer ? b.customer.name || b.customer.email : b.accountId ? "Account needs review" : b.guestName || "Guest renter"}</dd></div>{(b.customer?.email || !b.accountId && b.guestEmail) && <div data-testid="owner-current-email"><dt>{b.customer ? "Account email" : "Booking email"}</dt><dd>{b.customer?.email || b.guestEmail}</dd></div>}{b.customer?.phone&&<div><dt>Phone</dt><dd>{b.customer.phone}</dd></div>}<div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
       </section>
-      <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">
-        <div><dt>Booking total</dt><dd>{formatGbp(b.total)}</dd></div>
-        <div><dt>Refundable deposit</dt><dd>{formatGbp(b.depositAmount ?? 0)}</dd></div>
-        <CardAuthorisation booking={b}/>
-      </dl>
-      <p className="mb-2 text-[10px] uppercase tracking-[.16em] text-white/35">Manage rental · owner only</p>
+      <h5 className={chatStyles.toolsSectionTitle}>Admin actions</h5>
       {cancellation && cancellation.status !== "succeeded" && <div role="status" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">
         <p>{cancellation.status === "attention" ? "Cancellation needs payment review. The existing refund was not completed." : "Cancellation settlement is processing. The rental remains reserved until refunds and security release are confirmed."}</p>
         {cancellation.refunds.map((r, i) => <p key={i} className="mt-2">{formatGbp(r.amount)} · {r.status.replaceAll("_", " ")}{r.approvalUrl && r.status === "awaiting_approval" && <a className="ml-2 underline" href={r.approvalUrl} target="_blank" rel="noopener noreferrer">Review in Stripe</a>}</p>)}
@@ -248,6 +243,14 @@ function OrderTools({
             </button>
           )}
       </div>
+      <section className={chatStyles.financialSection}>
+        <h5 className={chatStyles.toolsSectionTitle}>Payment breakdown <span>GBP</span></h5>
+        <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">
+          <div><dt>Booking total</dt><dd>{formatGbp(b.total)}</dd></div>
+          <div><dt>Refundable deposit</dt><dd>{formatGbp(b.depositAmount ?? 0)}</dd></div>
+          <CardAuthorisation booking={b}/>
+        </dl>
+      </section>
       {showReturn && returnOpen && <ReturnRentalForm booking={b} token={token} onClose={() => setReturnOpen(false)} />}
       {showReturn && (b.returnDecision || b.status === "returned") && <ReturnInspectionHistory token={token} bookingId={bookingId} />}
       {kitOpen&&<RentalKitProposal token={token} bookingId={bookingId} onClose={()=>setKitOpen(false)}/>}
