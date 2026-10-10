@@ -607,10 +607,22 @@ export const withdrawByOwner = action({
     return { ok: true, pending: !!result?.pending, needsAttention: !!result?.needsAttention };
   },
 });
+/** The hold status alone cannot attest that the equipment change committed. */
+async function finishWithReceipt(ctx: any, id: any, session: Stripe.Checkout.Session) {
+  const result = await finish(ctx, id, session);
+  // finish validates the bound checkout and captured payment before this read.
+  const current: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+  const addition = current?.addition;
+  const updateKind: "swap" | "draft" | "addition" = addition?.swapProposalId
+    ? "swap" : addition?.draftReplacement ? "draft" : "addition";
+  return { ...result, updateKind, updateApplied: !result.closed &&
+    !!addition && addition.bookingId === result.bookingId && !addition.withdrawalRequestedAt &&
+    ["applied", "applied_draft"].includes(addition.status) };
+}
 export const finalizePaid = internalAction({
   args: { id: v.id("rental_additions"), sessionId: v.string() },
   handler: async (ctx, { id, sessionId }) =>
-    finish(ctx, id, await sb().checkout.sessions.retrieve(sessionId)),
+    finishWithReceipt(ctx, id, await sb().checkout.sessions.retrieve(sessionId)),
 });
 export const sync = action({
   args: { sessionId: v.string() },
@@ -622,11 +634,13 @@ export const sync = action({
     status: string;
     clientSecret?: string;
     closed?: boolean;
+    updateApplied: boolean;
+    updateKind: "swap" | "draft" | "addition";
   }> => {
     const session = await sb().checkout.sessions.retrieve(sessionId);
     const id = session.metadata?.rentalAdditionId;
     if (!id) throw Error("Not an item addition checkout");
-    return finish(ctx, id, session);
+    return finishWithReceipt(ctx, id, session);
   },
 });
 export const reconcile = internalAction({

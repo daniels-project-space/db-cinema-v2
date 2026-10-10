@@ -10,6 +10,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/components/cart/CartProvider";
 import { VerificationProgress } from "@/components/rentals/VerificationProgress";
 import { tierByKey } from "@/lib/membership";
+import { rentalUpdateFeedback } from "../../../../shared/rentalUpdateFeedback";
 import { loadStripe } from "@stripe/stripe-js";
 
 function SuccessInner() {
@@ -18,6 +19,7 @@ function SuccessInner() {
   const finalize = useAction(api.checkout.finalize);
   const syncAddition=useAction(api.rentalAdditions.sync);
   const [additionId,setAdditionId]=useState<string|null>(null);
+  const [updateReceipt,setUpdateReceipt]=useState<{applied:boolean;kind?:string}>({applied:false});
   const syncHold = useAction(api.checkout.syncHold);
   const { clear } = useCart();
 
@@ -38,10 +40,11 @@ function SuccessInner() {
     finalize({ sessionId })
       .then((r) => {
         if (r.paid) {
-          if (r.closed) { setState("cancelled"); return; }
+          if (r.closed && !r.additionId) { setState("cancelled"); return; }
           setBookingId(r.bookingId);
           setCardSaved(!!r.cardSaved);
           setAdditionId(r.additionId??null);
+          setUpdateReceipt({applied:r.updateApplied===true,kind:r.updateKind});
           setMembership((r as any).membership ?? null);
           setHoldStatus(r.holdStatus ?? null);
           setHoldSecret(r.holdClientSecret ?? null);
@@ -64,8 +67,16 @@ function SuccessInner() {
       const result = await stripe.confirmCardPayment(holdSecret);
       if (!alive) return;
       if (result.error) { setHoldStatus("failed"); return; }
-      const updated = additionId?await syncAddition({sessionId}):await syncHold({ sessionId });
-      if (alive) { setHoldStatus(updated.status); setHoldSecret(null); }
+      if (additionId) {
+        const updated = await syncAddition({ sessionId });
+        if (alive) {
+          setHoldStatus(updated.status); setHoldSecret(null);
+          setUpdateReceipt({ applied: updated.updateApplied === true, kind: updated.updateKind });
+        }
+      } else {
+        const updated = await syncHold({ sessionId });
+        if (alive) { setHoldStatus(updated.status); setHoldSecret(null); }
+      }
     }).catch(() => { if (alive) setHoldStatus("failed"); });
     return () => { alive = false; };
   }, [sessionId, holdSecret, holdStatus, syncHold,additionId,syncAddition]);
@@ -92,8 +103,8 @@ function SuccessInner() {
     return <Msg title="We’re still confirming your payment" body="Your basket is still intact. Do not pay again — check the payment status once more in a moment. If it still cannot be confirmed, contact us with your payment reference." cta onRetry={() => { setState("working"); setAttempt((value) => value + 1); }} />;
 
   if(additionId){
-    const ready=holdStatus==="held";
-    return <Msg title={ready?"Items added to your rental":"Payment received · approval pending"} body={ready?"Your order and rental conversation now include the extra items.":holdStatus==="requires_action"?"Complete the bank approval to add these items. You can resume it in your rental conversation.":"The extra items are waiting for a valid security hold. Open your rental conversation to check the status or ask the team for help."} accountRental={bookingId} />;
+    const message=rentalUpdateFeedback({...updateReceipt,status:holdStatus});
+    return <Msg title={message.title} body={message.body} accountRental={bookingId} />;
   }
 
   if(cardSaved)return <Msg title="Card saved" body="Your rental security card has been updated. We will request the hold at your agreed pickup time, or now if pickup is already due. Open your account to check progress." accountRental={bookingId} />;
