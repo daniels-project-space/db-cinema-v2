@@ -15,6 +15,7 @@ import {
 import { bump } from "./rateLimit";
 import { basketKey, recoveryBookingState, recoveryBookingsForAccount } from "./lib/checkoutRecovery";
 import {quote} from "./lib/pricing";
+import {belongsToRentalAccount} from "./lib/rentalAccount";
 import {listingImages} from "./lib/catalogImages";
 const line = v.object({
   listingId: v.id("listings"),
@@ -235,7 +236,29 @@ export const _finish = internalMutation({
 });
 
 /** Fence a claimed email against basket activity, payment, account changes and pause controls. */
-export const _ready=internalQuery({args:{id:v.id("checkout_recoveries"),leaseUntil:v.number(),email:v.string()},handler:async(ctx,a)=>{
- const r=await ctx.db.get(a.id),account=r?await ctx.db.get(r.accountId):null;
- return !!r&&r.state==="waiting"&&r.leaseUntil===a.leaseUntil&&a.leaseUntil>Date.now()&&!!account&&account.email===a.email&&account.blockedAt==null&&!(account.emailVerificationRequired&&!account.emailVerifiedAt)&&process.env.CHECKOUT_RECOVERY_ENABLED==="true"&&process.env.RENTAL_CHECKOUT_ENABLED==="true"&&(await ctx.db.query("settings").first())?.acceptingOrders!==false;
-}});
+export const _ready = internalQuery({
+  args: { id: v.id("checkout_recoveries"), leaseUntil: v.number(), email: v.string() },
+  handler: async (ctx, a) => {
+    const r = await ctx.db.get(a.id), now = Date.now();
+    if (!r || r.state !== "waiting" || r.leaseUntil !== a.leaseUntil ||
+        a.leaseUntil <= now || r.expiresAt <= now ||
+        r.lines.some(line => line.start < londonDay())) return false;
+    const account = await ctx.db.get(r.accountId);
+    if (!account || account.email !== a.email || account.blockedAt != null ||
+        (account.emailVerificationRequired && !account.emailVerifiedAt) ||
+        process.env.CHECKOUT_RECOVERY_ENABLED !== "true" ||
+        process.env.RENTAL_CHECKOUT_ENABLED !== "true" ||
+        (await ctx.db.query("settings").first())?.acceptingOrders === false) return false;
+    // A payment or cancellation can commit after the claim, before its recovery
+    // link is updated. Check the actual account-owned bookings again before mail.
+    const key = basketKey(r.lines);
+    const related = (await recoveryBookingsForAccount(ctx, account))
+      .filter(booking => basketKey(booking.lineItems) === key);
+    if (r.bookingId) {
+      const linked = await ctx.db.get(r.bookingId);
+      if (linked && !belongsToRentalAccount(linked, account)) return false;
+      if (linked && !related.some(booking => booking._id === linked._id)) related.push(linked);
+    }
+    return related.every(booking => recoveryBookingState(booking) === "recoverable");
+  },
+});

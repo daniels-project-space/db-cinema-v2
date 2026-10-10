@@ -1,0 +1,31 @@
+const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');process.env.ADMIN_TOKEN='typed-date-owner';
+const requests=h.load('convex/rentalRequests.ts'),ops=h.load('convex/rentalOperations.ts'),dates=h.load('convex/lib/rentalDateSelection.ts');
+const jobs=[],ctx={db:h.db,scheduler:{runAfter:async(...a)=>jobs.push(a),runAt:async(...a)=>{jobs.push(a);return 'typed-pickup-job'}}};
+const account=h.put('accounts',{email:'typed-date@example.invalid'}),foreign=h.put('accounts',{email:'reused-mail@example.invalid'});h.put('sessions',{token:'renter',accountId:account._id,expiresAt:Date.now()+600000});h.put('sessions',{token:'foreign',accountId:foreign._id,expiresAt:Date.now()+600000});
+const unit=h.put('inventory_units',{name:'Camera pool',quantityOwned:4}),listing=h.put('listings',{title:'Sony FX3',active:true,depositAmount:1000,components:[{inventoryUnitId:unit._id,qty:1}]});
+const day=86400000,start=Date.UTC(2030,0,1),b=h.put('bookings',{accountId:account._id,guestEmail:foreign.email,status:'confirmed',pickupTime:'17:00',returnTime:'18:00',lineItems:[{listingId:listing._id,title:listing.title,start,end:start+day,qty:1,lineTotal:80}],total:120,subtotal:80,depositAmount:40,depositHoldAmount:100});h.put('reservations',{bookingId:b._id,listingId:listing._id,inventoryUnitId:unit._id,start,end:start+day,qty:1,status:'confirmed',source:'site'});
+const input={start:start+7*day,end:start+8*day,pickupTime:'19:00',returnTime:'20:00',note:'Please move the shoot to these dates.',source:dates.dateSource(b)},detail=dates.resolveDateRequest(b,input).detail,a={token:'renter',bookingId:b._id,requestId:'typed-date-request-0001',kind:'dates',dates:input,detail};
+function bookingState(){const {chatUpdatedAt,chatUnreadOwner,chatUnreadRenter,...booking}=b;return JSON.stringify(booking);}
+(async()=>{
+ await assert.rejects(requests.submit.handler(ctx,{...a,token:'foreign'}),/not available/);
+ await assert.rejects(requests.submit.handler(ctx,{...a,kind:'items'}),/Date selection requires/);
+ await assert.rejects(requests.submit.handler(ctx,{...a,dates:{...input,pickupTime:'25:00'}}),/between 09/);
+ await assert.rejects(requests.submit.handler(ctx,{...a,dates:{...input,end:input.start,returnTime:'18:00'}}),/Return must be after pickup/);
+ await assert.rejects(requests.submit.handler(ctx,{...a,detail:'Invented different dates'}),/selected dates changed/);
+ b.lineItems[0].qty=2;await assert.rejects(requests.submit.handler(ctx,a),/rental changed/);b.lineItems[0].qty=1;
+ const original=bookingState();await requests.submit.handler(ctx,a);const row=h.tables.get('rental_change_requests')[0];assert.equal(bookingState(),original);assert.equal(row.dateSelection.pickupTime,'19:00');assert.equal(row.status,'pending');assert.deepEqual(row.dateSelection.source,input.source);const messageCount=h.tables.get('messages').length,jobsCount=jobs.length;
+ await requests.submit.handler(ctx,a);assert.equal(h.tables.get('messages').length,messageCount);assert.equal(jobs.length,jobsCount);
+ await assert.rejects(requests.submit.handler(ctx,{...a,dates:{...input,source:[{...input.source[0],qty:2}]}}),/different change/);
+ await assert.rejects(requests.submit.handler(ctx,{...a,dates:undefined}),/different change/);
+ const review={token:process.env.ADMIN_TOKEN,bookingId:b._id,id:row._id,decision:'approved',note:'Agreed dates and clocks, subject to final stock checks.'};
+ b.pickupTime='16:00';await assert.rejects(requests.review.handler(ctx,review),/rental changed/);assert.equal(row.status,'pending');b.pickupTime='17:00';await requests.review.handler(ctx,review);assert.equal(bookingState(),original);
+ const agreement=await requests.agreedDates.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:row._id});assert.equal(agreement.dateSelection.returnTime,'20:00');assert.equal(await requests.agreedDates.handler(ctx,{token:'renter',bookingId:b._id,id:row._id}),null);
+ const apply={token:process.env.ADMIN_TOKEN,bookingId:b._id,changeRequestId:row._id,start:input.start,end:input.end,pickupTime:input.pickupTime,returnTime:input.returnTime,reason:review.note};
+ assert.equal((await ops.reschedulePreview.handler(ctx,{...apply,returnTime:'21:00'})).available,false);await assert.rejects(ops.reschedule.handler(ctx,{...apply,start:apply.start+day}),/do not match/);
+ b.lineItems[0].qty=2;await assert.rejects(ops.reschedule.handler(ctx,apply),/rental changed/);b.lineItems[0].qty=1;
+ assert.equal((await ops.reschedulePreview.handler(ctx,apply)).available,true);await ops.reschedule.handler(ctx,apply);assert.equal(b.lineItems[0].start,input.start);assert.equal(b.pickupTime,'19:00');assert.equal(b.returnTime,'20:00');assert.equal(b.total,120);assert.equal(row.execution.status,'applied');
+ const after={messages:h.tables.get('messages').length,jobs:jobs.length,reservations:h.tables.get('reservations').length};await ops.reschedule.handler(ctx,apply);await requests.submit.handler(ctx,a);assert.deepEqual({messages:h.tables.get('messages').length,jobs:jobs.length,reservations:h.tables.get('reservations').length},after,'exact retries recover saved request/execution after the booking changes');
+ await assert.rejects(ops.reschedule.handler(ctx,{...apply,pickupTime:'20:00'}),/operation has changed/);
+ const history=await requests.list.handler(ctx,{token:'renter',bookingId:b._id,paginationOpts:{numItems:30,cursor:null}});assert.deepEqual(history.page[0].dateSelection.source,input.source);assert.equal(history.page[0].dateSelection.start,input.start);assert.equal(history.page[0].execution.status,'applied');assert(!JSON.stringify(history).includes('operationKey'));
+ console.log('PASS typed date requests: canonical period/clocks/source, permanent-account/privacy gates, no automatic booking change, stale submission/review/application rejection, exact approved preview/execution, stable replay and safe history. No provider writes.');
+})().catch(e=>{console.error(e);process.exitCode=1});

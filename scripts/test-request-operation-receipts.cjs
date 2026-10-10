@@ -11,6 +11,8 @@ const b=put('bookings',{accountId:a._id,guestEmail:a.email,status:'confirmed',li
 put('reservations',{bookingId:b._id,listingId:listing._id,inventoryUnitId:unit._id,start,end,qty:1,source:'site',status:'confirmed'});
 async function create(kind,requestId){await requests.submit.handler(ctx,{token:'renter',bookingId:b._id,requestId,kind,detail:'Please arrange the agreed customer rental change.'});return tables.get('rental_change_requests').at(-1);}
 (async()=>{
+await db.patch(a._id,{name:'Permanent renter',phone:'+440000000000',email:'updated-request-owner@example.invalid'});await db.patch(other._id,{name:'Other renter'});
+assert.equal(await operations.details.handler(ctx,{token:'renter',bookingId:b._id}),null);const profile=await operations.details.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id});assert.deepEqual(profile.customer,{name:'Permanent renter',phone:'+440000000000',email:'updated-request-owner@example.invalid'},'drawer uses permanent account after email changes, not reused booking mailbox');
 const request=await create('dates','date-request-receipt-0001');
 const args={token:process.env.ADMIN_TOKEN,bookingId:b._id,changeRequestId:request._id,start:start+7*86400000,end:end+7*86400000,reason:'Agreed date change from this customer request.'};
 await assert.rejects(operations.reschedule.handler(ctx,args),/approved request/);
@@ -22,9 +24,12 @@ await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id
 await assert.rejects(operations.reschedule.handler(ctx,{...args,changeRequestId:cancelRequest._id}),/approved request/);
 await assert.rejects(operations.reschedule.handler(ctx,{...args,token:'renter'}),/unauthorized/);
 const conflict=put('reservations',{listingId:listing._id,inventoryUnitId:unit._id,start:args.start,end:args.end,qty:3,source:'hygglo',status:'confirmed'});
+assert.equal(await operations.reschedulePreview.handler(ctx,{token:"renter",bookingId:b._id,start:args.start}),null);
+assert.equal((await operations.reschedulePreview.handler(ctx,{token:args.token,bookingId:b._id,start:args.start,end:args.end})).available,false);
 await assert.rejects(operations.reschedule.handler(ctx,args),/already reserved/);
 assert.equal(request.execution,undefined);assert.equal(b.lineItems[0].start,start);
 await db.delete(conflict._id);
+const snapshot=JSON.stringify(b);assert.equal((await operations.reschedulePreview.handler(ctx,{token:args.token,bookingId:b._id,start:args.start,end:args.end})).available,true);assert.equal(JSON.stringify(b),snapshot,"preview never changes rental");
 await operations.reschedule.handler(ctx,args);
 assert.equal(b.lineItems[0].start,args.start);assert.equal(b.lineItems[0].end,args.end);assert.equal(b.total,100);
 const reserved=tables.get('reservations').filter(r=>r.bookingId===b._id&&r.status==='confirmed');assert.equal(reserved.length,1);assert.equal(reserved[0].start,args.start);assert.equal(reserved[0].end,args.end);

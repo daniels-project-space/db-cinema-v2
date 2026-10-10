@@ -84,9 +84,9 @@
  .shell[data-management-role=renter][data-management-screen=rentals] .brand small { display:block; font-size:24px; margin-top:5px; }
  .shell[data-management-role=renter][data-management-screen=rentals] .brand b { padding:0; text-align:center; }
  .shell[data-management-role=renter][data-management-screen=rentals] .brand { padding-bottom:35px; }
- .shell[data-management-role=admin][data-management-screen=insights] .brand > span { display:block; text-align:center; font-size:60px; }
+ .shell[data-management-role=admin][data-management-screen=insights] .brand > span { display:block; text-align:center; font-size:48px; }
  .shell[data-management-role=admin][data-management-screen=insights] .brand small { display:block; font-size:25px; }
- .shell[data-management-role=admin][data-management-screen=insights] .brand b { text-align:center; padding:0; }
+ .shell[data-management-role=admin][data-management-screen=insights] .brand b { text-align:center; padding:0; font-size:10px; letter-spacing:.32em; margin-top:2px; color:#d1cdc6; }
  .shell[data-management-role=admin][data-management-screen=insights] .brand { padding-bottom:20px; }
 }
 
@@ -114,7 +114,7 @@
  .shell[data-management-screen=messages] .chatNav { display:none; }
 }
 
-@media(min-width:1101px) { .shell[data-management-screen=insights] .brand { padding-top:18px; padding-bottom:10px; } }
+@media(min-width:1101px) { .shell[data-management-screen=insights] .brand { padding-top:14px; padding-bottom:10px; } }
 .sidebar { scrollbar-width:thin; scrollbar-color:#343737 transparent; }
 
 .shell :global(.bg-accent-500),.shell :global(.bg-accent-400) { background-color:#b58465; }
@@ -152,3 +152,12 @@
 @media(max-width:640px){.shell[data-management-role=admin][data-management-screen=documents]{display:block}.shell[data-management-role=admin][data-management-screen=documents] .content{padding:20px 14px 35px}.shell[data-management-role=admin][data-management-screen=documents] .topbar{padding:12px 14px}.shell[data-management-role=admin][data-management-screen=documents] .heading{margin-bottom:18px}.shell[data-management-role=admin][data-management-screen=documents] .heading h1{font-size:28px}.shell[data-management-role=admin][data-management-screen=documents] .heading p{font-size:12px;line-height:1.6}}
 
 .moreTools{padding:0 27px 8px;color:#a8aaa1;font-size:11px}.moreTools summary{cursor:pointer;padding:5px 0;list-style-position:inside}.moreTools button{display:block;text-align:left;padding:8px 0;color:#cec6bb;font-size:12px}.shell[data-management-role=admin][data-management-screen=documents] .nav button{min-height:43px;padding-block:10px}.shell[data-management-role=admin][data-management-screen=documents] .sidebarImage{height:260px;margin-bottom:0;mask-image:linear-gradient(transparent,#000 8%,#000 88%,transparent)}.shell[data-management-role=admin][data-management-screen=documents] .sidebarImage img{object-fit:contain;object-position:center}.shell[data-management-role=admin][data-management-screen=documents] .sidebarBottom p{font-size:11px;margin-bottom:12px;line-height:1.4}.shell[data-management-role=admin][data-management-screen=documents] .sidebarBottom .locations{font-size:9px;margin:10px 0 14px}.shell[data-management-role=admin][data-management-screen=documents] .sidebarBottom>span{font-size:10px;margin-top:8px}.shell[data-management-role=admin][data-management-screen=documents] .brand>span{font-size:43px}.shell[data-management-role=admin][data-management-screen=documents] .brand small{font-size:30px}
+.shell[data-management-role="admin"][data-management-screen="rental-detail"] .heading{display:none}
+.shell[data-management-role="admin"][data-management-screen="rental-detail"] .content{padding-top:18px}
+@media(min-width:641px){.shell[data-management-role="admin"][data-management-screen="rental-detail"] .topbar{min-height:54px;padding-block:10px}}
+
+/* Customers and invoices reference wordmark; reserve navigation position. */
+.shell[data-management-role=admin]:is([data-management-screen=accounts],[data-management-screen=invoices]) .brand{padding-bottom:19px}
+.shell[data-management-role=admin]:is([data-management-screen=accounts],[data-management-screen=invoices]) .brand>span{align-items:flex-start;gap:13px}
+.shell[data-management-role=admin]:is([data-management-screen=accounts],[data-management-screen=invoices]) .brand small{line-height:1}
+.shell[data-management-role=admin]:is([data-management-screen=accounts],[data-management-screen=invoices]) .brand b{padding-left:64px;margin-top:-10px;font-size:10px;letter-spacing:.64em}

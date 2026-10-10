@@ -46,7 +46,7 @@ import { normalizeReturnInspection } from "../shared/returnInspection";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
-import { rentalCancellationStart, bookingCancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
+import { rentalCancellationStart, rentalHasStarted, STARTED_RENTAL_REFUND_MESSAGE, bookingCancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { LEGAL_VERSION } from "../src/lib/legal";
 import { assertAgreementBeforeRelease, snapshotAgreement, readAgreementSnapshot, agreementRequestFingerprint as fingerprintAgreement } from "../shared/rentalAgreement";
 
@@ -288,7 +288,7 @@ export const createPending = internalMutation({
     if (Math.round(chargedTotal * 100) !== Math.round(a.expectedTotalDue * 100))
       throw new Error("Your available credit changed. Review the updated total before paying.");
 
-    const exposure = await assertRenterExposure(ctx, { customerEmail, status: "pending_payment", lineItems: a.lineItems });
+    const exposure = await assertRenterExposure(ctx, { customerEmail, accountId: a.accountId, status: "pending_payment", lineItems: a.lineItems });
     const values = await replacementValues(ctx, { lineItems: a.lineItems });
     const acceptedAt = Date.now();
     const agreementSnapshot = newAgreement ? snapshotAgreement(a, acceptedAt, chargedTotal, creditApplied) : undefined;
@@ -446,7 +446,7 @@ export const expireUnpaidPending = internalMutation({
   args: { bookingId: v.id("bookings"), sessionId: v.optional(v.string()) },
   handler: async (ctx, { bookingId, sessionId }) => {
     const booking = await ctx.db.get(bookingId);
-    if (!booking || (booking.activeAdditionId || booking.activeExtensionId) || booking.status !== "pending_payment" ||
+    if (!booking || (booking.activeSwapRefundId || booking.activeAdditionId || booking.activeExtensionId) || booking.status !== "pending_payment" ||
         (!sessionId && booking.stripePaymentIntentId) ||
         (booking.stripeCheckoutSessionId ?? undefined) !== sessionId) return false;
     const res = await ctx.db.query("reservations")
@@ -629,7 +629,7 @@ export const attachAddon = internalMutation({
   const prior=await ctx.db.query("rental_additions").withIndex("by_session",q=>q.eq("sessionId",a.sessionId)).first();
   if(prior)return {closed:prior.status!=="applied",already:true};
   const b=await ctx.db.get(a.bookingId);
-  if(!b||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||(b.activeAdditionId || b.activeExtensionId))return {closed:true};
+  if(!b||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||(b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId))return {closed:true};
   const listing=await ctx.db.get(a.listingId);if(!listing)return {closed:true};
   const line={listingId:a.listingId,title:listing.title,start:a.start,end:a.end,qty:1,lineTotal:a.total,dailyRate:listing.pricing.daily};
   if(!Number.isFinite(a.total)||a.total<=0||a.start%86400000!==0||a.end%86400000!==0)return {closed:true};
@@ -742,8 +742,12 @@ export const adminSetStatus = mutation({
     const booking = await ctx.db.get(bookingId);
     if (!booking) throw new Error("Booking not found");
     if(booking.returnDecision)throw Error("Return settlement is in progress; finish it before changing this rental.");
-    if((booking.activeAdditionId || booking.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before handover.");
+    if((booking.activeSwapRefundId || booking.activeAdditionId || booking.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before handover.");
     if(booking.cancellationDecision)throw Error("Cancellation is in progress; resume its settlement before changing this rental.");
+    const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).take(201);
+    if(refundJobs.length>200)throw Error("Refund history requires paged reconciliation before changing this rental.");
+    if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))
+      throw Error("A rental refund is still processing; finish its settlement before changing rental status or recording handover.");
     if (["cancelled", "returned"].includes(booking.status) && booking.status !== status)
       throw new Error("A closed booking cannot be reopened by changing its status.");
     if (booking.status === "pending_payment")
@@ -770,6 +774,7 @@ export const getForRefund = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
+    const account = await accountForRental(ctx, b);
     return {
       status:b.status,
       paymentSources:await rentalPaymentSources(ctx,b),
@@ -782,6 +787,7 @@ export const getForRefund = internalQuery({
       lineItems: b.lineItems,
       returnTime: b.returnTime ?? null,
       guestEmail: b.guestEmail ?? null,
+      notificationEmail: account?.email ?? (b.accountId ? null : b.guestEmail ?? null),
       returnDecision: b.returnDecision ?? null,
       depositRefunded: b.depositRefunded ?? false,
       depositKept: b.depositKept ?? 0,
@@ -797,7 +803,7 @@ export const beginReturnDecision = internalMutation({
   handler: async (ctx, { bookingId, actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, inspection }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active", "returned"].includes(b.status)) throw new Error("Booking is not available for return.");
-    if((b.activeAdditionId || b.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before returning this rental");
+    if((b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before returning this rental");
     if(b.cancellationDecision)throw Error("Cancellation settlement is in progress; resume it first.");
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("Wait for the rental refund to settle before recording the return.");
@@ -818,11 +824,15 @@ export const beginReturnDecision = internalMutation({
 });
 
 export const markDamageNoticeSent = internalMutation({
-  args: { bookingId: v.id("bookings") },
-  handler: async (ctx, { bookingId }) => {
+  args: { bookingId: v.id("bookings"), recipientEmail: v.string() },
+  handler: async (ctx, { bookingId, recipientEmail }) => {
     const b = await ctx.db.get(bookingId);
+    const account = await accountForRental(ctx, b);
+    const currentEmail = account?.email ?? (b?.accountId ? null : b?.guestEmail);
+    if (!currentEmail || recipientEmail !== currentEmail)
+      throw Error("The rental account changed while the deduction notice was sent. Review and retry before collection.");
     if (b?.returnDecision && !b.damageNoticeSentAt)
-      await ctx.db.patch(bookingId, { damageNoticeSentAt: Date.now() });
+      await ctx.db.patch(bookingId, { damageNoticeSentAt: Date.now(), damageNoticeRecipientEmail: recipientEmail });
   },
 });
 
@@ -919,7 +929,7 @@ export const claimRenewal = internalMutation({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     const now = Date.now();
-    if (!b || b.activeAdditionId || b.cancellationDecision || b.returnDecision || !["confirmed", "active"].includes(b.status) || !b.depositHoldAmount || b.depositHoldStatus !== "held" || !b.stripeDepositIntentId ||
+    if (!b || b.activeSwapRefundId || b.activeAdditionId || b.cancellationDecision || b.returnDecision || !["confirmed", "active"].includes(b.status) || !b.depositHoldAmount || b.depositHoldStatus !== "held" || !b.stripeDepositIntentId ||
       (b.depositHoldExpiresAt ?? 0) > now + 24 * 3600000 ||
       ["requires_action", "failed"].includes(b.depositHoldRenewalStatus ?? "") ||
       (b.depositHoldRenewalStatus === "starting" && (b.depositHoldRenewalAt ?? now) > now - 15 * 60000)) return false;
@@ -976,7 +986,7 @@ export const markReturnedStatus = internalMutation({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return;
-    if (b.status !== "returned") await ctx.db.patch(bookingId, { status: "returned" });
+    if (b.status !== "returned") await ctx.db.patch(bookingId, { status: "returned", ...(b.returnDecision?{actualReturnedAt:b.actualReturnedAt??b.returnDecision.actualReturnedAt}:{}) });
     const res = await ctx.db
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
@@ -1000,7 +1010,7 @@ export const recordLateFee = internalMutation({
   args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), amount: v.number(), breakdown: v.array(lateLine), waivedAmount: v.optional(v.number()), waiverReason: v.optional(v.string()) },
   handler: async (ctx, { bookingId, actualReturnedAt, amount, breakdown, waivedAmount, waiverReason }) => {
     const b = await ctx.db.get(bookingId);
-    if (!b || b.actualReturnedAt) return;
+    if (!b || b.returnStatement) return;
     await ctx.db.patch(bookingId, {
       actualReturnedAt,
       lateFeeAmount: amount,
@@ -1377,8 +1387,11 @@ export const returnStatementContext = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if(!b?.returnStatement)return null;
+    const account = await accountForRental(ctx, b);
+    const notificationEmail = account?.blockedAt != null ? null
+      : account?.email ?? (b.accountId ? null : b.guestEmail ?? null);
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
-    return {statement:{...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(refundJobs)/100},status:b.returnStatementEmailStatus??"pending"};
+    return {notificationEmail,statement:{...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(refundJobs)/100},status:b.returnStatementEmailStatus??"pending"};
   },
 });
 
@@ -1432,8 +1445,10 @@ export const verificationAccess = internalQuery({
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
+    const account = await accountForRental(ctx, b);
     return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,
-      idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId,
+      idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId, diditSessionEmail: b.diditSessionEmail, diditWorkflowId: b.diditWorkflowId,
+      verificationContactEmail: account?.email ?? (b.accountId ? null : b.guestEmail),
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
       documentExpiresAt: b.documentExpiresAt ?? null,
@@ -1468,10 +1483,10 @@ export const diditReconcileCandidates = internalQuery({
     const active = await ctx.db.query("bookings")
       .withIndex("by_verificationProvider_status", (q) => q.eq("verificationProvider", "didit").eq("status", "active")).collect();
     return [...confirmed, ...active]
-      .filter((b) => !!b.diditSessionId && !!b.guestEmail)
+      .filter((b) => !!b.diditSessionId && !!(b.diditSessionEmail ?? b.guestEmail))
       .sort((a, b) => (a.diditReconciledAt ?? 0) - (b.diditReconciledAt ?? 0))
       .slice(0, 50)
-      .map((b) => ({ bookingId: b._id, sessionId: b.diditSessionId!, email: b.guestEmail! }));
+      .map((b) => ({ bookingId: b._id, sessionId: b.diditSessionId!, workflowId: b.diditWorkflowId, email: (b.diditSessionEmail ?? b.guestEmail)! }));
   },
 });
 
@@ -1504,16 +1519,41 @@ export const setIdentity = internalMutation({
 });
 
 /** Bind a Didit session to the paid booking before any result can be accepted. */
+export const bindDiditCase = internalMutation({
+  args: { bookingId: v.id("bookings"), sessionId: v.string(), email: v.string(), workflowId: v.string() },
+  handler: async (ctx, { bookingId, sessionId, email, workflowId }) => {
+    const b = await ctx.db.get(bookingId);
+    const contact = b?.diditSessionEmail ?? b?.guestEmail;
+    if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId ||
+        !contact || contact.trim().toLowerCase() !== email.trim().toLowerCase() ||
+        !/^[A-Za-z0-9_-]{1,100}$/.test(workflowId) ||
+        (b.diditWorkflowId !== undefined && b.diditWorkflowId !== workflowId)) return false;
+    if (b.diditWorkflowId === undefined || b.diditSessionEmail === undefined)
+      await ctx.db.patch(bookingId, { diditWorkflowId: workflowId, diditSessionEmail: contact.trim().toLowerCase() });
+    return true;
+  },
+});
+
 export const setDiditSession = internalMutation({
-  args: { bookingId: v.id("bookings"), sessionId: v.string(), previousSessionId: v.optional(v.string()) },
-  handler: async (ctx, { bookingId, sessionId, previousSessionId }) => {
+  args: { bookingId: v.id("bookings"), sessionId: v.string(), previousSessionId: v.optional(v.string()), sessionEmail: v.optional(v.string()), sessionWorkflowId: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, sessionId, previousSessionId, sessionEmail, sessionWorkflowId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || !["confirmed", "active"].includes(b.status) ||
         !verificationSessionCanOpen(b)) return false;
     if (b.diditSessionId !== previousSessionId && b.diditSessionId !== sessionId) return false;
+    if (b.diditSessionId === sessionId && sessionEmail !== undefined &&
+        sessionEmail !== (b.diditSessionEmail ?? b.guestEmail)) return false;
+    if (b.diditSessionId === sessionId && b.diditWorkflowId && sessionWorkflowId !== undefined && sessionWorkflowId !== b.diditWorkflowId) return false;
     if (b.diditSessionId !== sessionId) {
+      if (sessionEmail !== undefined) {
+        const account = await accountForRental(ctx, b);
+        const currentEmail = account?.email ?? (b.accountId ? null : b.guestEmail);
+        if (!currentEmail || currentEmail.trim().toLowerCase() !== sessionEmail) return false;
+      }
       await ctx.db.patch(bookingId, {
         diditSessionId: sessionId,
+        diditSessionEmail: sessionEmail ?? b.guestEmail,
+        diditWorkflowId: sessionWorkflowId,
         verificationChecks: undefined,
         idVerifiedAt: undefined,
         verificationExpiresAt: undefined,
@@ -1583,7 +1623,7 @@ export const setDiditResult = internalMutation({
     }
     if (status === "verified") {
       try { await assertRenterExposure(ctx, { ...b, renterPersonKey: personKey ?? b.renterPersonKey }); }
-      catch { status = "manual_review"; note = "Your overlapping equipment allocation needs a team review against the £15,000 per-person limit. Handover remains blocked."; }
+      catch { status = "manual_review"; note = "Your overlapping rentals need a team review before equipment can be released."; }
     }
     const previous = b.idVerifyStatus;
     const verifiedAt = status === "verified" ? (b.idVerifiedAt ?? Date.now()) : undefined;
@@ -1703,6 +1743,8 @@ export const getForCancel = internalQuery({
     const completedChangeRequestId=linkedRequest?.bookingId===bookingId && linkedRequest.kind==="cancel" && linkedRequest.status==="approved" && linkedRequest.execution?.operation==="cancellation" && linkedRequest.execution.status==="applied" && linkedRequest.execution.operationKey===cancellationRequestKey(bookingId,linkedRequest._id) ? linkedRequest._id : undefined;
     return {
       completedChangeRequestId,
+      rentalStarted: rentalHasStarted(b, Date.now()),
+      cancellationKind: b.cancellationDecision?.kind ?? bookingCancelKind(b, Date.now()),
       paymentSources:await rentalPaymentSources(ctx,b),
       cancellationDecision:b.cancellationDecision??null,
       accountId: acct?._id ?? null,
@@ -1727,8 +1769,9 @@ export const getForCancel = internalQuery({
 });
 
 /** Freeze cancellation policy and order edits before any external payment call. */
-export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers")),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit")))},handler:async(ctx,{bookingId,fullCreditOfferId,changeRequestId,expectedCancellationKind})=>{
- const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeAdditionId || b?.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
+export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers")),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit"))),customerInitiated:v.optional(v.boolean())},handler:async(ctx,{bookingId,fullCreditOfferId,changeRequestId,expectedCancellationKind,customerInitiated})=>{
+ const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeSwapRefundId || b?.activeAdditionId || b?.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
+ if(customerInitiated && !b.cancellationDecision && rentalHasStarted(b,Date.now()))throw Error(STARTED_RENTAL_REFUND_MESSAGE);
  if(!b.cancellationDecision && (["starting","processing"].includes(b.depositHoldRenewalStatus ?? "") ||
   (b.status === "confirmed" && b.depositHoldAmount && b.depositHoldStatus === "awaiting_payment"))) throw Error("Security hold setup or renewal is still processing. Please retry once it is resolved.");
  if(b.cancellationDecision){
@@ -1864,8 +1907,8 @@ export const _finalizeCancellation = internalMutation({
 async function revokeReuse(ctx: any, sourceBookingId: any) {
   const source = await ctx.db.get(sourceBookingId);
   if (!source) return;
-  const account = await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", (source.guestEmail ?? "").trim().toLowerCase())).first();
-  if (account?.rentalVerification?.sourceBookingId === sourceBookingId) await ctx.db.patch(account._id, { rentalVerification: undefined, idVerified: false });
+  const account = await accountForRental(ctx, source);
+  if (account && account.rentalVerification?.sourceBookingId === sourceBookingId) await ctx.db.patch(account._id, { rentalVerification: undefined, idVerified: false });
   const reused = await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", sourceBookingId)).collect();
   for (const b of reused) if (["confirmed", "active"].includes(b.status) && b.idVerifyStatus === "verified") {
     await ctx.db.patch(b._id, { idVerifyStatus: "requires_input", verificationExpiresAt: undefined, verificationReusedFrom: undefined, verificationNote: "Your previous verification changed. Please complete a new check before handover." });
@@ -1878,10 +1921,10 @@ export const reuseVerificationCandidate = internalQuery({
   args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.idVerifyStatus !== "required" || b.diditSessionId || !verificationCanStart(b)) return null;
-    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    const account = await accountForRental(ctx, b);
     if (!validReuse(account?.rentalVerification, b)) return null;
     const source = await ctx.db.get(account!.rentalVerification!.sourceBookingId);
-    if (!source?.diditSessionId || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit") return null;
+    if (!source?.diditSessionId || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !belongsToRentalAccount(source, account)) return null;
     try { await assertVerificationArchive(ctx, source); } catch { return null; }
     return { source };
   },
@@ -1892,8 +1935,9 @@ export const applyVerificationReuse = internalMutation({
     const b = await ctx.db.get(bookingId), source = await ctx.db.get(sourceBookingId);
     if (!b || !source || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !verificationCanStart(b)) return false;
     try { await assertVerificationArchive(ctx, source); } catch { return false; }
-    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    const account = await accountForRental(ctx, b);
     const record = account?.rentalVerification;
+    if (!belongsToRentalAccount(source, account) || (personKey && source.renterPersonKey && personKey !== source.renterPersonKey)) return false;
     if (!record || record.sourceBookingId !== sourceBookingId || !validReuse(record, b) || documentExpiresAt <= Date.now() || documentExpiresAt <= Math.min(...b.lineItems.map(li => li.start))) return false;
     await attachRenterPerson(ctx, b, personKey ?? source.renterPersonKey);
     await assertRenterExposure(ctx, { ...b, renterPersonKey: personKey ?? source.renterPersonKey });

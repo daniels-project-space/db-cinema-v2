@@ -477,6 +477,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
           end: li.end,
           qty: li.qty,
           lineTotal: li.lineTotal,
+          pickupTime: li.pickupTime === undefined ? b.pickupTime ?? null : li.pickupTime,
           returnTime: li.returnTime ?? null,
           slug: (l as any)?.slug ?? null,
           heroImage: heroOf(l),

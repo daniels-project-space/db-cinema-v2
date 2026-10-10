@@ -1,0 +1,54 @@
+const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
+process.env.ADMIN_TOKEN='proposal-owner';
+const swaps=h.load('convex/rentalSwaps.ts'),requests=h.load('convex/rentalRequests.ts');
+const ctx={db:{...h.db,get:async id=>{const row=await h.db.get(id);return row?structuredClone(row):null;}},scheduler:{runAfter:async()=>{}}};
+const account=h.put('accounts',{email:'proposal@qa.invalid'}),other=h.put('accounts',{email:'reused@qa.invalid'});
+for(const [token,owner] of [['proposal-renter',account],['foreign-renter',other]])h.put('sessions',{token,accountId:owner._id,expiresAt:Date.now()+600000});
+const body=h.put('inventory_units',{name:'Camera',quantityOwned:10}),lens=h.put('inventory_units',{name:'Lens',quantityOwned:10});
+const old=h.put('listings',{active:true,title:'Original kit',depositAmount:1000,pricing:{daily:20},components:[{inventoryUnitId:body._id,qty:1}]}),target=h.put('listings',{active:true,title:'New kit',depositAmount:1000,pricing:{daily:35},components:[{inventoryUnitId:body._id,qty:1},{inventoryUnitId:lens._id,qty:1}]});
+const start=Date.UTC(2030,0,1),end=start+86400000;
+function booking(){const b=h.put('bookings',{accountId:account._id,guestEmail:other.email,status:'confirmed',subtotal:80,total:130,depositAmount:50,depositHoldAmount:200,depositHoldExpiresAt:Date.now()+7*86400000,securityPolicyVersion:'2026-10-ten-percent-hold-v2',pickupTime:'10:00',returnTime:'18:00',lineItems:[{listingId:old._id,title:old.title,qty:2,start,end,lineTotal:80,dailyRate:40}]});h.put('reservations',{bookingId:b._id,listingId:old._id,inventoryUnitId:body._id,qty:2,start,end,status:'confirmed',source:'site'});return b;}
+function request(b){return h.put('rental_change_requests',{bookingId:b._id,accountId:account._id,kind:'items',status:'approved',createdAt:Date.now(),detail:'Swap one kit',kitSelection:{change:'swap',listingId:target._id,lineIndex:0,source:{listingId:old._id,qty:2,start,end},quantity:1,note:'The agreed swap',sourceListingId:old._id,sourceTitle:old.title,sourceQty:2,sourceStart:start,sourceEnd:end,additionTitle:target.title}});}
+const args=(b,r,token='proposal-owner')=>({token,bookingId:b._id,id:r._id});
+const preview=(b,r)=>swaps.preview.handler(ctx,args(b,r));
+const offer=async(b,r)=>{const q=await preview(b,r);assert(q.available,q.reason);return swaps.offer.handler(ctx,{...args(b,r),quoteKey:q.quoteKey});};
+const view=(b,r,token='proposal-renter',admin=false)=>swaps.proposal.handler(ctx,{...args(b,r,token),admin});
+const count=table=>(h.tables.get(table)??[]).length;
+(async()=>{
+ const b=booking(),r=request(b),initial=structuredClone(b.lineItems),reserved=count('reservations'),q=await preview(b,r);
+ assert.match(q.quoteKey,/^[a-f0-9]{64}$/);assert(!JSON.stringify(q).includes(body._id));
+ await assert.rejects(swaps.offer.handler(ctx,{...args(b,r,'proposal-renter'),quoteKey:q.quoteKey}),/unauthorized/);
+ await assert.rejects(swaps.offer.handler(ctx,{...args(b,r),quoteKey:'0'.repeat(64)}),/quote changed/);assert.equal(count('rental_swap_proposals'),0);
+ const saved=await offer(b,r),row=h.docs.get(saved.id),messageCount=count('messages');assert.equal(row.state,'offered');assert.equal(r.swapProposalId,saved.id);
+ assert.deepEqual(await swaps.offer.handler(ctx,{...args(b,r),quoteKey:q.quoteKey}),saved);assert.equal(count('messages'),messageCount,'lost response retry posts one offer');
+ assert.equal(count('reservations'),reserved,'offer does not release or reserve stock');assert.deepEqual(b.lineItems,initial);assert.equal(b.total,130);
+ const publicView=await view(b,r);assert(publicView.current);assert.equal(publicView.charge,30);assert(!JSON.stringify(publicView).includes('snapshot'));assert(!JSON.stringify(publicView).includes(body._id));assert(!JSON.stringify(publicView).includes('allocationMode'));
+ await assert.rejects(view(b,r,'foreign-renter'),/not available/);await assert.rejects(view(b,r,'proposal-renter',true),/unauthorized/);
+ await assert.rejects(swaps.respond.handler(ctx,{...args(b,r,'foreign-renter'),quoteKey:row.quoteKey,decision:'accepted'}),/not available/);
+ await assert.rejects(swaps.respond.handler(ctx,{...args(b,r,'proposal-renter'),quoteKey:'f'.repeat(64),decision:'accepted'}),/not the saved/);
+ const respond=(b,r,key,decision)=>swaps.respond.handler(ctx,{...args(b,r,'proposal-renter'),quoteKey:key,decision});
+ target.pricing.daily=40;const changed=await view(b,r);assert(!changed.current);assert.equal(changed.charge,30,'saved offer never silently reprices');await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/changed/);assert.equal(row.state,'offered');target.pricing.daily=35;
+ b.pickupTime='11:00';assert(!(await view(b,r)).current,'changed agreed clock invalidates saved consent basis');await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/changed/);b.pickupTime='10:00';
+ b.creditAllocations=[{creditId:'credit-other-origin',amount:5,kind:'earned'}];assert(!(await view(b,r)).current,'changed redeemed-credit allocation invalidates the financial consent basis');delete b.creditAllocations;
+ for(const [field,value] of Object.entries({stripePaymentIntentId:'pi_replaced_private',membershipCheckoutId:'membership_replaced_private',depositHoldStatus:'authorised',depositHoldExpiresAt:Date.now()+8*86400000,depositHoldRenewalIntentId:'pi_renewed_private',depositHoldRenewalStatus:'succeeded',securityHoldGeneration:2,securityHoldDueAt:start+3600000,securityHoldCustomerId:'cus_replaced_private',securityHoldPaymentMethodId:'pm_replaced_private',securityHoldConsentAt:Date.now(),securityHoldRecoverySessionId:'cs_recovery_private',securityHoldRecoveryGeneration:3})){
+  const prior=b[field];b[field]=value;
+  const invalidated=await view(b,r);assert(!invalidated.current,`${field} changes require a fresh payment/security consent basis`);
+  assert.equal(invalidated.charge,30,'saved amounts remain frozen');assert(!(field in invalidated),'private provider fields are not exposed');
+  if(typeof value==='string'&&value.endsWith('_private'))assert(!JSON.stringify(invalidated).includes(value),'private provider identifiers are not exposed');
+  await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/has changed/);assert.equal(row.state,'offered');
+  if(prior===undefined)delete b[field];else b[field]=prior;
+  assert((await view(b,r)).current,`restoring ${field} restores the exact offer basis`);
+ }
+ lens.quantityOwned=0;assert(!(await view(b,r)).current);await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/has changed/);assert(!((await view(b,r)).reason.includes(lens.name)),'renter errors hide internal physical stock names');assert.match((await view(b,r,'proposal-owner',true)).reason,/already reserved/,'owner retains the actionable stock diagnosis');lens.quantityOwned=10;
+ row.expiresAt=Date.now()-1;await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/expired/);row.expiresAt=Date.now()+3600000;
+ const accepted=await respond(b,r,row.quoteKey,'accepted');assert.equal(accepted.state,'accepted');assert.equal(row.consentVersion,'rental-swap-price-difference-v1');const after=count('messages');await respond(b,r,row.quoteKey,'accepted');assert.equal(count('messages'),after,'decision retry is one receipt and one message');assert.equal(count('admin_notifications'),1);assert.equal(h.tables.get('admin_notifications')[0].bookingId,b._id);
+ const second=request(b),s=await offer(b,second),secondRow=h.docs.get(s.id);await assert.rejects(respond(b,second,secondRow.quoteKey,'accepted'),/accepted swap/);
+ await assert.rejects(swaps.withdrawOffer.handler(ctx,args(b,r,'proposal-renter')),/unauthorized/);await swaps.withdrawOffer.handler(ctx,args(b,r));const withdrawMessages=count('messages');await swaps.withdrawOffer.handler(ctx,args(b,r));assert.equal(count('messages'),withdrawMessages);
+ await assert.rejects(respond(b,r,row.quoteKey,'accepted'),/already been answered/);
+ target.marketingOnly=true;await respond(b,second,secondRow.quoteKey,'declined');assert.equal(secondRow.state,'declined','customer can decline an obsolete proposal');delete target.marketingOnly;
+ const history=await requests.list.handler(ctx,{...args(b,r),admin:true,paginationOpts:{numItems:30,cursor:null}});assert.equal(history.page.find(x=>x._id===r._id).swapProposalId,row._id);assert.equal(history.page.find(x=>x._id===r._id).swapProposalState,'withdrawn','history follows actual saved consent lifecycle rather than approval alone');
+ r.swapProposalId=secondRow._id;await assert.rejects(view(b,r),/another rental or account/);const mismatched=await requests.list.handler(ctx,{...args(b,r),admin:true,paginationOpts:{numItems:30,cursor:null}});assert(!('swapProposalId' in mismatched.page.find(x=>x._id===r._id)),'history does not expose a foreign request’s proposal pointer');r.swapProposalId=row._id;
+ account.email='changed@qa.invalid';assert.equal((await view(b,r)).state,'withdrawn','permanent account owns proposal after email change');await assert.rejects(view(b,r,'foreign-renter'),/not available/);
+ assert.deepEqual(b.lineItems,initial);assert.equal(b.total,130);assert.equal(count('reservations'),reserved);assert(!r.execution);assert.equal(count('rental_refunds'),0);assert.equal(count('rental_additions'),0);
+ console.log('PASS actual swap proposal/consent: permanent account binding, private immutable SHA256 quote, selected quantities, price/stock/expiry recheck, owner-only offer/withdrawal, exact lost-response retries, one accepted proposal, real thread/notification receipts, no booking/stock/payment mutation or fake execution.');
+})().catch(e=>{console.error(e);process.exitCode=1});

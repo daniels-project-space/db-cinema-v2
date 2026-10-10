@@ -19,6 +19,8 @@ Authoritative rentalPrice computes fees, discounts and tender. priceQuote compar
 
 Cancellation restores the immediate credit linked to its originating membership grant. Membership refunds revoke linked restored balances too. If membership was reversed first, rental cancellation clears the future-credit offset rather than manufacturing credit. A later debt cannot steal an allocation promised to an open checkout. Late payment of an already-closed rental leaves its purchased monthly credit unspent.
 
+Subscription lifecycle and paid-invoice handlers resolve ownership from the stored subscription, membership checkout and permanent account ID. New combined and standalone subscription metadata includes that account ID. Historical contact email is a fallback only for subscriptions without permanent bindings and still requires the exact stored Stripe customer. Conflicting or missing explicit owners cannot fall back to a recycled email. Both lifecycle and credit transactions recheck the Stripe customer before writing, so a concurrent billing change cannot apply stale entitlement. The ownership regression exercises the real signed invoice webhook, duplicate delivery, changed/reused addresses and first-checkout binding with isolated provider responses; it sends no mail or live payment.
+
 Receipt email uses an internal full receipt query; public status queries are unchanged. Customer-authorised PDF includes first-month credit used within total store credit. Stripe separately itemises the subscription fee/renewal. Membership terms version 2026-10-membership-v6 requires fresh acceptance.
 
 ## Acceptance evidence

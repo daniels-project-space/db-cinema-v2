@@ -12,6 +12,18 @@ The booking strip uses the actual selected booking's dates, listing count and ca
 
 The reference is `admin-chat.png`, adapted to the requested dark theme and existing management navigation. This is not pixel-perfect acceptance of the entire approved reference: its full-width header differs from the shared sidebar shell; synthetic records lack real equipment/customer images, and the fixtures contain fewer conversations. Remaining management screens and production visual acceptance stay open. No placeholder controls were added for attachment or emoji features that are not wired.
 
+## Contact and message-detail comparison, 10 October
+
+The actual admin conversation header now includes the permanent account's current email and phone from the existing authenticated message query. Renter responses omit both fields; missing associated accounts never fall back to historical booking email. Message rows use the reference's larger circular avatar and metadata proportions, with smaller avatars and stacked contacts on phones. The booking panel places its working admin actions above a titled payment breakdown, preserving distinct deposit and recorded card-authorisation states.
+
+Five local capture/review passes at 1440 and 390 are retained in `/root/CODEX_ARTIFACTS/db-cinema/chat-details-reference-2026-10-10`. They inspect multiline messages, contact wrapping, the actual composer sending once into the correct account/rental, extension shortcut expansion/focus and missing-account contact suppression, with the actual management shell/components and isolated native handlers. No provider/customer/email/payment writes occurred. This is an additional conversation refinement cycle, not proof of five complete passes for every reference or exact full-screen parity.
+
+## Missing-account conversation recovery
+
+The authorised message response governs whether conversation controls are available. Loading, missing linked accounts and invalid sessions disable the composer, handoff and Gaffer suggestions; resolved missing accounts show an explicit review/sign-in state. Cached messages and suggestion cards are hidden while the conversation is unavailable. The current draft remains on the screen for restoration of the same account and rental; changing conversation scope still clears it through the existing scope reset. Admin financial operations retain their separate authenticated provider/ledger checks.
+
+Actual component/handler acceptance at 1440 and 390 is saved under `/root/CODEX_ARTIFACTS/db-cinema/chat-account-recovery-2026-10-10`. Deleting the isolated linked account hides contacts/history and disables controls; attempts to click or programmatically submit create no messaging/handoff/drafting calls. Restoring it preserves the draft and sends it exactly once to that account/rental. Desktop/mobile unavailable and restored screenshots were inspected; no overflow/runtime errors or provider writes occurred. Genuine customer production acceptance and complete reference fidelity remain open.
+
 ## Validation
 
 - Default test suite, TypeScript check and final Next production build passed.

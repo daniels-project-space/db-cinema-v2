@@ -1,3 +1,4 @@
+import { londonRentalInstant } from "../../shared/rentalWindow";
 /** One policy for the cancellation action, account UI, and signed agreement. */
 export const CANCELLATION_FULL_REFUND_DAYS = 14;
 export const CANCELLATION_CREDIT_DAYS = 365;
@@ -19,7 +20,7 @@ export function cancelKind(start: number, now: number, fullRefundDays = CANCELLA
 
 /** Preserve the more generous policy already agreed by earlier renters. */
 export function cancellationDaysForBooking(booking: { agreementDocs?: { kind: string; version: string }[] }): number {
-  return booking.agreementDocs?.some(d => d.kind === "cancellation" && ["2026-10-v11", "2026-10-v12"].includes(d.version))
+  return booking.agreementDocs?.some(d => d.kind === "cancellation" && ["2026-10-v11", "2026-10-v12", "2026-10-v13"].includes(d.version))
     ? CANCELLATION_FULL_REFUND_DAYS : 3;
 }
 
@@ -49,3 +50,20 @@ export function rentalCancellationStart(booking: { lineItems: { start: number }[
   if (booking.cancellationPolicyStart !== undefined) return booking.cancellationPolicyStart;
   return Math.min(...booking.lineItems.map(line => line.start), ...(booking.removedItems ?? []).map(line => line.start));
 }
+
+/** Actual current pickup, independent of the preserved cancellation-policy date.
+ * Missing or invalid scheduling fails closed; an early handover also starts rental. */
+export function rentalStartsAt(booking: { lineItems: { start: number; end?: number; pickupTime?: string | null }[]; pickupTime?: string | null }): number | null {
+  try {
+    if (!booking.lineItems.length) return null;
+    const starts = booking.lineItems.map(line => londonRentalInstant(line.start,
+      (line.pickupTime === undefined ? booking.pickupTime : line.pickupTime) || "00:00"));
+    return Math.min(...starts);
+  } catch { return null; }
+}
+export function rentalHasStarted(booking: Parameters<typeof rentalStartsAt>[0] & { status?: string; pickedUpAt?: number }, now: number): boolean {
+  const start = rentalStartsAt(booking);
+  return ["active", "returned"].includes(booking.status ?? "") ||
+    (booking.pickedUpAt !== undefined && booking.pickedUpAt <= now) || start === null || now >= start;
+}
+export const STARTED_RENTAL_REFUND_MESSAGE = "This rental has started. Refunds can only be arranged by the team. Please use the rental conversation for help.";

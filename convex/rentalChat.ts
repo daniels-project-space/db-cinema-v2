@@ -2,12 +2,14 @@ import { query, mutation, internalMutation, internalQuery } from "./_generated/s
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
+import { mergedStream, stream } from "convex-helpers/server/stream";
+import schema from "./schema";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { listingImages } from "./lib/catalogImages";
 import { listingAvailability } from "./availability";
 import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
 import { acknowledgeOwnerNotifications } from "./lib/adminPush";
-import { accountForRental, rentalsForAccount } from "./lib/rentalAccount";
+import { accountForRental, belongsToRentalAccount, rentalsForAccount } from "./lib/rentalAccount";
 import { bookingStockLines } from "../shared/rentalWindow";
 import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { assertVerificationArchive } from "./verificationArchive";
@@ -74,7 +76,8 @@ async function bookingView(ctx: any, b: any, account: any, options: { includeAva
     depositHoldStatus: b.depositHoldStatus ?? null,
     depositHoldExpiresAt: b.depositHoldExpiresAt ?? null,
     returnChecking: !!b.returnDecision && b.status !== "returned",
-    guestEmail: b.guestEmail,
+    guestEmail: b.accountId ? account?.email ?? "" : account?.email ?? b.guestEmail,
+    accountNeedsReview: !!b.accountId && !account,
     name: account?.name ?? null,
     verifiedRenterEmail: account?.emailVerifiedAt && typeof account.email === "string"
       ? account.email.trim().toLowerCase()
@@ -86,7 +89,7 @@ async function bookingView(ctx: any, b: any, account: any, options: { includeAva
     end: Math.max(...items.map((li: any) => li.end)),
     total: b.total,
     items,
-    accountId: account?._id ?? null,
+    accountId: account?._id ?? b.accountId ?? null,
     escalated: !!thread?.escalated,
     unreadOwner: thread?.unreadOwner ?? 0,
     unreadRenter: thread?.unreadRenter ?? 0,
@@ -179,7 +182,8 @@ export const messages = query({
     const thread = await rentalThread(ctx, a._id, bookingId);
     return { ...page, escalated: !!thread?.escalated,
       quickReplies: admin ? rentalReplyTemplates(bookingId ? await ctx.db.get(bookingId) : null, await ctx.db.query("settings").first()) : [],
-      renter: { name: a.name?.split(/\s+/)[0] ?? "Renter",
+      renter: { name: (admin ? a.name : a.name?.split(/\s+/)[0]) ?? "Renter",
+        ...(admin ? { email: a.email ?? null, phone: a.phone ?? null } : {}),
         photo: (a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : null) ?? a.googleAvatarUrl ?? null },
     };
   },
@@ -314,16 +318,17 @@ export const setHandler = mutation({
 export const minePage = query({
   args: { token: v.string(), paginationOpts: paginationOptsValidator },
   handler: async (ctx, { token, paginationOpts }) => {
+    if (!Number.isInteger(paginationOpts.numItems) || paginationOpts.numItems < 1) throw Error("Invalid rental page size");
     const a = await accountForToken(ctx, token);
     if (!a) return { page: [], isDone: true, continueCursor: "" };
-    const page = await ctx.db
-      .query("bookings")
-      .withIndex("by_guest_chat_updated", (q) => q.eq("guestEmail", a.email))
-      .filter(q=>q.or(q.eq(q.field("accountId"),undefined),q.eq(q.field("accountId"),a._id)))
-      .order("desc")
-      .paginate({
+    const linked = stream(ctx.db, schema).query("bookings")
+      .withIndex("by_account_chat_updated", q => q.eq("accountId", a._id)).order("desc");
+    const legacy = stream(ctx.db, schema).query("bookings")
+      .withIndex("by_account_guest_chat_updated", q => q.eq("accountId", undefined).eq("guestEmail", a.email)).order("desc");
+    const page = await mergedStream([linked, legacy], ["chatUpdatedAt", "_creationTime"]).paginate({
         ...paginationOpts,
         numItems: Math.min(50, paginationOpts.numItems),
+        maximumRowsRead: 100,
       });
     return {
       ...page,
@@ -371,12 +376,7 @@ export const adminPage = query({
       ...page,
       page: await Promise.all(
         page.page.map(async (b) => {
-          const a = await ctx.db
-            .query("accounts")
-            .withIndex("by_email", (q) =>
-              q.eq("email", (b.guestEmail ?? "").trim().toLowerCase()),
-            )
-            .first();
+          const a = await accountForRental(ctx, b);
           return bookingView(ctx, b, a);
         }),
       ),
@@ -475,12 +475,7 @@ export const migrateLegacyUnread = internalMutation({
       const account = await ctx.db.get(m.accountId);
       if (!account) continue;
       const b = m.bookingId ? await ctx.db.get(m.bookingId) : null;
-      if (
-        m.bookingId &&
-        (!b ||
-          (b.guestEmail ?? "").trim().toLowerCase() !==
-            account.email.trim().toLowerCase())
-      )
+      if (m.bookingId && !belongsToRentalAccount(b, account))
         continue;
       const t = await rentalThread(ctx, m.accountId, m.bookingId);
       const ownerUnread =

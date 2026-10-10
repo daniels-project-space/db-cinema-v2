@@ -46,7 +46,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 165px;
   gap: 10px;
-  margin: 18px 0 20px;
+  margin: 17px 0 14px;
 }
 .filters input,
 .filters select,
@@ -118,8 +118,8 @@
 }
 .avatarSmall,
 .initials {
-  height: 34px;
-  width: 34px;
+  height: 32px;
+  width: 32px;
   flex-shrink: 0;
   border-radius: 50%;
 }
@@ -143,12 +143,12 @@
 .verified,
 .pending,
 .blocked {
-  font-size: 10px;
+  font-size: 12px;
   display: inline-block;
   white-space: nowrap;
 }
 .verified {
-  color: #56b98b;
+  color: #50af83;
 }
 .pending {
   color: #999d96;
@@ -261,7 +261,7 @@
 .summary strong {
   display: block;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 400;
   color: #eee9e0;
   margin-top: 12px;
@@ -344,7 +344,7 @@
 .rental small {
   display: block;
   color: #92958e;
-  font-size: 9px;
+  font-size: 11px;
   margin-top: 3px;
 }
 .status {
@@ -586,21 +586,21 @@
 
 /* Measured Customers & Members render: 606/616px panels at 1487px. */
 .root { position:relative; gap:13px; grid-template-columns:minmax(350px,.985fr) minmax(420px,1fr); color:#c2c2c5; margin-top:20px; }
-.directory,.detail { background:linear-gradient(125deg,#1d1e1e,#191b1b); border-color:#303231; border-radius:8px; }
+.directory,.detail { background:linear-gradient(125deg,#1a1b1a,#181918); border-color:#303231; border-radius:8px; }
 .directory { padding:17px 9px 26px; }
 .directoryTabs { padding-inline:17px; gap:25px; }
-.directoryTabs button { font-size:13px; padding-bottom:10px; }
-.filters { grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr); gap:7px; margin:18px 5px 21px; }
+.directoryTabs button { font-size:14px; padding-bottom:10px; }
+.filters { grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr); gap:7px; margin:16px 5px 14px; }
 .filters input,.filters select { font-size:11px; padding:9px 10px; height:37px; background:#1a1c1c; }
-.table th { font-size:10px; padding:0 7px 13px; }
+.table th { font-size:12px; padding:0 7px 10px; }
 .table td { height:62px; padding:13px 6px; }
-.customer { gap:10px; }
+.customer { gap:8px; }
 .customer strong { font-size:11px; }
 .customer strong { max-width:105px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .emailColumn { font-size:9px; max-width:115px; }
 .table td.emailColumn { max-width:115px; }
 .emailColumn span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:115px; }
-.metricColumn { font-size:10px; text-align:center; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.metricColumn { font-size:12px; text-align:center; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .table .metricColumn { padding-inline:5px; }
 .table td:last-child { font-size:23px; width:16px; }
 .directoryFooter { padding-inline:9px; margin-top:45px; }
@@ -609,7 +609,7 @@
 .directoryFooter button[aria-current=page] { color:#d8ae91; border-color:#a77b60; }
 .profileHeader { padding:21px 19px 18px; gap:20px; min-height:124px; }
 .avatarLarge,.avatarLargeInitial { width:80px; height:80px; }
-.profileHeader h2 { font-size:23px; }
+.profileHeader h2 { font-size:24px; }
 .profileHeader p { font-size:12px; }
 .contacts { gap:15px; margin-top:15px; }
 .contacts span { font-size:15px; margin-right:7px; }
@@ -623,24 +623,24 @@
 .summary .membershipSummary small { grid-column:2; }
 .summary .membershipSummary small:first-of-type { margin-top:16px; }
 .profileTabs { gap:23px; padding-top:2px; }
-.profileTabs button { font-size:12px; padding-top:10px; padding-bottom:12px; }
+.profileTabs button { font-size:13px; padding-top:9px; padding-bottom:7px; }
 .profileBody { padding-top:15px; }
 .card { padding:15px; background:#ffffff01; }
-.card h3 { font-size:12px; }
+.card h3 { font-size:14px; }
 .card header button { font-size:11px; }
 .overviewGrid { gap:11px; }
 .rental { padding:11px 0; }
 .kitPhoto { width:54px; height:54px; }
-.card dl { font-size:11px; gap:15px; }
-.conversation { padding:13px 0; }
+.card dl { font-size:12px; gap:15px; }
+.conversation { padding:9px 0; }
 .card .empty { min-height:55px; }
-.pageTools { position:absolute; top:-84px; right:23px; display:flex; gap:17px; align-items:center; }
+.pageTools { position:absolute; top:-84px; right:24px; display:flex; gap:18px; align-items:center; }
 .pageTools > label { display:flex; align-items:center; gap:12px; border:1px solid #303231; border-radius:5px; background:#1a1c1c; padding:10px 13px; width:321px; height:44px; }
 .pageTools input { background:transparent; font-size:12px; min-width:0; width:100%; outline:none; }
 .pageTools > label > span:first-child { font-size:22px; }
-.filterButton { border:1px solid #303231; border-radius:5px; height:44px; padding:0 19px; font-size:15px; }
+.filterButton { min-width:106px; border:1px solid #303231; border-radius:5px; height:44px; padding:0 19px; font-size:15px; }
 .filterButton span { margin-left:12px; font-size:12px; }
-.addCustomer { padding:12px 23px; height:44px; border:1px solid #be9277; border-radius:5px; background:linear-gradient(125deg,#b58465,#a6775c); color:#fff4eb; font-size:13px; }
+.addCustomer { min-width:139px; padding:12px 23px; height:44px; border:1px solid #be9277; border-radius:5px; background:linear-gradient(125deg,#b58465,#a6775c); color:#fff4eb; font-size:13px; }
 .invite { margin:auto; width:min(460px,calc(100vw - 32px)); padding:24px; border:1px solid #363836; border-radius:8px; background:#1b1d1d; color:#eeeae4; }
 .invite::backdrop { background:#000a; }
 .invite header { display:flex; align-items:center; justify-content:space-between; }
@@ -665,9 +665,9 @@
 @media(max-width:600px) { .checkColumn { width:20px; } .table td.checkColumn { padding-right:5px; } }
 
 .directoryTabs button { padding-top:3px; padding-bottom:8px; }
-.customer strong { font-size:12px; }
-.emailColumn { font-size:10px; }
-.contacts { margin-top:8px; }
+.customer strong { font-size:13px; }
+.emailColumn { font-size:11px; }
+@media(min-width:701px){.contacts { margin-top:24px; }}
 .profileHeader { align-items:flex-start; }
 .profileHeader > div { padding-top:7px; }
 .profileHeader .address { margin-top:6px; }
@@ -681,8 +681,8 @@
 
 .profileHeader h2 { line-height:1.2; }
 .profileHeader { min-height:124px; }
-.card .rental { min-height:70px; padding:8px 0; }
-.rental strong { font-size:11px; }
+.card .rental { min-height:64px; padding:6px 0; }
+.rental strong { font-size:12px; }
 .card header { margin-bottom:9px; }
 @media(min-width:1101px) { .profileHeader { height:124px; } .summary > div { height:107px; padding-top:10px; padding-bottom:10px; } .summary { padding-bottom:17px; } .profileBody > .overviewGrid:first-child { min-height:255px; } .profileBody > .overviewGrid:nth-child(2) { min-height:207px; } .card .kitPhoto { width:48px; height:48px; } }
 
@@ -691,3 +691,5 @@
 @media(min-width:1101px) { .overviewGrid { grid-template-rows:minmax(255px,auto) minmax(207px,auto); } }
 
 .contacts svg { width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:7px; }
+
+.tier[data-tier=standard]{border-color:#50534f;color:#c6c8c3;background:#292b2933}

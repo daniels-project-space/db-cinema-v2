@@ -13,14 +13,31 @@ const hostedSessionUrl = /^https:\/\/verify\.didit\.me\/(?:[a-z-]+\/)?session\/[
 
 async function retrieveSession(apiKey: string, sessionId: string, bookingId: string, email: string): Promise<any> {
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(sessionId)) throw new Error("Invalid verification case ID.");
-  const res = await fetch(`${sessionApi}${sessionId}/decision/`, { headers: { "x-api-key": apiKey } });
+  const res = await fetch(`${sessionApi}${sessionId}/decision/`, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error("Could not check the current verification decision. Please try again.");
   const session: any = await res.json();
   if (session.session_id !== sessionId || session.session_kind !== "user" ||
       session.vendor_data !== `dbc-booking-${bookingId}` ||
-      session.contact_details?.email?.trim().toLowerCase() !== email.trim().toLowerCase())
+      typeof session.contact_details?.email !== "string" ||
+      session.contact_details.email.trim().toLowerCase() !== email.trim().toLowerCase() ||
+      typeof session.workflow_id !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(session.workflow_id))
     throw new Error("Verification case does not match this rental.");
   return session;
+}
+
+
+/** Attest missing legacy metadata from an authenticated, rental-bound report;
+ * a newer case or an already saved workflow cannot be overwritten. */
+async function retrieveCase(ctx: any, apiKey: string, sessionId: string, bookingId: string, email: string | undefined, workflowId?: string): Promise<any> {
+  if (!email) throw Error("Verification case does not match this rental.");
+  const report = await retrieveSession(apiKey, sessionId, bookingId, email);
+  if (workflowId !== undefined) {
+    if (report.workflow_id !== workflowId) throw Error("Verification workflow does not match this rental.");
+  } else {
+    const saved = await ctx.runMutation(internal.bookings.bindDiditCase, { bookingId, sessionId, email, workflowId: report.workflow_id });
+    if (!saved) throw Error("The verification case changed. Refresh this rental.");
+  }
+  return report;
 }
 
 function config() {
@@ -70,8 +87,7 @@ export const bookingSession = action({
       if (!booking || !verificationCanStart(booking) || !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required")) throw Error("The rental changed. Refresh its verification progress.");
     }
     if (booking.diditSessionId) {
-      const existing = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
-      if (existing.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
+      const existing = await retrieveCase(ctx, cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.diditSessionEmail ?? booking.guestEmail, booking.diditWorkflowId);
       if (["Not Started", "In Progress", "Awaiting User", "Resubmitted"].includes(existing.status)) {
         if (typeof existing.session_url !== "string" || !hostedSessionUrl.test(existing.session_url))
           throw new Error("Verification provider returned an invalid link.");
@@ -80,6 +96,11 @@ export const bookingSession = action({
       if (existing.status !== "Expired" && existing.status !== "Abandoned" && !(booking.idVerifyStatus === "verified" && verificationExpired(booking) && existing.status === "Approved"))
         throw new Error("This verification has a decision. Please refresh your rental status.");
     }
+    // Contact belongs to this case; changing an account email must neither
+    // redirect a new workflow to an old address nor invalidate an existing case.
+    const sessionEmail = String(booking.verificationContactEmail ?? (booking.accountId ? "" : booking.guestEmail ?? "")).trim().toLowerCase();
+    if (!sessionEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sessionEmail))
+      throw Error("Please update your account email before starting verification.");
     const nameParts = String(booking.renterName ?? "").trim().split(/\s+/).filter(Boolean);
     const expectedDetails: Record<string, string> = {};
     if (nameParts.length) {
@@ -101,7 +122,7 @@ export const bookingSession = action({
         language: "en",
         expected_details: expectedDetails,
         ...(process.env.APP_URL ? { callback: new URL(`/account/verification/${a.bookingId}${a.checkoutSessionId ? `?session_id=${encodeURIComponent(a.checkoutSessionId)}` : ""}`, process.env.APP_URL).toString(), callback_method: "both" } : {}),
-        contact_details: { email: booking.guestEmail, send_notification_emails: false },
+        contact_details: { email: sessionEmail, send_notification_emails: false },
       }),
     });
     if (!res.ok) throw new Error("Verification could not start. Please try again.");
@@ -111,13 +132,13 @@ export const bookingSession = action({
         !hostedSessionUrl.test(result.url))
       throw new Error("Verification provider returned an invalid session.");
     const saved: boolean = await ctx.runMutation(internal.bookings.setDiditSession, {
-      bookingId: a.bookingId, sessionId: result.session_id, previousSessionId: booking.diditSessionId,
+      bookingId: a.bookingId, sessionId: result.session_id, previousSessionId: booking.diditSessionId, sessionEmail, sessionWorkflowId: cfg.workflowId,
     });
     if (!saved) {
       const current: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
       if (current?.diditSessionId && verificationCanStart(current)) {
-        const attached = await retrieveSession(cfg.apiKey, current.diditSessionId, String(a.bookingId), current.guestEmail);
-        if (attached.workflow_id === cfg.workflowId && ["Not Started", "In Progress", "Awaiting User", "Resubmitted"].includes(attached.status) && typeof attached.session_url === "string" && hostedSessionUrl.test(attached.session_url)) return { url: attached.session_url };
+        const attached = await retrieveCase(ctx, cfg.apiKey, current.diditSessionId, String(a.bookingId), current.diditSessionEmail ?? current.guestEmail, current.diditWorkflowId);
+        if (["Not Started", "In Progress", "Awaiting User", "Resubmitted"].includes(attached.status) && typeof attached.session_url === "string" && hostedSessionUrl.test(attached.session_url)) return { url: attached.session_url };
       }
       throw new Error("The rental changed while verification opened. Refresh its progress before continuing.");
     }
@@ -133,8 +154,7 @@ export const reuseVerification = internalAction({
   if (!candidate) return;
   try {
     const cfg = config();
-    const report = await retrieveSession(cfg.apiKey, candidate.source.diditSessionId, String(candidate.source._id), candidate.source.guestEmail);
-    if (report.workflow_id !== cfg.workflowId) return;
+    const report = await retrieveCase(ctx, cfg.apiKey, candidate.source.diditSessionId, String(candidate.source._id), candidate.source.diditSessionEmail ?? candidate.source.guestEmail, candidate.source.diditWorkflowId);
     const mapped = mapDecision(report.status, report);
     if (!mapped || mapped.status !== "verified" || !mapped.documentExpiresAt || mapped.documentExpiresAt <= Date.now()) {
       await ctx.runMutation(internal.bookings.revokeVerificationReuse, { sourceBookingId: candidate.source._id }); return;
@@ -162,8 +182,7 @@ export const adminReview = action({
         !["manual_review", "rejected"].includes(booking.idVerifyStatus))
       throw new Error("Only a paid rental with a completed Didit case can be reviewed here.");
     const cfg = config();
-    const session = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.guestEmail);
-    if (session.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
+    const session = await retrieveCase(ctx, cfg.apiKey, booking.diditSessionId, String(bookingId), booking.diditSessionEmail ?? booking.guestEmail, booking.diditWorkflowId);
     if (!["Approved", "Declined", "In Review", "Kyc Expired", "Abandoned", "Resubmitted"].includes(session.status))
       throw new Error("This verification is still in progress or expired; it cannot be manually decided.");
     if (decision === "approve" && !["Approved", "Declined", "In Review"].includes(session.status))
@@ -228,8 +247,7 @@ export const refreshProgress = action({
     const claimed = await ctx.runMutation(internal.bookings.claimDiditProgressRefresh, {bookingId:a.bookingId, sessionId:booking.diditSessionId});
     if (!claimed) return {status: "unchanged"};
     const cfg = config();
-    const report = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
-    if (report.workflow_id !== cfg.workflowId) throw Error("Verification workflow does not match this rental.");
+    const report = await retrieveCase(ctx, cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.diditSessionEmail ?? booking.guestEmail, booking.diditWorkflowId);
     const mapped = mapDecision(report.status, report);
     if (!mapped) throw Error("Unknown verification status.");
     // Polling is for progress, not a synthetic new document event on every
@@ -259,10 +277,8 @@ export const reconcileOpenSessions = internalAction({
     for (let i = 0; i < candidates.length; i += 5) {
       await Promise.all(candidates.slice(i, i + 5).map(async (candidate) => {
         try {
-          const report = await retrieveSession(cfg.apiKey, candidate.sessionId,
-            String(candidate.bookingId), candidate.email);
-          if (report.workflow_id !== cfg.workflowId)
-            throw new Error("Verification workflow does not match this rental.");
+          const report = await retrieveCase(ctx, cfg.apiKey, candidate.sessionId,
+            String(candidate.bookingId), candidate.email, candidate.workflowId);
           const mapped = mapDecision(report.status, report);
           if (!mapped) throw new Error("Unknown verification status.");
           const saved = await ctx.runMutation(internal.bookings.setDiditResult, {
@@ -355,14 +371,25 @@ export const webhook = internalAction({
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected) || event.timestamp !== Number(timestamp)) return false;
     if (event.webhook_type !== "status.updated" && event.webhook_type !== "data.updated") return true;
     if (event.environment !== cfg.environment || event.application_id !== cfg.applicationId ||
-        event.workflow_id !== cfg.workflowId || event.session_kind === "business") return false;
+        event.session_kind === "business") return false;
     if (typeof event.vendor_data !== "string" || !event.vendor_data.startsWith("dbc-booking-") ||
         typeof event.session_id !== "string" || typeof event.event_id !== "string" ||
         !Number.isSafeInteger(event.created_at)) return false;
     const bookingId = event.vendor_data.slice("dbc-booking-".length);
-    const mapped = mapDecision(event.status, event.decision);
-    if (!mapped) return true;
     try {
+      const booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: bookingId as any });
+      if (!booking || booking.verificationProvider !== "didit" || booking.diditSessionId !== event.session_id) return false;
+      if (booking.diditWorkflowId !== undefined) {
+        if (event.workflow_id !== booking.diditWorkflowId) return false;
+      } else {
+        const email = booking.diditSessionEmail ?? booking.guestEmail;
+        if (!email) return false;
+        const report = await retrieveSession(cfg.apiKey, event.session_id, bookingId, email);
+        if (report.workflow_id !== event.workflow_id) return false;
+        if (!await ctx.runMutation(internal.bookings.bindDiditCase, { bookingId, sessionId: event.session_id, email, workflowId: report.workflow_id })) return false;
+      }
+      const mapped = mapDecision(event.status, event.decision);
+      if (!mapped) return true;
       return await ctx.runMutation(internal.bookings.setDiditResult, {
         bookingId: bookingId as any,
         sessionId: event.session_id,

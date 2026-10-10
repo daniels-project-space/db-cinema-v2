@@ -18,6 +18,11 @@ const LEVELS = [
 const label = (value: string) =>
   LEVELS.find(([key]) => key === value)?.[1] ?? value;
 type Level = (typeof LEVELS)[number][0];
+const personInitials = (name: string, email: string) => {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((Array.from(parts[0] || email)[0] || "?") + (parts.length > 1 ? Array.from(parts[parts.length - 1])[0] : "")).toUpperCase();
+};
+const conversationTime = (at: number) => new Date(at).toLocaleString("en-GB", {timeZone:"Europe/London",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
 
 export function AccountAdmin({
   token,
@@ -221,6 +226,7 @@ export function AccountAdmin({
           type="button"
           key={thread.id}
           className={styles.conversation}
+          title={thread.bookingId ? `Open rental ${thread.bookingId.slice(-8)} conversation` : "Open account conversation"}
           onClick={() =>
             selected && onConversation?.(selected.id, thread.bookingId)
           }
@@ -229,19 +235,15 @@ export function AccountAdmin({
           <span className={styles.initials}>
             {thread.lastSender === "owner"
               ? "DB"
-              : (selected?.name || selected?.email || "")
-                  .slice(0, 1)
-                  .toUpperCase()}
+              : personInitials(selected?.name || "", selected?.email || "")}
           </span>
           <span>
             <strong>
-              {thread.bookingId
-                ? `Rental ${thread.bookingId.slice(-8)}`
-                : "Account conversation"}
+              {thread.lastSender === "owner" ? "DB Cinema Rentals" : thread.lastSender === "gaffer" ? "Gaffer" : selected?.name || "DB Cinema renter"}
             </strong>
             <small>{thread.lastMessage}</small>
             <time>
-              {date(thread.updatedAt)}
+              {conversationTime(thread.updatedAt)}
               {thread.unread ? ` · ${thread.unread} unread` : ""}
             </time>
           </span>
@@ -359,6 +361,7 @@ export function AccountAdmin({
                     <button
                       type="button"
                       data-testid="admin-account-row"
+                      title={account.name || account.email}
                       onClick={() => selectAccount(account.id)}
                       className={styles.customer}
                     >
@@ -370,9 +373,7 @@ export function AccountAdmin({
                         />
                       ) : (
                         <span className={styles.initials}>
-                          {(account.name || account.email)
-                            .slice(0, 1)
-                            .toUpperCase()}
+                          {personInitials(account.name, account.email)}
                         </span>
                       )}
                       <span>
@@ -390,7 +391,7 @@ export function AccountAdmin({
                   </td>
                   <td className={styles.emailColumn}><span>{account.email}</span></td>
                   <td>
-                    <span className={styles.tier}>{label(account.tier)}</span>
+                    <span className={styles.tier} data-tier={account.tier}>{label(account.tier)}</span>
                   </td>
                   <td className={styles.verificationColumn}>
                     <span
@@ -481,7 +482,7 @@ export function AccountAdmin({
               />
             ) : (
               <span className={styles.avatarLargeInitial}>
-                {(selected.name || selected.email).slice(0, 1).toUpperCase()}
+                {personInitials(selected.name, selected.email)}
               </span>
             )}
             <div>
@@ -496,8 +497,8 @@ export function AccountAdmin({
               <div className={styles.contacts}>
               <p><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 5h18v14H3z M3 5l9 7 9-7"/></svg> {selected.email}</p>
               {detail?.phone && <p><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 3h4l2 5-3 2c2 3 3 4 6 6l2-3 5 2v4c0 2-3 3-5 2C9 19 5 15 3 8 2 6 3 3 5 3Z"/></svg> {detail.phone}</p>}
+              {detail?.address && <p className={styles.address}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2"/></svg> {detail.address}</p>}
               </div>
-              {detail?.address && <p className={styles.address}>{detail.address}</p>}
             </div>
             <button
               type="button"

@@ -1,0 +1,52 @@
+/** Actual request/proposal/payment handlers; controlled database and Stripe SDK only. */
+const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
+process.env.ADMIN_TOKEN='kit-request-owner';process.env.STRIPE_SECRET_KEY='sk_test_fixture';
+const sessions=new Map();let holdCreates=0;
+class Stripe{checkout={sessions:{retrieve:async id=>{assert(sessions.has(id));return sessions.get(id)}}};paymentIntents={create:async()=>{holdCreates++;throw Error('No early hold')},retrieve:async id=>{const session=[...sessions.values()].find(s=>s.payment_intent===id);assert(session);return {id,status:'succeeded',currency:'gbp',amount:session.amount_total,amount_received:session.amount_total,amount_capturable:0,capture_method:'automatic',customer:session.customer}}}}
+h.setMock('stripe',{__esModule:true,default:Stripe});
+const state=h.load('convex/rentalAdditionState.ts'),payments=h.load('convex/rentalAdditions.ts'),requests=h.load('convex/rentalRequests.ts');
+const modules={rentalAdditionState:state,rentalOperations:h.load('convex/rentalOperations.ts'),adminAuth:h.load('convex/adminAuth.ts'),pickupSecurity:h.load('convex/pickupSecurity.ts')};
+const ctx={db:h.db,scheduler:{runAfter:async()=>{},runAt:async()=> 'scheduled'},runQuery:async(ref,a)=>{const[m,f]=ref.split('.');return modules[m][f].handler(ctx,a)},runMutation:async(ref,a)=>{const[m,f]=ref.split('.');return modules[m][f].handler(ctx,a)}};
+const account=h.put('accounts',{name:'Permanent renter',email:'permanent@qa.invalid'}),foreign=h.put('accounts',{email:'old-mailbox@qa.invalid'});
+h.put('sessions',{accountId:account._id,token:'renter',expiresAt:Date.now()+600000});h.put('sessions',{accountId:foreign._id,token:'foreign',expiresAt:Date.now()+600000});
+const unit=h.put('inventory_units',{name:'Kit camera',quantityOwned:10}),listing=h.put('listings',{title:'Kit camera',active:true,pricing:{daily:30},depositAmount:1000,components:[{inventoryUnitId:unit._id,qty:1}]});
+const start=Date.UTC(2030,10,1),end=start+86400000;
+function fixture(){const b=h.put('bookings',{accountId:account._id,guestEmail:foreign.email,status:'confirmed',subtotal:60,total:110,depositAmount:50,depositHoldAmount:100,protection:'verify',securityPolicyVersion:'2026-10-ten-percent-hold-v2',securityHoldPolicyVersion:'2026-10-pickup-hold-v1',pickupTime:'10:00',returnTime:'18:00',securityHoldCustomerId:'cus_saved',securityHoldPaymentMethodId:'pm_saved',depositHoldStatus:'scheduled',securityHoldGeneration:1,securityHoldAttempts:0,stripePaymentIntentId:'pi_original',lineItems:[{listingId:listing._id,title:listing.title,qty:1,start,end,lineTotal:60}]});return b}
+function change(b,extra={}){return h.put('rental_change_requests',{requestId:'customer-kit-'+b._id,accountId:account._id,bookingId:b._id,kind:'items',detail:'Please add a second body for the shoot.',messageId:'fixture-message',createdAt:Date.now(),status:'pending',...extra})}
+function args(b,r,requestId='saved-proposal-0000001'){return {token:process.env.ADMIN_TOKEN,bookingId:b._id,changeRequestId:r._id,requestId,listingId:listing._id,qty:1,reason:'Add the agreed second camera body.'}}
+const history=b=>requests.list.handler(ctx,{token:'renter',bookingId:b._id,paginationOpts:{numItems:30,cursor:null}});
+(async()=>{
+ const b=fixture(),r=change(b);await assert.rejects(state.prepare.handler(ctx,args(b,r)),/approved kit request/);assert.equal((h.tables.get('rental_additions')??[]).length,0);
+ await requests.review.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:r._id,decision:'approved',note:'We can arrange the second camera, subject to the saved quote and payment.'});
+ for(const extra of [{kind:'cancel'},{accountId:foreign._id},{bookingId:'another-rental'},{status:'declined'}]){const invalid=change(b,{status:'approved',...extra});await assert.rejects(state.prepare.handler(ctx,args(b,invalid,('bad-proposal-'+invalid._id).replace(/[^a-zA-Z0-9-]/g,'-'))),/approved kit request/)}
+ assert.equal((h.tables.get('rental_additions')??[]).length,0);assert.equal(b.activeAdditionId,undefined);
+ const proposal=await state.prepare.handler(ctx,args(b,r));assert.equal(proposal.changeRequestId,r._id);assert.equal(r.additionRequestId,proposal._id);assert.equal(b.lineItems.length,1);assert.equal((await history(b)).page.find(x=>x._id===r._id).addition.status,'prepared');
+ assert.equal((await state.prepare.handler(ctx,args(b,r)))._id,proposal._id);const another=change(b,{status:'approved'});await assert.rejects(state.prepare.handler(ctx,args(b,another)),/different customer request/);await assert.rejects(state.prepare.handler(ctx,args(b,r,'another-proposal-00001')),/already has a saved proposal/);
+ const session={id:'cs_saved',status:'complete',currency:'gbp',customer:'cus_update',payment_status:'paid',payment_intent:'pi_addition',amount_total:Math.round((proposal.lineTotal+proposal.securityCharge)*100),metadata:{rentalAdditionId:proposal._id,additionBookingId:b._id}};sessions.set(session.id,session);await state.bindSession.handler(ctx,{id:proposal._id,sessionId:session.id,url:'https://checkout.stripe.test/saved'});assert.equal((await history(b)).page.find(x=>x._id===r._id).addition.status,'awaiting_payment');assert.equal(b.lineItems.length,1);
+ await state.markPaid.handler(ctx,{id:proposal._id,paymentIntentId:'pi_addition'});r.status='declined';await assert.rejects(state.apply.handler(ctx,{id:proposal._id}),/approved kit request/);assert.equal(b.lineItems.length,1);r.status='approved';const bound=r.additionRequestId;r.additionRequestId='alien';await assert.rejects(state.apply.handler(ctx,{id:proposal._id}),/already has a saved proposal/);assert.equal(b.lineItems.length,1);r.additionRequestId=bound;
+ const result=await payments.resumeByOwner.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:b._id,id:proposal._id});assert.equal(result.status,'scheduled');assert.equal(b.lineItems.length,2);assert.equal(b.securityHoldPaymentMethodId,'pm_saved');assert.equal(holdCreates,0);const completed=(await history(b)).page.find(x=>x._id===r._id).addition;assert.equal(completed.status,'applied');assert.equal(completed.paymentReceived,true);assert.equal(completed.amount,proposal.lineTotal+proposal.securityCharge);assert(!JSON.stringify(completed).includes('pi_addition'));assert.deepEqual(Object.keys(completed).sort(),['id','status','title','qty','start','end','amount','paymentReceived','updatedAt'].sort(),'public proposal projection has no bank, session or account credentials');await assert.rejects(history({...b,_id:'missing'}),/not available/);
+ await assert.rejects(requests.list.handler(ctx,{token:'foreign',bookingId:b._id,paginationOpts:{numItems:30,cursor:null}}),/not available/);
+ const forged=change(b,{status:'approved',additionRequestId:proposal._id});assert.equal((await history(b)).page.find(x=>x._id===forged._id).addition.status,'unavailable','reverse request identity is required before exposing proposal');
+ const wb=fixture(),wr=change(wb,{status:'approved'}),wp=await state.prepare.handler(ctx,args(wb,wr,'withdraw-proposal-00001'));await state.beginWithdrawal.handler(ctx,{id:wp._id});assert.equal((await history(wb)).page.find(x=>x._id===wr._id).addition.status,'withdrawing');assert.equal(wb.lineItems.length,1);await assert.rejects(state.prepare.handler(ctx,args(wb,wr,'replacement-proposal-01')),/already has a saved proposal/);
+ const typedB=fixture(),typedR=change(typedB,{status:'approved',kitSelection:{change:'add',listingId:listing._id,quantity:2,note:'Add two cameras'}});
+ const typedArgs={...args(typedB,typedR,'typed-addition-0000001'),qty:2};
+ const wrongListing=h.put('listings',{active:true,title:'Different camera',pricing:listing.pricing,depositAmount:listing.depositAmount,components:listing.components});
+ for(const extra of [{qty:1},{listingId:wrongListing._id}]){
+  const rejectedQuote=await state.proposalQuote.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:typedB._id,changeRequestId:typedR._id,listingId:listing._id,qty:2,...extra});assert.equal(rejectedQuote.available,false);assert.match(rejectedQuote.reason,/does not match.*approved equipment addition/);
+  await assert.rejects(state.prepare.handler(ctx,{...typedArgs,...extra}),/does not match.*approved equipment addition/);
+ }
+ for(const kind of ['swap','remove']){
+  const other=change(typedB,{status:'approved',kitSelection:{...typedR.kitSelection,change:kind}});
+  await assert.rejects(state.prepare.handler(ctx,{...typedArgs,changeRequestId:other._id}),/does not match.*approved equipment addition/);
+ }
+ assert.equal(typedB.activeAdditionId,undefined,'invalid selections cannot reserve stock or lock rental');
+ const typedQuote=await state.proposalQuote.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:typedB._id,changeRequestId:typedR._id,listingId:listing._id,qty:2});assert.equal(typedQuote.qty,2);
+ const typedP=await state.prepare.handler(ctx,typedArgs);assert.equal(typedP.qty,2);
+ await assert.rejects(state.prepare.handler(ctx,{...typedArgs,changeRequestId:change(typedB,{status:'approved'})._id}),/different customer request/);
+ assert.equal((await state.prepare.handler(ctx,{...typedArgs,qty:1})).qty,2,'retries recover the original immutable proposal, never substitute new quantities');
+ await state.markPaid.handler(ctx,{id:typedP._id,paymentIntentId:'pi_typed_fixture'});
+ typedP.qty=1;await assert.rejects(state.apply.handler(ctx,{id:typedP._id}),/does not match.*approved equipment addition/);assert.equal(typedB.lineItems.length,1);typedP.qty=2;
+ typedR.kitSelection.change='swap';await assert.rejects(state.apply.handler(ctx,{id:typedP._id}),/does not match.*approved equipment addition/);typedR.kitSelection.change='add';
+ await state.apply.handler(ctx,{id:typedP._id});assert.equal(typedB.lineItems.at(-1).qty,2);
+ console.log('PASS actual approved kit request lifecycle: identity/type/account/approval/duplicate guards, atomic immutable proposal link, unpaid history, paid attachment and saved pickup security, reverse-link isolation, withdrawal tracking and safe projection. No provider writes.');
+})().catch(e=>{console.error(e);process.exitCode=1});

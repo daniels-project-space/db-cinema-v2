@@ -11,6 +11,37 @@ const sb = () => {
   return new Stripe(process.env.STRIPE_SECRET_KEY);
 };
 const money = (n: number) => Math.round(n * 100);
+/** The saved checkout pointer and provider receipt must both attest the update
+ * before it becomes a payment source, changes stock, or triggers a refund. */
+async function verifiedUpdatePayment(state: any, session: Stripe.Checkout.Session) {
+  const r = state.addition;
+  const expected = money((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0));
+  const noPayment = !!r.membershipCheckoutId && session.payment_status === "no_payment_required";
+  const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  const metadata = session.metadata;
+  const bound = r.draftReplacement
+    ? metadata?.pendingAdditionId === r._id && metadata?.bookingId === r.bookingId
+    : metadata?.rentalAdditionId === r._id && metadata?.additionBookingId === r.bookingId;
+  if (session.id !== r.sessionId || session.status !== "complete" || session.currency !== "gbp" ||
+      !Number.isSafeInteger(expected) || expected < 0 || session.amount_total !== expected || !customer || !bound ||
+      (session.payment_status !== "paid" && !noPayment) || noPayment && expected !== 0)
+    throw Error("The update checkout receipt does not match the saved order.");
+  if (r.membershipCheckoutId) {
+    const member = state.membershipCheckout, account = state.membershipAccount;
+    if (!member || !account || member.bookingId !== r.bookingId || member.sessionId !== session.id || customer !== account.stripeCustomerId)
+      throw Error("The membership update payment does not match the associated account or order.");
+  }
+  if (noPayment) return undefined;
+  const paymentId = await checkoutPaymentIntent(session);
+  if (!paymentId) throw Error("Paid update has no captured payment receipt.");
+  const payment = await sb().paymentIntents.retrieve(paymentId);
+  const paymentCustomer = typeof payment.customer === "string" ? payment.customer : payment.customer?.id;
+  if (payment.id !== paymentId || r.paymentIntentId && r.paymentIntentId !== paymentId || payment.status !== "succeeded" ||
+      payment.currency !== "gbp" || payment.amount !== expected || payment.amount_received !== expected ||
+      payment.amount_capturable !== 0 || !["automatic", "automatic_async"].includes(payment.capture_method) || paymentCustomer !== customer)
+    throw Error("The update payment is not the exact captured payment for this checkout.");
+  return payment;
+}
 function expires(intent: Stripe.PaymentIntent) {
   const c: any = intent.latest_charge;
   return typeof c === "object"
@@ -80,6 +111,8 @@ async function ensureSession(ctx: any, id: any) {
     throw Error("The rental update has no payable amount");
   const origin = new URL(process.env.APP_URL ?? "https://dbcinemarentals.com")
     .origin;
+  const customerEmail = state.account?.email ?? (!b.accountId ? b.guestEmail : undefined);
+  if(!customerEmail)throw Error("The associated rental account needs review before a payment link can be sent.");
   let params: Stripe.Checkout.SessionCreateParams = {
       integration_identifier: `db-rental-update-${Array.from(createHash("sha256").update(r.requestId).digest().subarray(0, 8), (n) => String.fromCharCode(97 + (n % 26))).join("")}`,
       custom_text: {
@@ -90,7 +123,7 @@ async function ensureSession(ctx: any, id: any) {
       mode: "payment",
       adaptive_pricing: {enabled:false},
       expires_at: Math.floor(r.createdAt / 1000) + 24 * 60 * 60,
-      customer_email: b.guestEmail,
+      customer_email: customerEmail,
       customer_creation: "always",
       payment_intent_data: { setup_future_usage: "off_session" },
       line_items: [
@@ -102,9 +135,9 @@ async function ensureSession(ctx: any, id: any) {
             product_data: {
               name: r.draftReplacement
                 ? "Updated DB Cinema rental"
-                : "DB Cinema rental item addition",
+                : r.swapProposalId ? r.lineTotal===0&&r.securityCharge>0 ? "DB Cinema additional refundable deposit" : "DB Cinema equipment swap price difference" : "DB Cinema rental item addition",
               description:
-                `${r.qty}× ${r.title}. Rental £${r.lineTotal.toFixed(2)}; additional refundable security £${r.securityCharge.toFixed(2)}. Updated card hold £${r.holdTotal.toFixed(2)}.${r.draftReplacement ? ` Includes existing rental checkout £${(r.baseTotal ?? 0).toFixed(2)}.` : ""}`.slice(
+                `${r.qty}× ${r.title}. ${r.swapProposalId ? "Rental difference" : "Rental"} £${r.lineTotal.toFixed(2)}; additional refundable security £${r.securityCharge.toFixed(2)}. Updated card hold £${r.holdTotal.toFixed(2)}.${r.draftReplacement ? ` Includes existing rental checkout £${(r.baseTotal ?? 0).toFixed(2)}.` : ""}`.slice(
                   0,
                   500,
                 ),
@@ -118,6 +151,10 @@ async function ensureSession(ctx: any, id: any) {
         ? { bookingId: r.bookingId, pendingAdditionId: r._id }
         : { rentalAdditionId: r._id, additionBookingId: r.bookingId },
     };
+  if(state.swapProposal?.settlementRefundId){
+    if(!b.securityHoldCustomerId||!canDeferAdditionSecurity(b))throw Error("The saved pickup card needs reconciliation before a combined swap checkout.");
+    params={...params,customer:b.securityHoldCustomerId,customer_email:undefined,customer_creation:undefined};
+  }
   if(r.membershipCheckoutId){
     const original:Stripe.Checkout.SessionCreateParams=JSON.parse(r.membershipSessionParams);
     const recurring=(original.line_items??[]).filter(line=>typeof line.price==="string");
@@ -197,6 +234,7 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
   const complete = paid || noPayment;
   const expected = money((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0));
   if (session.id !== r.sessionId || complete && (session.status !== "complete" || session.currency !== "gbp" || session.amount_total !== expected || noPayment && expected !== 0)) throw Error("Withdrawal session does not match the saved order");
+  const verifiedPayment = complete ? await verifiedUpdatePayment({ ...state, ...bound, addition: r }, session) : undefined;
   if (complete && r.membershipCheckoutId) {
     const member = bound?.membershipCheckout, account = bound?.membershipAccount;
     const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
@@ -217,7 +255,7 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
     await syncStripeMembership(ctx, sub);
     await ctx.runMutation(internal.rentalAdditionState.recordMembershipWithdrawal, { id, subscriptionId: subId });
   }
-  const payment = await checkoutPaymentIntent(session);
+  const payment = verifiedPayment?.id;
   if (paid && payment) {
     await ctx.runMutation(internal.rentalAdditionState.markPaid, {
       id,
@@ -307,6 +345,7 @@ async function finish(
   const noPayment=r.membershipCheckoutId&&session.status==="complete"&&session.payment_status==="no_payment_required";
   if (session.id !== r.sessionId || session.payment_status !== "paid"&&!noPayment)
     throw Error("Addition payment has not completed");
+  const verifiedPayment = await verifiedUpdatePayment(state, session);
   if (["refunded", "expired"].includes(r.status))
     return { bookingId: r.bookingId, status: r.status, closed: true };
   if (r.withdrawalRequestedAt) {
@@ -317,11 +356,11 @@ async function finish(
     if (r.status === "applied") await releaseReplacedHold(ctx, r);
     return { bookingId: r.bookingId, status: b?.depositHoldStatus??"held" };
   }
-  if (Date.now() > r.createdAt + 24 * 3600000) {
+  if (Date.now() > r.createdAt + 24 * 3600000 && !state.swapProposal?.settlementRefundId) {
     const result = await withdraw(ctx, id);
     return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
   }
-  const payment = await checkoutPaymentIntent(session);
+  const payment = verifiedPayment?.id;
   if (!payment&&!noPayment) throw Error("Paid addition has no card payment");
   if (
     session.amount_total !==
@@ -356,9 +395,14 @@ async function finish(
     return { bookingId: r.bookingId, status: "draft_applied" };
   }
   if(!payment)throw Error("An item addition requires a saved rental payment.");
-  if(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY&&pickupHoldAt(b)>Date.now()){
+  if(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY&&(pickupHoldAt(b)>Date.now()||canDeferAdditionSecurity(b))){
     if(!canDeferAdditionSecurity(b)||r.holdIntentId||r.securityCreationPending)throw Error("Resolve the existing security authorisation before updating the pickup hold.");
     const result=await ctx.runMutation(internal.rentalAdditionState.apply,{id});
+    if(result.needsRefund){
+      const settled=await ctx.runAction(internal.checkout.settleCompoundSwap,{id});
+      return {bookingId:r.bookingId,status:settled.applied?"scheduled":settled.needsReview?"swap_settlement_review":settled.status==="failed"?"swap_refund_failed":"swap_refund_pending"};
+    }
+    if(result.closed&&state.swapProposal?.settlementRefundId)return {bookingId:r.bookingId,status:"swap_settlement_review"};
     if(result.closed){const result=await withdraw(ctx,id);return {bookingId:r.bookingId,status:result?.pending?"refund_pending":"refunded",closed:!result?.pending};}
     return {bookingId:r.bookingId,status:"scheduled"};
   }
@@ -380,7 +424,7 @@ async function finish(
     }
     if (!intent && r.securityCreationPending) intent = await recoverPreparedSecurity(ctx, r);
     if (!intent) {
-      const paid = await sb().paymentIntents.retrieve(payment);
+      const paid = verifiedPayment!;
       const customer =
         typeof session.customer === "string"
           ? session.customer
@@ -442,14 +486,33 @@ async function finish(
   });
   return { bookingId: r.bookingId, status: "held" };
 }
+export const startPaidSwap = action({
+  args:{token:v.string(),bookingId:v.id("bookings"),id:v.id("rental_change_requests"),quoteKey:v.string()},
+  handler:async(ctx,args):Promise<{url:string;id:string;applied?:boolean}>=>{
+    const row:any=await ctx.runMutation(internal.rentalSwaps.preparePaidSwap,args);
+    if(row.status==="applied")return {url:"",id:row._id,applied:true};
+    if(row.withdrawalRequestedAt)throw Error("Finish withdrawing this swap settlement before agreeing a new request.");
+    const session=await ensureSession(ctx,row._id);
+    if(session.payment_status==="paid"){
+      const result=await finish(ctx,row._id,session);
+      const current:any=await ctx.runQuery(internal.rentalAdditionState.context,{id:row._id});
+      return {url:"",id:row._id,applied:!result.closed&&current?.addition?.status==="applied"};
+    }
+    if(!session.url||session.status!=="open")throw Error("This swap payment is no longer open. Review its saved settlement in the rental.");
+    return {url:session.url,id:row._id};
+  },
+});
 export const start = action({
   args: {
     token: v.string(),
     bookingId: v.id("bookings"),
     requestId: v.string(),
+    changeRequestId:v.optional(v.id("rental_change_requests")),
     listingId: v.id("listings"),
     qty: v.number(),
     reason: v.string(),
+    expectedAmount: v.optional(v.number()),
+    expectedHoldTotal: v.optional(v.number()),
     start: v.optional(v.number()),
     end: v.optional(v.number()),
     complimentary: v.optional(v.boolean()),
@@ -467,6 +530,7 @@ export const start = action({
     });
     if (r && r.bookingId !== args.bookingId)
       throw Error("Request belongs to another rental");
+    if(r&&args.changeRequestId&&r.changeRequestId!==args.changeRequestId)throw Error("This saved proposal belongs to a different customer request");
     if (!r) {
       const b: any = await ctx.runQuery(
         internal.rentalOperations.refundContext,
@@ -542,6 +606,15 @@ export const start = action({
     return { url: session.url, id: r._id };
   },
 });
+export const closeRefundOnlyByOwner=action({
+ args:{token:v.string(),id:v.id('rental_additions'),quoteKey:v.string(),reason:v.string()},
+ handler:async(ctx,args)=>{
+  const prepared=await ctx.runMutation(internal.rentalAdditionState.prepareRefundOnlyClosure,args);
+  if(prepared.closed)return {ok:true,pending:false,closed:true};
+  const result=await withdraw(ctx,args.id);
+  return {ok:true,pending:!!result?.pending,needsAttention:!!result?.needsAttention,closed:!result?.pending};
+ }
+});
 export const withdrawByOwner = action({
   args: { token: v.string(), id: v.id("rental_additions") },
   handler: async (ctx, { token, id }) => {
@@ -553,10 +626,22 @@ export const withdrawByOwner = action({
     return { ok: true, pending: !!result?.pending, needsAttention: !!result?.needsAttention };
   },
 });
+/** The hold status alone cannot attest that the equipment change committed. */
+async function finishWithReceipt(ctx: any, id: any, session: Stripe.Checkout.Session) {
+  const result = await finish(ctx, id, session);
+  // finish validates the bound checkout and captured payment before this read.
+  const current: any = await ctx.runQuery(internal.rentalAdditionState.context, { id });
+  const addition = current?.addition;
+  const updateKind: "swap" | "draft" | "addition" = addition?.swapProposalId
+    ? "swap" : addition?.draftReplacement ? "draft" : "addition";
+  return { ...result, updateKind, updateApplied: !result.closed &&
+    !!addition && addition.bookingId === result.bookingId && !addition.withdrawalRequestedAt &&
+    ["applied", "applied_draft"].includes(addition.status) };
+}
 export const finalizePaid = internalAction({
   args: { id: v.id("rental_additions"), sessionId: v.string() },
   handler: async (ctx, { id, sessionId }) =>
-    finish(ctx, id, await sb().checkout.sessions.retrieve(sessionId)),
+    finishWithReceipt(ctx, id, await sb().checkout.sessions.retrieve(sessionId)),
 });
 export const sync = action({
   args: { sessionId: v.string() },
@@ -568,11 +653,13 @@ export const sync = action({
     status: string;
     clientSecret?: string;
     closed?: boolean;
+    updateApplied: boolean;
+    updateKind: "swap" | "draft" | "addition";
   }> => {
     const session = await sb().checkout.sessions.retrieve(sessionId);
     const id = session.metadata?.rentalAdditionId;
     if (!id) throw Error("Not an item addition checkout");
-    return finish(ctx, id, session);
+    return finishWithReceipt(ctx, id, session);
   },
 });
 export const reconcile = internalAction({
@@ -585,7 +672,8 @@ export const reconcile = internalAction({
     for (const r of rows) {
       try {
         if (r.withdrawalRequestedAt) { await withdraw(ctx, r._id); continue; }
-        if (Date.now() > r.createdAt + 24 * 3600000 && r.sessionId) {
+        const swapState=r.swapProposalId?await ctx.runQuery(internal.rentalAdditionState.context,{id:r._id}):null;
+        if (Date.now() > r.createdAt + 24 * 3600000 && r.sessionId && !swapState?.swapProposal?.settlementRefundId) {
           await withdraw(ctx, r._id);
           continue;
         }
@@ -647,3 +735,39 @@ export const resumeByCustomer = action({
     return finish(ctx, r.id, session);
   },
 });
+
+/** Owner recovery verifies the saved provider receipt; bank challenges remain renter-only. */
+export const resumeByOwner = action({
+  args:{token:v.string(),bookingId:v.id("bookings"),id:v.id("rental_additions")},
+  handler:async(ctx,{token,bookingId,id}):Promise<{status:string}>=>{
+    await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"rentalAdditions.resumeByOwner"});
+    const state:any=await ctx.runQuery(internal.rentalAdditionState.context,{id});
+    if(!state?.addition||!state.booking||state.addition.bookingId!==bookingId||state.booking._id!==bookingId)throw Error("Proposal belongs to another rental");
+    const r=state.addition;
+    if(["applied","applied_draft","expired","refunded"].includes(r.status))return {status:r.status};
+    if(r.withdrawalRequestedAt)throw Error("Check the saved withdrawal before continuing this proposal");
+    if(state.booking.activeAdditionId!==id)throw Error("This proposal is no longer active for the rental");
+    if(!r.sessionId)throw Error("Resume the saved proposal to prepare its payment link");
+    const session=await sb().checkout.sessions.retrieve(r.sessionId);
+    if(session.payment_status!=="paid")return {status:"awaiting_payment"};
+    if(r.draftReplacement){
+      if(session.metadata?.pendingAdditionId!==id)throw Error("Payment receipt does not match this proposal");
+      const result=await ctx.runAction(api.checkout.finalize,{sessionId:session.id});
+      return {status:result.holdStatus??"pending"};
+    }
+    const result=await finish(ctx,id,session);
+    return {status:result.status};
+  },
+});
+
+/** Reuse the exact captured-update receipt verifier before releasing rental cash. */
+export const attestCompoundPayment=internalAction({args:{id:v.id("rental_additions")},handler:async(ctx,{id})=>{
+ const state:any=await ctx.runQuery(internal.rentalAdditionState.context,{id});
+ if(!state?.addition?.sessionId||!state.addition.paymentIntentId||state.addition.withdrawalRequestedAt)throw Error("The additional refundable deposit is not ready.");
+ const session=await sb().checkout.sessions.retrieve(state.addition.sessionId);
+ const customer=typeof session.customer==='string'?session.customer:session.customer?.id;
+ if(!state.booking.securityHoldCustomerId||customer!==state.booking.securityHoldCustomerId)throw Error("The additional deposit belongs to another saved-card customer.");
+ const payment=await verifiedUpdatePayment(state,session);
+ if(!payment||payment.id!==state.addition.paymentIntentId)throw Error("The additional refundable deposit receipt changed.");
+ return true;
+}});
