@@ -239,17 +239,29 @@ export const retentionHold = mutation({ args: { token: v.string(), archiveId: v.
   await ctx.db.patch(archive._id, { retentionHoldReason: args.reason.trim().slice(0, 500) || undefined });
 } });
 /** Retain during rental/claim; remove bytes 30 days after actual return or cancellation. */
-export const purgeExpired = internalMutation({ args: {}, handler: async ctx => {
-  const archives = await ctx.db.query("verification_archives").collect();
+export const purgeExpired = internalMutation({ args: {
+  cursor: v.optional(v.union(v.string(), v.null())), cutoff: v.optional(v.number()),
+}, handler: async (ctx, { cursor, cutoff: suppliedCutoff }) => {
+  // A stable creation-time window visits every status, including legacy rows,
+  // without moving the cursor when an archive becomes a deletion tombstone.
+  const cutoff = suppliedCutoff ?? Date.now();
+  if (!Number.isFinite(cutoff) || cutoff <= 0 || cutoff > Date.now() + 60000) throw Error("Invalid archive cleanup window");
+  const archives = await ctx.db.query("verification_archives")
+    .withIndex("by_creation_time", q => q.lte("_creationTime", cutoff))
+    .order("asc").paginate({ numItems: 20, cursor: cursor ?? null, maximumRowsRead: 20, maximumBytesRead: 256 * 1024 });
   let removed = 0;
-  for (const archive of archives) {
-    if (removed >= 25 || archive.status === "deleted" || archive.retentionHoldReason) continue;
+  for (const archive of archives.page) {
+    if (archive.status === "deleted" || archive.retentionHoldReason) continue;
     const retention = await archiveRetention(ctx, archive);
     if (retention.status !== "expires" || retention.expiresAt === null || retention.expiresAt > Date.now()) continue;
     const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archive._id)).collect();
     for (const document of documents) await deletePrivateFile(ctx,document.storageId);
     await ctx.db.patch(archive._id, { status: "deleted", deletedAt: Date.now(), error: undefined });
     removed++;
+  }
+  if (!archives.isDone) {
+    if (!archives.continueCursor || archives.continueCursor === cursor) throw Error("Archive cleanup cursor did not advance");
+    await ctx.scheduler.runAfter(1000, internal.verificationArchive.purgeExpired, { cursor: archives.continueCursor, cutoff });
   }
   return removed;
 } });
