@@ -21,9 +21,12 @@ export function pickupHoldEligible(b: any) {
   );
 }
 
-/** Only an untouched future pickup job may change amount without retiring an intent. */
+/** Only an untouched pickup job may change amount without retiring an intent.
+ * A saved settlement prevents handover and may finish after its pickup slot. */
 export function canDeferAdditionSecurity(b:any,now=Date.now()) {
- return pickupHoldEligible(b)&&pickupHoldAt(b)>now&&
+ const waitingForSettlement=b?.status==="confirmed"&&b.pickedUpAt==null&&
+  !!(b.activeAdditionId||b.activeSwapRefundId||b.activeExtensionId);
+ return pickupHoldEligible(b)&&(pickupHoldAt(b)>now||waitingForSettlement)&&
   b.depositHoldStatus==="scheduled"&&!b.stripeDepositIntentId&&
   !!b.securityHoldCustomerId&&!!b.securityHoldPaymentMethodId&&
   !(b.securityHoldAttempts??0)&&!b.securityHoldLeaseUntil&&

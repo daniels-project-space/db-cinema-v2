@@ -488,8 +488,42 @@ async function due(b) {
     }),
     3,
   );
+  outcome="requires_capture";error=null;onCreate=null;onClaim=null;onResult=null;
+  for(const field of ["activeAdditionId", "activeSwapRefundId", "activeExtensionId"]){
+    const savedClock=clock;clock=Date.parse("2026-10-08T12:00:00Z");
+    const waiting=make({[field]:"pending-owner-operation"});await save(waiting);
+    clock=waiting.securityHoldDueAt+1;
+    assert.equal(shared.canDeferAdditionSecurity(waiting,clock),true,"Uncollected locked settlement may finish without first creating the old hold");
+    assert.equal(shared.canDeferAdditionSecurity({...waiting,pickedUpAt:clock},clock),false,"An actual handover cannot use the deferred settlement path");
+    const before=events.length,attempts=waiting.securityHoldAttempts??0,generation=waiting.securityHoldGeneration;
+    await holds.authorizePickup.handler(ctx,{bookingId:waiting._id,generation});
+    assert.equal(events.length,before,"Pending financial operation cannot authorise the old pickup amount");
+    assert.equal(waiting.securityHoldAttempts??0,attempts);assert.equal(waiting.depositHoldStatus,"scheduled");assert.equal(waiting.securityHoldLeaseUntil,undefined);
+    assert.equal(waiting.securityHoldRetryAt,clock+5*60000,"Waiting settlement yields its due-queue position without a new scheduler or bank attempt");
+    delete waiting[field];assert.equal(shared.canDeferAdditionSecurity(waiting,clock),false,"A past pickup without a saved operation cannot open a new deferred quote");
+    await holds.authorizePickup.handler(ctx,{bookingId:waiting._id,generation});assert.equal(waiting.depositHoldStatus,"held","Existing scheduled job recovers once the operation is closed");
+    clock=savedClock;
+  }
+  const recovering=make({activeAdditionId:"legacy-inflight-operation"});await save(recovering);
+  const recoveryClock=clock;clock=recovering.securityHoldDueAt+1;
+  recovering.securityHoldAttempts=1;recovering.depositHoldStatus="processing";
+  assert.equal(shared.canDeferAdditionSecurity(recovering,clock),false,"An existing bank attempt cannot use the untouched settlement path");
+  await holds.authorizePickup.handler(ctx,{bookingId:recovering._id,generation:recovering.securityHoldGeneration});
+  assert.equal(recovering.depositHoldStatus,"held","Previously started bank attempts remain recoverable under their existing key");assert.equal(recovering.securityHoldAttempts,2);clock=recoveryClock;
+  const batchClock=clock;clock=Date.parse("2026-10-10T10:00:00Z");
+  const waitingBatch=[];
+  for(let i=0;i<50;i++){const b=make({activeSwapRefundId:`pending-refund-${i}`});await save(b);waitingBatch.push(b);}
+  const other=make();await save(other);const attemptsBefore=events.length;
+  assert.equal((await security.due.handler(ctx,{})).some(row=>row.bookingId===other._id),false,"First bounded batch can be occupied by pending settlements");
+  for(const b of waitingBatch)await holds.authorizePickup.handler(ctx,{bookingId:b._id,generation:b.securityHoldGeneration});
+  assert.equal(events.length,attemptsBefore,"Yielding a batch makes no provider calls");
+  assert.equal((await security.due.handler(ctx,{})).some(row=>row.bookingId===other._id),true,"Blocked batch cannot starve the next eligible rental");
+  await holds.authorizePickup.handler(ctx,{bookingId:other._id,generation:other.securityHoldGeneration});assert.equal(other.depositHoldStatus,"held");
+  clock+=5*60000;
+  assert.equal((await security.due.handler(ctx,{})).some(row=>row.bookingId===waitingBatch[0]._id),true,"Existing reconciliation can revisit a yielded settlement");
+  clock=batchClock;
   console.log(
-    "PASS pickup security: London/DST slots; future scheduling; exact10%/full amounts; once-only manual/off-session holds; stale claim snapshots/dates and cancelled rentals; orphan cleanup; exact intent ownership/amount/card binding; captured and processing recovery protection; late transport/old idempotency guards; bank authentication; bounded uncertain retries; all payment/subscription/setup saved-card paths; ownership and card-recovery replay guards; historical cancellation terms.",
+    "PASS pickup security: London/DST slots; future scheduling; exact10%/full amounts; once-only manual/off-session holds; stale claim snapshots/dates and cancelled rentals; orphan cleanup; exact intent ownership/amount/card binding; captured and processing recovery protection; late transport/old idempotency guards; bank authentication; bounded uncertain retries; all payment/subscription/setup saved-card paths; ownership and card-recovery replay guards; historical cancellation terms; pending-settlement hold fencing and previously-started bank recovery.",
   );
 })().catch((e) => {
   console.error(e);

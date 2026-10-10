@@ -90,6 +90,16 @@ export const claim = internalMutation({
       !Number.isSafeInteger(Math.round(b!.depositHoldAmount! * 100))
     )
       return false;
+    // Leave the untouched job recoverable while an agreed operation owns the
+    // kit/financial lock. Yield its place in the indexed due batch so waiting
+    // settlements cannot starve unrelated rentals; reuse the five-minute cron.
+    // Already-started provider attempts must still reconcile their outcome.
+    if (!b!.stripeDepositIntentId && !(b!.securityHoldAttempts ?? 0) &&
+        (b!.activeAdditionId || b!.activeSwapRefundId || b!.activeExtensionId)) {
+      if (!(b!.securityHoldRetryAt! > now))
+        await ctx.db.patch(a.bookingId, { securityHoldRetryAt: now + 5 * 60000 });
+      return false;
+    }
     if (["requires_action", "failed"].includes(b!.depositHoldStatus ?? ""))
       return false;
     // Stripe retains idempotency keys for at least 24 hours. Do not turn an

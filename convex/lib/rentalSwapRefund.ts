@@ -76,8 +76,9 @@ export async function completeRefundSwap(ctx:any,id:any){
   // Keep total/rentalPaidPence as actual captured gross cash. The existing refund
   // ledger reduces net cash once; changing both would double-deduct cancellation.
   const patch={lineItems:q.finalLines,subtotal:Math.round((booking.subtotal+row.differencePence/100)*100)/100,replacementValues:values,depositHoldAmount:row.holdTotalPence/100,activeSwapRefundId:undefined};
+  const deferred = canDeferAdditionSecurity(booking);
   await ctx.db.patch(booking._id,patch);
-  if(canDeferAdditionSecurity(booking))await schedulePickupHold(ctx,{...booking,...patch},true);
+  if(deferred)await schedulePickupHold(ctx,{...booking,...patch},true);
   for(const r of reservations)if(r.status==='confirmed')await ctx.db.patch(r._id,{status:'cancelled'});
   for(const line of q.finalLines){
    const listing=await ctx.db.get(line.listingId);if(!listing?.components?.length)throw Error('The saved replacement mapping needs review.');
