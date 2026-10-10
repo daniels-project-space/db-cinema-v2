@@ -1,4 +1,5 @@
 "use node";
+import { invoiceRequest } from "./lib/invoiceRequest";
 import { STARTED_RENTAL_REFUND_MESSAGE } from "../src/lib/cancellationPolicy";
 import {isAllowedReturnTime} from "../src/lib/site";
 
@@ -976,7 +977,7 @@ export const previewReturned = action({
     const draft = !invoice.returnStatement;
     const secret = process.env.INVOICE_SECRET;
     if (!secret) throw Error("Return statement PDF previews are not configured");
-    const response = await fetch(`${process.env.APP_URL ?? "https://dbcinemarentals.com"}/api/invoice/${args.bookingId}?phase=return-preview`, {
+    const response = await invoiceRequest(`${process.env.APP_URL ?? "https://dbcinemarentals.com"}/api/invoice/${args.bookingId}?phase=return-preview`, {
       method: "POST", headers: { "content-type": "application/json", "x-invoice-key": secret }, body: JSON.stringify({ statement, draft }), signal: AbortSignal.timeout(20000),
     });
     if (!response.ok) throw Error("The return statement PDF preview is unavailable. No settlement has been executed.");

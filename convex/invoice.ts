@@ -1,4 +1,5 @@
 "use node";
+import { invoiceRequest } from "./lib/invoiceRequest";
 import { createHash } from "node:crypto";
 import {rentalEmail,emailRows} from "../shared/rentalEmail";
 import { returnStatementEmail } from "../shared/returnStatement";
@@ -14,7 +15,7 @@ const esc = (value: string) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;",
 
 /** The customer attachment must contain an actual bounded PDF, never a route error or JSON. */
 async function fetchInvoicePdf(url:string,secret:string):Promise<Buffer>{
- const response=await fetch(url,{headers:{"x-invoice-key":secret},signal:AbortSignal.timeout(20_000)});
+ const response=await invoiceRequest(url,{headers:{"x-invoice-key":secret},signal:AbortSignal.timeout(20_000)});
  if(!response.ok||response.headers.get("content-type")?.split(";")[0].trim().toLowerCase()!=="application/pdf")throw Error("Invoice route did not return a PDF");
  const bytes=Buffer.from(await response.arrayBuffer());
  if(bytes.length<5||bytes.length>10_000_000||bytes.subarray(0,5).toString("ascii")!=="%PDF-")throw Error("Invoice PDF is invalid");
