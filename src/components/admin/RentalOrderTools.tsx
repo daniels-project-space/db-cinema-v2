@@ -17,11 +17,13 @@ export function RentalOrderTools({
   token,
   bookingId,
   showReturn = true,
+  initialMode,
 }: {
   token: string;
   bookingId: string;
   /** Return settlement belongs in the rental conversation, where the customer record is visible. */
   showReturn?: boolean;
+  initialMode?:"reschedule"|"refund"|"add";
 }) {
   const b = useQuery(api.rentalOperations.details, {
     token,
@@ -47,7 +49,7 @@ export function RentalOrderTools({
     refund = useAction(api.checkout.refundRental);
   const [mode, setMode] = useState<
       "reschedule" | "cancel" | "refund" | "add" | "remove" | null
-    >(null),
+    >(initialMode??null),
     [date, setDate] = useState(""),
     [endDate, setEndDate] = useState(""),
     [reason, setReason] = useState(""),

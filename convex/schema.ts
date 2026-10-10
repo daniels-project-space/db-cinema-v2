@@ -226,6 +226,7 @@ export default defineSchema({
         returnTime: v.optional(v.union(v.string(), v.null())),
       }),
     ),
+    kitReplacements: v.optional(v.array(v.object({ requestId:v.string(), lineIndex:v.number(), oldListingId:v.id("listings"), newListingId:v.id("listings"), qty:v.number(), start:v.number(), end:v.number(), appliedAt:v.number() }))),
     removedItems: v.optional(v.array(v.object({ listingId: v.id("listings"), title: v.string(), start: v.number(), end: v.number(), qty: v.number(), lineTotal: v.number(),pickupTime:v.optional(v.union(v.string(),v.null())),returnTime:v.optional(v.union(v.string(),v.null())), removedAt: v.number(), reason: v.string(), requestId: v.string() }))),
     stockHoldFingerprint:v.optional(v.string()),
     cancellationPolicyStart: v.optional(v.number()),
