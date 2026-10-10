@@ -1387,8 +1387,11 @@ export const returnStatementContext = internalQuery({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if(!b?.returnStatement)return null;
+    const account = await accountForRental(ctx, b);
+    const notificationEmail = account?.blockedAt != null ? null
+      : account?.email ?? (b.accountId ? null : b.guestEmail ?? null);
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
-    return {statement:{...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(refundJobs)/100},status:b.returnStatementEmailStatus??"pending"};
+    return {notificationEmail,statement:{...b.returnStatement,rentalRefunded:b.returnStatement.rentalRefunded??confirmedRentalRefundPence(refundJobs)/100},status:b.returnStatementEmailStatus??"pending"};
   },
 });
 

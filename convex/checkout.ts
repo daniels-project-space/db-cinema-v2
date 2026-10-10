@@ -846,7 +846,9 @@ export const previewReturned = action({
     if (!response.ok) throw Error("The return statement PDF preview is unavailable. No settlement has been executed.");
     const pdf = Buffer.from(await response.arrayBuffer());
     if (pdf.length > 1_000_000 || pdf.subarray(0, 5).toString() !== "%PDF-") throw Error("The return statement preview did not produce a valid PDF");
-    return { draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement, securityAlreadySettled: !!b.depositRefunded, financial: { ...plan, holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email: returnStatementEmail(statement, draft), pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
+    const current: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId: args.bookingId });
+    const email = returnStatementEmail({...statement, customerEmail:current?.notificationEmail ?? ""}, draft);
+    return { draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement, securityAlreadySettled: !!b.depositRefunded, financial: { ...plan, holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email, pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
   },
 });
 

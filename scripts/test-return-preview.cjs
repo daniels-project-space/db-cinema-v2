@@ -40,8 +40,13 @@ const review=(extra={})=>checkout.previewReturned.handler(ctx,{...args,...extra}
  const renter=put('accounts',{email:'changed-renter@example.invalid'}),reused=put('accounts',{email:b.guestEmail});
  await db.patch(b._id,{accountId:'missing-permanent-account'});
  const missing=await bookings.getForRefund.handler({db},{bookingId:b._id});assert.equal(missing.notificationEmail,null,'missing permanent account never falls back to reused email');
+ global.fetch=async()=>({ok:true,arrayBuffer:async()=>Buffer.from('%PDF-1.7\nfixture')});
+ const missingPreview=await review();assert.equal(missingPreview.email.to,'','preview never suggests emailing a missing account\'s old address');assert.equal(missingPreview.statement.customerEmail,reused.email,'preview keeps historical billing evidence');
  const beforeMissing=events.length;await assert.rejects(checkout.markReturned.handler(ctx,args),/associated rental account email/);assert.equal(events.length,beforeMissing,'missing account fails before provider changes or mail');assert.equal(b.returnDecision,undefined);
  await db.patch(b._id,{accountId:renter._id});const linked=await bookings.getForRefund.handler({db},{bookingId:b._id});assert.equal(linked.notificationEmail,renter.email);assert.equal(linked.guestEmail,reused.email,'original booking contact stays intact for audit');
+ const linkedPreview=await review();assert.equal(linkedPreview.email.to,renter.email,'preview matches permanent account recipient');
+ global.fetch=async()=>{await db.patch(renter._id,{email:'updated-during-preview@example.invalid'});return {ok:true,arrayBuffer:async()=>Buffer.from('%PDF-1.7\nfixture')}};
+ assert.equal((await review()).email.to,renter.email,'preview refreshes account after generating the PDF');
  mailAccepted=false;capturable=2000;status='requires_capture';
  await assert.rejects(checkout.markReturned.handler(ctx,args),/notice could not be delivered/);assert.equal(b.status,'active');assert(!b.damageNoticeSentAt);assert(!events.some(e=>['capture','refund','cancel'].includes(e[0])),'failed notice cannot collect damage');
  const failedNotice=events.find(e=>e[0]==='email')[1];assert.equal(failedNotice.to,renter.email);assert.match(failedNotice.html.replace(/<[^>]+>/g,''),/DB CINEMA/);assert(failedNotice.html.includes('&lt;script&gt;'));assert(!failedNotice.html.includes('<script>'));assert(failedNotice.html.includes(`/account?rental=${b._id}#chat`));assert.match(failedNotice.deliveryKey,/^rental-damage-[a-f0-9]{64}$/);assert(!failedNotice.html.includes(reused.email));

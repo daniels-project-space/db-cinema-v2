@@ -67,7 +67,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  let mail;setMock('./lib/mailer',{sendMail:async value=>{mail=value;return true}});
  const worker=load('convex/invoice.ts'),originalFetch=global.fetch;
  process.env.INVOICE_SECRET='isolated-invoice-test';global.fetch=async()=>new Response('%PDF-isolated-worker-fixture',{headers:{'content-type':'application/pdf'}});
- try{await worker.returnSettlementEmail.handler({runMutation:async()=>true,runQuery:async()=>({statement})},{bookingId:b._id})}finally{global.fetch=originalFetch}
+ try{await worker.returnSettlementEmail.handler({runMutation:async()=>true,runQuery:async()=>({statement,notificationEmail:account.email,status:'sending'})},{bookingId:b._id})}finally{global.fetch=originalFetch}
  assert(mail.html.includes('Equipment inspection'));assert(mail.html.includes('damage case opened'));assert(mail.html.includes('Damaged battery casing'));
  assert(mail.html.includes('&lt;evidence&gt;'),'Escape evidence in customer email');assert(!mail.html.includes('<evidence>'));
  assert.equal(mail.attachments.length,1);
