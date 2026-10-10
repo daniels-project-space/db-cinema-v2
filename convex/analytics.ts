@@ -6,7 +6,9 @@ import { isMarketingOnly } from "./lib/marketingInventory";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { lateFeeQuote } from "./lib/lateFee";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
-import { requiresDroneLicence } from "./lib/droneVerification";
+import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
+import { assertVerificationArchive } from "./verificationArchive";
+import { VERIFICATION_REUSE_DAYS } from "./lib/verificationReuse";
 import { accountForRental } from "./lib/rentalAccount";
 import { DASHBOARD_PREVIEW_COUNT, dashboardVerificationPending } from "../shared/dashboardPreviews";
 
@@ -154,6 +156,22 @@ export const adminSummary = query({
     const project = async (b: typeof active[number]) => {
       const account = await customerFor(b);
       const accountNeedsReview = !!b.accountId && !account;
+      const droneRequired = await requiresDroneLicence(ctx, b);
+      const droneVerification = droneRequired ? await droneLicenceStatusForRental(ctx, b) : b.droneLicenceStatus ?? null;
+      let verificationReady = false;
+      let verificationReviewReason: string | null = null;
+      if (!account) verificationReviewReason = "Account needs review";
+      else if (b.idVerifyStatus !== "verified") verificationReviewReason = "Needs verification";
+      else if (!(Math.min(b.verificationExpiresAt ?? ((b.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * DAY),
+        b.documentExpiresAt ?? Infinity) > now)) verificationReviewReason = "Verification expired";
+      else {
+        try { await assertVerificationArchive(ctx, b); verificationReady = true; }
+        catch { verificationReviewReason = "Saved documents need attention"; }
+        if (verificationReady && droneRequired && droneVerification !== "approved") {
+          verificationReady = false;
+          verificationReviewReason = "Drone licence needs review";
+        }
+      }
       const starts = b.lineItems.map(line => line.start).filter(Number.isFinite);
       const ends = b.lineItems.map(line => line.end).filter(Number.isFinite);
       const lastDay = ends.length ? Math.max(...ends) : null;
@@ -168,7 +186,8 @@ export const adminSummary = query({
         customerName: accountNeedsReview ? "Linked account unavailable" : account?.name ?? b.guestName ?? b.agreementName ?? null,
         accountNeedsReview,
         customerPhoto: null as string | null,
-        status: b.status, verification: b.idVerifyStatus ?? "required", requiresDroneLicence: await requiresDroneLicence(ctx, b), droneVerification: b.droneLicenceStatus ?? null, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
+        status: b.status, verification: b.idVerifyStatus ?? "required", verificationReady, verificationReviewReason,
+        requiresDroneLicence: droneRequired, droneVerification, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
         pickupTime: b.pickupTime ?? null, returnTime, total: b.total,
         items: b.lineItems.map(line => line.title).join(", "),
         kit: [] as { title: string; qty: number; start: number; end: number; heroImage: string | null; imageSources: string[] }[], fulfilment: b.fulfilment,

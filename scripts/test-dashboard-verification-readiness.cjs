@@ -1,0 +1,66 @@
+const assert = require('node:assert/strict');
+const h = require('./lib/rentalTestHarness.cjs');
+const {seedVerificationFiles} = require('./lib/verificationFiles.cjs');
+process.env.ADMIN_TOKEN = 'readiness-owner';
+const analytics = h.load('convex/analytics.ts');
+const previews = h.load('shared/dashboardPreviews.ts');
+const now = Date.UTC(2030,0,1), day = 86400000;
+const camera = h.put('listings',{title:'Sony FX3',itemType:'camera',category:'Drones',r2Images:['https://fixture.invalid/camera.jpg']});
+const drone = h.put('listings',{title:'DJI Mavic 3',itemType:'drone',r2Images:['https://fixture.invalid/drone.jpg']});
+function rental(extra={}) {
+ const account = h.put('accounts',{name:'Readiness customer',email:'readiness@example.invalid'});
+ return h.put('bookings',{accountId:account._id,status:'confirmed',idVerifyStatus:'verified',idVerifiedAt:now,verificationExpiresAt:now+90*day,droneLicenceStatus:'approved',lineItems:[{listingId:camera._id,title:camera.title,start:now+day,end:now+2*day,qty:1}],...extra});
+}
+function archive(b) {
+ const job=h.put('verification_archives',{bookingId:b._id,accountId:b.accountId,sessionId:b.diditSessionId,status:'complete',source:'didit'});
+ return {job,files:seedVerificationFiles(h.put,job)};
+}
+const legacy=rental();
+const approved=rental({diditSessionId:'private-ready-session'}), approvedArchive=archive(approved);
+const expired=rental({verificationExpiresAt:now});
+const documentExpired=rental({documentExpiresAt:now});
+const implicitExpired=rental({idVerifiedAt:now-90*day,verificationExpiresAt:undefined});
+const missing=rental({diditSessionId:'private-missing-session'}), missingArchive=archive(missing);
+const waiting=rental({diditSessionId:'private-pending-session'});
+const orphan=rental();
+const aircraft=rental({lineItems:[{listingId:drone._id,title:drone.title,start:now+day,end:now+2*day,qty:1}]});
+const ctx={db:h.db,storage:{getUrl:async()=>{throw Error('No profile URLs needed');}}};
+const query=(at=now)=>analytics.adminSummary.handler(ctx,{token:'readiness-owner',now:at});
+(async()=>{
+ await h.db.delete(missingArchive.files[1].storageId);
+ await h.db.delete(orphan.accountId);
+ assert.deepEqual(await analytics.adminSummary.handler({db:{get:()=>{throw Error('Denied must not read');}}},{token:'denied',now}),{authorized:false});
+ let result=await query();
+ const row=b=>result.awaitingCollection.find(x=>x._id===b._id);
+ assert.equal(row(expired).verificationReady,false,'Exact approval expiry remains pending even with a verified snapshot');
+ assert.equal(row(expired).verificationReviewReason,'Verification expired');
+ assert.equal(row(documentExpired).verificationReady,false,'Identity document expiry overrides a later verification expiry');
+ assert.equal(row(implicitExpired).verificationReady,false,'Legacy approval expiry uses the same 90-day handover rule');
+ assert.equal(row(missing).verificationReady,false,'Complete archive with missing actual address bytes is not approval');
+ assert.equal(row(missing).verificationReviewReason,'Saved documents need attention');
+ assert.equal(row(waiting).verificationReady,false,'Provider approval without completed copies stays in review');
+ assert.equal(row(orphan).verificationReady,false,'A missing permanent owner cannot appear ready');
+ assert.equal(row(orphan).verificationReviewReason,'Account needs review');
+ assert.equal(row(aircraft).droneVerification,'requires_input','Stored drone approval without its real account-bound copy is not ready');
+ assert.equal(row(aircraft).verificationReviewReason,'Drone licence needs review');
+ assert.equal(row(approved).verificationReady,true);assert.equal(row(legacy).verificationReady,true,'Valid manual/legacy approval does not acquire a fake Didit requirement');
+ assert.equal(row(legacy).requiresDroneLicence,false,'Typed camera ignores a stale drone category');
+ assert.equal(result.awaitingCollection.filter(previews.dashboardVerificationPending).length,7);
+ for(const b of [expired,documentExpired,implicitExpired,missing,waiting,orphan,aircraft])assert.equal(row(b).verification,'verified','Read-only readiness does not rewrite human approval');
+ assert.equal(result.awaitingCollection.length,9,'All collection/calendar entries survive verification filtering');
+ assert.equal(row(expired).kit[0].heroImage,'https://fixture.invalid/camera.jpg','Newly pending cards hydrate their real kit image');
+ const payload=JSON.stringify(result);
+ for(const privateValue of [approved.diditSessionId,missing.diditSessionId,...approvedArchive.files.map(f=>f.storageId),...approvedArchive.files.map(f=>f.sha256)])assert(!payload.includes(privateValue),'Readiness exposes no private document/session identifiers');
+ await h.db.patch(expired._id,{verificationExpiresAt:now+day});
+ const licenceArchive=h.put('verification_archives',{bookingId:aircraft._id,accountId:aircraft.accountId,sessionId:'private-drone-session',source:'drone',status:'complete'});
+ const licence=seedVerificationFiles(h.put,licenceArchive)[0];licence.kind='drone-operator-licence';
+ await h.db.patch(aircraft._id,{droneLicenceDocumentId:licence._id,droneLicenceStorageId:licence.storageId});
+ h.put('_storage',{_id:missingArchive.files[1].storageId,sha256:missingArchive.files[1].sha256,size:missingArchive.files[1].size,contentType:missingArchive.files[1].contentType});
+ result=await query();assert.equal(row(expired).verificationReady,true);assert.equal(row(missing).verificationReady,true,'Restored valid storage clears review on the next reactive query');
+ assert.equal(row(aircraft).verificationReady,true,'The real approved aircraft licence copy clears its review');
+ await h.db.patch(licence._id,{accountId:orphan.accountId});result=await query();
+ assert.equal(row(aircraft).verificationReady,false,'A foreign-account licence cannot reuse a saved approval');
+ await h.db.patch(licence._id,{accountId:aircraft.accountId});
+ result=await query(now+day);assert.equal(row(expired).verificationReady,false,'Supplied dashboard clock refresh reaches exact expiry without a booking mutation');
+ console.log('PASS actual dashboard expiry boundaries, private archive metadata/storage readiness, current permanent owner, aircraft-only document approval, reactive recovery, honest preview images and preserved manual approvals. No provider writes.');
+})().catch(e=>{console.error(e);process.exitCode=1});

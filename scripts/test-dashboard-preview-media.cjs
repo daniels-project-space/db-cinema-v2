@@ -8,7 +8,7 @@ const camera=h.put('listings',{title:'Sony FX3',itemType:'camera',r2Images:['htt
 const drone=h.put('listings',{title:'DJI Mavic 3',itemType:'drone',r2Images:['https://fixture.invalid/drone.jpg']});
 function rental(status,offset,options={}){
  const owner=h.put('accounts',{name:'Owner '+offset,email:`owner-${offset}@example.invalid`,avatarStorageId:'photo-'+offset});
- return h.put('bookings',{accountId:owner._id,status,guestEmail:'historic@example.invalid',idVerifyStatus:'verified',droneLicenceStatus:'approved',returnTime:'18:00',lineItems:[{listingId:camera._id,title:camera.title,qty:2,start:now+offset*day,end:now+(offset+1)*day}],...options});
+ return h.put('bookings',{accountId:owner._id,status,guestEmail:'historic@example.invalid',idVerifyStatus:'verified',idVerifiedAt:now,verificationExpiresAt:now+90*day,droneLicenceStatus:'approved',returnTime:'18:00',lineItems:[{listingId:camera._id,title:camera.title,qty:2,start:now+offset*day,end:now+(offset+1)*day}],...options});
 }
 const active=Array.from({length:7},(_,i)=>rental('active',i));
 const verified=Array.from({length:10},(_,i)=>rental('confirmed',20+i));
@@ -32,7 +32,10 @@ const ctx={db:h.db,storage:{getUrl:async id=>{photoReads.push(id);return 'https:
   if(shown.has(row._id)){assert(row.kit.length);assert(row.customerPhoto);}else{assert.deepEqual(row.kit,[]);assert.equal(row.customerPhoto,null);}
  }
  // Approval changes which records are shown; the newly revealed fourth card must hydrate.
- await h.db.patch(licence._id,{droneLicenceStatus:'approved'});photoReads.length=0;
+ const archive=h.put('verification_archives',{bookingId:licence._id,accountId:licence.accountId,sessionId:'fixture-drone',source:'drone',status:'complete'});
+ const {seedVerificationFiles}=require('./lib/verificationFiles.cjs');
+ const file=seedVerificationFiles(h.put,archive)[0];file.kind='drone-operator-licence';
+ await h.db.patch(licence._id,{droneLicenceStatus:'approved',droneLicenceDocumentId:file._id,droneLicenceStorageId:file.storageId});photoReads.length=0;
  result=await analytics.adminSummary.handler(ctx,{token:'preview-owner',now});
  const next=result.awaitingCollection.filter(policy.dashboardVerificationPending);
  assert.deepEqual(next.slice(0,4).map(x=>x._id),pending.slice(0,4).map(x=>x._id));
