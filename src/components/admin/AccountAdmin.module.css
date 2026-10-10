@@ -693,3 +693,50 @@
 .contacts svg { width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:7px; }
 
 .tier[data-tier=standard]{border-color:#50534f;color:#c6c8c3;background:#292b2933}
+
+/* Account overview cards follow the approved dark members reference. */
+.summary .membershipSummary { display:block; }
+.membershipSummaryRow { display:flex; align-items:center; gap:14px; border:1px solid #343735; border-radius:5px; margin-top:9px; padding:6px; min-height:56px; }
+.summary .membershipSummaryRow strong { flex:0 0 64px; margin:0; padding:7px 10px; text-align:center; }
+.summary .membershipSummaryRow > div { min-width:0; }
+.summary .membershipSummaryRow small, .summary .membershipSummaryRow small:first-of-type { margin-top:3px; font-size:10px; line-height:1.4; }
+.membershipBadges { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-height:43px; }
+.membershipBadges .tier { min-width:64px; text-align:center; padding:10px 17px; background:#a97759; border-color:#ba8969; color:#fff2e8; font-size:12px; }
+.membershipBadges .tier[data-tier=standard] { background:#292b29; color:#c6c8c3; border-color:#50534f; }
+.membershipBadges [data-active] { margin-left:0; border:1px solid #343b36; border-radius:5px; padding:7px 12px; font-size:11px; }
+.membershipBadges [data-active=true] { background:#49b17c0d; border-color:#49b17c33; color:#50af83; }
+.membershipBadges [data-active=true]::before { content:'●'; font-size:8px; margin-right:6px; }
+.kitPhoto .kitImage { object-fit:contain; }
+@media(min-width:1101px) { .summary .membershipSummary { height:auto; min-height:107px; } }
+@media(max-width:600px) { .membershipSummaryRow { align-items:flex-start; flex-wrap:wrap; gap:8px; } .summary .membershipSummaryRow strong { flex-basis:60px; } }
+
+.customer { gap:10px; }
+.card { background:linear-gradient(145deg,#171818,#1b1b1a); border-color:#303231; }
+.notePreview { border:1px solid #343634; border-radius:5px; padding:8px 11px; background:#ffffff01; }
+.notePreview .muted { display:block; margin-top:5px; }
+@media(max-width:600px) { .customer { gap:8px; } }
+
+.card h3, .card header button { line-height:1.25; }
+.card header { margin-bottom:7px; }
+.notePreview { padding-block:7px; }
+.profileBody[data-section=overview] { padding-bottom:15px; }
+@media(min-width:1351px) { .filters { margin-bottom:13px; } }
+
+@media(max-width:1350px) {
+  .root { grid-template-columns:minmax(0,1fr); }
+  .detail { margin-top:0; min-height:0; }
+  .directory { min-height:0; }
+  .profileHeader { height:auto; min-height:124px; }
+  .contacts { margin-top:10px; }
+}
+@media(min-width:901px) and (max-width:1350px) {
+  .overviewGrid { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+}
+@media(min-width:601px) and (max-width:900px) {
+  .table { min-width:580px; }
+  .overviewGrid { grid-template-columns:minmax(0,1fr); }
+}
+
+.tableWrap { position:relative; min-width:0; }
+
+@media(min-width:601px) and (max-width:900px) { .table { min-width:620px; } .table th { font-size:11px; } }

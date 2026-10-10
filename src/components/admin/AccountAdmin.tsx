@@ -129,7 +129,7 @@ export function AccountAdmin({
       scope.current = { token, accountId: id, panelClosed: false };
     setSelectedId(id);
     setPanelClosed(false);
-    if (window.matchMedia("(max-width:1100px)").matches)
+    if (window.matchMedia("(max-width:1350px)").matches)
       requestAnimationFrame(() =>
         profileRef.current?.scrollIntoView({
           block: "start",
@@ -203,6 +203,7 @@ export function AccountAdmin({
             fallbackSources={rental.imageSources.slice(1)}
             alt={rental.title}
             className={styles.kitPhoto}
+            imgClassName={styles.kitImage}
           />
           <span>
             <strong>{rental.title}</strong>
@@ -331,7 +332,7 @@ export function AccountAdmin({
         </div>
         <div className={styles.tableWrap}>
           <table className={styles.table}>
-            <colgroup><col style={{width:"4%"}}/><col style={{width:"23%"}}/><col style={{width:"21%"}}/><col style={{width:"14%"}}/><col style={{width:"13%"}}/><col style={{width:"8%"}}/><col style={{width:"12%"}}/><col style={{width:"5%"}}/></colgroup>
+            <colgroup><col style={{width:"4%"}}/><col style={{width:"27%"}}/><col style={{width:"19%"}}/><col style={{width:"13%"}}/><col style={{width:"14%"}}/><col style={{width:"8%"}}/><col style={{width:"11%"}}/><col style={{width:"4%"}}/></colgroup>
             <thead>
               <tr>
                 <th className={styles.checkColumn}><input type="checkbox" aria-label="Select customers on this page" checked={displayRows.length > 0 && displayRows.every(a => checked.includes(a.id))} onChange={e => setChecked(e.target.checked ? displayRows.map(a => a.id) : [])} /></th>
@@ -441,9 +442,7 @@ export function AccountAdmin({
             {displayRows.length
               ? `${currentPage * 10 + 1}–${Math.min((currentPage + 1) * 10, visible.length)} of ${visible.length}${exhausted ? "" : " loaded"}`
               : loading ? "Searching…" : "0 results"}
-            <small>
-              {exhausted ? "All matching accounts loaded." : "Continue through the pages to search the rest of the directory."}
-            </small>
+            {!exhausted && <small>Continue through the pages to search the rest of the directory.</small>}
           </p>
           <div>
             <button
@@ -515,7 +514,9 @@ export function AccountAdmin({
           <div className={styles.summary}>
             <div className={styles.membershipSummary}>
               <span>Membership</span>
+              <div className={styles.membershipSummaryRow}>
               <strong>{label(selected.tier)}</strong>
+              <div>
               <small>
                 {selected.hasSubscription
                   ? "Paid subscription"
@@ -524,9 +525,11 @@ export function AccountAdmin({
                     : "Standard account"}
               </small>
               {detail && <small>Account created {date(detail.createdAt)}</small>}
+              </div>
+              </div>
             </div>
             <div>
-              <span>Available credit</span>
+              <span>Account credit</span>
               <strong>{detail ? formatGbp(detail.credit) : "…"}</strong>
               {detail && (
                 <small>
@@ -561,7 +564,7 @@ export function AccountAdmin({
               </button>
             ))}
           </nav>
-          <div className={styles.profileBody}>
+          <div className={styles.profileBody} data-section={section}>
             {!detail ? (
               <p role="status" className={styles.empty}>
                 Loading account details…
@@ -587,7 +590,8 @@ export function AccountAdmin({
                         <header>
                           <h3>Membership status</h3>
                         </header>
-                        <span className={styles.tier}>
+                        <div className={styles.membershipBadges}>
+                        <span className={styles.tier} data-tier={selected.tier}>
                           {label(selected.tier)}
                         </span>
                         <span
@@ -596,9 +600,11 @@ export function AccountAdmin({
                               ? styles.verified
                               : styles.pending
                           }
+                          data-active={detail.membershipActive}
                         >
                           {detail.membershipActive ? "Active" : "Standard"}
                         </span>
+                        </div>
                         <dl>
                           <dt>Account created</dt>
                           <dd>{date(detail.createdAt)}</dd>
@@ -663,12 +669,12 @@ export function AccountAdmin({
                         </button>
                       </header>
                       {detail.notes[0] ? (
-                        <>
+                        <div className={styles.notePreview}>
                           <p className={styles.note}>{detail.notes[0].text}</p>
                           <small className={styles.muted}>
                             Added {date(detail.notes[0].at)}
                           </small>
-                        </>
+                        </div>
                       ) : (
                         <p className={styles.empty}>No internal notes yet.</p>
                       )}
