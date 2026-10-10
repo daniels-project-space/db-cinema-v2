@@ -58,7 +58,15 @@ async function bookingView(ctx: any, b: any, account: any, options: { includeAva
       };
     }),
   );
+  // Admin-only display context: bounded, indexed and account-scoped. These
+  // mentions never alter the booking basket or availability receipts.
+  const requestedGearTexts = options.includeAvailability && account
+    ? (await ctx.db.query("messages").withIndex("by_booking_at", (q: any) => q.eq("bookingId", b._id)).order("desc").take(40))
+        .filter((message: any) => message.accountId === account._id && message.sender === "renter")
+        .map((message: any) => message.text)
+    : [];
   return {
+    requestedGearTexts,
     _id: b._id,
     status: b.status,
     idVerifyStatus: b.idVerifyStatus ?? "required",

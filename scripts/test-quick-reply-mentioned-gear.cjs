@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict');
+const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
+const chats=load('convex/rentalChat.ts');
+process.env.ADMIN_TOKEN='fixture-gear-reader';
+(async()=>{
+ const account=put('accounts',{email:'gear@example.invalid',name:'Fixture',emailVerifiedAt:1});
+ const foreign=put('accounts',{email:'foreign@example.invalid'});
+ const booking=put('bookings',{accountId:account._id,guestEmail:account.email,status:'pending_payment',lineItems:[],total:50});
+ put('chat_threads',{accountId:account._id,bookingId:booking._id,lastMessage:'Also the Sigma lens please',lastSender:'renter',updatedAt:100});
+ put('messages',{accountId:account._id,bookingId:booking._id,sender:'renter',text:'Sony FX6 and Sigma 24-70',at:1});
+ put('messages',{accountId:account._id,bookingId:booking._id,sender:'owner',text:'Do not import owner offers',at:2});
+ put('messages',{accountId:foreign._id,bookingId:booking._id,sender:'renter',text:'Foreign transcript',at:3});
+ const ctx={db,storage:{getUrl:async()=>null}};
+ const before=JSON.stringify([...tables]);
+ const denied=await chats.adminInbox.handler(ctx,{token:'invalid'});assert.equal(denied.authorized,false);
+ const feed=await chats.adminInbox.handler(ctx,{token:process.env.ADMIN_TOKEN});
+ assert.equal(feed.authorized,true);assert.equal(feed.items.length,1);
+ assert.deepEqual(feed.items[0].requestedGearTexts,['Sony FX6 and Sigma 24-70']);
+ assert.equal(JSON.stringify([...tables]),before,'Reading mention context must not mutate messages or bookings');
+ for(let i=0;i<45;i++)put('messages',{accountId:account._id,bookingId:booking._id,sender:'renter',text:'Fixture model '+i,at:100+i});
+ const bounded=await chats.adminInbox.handler(ctx,{token:process.env.ADMIN_TOKEN});assert.equal(bounded.items[0].requestedGearTexts.length,40,'Long histories remain bounded');
+ console.log('PASS actual owner inbox: bounded renter-only equipment context, foreign-account/owner text excluded, unauthorized inbox denied, zero writes.');
+})().catch(e=>{console.error(e);process.exitCode=1;});
