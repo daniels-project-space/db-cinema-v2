@@ -230,13 +230,13 @@ export function RentalConversation({
         </button>
       </header>
       <div className={`management-conversation-main ${styles.main}`}>
-      {bookingId && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin} compact/>}
       <div className={styles.bookingStrip}>
         {bookingSummary?.image && <SmartImage src={bookingSummary.image} fallbackSources={bookingSummary.imageSources} alt={title} className={styles.kitImage} />}
         <div><h4>{title}</h4><p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
         <span className={styles.stage} data-ready={["Verification approved","On hire","Returned"].includes(displayedStage)}>{displayedStage}</span>
-        {!!extension?.requests.length && <button type="button" data-testid="chat-open-extension" className={styles.extensionLink} onClick={()=>{const panel=container.current?.querySelector<HTMLElement>("[data-testid=rental-extension-panel]");panel?.scrollIntoView({block:"start",behavior:"auto"});panel?.focus({preventScroll:true});}}>Extension details ↗</button>}
+        {!!extension?.requests.length && <button type="button" data-testid="chat-open-extension" className={styles.extensionLink} onClick={()=>{const panel=container.current?.querySelector<HTMLElement>("[data-testid=rental-extension-panel]");const disclosure=panel?.closest("details");if(disclosure)disclosure.open=true;panel?.scrollIntoView({block:"start",behavior:"auto"});panel?.focus({preventScroll:true});}}>Extension details ↗</button>}
       </div>
+      {bookingId && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin} compact/>}
       {!admin && bookingId && (
         <RentalAdditionApproval token={token} bookingId={bookingId} />
       )}
@@ -369,7 +369,7 @@ export function RentalConversation({
       </footer>
       </div>
       {tools && (
-        <aside aria-label={admin ? "Rental management controls" : "Your rental details"} className={`management-conversation-tools ${styles.tools}`}><div className={styles.toolsHeading}><p className={styles.eyebrow}>{admin ? "Operations" : "Your booking"}</p><h4>{admin ? "Booking details" : "Rental details"}</h4></div>{bookingId && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}{tools}</aside>
+        <aside aria-label={admin ? "Rental management controls" : "Your rental details"} className={`management-conversation-tools ${styles.tools}`}><div className={styles.toolsHeading}><p className={styles.eyebrow}>{admin ? "Operations" : "Your booking"}</p><h4>{admin ? "Booking details" : "Rental details"}</h4></div>{tools}{bookingId && <details key={bookingId} className={styles.extensionDetails} data-testid="chat-extension-disclosure"><summary><span>Rental extension</span><span>{extension?.requests.length ? `${extension.requests.length} ${extension.requests.length === 1 ? "request" : "requests"}` : "Manage dates"}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 3 5 5-5 5" /></svg></span></summary><RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} /></details>}</aside>
       )}
     </section>
   );

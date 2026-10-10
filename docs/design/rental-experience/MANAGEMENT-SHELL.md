@@ -16,3 +16,9 @@ Evidence on 7 October 2026:
 - Native checkout navigation retains its public header and contains no management shell.
 
 These are development/local checks. Production publication, signed-in renter visual acceptance, the complete reference-screen rebuild, per-item return inspection and the full Rental Manager integration remain outstanding.
+
+## Conversation hierarchy refinement — 10 October 2026
+
+The conversation now presents the booked kit before the compact verification disclosure. Admin booking facts, financial summary and actionable controls precede long request history; owner controls fill the details column. Rental extension controls follow the details in an accessible collapsed disclosure. The existing extension shortcut expands it, scrolls to the exact rental panel and moves focus; the actual extension review drawer remains connected. Account names stay complete in authenticated admin conversation metadata while renter metadata keeps its existing first-name projection. Chat avatars use circular photos or honest account initials.
+
+Controlled native acceptance exercises the actual ManagementShell, RentalInbox, RentalConversation, RentalOrderTools, RenterChat, AccountProvider and extension components against real handlers at1440/390, including menu navigation, role boundaries, verification disclosure and extension shortcut/review. Screenshots of both roles, default/expanded details and review drawer were inspected. This does not establish complete reference parity: the fixture has a real catalogue kit image and initials, but lacks the reference's actual customer portraits and conversation content, and the final dark-management screenshot proportions/type/colors still need further passes. No live account, customer message, provider payment or production publication occurs in these tests.

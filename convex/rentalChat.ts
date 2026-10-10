@@ -180,7 +180,7 @@ export const messages = query({
     const thread = await rentalThread(ctx, a._id, bookingId);
     return { ...page, escalated: !!thread?.escalated,
       quickReplies: admin ? rentalReplyTemplates(bookingId ? await ctx.db.get(bookingId) : null, await ctx.db.query("settings").first()) : [],
-      renter: { name: a.name?.split(/\s+/)[0] ?? "Renter",
+      renter: { name: (admin ? a.name : a.name?.split(/\s+/)[0]) ?? "Renter",
         photo: (a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : null) ?? a.googleAvatarUrl ?? null },
     };
   },

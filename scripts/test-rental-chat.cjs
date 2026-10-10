@@ -61,6 +61,11 @@ const helper = load("convex/lib/rentalChat.ts"),
   rental = load("convex/rentalChat.ts");
 process.env.ADMIN_TOKEN = "fixture-owner-only";
 (async () => {
+  await db.patch(a._id,{name:"Fixture Renter"});
+  const scope={bookingId:booking._id,paginationOpts:{numItems:20,cursor:null}};
+  assert.equal((await rental.messages.handler(ctx,{...scope,token:process.env.ADMIN_TOKEN,admin:true})).renter.name,"Fixture Renter","Admin conversation retains full account identity");
+  assert.equal((await rental.messages.handler(ctx,{...scope,token:"valid",admin:false})).renter.name,"Fixture","Renter projection keeps its existing first-name scope");
+  assert.equal(await rental.messages.handler(ctx,{...scope,token:"valid",admin:true}),null,"Renter token cannot request admin identity projection");
   assert.equal(await helper.accountForToken(ctx, "expired"), null);
   await assert.rejects(
     chat.send.handler(ctx, {

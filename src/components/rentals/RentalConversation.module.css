@@ -147,4 +147,16 @@
 @media(max-width:767px){.extensionLink{margin-left:auto}}
 @media(min-width:1151px){.withTools .main{overflow-y:auto;scrollbar-width:thin;scrollbar-color:#ffffff20 transparent}}
 .bookingStrip>.kitImage{flex:0 0 84px}
+.extensionDetails{margin-top:24px;border-top:1px solid #353737;padding-top:18px}
+.requestHistory{margin-top:24px;padding-top:20px;border-top:1px solid #353737}
+.tools :global([aria-label="Owner rental controls"]){display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:12px}
+.tools :global([aria-label="Owner rental controls"]>button),.tools :global([aria-label="Owner rental controls"]>div>button){width:100%;min-height:38px;text-align:left;border-radius:4px;padding:10px 13px}
+.extensionDetails>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;list-style:none;cursor:pointer;font:19px Georgia,serif;color:#e6e3df;padding:4px 0 16px}
+.extensionDetails>summary::-webkit-details-marker{display:none}
+.extensionDetails>summary>span:last-child{display:flex;align-items:center;gap:9px;font:11px var(--font-inter,Arial),sans-serif;color:#c39574}
+.extensionDetails>summary svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;transition:transform .15s}
+.extensionDetails[open]>summary svg{transform:rotate(90deg)}
+.extensionDetails>summary:focus-visible{outline:2px solid #c79777;outline-offset:4px}
+.extensionDetails :global([data-testid=rental-extension-panel]){margin:0;padding:16px}
+@media(prefers-reduced-motion:reduce){.extensionDetails>summary svg{transition:none}}
 @media(max-width:767px){.bookingStrip>.kitImage{flex:0 0 62px}.bookingStrip>div:not(.kitImage){flex:1 1 calc(100% - 86px);min-width:120px}}
