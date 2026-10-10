@@ -155,3 +155,9 @@
 .shell[data-management-role="admin"][data-management-screen="rental-detail"] .heading{display:none}
 .shell[data-management-role="admin"][data-management-screen="rental-detail"] .content{padding-top:18px}
 @media(min-width:641px){.shell[data-management-role="admin"][data-management-screen="rental-detail"] .topbar{min-height:54px;padding-block:10px}}
+
+/* Customers reference wordmark; reserve the existing navigation position. */
+.shell[data-management-role=admin][data-management-screen=accounts] .brand{padding-bottom:19px}
+.shell[data-management-role=admin][data-management-screen=accounts] .brand>span{align-items:flex-start;gap:13px}
+.shell[data-management-role=admin][data-management-screen=accounts] .brand small{line-height:1}
+.shell[data-management-role=admin][data-management-screen=accounts] .brand b{padding-left:64px;margin-top:-10px;font-size:10px;letter-spacing:.64em}
