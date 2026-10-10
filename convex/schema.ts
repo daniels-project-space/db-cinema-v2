@@ -819,7 +819,8 @@ export default defineSchema({
 
   return_security_refunds: defineTable({
     bookingId:v.id("bookings"),amountPence:v.number(),kept:v.number(),capturedFromHold:v.number(),note:v.optional(v.string()),
-    allocations:v.array(v.object({paymentIntentId:v.string(),amountPence:v.number(),stripeRefundId:v.optional(v.string()),status:v.string(),failureReason:v.optional(v.string())})),
+    allocations:v.array(v.object({paymentIntentId:v.string(),amountPence:v.number(),stripeRefundId:v.optional(v.string()),status:v.string(),failureReason:v.optional(v.string()),attempt:v.optional(v.number()),history:v.optional(v.array(v.object({stripeRefundId:v.string(),attempt:v.number(),failureBalanceId:v.string(),recordedAt:v.number()})))})),
+    recoveries:v.optional(v.array(v.object({requestId:v.string(),reason:v.string(),createdAt:v.number()}))),
     status:v.string(),generation:v.number(),attempts:v.number(),dueAt:v.optional(v.number()),error:v.optional(v.string()),bankReversalAt:v.optional(v.number()),createdAt:v.number(),updatedAt:v.number(),
   }).index("by_booking",["bookingId"]).index("by_due",["dueAt"]),
 

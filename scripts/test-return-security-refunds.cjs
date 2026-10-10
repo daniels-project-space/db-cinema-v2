@@ -2,9 +2,10 @@ const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cj
 process.env.ADMIN_TOKEN='isolated-return-bank';process.env.STRIPE_SECRET_KEY='sk_test_fixture';process.env.STRIPE_WEBHOOK_SECRET='isolated-hook';
 let now=Date.now();Date.now=()=>now;
 const refunds=[],payments=new Map(),holds=new Map(),effects=[];let nextStatus='pending',loseCreate=false;
-const statusByPayment=new Map();
+const statusByPayment=new Map(),balanceTransactions=new Map();
 let captureStatus='succeeded';
 class StripeFixture{
+ balanceTransactions={retrieve:async id=>structuredClone(balanceTransactions.get(id))};
  paymentIntents={retrieve:async id=>structuredClone(payments.get(id)??holds.get(id)),cancel:async id=>{effects.push(['cancel',id]);holds.get(id).status='canceled';return holds.get(id);},capture:async(id,args)=>{const p=holds.get(id);p.status=captureStatus;p.currency='gbp';p.amount_received=captureStatus==='succeeded'?args.amount_to_capture:0;p.amount_capturable=0;return p;}};
  refunds={list:async function*(args){for(const r of refunds.filter(r=>r.payment_intent===args.payment_intent))yield structuredClone(r);},retrieve:async id=>structuredClone(refunds.find(r=>r.id===id)),create:async(args,options)=>{effects.push(['refund',args,options]);const r={...args,id:'re_'+(refunds.length+1),currency:'gbp',status:statusByPayment.get(args.payment_intent)??nextStatus};refunds.push(r);if(loseCreate){loseCreate=false;throw Error('Lost refund response');}return structuredClone(r);}};
  webhooks={constructEvent:(body,sig)=>{if(sig!=='signed-fixture')throw Error('Bad signature');return JSON.parse(body);}};
@@ -23,7 +24,7 @@ function make(){const index=payments.size+1,pi='pi_rental_'+index,hold='pi_hold_
 }
 const settle=args=>modules.checkout.markReturned.handler(ctx,args);
 const callback=r=>modules.checkout.stripeWebhook.handler(ctx,{sig:'signed-fixture',body:JSON.stringify({type:'refund.updated',data:{object:structuredClone(r)}})});
-module.exports={ctx,modules,make,refunds,effects,payments,holds};
+module.exports={ctx,modules,make,refunds,effects,payments,holds,balanceTransactions,control:{advanceTime:ms=>{now+=ms;},loseNextResponse:()=>{loseCreate=true;},setNextStatus:s=>{nextStatus=s;}}};
 if(require.main===module)(async()=>{
  const {b,args}=make();const result=await settle(args);
  assert.equal(result.refundStatus,'pending');assert.equal(result.released,0);assert.equal(result.refundExpected,40.5);

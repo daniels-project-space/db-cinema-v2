@@ -45,7 +45,7 @@ export const record = internalMutation({args:{id:v.id("return_security_refunds")
  const allocations=job.allocations.map(a=>{
   const receipt=receipts.find(r=>r.paymentIntentId===a.paymentIntentId);
   if(!receipt||receipt.amountPence!==a.amountPence||a.stripeRefundId&&receipt.stripeRefundId!==a.stripeRefundId||!["pending","succeeded","failed"].includes(receipt.status))throw Error("Deposit refund identity mismatch.");
-  return {paymentIntentId:a.paymentIntentId,amountPence:a.amountPence,stripeRefundId:receipt.stripeRefundId,status:receipt.status,...(receipt.failureReason?{failureReason:receipt.failureReason}:{})};
+  return {...a,stripeRefundId:receipt.stripeRefundId,status:receipt.status,failureReason:receipt.failureReason};
  });
  const status=allocations.every(a=>a.status==="succeeded")?"succeeded":allocations.some(a=>a.status==="pending")?"pending":"failed";
  const confirmed=allocations.filter(a=>a.status==="succeeded").reduce((n,a)=>n+a.amountPence,0);
@@ -72,3 +72,26 @@ export const defer = internalMutation({args:{id:v.id("return_security_refunds"),
 }});
 
 export const due = internalQuery({args:{},handler:async(ctx)=>ctx.db.query("return_security_refunds").withIndex("by_due",q=>q.gte("dueAt",0).lte("dueAt",Date.now())).take(20)});
+
+/** Only the authenticated action supplies current bank-return proof. Atomically
+ * preserve the failed receipts before arming a distinct original-source attempt. */
+export const authorizeRecovery = internalMutation({args:{id:v.id("return_security_refunds"),generation:v.number(),requestId:v.string(),reason:v.string(),proofs:v.array(v.object({paymentIntentId:v.string(),stripeRefundId:v.string(),failureBalanceId:v.string()}))},handler:async(ctx,args)=>{
+ const job=await ctx.db.get(args.id);if(!job)throw Error("Unknown deposit refund ledger.");
+ const reason=args.reason.trim();
+ if(!/^[a-zA-Z0-9_-]{16,100}$/.test(args.requestId)||reason.length<10||reason.length>1000)throw Error("A recovery identity and documented admin reason are required.");
+ const previous=job.recoveries?.find(r=>r.requestId===args.requestId);
+ if(previous){if(previous.reason!==reason||job.recoveries?.at(-1)?.requestId!==args.requestId)throw Error("Resume the latest saved recovery without changing its reason.");return job;}
+ if(job.generation!==args.generation)throw Error("The deposit refund changed. Refresh before authorising recovery.");
+ if(job.status!=="failed"||job.allocations.some(a=>!["failed","succeeded"].includes(a.status)))throw Error("Only a confirmed failed refund can be retried; pending money must be reconciled.");
+ const failed=job.allocations.filter(a=>a.status==="failed");
+ if(!failed.length||args.proofs.length!==failed.length||new Set(args.proofs.map(p=>p.paymentIntentId)).size!==failed.length)throw Error("Every failed original payment needs current bank-return proof.");
+ const allocations=job.allocations.map(a=>{
+  if(a.status!=="failed")return a;
+  const proof=args.proofs.find(p=>p.paymentIntentId===a.paymentIntentId);
+  if(!a.stripeRefundId||proof?.stripeRefundId!==a.stripeRefundId||!proof.failureBalanceId)throw Error("The failed refund identity changed.");
+  if((a.history?.length??0)>=20)throw Error("The deposit recovery history requires manual review.");
+  return {...a,attempt:(a.attempt??0)+1,stripeRefundId:undefined,status:"prepared",failureReason:undefined,history:[...(a.history??[]),{stripeRefundId:a.stripeRefundId,attempt:a.attempt??0,failureBalanceId:proof.failureBalanceId,recordedAt:Date.now()}]};
+ });
+ await ctx.db.patch(job._id,{allocations,recoveries:[...(job.recoveries??[]),{requestId:args.requestId,reason,createdAt:Date.now()}],generation:job.generation+1,status:"prepared",attempts:0,dueAt:Date.now(),error:undefined,updatedAt:Date.now()});
+ return (await ctx.db.get(job._id))!;
+}});

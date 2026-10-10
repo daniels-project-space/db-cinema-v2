@@ -11,7 +11,7 @@
     "test:rental-agreements": "node scripts/test-rental-agreements.cjs",
     "test:verification-archive": "node scripts/test-verification-archive.cjs && node scripts/test-verification-archive-worker.cjs && node scripts/test-verification-file-readiness.cjs && node scripts/test-verification-backfill.cjs && node scripts/test-verification-ownership.cjs",
     "test:customer-management": "node scripts/test-customer-directory.cjs && node scripts/test-customer-management.cjs && node scripts/test-admin-accounts.cjs",
-    "test:return-review": "node scripts/test-return-preview.cjs && node scripts/test-return-preview-pdf.cjs && node scripts/test-return-inspection.cjs && node scripts/test-return-statement-delivery.cjs && node scripts/test-return-security-refunds.cjs",
+    "test:return-review": "node scripts/test-return-preview.cjs && node scripts/test-return-preview-pdf.cjs && node scripts/test-return-inspection.cjs && node scripts/test-return-statement-delivery.cjs && node scripts/test-return-security-refunds.cjs && node scripts/test-return-refund-recovery.cjs",
     "test:invoice-ownership": "node scripts/test-invoice-ownership.cjs",
     "test:checkout-draft-browser": "node scripts/test-checkout-draft-browser.cjs"
   },

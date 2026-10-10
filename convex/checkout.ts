@@ -810,14 +810,32 @@ function observedHoldAmounts(b: any, hold: Stripe.PaymentIntent | null) {
 
 function assertReturnRefund(refund:Stripe.Refund,job:any,allocation:any){
  const payment=typeof refund.payment_intent==="string"?refund.payment_intent:refund.payment_intent?.id;
- if(!refund.id||payment!==allocation.paymentIntentId||refund.currency!=="gbp"||refund.amount!==allocation.amountPence||refund.metadata?.returnSecurityId!==job._id||refund.metadata?.bookingId!==job.bookingId||refund.metadata?.returnPaymentIntent!==allocation.paymentIntentId)
+ if(!refund.id||payment!==allocation.paymentIntentId||refund.currency!=="gbp"||refund.amount!==allocation.amountPence||refund.metadata?.returnSecurityId!==job._id||refund.metadata?.bookingId!==job.bookingId||refund.metadata?.returnPaymentIntent!==allocation.paymentIntentId||Number(refund.metadata?.returnAttempt??0)!==(allocation.attempt??0))
   throw Error("The deposit refund does not match its frozen original payment allocation.");
+}
+
+async function returnedRefundBalance(refund:Stripe.Refund){
+ const id=typeof refund.failure_balance_transaction==="string"?refund.failure_balance_transaction:refund.failure_balance_transaction?.id;
+ if(!["failed","canceled"].includes(refund.status??"")||!id)throw Error("The failed refund has no verified returned-money receipt. Reconcile it with Stripe before retrying.");
+ const balance=await stripe().balanceTransactions.retrieve(id);
+ const source=typeof balance?.source==="string"?balance.source:balance?.source?.id;
+ if(!balance||balance.id!==id||source!==refund.id||balance.type!=="refund_failure"||balance.currency!=="gbp"||balance.amount!==refund.amount||balance.status!=="available")throw Error("The failed refund money is not verified as returned and available. No new payout was created.");
+ return id;
+}
+async function assertPreviousReturnRefunds(job:any,allocation:any){
+ for(const saved of allocation.history??[]){
+  const refund=await stripe().refunds.retrieve(saved.stripeRefundId);
+  if(refund.id!==saved.stripeRefundId)throw Error("Previous deposit refund identity mismatch.");
+  assertReturnRefund(refund,job,{...allocation,attempt:saved.attempt});
+  if(await returnedRefundBalance(refund)!==saved.failureBalanceId)throw Error("The previous bank-return receipt changed. Reconcile before continuing.");
+ }
 }
 
 /** Review reads current receipts without settling, notifying or creating money. */
 async function observeReturnRefundProgress(job:any){
  let confirmed=0,processing=0,unobserved=0,failed=false;
  for(const allocation of job.allocations){
+  await assertPreviousReturnRefunds(job,allocation);
   let refund:Stripe.Refund|undefined;
   if(allocation.stripeRefundId){
    refund=await stripe().refunds.retrieve(allocation.stripeRefundId);
@@ -826,7 +844,7 @@ async function observeReturnRefundProgress(job:any){
    let count=0;
    for await(const receipt of stripe().refunds.list({payment_intent:allocation.paymentIntentId,limit:100})){
     if(++count>1000)throw Error("The original security payment history needs review.");
-    if(receipt.metadata?.returnSecurityId!==job._id)continue;
+    if(receipt.metadata?.returnSecurityId!==job._id||(allocation.history??[]).some((r:any)=>r.stripeRefundId===receipt.id))continue;
     assertReturnRefund(receipt,job,allocation);
     if(refund)throw Error("Multiple deposit refunds match the frozen payment allocation.");
     refund=receipt;
@@ -843,12 +861,13 @@ async function observeReturnRefundProgress(job:any){
 
 /** Recover an existing provider request before creating money, even after the
  * provider's idempotency-key retention period. Callbacks never create refunds. */
-async function settleReturnRefunds(ctx:any,job:any,create:boolean){
+async function settleReturnRefunds(ctx:any,job:any,create:boolean):Promise<{job:any;stale:boolean}>{
  const snapshot=await ctx.runMutation(internal.returnSecurity.begin,{id:job._id});
  job=snapshot.job;
  try{
   const receipts=[];
   for(const allocation of job.allocations){
+   await assertPreviousReturnRefunds(job,allocation);
    let refund:Stripe.Refund|undefined;
    if(allocation.stripeRefundId){
     refund=await stripe().refunds.retrieve(allocation.stripeRefundId);
@@ -858,7 +877,7 @@ async function settleReturnRefunds(ctx:any,job:any,create:boolean){
     for await(const entry of stripe().refunds.list({payment_intent:allocation.paymentIntentId,limit:100})){
      if(++count>1000)throw Error("The original security payment history needs review.");
      history.push(entry);
-     if(entry.metadata?.returnSecurityId!==job._id)continue;
+     if(entry.metadata?.returnSecurityId!==job._id||(allocation.history??[]).some((r:any)=>r.stripeRefundId===entry.id))continue;
      assertReturnRefund(entry,job,allocation);
      if(refund)throw Error("Multiple deposit refunds match the frozen payment allocation.");
      refund=entry;
@@ -872,8 +891,8 @@ async function settleReturnRefunds(ctx:any,job:any,create:boolean){
      if(payment.id!==allocation.paymentIntentId||payment.currency!=="gbp"||payment.status!=="succeeded")throw Error("The original deposit payment is not a captured GBP payment.");
      const available=await remainingCancellationPayment(payment,undefined,history);
      if(allocation.amountPence>available)throw Error("The original captured payment cannot cover its saved deposit refund.");
-     refund=await stripe().refunds.create({payment_intent:allocation.paymentIntentId,amount:allocation.amountPence,metadata:{returnSecurityId:job._id,bookingId:job.bookingId,returnPaymentIntent:allocation.paymentIntentId}},
-      {idempotencyKey:`dbc-deposit-release-${job.bookingId}-${allocation.paymentIntentId}`});
+     refund=await stripe().refunds.create({payment_intent:allocation.paymentIntentId,amount:allocation.amountPence,metadata:{returnSecurityId:job._id,bookingId:job.bookingId,returnPaymentIntent:allocation.paymentIntentId,...(allocation.attempt?{returnAttempt:String(allocation.attempt)}:{})}},
+      {idempotencyKey:`dbc-deposit-release-${job.bookingId}-${allocation.paymentIntentId}${allocation.attempt?`-recovery-${allocation.attempt}`:""}`});
     }
    }
    assertReturnRefund(refund,job,allocation);
@@ -889,6 +908,30 @@ async function settleReturnRefunds(ctx:any,job:any,create:boolean){
   return result;
  }catch(error){await ctx.runMutation(internal.returnSecurity.defer,{id:job._id,generation:snapshot.generation});throw error;}
 }
+
+export const retryReturnDeposit = action({args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),reason:v.string()},handler:async(ctx,args):Promise<{status:string;confirmed:number;expected:number}>=>{
+ await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:args.token,fn:"checkout.retryReturnDeposit"});
+ let job:any=await ctx.runQuery(internal.returnSecurity.context,{bookingId:args.bookingId});
+ if(!job)throw Error("No saved original-payment deposit refund exists.");
+ const previous=job.recoveries?.find((r:any)=>r.requestId===args.requestId);
+ if(previous){if(previous.reason!==args.reason.trim()||job.recoveries.at(-1).requestId!==args.requestId)throw Error("Resume the latest saved recovery without changing its reason.");}
+ else{
+  const observed=await settleReturnRefunds(ctx,job,false);
+  if(observed.stale)throw Error("The deposit refund changed. Refresh before recovery.");
+  job=observed.job;
+  if(job.status!=="failed")throw Error("Only confirmed failed refunds can be retried; processing money must be reconciled.");
+  const proofs=[];
+  for(const a of job.allocations.filter((a:any)=>a.status==="failed")){
+   const r=await stripe().refunds.retrieve(a.stripeRefundId);if(r.id!==a.stripeRefundId)throw Error("Deposit refund identity mismatch.");
+   assertReturnRefund(r,job,a);
+   proofs.push({paymentIntentId:a.paymentIntentId,stripeRefundId:r.id,failureBalanceId:await returnedRefundBalance(r)});
+  }
+  job=await ctx.runMutation(internal.returnSecurity.authorizeRecovery,{id:job._id,generation:job.generation,requestId:args.requestId,reason:args.reason,proofs});
+ }
+ const result=await settleReturnRefunds(ctx,job,true);
+ if(result.stale)throw Error("A newer deposit observation exists. Refresh the current return review.");
+ return {status:result.job.status,confirmed:result.job.allocations.filter((a:any)=>a.status==="succeeded").reduce((n:number,a:any)=>n+a.amountPence,0)/100,expected:result.job.amountPence/100};
+}});
 
 export const reconcileReturnSecurity = internalAction({args:{},handler:async(ctx)=>{
  const jobs:any[]=await ctx.runQuery(internal.returnSecurity.due,{});
@@ -1245,7 +1288,8 @@ export const stripeWebhook = internalAction({
         const job:any=await ctx.runQuery(internal.returnSecurity.context,{bookingId:bookingId as any});
         const allocation=job?.allocations.find((a:any)=>a.paymentIntentId===refund.metadata?.returnPaymentIntent);
         if(!job||job._id!==refund.metadata.returnSecurityId||!allocation)throw Error("Unknown deposit refund allocation.");
-        assertReturnRefund(refund,job,allocation);
+        const previous=allocation.history?.find((r:any)=>r.stripeRefundId===refund.id);
+        assertReturnRefund(refund,job,previous?{...allocation,attempt:previous.attempt}:allocation);
         await settleReturnRefunds(ctx,job,false);
       }
       const id=refund.metadata?.rentalRefundId;

@@ -101,3 +101,12 @@
 .reviewAmounts > div { margin-top:9px; }
 .previewCards h4 { font-size:13px; }
 .previewCards > section { min-height:119px; }
+
+.recoveryCard { margin-top:18px; padding:18px; border:1px solid #a977563d; border-radius:8px; background:#1c1b18; }
+.recoveryHeading { display:flex; align-items:center; gap:10px; }
+.recoveryHeading h4 { margin:0; color:#eee8df; font-size:14px; font-weight:600; }
+.recoveryIcon { display:grid; place-items:center; width:28px; height:28px; flex-shrink:0; border:1px solid #a9775652; border-radius:7px; color:#c99b78; font-size:20px; }
+.recoveryCard > p { margin:10px 0 0; color:#a9a69e; font-size:12px; line-height:1.7; }
+.recoveryCard textarea { min-height:88px; resize:vertical; }
+.recoveryCard button { display:inline-block; margin-top:14px; border:1px solid #a9775673; border-radius:5px; padding:10px 14px; background:#a977561c; color:#d6ac8a; font-size:12px; font-weight:500; }
+.recoveryCard button:not(:disabled):hover { background:#a9775633; border-color:#b88966; }
