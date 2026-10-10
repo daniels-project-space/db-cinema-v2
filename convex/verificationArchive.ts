@@ -16,7 +16,12 @@ async function flagArchiveFailure(ctx:any,archive:any){
   title:"Verification documents need attention",body:"Document copying could not finish after repeated attempts. Open this rental and retry its account document archive. Handover remains blocked."});
 }
 function rentalClosedAt(booking: any): number | undefined {
-  return booking?.status === "returned" ? booking.returnedAt : booking?.status === "cancelled" ? booking.cancelledAt : undefined;
+  // Refund settlement can happen days after equipment was returned. It must
+  // neither prolong retention nor leave a physically closed rental indefinite.
+  const closedAt = booking?.status === "returned"
+    ? booking.actualReturnedAt ?? booking.returnDecision?.actualReturnedAt ?? booking.returnedAt
+    : booking?.status === "cancelled" ? booking.cancelledAt : undefined;
+  return Number.isFinite(closedAt) && closedAt > 0 && closedAt <= Date.now() + 60000 ? closedAt : undefined;
 }
 
 /** One retention decision shared by the admin screen and byte deletion. */
