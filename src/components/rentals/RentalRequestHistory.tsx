@@ -82,6 +82,7 @@ function RequestHistory({ token, bookingId, admin = false, consolidatedExtension
           {request.kitSelection?.change === "swap" && <button type="button" disabled={busy} onClick={event=>{swapLauncher.current=event.currentTarget;setSwapRequest(request._id);}}>Review agreed swap</button>}
         </div>}
         {!admin&&request.status==="approved"&&request.kitSelection?.change==="swap"&&request.swapProposalId&&!request.execution&&<div className={styles.actions}><button type="button" onClick={event=>{swapLauncher.current=event.currentTarget;setSwapRequest(request._id);}}>Review swap proposal</button></div>}
+        {request.swapProposalId&&request.execution?.operation==="kit_swap"&&request.execution.status==="applied"&&<div className={styles.actions}><button type="button" onClick={event=>{swapLauncher.current=event.currentTarget;setSwapRequest(request._id);}}>View confirmed swap</button></div>}
         {admin && request.status === "pending" && !request.extension && <div className={styles.actions}>
           <button type="button" disabled={busy} onClick={() => open(request._id, "approved")}>Approve for arrangement</button>
           <button type="button" disabled={busy} onClick={() => open(request._id, "declined")}>Decline request</button>

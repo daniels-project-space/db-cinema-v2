@@ -124,7 +124,7 @@ export default defineSchema({
     swapProposalId: v.optional(v.id("rental_swap_proposals")),
     kitSelection: v.optional(kitRequestSnapshot),
     dateSelection:v.optional(dateRequestSelection),
-    execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation"),v.literal("kit_removal")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
+    execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation"),v.literal("kit_removal"),v.literal("kit_swap")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
   }).index("by_request", ["requestId"]).index("by_account", ["accountId"]).index("by_booking", ["bookingId"]),
   reservations: defineTable({
     inventoryUnitId: v.id("inventory_units"),
@@ -780,13 +780,14 @@ export default defineSchema({
   referral_campaign_messages:defineTable({campaignId:v.id("referral_campaigns"),accountId:v.id("accounts"),state:v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("stopped")),dueAt:v.number(),attempts:v.number(),leaseUntil:v.optional(v.number()),sentAt:v.optional(v.number())}).index("by_campaign_account",["campaignId","accountId"]).index("by_state_due",["state","dueAt"]),
   rental_swap_proposals: defineTable({
     bookingId: v.id("bookings"), accountId: v.id("accounts"), changeRequestId: v.id("rental_change_requests"),
-    state: v.union(v.literal("offered"), v.literal("accepted"), v.literal("declined"), v.literal("withdrawn")),
+    state: v.union(v.literal("offered"), v.literal("accepted"), v.literal("declined"), v.literal("withdrawn"), v.literal("applied")),
     quoteKey: v.string(), snapshot: v.string(), finalLines: v.string(), allocationMode: v.string(),
     sourceListingId: v.id("listings"), targetListingId: v.id("listings"), sourceTitle: v.string(), targetTitle: v.string(),
     quantity: v.number(), start: v.number(), end: v.number(), pickupTime: v.optional(v.string()), returnTime: v.optional(v.string()),
     originalPence: v.number(), replacementPence: v.number(), differencePence: v.number(),
     chargePence: v.number(), refundPence: v.number(), nonCashDifferencePence: v.number(), securityChargePence: v.number(), holdTotalPence: v.number(),
     createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(), decidedAt: v.optional(v.number()),
+    appliedAt: v.optional(v.number()),
     consentVersion: v.optional(v.string()), messageId: v.optional(v.id("messages")), decisionMessageId: v.optional(v.id("messages")),
   }).index("by_request", ["changeRequestId"]).index("by_booking_state", ["bookingId", "state"]),
 

@@ -1,3 +1,9 @@
+import type { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import { rentalHasStarted } from "../src/lib/cancellationPolicy";
+import { stockWindow } from "./lib/stockWindows";
+import { replacementValues } from "./lib/rentalExposure";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { checkAdminToken, assertAdmin } from "./adminAuth";
@@ -7,6 +13,11 @@ import { listingImages } from "./lib/catalogImages";
 import { accountForToken, ownedBooking, postRentalMessage } from "./lib/rentalChat";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { queueOwnerNotification } from "./lib/adminPush";
+function equalPriceSwapReady(booking:any,row:any){
+ return booking.status==="confirmed" && !rentalHasStarted(booking,Date.now()) &&
+  row.differencePence===0 && row.chargePence===0 && row.refundPence===0 && row.nonCashDifferencePence===0 &&
+  row.securityChargePence===0 && row.holdTotalPence===Math.round((booking.depositHoldAmount??0)*100);
+}
 /** Scoped owner preview: exact selected source, replacement and actual cash difference. */
 export const preview=query({args:{token:v.string(),bookingId:v.id("bookings"),id:v.id("rental_change_requests"),refreshKey:v.optional(v.number())},handler:async(ctx,{token,bookingId,id})=>{
  if(!checkAdminToken(token))return null;
@@ -47,7 +58,7 @@ export const proposal=query({args:{...scopeArgs,admin:v.optional(v.boolean()),re
  if(!row)return null;
  const freshness=["offered","accepted"].includes(row.state)?await isCurrent(ctx,booking,request,row,!!args.admin):{current:false,reason:null};
  const sourceImages=listingImages(await ctx.db.get(row.sourceListingId)),targetImages=listingImages(await ctx.db.get(row.targetListingId));
- return {id:row._id,state:row.state,quoteKey:row.quoteKey,...freshness,activeRental:booking.status==="active",expiresAt:row.expiresAt,decidedAt:row.decidedAt??null,source:{title:row.sourceTitle,qty:row.quantity,heroImage:sourceImages[0]??null,imageSources:sourceImages},replacement:{title:row.targetTitle,qty:row.quantity,heroImage:targetImages[0]??null,imageSources:targetImages},start:row.start,end:row.end,pickupTime:row.pickupTime??null,returnTime:row.returnTime??null,originalAmount:row.originalPence/100,replacementAmount:row.replacementPence/100,difference:row.differencePence/100,charge:row.chargePence/100,refund:row.refundPence/100,nonCashDifference:row.nonCashDifferencePence/100,securityCharge:row.securityChargePence/100,holdTotal:row.holdTotalPence/100};
+ return {id:row._id,state:row.state,quoteKey:row.quoteKey,...freshness,...(args.admin?{canApply:row.state==="accepted"&&freshness.current&&equalPriceSwapReady(booking,row)}:{}),appliedAt:row.appliedAt??null,activeRental:booking.status==="active",expiresAt:row.expiresAt,decidedAt:row.decidedAt??null,source:{title:row.sourceTitle,qty:row.quantity,heroImage:sourceImages[0]??null,imageSources:sourceImages},replacement:{title:row.targetTitle,qty:row.quantity,heroImage:targetImages[0]??null,imageSources:targetImages},start:row.start,end:row.end,pickupTime:row.pickupTime??null,returnTime:row.returnTime??null,originalAmount:row.originalPence/100,replacementAmount:row.replacementPence/100,difference:row.differencePence/100,charge:row.chargePence/100,refund:row.refundPence/100,nonCashDifference:row.nonCashDifferencePence/100,securityCharge:row.securityChargePence/100,holdTotal:row.holdTotalPence/100};
 }});
 
 /** Saving an offer records the exact consent basis; it does not reserve stock or execute money. */
@@ -97,4 +108,46 @@ export const withdrawOffer=mutation({args:scopeArgs,handler:async(ctx,args)=>{
  await ctx.db.patch(row._id,{state:"withdrawn",updatedAt:Date.now()});
  await postRentalMessage(ctx,{accountId:row.accountId,bookingId:booking._id,sender:"owner",text:"The team withdrew this swap proposal. Your original rental and payments remain unchanged. Reply here to discuss a new proposal.",meta:{type:"rental_swap_withdrawn",changeRequestId:request._id,swapProposalId:row._id}});
  return {id:row._id,state:"withdrawn" as const};
+}});
+
+
+/** Atomically exchange pre-pickup inventory when no payment or security change is
+ * required. Paid/refunded swaps must go through their separate settlement path. */
+export const applyAgreedSwap=mutation({args:{...scopeArgs,quoteKey:v.string()},handler:async(ctx,args)=>{
+ await assertAdmin(ctx,args.token,"rentalSwaps.applyAgreedSwap");
+ const {booking,request}=await scopedRequest(ctx,args,true),row=await proposalFor(ctx,booking,request);
+ if(!row||row.quoteKey!==args.quoteKey)throw Error("This is not the accepted swap proposal.");
+ const operationKey=`kit-swap:${booking._id}:${row._id}:${row.quoteKey}`;
+ if(row.state==="applied"){
+  if(request.execution?.operation!=="kit_swap"||request.execution.operationKey!==operationKey||request.execution.status!=="applied"||row.appliedAt!==request.execution.appliedAt||!Number.isSafeInteger(row.appliedAt))throw Error("The saved swap receipt needs reconciliation.");
+  return {id:row._id,state:"applied" as const};
+ }
+ if(row.state!=="accepted"||row.consentVersion!=="rental-swap-price-difference-v1")throw Error("The renter must accept this exact proposal before changing the kit.");
+ if(!equalPriceSwapReady(booking,row))throw Error("This swap requires payment/refund, security settlement or a recorded return and handover before it can be applied.");
+ const freshness=await isCurrent(ctx,booking,request,row,true);if(!freshness.current)throw Error(freshness.reason!);
+ const q=await rentalSwapQuote(ctx,booking,request);
+ if(q.differencePence!==0||q.chargePence!==0||q.refundPence!==0||q.nonCashDifferencePence!==0||q.securityCharge!==0||Math.round(q.holdTotal*100)!==row.holdTotalPence)throw Error("The accepted swap requires a separate financial or security settlement.");
+ if(await swapQuoteKey(booking,request,q)!==row.quoteKey||JSON.stringify(q.finalLines)!==row.finalLines||q.allocationMode!==row.allocationMode)throw Error("The accepted swap changed. Agree a new proposal.");
+ const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",booking._id)).take(201);
+ if(reservations.length>200)throw Error("The stock ledger needs paged reconciliation before applying this swap.");
+ if(reservations.some(r=>r.extensionRequestId&&["confirmed","active"].includes(r.status)))throw Error("The extension stock ledger needs a team reconciliation before this swap.");
+ // Inventory checks above and these writes share one Convex transaction: another
+ // booking cannot take the replacement between consent validation and allocation.
+ const values=await replacementValues(ctx,booking,q.finalLines);
+ for(const r of reservations)if(r.status==="confirmed")await ctx.db.patch(r._id,{status:"cancelled"});
+ for(const line of q.finalLines){
+  const listing=await ctx.db.get(line.listingId as Id<"listings">);
+  if(!listing?.components.length)throw Error("The replacement inventory mapping needs review.");
+  const window=q.allocationMode==="legacy"?{start:line.start,end:line.end}:stockWindow(line,q.allocationMode==="precise");
+  for(const component of listing.components)await ctx.db.insert("reservations",{bookingId:booking._id,listingId:line.listingId,inventoryUnitId:component.inventoryUnitId,...window,qty:line.qty*component.qty,status:"confirmed",source:"site"});
+ }
+ const now=Date.now();
+ await ctx.db.patch(booking._id,{lineItems:q.finalLines,replacementValues:values});
+ const detail=`${row.quantity}× ${row.sourceTitle} → ${row.targetTitle}. Agreed rental charges and security are unchanged.`;
+ await ctx.db.patch(request._id,{execution:{operation:"kit_swap",operationKey,status:"applied",startedAt:now,appliedAt:now,detail}});
+ await ctx.db.patch(row._id,{state:"applied",updatedAt:now,appliedAt:now});
+ await postRentalMessage(ctx,{accountId:row.accountId,bookingId:booking._id,sender:"system",text:`The agreed equipment swap is confirmed: ${detail}`,meta:{type:"rental_swap_applied",changeRequestId:request._id,swapProposalId:row._id}});
+ await ctx.scheduler.runAfter(0,internal.notify.changeEmail,{bookingId:booking._id,kind:"kit updated",detail});
+ await queueRmv2Sync(ctx,booking._id);
+ return {id:row._id,state:"applied" as const};
 }});
