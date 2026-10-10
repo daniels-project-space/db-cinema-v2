@@ -6,6 +6,38 @@ import { monthlyCreditPence, tierByKey, MEMBERSHIP_TERMS_VERSION } from "../shar
 
 const intro = v.union(v.literal("trial"), v.literal("credit"), v.literal("none"));
 
+/** Resolve provider events by durable ownership; contact email is legacy-only. */
+export const subscriptionAccount = internalQuery({
+  args: { subscriptionId: v.string(), customerId: v.string(), accountId: v.optional(v.string()), checkoutId: v.optional(v.string()), email: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    const bound = await ctx.db.query("accounts").withIndex("by_subscription", q => q.eq("stripeSubscriptionId", a.subscriptionId)).unique();
+    let owner = bound;
+    if (a.checkoutId) {
+      const id = ctx.db.normalizeId("membership_checkouts", a.checkoutId);
+      const checkout = id ? await ctx.db.get(id) : null;
+      if (!checkout) return null;
+      if (checkout.subscriptionId && checkout.subscriptionId !== a.subscriptionId) throw Error("Membership checkout subscription mismatch.");
+      const account = await ctx.db.get(checkout.accountId);
+      if (!account) return null;
+      if (owner && owner._id !== account._id) throw Error("Membership subscription ownership mismatch.");
+      owner = account;
+    }
+    if (a.accountId) {
+      const id = ctx.db.normalizeId("accounts", a.accountId);
+      const account = id ? await ctx.db.get(id) : null;
+      if (!account) return null;
+      if (owner && owner._id !== account._id) throw Error("Membership subscription ownership mismatch.");
+      owner = account;
+    }
+    // Old subscriptions can lack both permanent metadata fields. Never use an
+    // email fallback when an explicit owner has disappeared or is invalid.
+    if (!owner && a.email) owner = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", a.email!.trim().toLowerCase())).unique();
+    if (!owner) return null;
+    if (owner.stripeCustomerId !== a.customerId) throw Error("Stripe membership customer does not match the account.");
+    return owner;
+  },
+});
+
 /** Convex serializes these transactions: two tabs cannot open two subscriptions. */
 export const reserveCheckout = internalMutation({
   args: { accountId: v.id("accounts"), tier: v.string(), intro, requestId: v.string(), termsVersion: v.string() },
@@ -52,11 +84,12 @@ export const abandonCheckout = internalMutation({
 
 /** Only a server-retrieved Stripe subscription may call this internal mutation. */
 export const syncSubscription = internalMutation({
-  args: { accountId: v.id("accounts"), subscriptionId: v.string(), tier: v.string(), status: v.string(), subscriptionCreatedAt: v.number(), trialEnd: v.optional(v.number()), cancelAtPeriodEnd: v.boolean(), paidThrough: v.optional(v.number()), checkoutId: v.optional(v.id("membership_checkouts")) },
+  args: { accountId: v.id("accounts"), customerId: v.optional(v.string()), subscriptionId: v.string(), tier: v.string(), status: v.string(), subscriptionCreatedAt: v.number(), trialEnd: v.optional(v.number()), cancelAtPeriodEnd: v.boolean(), paidThrough: v.optional(v.number()), checkoutId: v.optional(v.id("membership_checkouts")) },
   handler: async (ctx, a) => {
     if (!tierByKey(a.tier)) throw Error("Unknown Stripe membership plan.");
     const account = await ctx.db.get(a.accountId);
     if (!account) throw Error("Membership account is missing.");
+    if (a.customerId && account.stripeCustomerId !== a.customerId) throw Error("Stripe membership customer does not match the account.");
     if (account.membershipSubscriptionCreatedAt && account.membershipSubscriptionCreatedAt > a.subscriptionCreatedAt) return;
     if (account.stripeSubscriptionId && account.stripeSubscriptionId !== a.subscriptionId && account.membershipActive)
       throw Error("Account already has another active subscription.");
@@ -82,7 +115,7 @@ export const syncSubscription = internalMutation({
 
 /** Exactly one grant per paid invoice. Receipts containing rentals grant credit ONLY on the recurring membership line. */
 export const grantPaidInvoice = internalMutation({
-  args: { accountId: v.id("accounts"), subscriptionId: v.string(), invoiceId: v.string(), paidMembershipPence: v.number(), periodEnd: v.number(), checkoutId:v.optional(v.id("membership_checkouts")) },
+  args: { accountId: v.id("accounts"), customerId: v.optional(v.string()), subscriptionId: v.string(), invoiceId: v.string(), paidMembershipPence: v.number(), periodEnd: v.number(), checkoutId:v.optional(v.id("membership_checkouts")) },
   handler: async (ctx, a) => {
     if (!Number.isSafeInteger(a.paidMembershipPence) || a.paidMembershipPence <= 0 || !Number.isSafeInteger(a.periodEnd)) throw Error("Invalid paid membership invoice.");
     const existing = await ctx.db.query("membership_credit_grants").withIndex("by_invoice", q => q.eq("invoiceId", a.invoiceId)).unique();
@@ -92,6 +125,7 @@ export const grantPaidInvoice = internalMutation({
     }
     const account = await ctx.db.get(a.accountId);
     if (!account || account.stripeSubscriptionId !== a.subscriptionId) throw Error("Paid invoice subscription does not match the account.");
+    if (a.customerId && account.stripeCustomerId !== a.customerId) throw Error("Stripe membership customer does not match the account.");
     const previous = await ctx.db.query("membership_credit_grants").withIndex("by_account", q => q.eq("accountId", a.accountId)).collect();
     const bonusPence = account.membershipIntroChoice === "credit" && !previous.some(r => r.bonusPence > 0) ? 2000 : 0;
     const earned = monthlyCreditPence(a.paidMembershipPence,account.membershipTier);
@@ -123,7 +157,7 @@ export const grantPaidInvoice = internalMutation({
       await ctx.db.patch(account._id,{membershipSignupOfferUsed:true});
     }
     if (debtUsed) await ctx.db.patch(account._id, {membershipCreditDebtPence: (account.membershipCreditDebtPence ?? 0) - debtUsed});
-    const {checkoutId: _checkoutId, ...invoiceReceipt} = a;
+    const {checkoutId: _checkoutId, customerId: _customerId, ...invoiceReceipt} = a;
     const id = await ctx.db.insert("membership_credit_grants", { ...invoiceReceipt, creditPence, earnedCreditPence:earned, initialCreditAppliedPence, bonusPence, revokedPence: 0, createdAt: Date.now() });
     const issue = (amount: number, reason: string, spent = 0) => ctx.db.insert("credits", {
       accountId: a.accountId, amount: amount / 100, remaining: (amount-spent) / 100, currency: "GBP", reason,

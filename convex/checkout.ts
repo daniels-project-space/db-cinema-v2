@@ -453,7 +453,7 @@ export const start = action({
     if(depositAmount>0)checkoutLines.push(line_items[line_items.length-1]);
     checkoutLines=checkoutLines.filter(l=>(l.price_data?.unit_amount??0)>0);
     if(membershipCheckout)checkoutLines.push({price:await ensurePrice(sb,tierByKey(membershipCheckout.tier)!),quantity:1});
-    const meta = {bookingId,rentalPaidPence:String(pence(price.totalDue)),...(membershipCheckout ? {membershipTier:membershipCheckout.tier,accountEmail:acct.email,membershipCheckoutId:String(membershipCheckout._id),membershipTerms:MEMBERSHIP_TERMS_VERSION}: {})};
+    const meta = {bookingId,rentalPaidPence:String(pence(price.totalDue)),...(membershipCheckout ? {membershipTier:membershipCheckout.tier,accountId:String(acct._id),accountEmail:acct.email,membershipCheckoutId:String(membershipCheckout._id),membershipTerms:MEMBERSHIP_TERMS_VERSION}: {})};
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: membershipCheckout ? "subscription" : price.totalDue === 0 ? "setup" : "payment",
       ...(!membershipCheckout&&price.totalDue===0?{currency:"gbp"}:{}),
@@ -666,7 +666,7 @@ export const startMembership = action({
       const customerId = await ensureCheckoutCustomer(sb, acct, (customerId,expectedCustomerId)=>
         ctx.runMutation(internal.accounts._bindCheckoutCustomer,{accountId:acct._id,customerId,expectedCustomerId}));
       const priceId = await ensurePrice(sb, tier);
-      const metadata = { membershipTier: tier.key, accountEmail: acct.email, membershipCheckoutId: String(reservation._id), membershipTerms: MEMBERSHIP_TERMS_VERSION };
+      const metadata = { membershipTier: tier.key, accountId: String(acct._id), accountEmail: acct.email, membershipCheckoutId: String(reservation._id), membershipTerms: MEMBERSHIP_TERMS_VERSION };
       const session = await sb.checkout.sessions.create({
         adaptive_pricing: {enabled:false},
         mode: "subscription", line_items: [{ price: priceId, quantity: 1 }], customer: customerId,
@@ -692,15 +692,21 @@ function checkoutOrigin(origin: string) {
   return requested;
 }
 
+async function stripeMembershipAccount(ctx: any, sub: Stripe.Subscription, checkoutId?: string) {
+  if (checkoutId && sub.metadata.membershipCheckoutId && checkoutId !== sub.metadata.membershipCheckoutId)
+    throw Error("Membership checkout ownership mismatch.");
+  return ctx.runQuery(internal.membershipBenefits.subscriptionAccount, {
+    subscriptionId: sub.id, customerId: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
+    accountId: sub.metadata.accountId, checkoutId: checkoutId ?? sub.metadata.membershipCheckoutId, email: sub.metadata.accountEmail,
+  });
+}
+
 export async function syncStripeMembership(ctx: any, sub: Stripe.Subscription, checkoutId?: string) {
   const tier = tierKeyFromSub(sub);
-  const email = sub.metadata.accountEmail;
-  if (!tier || !email) return;
-  const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email });
-  const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+  if (!tier) return;
+  const acct: any = await stripeMembershipAccount(ctx, sub, checkoutId);
   // Shared Stripe accounts deliver events for other projects/deployments too.
   if (!acct) return;
-  if (acct.stripeCustomerId !== customerId) throw Error("Stripe membership customer does not match the account.");
   let paidThrough: number | undefined;
   const latestId=typeof sub.latest_invoice === "string" ? sub.latest_invoice : sub.latest_invoice?.id;
   if(sub.status === "active" && latestId){
@@ -712,7 +718,7 @@ export async function syncStripeMembership(ctx: any, sub: Stripe.Subscription, c
     }
   }
   await ctx.runMutation(internal.membershipBenefits.syncSubscription, {
-    accountId: acct._id, subscriptionId: sub.id, tier, status: sub.status, subscriptionCreatedAt: sub.created * 1000,
+    accountId: acct._id, customerId: typeof sub.customer === "string" ? sub.customer : sub.customer.id, subscriptionId: sub.id, tier, status: sub.status, subscriptionCreatedAt: sub.created * 1000,
     trialEnd: sub.trial_end ? sub.trial_end * 1000 : undefined, cancelAtPeriodEnd: sub.cancel_at_period_end, paidThrough,
     ...(checkoutId && ["active","trialing"].includes(sub.status) ? { checkoutId } : {}),
   });
@@ -720,13 +726,13 @@ export async function syncStripeMembership(ctx: any, sub: Stripe.Subscription, c
 }
 
 async function grantStripeMembershipInvoice(ctx: any, invoice: Stripe.Invoice, sub: Stripe.Subscription) {
-  const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: sub.metadata.accountEmail ?? "" });
+  const acct: any = await stripeMembershipAccount(ctx, sub);
   if (!acct || acct.stripeSubscriptionId !== sub.id) return;
   const lines: Stripe.InvoiceLineItem[] = [];
   for await (const line of stripe().invoices.listLineItems(invoice.id, { limit: 100 })) lines.push(line);
   const grant = paidRecurringMembership(invoice, lines, sub);
   if (grant) {
-    await ctx.runMutation(internal.membershipBenefits.grantPaidInvoice, { accountId: acct._id, subscriptionId: sub.id, invoiceId: invoice.id, ...(invoice.billing_reason === "subscription_create" && sub.metadata.membershipCheckoutId ? {checkoutId:sub.metadata.membershipCheckoutId as any} : {}), ...grant });
+    await ctx.runMutation(internal.membershipBenefits.grantPaidInvoice, { accountId: acct._id, customerId: typeof sub.customer === "string" ? sub.customer : sub.customer.id, subscriptionId: sub.id, invoiceId: invoice.id, ...(invoice.billing_reason === "subscription_create" && sub.metadata.membershipCheckoutId ? {checkoutId:sub.metadata.membershipCheckoutId as any} : {}), ...grant });
     await reconcileMembershipCreditNotes(ctx,invoice,sub);
   }
 }
