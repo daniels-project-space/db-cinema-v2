@@ -60,12 +60,15 @@ function RentalTools({ token, bookingId, consolidatedExtensions = false }: { tok
   useEffect(() => { requestId.current = null; }, [detail, start, end, pickup, dropoff, change, itemIndex, addition, qty, selected, manual, source,dateSource]);
   if (!context) return null;
   if (!["pending_payment", "confirmed", "active"].includes(context.status)) return <RentalRequestHistory token={token} bookingId={bookingId} consolidatedExtensions={consolidatedExtensions} />;
-  const started = context.rentalStarted || context.rentalStartsAt == null || Date.now() >= context.rentalStartsAt;
+  const rentalStartedNow = () => context.rentalStarted || context.rentalStartsAt == null || Date.now() >= context.rentalStartsAt;
+  const started = rentalStartedNow();
   const canCancel = !started && context.direct && (context.status === "pending_payment" || context.selfService);
   function open(next: typeof mode, button: HTMLButtonElement) { launcher.current = button; setDateSource(context!.lineItems.map(li=>({listingId:li.listingId,qty:li.qty,start:li.start,end:li.end,pickupTime:li.pickupTime,returnTime:li.returnTime}))); setStart(""); setEnd(""); setPickup(context?.lineItems.find(li=>li.start===context.start)?.pickupTime ?? ""); setDropoff(context?.lineItems.find(li=>li.end===context.end)?.returnTime ?? ""); setChange("add"); setItemIndex(0); setSource(context?.lineItems[0] ?? null); setAddition(""); setSelected(null); setSearch(""); setSearchTerm(""); setManual(false); setQty(1); setMode(next); setDetail(""); setConsent(false); setError(""); setResult(""); requestId.current = null; }
   async function submit() {
     if (inFlight.current || !mode || context!.locked) return;
-    if (mode === "cancel" && started) { setError("This rental has started. Please contact the team in this conversation."); return; }
+    // A background tab's pickup timer can run after the customer's next click.
+    // Recheck now before dispatching either cancellation action or request.
+    if (mode === "cancel" && rentalStartedNow()) { setError("This rental has started. Please contact the team in this conversation."); return; }
     inFlight.current = true; setBusy(true); setError("");
     try {
       if (mode === "cancel" && canCancel) {
