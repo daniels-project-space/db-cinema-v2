@@ -793,11 +793,13 @@ export default defineSchema({
     chargePence: v.number(), refundPence: v.number(), nonCashDifferencePence: v.number(), securityChargePence: v.number(), holdTotalPence: v.number(),
     createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(), decidedAt: v.optional(v.number()),
     appliedAt: v.optional(v.number()),
+    settlementAdditionId: v.optional(v.id("rental_additions")),
     consentVersion: v.optional(v.string()), messageId: v.optional(v.id("messages")), decisionMessageId: v.optional(v.id("messages")),
   }).index("by_request", ["changeRequestId"]).index("by_booking_state", ["bookingId", "state"]),
 
   rental_additions:defineTable({
     bookingId:v.id("bookings"),requestId:v.string(),changeRequestId:v.optional(v.id("rental_change_requests")),listingId:v.id("listings"),title:v.string(),
+    swapProposalId:v.optional(v.id("rental_swap_proposals")),
     start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number(),
     complimentary:v.optional(v.boolean()),draftReplacement:v.optional(v.boolean()),baseTotal:v.optional(v.number()),baseSecurity:v.optional(v.number()),baseSessionId:v.optional(v.string()),
     membershipCheckoutId:v.optional(v.id("membership_checkouts")),membershipFee:v.optional(v.number()),membershipSessionParams:v.optional(v.string()),

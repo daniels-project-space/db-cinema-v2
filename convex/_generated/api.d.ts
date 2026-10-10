@@ -101,6 +101,7 @@ import type * as lib_rentalRefundBalance from "../lib/rentalRefundBalance.js";
 import type * as lib_rentalReplyTemplates from "../lib/rentalReplyTemplates.js";
 import type * as lib_rentalRequestExecution from "../lib/rentalRequestExecution.js";
 import type * as lib_rentalSwapQuote from "../lib/rentalSwapQuote.js";
+import type * as lib_rentalSwapSettlement from "../lib/rentalSwapSettlement.js";
 import type * as lib_renterPush from "../lib/renterPush.js";
 import type * as lib_repeatRental from "../lib/repeatRental.js";
 import type * as lib_repeatRentalProvider from "../lib/repeatRentalProvider.js";
@@ -266,6 +267,7 @@ declare const fullApi: ApiFromModules<{
   "lib/rentalReplyTemplates": typeof lib_rentalReplyTemplates;
   "lib/rentalRequestExecution": typeof lib_rentalRequestExecution;
   "lib/rentalSwapQuote": typeof lib_rentalSwapQuote;
+  "lib/rentalSwapSettlement": typeof lib_rentalSwapSettlement;
   "lib/renterPush": typeof lib_renterPush;
   "lib/repeatRental": typeof lib_repeatRental;
   "lib/repeatRentalProvider": typeof lib_repeatRentalProvider;

@@ -135,9 +135,9 @@ async function ensureSession(ctx: any, id: any) {
             product_data: {
               name: r.draftReplacement
                 ? "Updated DB Cinema rental"
-                : "DB Cinema rental item addition",
+                : r.swapProposalId ? "DB Cinema equipment swap price difference" : "DB Cinema rental item addition",
               description:
-                `${r.qty}× ${r.title}. Rental £${r.lineTotal.toFixed(2)}; additional refundable security £${r.securityCharge.toFixed(2)}. Updated card hold £${r.holdTotal.toFixed(2)}.${r.draftReplacement ? ` Includes existing rental checkout £${(r.baseTotal ?? 0).toFixed(2)}.` : ""}`.slice(
+                `${r.qty}× ${r.title}. ${r.swapProposalId ? "Rental difference" : "Rental"} £${r.lineTotal.toFixed(2)}; additional refundable security £${r.securityCharge.toFixed(2)}. Updated card hold £${r.holdTotal.toFixed(2)}.${r.draftReplacement ? ` Includes existing rental checkout £${(r.baseTotal ?? 0).toFixed(2)}.` : ""}`.slice(
                   0,
                   500,
                 ),
@@ -477,6 +477,21 @@ async function finish(
   });
   return { bookingId: r.bookingId, status: "held" };
 }
+export const startPaidSwap = action({
+  args:{token:v.string(),bookingId:v.id("bookings"),id:v.id("rental_change_requests"),quoteKey:v.string()},
+  handler:async(ctx,args):Promise<{url:string;id:string;applied?:boolean}>=>{
+    const row:any=await ctx.runMutation(internal.rentalSwaps.preparePaidSwap,args);
+    if(row.status==="applied")return {url:"",id:row._id,applied:true};
+    if(row.withdrawalRequestedAt)throw Error("Finish withdrawing this swap settlement before agreeing a new request.");
+    const session=await ensureSession(ctx,row._id);
+    if(session.payment_status==="paid"){
+      const result=await finish(ctx,row._id,session);
+      return {url:"",id:row._id,applied:!result.closed&&["scheduled","held"].includes(result.status)};
+    }
+    if(!session.url||session.status!=="open")throw Error("This swap payment is no longer open. Review its saved settlement in the rental.");
+    return {url:session.url,id:row._id};
+  },
+});
 export const start = action({
   args: {
     token: v.string(),

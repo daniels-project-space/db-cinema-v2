@@ -1,4 +1,5 @@
 import { approvedKitRequest, assertKitAddition } from "./lib/kitRequestBinding";
+import { paidSwapPlan, swapStockWindow } from "./lib/rentalSwapSettlement";
 import { accountForRental } from "./lib/rentalAccount";
 import { listingImages } from "./lib/catalogImages";
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
@@ -283,7 +284,9 @@ export const bindSession = internalMutation({
     await note(
       ctx,
       b,
-      r.draftReplacement
+      r.swapProposalId
+        ? `The accepted equipment swap is ready for payment: ${r.qty}× ${r.title}. Rental difference £${r.lineTotal.toFixed(2)}${r.securityCharge ? ` + £${r.securityCharge.toFixed(2)} refundable security` : ""}. Your original kit remains booked until payment and the swap are confirmed.`
+        : r.draftReplacement
         ? `The team proposed adding ${r.qty}× ${r.title}. Review the updated rental and complete its checkout.${r.membershipCheckoutId ? ` Your membership is preserved: £${(r.membershipFee??0).toFixed(2)} membership fee in this checkout${r.membershipFee===0?" (free-week trial)":""}; renewal remains as agreed.`:""}`
         : `The team proposed adding ${r.qty}× ${r.title}: £${r.lineTotal.toFixed(2)} rental${r.securityCharge ? ` + £${r.securityCharge.toFixed(2)} refundable security` : ""}. The updated card hold is £${r.holdTotal.toFixed(2)}. Items are confirmed after payment and any bank approval.`,
       {
@@ -296,7 +299,7 @@ export const bindSession = internalMutation({
     );
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
       bookingId: b._id,
-      kind: "item addition proposed",
+      kind: r.swapProposalId ? "equipment swap payment ready" : "item addition proposed",
       detail: `${r.qty}× ${r.title}. Review the secure payment link in your rental conversation.`,
     });
   },
@@ -356,7 +359,7 @@ export const apply = internalMutation({
       (r.draftReplacement && b.status !== "pending_payment")
     )
       return { closed: true };
-    assertKitAddition(await approvedKitRequest(ctx,b,r.changeRequestId,r._id),r.listingId,r.qty);
+    if(!r.swapProposalId)assertKitAddition(await approvedKitRequest(ctx,b,r.changeRequestId,r._id),r.listingId,r.qty);
     if (
       (!r.paymentIntentId && !r.complimentary) ||
       (!r.draftReplacement && r.holdTotal > 0 && r.status !== "held" && !canDeferAdditionSecurity(b))
@@ -364,6 +367,8 @@ export const apply = internalMutation({
       throw Error(
         "Payment and replacement card hold must be ready before items are attached",
       );
+    const swap = r.swapProposalId ? await paidSwapPlan(ctx,b,r) : null;
+    if(r.swapProposalId&&!swap)return {closed:true};
     const line = {
       listingId: r.listingId,
       title: r.title,
@@ -373,17 +378,18 @@ export const apply = internalMutation({
       lineTotal: r.lineTotal,
       dailyRate: r.dailyRate,
     };
+    const finalLines:Doc<"bookings">["lineItems"] = swap ? swap.quote.finalLines : [...b.lineItems,line];
     try {
-      await assertRenterExposure(ctx, b, [...b.lineItems, line]);
-      await assertRentalInventory(ctx, [...b.lineItems, line], b._id);
+      await assertRenterExposure(ctx, b, finalLines);
+      await assertRentalInventory(ctx, finalLines, b._id);
     } catch (e) {
       if (/unavailable|already reserved|Inventory capacity|replacement value|overlapping rentals/.test(String(e)))
         return { closed: true };
       throw e;
     }
     const patch: any = {
-      replacementValues: await replacementValues(ctx, b, [...b.lineItems, line]),
-      lineItems: [...b.lineItems, line],
+      replacementValues: await replacementValues(ctx, b, finalLines),
+      lineItems: finalLines,
       subtotal: b.subtotal + r.lineTotal,
       total: b.total + r.lineTotal + r.securityCharge,
       depositAmount: b.depositAmount + r.securityCharge,
@@ -418,7 +424,18 @@ export const apply = internalMutation({
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
       .collect();
-    for (const reservation of reservations)
+    if(swap){
+      for(const reservation of reservations)if(reservation.status==="confirmed"||reservation.externalRef===`addition:${id}`)
+        await ctx.db.patch(reservation._id,{status:"cancelled",holdExpiresAt:undefined});
+      for(const item of finalLines){
+        const listing=await ctx.db.get(item.listingId);
+        if(!listing?.components.length)throw Error("The replacement inventory mapping needs review.");
+        for(const component of listing.components)await ctx.db.insert("reservations",{bookingId:b._id,listingId:item.listingId,inventoryUnitId:component.inventoryUnitId,...swapStockWindow(item,swap.quote.allocationMode),qty:item.qty*component.qty,status:"confirmed",source:"site"});
+      }
+      const now=Date.now(),operationKey=`kit-swap:${b._id}:${swap.row._id}:${swap.row.quoteKey}`;
+      await ctx.db.patch(swap.row._id,{state:"applied",appliedAt:now,updatedAt:now});
+      await ctx.db.patch(swap.request._id,{execution:{operation:"kit_swap",operationKey,status:"applied",startedAt:r.createdAt,appliedAt:now,detail:`${r.qty}× ${swap.row.sourceTitle} → ${r.title}. Rental difference £${r.lineTotal.toFixed(2)} paid.`}});
+    }else for (const reservation of reservations)
       if (!r.draftReplacement && reservation.externalRef === `addition:${id}`)
         await ctx.db.patch(reservation._id, {
           status: b.status === "active" ? "active" : "confirmed",
@@ -427,12 +444,12 @@ export const apply = internalMutation({
     await note(
       ctx,
       b,
-      `Added to your rental: ${r.qty}× ${r.title}. Rental charge £${r.lineTotal.toFixed(2)}${r.securityCharge ? `; refundable security £${r.securityCharge.toFixed(2)}` : ""}.`,
+      swap ? `The paid equipment swap is confirmed: ${r.qty}× ${swap.row.sourceTitle} → ${r.title}. Rental difference £${r.lineTotal.toFixed(2)}${r.securityCharge ? `; additional refundable security £${r.securityCharge.toFixed(2)}` : ""}.` : `Added to your rental: ${r.qty}× ${r.title}. Rental charge £${r.lineTotal.toFixed(2)}${r.securityCharge ? `; refundable security £${r.securityCharge.toFixed(2)}` : ""}.`,
     );
     await queueRmv2Sync(ctx, b._id);
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
       bookingId: b._id,
-      kind: "item added",
+      kind: swap ? "kit updated" : "item added",
       detail: `${r.qty}× ${r.title}. £${r.lineTotal.toFixed(2)} rental charge${r.securityCharge ? ` and £${r.securityCharge.toFixed(2)} refundable security` : ""}.`,
     });
     return { applied: true };
@@ -513,6 +530,11 @@ export const close = internalMutation({
     if (r.securityCreationPending) throw Error("Wait for the pending security authorisation to be reconciled");
     if (r.withdrawalRequestedAt && r.paymentIntentId && (!refunded || r.withdrawalRefundStatus !== "succeeded")) throw Error("Wait for the withdrawal refund to be confirmed");
     const b = await ctx.db.get(r.bookingId);
+    if(r.swapProposalId){
+      const swap=await ctx.db.get(r.swapProposalId);
+      if(!swap||swap.settlementAdditionId!==id||swap.bookingId!==r.bookingId||swap.changeRequestId!==r.changeRequestId||swap.state!=="accepted")throw Error("The swap withdrawal receipt needs reconciliation.");
+      await ctx.db.patch(swap._id,{state:"withdrawn",updatedAt:Date.now()});
+    }
     await ctx.db.patch(id, {
       status: refunded ? "refunded" : "expired",
       updatedAt: Date.now(),
@@ -546,10 +568,10 @@ export const close = internalMutation({
         ctx,
         b,
         refunded
-          ? `The proposed addition of ${r.title} was withdrawn. Its payment is being returned to the card.`
+          ? `The proposed ${r.swapProposalId ? "swap" : "addition"} of ${r.title} was withdrawn. Its payment is being returned to the card.`
           : r.draftReplacement && !preserveBooking
             ? `The updated checkout for ${r.title} closed without payment. This unpaid rental was cancelled; its conversation remains available.`
-            : `The proposed addition of ${r.title} closed without payment. Your rental is unchanged.`,
+            : `The proposed ${r.swapProposalId ? "swap" : "addition"} of ${r.title} closed without payment. Your rental is unchanged.`,
       );
   },
 });

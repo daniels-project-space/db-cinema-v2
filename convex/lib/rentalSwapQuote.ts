@@ -20,20 +20,24 @@ export function assertCurrentKitSource(booking:any,request:any){
  return line;
 }
 /** Compute the final kit and the difference; never release stock or execute money here. */
-export async function rentalSwapQuote(ctx:any,booking:Doc<"bookings">,request:any){
+export async function rentalSwapQuote(ctx:any,booking:Doc<"bookings">,request:any,settlementAdditionId?:string){
  const selection=request?.kitSelection;
  if(selection?.change!=="swap")throw Error("Choose an approved equipment swap.");
  if(!["confirmed","active"].includes(booking.status)||booking.cancellationDecision||booking.returnDecision||booking.returnedAt)throw Error("This paid rental cannot be swapped now.");
- if(booking.activeAdditionId||booking.activeExtensionId)throw Error("Finish or withdraw the open kit or extension proposal first.");
+ if(booking.activeAdditionId&&booking.activeAdditionId!==settlementAdditionId||booking.activeExtensionId)throw Error("Finish or withdraw the open kit or extension proposal first.");
+ if(settlementAdditionId&&booking.activeAdditionId!==settlementAdditionId)throw Error("The swap settlement is no longer active.");
  if(["starting","requires_action","failed"].includes(booking.depositHoldRenewalStatus??""))throw Error("Resolve the existing card hold renewal before swapping equipment.");
  if((booking.depositHoldAmount??0)>0&&!canDeferAdditionSecurity(booking)&&(booking.depositHoldExpiresAt??0)<=Date.now()+36*3600000)throw Error("Renew the current security hold before swapping equipment; the proposal must not interrupt rental coverage.");
  const source=assertCurrentKitSource(booking,request)!;
  const target=await ctx.db.get(selection.listingId);
  if(!requestableListing(target))throw Error("The replacement equipment is unavailable.");
- const reservations=await ctx.db.query("reservations").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).collect();
+ const rows=await ctx.db.query("reservations").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).take(201);
+ if(rows.length>200)throw Error("The stock ledger needs paged reconciliation before this swap.");
+ const reservations=rows.filter((r:any)=>!settlementAdditionId||r.externalRef!==`addition:${settlementAdditionId}`);
  if(reservations.some((r:any)=>r.source!=="site"||r.status==="hold"))throw Error("Resolve the original platform or open stock hold before swapping equipment.");
  const allocationMode=await assertRentalAllocation(ctx,booking,reservations);
- const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).collect();
+ const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).take(201);
+ if(refunds.length>200)throw Error("The refund ledger needs paged reconciliation before this swap.");
  if(refunds.some((r:any)=>["prepared","pending"].includes(r.status)))throw Error("Wait for the pending refund to settle before a swap.");
  const lines=bookingStockLines<any>(booking),original=lines[selection.lineIndex];
  const originalLinePence=pence(source.lineTotal),removedLinePence=Math.round(originalLinePence*selection.quantity/source.qty);

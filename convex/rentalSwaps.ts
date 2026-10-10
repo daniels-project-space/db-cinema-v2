@@ -1,10 +1,11 @@
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { rentalHasStarted } from "../src/lib/cancellationPolicy";
 import { stockWindow } from "./lib/stockWindows";
 import { replacementValues } from "./lib/rentalExposure";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
+import { additionalSwapStock, paidSwapEligible } from "./lib/rentalSwapSettlement";
 import { v } from "convex/values";
 import { checkAdminToken, assertAdmin } from "./adminAuth";
 import { approvedKitRequest } from "./lib/kitRequestBinding";
@@ -38,7 +39,7 @@ async function scopedRequest(ctx:any,args:any,admin:boolean){
  if(!booking||!request||request.bookingId!==booking._id||request.kind!=="items"||request.kitSelection?.change!=="swap"||!belongsToRentalAccount(booking,owner)||account&&request.accountId!==account._id)throw Error("This swap is not available for your rental.");
  return {booking,request};
 }
-async function proposalFor(ctx:any,booking:any,request:any){
+async function proposalFor(ctx:any,booking:any,request:any):Promise<Doc<"rental_swap_proposals">|null>{
  const row=await ctx.db.query("rental_swap_proposals").withIndex("by_request",(q:any)=>q.eq("changeRequestId",request._id)).first();
  if(row&&(row.bookingId!==booking._id||row.accountId!==request.accountId||request.swapProposalId!==row._id))throw Error("This saved proposal belongs to another rental or account.");
  return row;
@@ -56,9 +57,11 @@ async function isCurrent(ctx:any,booking:any,request:any,row:any,exposeInternal=
 export const proposal=query({args:{...scopeArgs,admin:v.optional(v.boolean()),refreshKey:v.optional(v.number())},handler:async(ctx,args)=>{
  const {booking,request}=await scopedRequest(ctx,args,!!args.admin),row=await proposalFor(ctx,booking,request);
  if(!row)return null;
- const freshness=["offered","accepted"].includes(row.state)?await isCurrent(ctx,booking,request,row,!!args.admin):{current:false,reason:null};
+ const settlement=row.settlementAdditionId?await ctx.db.get(row.settlementAdditionId):null;
+ if(row.settlementAdditionId&&(!settlement||settlement.swapProposalId!==row._id||settlement.bookingId!==booking._id||settlement.changeRequestId!==request._id||request.additionRequestId!==settlement._id))throw Error("The saved swap payment needs reconciliation.");
+ const freshness=!settlement&&["offered","accepted"].includes(row.state)?await isCurrent(ctx,booking,request,row,!!args.admin):{current:false,reason:null};
  const sourceImages=listingImages(await ctx.db.get(row.sourceListingId)),targetImages=listingImages(await ctx.db.get(row.targetListingId));
- return {id:row._id,state:row.state,quoteKey:row.quoteKey,...freshness,...(args.admin?{canApply:row.state==="accepted"&&freshness.current&&equalPriceSwapReady(booking,row)}:{}),appliedAt:row.appliedAt??null,activeRental:booking.status==="active",expiresAt:row.expiresAt,decidedAt:row.decidedAt??null,source:{title:row.sourceTitle,qty:row.quantity,heroImage:sourceImages[0]??null,imageSources:sourceImages},replacement:{title:row.targetTitle,qty:row.quantity,heroImage:targetImages[0]??null,imageSources:targetImages},start:row.start,end:row.end,pickupTime:row.pickupTime??null,returnTime:row.returnTime??null,originalAmount:row.originalPence/100,replacementAmount:row.replacementPence/100,difference:row.differencePence/100,charge:row.chargePence/100,refund:row.refundPence/100,nonCashDifference:row.nonCashDifferencePence/100,securityCharge:row.securityChargePence/100,holdTotal:row.holdTotalPence/100};
+ return {id:row._id,state:row.state,quoteKey:row.quoteKey,...freshness,...(args.admin?{canApply:row.state==="accepted"&&freshness.current&&equalPriceSwapReady(booking,row),canStartPayment:row.state==="accepted"&&freshness.current&&paidSwapEligible(booking,row)}:{}),settlement:settlement?{id:settlement._id,status:settlement.status,paymentUrl:settlement.status==="awaiting_payment"&&!settlement.withdrawalRequestedAt?settlement.paymentUrl??null:null}:null,appliedAt:row.appliedAt??null,activeRental:booking.status==="active",expiresAt:row.expiresAt,decidedAt:row.decidedAt??null,source:{title:row.sourceTitle,qty:row.quantity,heroImage:sourceImages[0]??null,imageSources:sourceImages},replacement:{title:row.targetTitle,qty:row.quantity,heroImage:targetImages[0]??null,imageSources:targetImages},start:row.start,end:row.end,pickupTime:row.pickupTime??null,returnTime:row.returnTime??null,originalAmount:row.originalPence/100,replacementAmount:row.replacementPence/100,difference:row.differencePence/100,charge:row.chargePence/100,refund:row.refundPence/100,nonCashDifference:row.nonCashDifferencePence/100,securityCharge:row.securityChargePence/100,holdTotal:row.holdTotalPence/100};
 }});
 
 /** Saving an offer records the exact consent basis; it does not reserve stock or execute money. */
@@ -104,10 +107,45 @@ export const withdrawOffer=mutation({args:scopeArgs,handler:async(ctx,args)=>{
  const {booking,request}=await scopedRequest(ctx,args,true),row=await proposalFor(ctx,booking,request);
  if(!row)throw Error("No saved swap proposal.");
  if(row.state==="withdrawn")return {id:row._id,state:row.state};
+ if(row.settlementAdditionId)throw Error("Withdraw the saved payment settlement in the rental controls before closing this proposal.");
  if(!["offered","accepted"].includes(row.state))throw Error("This proposal is already closed.");
  await ctx.db.patch(row._id,{state:"withdrawn",updatedAt:Date.now()});
  await postRentalMessage(ctx,{accountId:row.accountId,bookingId:booking._id,sender:"owner",text:"The team withdrew this swap proposal. Your original rental and payments remain unchanged. Reply here to discuss a new proposal.",meta:{type:"rental_swap_withdrawn",changeRequestId:request._id,swapProposalId:row._id}});
  return {id:row._id,state:"withdrawn" as const};
+}});
+
+/** Bind a genuine difference-only checkout to the exact accepted proposal. The
+ * existing update pipeline owns payment, hold, recovery and withdrawal. */
+export const preparePaidSwap=internalMutation({args:{...scopeArgs,quoteKey:v.string()},handler:async(ctx,args)=>{
+ await assertAdmin(ctx,args.token,"rentalSwaps.preparePaidSwap");
+ const {booking,request}=await scopedRequest(ctx,args,true),row=await proposalFor(ctx,booking,request);
+ if(!row||row.quoteKey!==args.quoteKey)throw Error("This is not the accepted swap proposal.");
+ if(row.settlementAdditionId){
+  const saved=await ctx.db.get(row.settlementAdditionId);
+  if(!saved||saved.swapProposalId!==row._id||saved.changeRequestId!==request._id||saved.bookingId!==booking._id)throw Error("The saved swap settlement needs reconciliation.");
+  if(["expired","refunded"].includes(saved.status))throw Error("This swap settlement is closed. Agree a new request.");
+  if(saved.status!=="applied"&&booking.activeAdditionId!==saved._id)throw Error("The saved swap settlement is no longer active.");
+  return saved;
+ }
+ if(row.state!=="accepted"||row.consentVersion!=="rental-swap-price-difference-v1"||!paidSwapEligible(booking,row))throw Error("This swap needs an accepted pre-pickup payment proposal. Refunds, credit differences and collected equipment require their separate settlement.");
+ if(row.expiresAt<Date.now()+35*60000)throw Error("This proposal is too close to expiry. Agree a new proposal before preparing payment.");
+ const freshness=await isCurrent(ctx,booking,request,row,true);if(!freshness.current)throw Error(freshness.reason!);
+ const quote=await rentalSwapQuote(ctx,booking,request);
+ if(await swapQuoteKey(booking,request,quote)!==row.quoteKey||JSON.stringify(quote.finalLines)!==row.finalLines)throw Error("The accepted swap changed. Review a new proposal.");
+ const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",booking._id)).take(201);
+ if(reservations.length>200||reservations.some(r=>r.extensionRequestId&&["confirmed","active"].includes(r.status)))throw Error("The stock ledger needs reconciliation before this swap.");
+ const holds=await additionalSwapStock(ctx,quote.finalLines,quote.allocationMode,reservations),now=Date.now();
+ const id=await ctx.db.insert("rental_additions",{
+  bookingId:booking._id,requestId:`swap-${row._id}`,changeRequestId:request._id,swapProposalId:row._id,
+  listingId:row.targetListingId,title:row.targetTitle,start:row.start,end:row.end,qty:row.quantity,dailyRate:quote.replacement.dailyRate,
+  lineTotal:row.differencePence/100,securityCharge:row.securityChargePence/100,holdTotal:row.holdTotalPence/100,oldHoldId:booking.stripeDepositIntentId,
+  status:"prepared",reason:`Accepted swap: ${row.sourceTitle} → ${row.targetTitle}`.slice(0,400),createdAt:row.createdAt,updatedAt:now,
+ });
+ await ctx.db.patch(row._id,{settlementAdditionId:id,updatedAt:now});
+ await ctx.db.patch(request._id,{additionRequestId:id});
+ await ctx.db.patch(booking._id,{activeAdditionId:id});
+ for(const hold of holds)await ctx.db.insert("reservations",{...hold,bookingId:booking._id,source:"site",status:"hold",externalRef:`addition:${id}`,holdExpiresAt:Math.min(row.expiresAt,now+35*60000)});
+ return (await ctx.db.get(id))!;
 }});
 
 
