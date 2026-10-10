@@ -460,7 +460,9 @@ async function enrichBookings(ctx:any,rows:any[]) {
     for (const b of rows) {
       let verificationArchiveReady = false;
       if (b.idVerifyStatus === "verified") {
-        const sourceId = String(b.verificationReusedFrom ?? b._id);
+        // Original archive availability and reuse eligibility are distinct:
+        // the original can stay viewable after its approval stops being reusable.
+        const sourceId = `${b.verificationReusedFrom ? "reused" : "direct"}:${b.verificationReusedFrom ?? b._id}`;
         if (!archiveCache.has(sourceId)) {
           try { await assertVerificationArchive(ctx, b); archiveCache.set(sourceId, true); }
           catch { archiveCache.set(sourceId, false); }

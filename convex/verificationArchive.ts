@@ -2,7 +2,8 @@ import { query, mutation, internalQuery, internalMutation } from "./_generated/s
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
-import { accountForRental } from "./lib/rentalAccount";
+import { accountForRental, belongsToRentalAccount } from "./lib/rentalAccount";
+import { VERIFICATION_REUSE_DAYS } from "./lib/verificationReuse";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
 import { queueOwnerNotification } from "./lib/adminPush";
@@ -98,6 +99,16 @@ async function archiveCopies(ctx: any, archive: any) {
 }
 export async function assertVerificationArchive(ctx: any, booking: any) {
   const source = booking.verificationReusedFrom ? await ctx.db.get(booking.verificationReusedFrom) : booking;
+  if (booking.verificationReusedFrom) {
+    const account = await accountForRental(ctx, booking);
+    // Reuse never inherits the direct manual/legacy exemption below. Its
+    // original provider decision must still be valid for this permanent owner.
+    if (!source?.diditSessionId || source.idVerificationSource !== "didit" || source.idVerifyStatus !== "verified" ||
+        !belongsToRentalAccount(source, account) ||
+        !(Math.min(source.verificationExpiresAt ?? ((source.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * 86400000),
+          source.documentExpiresAt ?? Infinity) > Date.now()))
+      throw Error("Reused verification requires a current approved Didit source belonging to the same account. Complete a new verification before handover.");
+  }
   if (!source?.diditSessionId) return;
   const archives = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", source._id)).collect();
   // A completed copy can already be outside retention while the deletion job
