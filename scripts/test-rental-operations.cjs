@@ -54,12 +54,24 @@ const b = put("bookings", {
         token,
         bookingId: b._id,
         requestId: "0123456789abcdef",
-        amountPence: 5000,
-        reason: "Duplicate click",
+        amountPence: 3000,
+        reason: "Customer request",
       })
     )._id,
     job._id,
   );
+  for (const changed of [{amountPence:5000,reason:"Customer request"},{amountPence:3000,reason:"Different approved adjustment"}]) {
+    await assert.rejects(operations.prepareRefund.handler(ctx,{token,bookingId:b._id,requestId:"0123456789abcdef",...changed}),/saved refund request changed/);
+  }
+  assert.equal((await operations.prepareRefund.handler(ctx,{token,bookingId:b._id,requestId:"0123456789abcdef",reason:"Customer request"}))._id,job._id,"resume without a new amount retains the original frozen refund");
+  const crowded=put("bookings",{status:"active",total:120,depositAmount:20,stripePaymentIntentId:"pi_bounded_history"});
+  for(let i=0;i<201;i++)put("rental_refunds",{bookingId:crowded._id,requestId:"history-refund-"+i,status:"failed",amountPence:1});
+  const count=tables.get("rental_refunds").length;
+  await assert.rejects(operations.prepareRefund.handler(ctx,{token,bookingId:crowded._id,requestId:"history-overflow-new-refund",amountPence:100,reason:"Owner rental adjustment"}),/full rental refund history/);
+  assert.equal(tables.get("rental_refunds").length,count,"overflow cannot create an under-reconciled financial job");
+  const overflow=tables.get("rental_refunds").find(r=>r.bookingId===crowded._id&&r.requestId==="history-refund-200");
+  await db.delete(overflow._id);
+  assert.equal((await operations.prepareRefund.handler(ctx,{token,bookingId:crowded._id,requestId:"history-exact-bound-refund",amountPence:100,reason:"Owner rental adjustment"})).amountPence,100,"exact 200-record complete ledger remains usable");
   await assert.rejects(
     operations.prepareRefund.handler(ctx, {
       token,

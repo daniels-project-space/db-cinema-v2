@@ -245,6 +245,9 @@ export const prepareRefund = internalMutation({
     if (prior) {
       if (prior.bookingId !== bookingId)
         throw Error("Refund request belongs to another rental");
+      if ((amountPence !== undefined && amountPence !== prior.amountPence) ||
+          reason.trim().slice(0, 400) !== prior.reason)
+        throw Error("The saved refund request changed. Resume its original amount and reason before creating another refund.");
       return prior;
     }
     const b = await ctx.db.get(bookingId);
@@ -256,7 +259,9 @@ export const prepareRefund = internalMutation({
     const previous = await ctx.db
       .query("rental_refunds")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
-      .collect();
+      .take(201);
+    if (previous.length > 200)
+      throw Error("Review the full rental refund history before preparing another refund.");
     if (previous.some((r) => r.status === "prepared" || r.status === "pending"))
       throw Error(
         "A refund is still processing. Wait for its bank result before another refund or cancellation.",

@@ -97,6 +97,10 @@ const allocation=(id,amount=1000)=>({paymentIntentId:id,amountPence:amount});
  assert.equal([...providerRefunds.values()].reduce((sum,p)=>sum+p.amount,0),3000,'no deposit or membership cash enters the rental refund');
  const requestsBefore=providerRequests.length;await checkout.refundRental.handler(actionCtx,input);
  assert.equal(providerRequests.length,requestsBefore,'completed exact action retry performs no additional refund request');
+ for(const changed of [{amountPence:4000},{reason:'Different refund reason'}]) {
+  await assert.rejects(checkout.refundRental.handler(actionCtx,{...input,...changed}),/saved refund request changed/);
+  assert.equal(providerRequests.length,requestsBefore,'changed admin retry is rejected before any provider refund write');
+ }
  for(const mismatch of ['booking','amount','payment','currency','duplicate']){
   const f=fixture({rentalPaidPence:9000});paid.set(f.b.stripePaymentIntentId,9000);
   const receipt={id:'re_mismatch_'+mismatch,status:'succeeded',amount:1000,currency:'gbp',payment_intent:f.b.stripePaymentIntentId,metadata:{rentalRefundId:f.r._id,bookingId:f.b._id,rentalPaymentIntent:f.b.stripePaymentIntentId}};
@@ -107,7 +111,7 @@ const allocation=(id,amount=1000)=>({paymentIntentId:id,amountPence:amount});
   providerRefunds.set(receipt.id,receipt);
   if(mismatch==='duplicate')providerRefunds.set(receipt.id+'-second',{...receipt,id:receipt.id+'-second'});
   const writes=providerRequests.length;
-  await assert.rejects(checkout.refundRental.handler(actionCtx,{...input,bookingId:f.b._id,requestId:f.r.requestId,amountPence:f.r.amountPence}),mismatch==='duplicate'?/Multiple provider refunds/:/does not match/);
+  await assert.rejects(checkout.refundRental.handler(actionCtx,{...input,bookingId:f.b._id,requestId:f.r.requestId,amountPence:f.r.amountPence,reason:f.r.reason}),mismatch==='duplicate'?/Multiple provider refunds/:/does not match/);
   assert.equal(providerRequests.length,writes,'unverifiable recovery cannot create another refund');
   assert.equal(f.r.status,'prepared');assert.equal(f.r.parts,undefined);
  }
@@ -123,14 +127,14 @@ const allocation=(id,amount=1000)=>({paymentIntentId:id,amountPence:amount});
   const f=fixture({rentalPaidPence:9000});paid.set(f.b.stripePaymentIntentId,9000);
   if(prepared)await bind(f.r,[allocation(f.b.stripePaymentIntentId)]);
   paymentOverrides.set(f.b.stripePaymentIntentId,bad);const writes=providerRequests.length;
-  await assert.rejects(checkout.refundRental.handler(actionCtx,{...input,bookingId:f.b._id,requestId:f.r.requestId,amountPence:1000}),/identity, currency or capture status/);
+  await assert.rejects(checkout.refundRental.handler(actionCtx,{...input,bookingId:f.b._id,requestId:f.r.requestId,amountPence:1000,reason:f.r.reason}),/identity, currency or capture status/);
   assert.equal(providerRequests.length,writes,'invalid payment is rejected before money creation both before and after allocation binding');
  }
  const depleted=fixture({rentalPaidPence:9000});depleted.r.amountPence=2000;paid.set(depleted.b.stripePaymentIntentId,9000);
  await bind(depleted.r,[allocation(depleted.b.stripePaymentIntentId,2000)]);
  providerRefunds.set('re_outside_app',{id:'re_outside_app',status:'succeeded',amount:3000,currency:'gbp',payment_intent:depleted.b.stripePaymentIntentId,metadata:{}});
  const writes=providerRequests.length;
- await assert.rejects(checkout.refundRental.handler(actionCtx,{...input,bookingId:depleted.b._id,requestId:depleted.r.requestId,amountPence:2000}),/protecting refundable security/);
+ await assert.rejects(checkout.refundRental.handler(actionCtx,{...input,bookingId:depleted.b._id,requestId:depleted.r.requestId,amountPence:2000,reason:depleted.r.reason}),/protecting refundable security/);
  assert.equal(providerRequests.length,writes,'a later external refund cannot make the frozen rental refund consume protected deposit cash');
  const bookings=h.load('convex/bookings.ts');
  for(const stage of ['prepared','pending'])for(const status of ['confirmed','active']){
