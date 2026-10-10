@@ -13,6 +13,7 @@ import type * as accountAdmin from "../accountAdmin.js";
 import type * as accountClaims from "../accountClaims.js";
 import type * as accountCodeClaims from "../accountCodeClaims.js";
 import type * as accountCodes from "../accountCodes.js";
+import type * as accountCredit from "../accountCredit.js";
 import type * as accounts from "../accounts.js";
 import type * as adminAuth from "../adminAuth.js";
 import type * as adminNotifications from "../adminNotifications.js";
@@ -185,6 +186,7 @@ declare const fullApi: ApiFromModules<{
   accountClaims: typeof accountClaims;
   accountCodeClaims: typeof accountCodeClaims;
   accountCodes: typeof accountCodes;
+  accountCredit: typeof accountCredit;
   accounts: typeof accounts;
   adminAuth: typeof adminAuth;
   adminNotifications: typeof adminNotifications;

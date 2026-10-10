@@ -740,3 +740,5 @@
 .tableWrap { position:relative; min-width:0; }
 
 @media(min-width:601px) and (max-width:900px) { .table { min-width:620px; } .table th { font-size:11px; } }
+
+.summary .creditSummary strong { font-size:26px; margin-top:6px; line-height:1.2; }

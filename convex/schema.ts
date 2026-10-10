@@ -761,6 +761,11 @@ export default defineSchema({
     status: v.union(v.literal("offered"), v.literal("accepted")),
     acceptedAt: v.optional(v.number()),
   }).index("by_booking", ["bookingId"]),
+  account_credit_adjustments: defineTable({
+    accountId:v.id("accounts"), requestId:v.string(), deltaPence:v.number(),
+    expectedBalancePence:v.number(), balanceAfterPence:v.number(), reason:v.string(), at:v.number(),
+    changes:v.array(v.object({creditId:v.id("credits"),amountPence:v.number()})),
+  }).index("by_request",["requestId"]).index("by_account",["accountId"]),
   credits: defineTable({
     accountId: v.id("accounts"),
     amount: v.number(), // original issued (GBP)
@@ -778,6 +783,7 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("spent"), v.literal("expired")),
   })
     .index("by_account", ["accountId"])
+    .index("by_account_status_expiry", ["accountId", "status", "expiresAt"])
     .index("by_status", ["status"]),
 
   referral_redemptions:defineTable({referrerAccountId:v.id("accounts"),friendAccountId:v.id("accounts"),bookingId:v.id("bookings"),code:v.string(),discount:v.number(),state:v.union(v.literal("reserved"),v.literal("paid"),v.literal("qualified"),v.literal("void")),createdAt:v.number(),paidAt:v.optional(v.number()),qualifiedAt:v.optional(v.number()),paymentHash:v.optional(v.string()),rejectionReason:v.optional(v.string())}).index("by_friend",["friendAccountId"]).index("by_booking",["bookingId"]).index("by_referrer",["referrerAccountId"]).index("by_state",["state"]),

@@ -7,6 +7,7 @@ import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
 import styles from "./AccountAdmin.module.css";
 import { CustomerInvite } from "./CustomerInvite";
+import { AccountCreditAdjust } from "./AccountCreditAdjust";
 
 const LEVELS = [
   ["automatic", "Automatic · subscription / existing grant"],
@@ -528,14 +529,8 @@ export function AccountAdmin({
               </div>
               </div>
             </div>
-            <div>
-              <span>Account credit</span>
-              <strong>{detail ? formatGbp(detail.credit) : "…"}</strong>
-              {detail && (
-                <small>
-                  {formatGbp(detail.refundCredit)} refund credit included
-                </small>
-              )}
+            <div className={styles.creditSummary}>
+              <AccountCreditAdjust token={token} accountId={selected.id} name={selected.name || "DB Cinema renter"} email={selected.email} balance={detail?.credit} refundCredit={detail?.refundCredit}/>
             </div>
           </div>
           <nav
