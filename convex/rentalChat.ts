@@ -1,4 +1,9 @@
-import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
+import {
+  query,
+  mutation,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
@@ -9,7 +14,10 @@ import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
 import { acknowledgeOwnerNotifications } from "./lib/adminPush";
 import { accountForRental, rentalsForAccount } from "./lib/rentalAccount";
 import { bookingStockLines } from "../shared/rentalWindow";
-import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
+import {
+  requiresDroneLicence,
+  droneLicenceStatusForRental,
+} from "./lib/droneVerification";
 import { assertVerificationArchive } from "./verificationArchive";
 import {
   accountForToken,
@@ -22,51 +30,82 @@ async function ownerAccount(ctx: any, bookingId?: any, accountId?: any) {
   if (bookingId) {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
-    return accountForRental(ctx,b);
+    return accountForRental(ctx, b);
   }
   return accountId ? ctx.db.get(accountId) : null;
 }
-async function bookingView(ctx: any, b: any, account: any, options: { includeAvailability?: boolean; thread?: any } = {}) {
+async function bookingView(
+  ctx: any,
+  b: any,
+  account: any,
+  options: { includeAvailability?: boolean; thread?: any } = {},
+) {
   let verificationArchiveReady = false;
-  if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx, b); verificationArchiveReady = true; } catch {} }
-  const thread = options.thread ?? (account ? await rentalThread(ctx, account._id, b._id) : null);
+  if (b.idVerifyStatus === "verified") {
+    try {
+      await assertVerificationArchive(ctx, b);
+      verificationArchiveReady = true;
+    } catch {}
+  }
+  const thread =
+    options.thread ??
+    (account ? await rentalThread(ctx, account._id, b._id) : null);
   const items = await Promise.all(
     bookingStockLines(b).map(async (li: any) => {
       const l = await ctx.db.get(li.listingId);
-      const stock = options.includeAvailability && l
-        ? await listingAvailability(ctx, {
-            listingId: li.listingId,
-            start: li.start,
-            end: li.end,
-            pickupTime: li.pickupTime,
-            returnTime: li.returnTime,
-            excludeBookingId: String(b._id),
-          })
-        : null;
+      const stock =
+        options.includeAvailability && l
+          ? await listingAvailability(ctx, {
+              listingId: li.listingId,
+              start: li.start,
+              end: li.end,
+              pickupTime: li.pickupTime,
+              returnTime: li.returnTime,
+              excludeBookingId: String(b._id),
+            })
+          : null;
       return {
         ...li,
         heroImage: listingImages(l)[0] ?? null,
         imageSources: listingImages(l),
         slug: l?.slug ?? null,
-        stockAvailability: stock ? {
-          availableUnits: stock.available,
-          ownedUnits: stock.owned,
-          requestedQty: li.qty,
-          available: stock.available >= li.qty,
-          blocked: !!stock.blocked,
-        } : null,
+        stockAvailability: stock
+          ? {
+              availableUnits: stock.available,
+              ownedUnits: stock.owned,
+              requestedQty: li.qty,
+              available: stock.available >= li.qty,
+              blocked: !!stock.blocked,
+            }
+          : null,
       };
     }),
   );
   // Admin-only display context: bounded, indexed and account-scoped. These
   // mentions never alter the booking basket or availability receipts.
-  const requestedGearTexts = options.includeAvailability && account
-    ? (await ctx.db.query("messages").withIndex("by_booking_at", (q: any) => q.eq("bookingId", b._id)).order("desc").take(40))
-        .filter((message: any) => message.accountId === account._id && message.sender === "renter")
-        .map((message: any) => message.text)
-    : [];
+  const searchMessages =
+    options.includeAvailability && account
+      ? (
+          await ctx.db
+            .query("messages")
+            .withIndex("by_booking_at", (q: any) => q.eq("bookingId", b._id))
+            .order("desc")
+            .take(40)
+        ).filter((message: any) => message.accountId === account._id)
+      : [];
+  const requestedGearTexts = searchMessages
+    .filter((message: any) => message.sender === "renter")
+    .map((message: any) => message.text);
+  const searchText = searchMessages
+    .filter(
+      (message: any) =>
+        message.sender === "renter" || message.sender === "owner",
+    )
+    .map((message: any) => String(message.text ?? "").slice(0, 2000))
+    .join(" ");
   return {
     requestedGearTexts,
+    ...(options.includeAvailability ? { searchText } : {}),
     _id: b._id,
     status: b.status,
     idVerifyStatus: b.idVerifyStatus ?? "required",
@@ -84,11 +123,16 @@ async function bookingView(ctx: any, b: any, account: any, options: { includeAva
     returnChecking: !!b.returnDecision && b.status !== "returned",
     guestEmail: b.guestEmail,
     name: account?.name ?? null,
-    verifiedRenterEmail: account?.emailVerifiedAt && typeof account.email === "string"
-      ? account.email.trim().toLowerCase()
-      : null,
+    verifiedRenterEmail:
+      account?.emailVerifiedAt && typeof account.email === "string"
+        ? account.email.trim().toLowerCase()
+        : null,
     renterPhoto: account
-      ? ((account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? account.googleAvatarUrl ?? null)
+      ? ((account.avatarStorageId
+          ? await ctx.storage.getUrl(account.avatarStorageId)
+          : null) ??
+        account.googleAvatarUrl ??
+        null)
       : null,
     start: Math.min(...items.map((li: any) => li.start)),
     end: Math.max(...items.map((li: any) => li.end)),
@@ -109,7 +153,7 @@ export const mine = query({
   handler: async (ctx, { token }) => {
     const a = await accountForToken(ctx, token);
     if (!a) return null;
-    const bookings = await rentalsForAccount(ctx,a,200);
+    const bookings = await rentalsForAccount(ctx, a, 200);
     return Promise.all(bookings.map((b) => bookingView(ctx, b, a)));
   },
 });
@@ -118,18 +162,35 @@ export const adminInbox = query({
   handler: async (ctx, { token }) => {
     if (!checkAdminToken(token)) return { authorized: false, items: [] };
     const bookings = await ctx.db.query("bookings").order("desc").take(200);
-    const conversations = await Promise.all(bookings.map(async (b) => {
-      const account = await accountForRental(ctx, b);
-      const thread = account ? await rentalThread(ctx, account._id, b._id) : null;
-      return { booking: b, account, thread };
-    }));
+    const conversations = await Promise.all(
+      bookings.map(async (b) => {
+        const account = await accountForRental(ctx, b);
+        const thread = account
+          ? await rentalThread(ctx, account._id, b._id)
+          : null;
+        return { booking: b, account, thread };
+      }),
+    );
     const active = conversations
-      .filter(({ thread }) => typeof thread?.lastMessage === "string" && thread.lastMessage.trim().length > 0)
-      .sort((a, b) => (b.thread?.updatedAt ?? b.booking._creationTime) - (a.thread?.updatedAt ?? a.booking._creationTime))
+      .filter(
+        ({ thread }) =>
+          typeof thread?.lastMessage === "string" &&
+          thread.lastMessage.trim().length > 0,
+      )
+      .sort(
+        (a, b) =>
+          (b.thread?.updatedAt ?? b.booking._creationTime) -
+          (a.thread?.updatedAt ?? a.booking._creationTime),
+      )
       .slice(0, 100);
-    const items = await Promise.all(active.map(({ booking, account, thread }) =>
-      bookingView(ctx, booking, account, { includeAvailability: true, thread }),
-    ));
+    const items = await Promise.all(
+      active.map(({ booking, account, thread }) =>
+        bookingView(ctx, booking, account, {
+          includeAvailability: true,
+          thread,
+        }),
+      ),
+    );
     return { authorized: true, items };
   },
 });
@@ -145,9 +206,10 @@ export const adminRenterIdentity = query({
     const account = await accountForRental(ctx, booking);
     return {
       authorized: true,
-      email: account?.emailVerifiedAt && typeof account.email === "string"
-        ? account.email.trim().toLowerCase()
-        : null,
+      email:
+        account?.emailVerifiedAt && typeof account.email === "string"
+          ? account.email.trim().toLowerCase()
+          : null,
     };
   },
 });
@@ -185,15 +247,33 @@ export const messages = query({
         numItems: Math.min(50, paginationOpts.numItems),
       });
     const thread = await rentalThread(ctx, a._id, bookingId);
-    return { ...page, escalated: !!thread?.escalated,
-      quickReplies: admin ? rentalReplyTemplates(bookingId ? await ctx.db.get(bookingId) : null, await ctx.db.query("settings").first()) : [],
-      renter: { name: a.name?.split(/\s+/)[0] ?? "Renter",
-        photo: (a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : null) ?? a.googleAvatarUrl ?? null },
+    return {
+      ...page,
+      escalated: !!thread?.escalated,
+      quickReplies: admin
+        ? rentalReplyTemplates(
+            bookingId ? await ctx.db.get(bookingId) : null,
+            await ctx.db.query("settings").first(),
+          )
+        : [],
+      renter: {
+        name: a.name?.split(/\s+/)[0] ?? "Renter",
+        photo:
+          (a.avatarStorageId
+            ? await ctx.storage.getUrl(a.avatarStorageId)
+            : null) ??
+          a.googleAvatarUrl ??
+          null,
+      },
     };
   },
 });
 export const ownerDraftContext = internalQuery({
-  args: { token: v.string(), bookingId: v.optional(v.id("bookings")), accountId: v.optional(v.id("accounts")) },
+  args: {
+    token: v.string(),
+    bookingId: v.optional(v.id("bookings")),
+    accountId: v.optional(v.id("accounts")),
+  },
   handler: async (ctx, { token, bookingId, accountId }) => {
     if (!checkAdminToken(token)) throw Error("unauthorized");
     const account = await ownerAccount(ctx, bookingId, accountId);
@@ -254,7 +334,8 @@ export const markRead = mutation({
       throw Error("Invalid read marker");
     const previous = admin ? t.ownerReadAt : t.renterReadAt;
     if (previous != null && previous > seen.at) return;
-    if (admin) await acknowledgeOwnerNotifications(ctx, a._id, bookingId, seen.at);
+    if (admin)
+      await acknowledgeOwnerNotifications(ctx, a._id, bookingId, seen.at);
     // at is monotonic for new messages; creation time disambiguates historical ties.
     const newer = await ctx.db
       .query("messages")
@@ -327,7 +408,12 @@ export const minePage = query({
     const page = await ctx.db
       .query("bookings")
       .withIndex("by_guest_chat_updated", (q) => q.eq("guestEmail", a.email))
-      .filter(q=>q.or(q.eq(q.field("accountId"),undefined),q.eq(q.field("accountId"),a._id)))
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("accountId"), undefined),
+          q.eq(q.field("accountId"), a._id),
+        ),
+      )
       .order("desc")
       .paginate({
         ...paginationOpts,
@@ -412,10 +498,23 @@ export const unreadTotals = query({
 
 async function generalConversationView(ctx: any, t: any) {
   const a = await ctx.db.get(t.accountId);
-  return { _id: t.accountId, accountId: t.accountId, status: "support" as const,
-    name: a?.name ?? null, guestEmail: a?.email ?? "", start: 0, end: 0, total: 0, items: [],
-    escalated: t.escalated, unreadOwner: t.unreadOwner ?? 0, unreadRenter: t.unreadRenter ?? 0,
-    lastMessage: t.lastMessage ?? null, lastSender: t.lastSender ?? null, updatedAt: t.updatedAt };
+  return {
+    _id: t.accountId,
+    accountId: t.accountId,
+    status: "support" as const,
+    name: a?.name ?? null,
+    guestEmail: a?.email ?? "",
+    start: 0,
+    end: 0,
+    total: 0,
+    items: [],
+    escalated: t.escalated,
+    unreadOwner: t.unreadOwner ?? 0,
+    unreadRenter: t.unreadRenter ?? 0,
+    lastMessage: t.lastMessage ?? null,
+    lastSender: t.lastSender ?? null,
+    updatedAt: t.updatedAt,
+  };
 }
 export const getGeneralConversation = query({
   args: { token: v.string(), accountId: v.id("accounts") },
@@ -442,7 +541,7 @@ export const generalOwnerPage = query({
         numItems: Math.min(50, paginationOpts.numItems),
       });
     const entries = await Promise.all(
-      page.page.map(t => generalConversationView(ctx, t)),
+      page.page.map((t) => generalConversationView(ctx, t)),
     );
     return { ...page, page: entries };
   },
