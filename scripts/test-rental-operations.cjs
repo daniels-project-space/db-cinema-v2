@@ -102,15 +102,10 @@ const b = put("bookings", {
       { ...line, start: Date.now() + 3600000, end: Date.now() + 7200000 },
     ],
   });
-  await assert.rejects(
-    operations.prepareRefund.handler(ctx, {
-      token,
-      bookingId: late._id,
-      requestId: "late-request-012345",
-      reason: "Late cancellation",
-    }),
-    /window has closed/,
-  );
+  const discretionary = await operations.prepareRefund.handler(ctx, {
+    token, bookingId: late._id, requestId: "late-request-012345", reason: "Owner discretionary refund",
+  });
+  assert.equal(discretionary.amountPence, 10000, "owner refunds remain available outside the customer cancellation window");
   await inventory.assertRentalInventory(ctx, [line, line]);
   await assert.rejects(
     inventory.assertRentalInventory(ctx, [line, line, line]),
@@ -192,7 +187,7 @@ const b = put("bookings", {
     3000,
   );
   console.log(
-    "PASS owner operations: unauthorized refunds denied; persistent retry identity; concurrent refunds blocked; out-of-order provider results; security excluded; remaining refund and closed window; shared components/quantities/expired holds/day blocks.",
+    "PASS owner operations: unauthorized refunds denied; persistent retry identity; concurrent refunds blocked; out-of-order provider results; security excluded; remaining refund and owner discretionary access; shared components/quantities/expired holds/day blocks.",
   );
 })().catch((e) => {
   console.error(e);

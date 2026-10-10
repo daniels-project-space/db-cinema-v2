@@ -248,17 +248,10 @@ export const prepareRefund = internalMutation({
       return prior;
     }
     const b = await ctx.db.get(bookingId);
-    if (!b || b.status !== "confirmed" || !b.stripePaymentIntentId)
-      throw Error("Only a paid upcoming rental can receive a rental refund");
+    if (!b || !["confirmed", "active"].includes(b.status) || !b.stripePaymentIntentId)
+      throw Error("Only a paid upcoming or active rental can receive an admin rental refund");
     if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
       throw Error("Finish the open cancellation, item addition or approved extension first");
-    if (
-      bookingCancelKind(b, Date.now()) !==
-      "full_refund"
-    )
-      throw Error(
-        "The rental cash refund window has closed. Cancel to issue account credit instead. Security payment is settled separately on return or cancellation.",
-      );
     if (reason.trim().length < 5) throw Error("Record the refund reason");
     const previous = await ctx.db
       .query("rental_refunds")
@@ -359,8 +352,16 @@ export const bindRefundAllocations = internalMutation({
   handler: async (ctx, { id, allocations }) => {
     const r = await ctx.db.get(id);
     if (!r) throw Error("Refund missing");
-    if (r.allocations) return r.allocations;
+    if (r.allocations) {
+      // Order is part of the provider idempotency identity: the first part
+      // uses the original refund key. Never silently replace or reorder it.
+      if (r.allocations.length !== allocations.length || r.allocations.some((part, index) =>
+        part.paymentIntentId !== allocations[index].paymentIntentId || part.amountPence !== allocations[index].amountPence))
+        throw Error("The saved refund allocation changed. Resume the original refund.");
+      return r.allocations;
+    }
     if (
+      !Number.isSafeInteger(r.amountPence) || r.amountPence <= 0 || allocations.length === 0 ||
       new Set(allocations.map((p) => p.paymentIntentId)).size !==
         allocations.length ||
       allocations.some(
@@ -369,6 +370,43 @@ export const bindRefundAllocations = internalMutation({
       allocations.reduce((sum, p) => sum + p.amountPence, 0) !== r.amountPence
     )
       throw Error("Invalid refund allocation");
+    if (r.status !== "prepared" || r.stripeRefundId || r.parts?.length)
+      throw Error("This refund has already started. Reconcile its existing receipt first.");
+    const booking = await ctx.db.get(r.bookingId);
+    if (!booking) throw Error("Rental unavailable");
+    const sources = await rentalPaymentSources(ctx, booking);
+    const previous = await ctx.db.query("rental_refunds")
+      .withIndex("by_booking", q => q.eq("bookingId", booking._id)).take(201);
+    if (previous.length > 200) throw Error("Refund history requires paged reconciliation before another payment allocation.");
+    for (const allocation of allocations) {
+      const source = sources.find(s => s.paymentIntentId === allocation.paymentIntentId);
+      if (!source) throw Error("The refund payment does not belong to this rental.");
+      const paid = source.maxPaidPence;
+      if (paid !== undefined && (!Number.isSafeInteger(paid) || paid < 0) ||
+          !Number.isSafeInteger(source.securityPence) || source.securityPence < 0)
+        throw Error("The saved rental payment amounts need review.");
+      // Membership invoices may contain non-rental charges; additions and
+      // extensions also retain their own cash ceilings. Security is separate.
+      const ceiling = paid === undefined
+        ? Math.round((booking.total - booking.depositAmount) * 100)
+        : Math.max(0, paid - source.securityPence);
+      let committed = 0;
+      for (const prior of previous) {
+        if (prior._id === id) continue;
+        const part = prior.parts?.find(p => p.paymentIntentId === allocation.paymentIntentId);
+        if (part) {
+          if (["succeeded", "pending"].includes(part.status)) committed += part.amountPence;
+        } else if (["prepared", "pending"].includes(prior.status) && prior.allocations) {
+          committed += prior.allocations.find(p => p.paymentIntentId === allocation.paymentIntentId)?.amountPence ?? 0;
+        } else if (!prior.allocations && ["succeeded", "pending"].includes(prior.status) &&
+                   allocation.paymentIntentId === booking.stripePaymentIntentId) {
+          committed += prior.amountPence;
+        }
+      }
+      if (!Number.isSafeInteger(ceiling) || ceiling < 0 || !Number.isSafeInteger(committed) || committed < 0 ||
+          allocation.amountPence > Math.max(0, ceiling - committed))
+        throw Error("Refund exceeds the remaining rental payment for its original payment method.");
+    }
     await ctx.db.patch(id, { allocations });
     return allocations;
   },

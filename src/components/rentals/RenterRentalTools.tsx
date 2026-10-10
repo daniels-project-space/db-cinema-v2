@@ -25,6 +25,12 @@ function RentalTools({ token, bookingId, consolidatedExtensions = false }: { tok
   const lastContext = useRef<typeof receivedContext>(undefined);
   if (receivedContext !== undefined) lastContext.current = receivedContext;
   const context = lastContext.current;
+  useEffect(() => {
+    const start = context?.rentalStartsAt;
+    if (start == null || start <= Date.now()) return;
+    const timer = setTimeout(() => setRefreshKey(Date.now()), Math.min(start - Date.now() + 1, 2147483647));
+    return () => clearTimeout(timer);
+  }, [context?.rentalStartsAt, refreshKey]);
   const cancellation = useQuery(api.cancellationRecovery.renterStatus, { token, bookingId: bookingId as any });
   const request = useMutation(api.rentalRequests.submit);
   const cancel = useAction(api.checkout.cancelByCustomer);
@@ -54,10 +60,12 @@ function RentalTools({ token, bookingId, consolidatedExtensions = false }: { tok
   useEffect(() => { requestId.current = null; }, [detail, start, end, pickup, dropoff, change, itemIndex, addition, qty, selected, manual, source,dateSource]);
   if (!context) return null;
   if (!["pending_payment", "confirmed", "active"].includes(context.status)) return <RentalRequestHistory token={token} bookingId={bookingId} consolidatedExtensions={consolidatedExtensions} />;
-  const canCancel = context.direct && (context.status === "pending_payment" || context.selfService);
+  const started = context.rentalStarted || context.rentalStartsAt == null || Date.now() >= context.rentalStartsAt;
+  const canCancel = !started && context.direct && (context.status === "pending_payment" || context.selfService);
   function open(next: typeof mode, button: HTMLButtonElement) { launcher.current = button; setDateSource(context!.lineItems.map(li=>({listingId:li.listingId,qty:li.qty,start:li.start,end:li.end,pickupTime:li.pickupTime,returnTime:li.returnTime}))); setStart(""); setEnd(""); setPickup(context?.lineItems.find(li=>li.start===context.start)?.pickupTime ?? ""); setDropoff(context?.lineItems.find(li=>li.end===context.end)?.returnTime ?? ""); setChange("add"); setItemIndex(0); setSource(context?.lineItems[0] ?? null); setAddition(""); setSelected(null); setSearch(""); setSearchTerm(""); setManual(false); setQty(1); setMode(next); setDetail(""); setConsent(false); setError(""); setResult(""); requestId.current = null; }
   async function submit() {
     if (inFlight.current || !mode || context!.locked) return;
+    if (mode === "cancel" && started) { setError("This rental has started. Please contact the team in this conversation."); return; }
     inFlight.current = true; setBusy(true); setError("");
     try {
       if (mode === "cancel" && canCancel) {
@@ -83,7 +91,7 @@ function RentalTools({ token, bookingId, consolidatedExtensions = false }: { tok
     <RentalRequestHistory token={token} bookingId={bookingId} consolidatedExtensions={consolidatedExtensions} />
     {cancellation && cancellation.status !== "succeeded" && <p role="status" className="mb-3 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-100">{cancellation.status === "attention" ? "The team is reviewing your cancellation settlement. Please message us if you need help." : "Your cancellation is processing. We will confirm once the refund and security release are complete."}</p>}
     <div className="flex flex-wrap gap-2" aria-label="Rental requests">
-      {(context.status === "active" ? [["items", "Request kit change"]] : [["dates", "Request dates"], ["items", "Request kit change"], ["cancel", "Cancel rental"]]).map(([kind, label]) => <button key={kind} disabled={busy || context.locked} onClick={e => open(kind as typeof mode, e.currentTarget)} className={`rounded-full border px-3 py-2 text-xs ${mode === kind ? "border-accent-400/50 bg-accent-500/10 text-white" : "border-white/10 text-white/60 hover:text-white"} disabled:opacity-35`}>{label}</button>)}
+      {(context.status === "active" ? [["items", "Request kit change"]] : [["dates", "Request dates"], ["items", "Request kit change"], ["cancel", "Cancel rental"]]).filter(([kind]) => kind !== "cancel" || !started).map(([kind, label]) => <button key={kind} disabled={busy || context.locked} onClick={e => open(kind as typeof mode, e.currentTarget)} className={`rounded-full border px-3 py-2 text-xs ${mode === kind ? "border-accent-400/50 bg-accent-500/10 text-white" : "border-white/10 text-white/60 hover:text-white"} disabled:opacity-35`}>{label}</button>)}
     </div>
     {mode && createPortal(<dialog ref={dialog} className={styles.dialog} aria-labelledby={titleId} onCancel={e => { e.preventDefault(); if (!busy) setMode(null); }}>
       <form onSubmit={e => { e.preventDefault(); void submit(); }} className={`${styles.panel} ${customerStyles.panel}`} data-testid="renter-request-drawer">
@@ -118,8 +126,9 @@ function RentalTools({ token, bookingId, consolidatedExtensions = false }: { tok
           {canCancel && <label className={styles.check}><input required type="checkbox" disabled={busy} checked={consent} onChange={e => setConsent(e.target.checked)}/>I have read the agreed cancellation terms and want to cancel this rental.</label>}
         </> : <ol className={styles.steps}><li data-active="true"><span>1</span><strong>Your request</strong><small>Choose your change</small></li><li><span>2</span><strong>Team review</strong><small>Stock, dates & quote</small></li><li><span>3</span><strong>Confirmed</strong><small>After agreement</small></li></ol>}
         {!(mode === "cancel" && canCancel) && <label className={styles.reason}>{mode === "cancel" ? "Reason for cancellation" : "Add a note for the team"} · required<textarea required minLength={5} maxLength={600} disabled={busy} value={detail} onChange={e => setDetail(e.target.value)} placeholder="Let us know what you need and any details about your shoot."/><small>{detail.length}/600</small></label>}
+        {mode === "cancel" && started && <p role="status" className={styles.note}>This rental has started. Refunds can only be arranged by the team in this conversation.</p>}
         {error && <p role="alert" className={styles.error}>{error}</p>}
-        <footer className={styles.actions}><button className={styles.primary} disabled={busy || context.locked || (mode === "cancel" && canCancel && !consent)}>{busy ? "Processing…" : mode === "cancel" && canCancel ? "Confirm cancellation" : mode === "dates" ? "Send date request" : mode === "items" ? "Send kit request" : "Send cancellation request"}</button><button type="button" className={styles.launch} disabled={busy} onClick={() => setMode(null)}>Back</button></footer>
+        <footer className={styles.actions}><button className={styles.primary} disabled={busy || context.locked || (mode === "cancel" && (started || (canCancel && !consent)))}>{busy ? "Processing…" : mode === "cancel" && canCancel ? "Confirm cancellation" : mode === "dates" ? "Send date request" : mode === "items" ? "Send kit request" : "Send cancellation request"}</button><button type="button" className={styles.launch} disabled={busy} onClick={() => setMode(null)}>Back</button></footer>
         <p className={styles.note}>{mode === "cancel" ? "Completion is confirmed after refunds and authorisation releases settle." : "Your current booking stays unchanged until the team confirms your request."}</p>
       </form>
     </dialog>, document.body)}

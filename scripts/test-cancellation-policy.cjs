@@ -4,12 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 
-const source = fs.readFileSync(path.join(__dirname, '../src/lib/cancellationPolicy.ts'), 'utf8');
-const compiled = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
-}).outputText;
-const policy = { exports: {} };
-new Function('module', 'exports', compiled)(policy, policy.exports);
+const policy = { exports: require("./lib/rentalTestHarness.cjs").load("src/lib/cancellationPolicy.ts") };
 const { cancelKind, cancellationSettlement, CANCELLATION_FULL_REFUND_DAYS, CANCELLATION_CREDIT_DAYS } = policy.exports;
 
 assert.equal(CANCELLATION_FULL_REFUND_DAYS, 14);

@@ -46,7 +46,7 @@ import { normalizeReturnInspection } from "../shared/returnInspection";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
-import { rentalCancellationStart, bookingCancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
+import { rentalCancellationStart, rentalHasStarted, STARTED_RENTAL_REFUND_MESSAGE, bookingCancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { LEGAL_VERSION } from "../src/lib/legal";
 import { assertAgreementBeforeRelease, snapshotAgreement, readAgreementSnapshot, agreementRequestFingerprint as fingerprintAgreement } from "../shared/rentalAgreement";
 
@@ -744,6 +744,10 @@ export const adminSetStatus = mutation({
     if(booking.returnDecision)throw Error("Return settlement is in progress; finish it before changing this rental.");
     if((booking.activeAdditionId || booking.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before handover.");
     if(booking.cancellationDecision)throw Error("Cancellation is in progress; resume its settlement before changing this rental.");
+    const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).take(201);
+    if(refundJobs.length>200)throw Error("Refund history requires paged reconciliation before changing this rental.");
+    if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))
+      throw Error("A rental refund is still processing; finish its settlement before changing rental status or recording handover.");
     if (["cancelled", "returned"].includes(booking.status) && booking.status !== status)
       throw new Error("A closed booking cannot be reopened by changing its status.");
     if (booking.status === "pending_payment")
@@ -1709,6 +1713,7 @@ export const getForCancel = internalQuery({
     const completedChangeRequestId=linkedRequest?.bookingId===bookingId && linkedRequest.kind==="cancel" && linkedRequest.status==="approved" && linkedRequest.execution?.operation==="cancellation" && linkedRequest.execution.status==="applied" && linkedRequest.execution.operationKey===cancellationRequestKey(bookingId,linkedRequest._id) ? linkedRequest._id : undefined;
     return {
       completedChangeRequestId,
+      rentalStarted: rentalHasStarted(b, Date.now()),
       cancellationKind: b.cancellationDecision?.kind ?? bookingCancelKind(b, Date.now()),
       paymentSources:await rentalPaymentSources(ctx,b),
       cancellationDecision:b.cancellationDecision??null,
@@ -1734,8 +1739,9 @@ export const getForCancel = internalQuery({
 });
 
 /** Freeze cancellation policy and order edits before any external payment call. */
-export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers")),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit")))},handler:async(ctx,{bookingId,fullCreditOfferId,changeRequestId,expectedCancellationKind})=>{
+export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers")),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit"))),customerInitiated:v.optional(v.boolean())},handler:async(ctx,{bookingId,fullCreditOfferId,changeRequestId,expectedCancellationKind,customerInitiated})=>{
  const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeAdditionId || b?.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
+ if(customerInitiated && !b.cancellationDecision && rentalHasStarted(b,Date.now()))throw Error(STARTED_RENTAL_REFUND_MESSAGE);
  if(!b.cancellationDecision && (["starting","processing"].includes(b.depositHoldRenewalStatus ?? "") ||
   (b.status === "confirmed" && b.depositHoldAmount && b.depositHoldStatus === "awaiting_payment"))) throw Error("Security hold setup or renewal is still processing. Please retry once it is resolved.");
  if(b.cancellationDecision){

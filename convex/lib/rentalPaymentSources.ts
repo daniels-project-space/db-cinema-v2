@@ -26,6 +26,7 @@ export async function rentalPaymentSources(ctx: any, b: any) {
       : []),
     ...applied.map((r: any) => ({
       paymentIntentId: r.paymentIntentId,
+      maxPaidPence: Math.round((r.lineTotal + r.securityCharge) * 100),
       securityPence: Math.round(r.securityCharge * 100),
     })),
     ...extensions.filter((r: any) => r.type === "extend" && r.status === "applied" && r.paymentIntentId).map((r: any) => ({ paymentIntentId:r.paymentIntentId, maxPaidPence:Math.round(r.priceDelta*100), securityPence:0 })),

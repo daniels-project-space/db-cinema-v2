@@ -209,14 +209,14 @@ function OrderTools({
         )}
         {b.status === "confirmed" && <RentalRequestApply token={token} bookingId={bookingId} kind="dates" label="Change dates / reschedule" decisionNote="Update the agreed rental dates." disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || !!(b.activeAdditionId || b.activeExtensionId)} />}
         {["confirmed", "pending_payment"].includes(b.status) && <RentalRequestApply token={token} bookingId={bookingId} kind="cancel" label={b.cancellationDecision ? "Resume cancellation" : "Cancel rental"} decisionNote="Cancel the rental under the agreed terms." disabled={busy || !!b.returnDecision || !!processing || !!(b.activeAdditionId || b.activeExtensionId)} />}
-        {b.status === "confirmed" &&
-          b.cancellationKind === "full_refund" &&
+        {["confirmed", "active"].includes(b.status) &&
           b.stripePaymentIntentId && (
             <button
               disabled={
                 busy ||
                 !!processing ||
                 !!b.cancellationDecision ||
+                !!b.returnDecision ||
                 !!(b.activeAdditionId || b.activeExtensionId)
               }
               onClick={() => {

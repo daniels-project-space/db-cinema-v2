@@ -5,7 +5,7 @@ import { query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "./lib/rentalChat";
-import { bookingCancelKind, cancellationDaysForBooking } from "../src/lib/cancellationPolicy";
+import { bookingCancelKind, rentalHasStarted, rentalStartsAt, STARTED_RENTAL_REFUND_MESSAGE, cancellationDaysForBooking } from "../src/lib/cancellationPolicy";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -104,6 +104,7 @@ export const context = query({
         heroImage: images[0] ?? null, imageSources: images };
     }));
     return { status: b.status, lineItems, start: lineItems.length ? Math.min(...lineItems.map(l => l.start)) : null, end: lineItems.length ? Math.max(...lineItems.map(l => l.end)) : null,
+      rentalStarted: rentalHasStarted(b, Date.now()), rentalStartsAt: rentalStartsAt(b),
       cancellationKind: bookingCancelKind(b, Date.now()), cancellationFullRefundDays: cancellationDaysForBooking(b),
       cancellationTermsVersion: b.agreementDocs?.find((d: { kind: string; version: string }) => d.kind === "cancellation")?.version ?? "2026-10-v10",
       direct: reservations.every(r => r.source === "site"),
@@ -172,7 +173,7 @@ export const submit = mutation({
       return { ok: true, messageId: previous.messageId };
     }
     if (!["pending_payment", "confirmed", "active"].includes(b.status)) throw Error("This rental has finished. Please message the team instead.");
-    if (kind === "cancel" && b.status === "active") throw Error("This rental has started. Ask the team about an early return instead.");
+    if (kind === "cancel" && rentalHasStarted(b, Date.now())) throw Error(STARTED_RENTAL_REFUND_MESSAGE);
     if (b.cancellationDecision || b.returnDecision) throw Error("A cancellation or return is already being processed.");
     const text = detail.trim();
     if (text.length < 5 || text.length > 1000) throw Error("Describe your request in 5–1000 characters.");
