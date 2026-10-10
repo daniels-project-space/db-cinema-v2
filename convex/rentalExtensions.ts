@@ -36,7 +36,7 @@ function originalPeriods(request: any) {
 
 async function mutableRental(ctx: any, b: any, ownRequest?: any) {
   if (!b || !["confirmed", "active"].includes(b.status)) throw Error("Only confirmed or collected rentals can be extended.");
-  if (b.cancellationDecision || b.returnDecision || b.activeAdditionId || (b.activeExtensionId && b.activeExtensionId !== ownRequest))
+  if (b.cancellationDecision || b.returnDecision || b.activeSwapRefundId || b.activeAdditionId || (b.activeExtensionId && b.activeExtensionId !== ownRequest))
     throw Error("Finish the open rental operation first.");
   const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
   if (!reservations.length || reservations.some((r: any) => r.source !== "site")) throw Error("Manage this rental through its original booking platform.");
@@ -131,7 +131,7 @@ export const state = query({
       const images = listingImages(await ctx.db.get(li.listingId));
       return { index: i, listingId: li.listingId, title: li.title, qty: li.qty, start: li.start, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime, heroImage: images[0] ?? null, imageSources: images };
     }));
-    return { status: b.status, locked: !!(b.activeAdditionId || b.activeExtensionId || b.returnDecision || b.cancellationDecision), items,
+    return { status: b.status, locked: !!(b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId || b.returnDecision || b.cancellationDecision), items,
       requests: rows.filter(r => r.type === "extend" && (!accountId || r.accountId === accountId) && (!b.accountId || r.accountId === b.accountId)).map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], originalItems: originalPeriods(r), amount: r.priceDelta ?? null, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt, approvedAt: r.approvedAt, completedAt: r.status === "applied" ? r.resolvedAt : undefined })),
       paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
   },

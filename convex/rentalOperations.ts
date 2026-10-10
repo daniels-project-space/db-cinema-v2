@@ -1,3 +1,6 @@
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { completeRefundSwap } from "./lib/rentalSwapRefund";
 import {assertDateSelection} from "./lib/rentalDateSelection";
 import {rescheduledLines} from "../shared/rentalReschedule";
 import {stockWindow} from "./lib/stockWindows";
@@ -74,7 +77,7 @@ export const reschedulePreview = query({
   const b=await ctx.db.get(bookingId);
   try{
    if(!b||b.status!=="confirmed")throw Error("Only an upcoming rental can be rescheduled.");
-   if(b.cancellationDecision||b.activeAdditionId||b.activeExtensionId||b.returnDecision)throw Error("Finish the open rental operation first.");
+   if(b.cancellationDecision||b.activeSwapRefundId||b.activeAdditionId||b.activeExtensionId||b.returnDecision)throw Error("Finish the open rental operation first.");
    if(!Number.isSafeInteger(start)||start%86400000!==0||start<londonStartOfDay(Date.now()))throw Error("Choose a future start date.");
    if(end!==undefined&&(!Number.isSafeInteger(end)||end%86400000!==0||end<start))throw Error("Choose a valid return date.");
    const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
@@ -110,7 +113,7 @@ export const reschedule = mutation({
     if(b)assertDateSelection(request?.dateSelection,b,start,end,pickupTime,returnTime);
     if (!b || b.status !== "confirmed")
       throw Error("Only an upcoming rental can be rescheduled");
-    if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
+    if (b.cancellationDecision || (b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
       throw Error("Finish the open cancellation, item addition or approved extension first");
     const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
     if (refunds.some(r => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
@@ -191,7 +194,7 @@ export const removeItem = mutation({
     }
     if(request?.execution)throw Error("The saved removal receipt needs review before another update.");
     if (b.status !== "confirmed") throw Error("Only an unstarted confirmed rental can have kit removed.");
-    if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision) throw Error("Finish the open rental operation first.");
+    if (b.cancellationDecision || (b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId) || b.returnDecision) throw Error("Finish the open rental operation first.");
     const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
     if (refunds.some(r => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId) || args.reason.trim().length < 5 || args.reason.trim().length > 400) throw Error("Record a valid removal request and reason.");
@@ -223,18 +226,7 @@ export const removeItem = mutation({
   },
 });
 
-export const prepareRefund = internalMutation({
-  args: {
-    token: v.string(),
-    bookingId: v.id("bookings"),
-    requestId: v.string(),
-    amountPence: v.optional(v.number()),
-    reason: v.string(),
-  },
-  handler: async (
-    ctx,
-    { token, bookingId, requestId, amountPence, reason },
-  ) => {
+export async function prepareRentalRefund(ctx:MutationCtx,{token,bookingId,requestId,amountPence,reason}:{token:string;bookingId:Id<"bookings">;requestId:string;amountPence?:number;reason:string}){
     await assertAdmin(ctx, token, "rentalOperations.refund");
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestId))
       throw Error("Invalid refund request");
@@ -253,7 +245,7 @@ export const prepareRefund = internalMutation({
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active"].includes(b.status) || !b.stripePaymentIntentId)
       throw Error("Only a paid upcoming or active rental can receive an admin rental refund");
-    if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
+    if (b.cancellationDecision || (b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
       throw Error("Finish the open cancellation, item addition or approved extension first");
     if (reason.trim().length < 5) throw Error("Record the refund reason");
     const previous = await ctx.db
@@ -295,11 +287,24 @@ export const prepareRefund = internalMutation({
       updatedAt: Date.now(),
     });
     return (await ctx.db.get(id))!;
+}
+export const prepareRefund = internalMutation({
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    requestId: v.string(),
+    amountPence: v.optional(v.number()),
+    reason: v.string(),
   },
+  handler: prepareRentalRefund,
 });
 export const refundContext = internalQuery({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => ctx.db.get(bookingId),
+});
+export const refundReceipt = internalQuery({
+  args: {id:v.id("rental_refunds")},
+  handler: async(ctx,{id})=>ctx.db.get(id),
 });
 export const recordRefund = internalMutation({
   args: {
@@ -322,6 +327,7 @@ export const recordRefund = internalMutation({
     if (r.stripeRefundId && r.stripeRefundId !== stripeRefundId)
       throw Error("Refund identity mismatch");
     await ctx.db.patch(id, { stripeRefundId, status, updatedAt: Date.now() });
+    if(status==="succeeded"&&r.swapProposalId)await completeRefundSwap(ctx,id);
     const b = await ctx.db.get(r.bookingId);
     if (!b) return;
     const a = await accountForRental(ctx, b);
@@ -454,6 +460,7 @@ export const recordRefundPart = internalMutation({
             ? "pending"
             : "failed";
     await ctx.db.patch(id, { parts, status: aggregate, updatedAt: Date.now() });
+    if(aggregate==="succeeded"&&r.swapProposalId)await completeRefundSwap(ctx,id);
     if (aggregate !== "prepared" && aggregate !== r.status) {
       const b = await ctx.db.get(r.bookingId);
       if (!b) return;

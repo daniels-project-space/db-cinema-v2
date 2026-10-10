@@ -20,7 +20,8 @@ export function assertCurrentKitSource(booking:any,request:any){
  return line;
 }
 /** Compute the final kit and the difference; never release stock or execute money here. */
-export async function rentalSwapQuote(ctx:any,booking:Doc<"bookings">,request:any,settlementAdditionId?:string){
+export async function rentalSwapQuote(ctx:any,booking:Doc<"bookings">,request:any,settlementAdditionId?:string,settlementRefundId?:string){
+ if(booking.activeSwapRefundId&&booking.activeSwapRefundId!==settlementRefundId||settlementRefundId&&booking.activeSwapRefundId!==settlementRefundId)throw Error("Finish the saved swap refund settlement first.");
  const selection=request?.kitSelection;
  if(selection?.change!=="swap")throw Error("Choose an approved equipment swap.");
  if(!["confirmed","active"].includes(booking.status)||booking.cancellationDecision||booking.returnDecision||booking.returnedAt)throw Error("This paid rental cannot be swapped now.");
@@ -33,11 +34,12 @@ export async function rentalSwapQuote(ctx:any,booking:Doc<"bookings">,request:an
  if(!requestableListing(target))throw Error("The replacement equipment is unavailable.");
  const rows=await ctx.db.query("reservations").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).take(201);
  if(rows.length>200)throw Error("The stock ledger needs paged reconciliation before this swap.");
- const reservations=rows.filter((r:any)=>!settlementAdditionId||r.externalRef!==`addition:${settlementAdditionId}`);
+ const reservations=rows.filter((r:any)=>!settlementAdditionId||r.externalRef!==`addition:${settlementAdditionId}`).filter((r:any)=>!settlementRefundId||r.externalRef!==`swap-refund:${settlementRefundId}`);
  if(reservations.some((r:any)=>r.source!=="site"||r.status==="hold"))throw Error("Resolve the original platform or open stock hold before swapping equipment.");
  const allocationMode=await assertRentalAllocation(ctx,booking,reservations);
- const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).take(201);
- if(refunds.length>200)throw Error("The refund ledger needs paged reconciliation before this swap.");
+ const refundRows=await ctx.db.query("rental_refunds").withIndex("by_booking",(q:any)=>q.eq("bookingId",booking._id)).take(201);
+ if(refundRows.length>200)throw Error("The refund ledger needs paged reconciliation before this swap.");
+ const refunds=refundRows.filter((r:any)=>r._id!==settlementRefundId);
  if(refunds.some((r:any)=>["prepared","pending"].includes(r.status)))throw Error("Wait for the pending refund to settle before a swap.");
  const lines=bookingStockLines<any>(booking),original=lines[selection.lineIndex];
  const originalLinePence=pence(source.lineTotal),removedLinePence=Math.round(originalLinePence*selection.quantity/source.qty);

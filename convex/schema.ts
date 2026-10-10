@@ -202,6 +202,7 @@ export default defineSchema({
     pickedUpAt: v.optional(v.number()),
     checkoutExpiredAt: v.optional(v.number()),
     activeAdditionId:v.optional(v.id("rental_additions")),
+    activeSwapRefundId:v.optional(v.id("rental_refunds")),
     activeExtensionId:v.optional(v.id("booking_change_requests")),
     extensionCharges:v.optional(v.array(v.object({requestId:v.id("booking_change_requests"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),lineTotal:v.number(),returnTime:v.optional(v.string())}))),
     chatConfirmationMessageId: v.optional(v.id("messages")),
@@ -794,6 +795,8 @@ export default defineSchema({
     createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(), decidedAt: v.optional(v.number()),
     appliedAt: v.optional(v.number()),
     settlementAdditionId: v.optional(v.id("rental_additions")),
+    settlementRefundId: v.optional(v.id("rental_refunds")),
+    settlementError: v.optional(v.string()),
     consentVersion: v.optional(v.string()), messageId: v.optional(v.id("messages")), decisionMessageId: v.optional(v.id("messages")),
   }).index("by_request", ["changeRequestId"]).index("by_booking_state", ["bookingId", "state"]),
 
@@ -813,6 +816,7 @@ export default defineSchema({
   }).index("by_booking",["bookingId"]).index("by_request",["requestId"]).index("by_session",["sessionId"]).index("by_status",["status"]).index("by_status_updated",["status","updatedAt"]),
 
   rental_refunds: defineTable({
+    swapProposalId:v.optional(v.id("rental_swap_proposals")),
     bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.number(),reason:v.string(),
     status:v.union(v.literal("prepared"),v.literal("pending"),v.literal("succeeded"),v.literal("failed")),
     allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()}))),

@@ -109,7 +109,7 @@ export const context = query({
       cancellationTermsVersion: b.agreementDocs?.find((d: { kind: string; version: string }) => d.kind === "cancellation")?.version ?? "2026-10-v10",
       direct: reservations.every(r => r.source === "site"),
       selfService: process.env.CUSTOMER_BOOKING_ACTIONS === "true",
-      locked: !!(b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision) };
+      locked: !!(b.cancellationDecision || (b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId) || b.returnDecision) };
   },
 });
 

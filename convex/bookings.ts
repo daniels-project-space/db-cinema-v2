@@ -446,7 +446,7 @@ export const expireUnpaidPending = internalMutation({
   args: { bookingId: v.id("bookings"), sessionId: v.optional(v.string()) },
   handler: async (ctx, { bookingId, sessionId }) => {
     const booking = await ctx.db.get(bookingId);
-    if (!booking || (booking.activeAdditionId || booking.activeExtensionId) || booking.status !== "pending_payment" ||
+    if (!booking || (booking.activeSwapRefundId || booking.activeAdditionId || booking.activeExtensionId) || booking.status !== "pending_payment" ||
         (!sessionId && booking.stripePaymentIntentId) ||
         (booking.stripeCheckoutSessionId ?? undefined) !== sessionId) return false;
     const res = await ctx.db.query("reservations")
@@ -629,7 +629,7 @@ export const attachAddon = internalMutation({
   const prior=await ctx.db.query("rental_additions").withIndex("by_session",q=>q.eq("sessionId",a.sessionId)).first();
   if(prior)return {closed:prior.status!=="applied",already:true};
   const b=await ctx.db.get(a.bookingId);
-  if(!b||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||(b.activeAdditionId || b.activeExtensionId))return {closed:true};
+  if(!b||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||(b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId))return {closed:true};
   const listing=await ctx.db.get(a.listingId);if(!listing)return {closed:true};
   const line={listingId:a.listingId,title:listing.title,start:a.start,end:a.end,qty:1,lineTotal:a.total,dailyRate:listing.pricing.daily};
   if(!Number.isFinite(a.total)||a.total<=0||a.start%86400000!==0||a.end%86400000!==0)return {closed:true};
@@ -742,7 +742,7 @@ export const adminSetStatus = mutation({
     const booking = await ctx.db.get(bookingId);
     if (!booking) throw new Error("Booking not found");
     if(booking.returnDecision)throw Error("Return settlement is in progress; finish it before changing this rental.");
-    if((booking.activeAdditionId || booking.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before handover.");
+    if((booking.activeSwapRefundId || booking.activeAdditionId || booking.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before handover.");
     if(booking.cancellationDecision)throw Error("Cancellation is in progress; resume its settlement before changing this rental.");
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).take(201);
     if(refundJobs.length>200)throw Error("Refund history requires paged reconciliation before changing this rental.");
@@ -803,7 +803,7 @@ export const beginReturnDecision = internalMutation({
   handler: async (ctx, { bookingId, actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, inspection }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active", "returned"].includes(b.status)) throw new Error("Booking is not available for return.");
-    if((b.activeAdditionId || b.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before returning this rental");
+    if((b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before returning this rental");
     if(b.cancellationDecision)throw Error("Cancellation settlement is in progress; resume it first.");
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     if(refundJobs.some(r=>r.status==="prepared"||r.status==="pending"))throw Error("Wait for the rental refund to settle before recording the return.");
@@ -929,7 +929,7 @@ export const claimRenewal = internalMutation({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     const now = Date.now();
-    if (!b || b.activeAdditionId || b.cancellationDecision || b.returnDecision || !["confirmed", "active"].includes(b.status) || !b.depositHoldAmount || b.depositHoldStatus !== "held" || !b.stripeDepositIntentId ||
+    if (!b || b.activeSwapRefundId || b.activeAdditionId || b.cancellationDecision || b.returnDecision || !["confirmed", "active"].includes(b.status) || !b.depositHoldAmount || b.depositHoldStatus !== "held" || !b.stripeDepositIntentId ||
       (b.depositHoldExpiresAt ?? 0) > now + 24 * 3600000 ||
       ["requires_action", "failed"].includes(b.depositHoldRenewalStatus ?? "") ||
       (b.depositHoldRenewalStatus === "starting" && (b.depositHoldRenewalAt ?? now) > now - 15 * 60000)) return false;
@@ -1767,7 +1767,7 @@ export const getForCancel = internalQuery({
 
 /** Freeze cancellation policy and order edits before any external payment call. */
 export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers")),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit"))),customerInitiated:v.optional(v.boolean())},handler:async(ctx,{bookingId,fullCreditOfferId,changeRequestId,expectedCancellationKind,customerInitiated})=>{
- const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeAdditionId || b?.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
+ const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeSwapRefundId || b?.activeAdditionId || b?.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
  if(customerInitiated && !b.cancellationDecision && rentalHasStarted(b,Date.now()))throw Error(STARTED_RENTAL_REFUND_MESSAGE);
  if(!b.cancellationDecision && (["starting","processing"].includes(b.depositHoldRenewalStatus ?? "") ||
   (b.status === "confirmed" && b.depositHoldAmount && b.depositHoldStatus === "awaiting_payment"))) throw Error("Security hold setup or renewal is still processing. Please retry once it is resolved.");
