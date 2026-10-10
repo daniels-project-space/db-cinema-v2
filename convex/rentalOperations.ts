@@ -1,10 +1,16 @@
-import {stockWindow} from "./lib/stockWindows";
-import {schedulePickupHold} from "./pickupSecurity";
-import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
+import type { QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
+import { stockWindow } from "./lib/stockWindows";
+import { schedulePickupHold } from "./pickupSecurity";
+import { bookingStockLines, rentalWindow } from "../shared/rentalWindow";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { accountForRental } from "./lib/rentalAccount";
 import { listingImages } from "./lib/catalogImages";
-import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
+import {
+  requiresDroneLicence,
+  droneLicenceStatusForRental,
+} from "./lib/droneVerification";
 import { assertVerificationArchive } from "./verificationArchive";
 import { rentalPaymentSources } from "./lib/rentalPaymentSources";
 import {
@@ -20,8 +26,16 @@ import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { assertRenterExposure } from "./lib/rentalExposure";
 import { assertRentalInventory } from "./lib/rentalInventory";
 import { postRentalMessage } from "./lib/rentalChat";
-import { rentalCancellationStart, bookingCancelKind, londonStartOfDay } from "../src/lib/cancellationPolicy";
-import { approvedRequest, finishRequest, rescheduleRequestKey } from "./lib/rentalRequestExecution";
+import {
+  rentalCancellationStart,
+  bookingCancelKind,
+  londonStartOfDay,
+} from "../src/lib/cancellationPolicy";
+import {
+  approvedRequest,
+  finishRequest,
+  rescheduleRequestKey,
+} from "./lib/rentalRequestExecution";
 
 /** Minimal server-only address lookup: a linked rental never falls back to a reused mailbox. */
 export const changeRecipient = internalQuery({
@@ -30,19 +44,30 @@ export const changeRecipient = internalQuery({
     const booking = await ctx.db.get(bookingId);
     if (!booking) return null;
     const account = await accountForRental(ctx, booking);
-    const email = booking.accountId ? account?.email : account?.email ?? booking.guestEmail;
+    const email = booking.accountId
+      ? account?.email
+      : (account?.email ?? booking.guestEmail);
     return email ? { email, bookingId } : null;
   },
 });
 
 export const details = query({
-  args: { token: v.string(), bookingId: v.id("bookings"), refreshKey: v.optional(v.number()) },
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    refreshKey: v.optional(v.number()),
+  },
   handler: async (ctx, { token, bookingId }) => {
     if (!checkAdminToken(token)) return null;
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     let verificationArchiveReady = false;
-    if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx, b); verificationArchiveReady = true; } catch {} }
+    if (b.idVerifyStatus === "verified") {
+      try {
+        await assertVerificationArchive(ctx, b);
+        verificationArchiveReady = true;
+      } catch {}
+    }
     const refunds = await ctx.db
       .query("rental_refunds")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
@@ -52,16 +77,134 @@ export const details = query({
       requiresDroneLicence: await requiresDroneLicence(ctx, b),
       droneLicenceStatus: await droneLicenceStatusForRental(ctx, b),
       verificationArchiveReady,
-      lineItems: await Promise.all(bookingStockLines(b).map(async (line) => {
-        const listing = await ctx.db.get(line.listingId);
-        const imageSources = listingImages(listing);
-        return { ...line, heroImage: imageSources[0] ?? null, imageSources };
-      })),
+      lineItems: await Promise.all(
+        bookingStockLines(b).map(async (line) => {
+          const listing = await ctx.db.get(line.listingId);
+          const imageSources = listingImages(listing);
+          return { ...line, heroImage: imageSources[0] ?? null, imageSources };
+        }),
+      ),
       rentalRefunds: refunds,
+      controlsSnapshot: rentalControlsSnapshot(b, refunds),
       cancellationKind: bookingCancelKind(b, Date.now()),
     };
   },
 });
+async function qualifyReschedule(
+  ctx: QueryCtx,
+  b: Doc<"bookings"> | null,
+  args: {
+    start: number;
+    end?: number;
+    keepAgreedPrice?: boolean;
+    reason: string;
+    expectedSnapshot?: string;
+  },
+) {
+  const { start, end, keepAgreedPrice, reason, expectedSnapshot } = args;
+  if (!b || b.status !== "confirmed")
+    throw Error("Only an upcoming rental can be rescheduled");
+  const bookingId = b._id;
+  if (
+    b.cancellationDecision ||
+    b.activeAdditionId ||
+    b.activeExtensionId ||
+    b.returnDecision
+  )
+    throw Error(
+      "Finish the open cancellation, item addition or approved extension first",
+    );
+  const refunds = await ctx.db
+    .query("rental_refunds")
+    .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
+    .collect();
+  if (
+    expectedSnapshot &&
+    expectedSnapshot !== rentalControlsSnapshot(b, refunds)
+  )
+    throw Error("The rental changed. Refresh and review the dates again.");
+  if (refunds.some((r) => ["prepared", "pending"].includes(r.status)))
+    throw Error("Wait for the open refund to settle first.");
+  if (reason.trim().length < 5) throw Error("Record the reason for the change");
+  if (
+    !Number.isSafeInteger(start) ||
+    start % 86400000 !== 0 ||
+    start < londonStartOfDay(Date.now())
+  )
+    throw Error("Choose a future start date");
+  const reservations = await ctx.db
+    .query("reservations")
+    .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
+    .collect();
+  if (reservations.some((r) => r.source !== "site"))
+    throw Error("Manage this rental through its original booking platform");
+  if (reservations.some((r) => r.status === "hold"))
+    throw Error("Resolve the open stock hold before changing this rental.");
+  const allocationMode = await assertRentalAllocation(ctx, b, reservations);
+  const previous = Math.min(...b.lineItems.map((li) => li.start));
+  const shift = start - previous;
+  const previousEnd = Math.max(...b.lineItems.map((li) => li.end));
+  if (
+    end !== undefined &&
+    (!Number.isSafeInteger(end) || end % 86400000 !== 0 || end < start)
+  )
+    throw Error("Choose a valid return date on or after the start.");
+  const endShift = end === undefined ? 0 : end - (previousEnd + shift);
+  if (endShift !== 0 && keepAgreedPrice !== true)
+    throw Error(
+      "Confirm that the changed duration keeps the agreed charges; extra days are complimentary.",
+    );
+  const lines = bookingStockLines(b).map((li) => ({
+    ...li,
+    start: li.start + shift,
+    end: li.end + shift + endShift,
+  }));
+  await assertRenterExposure(ctx, b, lines);
+  await assertRentalInventory(ctx, lines, bookingId);
+  return {
+    lines,
+    reservations,
+    allocationMode,
+    endShift,
+    controlsSnapshot: rentalControlsSnapshot(b, refunds),
+  };
+}
+
+export const previewReschedule = query({
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    start: v.number(),
+    end: v.optional(v.number()),
+    keepAgreedPrice: v.optional(v.boolean()),
+    reason: v.string(),
+  },
+  handler: async (ctx, { token, bookingId, ...args }) => {
+    if (!checkAdminToken(token)) throw Error("Unauthorized");
+    const booking = await ctx.db.get(bookingId);
+    try {
+      const proposal = await qualifyReschedule(ctx, booking, args);
+      return {
+        ok: true,
+        controlsSnapshot: proposal.controlsSnapshot,
+        start: args.start,
+        end:
+          args.end ?? Math.max(...proposal.lines.map((line: any) => line.end)),
+        total: booking!.total,
+        depositHoldAmount: booking!.depositHoldAmount ?? 0,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        reason:
+          error instanceof Error
+            ? error.message
+            : "The date change could not be checked.",
+      };
+    }
+  },
+});
+
 export const reschedule = mutation({
   args: {
     token: v.string(),
@@ -70,56 +213,70 @@ export const reschedule = mutation({
     end: v.optional(v.number()),
     keepAgreedPrice: v.optional(v.boolean()),
     reason: v.string(),
+    expectedSnapshot: v.optional(v.string()),
     changeRequestId: v.optional(v.id("rental_change_requests")),
   },
-  handler: async (ctx, { token, bookingId, start, end, keepAgreedPrice, reason, changeRequestId }) => {
+  handler: async (
+    ctx,
+    {
+      token,
+      bookingId,
+      start,
+      end,
+      keepAgreedPrice,
+      reason,
+      expectedSnapshot,
+      changeRequestId,
+    },
+  ) => {
     await assertAdmin(ctx, token, "rentalOperations.reschedule");
     const b = await ctx.db.get(bookingId);
-    const operationKey = rescheduleRequestKey(start, end, keepAgreedPrice, reason);
-    const request = await approvedRequest(ctx, b, changeRequestId, "reschedule", operationKey);
+    const operationKey = rescheduleRequestKey(
+      start,
+      end,
+      keepAgreedPrice,
+      reason,
+    );
+    const request = await approvedRequest(
+      ctx,
+      b,
+      changeRequestId,
+      "reschedule",
+      operationKey,
+    );
     if (request?.execution?.status === "applied") return { ok: true };
-    if (!b || b.status !== "confirmed")
-      throw Error("Only an upcoming rental can be rescheduled");
-    if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
-      throw Error("Finish the open cancellation, item addition or approved extension first");
-    const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
-    if (refunds.some(r => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
-    if (reason.trim().length < 5)
-      throw Error("Record the reason for the change");
-    if (
-      !Number.isSafeInteger(start) ||
-      start % 86400000 !== 0 ||
-      start < londonStartOfDay(Date.now())
-    )
-      throw Error("Choose a future start date");
-    const reservations = await ctx.db
-      .query("reservations")
-      .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
-      .collect();
-    if (reservations.some((r) => r.source !== "site"))
-      throw Error("Manage this rental through its original booking platform");
-    if (reservations.some(r => r.status === "hold")) throw Error("Resolve the open stock hold before changing this rental.");
-    const allocationMode=await assertRentalAllocation(ctx, b, reservations);
-    const previous = Math.min(...b.lineItems.map((li) => li.start));
-    const shift = start - previous;
-    const previousEnd = Math.max(...b.lineItems.map(li => li.end));
-    if (end !== undefined && (!Number.isSafeInteger(end) || end % 86400000 !== 0 || end < start)) throw Error("Choose a valid return date on or after the start.");
-    const endShift = end === undefined ? 0 : end - (previousEnd + shift);
-    if (endShift !== 0 && keepAgreedPrice !== true) throw Error("Confirm that the changed duration keeps the agreed charges; extra days are complimentary.");
-    const lines = bookingStockLines(b).map((li) => ({
-      ...li,
-      start: li.start + shift,
-      end: li.end + shift + endShift,
-    }));
-    await assertRenterExposure(ctx, b, lines);
-    await assertRentalInventory(ctx, lines, bookingId);
-    await ctx.db.patch(bookingId, { lineItems: lines, cancellationPolicyStart: start });
-    await schedulePickupHold(ctx,{...b,lineItems:lines});
-    for (const r of reservations) if (["confirmed","hold"].includes(r.status)) await ctx.db.patch(r._id,{status:"cancelled"});
-    for(const li of lines){
-      const listing=await ctx.db.get(li.listingId);
-      const window=allocationMode==="legacy"?{start:li.start,end:li.end}:stockWindow(li,allocationMode==="precise");
-      for(const comp of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:li.listingId,bookingId,...window,qty:comp.qty*li.qty,source:"site",status:"confirmed"});
+    const { lines, reservations, allocationMode, endShift } =
+      await qualifyReschedule(ctx, b, {
+        start,
+        end,
+        keepAgreedPrice,
+        reason,
+        expectedSnapshot,
+      });
+    await ctx.db.patch(bookingId, {
+      lineItems: lines,
+      cancellationPolicyStart: start,
+    });
+    await schedulePickupHold(ctx, { ...b, lineItems: lines });
+    for (const r of reservations)
+      if (["confirmed", "hold"].includes(r.status))
+        await ctx.db.patch(r._id, { status: "cancelled" });
+    for (const li of lines) {
+      const listing = await ctx.db.get(li.listingId);
+      const window =
+        allocationMode === "legacy"
+          ? { start: li.start, end: li.end }
+          : stockWindow(li, allocationMode === "precise");
+      for (const comp of listing!.components)
+        await ctx.db.insert("reservations", {
+          inventoryUnitId: comp.inventoryUnitId,
+          listingId: li.listingId,
+          bookingId,
+          ...window,
+          qty: comp.qty * li.qty,
+          source: "site",
+          status: "confirmed",
+        });
     }
     const a = await accountForRental(ctx, b);
     const detail = `${new Date(start).toISOString().slice(0, 10)} → ${new Date(Math.max(...lines.map((li) => li.end))).toISOString().slice(0, 10)}`;
@@ -129,7 +286,9 @@ export const reschedule = mutation({
         bookingId,
         sender: "system",
         text: `The team rescheduled your rental to ${detail}. Agreed charges and security are unchanged${endShift > 0 ? "; the additional days have no extra rental charge" : ""}. Any eligible refund is recorded separately. ${reason.trim()}`,
-        ...(changeRequestId ? { meta: { type: "rental_change_applied", changeRequestId } } : {}),
+        ...(changeRequestId
+          ? { meta: { type: "rental_change_applied", changeRequestId } }
+          : {}),
       });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
       bookingId,
@@ -137,7 +296,14 @@ export const reschedule = mutation({
       detail,
     });
     await queueRmv2Sync(ctx, bookingId);
-    await finishRequest(ctx, b, changeRequestId, "reschedule", operationKey, `Rental dates updated to ${detail}. Agreed charges are unchanged; any eligible refund is recorded separately.`);
+    await finishRequest(
+      ctx,
+      b,
+      changeRequestId,
+      "reschedule",
+      operationKey,
+      `Rental dates updated to ${detail}. Agreed charges are unchanged; any eligible refund is recorded separately.`,
+    );
     return { ok: true };
   },
 });
@@ -145,43 +311,124 @@ export const reschedule = mutation({
 /** Amend fulfilment, preserving captured charges and a permanent invoice audit trail.
  * Refunds use the existing provider-backed refund control; security settles separately. */
 export const removeItem = mutation({
-  args: { token: v.string(), bookingId: v.id("bookings"), requestId: v.string(),
-    lineIndex: v.number(), listingId: v.id("listings"), expectedQty: v.number(), expectedStart: v.number(), expectedEnd: v.number(), reason: v.string() },
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    requestId: v.string(),
+    lineIndex: v.number(),
+    listingId: v.id("listings"),
+    expectedQty: v.number(),
+    expectedStart: v.number(),
+    expectedEnd: v.number(),
+    reason: v.string(),
+  },
   handler: async (ctx, args) => {
     await assertAdmin(ctx, args.token, "rentalOperations.removeItem");
     const b = await ctx.db.get(args.bookingId);
     if (!b) throw Error("Rental unavailable.");
-    const prior = b.removedItems?.find(l => l.requestId === args.requestId);
+    const prior = b.removedItems?.find((l) => l.requestId === args.requestId);
     if (prior) {
-      if (prior.listingId !== args.listingId || prior.qty !== args.expectedQty || prior.start !== args.expectedStart || prior.end !== args.expectedEnd || prior.reason !== args.reason.trim()) throw Error("Removal request has changed.");
+      if (
+        prior.listingId !== args.listingId ||
+        prior.qty !== args.expectedQty ||
+        prior.start !== args.expectedStart ||
+        prior.end !== args.expectedEnd ||
+        prior.reason !== args.reason.trim()
+      )
+        throw Error("Removal request has changed.");
       return { ok: true };
     }
-    if (b.status !== "confirmed") throw Error("Only an unstarted confirmed rental can have kit removed.");
-    if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision) throw Error("Finish the open rental operation first.");
-    const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
-    if (refunds.some(r => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
-    if (!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId) || args.reason.trim().length < 5 || args.reason.trim().length > 400) throw Error("Record a valid removal request and reason.");
-    if (!Number.isSafeInteger(args.lineIndex) || args.lineIndex < 0) throw Error("Invalid item.");
+    if (b.status !== "confirmed")
+      throw Error("Only an unstarted confirmed rental can have kit removed.");
+    if (
+      b.cancellationDecision ||
+      b.activeAdditionId ||
+      b.activeExtensionId ||
+      b.returnDecision
+    )
+      throw Error("Finish the open rental operation first.");
+    const refunds = await ctx.db
+      .query("rental_refunds")
+      .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
+      .collect();
+    if (refunds.some((r) => ["prepared", "pending"].includes(r.status)))
+      throw Error("Wait for the open refund to settle first.");
+    if (
+      !/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId) ||
+      args.reason.trim().length < 5 ||
+      args.reason.trim().length > 400
+    )
+      throw Error("Record a valid removal request and reason.");
+    if (!Number.isSafeInteger(args.lineIndex) || args.lineIndex < 0)
+      throw Error("Invalid item.");
     const line = b.lineItems[args.lineIndex];
-    if (!line || line.listingId !== args.listingId || line.qty !== args.expectedQty || line.start !== args.expectedStart || line.end !== args.expectedEnd) throw Error("The kit changed. Refresh and choose the item again.");
-    if (b.lineItems.length < 2) throw Error("Use Cancel rental to remove the last item.");
-    const reservations = await ctx.db.query("reservations").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
-    if (reservations.some(r => r.source !== "site" || r.status === "active")) throw Error("Manage external or already collected kit through its original rental flow.");
-    if (reservations.some(r => r.status === "hold")) throw Error("Resolve the open stock hold before changing this rental.");
+    if (
+      !line ||
+      line.listingId !== args.listingId ||
+      line.qty !== args.expectedQty ||
+      line.start !== args.expectedStart ||
+      line.end !== args.expectedEnd
+    )
+      throw Error("The kit changed. Refresh and choose the item again.");
+    if (b.lineItems.length < 2)
+      throw Error("Use Cancel rental to remove the last item.");
+    const reservations = await ctx.db
+      .query("reservations")
+      .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
+      .collect();
+    if (reservations.some((r) => r.source !== "site" || r.status === "active"))
+      throw Error(
+        "Manage external or already collected kit through its original rental flow.",
+      );
+    if (reservations.some((r) => r.status === "hold"))
+      throw Error("Resolve the open stock hold before changing this rental.");
     await assertRentalAllocation(ctx, b, reservations);
     const lines = bookingStockLines(b).filter((_, i) => i !== args.lineIndex);
     await assertRentalInventory(ctx, lines, b._id);
-    for (const r of reservations) if (["hold", "confirmed"].includes(r.status)) await ctx.db.patch(r._id, { status: "cancelled" });
+    for (const r of reservations)
+      if (["hold", "confirmed"].includes(r.status))
+        await ctx.db.patch(r._id, { status: "cancelled" });
     for (const remaining of lines) {
       const listing = await ctx.db.get(remaining.listingId);
-      for (const component of listing!.components) await ctx.db.insert("reservations", { bookingId: b._id, listingId: remaining.listingId, inventoryUnitId: component.inventoryUnitId, ...stockWindow(remaining,true), qty: component.qty * remaining.qty, source: "site", status: "confirmed" });
+      for (const component of listing!.components)
+        await ctx.db.insert("reservations", {
+          bookingId: b._id,
+          listingId: remaining.listingId,
+          inventoryUnitId: component.inventoryUnitId,
+          ...stockWindow(remaining, true),
+          qty: component.qty * remaining.qty,
+          source: "site",
+          status: "confirmed",
+        });
     }
     const { dailyRate: _, ...removed } = line;
-    await ctx.db.patch(b._id, { lineItems: lines, cancellationPolicyStart: rentalCancellationStart(b), removedItems: [...(b.removedItems ?? []), { ...removed, removedAt: Date.now(), reason: args.reason.trim(), requestId: args.requestId }] });
+    await ctx.db.patch(b._id, {
+      lineItems: lines,
+      cancellationPolicyStart: rentalCancellationStart(b),
+      removedItems: [
+        ...(b.removedItems ?? []),
+        {
+          ...removed,
+          removedAt: Date.now(),
+          reason: args.reason.trim(),
+          requestId: args.requestId,
+        },
+      ],
+    });
     const account = await accountForRental(ctx, b);
     const detail = `${line.qty}× ${line.title} removed from your kit. Agreed charges and security are unchanged; any eligible refund is recorded separately. ${args.reason.trim()}`;
-    if (account) await postRentalMessage(ctx, { accountId: account._id, bookingId: b._id, sender: "system", text: detail });
-    await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: b._id, kind: "kit updated", detail });
+    if (account)
+      await postRentalMessage(ctx, {
+        accountId: account._id,
+        bookingId: b._id,
+        sender: "system",
+        text: detail,
+      });
+    await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
+      bookingId: b._id,
+      kind: "kit updated",
+      detail,
+    });
     await queueRmv2Sync(ctx, b._id);
     return { ok: true };
   },
@@ -214,12 +461,16 @@ export const prepareRefund = internalMutation({
     const b = await ctx.db.get(bookingId);
     if (!b || b.status !== "confirmed" || !b.stripePaymentIntentId)
       throw Error("Only a paid upcoming rental can receive a rental refund");
-    if (b.cancellationDecision || (b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
-      throw Error("Finish the open cancellation, item addition or approved extension first");
     if (
-      bookingCancelKind(b, Date.now()) !==
-      "full_refund"
+      b.cancellationDecision ||
+      b.activeAdditionId ||
+      b.activeExtensionId ||
+      b.returnDecision
     )
+      throw Error(
+        "Finish the open cancellation, item addition or approved extension first",
+      );
+    if (bookingCancelKind(b, Date.now()) !== "full_refund")
       throw Error(
         "The rental cash refund window has closed. Cancel to issue account credit instead. Security payment is settled separately on return or cancellation.",
       );
