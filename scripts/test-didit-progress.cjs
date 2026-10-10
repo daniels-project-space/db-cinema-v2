@@ -7,7 +7,7 @@ const {claimDiditProgressRefresh}=load('convex/bookings.ts');
 const {rentalStageLabel}=load('shared/rentalReadiness.ts');
 const {rentalProgress}=load('shared/rentalProgress.ts');
 (async()=>{
- const booking={status:'confirmed',verificationProvider:'didit',diditSessionId:'session-12345',guestEmail:'renter@example.test',accountId:'account-1',stripeCheckoutSessionId:'cs_bound'};
+ const booking={status:'confirmed',verificationProvider:'didit',diditSessionId:'session-12345',diditWorkflowId:'workflow-1',guestEmail:'renter@example.test',accountId:'account-1',stripeCheckoutSessionId:'cs_bound'};
  const account={_id:'account-1',email:booking.guestEmail};
  let mutations=[],gets=0,claim=true;
  const provider={session_id:booking.diditSessionId,session_kind:'user',vendor_data:'dbc-booking-booking-1',contact_details:{email:booking.guestEmail},workflow_id:'workflow-1',status:'In Review',id_verifications:[{status:'Approved'}],liveness_checks:[{status:'Approved'}],face_matches:[{status:'In Review'}],poa_verifications:[{status:'In Review'}]};

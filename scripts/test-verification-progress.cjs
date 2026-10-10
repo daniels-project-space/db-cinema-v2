@@ -78,7 +78,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}}};
  try {for(const depositHoldStatus of ['failed','requires_action','awaiting_payment'])await assert.rejects(didit.bookingSession.handler({runQuery:async()=>({...b,verificationProvider:'didit',idVerifyStatus:'required',depositHoldStatus})},{bookingId:b._id,accountToken:'own'}),/required card hold/);assert.equal(fetched,0);}finally{global.fetch=original;}
  // A signed provider decision links different account emails to the same attested identity.
  process.env.INVOICE_SECRET='identity-fixture-stable-secret';
- await db.patch(b._id,{verificationProvider:'didit',diditSessionId:'session-progress',billingAddress:'25 Whitcomb Street WC2H 7ER',renterPersonKey:undefined});await db.patch(account._id,{renterPersonKey:undefined});
+ await db.patch(b._id,{verificationProvider:'didit',diditSessionId:'session-progress',diditWorkflowId:'workflow',billingAddress:'25 Whitcomb Street WC2H 7ER',renterPersonKey:undefined});await db.patch(account._id,{renterPersonKey:undefined});
  const {createHmac}=require('node:crypto');
  const now=Math.floor(Date.now()/1000);
  const event={event_id:'identity-progress-1',webhook_type:'status.updated',timestamp:now,created_at:now,application_id:'app',environment:'sandbox',workflow_id:'workflow',session_id:'session-progress',vendor_data:'dbc-booking-'+b._id,status:'Approved',decision:{status:'Approved',id_verifications:[{status:'Approved',full_name:'Alex Example',date_of_birth:'1990-01-01'}],liveness_checks:[{status:'Approved'}],face_matches:[{status:'Approved'}],poa_verifications:[{status:'Approved',poa_parsed_address:{postal_code:'WC2H 7ER'}}]}};
@@ -91,7 +91,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}}};
  assert.equal(ownSummary.verificationArchiveReady,false,'account cards cannot approve a missing archive');assert.equal(ownSummary.verificationExpiresAt,b.verificationExpiresAt);assert.deepEqual(ownSummary.verificationChecks,b.verificationChecks);
  const archived=put('verification_archives',{accountId:account._id,bookingId:b._id,sessionId:b.diditSessionId,status:'complete'});require('./lib/verificationFiles.cjs').seedVerificationFiles(put,archived);
  ownSummary=(await mine.handler(ctx,{token:'own'})).find(row=>row._id===b._id);assert.equal(ownSummary.verificationArchiveReady,true,'real completed archive is reflected in account cards');await db.patch(archived._id,{status:'pending'});
- const second=put('bookings',{guestEmail:foreign.email,status:'confirmed',verificationProvider:'didit',diditSessionId:'session-second',billingAddress:b.billingAddress,lineItems:[line(camera)],idVerifyStatus:'processing'});
+ const second=put('bookings',{guestEmail:foreign.email,status:'confirmed',verificationProvider:'didit',diditSessionId:'session-second',diditWorkflowId:'workflow',billingAddress:b.billingAddress,lineItems:[line(camera)],idVerifyStatus:'processing'});
  assert.equal(await didit.webhook.handler(webCtx,signed({...event,event_id:'identity-progress-2',session_id:'session-second',vendor_data:'dbc-booking-'+second._id})),true);
  assert.equal(second.renterPersonKey,b.renterPersonKey);assert.equal(second.idVerifyStatus,'manual_review');assert.match(second.verificationNote,/overlapping rentals/);assert.equal(b.idVerifyStatus,'verified','current approved rental is still constrained at handover by the combined person cap');
  const race=put('bookings',{guestEmail:'race@qa.invalid',status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required',lineItems:[],depositHoldAmount:0});

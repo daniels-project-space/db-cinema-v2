@@ -1516,6 +1516,21 @@ export const setIdentity = internalMutation({
 });
 
 /** Bind a Didit session to the paid booking before any result can be accepted. */
+export const bindDiditCase = internalMutation({
+  args: { bookingId: v.id("bookings"), sessionId: v.string(), email: v.string(), workflowId: v.string() },
+  handler: async (ctx, { bookingId, sessionId, email, workflowId }) => {
+    const b = await ctx.db.get(bookingId);
+    const contact = b?.diditSessionEmail ?? b?.guestEmail;
+    if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId ||
+        !contact || contact.trim().toLowerCase() !== email.trim().toLowerCase() ||
+        !/^[A-Za-z0-9_-]{1,100}$/.test(workflowId) ||
+        (b.diditWorkflowId !== undefined && b.diditWorkflowId !== workflowId)) return false;
+    if (b.diditWorkflowId === undefined || b.diditSessionEmail === undefined)
+      await ctx.db.patch(bookingId, { diditWorkflowId: workflowId, diditSessionEmail: contact.trim().toLowerCase() });
+    return true;
+  },
+});
+
 export const setDiditSession = internalMutation({
   args: { bookingId: v.id("bookings"), sessionId: v.string(), previousSessionId: v.optional(v.string()), sessionEmail: v.optional(v.string()), sessionWorkflowId: v.optional(v.string()) },
   handler: async (ctx, { bookingId, sessionId, previousSessionId, sessionEmail, sessionWorkflowId }) => {

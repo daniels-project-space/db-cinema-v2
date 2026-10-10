@@ -116,6 +116,20 @@ export const claim=internalMutation({args:{archiveId:v.id("verification_archives
  await ctx.db.patch(archiveId,patch);
  return {...archive,...patch,documents:await ctx.db.query("verification_documents").withIndex("by_archive",q=>q.eq("archiveId",archiveId)).collect()};
 }});
+/** Only the authenticated provider reader may attest a legacy archive case. */
+export const bindCase = internalMutation({
+  args: { archiveId: v.id("verification_archives"), generation: v.number(), sessionId: v.string(), email: v.string(), workflowId: v.string() },
+  handler: async (ctx, { archiveId, generation, sessionId, email, workflowId }) => {
+    const archive = await ctx.db.get(archiveId);
+    if (!archive || archive.source === "drone" || archive.status !== "pending" || archive.generation !== generation ||
+        archive.sessionId !== sessionId || archive.email.trim().toLowerCase() !== email.trim().toLowerCase() ||
+        !/^[A-Za-z0-9_-]{1,100}$/.test(workflowId) ||
+        (archive.workflowId !== undefined && archive.workflowId !== workflowId) ||
+        !(await archiveRetention(ctx, archive)).viewable || !(await archiveOwnerMatches(ctx, archive))) return false;
+    if (archive.workflowId === undefined) await ctx.db.patch(archiveId, { workflowId });
+    return true;
+  },
+});
 export const save = internalMutation({ args: { archiveId: v.id("verification_archives"), generation:v.number(),kind: v.string(), storageId: v.id("_storage"), sha256: v.string(), size: v.number(), contentType: v.string(), replaceStorageId: v.optional(v.id("_storage")) }, handler: async (ctx, args) => {
   const archive = await ctx.db.get(args.archiveId);
   if (!archive || archive.status!=="pending" || archive.generation!==args.generation || (archive.leaseUntil??0)<=Date.now() || !(await archiveRetention(ctx,archive)).viewable) { await deletePrivateFile(ctx,args.storageId); return false; }
