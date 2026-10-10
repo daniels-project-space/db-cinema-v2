@@ -11,6 +11,37 @@ const sb = () => {
   return new Stripe(process.env.STRIPE_SECRET_KEY);
 };
 const money = (n: number) => Math.round(n * 100);
+/** The saved checkout pointer and provider receipt must both attest the update
+ * before it becomes a payment source, changes stock, or triggers a refund. */
+async function verifiedUpdatePayment(state: any, session: Stripe.Checkout.Session) {
+  const r = state.addition;
+  const expected = money((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0));
+  const noPayment = !!r.membershipCheckoutId && session.payment_status === "no_payment_required";
+  const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  const metadata = session.metadata;
+  const bound = r.draftReplacement
+    ? metadata?.pendingAdditionId === r._id && metadata?.bookingId === r.bookingId
+    : metadata?.rentalAdditionId === r._id && metadata?.additionBookingId === r.bookingId;
+  if (session.id !== r.sessionId || session.status !== "complete" || session.currency !== "gbp" ||
+      !Number.isSafeInteger(expected) || expected < 0 || session.amount_total !== expected || !customer || !bound ||
+      (session.payment_status !== "paid" && !noPayment) || noPayment && expected !== 0)
+    throw Error("The update checkout receipt does not match the saved order.");
+  if (r.membershipCheckoutId) {
+    const member = state.membershipCheckout, account = state.membershipAccount;
+    if (!member || !account || member.bookingId !== r.bookingId || member.sessionId !== session.id || customer !== account.stripeCustomerId)
+      throw Error("The membership update payment does not match the associated account or order.");
+  }
+  if (noPayment) return undefined;
+  const paymentId = await checkoutPaymentIntent(session);
+  if (!paymentId) throw Error("Paid update has no captured payment receipt.");
+  const payment = await sb().paymentIntents.retrieve(paymentId);
+  const paymentCustomer = typeof payment.customer === "string" ? payment.customer : payment.customer?.id;
+  if (payment.id !== paymentId || r.paymentIntentId && r.paymentIntentId !== paymentId || payment.status !== "succeeded" ||
+      payment.currency !== "gbp" || payment.amount !== expected || payment.amount_received !== expected ||
+      payment.amount_capturable !== 0 || !["automatic", "automatic_async"].includes(payment.capture_method) || paymentCustomer !== customer)
+    throw Error("The update payment is not the exact captured payment for this checkout.");
+  return payment;
+}
 function expires(intent: Stripe.PaymentIntent) {
   const c: any = intent.latest_charge;
   return typeof c === "object"
@@ -199,6 +230,7 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
   const complete = paid || noPayment;
   const expected = money((r.draftReplacement ? r.baseTotal ?? 0 : 0) + r.lineTotal + r.securityCharge + (r.membershipFee ?? 0));
   if (session.id !== r.sessionId || complete && (session.status !== "complete" || session.currency !== "gbp" || session.amount_total !== expected || noPayment && expected !== 0)) throw Error("Withdrawal session does not match the saved order");
+  const verifiedPayment = complete ? await verifiedUpdatePayment({ ...state, ...bound, addition: r }, session) : undefined;
   if (complete && r.membershipCheckoutId) {
     const member = bound?.membershipCheckout, account = bound?.membershipAccount;
     const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
@@ -219,7 +251,7 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
     await syncStripeMembership(ctx, sub);
     await ctx.runMutation(internal.rentalAdditionState.recordMembershipWithdrawal, { id, subscriptionId: subId });
   }
-  const payment = await checkoutPaymentIntent(session);
+  const payment = verifiedPayment?.id;
   if (paid && payment) {
     await ctx.runMutation(internal.rentalAdditionState.markPaid, {
       id,
@@ -309,6 +341,7 @@ async function finish(
   const noPayment=r.membershipCheckoutId&&session.status==="complete"&&session.payment_status==="no_payment_required";
   if (session.id !== r.sessionId || session.payment_status !== "paid"&&!noPayment)
     throw Error("Addition payment has not completed");
+  const verifiedPayment = await verifiedUpdatePayment(state, session);
   if (["refunded", "expired"].includes(r.status))
     return { bookingId: r.bookingId, status: r.status, closed: true };
   if (r.withdrawalRequestedAt) {
@@ -323,7 +356,7 @@ async function finish(
     const result = await withdraw(ctx, id);
     return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
   }
-  const payment = await checkoutPaymentIntent(session);
+  const payment = verifiedPayment?.id;
   if (!payment&&!noPayment) throw Error("Paid addition has no card payment");
   if (
     session.amount_total !==
@@ -382,7 +415,7 @@ async function finish(
     }
     if (!intent && r.securityCreationPending) intent = await recoverPreparedSecurity(ctx, r);
     if (!intent) {
-      const paid = await sb().paymentIntents.retrieve(payment);
+      const paid = verifiedPayment!;
       const customer =
         typeof session.customer === "string"
           ? session.customer

@@ -2,7 +2,8 @@
 const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
 process.env.ADMIN_TOKEN='addition-pickup-fixture';process.env.STRIPE_SECRET_KEY='sk_test_fixture';
 let providerCreates=0;const sessions=new Map();
-class Stripe{checkout={sessions:{retrieve:async id=>{assert(sessions.has(id));return sessions.get(id)}}};paymentIntents={create:async()=>{providerCreates++;throw Error('No early authorisation allowed')},retrieve:async()=>{throw Error('No early security lookup allowed')}}}
+let corruptPayment=null;
+class Stripe{checkout={sessions:{retrieve:async id=>{assert(sessions.has(id));return sessions.get(id)}}};paymentIntents={create:async()=>{providerCreates++;throw Error('No early authorisation allowed')},retrieve:async id=>{const session=[...sessions.values()].find(s=>s.payment_intent===id);assert(session,'Only the captured update payment may be read before pickup');const payment={id,status:'succeeded',currency:'gbp',amount:session.amount_total,amount_received:session.amount_total,amount_capturable:0,capture_method:'automatic',customer:session.customer};return corruptPayment?corruptPayment(payment):payment}}}
 h.setMock('stripe',{__esModule:true,default:Stripe});
 const state=h.load('convex/rentalAdditionState.ts'),payments=h.load('convex/rentalAdditions.ts'),pickup=h.load('convex/pickupSecurity.ts'),policy=h.load('shared/pickupSecurity.ts');
 const modules={adminAuth:h.load("convex/adminAuth.ts"),rentalAdditionState:state,pickupSecurity:pickup,rentalOperations:h.load("convex/rentalOperations.ts")},jobs=[];
@@ -12,7 +13,18 @@ function fixture(){const unit=h.put('inventory_units',{name:'Camera',quantityOwn
 async function prepare(x,complimentary=false){return state.prepare.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:x.b._id,requestId:'addition-pickup-'+x.b._id,listingId:x.listing._id,qty:1,reason:'Customer requested another body',complimentary})}
 (async()=>{
  const x=fixture(),r=await prepare(x);assert.equal(r.holdTotal,200);assert.equal(r.securityCharge,0);assert.equal(x.b.stripeDepositIntentId,undefined);
- const session={id:'cs_'+r._id,status:'complete',payment_status:'paid',payment_intent:'pi_addition',amount_total:Math.round((r.lineTotal+r.securityCharge)*100),metadata:{rentalAdditionId:r._id}};sessions.set(session.id,session);await state.bindSession.handler(ctx,{id:r._id,sessionId:session.id,url:'https://checkout.stripe.test'});
+ const session={id:'cs_'+r._id,status:'complete',currency:'gbp',customer:'cus_update',payment_status:'paid',payment_intent:'pi_addition',amount_total:Math.round((r.lineTotal+r.securityCharge)*100),metadata:{rentalAdditionId:r._id,additionBookingId:x.b._id}};sessions.set(session.id,session);await state.bindSession.handler(ctx,{id:r._id,sessionId:session.id,url:'https://checkout.stripe.test'});
+ const unchanged=JSON.stringify([x.b,r,jobs]);
+ for(const corrupt of [s=>s.currency='usd',s=>s.status='open',s=>s.metadata.additionBookingId='foreign',s=>s.metadata.rentalAdditionId='foreign',s=>s.customer=null]){
+   const original=structuredClone(session);corrupt(session);
+   await assert.rejects(payments.finalizePaid.handler(ctx,{id:r._id,sessionId:session.id}),/payment|session|receipt|order/i);
+   Object.keys(session).forEach(k=>delete session[k]);Object.assign(session,original);
+   assert.equal(JSON.stringify([x.b,r,jobs]),unchanged,'Invalid checkout cannot change payment, stock or scheduled security');
+ }
+ for(const corrupt of [p=>({...p,id:'pi_foreign'}),p=>({...p,status:'requires_capture'}),p=>({...p,currency:'usd'}),p=>({...p,amount:p.amount+1}),p=>({...p,amount_received:1}),p=>({...p,amount_capturable:1}),p=>({...p,capture_method:'manual'}),p=>({...p,customer:'cus_foreign'})]){
+   corruptPayment=corrupt;await assert.rejects(payments.finalizePaid.handler(ctx,{id:r._id,sessionId:session.id}),/payment|receipt|captured/i);corruptPayment=null;
+   assert.equal(JSON.stringify([x.b,r,jobs]),unchanged,'Foreign, partial or uncaptured payment cannot attach equipment');
+ }
  await assert.rejects(payments.resumeByOwner.handler(ctx,{token:"not-owner",bookingId:x.b._id,id:r._id}),/Unauthorized|admin|owner|invalid/i);
  await assert.rejects(payments.resumeByOwner.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:"another-rental",id:r._id}),/another rental/);
  const originalPointer=x.b.activeAdditionId;x.b.activeAdditionId="foreign-proposal";await assert.rejects(payments.resumeByOwner.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:x.b._id,id:r._id}),/no longer active/);x.b.activeAdditionId=originalPointer;
