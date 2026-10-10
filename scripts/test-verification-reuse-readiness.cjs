@@ -2,8 +2,10 @@ const assert=require('node:assert/strict');
 const h=require('./lib/rentalTestHarness.cjs');
 const {seedVerificationFiles}=require('./lib/verificationFiles.cjs');
 process.env.ADMIN_TOKEN='reuse-readiness-admin';
-const archive=h.load('convex/verificationArchive.ts'),bookings=h.load('convex/bookings.ts'),accounts=h.load('convex/accounts.ts'),analytics=h.load('convex/analytics.ts'),feed=h.load('convex/rmv2_sync.ts');
+const archive=h.load('convex/verificationArchive.ts'),bookings=h.load('convex/bookings.ts'),accounts=h.load('convex/accounts.ts'),chat=h.load('convex/rentalChat.ts'),analytics=h.load('convex/analytics.ts'),feed=h.load('convex/rmv2_sync.ts');
 const pending=h.load('shared/dashboardPreviews.ts').dashboardVerificationPending;
+const {rentalStageLabel}=h.load('shared/rentalReadiness.ts');
+const {verificationJourney}=h.load('shared/verificationJourney.ts');
 const now=Date.UTC(2030,0,1),day=86400000;Date.now=()=>now;
 const account=h.put('accounts',{email:'current-owner@example.invalid',name:'Permanent owner'});
 const foreign=h.put('accounts',{email:'historic-owner@example.invalid',name:'Recycled email owner'});
@@ -21,8 +23,15 @@ const dashboard=()=>analytics.adminSummary.handler(ctx,{token:process.env.ADMIN_
 const manager=()=>feed.forRmv2SyncOne.handler(ctx,{bookingId:rental._id});
 async function closed(label){
  await assert.rejects(()=>archive.assertVerificationArchive(ctx,rental),/Reused verification|fully archived/,label);
- assert.equal((await progress()).verificationArchiveReady,false,label+' in renter progress');
- assert.equal((await accounts.myBookings.handler(ctx,{token:'rightful-renter'})).find(b=>b._id===rental._id).verificationArchiveReady,false,label+' in account cards');
+ const renterProgress=await progress();
+ assert.equal(renterProgress.verificationArchiveReady,false,label+' in renter progress');
+ assert.equal(rentalStageLabel(renterProgress),'Verification needs review',label+' is actionable team review rather than an endless saving state');
+ assert.equal(verificationJourney(renterProgress,now).steps.find(s=>s.label==='Review').detail,'Team review needed');
+ assert.equal(verificationJourney(renterProgress,now).steps.find(s=>s.label==='Documents').done,false,'Unusable reused copies cannot appear complete');
+ const accountCard=(await accounts.myBookings.handler(ctx,{token:'rightful-renter'})).find(b=>b._id===rental._id);
+ assert.equal(accountCard.verificationArchiveReady,false,label+' in account cards');
+ assert.equal(rentalStageLabel(accountCard),'Verification needs review');
+ assert.equal(rentalStageLabel(await chat.getConversation.handler(ctx,{token:'rightful-renter',bookingId:rental._id})),'Verification needs review');
  const row=(await dashboard()).awaitingCollection.find(r=>r._id===rental._id);
  assert.equal(row.verificationReady,false,label+' in dashboard');assert.equal(pending(row),true);assert.equal(row.kit[0].heroImage,'https://fixture.invalid/fx3.jpg');
  assert.equal((await manager()).verification.documentsApproved,false,label+' in manager bridge');
@@ -34,6 +43,9 @@ async function closed(label){
  assert.equal(await bookings.verificationProgress.handler(ctx,{bookingId:rental._id,token:'foreign-renter'}),null);
  assert.equal(await bookings.verificationProgress.handler(ctx,{bookingId:rental._id,checkoutSessionId:'wrong-bearer'}),null);
  assert.equal((await progress()).verificationArchiveReady,true);assert.equal((await manager()).verification.documentsApproved,true);
+ assert.equal(rentalStageLabel(await progress()),'Verification approved');
+ assert.equal(rentalStageLabel({...await progress(),idVerificationSource:'didit',verificationReused:false,verificationArchiveReady:false}),'Saving verification documents','First provider archive still has its genuine in-progress state');
+ assert.equal(rentalStageLabel({...await progress(),status:'returned',verificationArchiveReady:false}),'Returned','A closed rental cannot become a new verification request');
  assert.equal((await dashboard()).awaitingCollection[0].verificationReady,true,'Valid source follows its permanent account despite recycled guest email');
  await h.db.patch(source._id,{_creationTime:rental._creationTime+1,verificationExpiresAt:now});
  let cards=await accounts.myBookings.handler(ctx,{token:'rightful-renter'});
@@ -43,6 +55,9 @@ async function closed(label){
  cards=await accounts.myBookings.handler(ctx,{token:'rightful-renter'});
  assert.equal(cards.find(b=>b._id===source._id).verificationArchiveReady,true,'Failed reused eligibility cannot hide the original retained archive when reuse is read first');
  await h.db.patch(source._id,baseline);
+ await h.db.patch(source._id,{verificationExpiresAt:now});await h.db.patch(rental._id,{idVerificationSource:undefined});
+ await closed('Legacy reused reference without a newer source label remains actionable');
+ await h.db.patch(rental._id,{idVerificationSource:'reused_didit'});await h.db.patch(source._id,baseline);
  await h.db.delete(source._id);await closed('Deleted source cannot inherit the manual archive exemption');h.put('bookings',{...baseline});
  for(const patch of [{accountId:foreign._id},{idVerifyStatus:'requires_input'},{diditSessionId:undefined},{idVerificationSource:'manual'},{verificationExpiresAt:now},{documentExpiresAt:now}]){
   await h.db.patch(source._id,patch);await closed(JSON.stringify(patch));

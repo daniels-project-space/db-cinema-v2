@@ -520,6 +520,7 @@ async function enrichBookings(ctx:any,rows:any[]) {
         idVerifyStatus: b.idVerifyStatus ?? "required",
         verificationNote: renterVerificationNote(b.verificationNote),
         verificationArchiveReady,
+        verificationReused: !!b.verificationReusedFrom,
         verificationExpiresAt: b.verificationExpiresAt ?? null,
         documentExpiresAt: b.documentExpiresAt ?? null,
         verificationChecks: b.verificationChecks ?? null,

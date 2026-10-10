@@ -67,6 +67,7 @@ async function bookingView(ctx: any, b: any, account: any, options: { includeAva
     idVerificationSource: b.idVerificationSource ?? null,
     verificationChecks: b.verificationChecks ?? null,
     verificationArchiveReady,
+    verificationReused: !!b.verificationReusedFrom,
     verificationExpiresAt: b.verificationExpiresAt ?? null,
     documentExpiresAt: b.documentExpiresAt ?? null,
     verificationUpdatedAt: b.verificationUpdatedAt ?? null,
