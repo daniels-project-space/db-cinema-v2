@@ -606,6 +606,15 @@ export const start = action({
     return { url: session.url, id: r._id };
   },
 });
+export const closeRefundOnlyByOwner=action({
+ args:{token:v.string(),id:v.id('rental_additions'),quoteKey:v.string(),reason:v.string()},
+ handler:async(ctx,args)=>{
+  const prepared=await ctx.runMutation(internal.rentalAdditionState.prepareRefundOnlyClosure,args);
+  if(prepared.closed)return {ok:true,pending:false,closed:true};
+  const result=await withdraw(ctx,args.id);
+  return {ok:true,pending:!!result?.pending,needsAttention:!!result?.needsAttention,closed:!result?.pending};
+ }
+});
 export const withdrawByOwner = action({
   args: { token: v.string(), id: v.id("rental_additions") },
   handler: async (ctx, { token, id }) => {

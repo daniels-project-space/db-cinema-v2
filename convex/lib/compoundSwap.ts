@@ -1,5 +1,5 @@
 import { belongsToRentalAccount } from './rentalAccount';
-import { completeRentalRefundReceipts } from './rentalRefundReceipts';
+import { completeRentalRefundReceipts, fullyConfirmedRentalRefund } from './rentalRefundReceipts';
 
 /** A rental refund and an additional refundable deposit are separate amounts. */
 export function compoundSwapShape(row: any) {
@@ -26,7 +26,7 @@ export async function compoundRefundBinding(ctx: any, refund: any) {
  const addition=await ctx.db.get(row.settlementAdditionId), booking=await ctx.db.get(refund.bookingId);
  const request=await ctx.db.get(row.changeRequestId), account=request?await ctx.db.get(request.accountId):null;
  if (!compoundSwapShape(row) || !addition || !booking || !request ||
-     row.state!=='accepted' || row.consentVersion!=='rental-swap-price-difference-v1' ||
+     row.state!=='accepted' || row.refundOnlyRequest || row.consentVersion!=='rental-swap-price-difference-v1' ||
      row.settlementRefundId!==refund._id || row.bookingId!==booking._id ||
      addition.swapProposalId!==row._id || addition.bookingId!==booking._id ||
      addition.changeRequestId!==request._id || request.swapProposalId!==row._id ||
@@ -39,4 +39,33 @@ export async function compoundRefundBinding(ctx: any, refund: any) {
      !addition.paymentIntentId || !addition.sessionId || !['paid','held'].includes(addition.status))
   throw Error('The additional refundable deposit must be verified before the original rental refund can start.');
  return {row,addition,booking,request};
+}
+
+/** The admin price-concession decision must survive an asynchronous deposit
+ * refund, while preserving both locks if either bank receipt changes. */
+export async function compoundRefundOnlyBinding(ctx:any, addition:any, refund:any, proposedDecision?:any) {
+ const row=addition?.swapProposalId?await ctx.db.get(addition.swapProposalId):null;
+ const booking=addition?await ctx.db.get(addition.bookingId):null;
+ const request=row?await ctx.db.get(row.changeRequestId):null;
+ const account=request?await ctx.db.get(request.accountId):null;
+ const decision=proposedDecision??row?.refundOnlyRequest;
+ if(!row||!addition||!booking||!request||!decision||!compoundSwapShape(row)||
+  row.state!=='accepted'||row.consentVersion!=='rental-swap-price-difference-v1'||
+  row.settlementAdditionId!==addition._id||row.settlementRefundId!==refund?._id||
+  row.bookingId!==booking._id||refund.bookingId!==booking._id||refund.swapProposalId!==row._id||
+  addition.changeRequestId!==request._id||request.swapProposalId!==row._id||request.additionRequestId!==addition._id||
+  row.accountId!==request.accountId||!belongsToRentalAccount(booking,account)||
+  !['confirmed','active'].includes(booking.status)||booking.cancellationDecision||booking.returnDecision||booking.returnedAt||booking.activeExtensionId||
+  booking.activeAdditionId!==addition._id||booking.activeSwapRefundId!==refund._id||
+  !fullyConfirmedRentalRefund(refund)||decision.refundedPence!==refund.amountPence||decision.refundedPence!==row.refundPence||
+  decision.reason.trim().length<5||decision.reason.length>400||!Number.isSafeInteger(decision.requestedAt)||
+  decision.securityAtClosure.depositPaidPence!==Math.round(booking.depositAmount*100)||
+  decision.securityAtClosure.holdPence!==Math.round((booking.depositHoldAmount??0)*100)||
+  !['paid','held','withdrawing','refund_pending','refund_failed'].includes(addition.status)||
+  !addition.paymentIntentId||!addition.sessionId||addition.lineTotal!==0||Math.round(addition.securityCharge*100)!==row.securityChargePence)
+  throw Error('The saved combined refund-only decision or bank receipts need reconciliation.');
+ const reservations=await ctx.db.query('reservations').withIndex('by_booking',(q:any)=>q.eq('bookingId',booking._id)).take(201);
+ if(reservations.length>200||reservations.some((r:any)=>r.externalRef===`addition:${addition._id}`&&(r.source!=='site'||r.status==='active')))
+  throw Error('The replacement handover or stock history needs reconciliation before closing.');
+ return {row,booking,request,decision};
 }

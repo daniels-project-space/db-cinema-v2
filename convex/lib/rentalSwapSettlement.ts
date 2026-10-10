@@ -50,7 +50,7 @@ export async function paidSwapPlan(ctx: any, booking: any, addition: any): Promi
  const savedCompound=compound && booking.status==='confirmed' && booking.pickedUpAt==null &&
   booking.activeAdditionId===addition._id && booking.activeSwapRefundId===row.settlementRefundId &&
   !!addition.paymentIntentId && canDeferAdditionSecurity(booking);
- if (row.state!=='accepted' || row.consentVersion!=='rental-swap-price-difference-v1' ||
+ if (row.state!=='accepted' || row.refundOnlyRequest || row.consentVersion!=='rental-swap-price-difference-v1' ||
      (!savedCompound && (row.expiresAt<=Date.now() || !paidSwapEligible(booking,row)))) return null;
  if (addition.lineTotal!==Math.max(0,row.differencePence)/100 || addition.securityCharge!==row.securityChargePence/100 || addition.holdTotal!==row.holdTotalPence/100 ||
      addition.listingId!==row.targetListingId || addition.qty!==row.quantity || addition.start!==row.start || addition.end!==row.end)

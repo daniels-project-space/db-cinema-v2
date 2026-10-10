@@ -42,6 +42,7 @@ export async function completeRefundSwap(ctx:any,id:any){
   throw Error('The swap refund receipt belongs to another rental or account.');
  if(refund.amountPence!==row.refundPence)throw Error('The swap refund amount does not match its accepted proposal.');
  if(row.refundOnlyResolution)return {...assertRefundOnlyResolution(row,refund),applied:false};
+ if(row.refundOnlyRequest)return {applied:false,needsReview:true};
  if(row.state==='applied'){
   if(request.execution?.operation!=='kit_swap'||request.execution.operationKey!==`kit-swap:${booking._id}:${row._id}:${row.quoteKey}`||request.execution.status!=='applied'||request.execution.appliedAt!==row.appliedAt)
    throw Error('The saved refunded swap completion receipt needs reconciliation.');

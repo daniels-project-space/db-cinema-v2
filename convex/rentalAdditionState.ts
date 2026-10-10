@@ -1,4 +1,5 @@
-import { compoundRefundCanClose } from './lib/compoundSwap';
+import { compoundRefundCanClose, compoundRefundOnlyBinding } from './lib/compoundSwap';
+import { assertRefundOnlyResolution } from './lib/rentalSwapRefund';
 import { applyRentalAddition } from './lib/rentalAdditionApply';
 import { approvedKitRequest, assertKitAddition } from "./lib/kitRequestBinding";
 import { paidSwapPlan, swapStockWindow } from "./lib/rentalSwapSettlement";
@@ -367,13 +368,43 @@ export const beginSecurityAuthorization = internalMutation({
 });
 
 /** Serialize the withdrawal decision against attachment before provider effects. */
+export const prepareRefundOnlyClosure=internalMutation({
+ args:{token:v.string(),id:v.id('rental_additions'),quoteKey:v.string(),reason:v.string()},
+ handler:async(ctx,{token,id,quoteKey,reason})=>{
+  await assertAdmin(ctx,token,'rentalAdditions.closeRefundOnly');
+  const addition=await ctx.db.get(id),row=addition?.swapProposalId?await ctx.db.get(addition.swapProposalId):null;
+  if(!addition||!row||row.quoteKey!==quoteKey||row.settlementAdditionId!==id||!row.settlementRefundId)throw Error('Choose this exact saved combined settlement.');
+  const refund=await ctx.db.get(row.settlementRefundId),booking=await ctx.db.get(addition.bookingId),text=reason.trim();
+  if(row.refundOnlyResolution){
+   if(text!==row.refundOnlyResolution.reason)throw Error('The saved resolution reason changed. Resume the recorded decision.');
+   return {...assertRefundOnlyResolution(row,refund),id};
+  }
+  if(!booking||text.length<5||text.length>400)throw Error('Record a resolution reason of 5–400 characters.');
+  if(row.refundOnlyRequest&&text!==row.refundOnlyRequest.reason)throw Error('The saved resolution reason changed. Resume the recorded decision.');
+  if(addition.withdrawalRequestedAt&&!row.refundOnlyRequest)throw Error('Finish the existing withdrawal first.');
+  const decision=row.refundOnlyRequest??{reason:text,requestedAt:Date.now(),refundedPence:row.refundPence,
+   securityAtClosure:{depositPaidPence:Math.round(booking.depositAmount*100),holdPence:Math.round((booking.depositHoldAmount??0)*100)}};
+  if(Object.values(decision.securityAtClosure).some(n=>!Number.isSafeInteger(n)||n<0))throw Error('The original security needs reconciliation.');
+  await compoundRefundOnlyBinding(ctx,addition,refund,decision);
+  await ctx.db.patch(row._id,{refundOnlyRequest:decision,updatedAt:Date.now()});
+  // Freeze application in the same transaction as the owner decision. The
+  // existing withdrawal worker can now resume the exact extra-deposit refund.
+  if(!addition.withdrawalRequestedAt)await ctx.db.patch(id,{withdrawalRequestedAt:Date.now(),status:'withdrawing',updatedAt:Date.now()});
+  return {closed:false,id};
+ }
+});
 export const beginWithdrawal = internalMutation({
   args: { id: v.id("rental_additions") },
   handler: async (ctx, { id }) => {
     const r = await ctx.db.get(id);
     if (!r) throw Error("Addition missing");
     if (["applied", "applied_draft"].includes(r.status)) throw Error("Applied items are settled through the rental");
-    if (["refunded", "expired"].includes(r.status) || r.withdrawalRequestedAt) return r;
+    if (["refunded", "expired"].includes(r.status)) return r;
+    if(r.withdrawalRequestedAt){
+      const row=r.swapProposalId?await ctx.db.get(r.swapProposalId):null;
+      if(row?.refundOnlyRequest)await compoundRefundOnlyBinding(ctx,r,await ctx.db.get(row.settlementRefundId!));
+      return r;
+    }
     if(r.swapProposalId){
       const swap=await ctx.db.get(r.swapProposalId);
       if(swap?.settlementRefundId){
@@ -438,12 +469,14 @@ export const close = internalMutation({
       if(!swap||swap.settlementAdditionId!==id||swap.bookingId!==r.bookingId||swap.changeRequestId!==r.changeRequestId||swap.state!=="accepted")throw Error("The swap withdrawal receipt needs reconciliation.");
       if(swap.settlementRefundId){
         const refund=await ctx.db.get(swap.settlementRefundId);
-        if(!refund||refund.swapProposalId!==swap._id||refund.bookingId!==r.bookingId||b?.activeSwapRefundId!==refund._id||!compoundRefundCanClose(refund))
+        if(!b||!refund)throw Error("The saved rental and refund need reconciliation.");
+        if(swap.refundOnlyRequest)await compoundRefundOnlyBinding(ctx,r,refund);
+        else if(!refund||refund.swapProposalId!==swap._id||refund.bookingId!==r.bookingId||b?.activeSwapRefundId!==refund._id||!compoundRefundCanClose(refund))
           throw Error("The original rental refund needs reconciliation before the additional deposit can be closed.");
-        if(refund.status==="prepared")await ctx.db.patch(refund._id,{status:"failed",cancelledBeforeBankAt:Date.now(),updatedAt:Date.now()});
+        if(refund!.status==="prepared")await ctx.db.patch(refund!._id,{status:"failed",cancelledBeforeBankAt:Date.now(),updatedAt:Date.now()});
         await ctx.db.patch(b._id,{activeSwapRefundId:undefined});
       }
-      await ctx.db.patch(swap._id,{state:"withdrawn",updatedAt:Date.now()});
+      await ctx.db.patch(swap._id,{state:"withdrawn",updatedAt:Date.now(),...(swap.refundOnlyRequest?{settlementError:undefined,refundOnlyResolution:{reason:swap.refundOnlyRequest.reason,refundedPence:swap.refundOnlyRequest.refundedPence,securityAtClosure:swap.refundOnlyRequest.securityAtClosure,closedAt:Date.now(),operationKey:`kit-swap-refund-only:${r.bookingId}:${swap._id}:${swap.quoteKey}`}}:{})});
     }
     await ctx.db.patch(id, {
       status: refunded ? "refunded" : "expired",
@@ -464,7 +497,8 @@ export const close = internalMutation({
     const reservations = await ctx.db
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", r.bookingId))
-      .collect();
+      .take(201);
+    if(reservations.length>200)throw Error("The proposal stock history needs reconciliation.");
     for (const reservation of reservations)
       if (
         reservation.externalRef === `addition:${id}` ||
@@ -473,7 +507,13 @@ export const close = internalMutation({
           reservation.status === "hold")
       )
         await ctx.db.delete(reservation._id);
-    if (b)
+    const closedSwap=r.swapProposalId?await ctx.db.get(r.swapProposalId):null;
+    if(b&&closedSwap?.refundOnlyResolution){
+      const detail=`The swap was closed and your original kit and security remain booked. The completed £${(closedSwap.refundOnlyResolution.refundedPence/100).toFixed(2)} rental refund is retained, and the £${r.securityCharge.toFixed(2)} additional refundable deposit was returned to its original payment method. ${closedSwap.refundOnlyResolution.reason}`;
+      await postRentalMessage(ctx,{accountId:closedSwap.accountId,bookingId:b._id,sender:'owner',text:detail,meta:{type:'rental_swap_refund_only_closed',changeRequestId:closedSwap.changeRequestId,swapProposalId:closedSwap._id}});
+      await ctx.scheduler.runAfter(0,internal.notify.changeEmail,{bookingId:b._id,kind:'swap refund resolution',detail});
+      await queueRmv2Sync(ctx,b._id);
+    } else if (b)
       await note(
         ctx,
         b,

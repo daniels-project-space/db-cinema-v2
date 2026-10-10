@@ -86,7 +86,37 @@ async function run(){
  onOriginalPaymentRead=async()=>{const unit=t.h.docs.get(race.row.targetListingId).components[0].inventoryUnitId;foreign=t.h.put('reservations',{inventoryUnitId:unit,qty:100,...race.window,source:'rm',status:'confirmed',externalRef:'concurrent-real-platform-rental'});};
  await assert.rejects(finish(race),/stock|source changed/i);assert.equal(creates,raceWrites,'Stock claimed during provider reads cannot start the rental refund');assert.equal(race.job.allocations,undefined);original(race);
  await t.h.db.delete(foreign._id);
- console.log('PASS actual combined swap: £50 deposit and separate £20 original-method refund; unpaid/API/transaction guards, pending stock and hold fencing, post-pickup signed callback, atomic net cash/security/kit, protected deposit source, replay, unpaid withdrawal, lost-response recovery and transactional lease reacquisition/provider-read stock races. No external writes.');
+ const closure=await fixture();pay(closure);nextStatus='pending';await finish(closure);
+ const occupiedUnit=t.h.docs.get(closure.row.targetListingId).components[0].inventoryUnitId;
+ const occupied=t.h.put('reservations',{inventoryUnitId:occupiedUnit,qty:100,...closure.window,source:'rm',status:'confirmed'});
+ await bankCallback(closure,'succeeded');original(closure);assert.equal(closure.row.state,'accepted');
+ await t.h.db.delete(occupied._id);
+ const closeArgs={token:process.env.ADMIN_TOKEN,id:closure.addition._id,quoteKey:closure.row.quoteKey,reason:'Replacement cannot be supplied. Keep the original kit and completed concession.'};
+ const beforeClosure=creates;
+ await assert.rejects(t.payments.closeRefundOnlyByOwner.handler(t.ctx,{...closeArgs,token:closure.token}),/unauthorized/i);assert.equal(creates,beforeClosure);
+ await assert.rejects(t.payments.closeRefundOnlyByOwner.handler(t.ctx,{...closeArgs,quoteKey:'wrong'}),/exact/i);assert.equal(closure.row.refundOnlyRequest,undefined);
+ nextStatus='pending';const closing=await t.payments.closeRefundOnlyByOwner.handler(t.ctx,closeArgs);
+ assert.equal(closing.pending,true);assert.equal(creates,beforeClosure+1);assert.equal(closure.addition.withdrawalRefundStatus,'pending');
+ const depositRefund=refunds.get(closure.addition.withdrawalRefundId);assert.equal(depositRefund.amount,5000);assert.equal(depositRefund.payment_intent,closure.addition.paymentIntentId);
+ assert.equal(closure.b.activeAdditionId,closure.addition._id);assert.equal(closure.b.activeSwapRefundId,closure.job._id);original(closure);
+ await bankCallback(closure,'succeeded');assert.equal(closure.row.state,'accepted','A repeated original refund callback cannot apply the kit after the owner concession decision');original(closure);
+ await assert.rejects(t.payments.closeRefundOnlyByOwner.handler(t.ctx,{...closeArgs,reason:'Changed decision'}),/reason changed/i);assert.equal(creates,beforeClosure+1);
+ // A bank reversal during the extra-deposit refund retains both locks and
+ // cannot trigger another financial write or pretend the original refund settled.
+ const originalReceipt=closure.job.parts[0];const originalStatus=closure.job.status;closure.job.status='failed';originalReceipt.status='failed';
+ await assert.rejects(t.payments.closeRefundOnlyByOwner.handler(t.ctx,closeArgs),/reconciliation/i);assert.equal(creates,beforeClosure+1);assert(closure.b.activeAdditionId);assert(closure.b.activeSwapRefundId);
+ closure.job.status=originalStatus;originalReceipt.status='succeeded';depositRefund.status='succeeded';
+ const final=await t.payments.closeRefundOnlyByOwner.handler(t.ctx,closeArgs);assert.equal(final.closed,true);assert.equal(creates,beforeClosure+1);
+ assert.equal(closure.row.state,'withdrawn');assert.equal(closure.row.refundOnlyResolution.reason,closeArgs.reason);assert.equal(closure.row.refundOnlyResolution.refundedPence,2000);
+ assert.deepEqual(closure.row.refundOnlyResolution.securityAtClosure,{depositPaidPence:5000,holdPence:20000});assert.equal(closure.b.activeAdditionId,undefined);assert.equal(closure.b.activeSwapRefundId,undefined);original(closure);
+ assert(!t.h.tables.get('reservations').some(r=>r.externalRef==='addition:'+closure.addition._id));
+ const jobsAfter=t.jobs.length,messagesAfter=(t.h.tables.get('messages')??[]).length;
+ assert.equal((await t.payments.closeRefundOnlyByOwner.handler(t.ctx,closeArgs)).closed,true);assert.equal(creates,beforeClosure+1);assert.equal(t.jobs.length,jobsAfter);assert.equal((t.h.tables.get('messages')??[]).length,messagesAfter);
+ await bankCallback(closure,'succeeded');assert.equal(closure.row.state,'withdrawn');original(closure);assert.equal(creates,beforeClosure+1);
+ await bankCallback(closure,'failed');assert.equal(closure.row.state,'withdrawn');original(closure);assert.equal(creates,beforeClosure+1);
+ const bankReturned=await t.swaps.proposal.handler(t.ctx,{...closure.args,admin:true});assert.equal(bankReturned.refundOnlyResolution.needsAttention,true);assert.equal(bankReturned.refundOnlyResolution.confirmedAmount,0);assert.equal(bankReturned.refundOnlyResolution.securityAtClosure.holdAmount,200);
+ assert.equal((await t.payments.closeRefundOnlyByOwner.handler(t.ctx,closeArgs)).closed,true);assert.equal(creates,beforeClosure+1,'A later original bank reversal cannot return the extra deposit twice');
+ console.log('PASS actual combined swap: £50 deposit and separate £20 original-method refund; unpaid/API/transaction guards, pending stock and hold fencing, post-pickup signed callback, atomic net cash/security/kit, protected deposit source, replay, unpaid withdrawal, lost-response recovery and transactional lease reacquisition/provider-read stock races, admin-only immutable refund concession, separate full deposit return, original bank reversal locks and exact closure replay. No external writes.');
 }
 module.exports={fixture,pay,finish,bankCallback,t,refunds,ops,security,getCreates:()=>creates,setStatus:s=>{nextStatus=s;}};
 if(require.main===module)run().catch(e=>{console.error(e);process.exitCode=1});
