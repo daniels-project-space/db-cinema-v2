@@ -20,6 +20,7 @@
 .rental { position:relative; min-width:0; padding:12px; border:1px solid #383a37; border-radius:5px; background:#202222; }
 .rentalSummary { display:grid; grid-template-columns:132px minmax(0,1fr) minmax(165px,.9fr); gap:12px; align-items:start; }
 .hero { width:132px; height:98px; object-fit:contain; border-radius:4px; background:#151817; }
+.heroImage { object-fit:contain; }
 .kitSummary { min-width:0; }
 .kitSummary h3 { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; overflow-wrap:anywhere; color:#ece7de; font-size:14px; font-weight:600; line-height:1.4; }
 .source { display:inline-block; margin:5px 0 7px; padding:3px 6px; border:1px solid #c58d6755; border-radius:3px; background:#80533440; color:#e1bea6; font-size:10px; }
@@ -30,6 +31,7 @@
 .customerIdentity > div { min-width:0; }
 .avatar { display:flex; align-items:center; justify-content:center; flex:none; width:32px; height:32px; overflow:hidden; border:1px solid #c1a18135; border-radius:50%; background:#9b8267; color:#171918; font-size:11px; font-weight:600; }
 .avatar img { width:100%; height:100%; object-fit:cover; }
+.avatarPhoto { width:100%; height:100%; border-radius:50%; }
 .customer h4 { overflow-wrap:anywhere; color:#e8e1d3; font-size:12px; font-weight:500; line-height:1.45; }
 .customer p { margin-top:3px; overflow-wrap:anywhere; color:#929b91; font-size:10px; line-height:1.4; }
 .customer .accountReview { color:#d2a27d; }

@@ -9,6 +9,7 @@ import { RentalKit } from "@/components/rentals/RentalKit";
 import { rentalDate, rentalTitle } from "@/lib/rentalPresentation";
 import styles from "./AdminDashboard.module.css";
 import { formatGbp } from "@/lib/pricing";
+import { DASHBOARD_PREVIEW_COUNT, dashboardVerificationPending } from "../../../shared/dashboardPreviews";
 
 export function AdminDashboard({ token, unread, alerts, onRental, onRentals, onCalendar, onMessages, onReports, onInventory }: {
   token: string; unread: number; alerts: number;
@@ -24,7 +25,7 @@ export function AdminDashboard({ token, unread, alerts, onRental, onRentals, onC
   if (!summary.authorized) return <p role="alert" className={styles.loading}>Unlock the admin panel to view rental operations.</p>;
   if (!Array.isArray(summary.awaitingCollection)) return <section className={styles.loading} role="status">The rental overview is temporarily unavailable. <button className={styles.more} onClick={onRentals}>Open Rentals →</button></section>;
 
-  const pendingVerification = summary.awaitingCollection.filter(row => row.verification !== "verified" || row.requiresDroneLicence && row.droneVerification !== "approved");
+  const pendingVerification = summary.awaitingCollection.filter(dashboardVerificationPending);
   const groups = [
     { key: "active", title: "Current rentals", description: "Collected equipment stays here until its return is recorded.", rows: summary.ongoing, empty: "No equipment is currently marked on hire." },
     { key: "verification", title: "Pending verification", description: "Confirmed rentals needing identity, address or drone document review.", rows: pendingVerification, empty: "No confirmed rentals are awaiting document verification." },
@@ -41,16 +42,16 @@ export function AdminDashboard({ token, unread, alerts, onRental, onRentals, onC
       {groups.map(group => <section key={group.key} className={styles.panel} aria-label={group.title}>
         <header><div><h2>{group.title}<span>{group.rows.length}</span></h2><p>{group.description}</p></div><button onClick={onRentals}>View rentals →</button></header>
         {group.rows.length === 0 ? <p className={styles.empty}>{group.empty}</p> : <div className={styles.list}>
-          {group.rows.slice(0, 4).map(rental => <article key={rental._id} className={styles.rental}>
+          {group.rows.slice(0, DASHBOARD_PREVIEW_COUNT).map(rental => <article key={rental._id} className={styles.rental}>
             <div className={styles.rentalSummary}>
-              <SmartImage src={rental.kit[0]?.heroImage} fallbackSources={rental.kit[0]?.imageSources} alt={rental.kit[0]?.title ?? "Rental kit"} className={styles.hero}/>
+              <SmartImage src={rental.kit[0]?.heroImage} fallbackSources={rental.kit[0]?.imageSources} alt={rental.kit[0]?.title ?? "Rental kit"} className={styles.hero} imgClassName={styles.heroImage}/>
               <div className={styles.kitSummary}><h3 title={rental.kit[0]?.title ?? rental.items}>{rentalTitle(rental.kit[0]?.title ?? rental.items ?? "Rental kit")}</h3><span className={styles.source}>DB Cinema Web</span><p>{rental.start != null && rental.end != null ? rentalDate(rental.start, rental.end) : "Dates need review"}</p><small>{rental.kit.reduce((total,line)=>total+line.qty,0)} {rental.kit.reduce((total,line)=>total+line.qty,0)===1?"unit":"units"} · {rental.kit.length} {rental.kit.length===1?"listing":"listings"}</small></div>
-              <div className={styles.customer}><div className={styles.customerIdentity}><span className={styles.avatar} aria-hidden="true">{rental.customerPhoto ? <SmartImage src={rental.customerPhoto} alt="" /> : (rental.accountNeedsReview ? "?" : (rental.customerName || rental.guestEmail || "Customer").split(/\s+/).slice(0,2).map(part=>part[0]).join("").toUpperCase())}</span><div><h4>{rental.customerName || rental.guestEmail}</h4><p className={rental.accountNeedsReview ? styles.accountReview : undefined}>{rental.accountNeedsReview ? "Account needs review" : rental.guestEmail}</p></div></div><span className={rental.overdue || rental.deadlineNeedsReview ? styles.warning : styles.status}>{rental.deadlineNeedsReview ? "Check return time" : rental.overdue ? "Return overdue" : group.key === "active" ? "On hire" : "Needs verification"}</span></div>
+              <div className={styles.customer}><div className={styles.customerIdentity}><span className={styles.avatar} aria-hidden="true">{rental.customerPhoto ? <SmartImage src={rental.customerPhoto} alt="" className={styles.avatarPhoto}/> : (rental.accountNeedsReview ? "?" : (rental.customerName || rental.guestEmail || "Customer").split(/\s+/).slice(0,2).map(part=>part[0]).join("").toUpperCase())}</span><div><h4>{rental.customerName || rental.guestEmail}</h4><p className={rental.accountNeedsReview ? styles.accountReview : undefined}>{rental.accountNeedsReview ? "Account needs review" : rental.guestEmail}</p></div></div><span className={rental.overdue || rental.deadlineNeedsReview ? styles.warning : styles.status}>{rental.deadlineNeedsReview ? "Check return time" : rental.overdue ? "Return overdue" : group.key === "active" ? "On hire" : "Needs verification"}</span></div>
             </div>
             <div className={styles.rentalActions}><details className={styles.kitDetails}><summary>Equipment & handover details <span>+</span></summary><RentalKit items={rental.kit} compact /><p>{rental.fulfilment === "delivery" ? "Delivery" : "Collection"}{rental.pickupTime ? ` · ${rental.pickupTime}` : " · time to confirm"}{rental.returnTime ? ` · latest return ${rental.returnTime}` : " · return time to confirm"}</p></details>
             <footer><span>{rental.fulfilment === "delivery" ? "Delivery" : "Collection"} · {rental.pickupTime ?? "Time to confirm"}</span><button onClick={() => onRental(rental._id)}>Manage rental →</button></footer></div>
           </article>)}
-          {group.rows.length > 4 && <button className={styles.more} onClick={onRentals}>View all {group.rows.length} {group.key === "active" ? "active" : "verification"} rentals →</button>}
+          {group.rows.length > DASHBOARD_PREVIEW_COUNT && <button className={styles.more} onClick={onRentals}>View all {group.rows.length} {group.key === "active" ? "active" : "verification"} rentals →</button>}
         </div>}
       </section>)}
     </div><aside className={styles.secondary}>

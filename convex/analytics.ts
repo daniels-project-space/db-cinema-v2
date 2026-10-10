@@ -8,6 +8,7 @@ import { lateFeeQuote } from "./lib/lateFee";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import { requiresDroneLicence } from "./lib/droneVerification";
 import { accountForRental } from "./lib/rentalAccount";
+import { DASHBOARD_PREVIEW_COUNT, dashboardVerificationPending } from "../shared/dashboardPreviews";
 
 /** Record a first-party event (views, funnel steps, zero-result searches). */
 export const track = mutation({
@@ -142,13 +143,16 @@ export const adminSummary = query({
       return date(a) - date(b) || a._creationTime - b._creationTime;
     });
     const sourceImages = new Map<string, Promise<string[]>>();
-    const customers = new Map<string, Promise<{ account: Awaited<ReturnType<typeof accountForRental>>; photo: string | null }>>();
-    const project = async (b: typeof active[number], index: number) => {
-      const customerKey = b.accountId ? `account:${b.accountId}` : `email:${(b.guestEmail ?? "").trim().toLowerCase()}`;
-      if (!customers.has(customerKey)) customers.set(customerKey, accountForRental(ctx, b).then(async account => ({
-        account, photo: account ? (account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? account.googleAvatarUrl ?? null : null,
-      })));
-      const { account, photo } = await customers.get(customerKey)!;
+    const customers = new Map<string, ReturnType<typeof accountForRental>>();
+    const photos = new Map<string, Promise<string | null>>();
+    const customerKey = (b: typeof active[number]) => b.accountId ? `account:${b.accountId}` : `email:${(b.guestEmail ?? "").trim().toLowerCase()}`;
+    const customerFor = (b: typeof active[number]) => {
+      const key = customerKey(b);
+      if (!customers.has(key)) customers.set(key, accountForRental(ctx, b));
+      return customers.get(key)!;
+    };
+    const project = async (b: typeof active[number]) => {
+      const account = await customerFor(b);
       const accountNeedsReview = !!b.accountId && !account;
       const starts = b.lineItems.map(line => line.start).filter(Number.isFinite);
       const ends = b.lineItems.map(line => line.end).filter(Number.isFinite);
@@ -160,24 +164,37 @@ export const adminSummary = query({
         try { overdue = lateFeeQuote(b.lineItems, b.returnTime ?? null, now).breakdown.length > 0; }
         catch { deadlineNeedsReview = true; }
       }
-      const kit = index < 6 ? await Promise.all(b.lineItems.map(async line => {
-        const id = String(line.listingId ?? "");
-        if (id && !sourceImages.has(id)) sourceImages.set(id, ctx.db.get(line.listingId).then(listing => listingImages(listing)));
-        const images = id ? await sourceImages.get(id)! : [];
-        return { title: line.title, qty: line.qty ?? 1, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
-      })) : [];
       return { _id: b._id, guestEmail: account?.email ?? (accountNeedsReview ? "" : b.guestEmail),
         customerName: accountNeedsReview ? "Linked account unavailable" : account?.name ?? b.guestName ?? b.agreementName ?? null,
         accountNeedsReview,
-        customerPhoto: photo,
+        customerPhoto: null as string | null,
         status: b.status, verification: b.idVerifyStatus ?? "required", requiresDroneLicence: await requiresDroneLicence(ctx, b), droneVerification: b.droneLicenceStatus ?? null, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
         pickupTime: b.pickupTime ?? null, returnTime, total: b.total,
-        items: b.lineItems.map(line => line.title).join(", "), kit, fulfilment: b.fulfilment,
+        items: b.lineItems.map(line => line.title).join(", "),
+        kit: [] as { title: string; qty: number; start: number; end: number; heroImage: string | null; imageSources: string[] }[], fulfilment: b.fulfilment,
         calendarLines: b.lineItems.map(line => ({title:line.title,qty:line.qty ?? 1,start:line.start,end:line.end,returnTime:line.returnTime})),
         overdue, deadlineNeedsReview };
     };
     const ongoing = await Promise.all(byDate(active, "end").map(project));
     const awaitingCollection = await Promise.all(byDate(confirmed, "start").map(project));
+    const originals = new Map([...active, ...confirmed].map(b => [b._id, b]));
+    // Keep the full operational/calendar projection, then load media for the
+    // exact visible groups. Verified confirmations cannot consume review slots.
+    const previews = [...ongoing.slice(0, DASHBOARD_PREVIEW_COUNT),
+      ...awaitingCollection.filter(dashboardVerificationPending).slice(0, DASHBOARD_PREVIEW_COUNT)];
+    await Promise.all(previews.map(async row => {
+      const b = originals.get(row._id)!;
+      const key = customerKey(b);
+      if (!photos.has(key)) photos.set(key, customerFor(b).then(async account => account
+        ? (account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? account.googleAvatarUrl ?? null : null));
+      row.customerPhoto = await photos.get(key)!;
+      row.kit = await Promise.all(b.lineItems.map(async line => {
+        const id = String(line.listingId ?? "");
+        if (id && !sourceImages.has(id)) sourceImages.set(id, ctx.db.get(line.listingId).then(listing => listingImages(listing)));
+        const images = id ? await sourceImages.get(id)! : [];
+        return { title: line.title, qty: line.qty ?? 1, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
+      }));
+    }));
 
     return {
       authorized: true as const,
