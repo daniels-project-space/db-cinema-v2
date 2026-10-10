@@ -23,25 +23,27 @@ class Stripe {
  refunds = {list:async function*(){}, create:async params=>{refundCreates++;return {id:'re_swap_'+refundCreates, payment_intent:params.payment_intent, amount:2000, currency:'gbp', status:'succeeded',metadata:params.metadata};}};
  webhooks = {constructEvent:(body,sig)=>{assert.equal(sig,'verified-fixture');return JSON.parse(body);}};
 }
-h.setMock('stripe', {__esModule:true, default:Stripe});
+const stripeMock={__esModule:true,default:Stripe};h.setMock('stripe',stripeMock);
 const swaps=h.load('convex/rentalSwaps.ts'), state=h.load('convex/rentalAdditionState.ts'), payments=h.load('convex/rentalAdditions.ts'), checkout=h.load('convex/checkout.ts');
-const modules={rentalSwaps:swaps,rentalAdditionState:state,rentalAdditions:payments,adminAuth:h.load('convex/adminAuth.ts'),rentalOperations:h.load('convex/rentalOperations.ts'),pickupSecurity:h.load('convex/pickupSecurity.ts')};
-const dispatch=async(ref,args)=>{const [m,f]=ref.split('.');assert(modules[m]?.[f],ref);return modules[m][f].handler(ctx,args);};
+const modules={checkout,rentalSwaps:swaps,rentalAdditionState:state,rentalAdditions:payments,adminAuth:h.load('convex/adminAuth.ts'),rentalOperations:h.load('convex/rentalOperations.ts'),pickupSecurity:h.load('convex/pickupSecurity.ts')};
+const dispatch=async(ref,args)=>{if(ref==='filmFundPayments.reconcileRefund')return null;const [m,f]=ref.split('.');assert(modules[m]?.[f],ref);return modules[m][f].handler(ctx,args);};
 const ctx={db:h.db,scheduler:{runAfter:async(...args)=>jobs.push(args),runAt:async(...args)=>{jobs.push(args);return 'job_'+jobs.length;}},runQuery:dispatch,runMutation:dispatch,runAction:dispatch};
 const start=Date.UTC(2030,0,1), end=start+86400000;
 const oldUnit=h.put('inventory_units',{name:'Original body',quantityOwned:100}),targetUnit=h.put('inventory_units',{name:'Replacement body',quantityOwned:100}),shared=h.put('inventory_units',{name:'Shared battery',quantityOwned:100});
 const catalog=(title,unit,daily)=>h.put('listings',{title,active:true,pricing:{daily},depositAmount:1000,components:[{inventoryUnitId:unit._id,qty:1},{inventoryUnitId:shared._id,qty:1}]});
 const original=catalog('Original camera',oldUnit,20),replacement=catalog('Replacement camera',targetUnit,30);
-async function fixture(){
+async function fixture(options={}){
+ const target=options.targetValue?{...catalog("Higher-value lower-price replacement",targetUnit,10),depositAmount:options.targetValue}:replacement;
+ if(options.targetValue)h.docs.get(target._id).depositAmount=options.targetValue;
  const account=h.put('accounts',{email:'paid-swap-'+h.docs.size+'@example.invalid'}),token='renter-'+account._id;
  h.put('sessions',{token,accountId:account._id,expiresAt:Date.now()+600000});
  const b=h.put('bookings',{accountId:account._id,guestEmail:account.email,status:'confirmed',subtotal:80,total:130,depositAmount:50,depositHoldAmount:200,protection:'verify',securityPolicyVersion:'2026-10-ten-percent-hold-v2',securityHoldPolicyVersion:'2026-10-pickup-hold-v1',securityHoldCustomerId:'cus_saved',securityHoldPaymentMethodId:'pm_saved',securityHoldGeneration:1,securityHoldAttempts:0,depositHoldStatus:'scheduled',pickupTime:'10:00',returnTime:'18:00',stripePaymentIntentId:'pi_original_'+account._id,lineItems:[{listingId:original._id,title:original.title,qty:2,start,end,lineTotal:80,dailyRate:40}]});
  b.securityHoldDueAt=h.load('shared/pickupSecurity.ts').pickupHoldAt(b);
  const window=h.load('convex/lib/stockWindows.ts').stockWindow({start,end,pickupTime:'10:00',returnTime:'18:00'},true);
  for(const unit of [oldUnit,shared])h.put('reservations',{bookingId:b._id,listingId:original._id,inventoryUnitId:unit._id,qty:2,...window,status:'confirmed',source:'site'});
- const request=h.put('rental_change_requests',{bookingId:b._id,accountId:account._id,kind:'items',status:'approved',createdAt:Date.now(),detail:'Swap one body',kitSelection:{change:'swap',listingId:replacement._id,lineIndex:0,quantity:1,note:'Upgrade one body',source:{listingId:original._id,qty:2,start,end},sourceListingId:original._id,sourceQty:2,sourceStart:start,sourceEnd:end,sourceTitle:original.title,additionTitle:replacement.title}});
+ const request=h.put('rental_change_requests',{bookingId:b._id,accountId:account._id,kind:'items',status:'approved',createdAt:Date.now(),detail:'Swap one body',kitSelection:{change:'swap',listingId:target._id,lineIndex:0,quantity:1,note:'Upgrade one body',source:{listingId:original._id,qty:2,start,end},sourceListingId:original._id,sourceQty:2,sourceStart:start,sourceEnd:end,sourceTitle:original.title,additionTitle:target.title}});
  const args={token:process.env.ADMIN_TOKEN,bookingId:b._id,id:request._id};
- const q=await swaps.preview.handler(ctx,args);assert(q.available,q.reason);assert.equal(q.charge,20);
+ const q=await swaps.preview.handler(ctx,args);assert(q.available,q.reason);assert.equal(q.charge,options.expectedCharge??20);
  const offered=await swaps.offer.handler(ctx,{...args,quoteKey:q.quoteKey});await swaps.respond.handler(ctx,{...args,token,quoteKey:q.quoteKey,decision:'accepted'});
  return {b,request,row:h.docs.get(offered.id),token,args:{...args,quoteKey:q.quoteKey},window};
 }
@@ -73,5 +75,5 @@ async function run(){
  const changed=await fixture();const started=await payments.startPaidSwap.handler(ctx,changed.args);const paidSession=sessions.get(h.docs.get(started.id).sessionId);paid(paidSession);targetUnit.quantityOwned=0;await payments.finalizePaid.handler(ctx,{id:started.id,sessionId:paidSession.id});assert.equal(changed.b.lineItems.length,1);assert.equal(changed.row.state,'withdrawn');assert.equal(changed.b.total,130);assert.equal(h.docs.get(started.id).status,'refunded');assert.equal(refundCreates,1);const withdrawn=await checkout.finalize.handler(ctx,{sessionId:paidSession.id});assert.equal(withdrawn.closed,true);assert.equal(withdrawn.additionId,started.id);assert.equal(withdrawn.updateApplied,false);assert.equal(withdrawn.updateKind,'swap');assert.equal(withdrawn.holdStatus,'refunded');targetUnit.quantityOwned=100;
  console.log('PASS actual paid pre-pickup swap: owner/consent binding, difference-only checkout, net physical holds, signed webhook capture, atomic selected-kit exchange, cash-source receipt, replay, unpaid withdrawal and failed-availability original-method refund. No external provider writes.');
 }
-module.exports={fixture,ctx,dispatch,paid,sessions,intents,h,swaps,payments,checkout,jobs};
+module.exports={fixture,ctx,dispatch,paid,sessions,intents,h,swaps,payments,checkout,jobs,stripeMock};
 if(require.main===module)run().catch(error=>{console.error(error);process.exitCode=1;});

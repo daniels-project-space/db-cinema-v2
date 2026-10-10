@@ -1545,15 +1545,14 @@ export const refundSwap=action({
   return {...result,...kit};
  }
 });
-export const refundRental=action({
- args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.optional(v.number()),reason:v.string()},
- handler:async(ctx,args):Promise<{status:string;amount:number}>=>{
-  const job:any=await ctx.runMutation(internal.rentalOperations.prepareRefund,args);
+async function executePreparedRentalRefund(ctx:any,job:any):Promise<{status:string;amount:number}>{
   if(job.status==="succeeded"||job.status==="failed")return {status:job.status,amount:job.amountPence/100};
+  const compound=job.swapProposalId?await ctx.runQuery(internal.rentalSwaps.compoundRefundContext,{id:job._id}):null;
+  if(compound)await ctx.runAction(internal.rentalAdditions.attestCompoundPayment,{id:compound.addition._id});
   // Resume receipts produced by the previous single-payment implementation without charging again.
   if(job.stripeRefundId&&!job.allocations)return refreshRentalRefundReceipts(ctx,job._id);
   let allocations=job.allocations;
-  if(!allocations){const sources=await ctx.runQuery(internal.rentalOperations.paymentSources,{bookingId:args.bookingId});const balances=await Promise.all(sources.map(async(source:any)=>{
+  if(!allocations){const sources=await ctx.runQuery(internal.rentalOperations.paymentSources,{bookingId:job.bookingId});const balances=await Promise.all(sources.map(async(source:any)=>{
    const payment=await stripe().paymentIntents.retrieve(source.paymentIntentId);
    if(payment.id!==source.paymentIntentId||payment.currency!=="gbp"||payment.status!=="succeeded")throw Error("The original rental payment identity, currency or capture status needs review before a refund.");
    return {...source,availablePence:await remainingCancellationPayment(payment,source.maxPaidPence)};
@@ -1568,5 +1567,21 @@ export const refundRental=action({
   }
   const recorded=await ctx.runMutation(internal.rentalOperations.recordRefundObservation,{id:job._id,generation:observation.generation,receipts});
   return {status:recorded.job!.status,amount:job.amountPence/100};
+}
+export const settleCompoundSwap=internalAction({args:{id:v.id("rental_additions")},handler:async(ctx,{id}):Promise<any>=>{
+ const state:any=await ctx.runQuery(internal.rentalAdditionState.context,{id});
+ const refundId=state?.swapProposal?.settlementRefundId;
+ if(!refundId||state.swapProposal.settlementAdditionId!==id)throw Error("The combined swap settlement is not bound.");
+ const job:any=await ctx.runQuery(internal.rentalOperations.refundReceipt,{id:refundId});
+ if(!job||job.swapProposalId!==state.swapProposal._id||job.bookingId!==state.addition.bookingId)throw Error("The combined swap refund belongs to another rental.");
+ const result=await executePreparedRentalRefund(ctx,job);
+ const kit=await ctx.runMutation(internal.rentalSwaps.finishRefundSwap,{id:job._id});
+ return {...result,...kit};
+}});
+export const refundRental=action({
+ args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.optional(v.number()),reason:v.string()},
+ handler:async(ctx,args):Promise<{status:string;amount:number}>=>{
+  const job:any=await ctx.runMutation(internal.rentalOperations.prepareRefund,args);
+  return executePreparedRentalRefund(ctx,job);
  }
 });

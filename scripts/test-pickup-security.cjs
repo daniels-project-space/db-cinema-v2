@@ -250,7 +250,7 @@ async function due(b) {
   await save(b);
   const oldGeneration = b.securityHoldGeneration,
     oldDue = b.securityHoldDueAt;
-  b.lineItems = [{ start: Date.parse("2026-10-20") }];
+  b.lineItems = [{ start: Date.parse("2026-10-20"), end: Date.parse("2026-10-22") }];
   await security.schedulePickupHold(ctx, b);
   clock = oldDue;
   await holds.authorizePickup.handler(ctx, {
@@ -291,7 +291,7 @@ async function due(b) {
   await save(b);
   const claimedGeneration = b.securityHoldGeneration;
   onClaim = async () => {
-    b.lineItems = [{ start: Date.parse("2026-10-25") }];
+    b.lineItems = [{ start: Date.parse("2026-10-25"), end: Date.parse("2026-10-27") }];
     await security.schedulePickupHold(ctx, b);
   };
   await due(b);
@@ -522,6 +522,12 @@ async function due(b) {
   clock+=5*60000;
   assert.equal((await security.due.handler(ctx,{})).some(row=>row.bookingId===waitingBatch[0]._id),true,"Existing reconciliation can revisit a yielded settlement");
   clock=batchClock;
+  const endClock=clock;clock=Date.parse("2026-10-08T12:00:00Z");
+  const missed=make();await save(missed);clock=Date.parse("2026-10-13T00:00:00Z");
+  const bankCalls=events.length;assert.equal(shared.uncollectedRentalWindowOpen(missed,clock),false);
+  await holds.authorizePickup.handler(ctx,{bookingId:missed._id,generation:missed.securityHoldGeneration});
+  assert.equal(events.length,bankCalls,"An uncollected rental cannot authorise a new hold after its entire period");
+  assert.equal(missed.securityHoldFailureCode,"rental_window_ended");assert.equal(missed.securityHoldRetryAt,undefined);clock=endClock;
   console.log(
     "PASS pickup security: London/DST slots; future scheduling; exact10%/full amounts; once-only manual/off-session holds; stale claim snapshots/dates and cancelled rentals; orphan cleanup; exact intent ownership/amount/card binding; captured and processing recovery protection; late transport/old idempotency guards; bank authentication; bounded uncertain retries; all payment/subscription/setup saved-card paths; ownership and card-recovery replay guards; historical cancellation terms; pending-settlement hold fencing and previously-started bank recovery.",
   );

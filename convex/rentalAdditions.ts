@@ -135,7 +135,7 @@ async function ensureSession(ctx: any, id: any) {
             product_data: {
               name: r.draftReplacement
                 ? "Updated DB Cinema rental"
-                : r.swapProposalId ? "DB Cinema equipment swap price difference" : "DB Cinema rental item addition",
+                : r.swapProposalId ? r.lineTotal===0&&r.securityCharge>0 ? "DB Cinema additional refundable deposit" : "DB Cinema equipment swap price difference" : "DB Cinema rental item addition",
               description:
                 `${r.qty}× ${r.title}. ${r.swapProposalId ? "Rental difference" : "Rental"} £${r.lineTotal.toFixed(2)}; additional refundable security £${r.securityCharge.toFixed(2)}. Updated card hold £${r.holdTotal.toFixed(2)}.${r.draftReplacement ? ` Includes existing rental checkout £${(r.baseTotal ?? 0).toFixed(2)}.` : ""}`.slice(
                   0,
@@ -151,6 +151,10 @@ async function ensureSession(ctx: any, id: any) {
         ? { bookingId: r.bookingId, pendingAdditionId: r._id }
         : { rentalAdditionId: r._id, additionBookingId: r.bookingId },
     };
+  if(state.swapProposal?.settlementRefundId){
+    if(!b.securityHoldCustomerId||!canDeferAdditionSecurity(b))throw Error("The saved pickup card needs reconciliation before a combined swap checkout.");
+    params={...params,customer:b.securityHoldCustomerId,customer_email:undefined,customer_creation:undefined};
+  }
   if(r.membershipCheckoutId){
     const original:Stripe.Checkout.SessionCreateParams=JSON.parse(r.membershipSessionParams);
     const recurring=(original.line_items??[]).filter(line=>typeof line.price==="string");
@@ -352,7 +356,7 @@ async function finish(
     if (r.status === "applied") await releaseReplacedHold(ctx, r);
     return { bookingId: r.bookingId, status: b?.depositHoldStatus??"held" };
   }
-  if (Date.now() > r.createdAt + 24 * 3600000) {
+  if (Date.now() > r.createdAt + 24 * 3600000 && !state.swapProposal?.settlementRefundId) {
     const result = await withdraw(ctx, id);
     return { bookingId: r.bookingId, status: result?.pending ? "refund_pending" : "refunded", closed: !result?.pending };
   }
@@ -391,9 +395,14 @@ async function finish(
     return { bookingId: r.bookingId, status: "draft_applied" };
   }
   if(!payment)throw Error("An item addition requires a saved rental payment.");
-  if(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY&&pickupHoldAt(b)>Date.now()){
+  if(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY&&(pickupHoldAt(b)>Date.now()||canDeferAdditionSecurity(b))){
     if(!canDeferAdditionSecurity(b)||r.holdIntentId||r.securityCreationPending)throw Error("Resolve the existing security authorisation before updating the pickup hold.");
     const result=await ctx.runMutation(internal.rentalAdditionState.apply,{id});
+    if(result.needsRefund){
+      const settled=await ctx.runAction(internal.checkout.settleCompoundSwap,{id});
+      return {bookingId:r.bookingId,status:settled.applied?"scheduled":settled.needsReview?"swap_settlement_review":settled.status==="failed"?"swap_refund_failed":"swap_refund_pending"};
+    }
+    if(result.closed&&state.swapProposal?.settlementRefundId)return {bookingId:r.bookingId,status:"swap_settlement_review"};
     if(result.closed){const result=await withdraw(ctx,id);return {bookingId:r.bookingId,status:result?.pending?"refund_pending":"refunded",closed:!result?.pending};}
     return {bookingId:r.bookingId,status:"scheduled"};
   }
@@ -486,7 +495,8 @@ export const startPaidSwap = action({
     const session=await ensureSession(ctx,row._id);
     if(session.payment_status==="paid"){
       const result=await finish(ctx,row._id,session);
-      return {url:"",id:row._id,applied:!result.closed&&["scheduled","held"].includes(result.status)};
+      const current:any=await ctx.runQuery(internal.rentalAdditionState.context,{id:row._id});
+      return {url:"",id:row._id,applied:!result.closed&&current?.addition?.status==="applied"};
     }
     if(!session.url||session.status!=="open")throw Error("This swap payment is no longer open. Review its saved settlement in the rental.");
     return {url:session.url,id:row._id};
@@ -653,7 +663,8 @@ export const reconcile = internalAction({
     for (const r of rows) {
       try {
         if (r.withdrawalRequestedAt) { await withdraw(ctx, r._id); continue; }
-        if (Date.now() > r.createdAt + 24 * 3600000 && r.sessionId) {
+        const swapState=r.swapProposalId?await ctx.runQuery(internal.rentalAdditionState.context,{id:r._id}):null;
+        if (Date.now() > r.createdAt + 24 * 3600000 && r.sessionId && !swapState?.swapProposal?.settlementRefundId) {
           await withdraw(ctx, r._id);
           continue;
         }
@@ -739,3 +750,15 @@ export const resumeByOwner = action({
     return {status:result.status};
   },
 });
+
+/** Reuse the exact captured-update receipt verifier before releasing rental cash. */
+export const attestCompoundPayment=internalAction({args:{id:v.id("rental_additions")},handler:async(ctx,{id})=>{
+ const state:any=await ctx.runQuery(internal.rentalAdditionState.context,{id});
+ if(!state?.addition?.sessionId||!state.addition.paymentIntentId||state.addition.withdrawalRequestedAt)throw Error("The additional refundable deposit is not ready.");
+ const session=await sb().checkout.sessions.retrieve(state.addition.sessionId);
+ const customer=typeof session.customer==='string'?session.customer:session.customer?.id;
+ if(!state.booking.securityHoldCustomerId||customer!==state.booking.securityHoldCustomerId)throw Error("The additional deposit belongs to another saved-card customer.");
+ const payment=await verifiedUpdatePayment(state,session);
+ if(!payment||payment.id!==state.addition.paymentIntentId)throw Error("The additional refundable deposit receipt changed.");
+ return true;
+}});

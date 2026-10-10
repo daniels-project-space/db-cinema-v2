@@ -1,6 +1,21 @@
 /** New bookings authorise the agreed hold at the London pickup slot, not checkout. */
 export const PICKUP_HOLD_POLICY = "2026-10-pickup-hold-v1";
 import {londonRentalInstant} from "./rentalWindow";
+/** An uncollected hire cannot start a new bank hold after its final return slot.
+ * Unknown return clocks conservatively cover the whole stated London day. */
+export function uncollectedRentalWindowOpen(b:any,now=Date.now()) {
+ if(b?.status==='active'||b?.pickedUpAt!=null)return true;
+ if(!b?.lineItems?.length)return false;
+ try{
+  const ends=b.lineItems.map((line:any)=>{
+   if(!Number.isFinite(line.end))throw Error('Missing rental end');
+   const time=line.returnTime===undefined?b.returnTime:line.returnTime;
+   return typeof time==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(time)
+    ?londonRentalInstant(line.end,time):londonRentalInstant(line.end+86400000,'00:00');
+  });
+  return Math.max(...ends)>now;
+ }catch{return false;}
+}
 export function pickupHoldAt(booking:{lineItems:{start:number;pickupTime?:string|null}[];pickupTime?:string}) {
  if(!booking.lineItems.length)throw Error("An agreed pickup date and time are required for the security hold.");
  return Math.min(...booking.lineItems.map(line=>{

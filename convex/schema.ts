@@ -818,6 +818,7 @@ export default defineSchema({
 
   rental_refunds: defineTable({
     swapProposalId:v.optional(v.id("rental_swap_proposals")),
+    cancelledBeforeBankAt:v.optional(v.number()),
     bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.number(),reason:v.string(),
     status:v.union(v.literal("prepared"),v.literal("pending"),v.literal("succeeded"),v.literal("failed")),
     allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()}))),

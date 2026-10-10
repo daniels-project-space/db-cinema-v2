@@ -1,3 +1,5 @@
+import { compoundRefundCanClose } from './lib/compoundSwap';
+import { applyRentalAddition } from './lib/rentalAdditionApply';
 import { approvedKitRequest, assertKitAddition } from "./lib/kitRequestBinding";
 import { paidSwapPlan, swapStockWindow } from "./lib/rentalSwapSettlement";
 import { accountForRental } from "./lib/rentalAccount";
@@ -40,7 +42,7 @@ export const context = internalQuery({
     if (!addition) return null;
     const membershipCheckout = addition.membershipCheckoutId ? await ctx.db.get(addition.membershipCheckoutId) : null;
     const booking = await ctx.db.get(addition.bookingId);
-    return { addition, booking, account: booking ? await accountForRental(ctx, booking) : null, membershipCheckout,
+    return { addition, booking, swapProposal: addition.swapProposalId ? await ctx.db.get(addition.swapProposalId) : null, account: booking ? await accountForRental(ctx, booking) : null, membershipCheckout,
       membershipAccount: membershipCheckout ? await ctx.db.get(membershipCheckout.accountId) : null };
   },
 });
@@ -59,7 +61,11 @@ export const list = query({
     const rows = await ctx.db.query("rental_additions").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
     return Promise.all(rows.map(async ({ securityCreationParams: _privateParams, ...row }) => {
       const images=listingImages(await ctx.db.get(row.listingId));
-      return {...row,heroImage:images[0]??null,imageSources:images};
+      const swap=row.swapProposalId?await ctx.db.get(row.swapProposalId):null;
+      const refund=swap?.settlementRefundId?await ctx.db.get(swap.settlementRefundId):null;
+      return {...row,rentalRefundAmount:swap?.refundPence?swap.refundPence/100:0,
+        rentalRefundStatus:refund?.cancelledBeforeBankAt?"cancelled":refund?.status??null,
+        canWithdraw:!refund||compoundRefundCanClose(refund),heroImage:images[0]??null,imageSources:images};
     }));
   },
 });
@@ -342,118 +348,7 @@ export const bindHold = internalMutation({
 });
 export const apply = internalMutation({
   args: { id: v.id("rental_additions") },
-  handler: async (ctx, { id }) => {
-    const r = await ctx.db.get(id);
-    if (!r) return { closed: true };
-    if (r.status === "applied" || r.status === "applied_draft")
-      return { applied: true, already: true };
-    if (r.withdrawalRequestedAt) return { closed: true };
-    if (r.securityCreationPending) throw Error("Wait for the pending security authorisation");
-    const b = await ctx.db.get(r.bookingId);
-    if (
-      !b ||
-      b.cancellationDecision ||
-      b.returnDecision ||
-      b.activeAdditionId !== id ||
-      !["pending_payment", "confirmed", "active"].includes(b.status) ||
-      (r.draftReplacement && b.status !== "pending_payment")
-    )
-      return { closed: true };
-    if(!r.swapProposalId)assertKitAddition(await approvedKitRequest(ctx,b,r.changeRequestId,r._id),r.listingId,r.qty);
-    if (
-      (!r.paymentIntentId && !r.complimentary) ||
-      (!r.draftReplacement && r.holdTotal > 0 && r.status !== "held" && !canDeferAdditionSecurity(b))
-    )
-      throw Error(
-        "Payment and replacement card hold must be ready before items are attached",
-      );
-    const swap = r.swapProposalId ? await paidSwapPlan(ctx,b,r) : null;
-    if(r.swapProposalId&&!swap)return {closed:true};
-    const line = {
-      listingId: r.listingId,
-      title: r.title,
-      start: r.start,
-      end: r.end,
-      qty: r.qty,
-      lineTotal: r.lineTotal,
-      dailyRate: r.dailyRate,
-    };
-    const finalLines:Doc<"bookings">["lineItems"] = swap ? swap.quote.finalLines : [...b.lineItems,line];
-    try {
-      await assertRenterExposure(ctx, b, finalLines);
-      await assertRentalInventory(ctx, finalLines, b._id);
-    } catch (e) {
-      if (/unavailable|already reserved|Inventory capacity|replacement value|overlapping rentals/.test(String(e)))
-        return { closed: true };
-      throw e;
-    }
-    const patch: any = {
-      replacementValues: await replacementValues(ctx, b, finalLines),
-      lineItems: finalLines,
-      subtotal: b.subtotal + r.lineTotal,
-      total: b.total + r.lineTotal + r.securityCharge,
-      depositAmount: b.depositAmount + r.securityCharge,
-      depositHoldAmount: r.holdTotal,
-      activeAdditionId: undefined,
-    };
-    if (
-      !r.draftReplacement &&
-      r.holdIntentId &&
-      r.holdIntentId !== b.stripeDepositIntentId
-    ) {
-      patch.stripeDepositIntentId = r.holdIntentId;
-      patch.depositHoldStatus = "held";
-      patch.depositHoldExpiresAt = r.holdExpiresAt;
-      patch.depositHoldPreviousIntentIds = [
-        ...(b.depositHoldPreviousIntentIds ?? []),
-        ...(b.stripeDepositIntentId ? [b.stripeDepositIntentId] : []),
-      ];
-    }
-    if (r.draftReplacement) patch.stripeCheckoutSessionId = r.sessionId;
-    if(b.securityWaiverReason==="safe_repeat_kit"&&r.securityCharge>0)patch.securityWaiverReason=undefined;
-    if(r.membershipCheckoutId)patch.rentalPaidPence=Math.round((b.total+r.lineTotal+r.securityCharge)*100);
-    const deferred=!r.draftReplacement&&canDeferAdditionSecurity(b);
-    if(deferred&&(r.holdIntentId||r.securityCreationParams))throw Error("Reconcile the existing addition authorisation before changing the pickup schedule");
-    await ctx.db.patch(b._id, patch);
-    if(deferred)await schedulePickupHold(ctx,{...b,...patch},true);
-    await ctx.db.patch(id, {
-      status: r.draftReplacement ? "applied_draft" : "applied",
-      updatedAt: Date.now(),
-    });
-    const reservations = await ctx.db
-      .query("reservations")
-      .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
-      .collect();
-    if(swap){
-      for(const reservation of reservations)if(reservation.status==="confirmed"||reservation.externalRef===`addition:${id}`)
-        await ctx.db.patch(reservation._id,{status:"cancelled",holdExpiresAt:undefined});
-      for(const item of finalLines){
-        const listing=await ctx.db.get(item.listingId);
-        if(!listing?.components.length)throw Error("The replacement inventory mapping needs review.");
-        for(const component of listing.components)await ctx.db.insert("reservations",{bookingId:b._id,listingId:item.listingId,inventoryUnitId:component.inventoryUnitId,...swapStockWindow(item,swap.quote.allocationMode),qty:item.qty*component.qty,status:"confirmed",source:"site"});
-      }
-      const now=Date.now(),operationKey=`kit-swap:${b._id}:${swap.row._id}:${swap.row.quoteKey}`;
-      await ctx.db.patch(swap.row._id,{state:"applied",appliedAt:now,updatedAt:now});
-      await ctx.db.patch(swap.request._id,{execution:{operation:"kit_swap",operationKey,status:"applied",startedAt:r.createdAt,appliedAt:now,detail:`${r.qty}× ${swap.row.sourceTitle} → ${r.title}. Rental difference £${r.lineTotal.toFixed(2)} paid.`}});
-    }else for (const reservation of reservations)
-      if (!r.draftReplacement && reservation.externalRef === `addition:${id}`)
-        await ctx.db.patch(reservation._id, {
-          status: b.status === "active" ? "active" : "confirmed",
-          holdExpiresAt: undefined,
-        });
-    await note(
-      ctx,
-      b,
-      swap ? `The paid equipment swap is confirmed: ${r.qty}× ${swap.row.sourceTitle} → ${r.title}. Rental difference £${r.lineTotal.toFixed(2)}${r.securityCharge ? `; additional refundable security £${r.securityCharge.toFixed(2)}` : ""}.` : `Added to your rental: ${r.qty}× ${r.title}. Rental charge £${r.lineTotal.toFixed(2)}${r.securityCharge ? `; refundable security £${r.securityCharge.toFixed(2)}` : ""}.`,
-    );
-    await queueRmv2Sync(ctx, b._id);
-    await ctx.scheduler.runAfter(0, internal.notify.changeEmail, {
-      bookingId: b._id,
-      kind: swap ? "kit updated" : "item added",
-      detail: `${r.qty}× ${r.title}. £${r.lineTotal.toFixed(2)} rental charge${r.securityCharge ? ` and £${r.securityCharge.toFixed(2)} refundable security` : ""}.`,
-    });
-    return { applied: true };
-  },
+  handler: async (ctx, { id }) => applyRentalAddition(ctx, id),
 });
 /** Persist the exact approved attempt before sending any new card hold. */
 export const beginSecurityAuthorization = internalMutation({
@@ -479,6 +374,14 @@ export const beginWithdrawal = internalMutation({
     if (!r) throw Error("Addition missing");
     if (["applied", "applied_draft"].includes(r.status)) throw Error("Applied items are settled through the rental");
     if (["refunded", "expired"].includes(r.status) || r.withdrawalRequestedAt) return r;
+    if(r.swapProposalId){
+      const swap=await ctx.db.get(r.swapProposalId);
+      if(swap?.settlementRefundId){
+        const refund=await ctx.db.get(swap.settlementRefundId);
+        if(swap.settlementAdditionId!==id||!refund||refund.swapProposalId!==swap._id||refund.bookingId!==r.bookingId||!compoundRefundCanClose(refund))
+          throw Error("The original rental refund has started. Reconcile its bank result before withdrawing the combined settlement.");
+      }
+    }
     const patch = { withdrawalRequestedAt: Date.now(), status: "withdrawing", updatedAt: Date.now() };
     await ctx.db.patch(id, patch);
     return { ...r, ...patch };
@@ -533,6 +436,13 @@ export const close = internalMutation({
     if(r.swapProposalId){
       const swap=await ctx.db.get(r.swapProposalId);
       if(!swap||swap.settlementAdditionId!==id||swap.bookingId!==r.bookingId||swap.changeRequestId!==r.changeRequestId||swap.state!=="accepted")throw Error("The swap withdrawal receipt needs reconciliation.");
+      if(swap.settlementRefundId){
+        const refund=await ctx.db.get(swap.settlementRefundId);
+        if(!refund||refund.swapProposalId!==swap._id||refund.bookingId!==r.bookingId||b?.activeSwapRefundId!==refund._id||!compoundRefundCanClose(refund))
+          throw Error("The original rental refund needs reconciliation before the additional deposit can be closed.");
+        if(refund.status==="prepared")await ctx.db.patch(refund._id,{status:"failed",cancelledBeforeBankAt:Date.now(),updatedAt:Date.now()});
+        await ctx.db.patch(b._id,{activeSwapRefundId:undefined});
+      }
       await ctx.db.patch(swap._id,{state:"withdrawn",updatedAt:Date.now()});
     }
     await ctx.db.patch(id, {
@@ -625,6 +535,15 @@ export const customerState = query({
       const images = listingImages(await ctx.db.get(line.listingId));
       return { title: line.title, qty: line.qty, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
     }));
+    const swap=r.swapProposalId?await ctx.db.get(r.swapProposalId):null;
+    if(r.swapProposalId&&(!swap||swap.settlementAdditionId!==r._id||swap.bookingId!==b._id||swap.accountId!==account._id))return null;
+    const refund=swap?.settlementRefundId?await ctx.db.get(swap.settlementRefundId):null;
+    if(refund&&(refund.swapProposalId!==swap!._id||refund.bookingId!==b._id))return null;
+    const proposedLines=swap?JSON.parse(swap.finalLines):[...b.lineItems,{listingId:r.listingId,title:r.title,qty:r.qty,start:r.start,end:r.end}];
+    const proposedItems=await Promise.all(proposedLines.map(async(line:any)=>{
+      const images=listingImages(await ctx.db.get(line.listingId));
+      return {title:line.title,qty:line.qty,start:line.start,end:line.end,heroImage:images[0]??null,imageSources:images};
+    }));
     let securityDeferred = false;
     try { securityDeferred = !r.draftReplacement && canDeferAdditionSecurity(b); } catch {}
     return {
@@ -632,7 +551,7 @@ export const customerState = query({
       start: r.start, end: r.end,
       lineTotal: r.lineTotal,
       baseAmount: r.draftReplacement ? r.baseTotal ?? 0 : 0,
-      currentItems,
+      currentItems, proposedItems, isSwap:!!swap, rentalRefundAmount:swap?.refundPence?swap.refundPence/100:0, rentalRefundStatus:refund?.status??null,
       heroImage: sources[0] ?? null, imageSources: sources,
       securityDeferred,
       paymentReceived: !!r.paymentIntentId,

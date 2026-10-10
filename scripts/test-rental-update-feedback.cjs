@@ -10,4 +10,6 @@ assert.match(feedback({applied:false,kind:'swap',status:'requires_action'}).titl
 assert.match(feedback({applied:false,status:'refund_pending'}).body,/original payment method/);
 for(const status of ['refunded','expired']){const r=feedback({applied:false,status});assert.match(r.title,/Equipment update closed/);assert(!r.body.includes('cancelled booking'));}
 assert.match(feedback({applied:false,status:null}).body,/do not pay again/);
+const combined=feedback({applied:false,kind:'swap',status:'swap_refund_pending'});assert.match(combined.title,/Deposit paid/);assert.match(combined.body,/original kit remains reserved/);assert(!combined.body.includes('withdrawn'));
+for(const status of ['swap_refund_failed','swap_settlement_review']){const r=feedback({applied:false,kind:'swap',status});assert.match(r.title,/team review/);assert.match(r.body,/do not pay again/);}
 console.log('PASS post-checkout feedback: equipment receipt independent of scheduled/failed/bank-action hold, draft verification, refund progress and closed update independent of rental cancellation.');

@@ -1,5 +1,13 @@
 /** Equipment completion and card-authorisation progress are separate facts. */
 export function rentalUpdateFeedback(update: { applied: boolean; kind?: string; status?: string | null }) {
+  if (update.status === "swap_refund_pending") return {
+    title: "Deposit paid · rental refund processing",
+    body: "The additional refundable deposit is paid. Your separate rental-price refund is processing to the original payment method. Your original kit remains reserved until the bank confirms it. Please do not pay again.",
+  };
+  if (update.status === "swap_refund_failed" || update.status === "swap_settlement_review") return {
+    title: "Deposit paid · replacement needs team review",
+    body: "Your additional refundable deposit is recorded, but the replacement is not confirmed. Your original kit remains in place. Open your rental conversation so the team can review the separate refund and equipment settlement. Please do not pay again.",
+  };
   if (update.status === "refund_pending") return {
     title: "Equipment update withdrawn · refund in progress",
     body: "The equipment update was not applied. Its payment is being returned to the original payment method. Open your rental conversation to check progress.",

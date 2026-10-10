@@ -1,3 +1,4 @@
+import { applyRentalAddition } from './rentalAdditionApply';
 import { rentalHasStarted } from '../../src/lib/cancellationPolicy';
 import { canDeferAdditionSecurity } from '../../shared/pickupSecurity';
 import { rentalSwapQuote, swapQuoteKey } from './rentalSwapQuote';
@@ -19,17 +20,8 @@ export function failedRefundHasNoMoney(refund:any){
  return refund?.status==='failed'&&refund.allocations?.length>0&&refund.parts?.length===refund.allocations.length&&
   refund.parts.every((p:any)=>['failed','canceled'].includes(p.status));
 }
-/** A terminal status alone is insufficient: every original payment allocation
- * must have its own complete, exact provider receipt. */
-function completeRentalRefundReceipts(refund:any){
- if(!refund||!Number.isSafeInteger(refund.amountPence)||refund.amountPence<=0||!refund.allocations?.length||refund.parts?.length!==refund.allocations.length)return false;
- if(new Set(refund.allocations.map((p:any)=>p.paymentIntentId)).size!==refund.allocations.length||new Set(refund.parts.map((p:any)=>p.stripeRefundId)).size!==refund.parts.length)return false;
- return refund.allocations.reduce((n:number,p:any)=>n+p.amountPence,0)===refund.amountPence&&refund.allocations.every((a:any)=>{
-  const part=refund.parts.find((p:any)=>p.paymentIntentId===a.paymentIntentId);
-  return Number.isSafeInteger(a.amountPence)&&a.amountPence>0&&['succeeded','pending','failed'].includes(part?.status)&&part.amountPence===a.amountPence&&typeof part.stripeRefundId==='string'&&part.stripeRefundId.length>0;
- });
-}
-export function fullyConfirmedRentalRefund(refund:any){return refund?.status==='succeeded'&&completeRentalRefundReceipts(refund)&&refund.parts.every((p:any)=>p.status==='succeeded');}
+export { fullyConfirmedRentalRefund } from './rentalRefundReceipts';
+import { fullyConfirmedRentalRefund, completeRentalRefundReceipts } from './rentalRefundReceipts';
 export function assertRefundOnlyResolution(row:any,refund:any){
  const receipt=row.refundOnlyResolution;
  const laterBankFailure=completeRentalRefundReceipts(refund)&&Number.isSafeInteger(refund.bankReversalAt)&&refund.bankReversalAt>=receipt?.closedAt;
@@ -54,6 +46,12 @@ export async function completeRefundSwap(ctx:any,id:any){
   if(request.execution?.operation!=='kit_swap'||request.execution.operationKey!==`kit-swap:${booking._id}:${row._id}:${row.quoteKey}`||request.execution.status!=='applied'||request.execution.appliedAt!==row.appliedAt)
    throw Error('The saved refunded swap completion receipt needs reconciliation.');
   return {applied:true};
+ }
+ if(row.settlementAdditionId){
+  if(!fullyConfirmedRentalRefund(refund))return {applied:false};
+  const result=await applyRentalAddition(ctx,row.settlementAdditionId);
+  if(result.closed){await ctx.db.patch(row._id,{settlementError:'The paid combined swap needs source or stock reconciliation. Both bank receipts remain recorded.',updatedAt:Date.now()});return {applied:false,needsReview:true};}
+  return {applied:!!result.applied,...(result.needsRefund?{needsReview:true}:{})};
  }
  let q:any,reservations:any[],values:any;
  try{

@@ -5,6 +5,7 @@ import {
   PICKUP_HOLD_POLICY,
   pickupHoldAt,
   pickupHoldEligible,
+  uncollectedRentalWindowOpen,
 } from "../shared/pickupSecurity";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 
@@ -90,6 +91,10 @@ export const claim = internalMutation({
       !Number.isSafeInteger(Math.round(b!.depositHoldAmount! * 100))
     )
       return false;
+    if (!b!.stripeDepositIntentId && !(b!.securityHoldAttempts ?? 0) && !uncollectedRentalWindowOpen(b,now)) {
+      await ctx.db.patch(a.bookingId,{depositHoldStatus:"failed",securityHoldFailureCode:"rental_window_ended",securityHoldRetryAt:undefined});
+      return false;
+    }
     // Leave the untouched job recoverable while an agreed operation owns the
     // kit/financial lock. Yield its place in the indexed due batch so waiting
     // settlements cannot starve unrelated rentals; reuse the five-minute cron.

@@ -1,3 +1,4 @@
+import { compoundRefundBinding } from './lib/compoundSwap';
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { completeRefundSwap } from "./lib/rentalSwapRefund";
@@ -410,6 +411,7 @@ export const bindRefundAllocations = internalMutation({
   handler: async (ctx, { id, allocations }) => {
     const r = await ctx.db.get(id);
     if (!r) throw Error("Refund missing");
+    const compound=await compoundRefundBinding(ctx,r);
     if (r.allocations) {
       // Order is part of the provider idempotency identity: the first part
       // uses the original refund key. Never silently replace or reorder it.
@@ -464,6 +466,12 @@ export const bindRefundAllocations = internalMutation({
       if (!Number.isSafeInteger(ceiling) || ceiling < 0 || !Number.isSafeInteger(committed) || committed < 0 ||
           allocation.amountPence > Math.max(0, ceiling - committed))
         throw Error("Refund exceeds the remaining rental payment for its original payment method.");
+    }
+    if(compound){
+      const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",r.bookingId)).take(201);
+      if(reservations.length>200)throw Error("The combined swap stock history needs review.");
+      for(const reservation of reservations)if(reservation.externalRef===`addition:${compound.addition._id}`&&reservation.status==="hold")
+        await ctx.db.patch(reservation._id,{status:"confirmed",holdExpiresAt:undefined});
     }
     await ctx.db.patch(id, { allocations });
     return allocations;
