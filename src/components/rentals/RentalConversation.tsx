@@ -60,6 +60,8 @@ export function RentalConversation({
   );
   const [history, setHistory] = useState<any[]>([]);
   const [text, setText] = useState("");
+  const conversationReady = !!thread && "renter" in thread;
+  const conversationUnavailable = thread !== undefined && !conversationReady;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const draftReplies = useAction(api.gaffer.ownerDrafts);
@@ -150,7 +152,7 @@ export function RentalConversation({
     if (body.current) body.current.scrollTop = body.current.scrollHeight;
   }, [thread?.page[0]?._id, bookingId, accountId, token, admin, read, visible]);
   async function submit() {
-    if (!text.trim() || busy) return;
+    if (!conversationReady || !text.trim() || busy) return;
     const requestedScope = scope.current;
     const submitted = text.trim();
     setBusy(true);
@@ -177,6 +179,7 @@ export function RentalConversation({
     }
   }
   async function handoff() {
+    if (!conversationReady) return;
     const requestedScope = scope.current;
     setError(null);
     try {
@@ -193,6 +196,7 @@ export function RentalConversation({
     }
   }
   async function suggest() {
+    if (!conversationReady) return;
     const requestedScope = scope.current;
     setDrafting(true);
     setError(null);
@@ -203,11 +207,11 @@ export function RentalConversation({
       if (scope.current === requestedScope) setError(e.message ?? "Drafts unavailable.");
     } finally { if (scope.current === requestedScope) setDrafting(false); }
   }
-  const messages = [
+  const messages = conversationReady ? [
     ...new Map(
       [...history, ...(thread?.page ?? [])].map((m) => [m._id, m]),
     ).values(),
-  ].sort((a, b) => a.at - b.at);
+  ].sort((a, b) => a.at - b.at) : [];
   const teamHandling = thread?.escalated ?? escalated;
   const displayedStage = stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage;
   return (
@@ -223,11 +227,11 @@ export function RentalConversation({
           <div><p className={styles.eyebrow}>{admin ? "Rental conversation" : "Your rental team"}</p>
             <h3>{admin ? thread && "renter" in thread ? thread.renter?.name || "Guest renter" : thread === undefined ? "Loading conversation…" : "Customer account unavailable" : "DB Cinema Rentals"}</h3>
             {admin && thread && "renter" in thread && (thread.renter?.email || thread.renter?.phone) && <p className={styles.contactDetails} data-testid="conversation-current-contact">{thread.renter.email && <span>{thread.renter.email}</span>}{thread.renter.phone && <span>{thread.renter.phone}</span>}</p>}
-            <p className={styles.supportStatus}><span />{teamHandling ? "Team handling your conversation" : "Gaffer available · team can join"}</p>
+            <p className={styles.supportStatus} data-available={conversationReady}><span />{conversationUnavailable ? admin ? "Linked account needs review" : "Please sign in again" : !conversationReady ? "Loading conversation…" : teamHandling ? "Team handling your conversation" : "Gaffer available · team can join"}</p>
           </div>
         </div>
-        <button onClick={handoff} disabled={!admin && teamHandling} className={styles.handoff}>
-          {admin ? teamHandling ? "Hand to Gaffer" : "Take over" : teamHandling ? "Team notified" : "Request a human"}
+        <button onClick={handoff} disabled={!conversationReady || !admin && teamHandling} className={styles.handoff}>
+          {conversationUnavailable ? "Unavailable" : admin ? teamHandling ? "Hand to Gaffer" : "Take over" : teamHandling ? "Team notified" : "Request a human"}
         </button>
       </header>
       <div className={`management-conversation-main ${styles.main}`}>
@@ -248,7 +252,7 @@ export function RentalConversation({
         aria-live="polite"
         aria-label="Rental conversation"
       >
-        {!(older?.isDone ?? thread?.isDone ?? true) && (
+        {conversationReady && !(older?.isDone ?? thread?.isDone ?? true) && (
           <button
             onClick={() =>
               setBefore(older?.continueCursor ?? thread?.continueCursor)
@@ -260,6 +264,11 @@ export function RentalConversation({
         )}
         {thread === undefined ? (
           <p className="m-auto text-sm text-white/30">Loading conversation…</p>
+        ) : conversationUnavailable ? (
+          <div className={styles.unavailable} role="status" data-testid="conversation-unavailable">
+            <h4>{admin ? "Account review required" : "Conversation unavailable"}</h4>
+            <p>{admin ? "Review the customer account linked to this rental before replying or handing the conversation to Gaffer." : "Please sign in again to reopen your rental conversation."}</p>
+          </div>
         ) : !messages.length ? (
           <div className="m-auto max-w-xs text-center">
             <p className="font-display text-lg text-white/85">
@@ -322,10 +331,10 @@ export function RentalConversation({
       <footer className={styles.composer}>
         {admin && <div className="mb-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={suggest} disabled={drafting} className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"><GafferIcon className="h-4 w-4" />{drafting ? "Drafting…" : "Suggest replies"}</button>
+            <button type="button" onClick={suggest} disabled={drafting || !conversationReady} className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"><GafferIcon className="h-4 w-4" />{drafting ? "Drafting…" : "Suggest replies"}</button>
             {thread && "quickReplies" in thread && thread.quickReplies?.map((reply) => <button key={reply.label} type="button" onClick={() => setText(reply.text)} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60">{reply.label}</button>)}
           </div>
-          {drafts && drafts.messageId === (thread?.page[0]?._id ?? null) && <div className="flex snap-x gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible" aria-label="Suggested replies">
+          {conversationReady && drafts && drafts.messageId === (thread?.page[0]?._id ?? null) && <div className="flex snap-x gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible" aria-label="Suggested replies">
             {drafts.drafts.map((draft, index) => <button key={index} type="button" onClick={() => setText(draft.text)} className="w-[85%] shrink-0 snap-start rounded-xl border border-emerald-300/15 bg-emerald-300/[0.04] p-3 text-left sm:w-auto">
               <span className="text-xs font-medium text-emerald-200">{draft.label}</span><p className="mt-1 line-clamp-4 text-xs leading-relaxed text-white/60">{draft.text}</p><span className="mt-2 block text-[10px] text-white/30">Use draft · review before sending</span>
             </button>)}
@@ -346,6 +355,7 @@ export function RentalConversation({
           <textarea
             aria-label="Message"
             value={text}
+            disabled={!conversationReady}
             maxLength={2000}
             rows={1}
             onChange={(e) => setText(e.target.value)}
@@ -356,12 +366,12 @@ export function RentalConversation({
               }
             }}
             placeholder={
-              admin ? "Reply to the renter…" : "Message Gaffer or the team…"
+              conversationUnavailable ? admin ? "Review the linked account to reply…" : "Sign in again to reply…" : admin ? "Reply to the renter…" : "Message Gaffer or the team…"
             }
             className="min-h-11 flex-1 resize-none rounded-2xl bg-white/[0.04] px-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-accent-400/50"
           />
           <button
-            disabled={busy || !text.trim()}
+            disabled={!conversationReady || busy || !text.trim()}
             className="rounded-2xl bg-accent-500 px-4 py-3 text-sm font-medium text-white disabled:opacity-40"
           >
             {busy ? "…" : "Send"}

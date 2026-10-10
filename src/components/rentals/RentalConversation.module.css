@@ -11,6 +11,11 @@
 .eyebrow { font-size:10px; text-transform:uppercase; letter-spacing:.15em; color:var(--muted); }
 .supportStatus { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px; }
 .supportStatus span { width:5px; height:5px; border-radius:50%; background:#7fb091; flex-shrink:0; }
+.supportStatus[data-available=false] span{background:#c99a76}
+.unavailable{margin:auto;max-width:340px;text-align:center;padding:24px 12px}
+.unavailable h4{font:22px Georgia,serif;color:#e6e3df}
+.unavailable p{margin-top:12px;font-size:13px;line-height:1.7;color:#a5a6a8}
+.composeForm textarea:disabled{opacity:.55;cursor:not-allowed}
 .handoff { border:1px solid #b9816066; border-radius:5px; padding:9px 12px; font-size:11px; color:#d7b49b; flex-shrink:0; }
 .handoff:disabled { opacity:.6; }
 .main { display:flex; flex-direction:column; min-width:0; grid-column:1; }
