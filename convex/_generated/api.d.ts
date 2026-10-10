@@ -152,6 +152,7 @@ import type * as renterNotifications from "../renterNotifications.js";
 import type * as renterPushDelivery from "../renterPushDelivery.js";
 import type * as repeatRentals from "../repeatRentals.js";
 import type * as returnInspections from "../returnInspections.js";
+import type * as returnSecurity from "../returnSecurity.js";
 import type * as reviewActions from "../reviewActions.js";
 import type * as reviewFollowUp from "../reviewFollowUp.js";
 import type * as reviewFollowUpState from "../reviewFollowUpState.js";
@@ -322,6 +323,7 @@ declare const fullApi: ApiFromModules<{
   renterPushDelivery: typeof renterPushDelivery;
   repeatRentals: typeof repeatRentals;
   returnInspections: typeof returnInspections;
+  returnSecurity: typeof returnSecurity;
   reviewActions: typeof reviewActions;
   reviewFollowUp: typeof reviewFollowUp;
   reviewFollowUpState: typeof reviewFollowUpState;

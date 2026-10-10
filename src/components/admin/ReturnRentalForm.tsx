@@ -80,7 +80,8 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     try {
       const result = await submit(selection);
       if (!alive.current) return;
-      alert(`Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
+      const pending=result.refundStatus&&result.refundStatus!=="succeeded";
+      alert(`Return recorded. Damage/loss ${formatGbp(result.kept)}; cash deposit refund confirmed ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. ${pending ? `The deposit refund is ${result.refundStatus === "pending" ? "processing" : "awaiting team review"}. Resume this settlement to check the existing refund. The final statement waits for bank confirmation.` : "The return statement is queued for email delivery."}`);
       onClose();
     } catch (e: any) { if (alive.current) setError(e?.message ?? "Return could not be recorded."); }
     finally { if (alive.current) setWorking(false); }

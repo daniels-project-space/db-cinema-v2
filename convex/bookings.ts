@@ -986,7 +986,7 @@ export const markReturnedStatus = internalMutation({
   handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return;
-    if (b.status !== "returned") await ctx.db.patch(bookingId, { status: "returned" });
+    if (b.status !== "returned") await ctx.db.patch(bookingId, { status: "returned", ...(b.returnDecision?{actualReturnedAt:b.actualReturnedAt??b.returnDecision.actualReturnedAt}:{}) });
     const res = await ctx.db
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
@@ -1010,7 +1010,7 @@ export const recordLateFee = internalMutation({
   args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), amount: v.number(), breakdown: v.array(lateLine), waivedAmount: v.optional(v.number()), waiverReason: v.optional(v.string()) },
   handler: async (ctx, { bookingId, actualReturnedAt, amount, breakdown, waivedAmount, waiverReason }) => {
     const b = await ctx.db.get(bookingId);
-    if (!b || b.actualReturnedAt) return;
+    if (!b || b.returnStatement) return;
     await ctx.db.patch(bookingId, {
       actualReturnedAt,
       lateFeeAmount: amount,

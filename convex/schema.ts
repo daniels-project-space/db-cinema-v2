@@ -817,6 +817,12 @@ export default defineSchema({
     holdIntentId:v.optional(v.string()),holdExpiresAt:v.optional(v.number()),
   }).index("by_booking",["bookingId"]).index("by_request",["requestId"]).index("by_session",["sessionId"]).index("by_status",["status"]).index("by_status_updated",["status","updatedAt"]),
 
+  return_security_refunds: defineTable({
+    bookingId:v.id("bookings"),amountPence:v.number(),kept:v.number(),capturedFromHold:v.number(),note:v.optional(v.string()),
+    allocations:v.array(v.object({paymentIntentId:v.string(),amountPence:v.number(),stripeRefundId:v.optional(v.string()),status:v.string(),failureReason:v.optional(v.string())})),
+    status:v.string(),generation:v.number(),attempts:v.number(),dueAt:v.optional(v.number()),error:v.optional(v.string()),bankReversalAt:v.optional(v.number()),createdAt:v.number(),updatedAt:v.number(),
+  }).index("by_booking",["bookingId"]).index("by_due",["dueAt"]),
+
   rental_refunds: defineTable({
     swapProposalId:v.optional(v.id("rental_swap_proposals")),
     cancelledBeforeBankAt:v.optional(v.number()),
