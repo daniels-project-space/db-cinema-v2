@@ -1,4 +1,5 @@
 import { compoundRefundBinding } from './lib/compoundSwap';
+import { paidSwapPlan, additionalSwapStock } from './lib/rentalSwapSettlement';
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { completeRefundSwap } from "./lib/rentalSwapRefund";
@@ -468,10 +469,17 @@ export const bindRefundAllocations = internalMutation({
         throw Error("Refund exceeds the remaining rental payment for its original payment method.");
     }
     if(compound){
+      const plan=await paidSwapPlan(ctx,compound.booking,compound.addition);
+      if(!plan)throw Error("The replacement stock or agreed source changed before the rental refund. Review the captured deposit first.");
       const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",r.bookingId)).take(201);
       if(reservations.length>200)throw Error("The combined swap stock history needs review.");
-      for(const reservation of reservations)if(reservation.externalRef===`addition:${compound.addition._id}`&&reservation.status==="hold")
-        await ctx.db.patch(reservation._id,{status:"confirmed",holdExpiresAt:undefined});
+      const own=reservations.filter(row=>row.externalRef===`addition:${compound.addition._id}`);
+      if(own.some(row=>row.source!=="site"||row.status==="active"))throw Error("The replacement has a separate handover or platform allocation that needs review.");
+      const holds=await additionalSwapStock(ctx,plan.quote.finalLines,plan.quote.allocationMode,reservations.filter(row=>row.externalRef!==`addition:${compound.addition._id}`));
+      // Checkout can finish after the short stock lease. Reacquire its exact net
+      // physical delta under this transaction, not a stale provider-read snapshot.
+      for(const row of own)await ctx.db.delete(row._id);
+      for(const hold of holds)await ctx.db.insert("reservations",{...hold,bookingId:r.bookingId,source:"site",status:"confirmed",externalRef:`addition:${compound.addition._id}`});
     }
     await ctx.db.patch(id, { allocations });
     return allocations;

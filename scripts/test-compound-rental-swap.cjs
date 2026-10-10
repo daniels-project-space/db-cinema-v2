@@ -1,6 +1,6 @@
 /** Actual owner, checkout, refund and signed callback paths; provider transport controlled. */
 const assert=require('node:assert/strict'),t=require('./test-paid-rental-swap.cjs');
-const refunds=new Map(),keys=new Map();let nextStatus='succeeded',creates=0,loseResponse=false;
+const refunds=new Map(),keys=new Map();let nextStatus='succeeded',creates=0,loseResponse=false,onOriginalPaymentRead=null;
 t.stripeMock.default=class {
  checkout={sessions:{create:async(p,{idempotencyKey})=>{
   const amount=p.line_items[0].price_data.unit_amount;
@@ -11,7 +11,7 @@ t.stripeMock.default=class {
   const s={id:'cs_compound_'+t.sessions.size,status:'open',payment_status:'unpaid',currency:'gbp',amount_total:amount,customer:'cus_saved',metadata:p.metadata,url:'https://checkout.stripe.test/compound'};
   t.sessions.set(s.id,s);return s;
  },retrieve:async id=>{assert(t.sessions.has(id));return t.sessions.get(id);},expire:async id=>{const s=t.sessions.get(id);s.status='expired';return s;},list:async function*(){yield* t.sessions.values();}}};
- paymentIntents={retrieve:async id=>{assert(t.intents.has(id),id);return t.intents.get(id);},create:async()=>{throw Error('No card hold before pickup or during unresolved settlement');}};
+ paymentIntents={retrieve:async id=>{assert(t.intents.has(id),id);if(onOriginalPaymentRead&&id.startsWith('pi_original_')){const hook=onOriginalPaymentRead;onOriginalPaymentRead=null;await hook();}return t.intents.get(id);},create:async()=>{throw Error('No card hold before pickup or during unresolved settlement');}};
  refunds={list:({payment_intent})=>[...refunds.values()].filter(r=>r.payment_intent===payment_intent),retrieve:async id=>refunds.get(id),create:async(p,{idempotencyKey})=>{
   creates++;let r=keys.get(idempotencyKey);
   if(!r){r={id:'re_compound_'+refunds.size,status:nextStatus,amount:p.amount??t.intents.get(p.payment_intent).amount_received,currency:'gbp',payment_intent:p.payment_intent,metadata:p.metadata};keys.set(idempotencyKey,r);refunds.set(r.id,r);}
@@ -79,7 +79,14 @@ async function run(){
   assert.equal(bankLate.job.status,'succeeded','A bank result remains durably recorded even after the physical rental window ended');
   assert.equal(bankLate.row.state,'accepted');assert(bankLate.row.settlementError);original(bankLate);assert.equal(creates,bankWrites);
  }finally{Date.now=lateClock;}
- console.log('PASS actual combined swap: £50 deposit and separate £20 original-method refund; unpaid/API/transaction guards, pending stock and hold fencing, post-pickup signed callback, atomic net cash/security/kit, protected deposit source, replay, unpaid withdrawal and lost-response recovery. No external writes.');
+ const expiredStock=await fixture();for(const row of [...t.h.tables.get('reservations')])if(row.externalRef==='addition:'+expiredStock.addition._id)await t.h.db.delete(row._id);
+ pay(expiredStock);nextStatus='pending';await finish(expiredStock);
+ assert(t.h.tables.get('reservations').some(row=>row.externalRef==='addition:'+expiredStock.addition._id&&row.status==='confirmed'&&row.holdExpiresAt===undefined),'Expired short stock lease is reacquired as the exact permanent net delta before bank processing');
+ const race=await fixture();pay(race);let foreign;const raceWrites=creates;
+ onOriginalPaymentRead=async()=>{const unit=t.h.docs.get(race.row.targetListingId).components[0].inventoryUnitId;foreign=t.h.put('reservations',{inventoryUnitId:unit,qty:100,...race.window,source:'rm',status:'confirmed',externalRef:'concurrent-real-platform-rental'});};
+ await assert.rejects(finish(race),/stock|source changed/i);assert.equal(creates,raceWrites,'Stock claimed during provider reads cannot start the rental refund');assert.equal(race.job.allocations,undefined);original(race);
+ await t.h.db.delete(foreign._id);
+ console.log('PASS actual combined swap: £50 deposit and separate £20 original-method refund; unpaid/API/transaction guards, pending stock and hold fencing, post-pickup signed callback, atomic net cash/security/kit, protected deposit source, replay, unpaid withdrawal, lost-response recovery and transactional lease reacquisition/provider-read stock races. No external writes.');
 }
 module.exports={fixture,pay,finish,bankCallback,t,refunds,ops,security,getCreates:()=>creates,setStatus:s=>{nextStatus=s;}};
 if(require.main===module)run().catch(e=>{console.error(e);process.exitCode=1});
