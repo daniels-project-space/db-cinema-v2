@@ -92,6 +92,7 @@ async function bookingView(ctx: any, b: any, account: any, options: { includeAva
     unreadRenter: thread?.unreadRenter ?? 0,
     lastMessage: thread?.lastMessage ?? null,
     lastSender: thread?.lastSender ?? null,
+    createdAt: b._creationTime,
     updatedAt: thread?.updatedAt ?? b._creationTime,
   };
 }
