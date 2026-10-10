@@ -19,6 +19,24 @@ export function failedRefundHasNoMoney(refund:any){
  return refund?.status==='failed'&&refund.allocations?.length>0&&refund.parts?.length===refund.allocations.length&&
   refund.parts.every((p:any)=>['failed','canceled'].includes(p.status));
 }
+/** A terminal status alone is insufficient: every original payment allocation
+ * must have its own complete, exact provider receipt. */
+export function fullyConfirmedRentalRefund(refund:any){
+ if(refund?.status!=='succeeded'||!Number.isSafeInteger(refund.amountPence)||refund.amountPence<=0||!refund.allocations?.length||refund.parts?.length!==refund.allocations.length)return false;
+ if(new Set(refund.allocations.map((p:any)=>p.paymentIntentId)).size!==refund.allocations.length||new Set(refund.parts.map((p:any)=>p.stripeRefundId)).size!==refund.parts.length)return false;
+ return refund.allocations.reduce((n:number,p:any)=>n+p.amountPence,0)===refund.amountPence&&refund.allocations.every((a:any)=>{
+  const part=refund.parts.find((p:any)=>p.paymentIntentId===a.paymentIntentId);
+  return Number.isSafeInteger(a.amountPence)&&a.amountPence>0&&part?.status==='succeeded'&&part.amountPence===a.amountPence&&typeof part.stripeRefundId==='string'&&part.stripeRefundId.length>0;
+ });
+}
+export function assertRefundOnlyResolution(row:any,refund:any){
+ const receipt=row.refundOnlyResolution;
+ if(!receipt||row.state!=='withdrawn'||!fullyConfirmedRentalRefund(refund)||receipt.refundedPence!==refund.amountPence||receipt.refundedPence!==row.refundPence||
+    receipt.operationKey!==`kit-swap-refund-only:${row.bookingId}:${row._id}:${row.quoteKey}`||!Number.isSafeInteger(receipt.closedAt)||receipt.reason.trim().length<5)
+  throw Error('The saved refund-only swap resolution needs reconciliation.');
+ if(receipt.securityAtClosure&&Object.values(receipt.securityAtClosure).some(amount=>!Number.isSafeInteger(amount)||Number(amount)<0))throw Error("The saved refund-only security receipt needs reconciliation.");
+ return {closed:true,refunded:receipt.refundedPence/100};
+}
 /** Provider receipts are durable even if the final kit needs reconciliation.
  * Preserve the booking lock and its permanent replacement allocation until the
  * exact accepted kit can be applied; never repeat the already completed refund. */
@@ -29,6 +47,7 @@ export async function completeRefundSwap(ctx:any,id:any){
  if(!row||!booking||!request||row.settlementRefundId!==id||row.bookingId!==booking._id||row.accountId!==request.accountId||request.swapProposalId!==row._id||!belongsToRentalAccount(booking,account))
   throw Error('The swap refund receipt belongs to another rental or account.');
  if(refund.amountPence!==row.refundPence)throw Error('The swap refund amount does not match its accepted proposal.');
+ if(row.refundOnlyResolution)return {...assertRefundOnlyResolution(row,refund),applied:false};
  if(row.state==='applied'){
   if(request.execution?.operation!=='kit_swap'||request.execution.operationKey!==`kit-swap:${booking._id}:${row._id}:${row.quoteKey}`||request.execution.status!=='applied'||request.execution.appliedAt!==row.appliedAt)
    throw Error('The saved refunded swap completion receipt needs reconciliation.');

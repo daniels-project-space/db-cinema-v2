@@ -52,7 +52,7 @@ export const list = query({
       _id: row._id, kind: row.kind, detail: row.detail, createdAt: row.createdAt,
       status: extension ? extension.status === "pending" ? "pending" as const : ["declined", "withdrawn", "expired", "refunded"].includes(extension.status) ? "declined" as const : "approved" as const : row.status ?? "pending", decisionNote: row.decisionNote, decidedAt: row.decidedAt,
       execution: row.execution ? { operation: row.execution.operation, status: row.execution.status, appliedAt: row.execution.appliedAt, detail: row.execution.detail } : undefined,
-      extension,addition,equipment,...(validSwap?{swapProposalId:linkedSwap!._id,swapProposalState:linkedSwap!.state}:{}),...(row.dateSelection?{dateSelection:row.dateSelection}:{}),...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
+      extension,addition,equipment,...(validSwap?{swapProposalId:linkedSwap!._id,swapProposalState:linkedSwap!.state,...(linkedSwap!.refundOnlyResolution?{swapRefundOnly:{reason:linkedSwap!.refundOnlyResolution.reason,closedAt:linkedSwap!.refundOnlyResolution.closedAt,amount:linkedSwap!.refundOnlyResolution.refundedPence/100}}:{})}:{}),...(row.dateSelection?{dateSelection:row.dateSelection}:{}),...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
     }; })) };
   },
 });

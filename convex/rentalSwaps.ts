@@ -6,7 +6,7 @@ import { replacementValues } from "./lib/rentalExposure";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { additionalSwapStock, paidSwapEligible } from "./lib/rentalSwapSettlement";
-import { completeRefundSwap, refundSwapEligible, failedRefundHasNoMoney } from "./lib/rentalSwapRefund";
+import { completeRefundSwap, refundSwapEligible, failedRefundHasNoMoney, fullyConfirmedRentalRefund, assertRefundOnlyResolution } from "./lib/rentalSwapRefund";
 import { prepareRentalRefund } from "./rentalOperations";
 import { v } from "convex/values";
 import { checkAdminToken, assertAdmin } from "./adminAuth";
@@ -62,10 +62,11 @@ export const proposal=query({args:{...scopeArgs,admin:v.optional(v.boolean()),re
  const settlement=row.settlementAdditionId?await ctx.db.get(row.settlementAdditionId):null;
  const refund=row.settlementRefundId?await ctx.db.get(row.settlementRefundId):null;
  if(row.settlementRefundId&&(!refund||refund.swapProposalId!==row._id||refund.bookingId!==booking._id))throw Error("The saved swap refund needs reconciliation.");
+ if(row.refundOnlyResolution)assertRefundOnlyResolution(row,refund);
  if(row.settlementAdditionId&&(!settlement||settlement.swapProposalId!==row._id||settlement.bookingId!==booking._id||settlement.changeRequestId!==request._id||request.additionRequestId!==settlement._id))throw Error("The saved swap payment needs reconciliation.");
  const freshness=!settlement&&!refund&&["offered","accepted"].includes(row.state)?await isCurrent(ctx,booking,request,row,!!args.admin):{current:false,reason:null};
  const sourceImages=listingImages(await ctx.db.get(row.sourceListingId)),targetImages=listingImages(await ctx.db.get(row.targetListingId));
- return {id:row._id,state:row.state,quoteKey:row.quoteKey,...freshness,...(args.admin?{canApply:row.state==="accepted"&&freshness.current&&equalPriceSwapReady(booking,row),canWithdrawRefund:row.state==="accepted"&&booking.activeSwapRefundId===refund?._id&&failedRefundHasNoMoney(refund),canStartRefund:row.state==="accepted"&&freshness.current&&refundSwapEligible(booking,row),canStartPayment:row.state==="accepted"&&freshness.current&&paidSwapEligible(booking,row)}:{}),refundSettlement:refund?{id:refund._id,status:refund.status,amount:refund.amountPence/100,confirmedAmount:(refund.parts?refund.parts.filter(p=>p.status==="succeeded").reduce((sum,p)=>sum+p.amountPence,0):refund.status==="succeeded"?refund.amountPence:0)/100,...(args.admin?{error:row.settlementError??null}:{})}:null,settlement:settlement?{id:settlement._id,status:settlement.status,paymentUrl:settlement.status==="awaiting_payment"&&!settlement.withdrawalRequestedAt?settlement.paymentUrl??null:null}:null,appliedAt:row.appliedAt??null,activeRental:booking.status==="active",expiresAt:row.expiresAt,decidedAt:row.decidedAt??null,source:{title:row.sourceTitle,qty:row.quantity,heroImage:sourceImages[0]??null,imageSources:sourceImages},replacement:{title:row.targetTitle,qty:row.quantity,heroImage:targetImages[0]??null,imageSources:targetImages},start:row.start,end:row.end,pickupTime:row.pickupTime??null,returnTime:row.returnTime??null,originalAmount:row.originalPence/100,replacementAmount:row.replacementPence/100,difference:row.differencePence/100,charge:row.chargePence/100,refund:row.refundPence/100,nonCashDifference:row.nonCashDifferencePence/100,securityCharge:row.securityChargePence/100,holdTotal:row.holdTotalPence/100};
+ return {id:row._id,state:row.state,quoteKey:row.quoteKey,...freshness,...(args.admin?{canApply:row.state==="accepted"&&freshness.current&&equalPriceSwapReady(booking,row),canCloseRefundOnly:row.state==="accepted"&&row.consentVersion==="rental-swap-price-difference-v1"&&booking.activeSwapRefundId===refund?._id&&fullyConfirmedRentalRefund(refund),canWithdrawRefund:row.state==="accepted"&&booking.activeSwapRefundId===refund?._id&&failedRefundHasNoMoney(refund),canStartRefund:row.state==="accepted"&&freshness.current&&refundSwapEligible(booking,row),canStartPayment:row.state==="accepted"&&freshness.current&&paidSwapEligible(booking,row)}:{}),refundOnlyResolution:row.refundOnlyResolution?{reason:row.refundOnlyResolution.reason,closedAt:row.refundOnlyResolution.closedAt,amount:row.refundOnlyResolution.refundedPence/100,securityAtClosure:row.refundOnlyResolution.securityAtClosure?{depositAmount:row.refundOnlyResolution.securityAtClosure.depositPaidPence/100,holdAmount:row.refundOnlyResolution.securityAtClosure.holdPence/100}:null}:null,refundSettlement:refund?{id:refund._id,status:refund.status,amount:refund.amountPence/100,confirmedAmount:(refund.parts?refund.parts.filter(p=>p.status==="succeeded").reduce((sum,p)=>sum+p.amountPence,0):refund.status==="succeeded"?refund.amountPence:0)/100,...(args.admin?{error:row.settlementError??null}:{})}:null,settlement:settlement?{id:settlement._id,status:settlement.status,paymentUrl:settlement.status==="awaiting_payment"&&!settlement.withdrawalRequestedAt?settlement.paymentUrl??null:null}:null,appliedAt:row.appliedAt??null,activeRental:booking.status==="active",expiresAt:row.expiresAt,decidedAt:row.decidedAt??null,source:{title:row.sourceTitle,qty:row.quantity,heroImage:sourceImages[0]??null,imageSources:sourceImages},replacement:{title:row.targetTitle,qty:row.quantity,heroImage:targetImages[0]??null,imageSources:targetImages},start:row.start,end:row.end,pickupTime:row.pickupTime??null,returnTime:row.returnTime??null,originalAmount:row.originalPence/100,replacementAmount:row.replacementPence/100,difference:row.differencePence/100,charge:row.chargePence/100,refund:row.refundPence/100,nonCashDifference:row.nonCashDifferencePence/100,securityCharge:row.securityChargePence/100,holdTotal:row.holdTotalPence/100};
 }});
 
 /** Saving an offer records the exact consent basis; it does not reserve stock or execute money. */
@@ -161,7 +162,9 @@ export const prepareRefundSwap=internalMutation({args:{...scopeArgs,quoteKey:v.s
  if(!row||row.quoteKey!==args.quoteKey)throw Error("This is not the accepted swap proposal.");
  if(row.settlementRefundId){
   const saved=await ctx.db.get(row.settlementRefundId);
-  if(!saved||saved.swapProposalId!==row._id||saved.bookingId!==booking._id||saved.amountPence!==row.refundPence||row.state!=="applied"&&booking.activeSwapRefundId!==saved._id)throw Error("The saved swap refund needs reconciliation.");
+  if(!saved||saved.swapProposalId!==row._id||saved.bookingId!==booking._id||saved.amountPence!==row.refundPence)throw Error("The saved swap refund needs reconciliation.");
+  if(row.refundOnlyResolution)assertRefundOnlyResolution(row,saved);
+  else if(row.state!=="applied"&&booking.activeSwapRefundId!==saved._id)throw Error("The saved swap refund is no longer active.");
   return saved;
  }
  if(row.settlementAdditionId||row.state!=="accepted"||row.consentVersion!=="rental-swap-price-difference-v1"||!refundSwapEligible(booking,row))throw Error("This swap needs a current accepted pre-pickup original-method refund proposal and settled security.");
@@ -179,6 +182,40 @@ export const prepareRefundSwap=internalMutation({args:{...scopeArgs,quoteKey:v.s
  return (await ctx.db.get(refund._id))!;
 }});
 export const finishRefundSwap=internalMutation({args:{id:v.id("rental_refunds")},handler:async(ctx,{id})=>completeRefundSwap(ctx,id)});
+
+/** Owner resolution of an unfulfilled swap after the bank refund is complete.
+ * The refund becomes a recorded price concession on the retained original kit.
+ * This never initiates another charge/refund or changes security. */
+export const closeRefundOnlySwap=mutation({args:{...scopeArgs,quoteKey:v.string(),reason:v.string()},handler:async(ctx,args)=>{
+ await assertAdmin(ctx,args.token,"rentalSwaps.closeRefundOnlySwap");
+ const {booking,request}=await scopedRequest(ctx,args,true),row=await proposalFor(ctx,booking,request);
+ if(!row||row.quoteKey!==args.quoteKey||!row.settlementRefundId)throw Error("Choose the saved refund settlement for this exact proposal.");
+ const refund=await ctx.db.get(row.settlementRefundId),reason=args.reason.trim();
+ if(!refund||refund.bookingId!==booking._id||refund.swapProposalId!==row._id||refund.amountPence!==row.refundPence)throw Error("The refund amount does not match the saved rental proposal.");
+ if(row.refundOnlyResolution){
+  const result=assertRefundOnlyResolution(row,refund);
+  if(reason!==row.refundOnlyResolution.reason)throw Error("The saved resolution reason changed. Resume the recorded decision.");
+  return result;
+ }
+ if(reason.length<5||reason.length>400)throw Error("Record a reason of 5–400 characters; it will be shared with the renter.");
+ if(row.state!=="accepted"||row.consentVersion!=="rental-swap-price-difference-v1"||booking.activeSwapRefundId!==refund._id||!fullyConfirmedRentalRefund(refund))throw Error("Only an unfulfilled swap with a fully confirmed original-method refund can be closed this way.");
+ if(!["confirmed","active"].includes(booking.status)||booking.cancellationDecision||booking.returnDecision||booking.returnedAt||booking.activeAdditionId||booking.activeExtensionId)throw Error("Finish the other rental settlement before closing this swap.");
+ const securityAtClosure={depositPaidPence:Math.round(booking.depositAmount*100),holdPence:Math.round((booking.depositHoldAmount??0)*100)};
+ if(Object.values(securityAtClosure).some(amount=>!Number.isSafeInteger(amount)||amount<0))throw Error("The original refundable security amounts need reconciliation.");
+ const reservations=await ctx.db.query("reservations").withIndex("by_booking",q=>q.eq("bookingId",booking._id)).take(201);
+ if(reservations.length>200)throw Error("The swap stock history needs reconciliation.");
+ const replacement=reservations.filter(r=>r.externalRef===`swap-refund:${refund._id}`);
+ if(replacement.some(r=>r.source!=="site"||r.status==="active"))throw Error("The replacement has a separate handover or platform allocation; record its return before closing the swap.");
+ for(const r of replacement)if(r.status==="confirmed")await ctx.db.patch(r._id,{status:"cancelled"});
+ const now=Date.now();
+ await ctx.db.patch(booking._id,{activeSwapRefundId:undefined});
+ await ctx.db.patch(row._id,{state:"withdrawn",updatedAt:now,settlementError:undefined,refundOnlyResolution:{reason,closedAt:now,refundedPence:refund.amountPence,securityAtClosure,operationKey:`kit-swap-refund-only:${booking._id}:${row._id}:${row.quoteKey}`}});
+ const detail=`The swap was closed and your original kit remains booked. The completed £${(refund.amountPence/100).toFixed(2)} original-method refund is retained. No further payment or security change was made. ${reason}`;
+ await postRentalMessage(ctx,{accountId:row.accountId,bookingId:booking._id,sender:"owner",text:detail,meta:{type:"rental_swap_refund_only_closed",changeRequestId:request._id,swapProposalId:row._id}});
+ await ctx.scheduler.runAfter(0,internal.notify.changeEmail,{bookingId:booking._id,kind:"swap refund resolution",detail});
+ await queueRmv2Sync(ctx,booking._id);
+ return {closed:true,refunded:refund.amountPence/100};
+}});
 /** A bank-confirmed failure with no successful or pending parts can be closed by
  * the owner. Unknown and partly returned money must remain locked for review. */
 export const withdrawFailedRefundSwap=mutation({args:scopeArgs,handler:async(ctx,args)=>{

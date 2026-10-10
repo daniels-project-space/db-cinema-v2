@@ -797,6 +797,7 @@ export default defineSchema({
     settlementAdditionId: v.optional(v.id("rental_additions")),
     settlementRefundId: v.optional(v.id("rental_refunds")),
     settlementError: v.optional(v.string()),
+    refundOnlyResolution: v.optional(v.object({reason:v.string(),closedAt:v.number(),refundedPence:v.number(),operationKey:v.string(),securityAtClosure:v.optional(v.object({depositPaidPence:v.number(),holdPence:v.number()}))})),
     consentVersion: v.optional(v.string()), messageId: v.optional(v.id("messages")), decisionMessageId: v.optional(v.id("messages")),
   }).index("by_request", ["changeRequestId"]).index("by_booking_state", ["bookingId", "state"]),
 
