@@ -1,3 +1,4 @@
+import { accountForRental } from "./rentalAccount";
 /** Rental risk policy, separate from a Collective membership badge. */
 export const VERIFICATION_REUSE_DAYS = 90;
 export function verificationDetail(value: unknown) {
@@ -12,7 +13,7 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
   if (previous === status) return;
   const booking = await ctx.db.get(bookingId);
   if (!booking || !["confirmed", "active"].includes(booking.status)) return;
-  const account = await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", (booking.guestEmail ?? "").trim().toLowerCase())).first();
+  const account = await accountForRental(ctx, booking);
   if (!account) return;
   const text: Record<string, string> = {
     verified: "Your identity and address verification is approved for this rental.",

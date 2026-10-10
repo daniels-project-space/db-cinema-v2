@@ -377,7 +377,7 @@ export const apply = internalMutation({
       await assertRenterExposure(ctx, b, [...b.lineItems, line]);
       await assertRentalInventory(ctx, [...b.lineItems, line], b._id);
     } catch (e) {
-      if (/unavailable|already reserved|Inventory capacity|£15,000|replacement value|overlapping rentals/.test(String(e)))
+      if (/unavailable|already reserved|Inventory capacity|replacement value|overlapping rentals/.test(String(e)))
         return { closed: true };
       throw e;
     }

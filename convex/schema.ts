@@ -405,6 +405,8 @@ export default defineSchema({
     .index("by_stripePaymentIntentId", ["stripePaymentIntentId"])
     .index("by_guestEmail", ["guestEmail"])
     .index("by_guestEmail_status", ["guestEmail", "status"])
+    .index("by_account_status", ["accountId", "status"])
+    .index("by_account_guestEmail_status", ["accountId", "guestEmail", "status"])
     .index("by_person_status", ["renterPersonKey", "status"])
     .index("by_account", ["accountId"])
     .index("by_account_guestEmail", ["accountId", "guestEmail"])

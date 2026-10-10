@@ -288,7 +288,7 @@ export const createPending = internalMutation({
     if (Math.round(chargedTotal * 100) !== Math.round(a.expectedTotalDue * 100))
       throw new Error("Your available credit changed. Review the updated total before paying.");
 
-    const exposure = await assertRenterExposure(ctx, { customerEmail, status: "pending_payment", lineItems: a.lineItems });
+    const exposure = await assertRenterExposure(ctx, { customerEmail, accountId: a.accountId, status: "pending_payment", lineItems: a.lineItems });
     const values = await replacementValues(ctx, { lineItems: a.lineItems });
     const acceptedAt = Date.now();
     const agreementSnapshot = newAgreement ? snapshotAgreement(a, acceptedAt, chargedTotal, creditApplied) : undefined;
@@ -1593,7 +1593,7 @@ export const setDiditResult = internalMutation({
     }
     if (status === "verified") {
       try { await assertRenterExposure(ctx, { ...b, renterPersonKey: personKey ?? b.renterPersonKey }); }
-      catch { status = "manual_review"; note = "Your overlapping equipment allocation needs a team review against the £15,000 per-person limit. Handover remains blocked."; }
+      catch { status = "manual_review"; note = "Your overlapping rentals need a team review before equipment can be released."; }
     }
     const previous = b.idVerifyStatus;
     const verifiedAt = status === "verified" ? (b.idVerifiedAt ?? Date.now()) : undefined;
@@ -1877,8 +1877,8 @@ export const _finalizeCancellation = internalMutation({
 async function revokeReuse(ctx: any, sourceBookingId: any) {
   const source = await ctx.db.get(sourceBookingId);
   if (!source) return;
-  const account = await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", (source.guestEmail ?? "").trim().toLowerCase())).first();
-  if (account?.rentalVerification?.sourceBookingId === sourceBookingId) await ctx.db.patch(account._id, { rentalVerification: undefined, idVerified: false });
+  const account = await accountForRental(ctx, source);
+  if (account && account.rentalVerification?.sourceBookingId === sourceBookingId) await ctx.db.patch(account._id, { rentalVerification: undefined, idVerified: false });
   const reused = await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", sourceBookingId)).collect();
   for (const b of reused) if (["confirmed", "active"].includes(b.status) && b.idVerifyStatus === "verified") {
     await ctx.db.patch(b._id, { idVerifyStatus: "requires_input", verificationExpiresAt: undefined, verificationReusedFrom: undefined, verificationNote: "Your previous verification changed. Please complete a new check before handover." });
@@ -1891,10 +1891,10 @@ export const reuseVerificationCandidate = internalQuery({
   args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.idVerifyStatus !== "required" || b.diditSessionId || !verificationCanStart(b)) return null;
-    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    const account = await accountForRental(ctx, b);
     if (!validReuse(account?.rentalVerification, b)) return null;
     const source = await ctx.db.get(account!.rentalVerification!.sourceBookingId);
-    if (!source?.diditSessionId || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit") return null;
+    if (!source?.diditSessionId || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !belongsToRentalAccount(source, account)) return null;
     try { await assertVerificationArchive(ctx, source); } catch { return null; }
     return { source };
   },
@@ -1905,8 +1905,9 @@ export const applyVerificationReuse = internalMutation({
     const b = await ctx.db.get(bookingId), source = await ctx.db.get(sourceBookingId);
     if (!b || !source || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !verificationCanStart(b)) return false;
     try { await assertVerificationArchive(ctx, source); } catch { return false; }
-    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    const account = await accountForRental(ctx, b);
     const record = account?.rentalVerification;
+    if (!belongsToRentalAccount(source, account) || (personKey && source.renterPersonKey && personKey !== source.renterPersonKey)) return false;
     if (!record || record.sourceBookingId !== sourceBookingId || !validReuse(record, b) || documentExpiresAt <= Date.now() || documentExpiresAt <= Math.min(...b.lineItems.map(li => li.start))) return false;
     await attachRenterPerson(ctx, b, personKey ?? source.renterPersonKey);
     await assertRenterExposure(ctx, { ...b, renterPersonKey: personKey ?? source.renterPersonKey });

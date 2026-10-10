@@ -1,3 +1,5 @@
+import { ConvexError } from "convex/values";
+import { belongsToRentalAccount } from "./rentalAccount";
 import { londonStartOfDay } from "../../src/lib/cancellationPolicy";
 import { peakRentalValue, RENTAL_VALUE_CAP_PENCE, type ValueInterval } from "../../shared/rentalExposure";
 const statuses = ["pending_payment", "confirmed", "active"];
@@ -5,16 +7,23 @@ const BOUND = 200;
 /** Bounded indexed reads; unknown/processing payments keep their allocation until closed. */
 export async function renterValueBookings(ctx: any, renter: any) {
   const email = (renter.guestEmail ?? renter.customerEmail ?? "").trim().toLowerCase();
-  if (!email) throw Error("Rental customer needs a team check.");
-  const account = await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", email)).first();
+  const account = renter.accountId ? await ctx.db.get(renter.accountId) : email ?
+    await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", email)).first() : null;
+  if (renter.accountId && !account) throw Error("The rental account needs a team check.");
+  const legacyEmail = (account?.email ?? email).trim().toLowerCase();
+  if (!legacyEmail && !account) throw Error("Rental customer needs a team check.");
+  if (renter.renterPersonKey && account?.renterPersonKey && renter.renterPersonKey !== account.renterPersonKey)
+    throw Error("Verified identity changed. A team identity review is required before handover.");
   const personKey = renter.renterPersonKey ?? account?.renterPersonKey;
   const groups = await Promise.all(statuses.flatMap(status => [
-    ctx.db.query("bookings").withIndex("by_guestEmail_status", (q: any) => q.eq("guestEmail", email).eq("status", status)).take(BOUND + 1),
+    ...(account ? [ctx.db.query("bookings").withIndex("by_account_status", (q: any) => q.eq("accountId", account._id).eq("status", status)).take(BOUND + 1)] : []),
+    ...(legacyEmail ? [ctx.db.query("bookings").withIndex("by_account_guestEmail_status", (q: any) => q.eq("accountId", undefined).eq("guestEmail", legacyEmail).eq("status", status)).take(BOUND + 1)] : []),
     ...(personKey ? [ctx.db.query("bookings").withIndex("by_person_status", (q: any) => q.eq("renterPersonKey", personKey).eq("status", status)).take(BOUND + 1)] : []),
   ]));
   if (groups.some(rows => rows.length > BOUND)) throw Error("Your overlapping rentals need a team review before another booking.");
-  return { personKey, rows: [...new Map(groups.flat().map((b: any) => [String(b._id), b])).values()] as any[] };
+  return { personKey, account, rows: [...new Map(groups.flat().map((b: any) => [String(b._id), b])).values()] as any[] };
 }
+
 export async function valueIntervals(ctx: any, booking: any, lines = booking.lineItems): Promise<ValueInterval[]> {
   return Promise.all(lines.map(async (line: any) => {
     const listing = await ctx.db.get(line.listingId);
@@ -54,19 +63,25 @@ export async function renterExposure(ctx: any, renter: any, lines = renter.lineI
 }
 export async function assertRenterExposure(ctx: any, renter: any, lines = renter.lineItems) {
   const exposure = await renterExposure(ctx, renter, lines);
-  if (exposure.peakPence > RENTAL_VALUE_CAP_PENCE) throw Error("The £15,000 equipment replacement-value limit per renter would be exceeded across overlapping rentals. Reduce your kit or change the dates before paying.");
+  if (exposure.peakPence > RENTAL_VALUE_CAP_PENCE) throw new ConvexError("Your overlapping rentals need a team review before this booking or change can be confirmed. Please contact DB Cinema Rentals.");
   return exposure;
 }
 
 /** Attach only provider-attested identity to this account's unresolved rental allocations. */
 export async function attachRenterPerson(ctx: any, booking: any, personKey?: string) {
   if (!personKey) return;
-  const { rows } = await renterValueBookings(ctx, booking);
-  const email = (booking.guestEmail ?? "").trim().toLowerCase();
-  const account = await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", email)).first();
-  if ((account?.renterPersonKey && account.renterPersonKey !== personKey) || (booking.renterPersonKey && booking.renterPersonKey !== personKey))
+  const { rows, account } = await renterValueBookings(ctx, booking);
+  const email = (booking.guestEmail ?? booking.customerEmail ?? "").trim().toLowerCase();
+  const owned = rows.filter(row => account ? belongsToRentalAccount(row, account) :
+    !row.accountId && (row.guestEmail ?? "").trim().toLowerCase() === email);
+  if ((account?.renterPersonKey && account.renterPersonKey !== personKey) ||
+      (booking.renterPersonKey && booking.renterPersonKey !== personKey) ||
+      owned.some(row => row.renterPersonKey && row.renterPersonKey !== personKey))
     throw Error("Verified identity changed. A team identity review is required before handover.");
+  // Validate all account-linked evidence before writing any identity. Same-person
+  // records from other accounts count for exposure but are never reassigned here.
   if (account) await ctx.db.patch(account._id, { renterPersonKey: personKey });
   await ctx.db.patch(booking._id, { renterPersonKey: personKey });
-  for (const row of rows) if (row.guestEmail === email && !row.renterPersonKey) await ctx.db.patch(row._id, { renterPersonKey: personKey });
+  for (const row of owned) if (row._id !== booking._id && !row.renterPersonKey)
+    await ctx.db.patch(row._id, { renterPersonKey: personKey });
 }
