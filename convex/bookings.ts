@@ -1442,8 +1442,10 @@ export const verificationAccess = internalQuery({
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
+    const account = await accountForRental(ctx, b);
     return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,
-      idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId,
+      idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId, diditSessionEmail: b.diditSessionEmail,
+      verificationContactEmail: account?.email ?? (b.accountId ? null : b.guestEmail),
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
       documentExpiresAt: b.documentExpiresAt ?? null,
@@ -1478,10 +1480,10 @@ export const diditReconcileCandidates = internalQuery({
     const active = await ctx.db.query("bookings")
       .withIndex("by_verificationProvider_status", (q) => q.eq("verificationProvider", "didit").eq("status", "active")).collect();
     return [...confirmed, ...active]
-      .filter((b) => !!b.diditSessionId && !!b.guestEmail)
+      .filter((b) => !!b.diditSessionId && !!(b.diditSessionEmail ?? b.guestEmail))
       .sort((a, b) => (a.diditReconciledAt ?? 0) - (b.diditReconciledAt ?? 0))
       .slice(0, 50)
-      .map((b) => ({ bookingId: b._id, sessionId: b.diditSessionId!, email: b.guestEmail! }));
+      .map((b) => ({ bookingId: b._id, sessionId: b.diditSessionId!, email: (b.diditSessionEmail ?? b.guestEmail)! }));
   },
 });
 
@@ -1515,15 +1517,23 @@ export const setIdentity = internalMutation({
 
 /** Bind a Didit session to the paid booking before any result can be accepted. */
 export const setDiditSession = internalMutation({
-  args: { bookingId: v.id("bookings"), sessionId: v.string(), previousSessionId: v.optional(v.string()) },
-  handler: async (ctx, { bookingId, sessionId, previousSessionId }) => {
+  args: { bookingId: v.id("bookings"), sessionId: v.string(), previousSessionId: v.optional(v.string()), sessionEmail: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, sessionId, previousSessionId, sessionEmail }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || !["confirmed", "active"].includes(b.status) ||
         !verificationSessionCanOpen(b)) return false;
     if (b.diditSessionId !== previousSessionId && b.diditSessionId !== sessionId) return false;
+    if (b.diditSessionId === sessionId && sessionEmail !== undefined &&
+        sessionEmail !== (b.diditSessionEmail ?? b.guestEmail)) return false;
     if (b.diditSessionId !== sessionId) {
+      if (sessionEmail !== undefined) {
+        const account = await accountForRental(ctx, b);
+        const currentEmail = account?.email ?? (b.accountId ? null : b.guestEmail);
+        if (!currentEmail || currentEmail.trim().toLowerCase() !== sessionEmail) return false;
+      }
       await ctx.db.patch(bookingId, {
         diditSessionId: sessionId,
+        diditSessionEmail: sessionEmail ?? b.guestEmail,
         verificationChecks: undefined,
         idVerifiedAt: undefined,
         verificationExpiresAt: undefined,

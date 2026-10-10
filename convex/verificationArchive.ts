@@ -56,7 +56,7 @@ export async function queueVerificationArchive(ctx: any, booking: any,refresh=fa
     await ctx.scheduler.runAfter(0, internal.verificationArchiveWorker.capture, { archiveId: previous._id });
     return;
   }
-  const archiveId = await ctx.db.insert("verification_archives", { bookingId: booking._id, accountId: account?._id, sessionId: booking.diditSessionId, source:"didit", email: booking.guestEmail ?? account?.email ?? "", status: "pending", attempts: 0, dueAt: Date.now(), createdAt: Date.now() });
+  const archiveId = await ctx.db.insert("verification_archives", { bookingId: booking._id, accountId: account?._id, sessionId: booking.diditSessionId, source:"didit", email: booking.diditSessionEmail ?? booking.guestEmail ?? account?.email ?? "", status: "pending", attempts: 0, dueAt: Date.now(), createdAt: Date.now() });
   await ctx.scheduler.runAfter(0, internal.verificationArchiveWorker.capture, { archiveId });
 }
 /** Private metadata checks subscribe to the real storage objects; no file URLs

@@ -70,7 +70,7 @@ export const bookingSession = action({
       if (!booking || !verificationCanStart(booking) || !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required")) throw Error("The rental changed. Refresh its verification progress.");
     }
     if (booking.diditSessionId) {
-      const existing = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
+      const existing = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.diditSessionEmail ?? booking.guestEmail);
       if (existing.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
       if (["Not Started", "In Progress", "Awaiting User", "Resubmitted"].includes(existing.status)) {
         if (typeof existing.session_url !== "string" || !hostedSessionUrl.test(existing.session_url))
@@ -80,6 +80,11 @@ export const bookingSession = action({
       if (existing.status !== "Expired" && existing.status !== "Abandoned" && !(booking.idVerifyStatus === "verified" && verificationExpired(booking) && existing.status === "Approved"))
         throw new Error("This verification has a decision. Please refresh your rental status.");
     }
+    // Contact belongs to this case; changing an account email must neither
+    // redirect a new workflow to an old address nor invalidate an existing case.
+    const sessionEmail = String(booking.verificationContactEmail ?? (booking.accountId ? "" : booking.guestEmail ?? "")).trim().toLowerCase();
+    if (!sessionEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sessionEmail))
+      throw Error("Please update your account email before starting verification.");
     const nameParts = String(booking.renterName ?? "").trim().split(/\s+/).filter(Boolean);
     const expectedDetails: Record<string, string> = {};
     if (nameParts.length) {
@@ -101,7 +106,7 @@ export const bookingSession = action({
         language: "en",
         expected_details: expectedDetails,
         ...(process.env.APP_URL ? { callback: new URL(`/account/verification/${a.bookingId}${a.checkoutSessionId ? `?session_id=${encodeURIComponent(a.checkoutSessionId)}` : ""}`, process.env.APP_URL).toString(), callback_method: "both" } : {}),
-        contact_details: { email: booking.guestEmail, send_notification_emails: false },
+        contact_details: { email: sessionEmail, send_notification_emails: false },
       }),
     });
     if (!res.ok) throw new Error("Verification could not start. Please try again.");
@@ -111,12 +116,12 @@ export const bookingSession = action({
         !hostedSessionUrl.test(result.url))
       throw new Error("Verification provider returned an invalid session.");
     const saved: boolean = await ctx.runMutation(internal.bookings.setDiditSession, {
-      bookingId: a.bookingId, sessionId: result.session_id, previousSessionId: booking.diditSessionId,
+      bookingId: a.bookingId, sessionId: result.session_id, previousSessionId: booking.diditSessionId, sessionEmail,
     });
     if (!saved) {
       const current: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
       if (current?.diditSessionId && verificationCanStart(current)) {
-        const attached = await retrieveSession(cfg.apiKey, current.diditSessionId, String(a.bookingId), current.guestEmail);
+        const attached = await retrieveSession(cfg.apiKey, current.diditSessionId, String(a.bookingId), current.diditSessionEmail ?? current.guestEmail);
         if (attached.workflow_id === cfg.workflowId && ["Not Started", "In Progress", "Awaiting User", "Resubmitted"].includes(attached.status) && typeof attached.session_url === "string" && hostedSessionUrl.test(attached.session_url)) return { url: attached.session_url };
       }
       throw new Error("The rental changed while verification opened. Refresh its progress before continuing.");
@@ -133,7 +138,7 @@ export const reuseVerification = internalAction({
   if (!candidate) return;
   try {
     const cfg = config();
-    const report = await retrieveSession(cfg.apiKey, candidate.source.diditSessionId, String(candidate.source._id), candidate.source.guestEmail);
+    const report = await retrieveSession(cfg.apiKey, candidate.source.diditSessionId, String(candidate.source._id), candidate.source.diditSessionEmail ?? candidate.source.guestEmail);
     if (report.workflow_id !== cfg.workflowId) return;
     const mapped = mapDecision(report.status, report);
     if (!mapped || mapped.status !== "verified" || !mapped.documentExpiresAt || mapped.documentExpiresAt <= Date.now()) {
@@ -162,7 +167,7 @@ export const adminReview = action({
         !["manual_review", "rejected"].includes(booking.idVerifyStatus))
       throw new Error("Only a paid rental with a completed Didit case can be reviewed here.");
     const cfg = config();
-    const session = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.guestEmail);
+    const session = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.diditSessionEmail ?? booking.guestEmail);
     if (session.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
     if (!["Approved", "Declined", "In Review", "Kyc Expired", "Abandoned", "Resubmitted"].includes(session.status))
       throw new Error("This verification is still in progress or expired; it cannot be manually decided.");
@@ -228,7 +233,7 @@ export const refreshProgress = action({
     const claimed = await ctx.runMutation(internal.bookings.claimDiditProgressRefresh, {bookingId:a.bookingId, sessionId:booking.diditSessionId});
     if (!claimed) return {status: "unchanged"};
     const cfg = config();
-    const report = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
+    const report = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.diditSessionEmail ?? booking.guestEmail);
     if (report.workflow_id !== cfg.workflowId) throw Error("Verification workflow does not match this rental.");
     const mapped = mapDecision(report.status, report);
     if (!mapped) throw Error("Unknown verification status.");

@@ -277,6 +277,7 @@ export default defineSchema({
     replacementValues: v.optional(v.array(v.object({ listingId: v.id("listings"), unitPence: v.number() }))),
     verificationChecks: v.optional(v.object({ identity: v.string(), selfie: v.string(), address: v.string() })),
     diditSessionId: v.optional(v.string()),
+    diditSessionEmail: v.optional(v.string()),
     diditEventId: v.optional(v.string()),
     diditEventAt: v.optional(v.number()),
     diditManualDecisionAt: v.optional(v.number()),
