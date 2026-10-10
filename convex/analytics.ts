@@ -142,11 +142,13 @@ export const adminSummary = query({
       return date(a) - date(b) || a._creationTime - b._creationTime;
     });
     const sourceImages = new Map<string, Promise<string[]>>();
-    const customers = new Map<string, ReturnType<typeof accountForRental>>();
+    const customers = new Map<string, Promise<{ account: Awaited<ReturnType<typeof accountForRental>>; photo: string | null }>>();
     const project = async (b: typeof active[number], index: number) => {
       const customerKey = b.accountId ? `account:${b.accountId}` : `email:${(b.guestEmail ?? "").trim().toLowerCase()}`;
-      if (!customers.has(customerKey)) customers.set(customerKey, accountForRental(ctx, b));
-      const account = await customers.get(customerKey)!;
+      if (!customers.has(customerKey)) customers.set(customerKey, accountForRental(ctx, b).then(async account => ({
+        account, photo: account ? (account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? account.googleAvatarUrl ?? null : null,
+      })));
+      const { account, photo } = await customers.get(customerKey)!;
       const accountNeedsReview = !!b.accountId && !account;
       const starts = b.lineItems.map(line => line.start).filter(Number.isFinite);
       const ends = b.lineItems.map(line => line.end).filter(Number.isFinite);
@@ -167,6 +169,7 @@ export const adminSummary = query({
       return { _id: b._id, guestEmail: account?.email ?? (accountNeedsReview ? "" : b.guestEmail),
         customerName: accountNeedsReview ? "Linked account unavailable" : account?.name ?? b.guestName ?? b.agreementName ?? null,
         accountNeedsReview,
+        customerPhoto: photo,
         status: b.status, verification: b.idVerifyStatus ?? "required", requiresDroneLicence: await requiresDroneLicence(ctx, b), droneVerification: b.droneLicenceStatus ?? null, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
         pickupTime: b.pickupTime ?? null, returnTime, total: b.total,
         items: b.lineItems.map(line => line.title).join(", "), kit, fulfilment: b.fulfilment,
