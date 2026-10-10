@@ -16,17 +16,19 @@ import { formatGbp } from "@/lib/pricing";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
 import { RentalVerificationSummary } from "@/components/rentals/RentalVerificationSummary";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
-export function RentalWorkspace(props:{token:string;bookingId:string;onClose:()=>void;onChat:()=>void}){return <Workspace key={JSON.stringify([props.token,props.bookingId])} {...props}/>;}
+export function RentalWorkspace(props:{token:string;bookingId:string;onClose:()=>void;onChat:()=>void;initialAction?:"change"|"dates"|"discount"|"refund"}){return <Workspace key={JSON.stringify([props.token,props.bookingId,props.initialAction])} {...props}/>;}
 function Workspace({
   token,
   bookingId,
   onClose,
   onChat,
+  initialAction,
 }: {
   token: string;
   bookingId: string;
   onClose: () => void;
   onChat: () => void;
+  initialAction?:"change"|"dates"|"discount"|"refund";
 }) {
   const b = useQuery(api.rentalOperations.details, {
     token,
@@ -37,7 +39,7 @@ function Workspace({
     setIdentity = useMutation(api.bookings.adminSetIdStatus),
     review = useAction(api.didit.adminReview),
     reverify = useMutation(api.bookings.adminRequireReverification);
-  const [chosenSection, setSection] = useState<string|null>(null),
+  const [chosenSection, setSection] = useState<string|null>(initialAction ? "order" : null),
     [note, setNote] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
@@ -180,7 +182,7 @@ function Workspace({
             )}
           </div>
           <div>
-            <RentalOrderTools token={token} bookingId={bookingId} showReturn={false} />
+            <RentalOrderTools token={token} bookingId={bookingId} showReturn={false} initialMode={initialAction==="change"?"add":initialAction==="dates"?"reschedule":initialAction?"refund":undefined} />
           </div>
         </div>
       )}

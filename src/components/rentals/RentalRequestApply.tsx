@@ -12,11 +12,11 @@ import styles from "./RentalRequestApply.module.css";
 
 const DAY=86400000;
 const date=(at:number)=>new Date(at).toLocaleDateString("en-GB",{timeZone:"UTC",day:"numeric",month:"short",year:"numeric"});
-type Props={token:string;bookingId:string;id?:string;label?:string;kind:"dates"|"cancel";decisionNote?:string;disabled?:boolean};
+type Props={token:string;bookingId:string;id?:string;label?:string;kind:"dates"|"cancel";decisionNote?:string;disabled?:boolean;initialOpen?:boolean};
 type Preview={kind:"full_refund"|"store_credit";refundAmount:number;creditAmount:number;holdReleaseAmount:number;checkedAt:number};
-export function RentalRequestApply(props:Props){return <RequestApply key={JSON.stringify([props.token,props.bookingId,props.id,props.kind])} {...props}/>;}
-function RequestApply({token,bookingId,id,label,kind,decisionNote,disabled=false}:Props){
-  const [open,setOpen]=useState(false),[start,setStart]=useState(""),[end,setEnd]=useState(""),[keepPrice,setKeepPrice]=useState(false),[consent,setConsent]=useState(false);
+export function RentalRequestApply(props:Props){return <RequestApply key={JSON.stringify([props.token,props.bookingId,props.id,props.kind,props.initialOpen])} {...props}/>;}
+function RequestApply({token,bookingId,id,label,kind,decisionNote,disabled=false,initialOpen=false}:Props){
+  const [open,setOpen]=useState(initialOpen&&!disabled),[start,setStart]=useState(""),[end,setEnd]=useState(""),[keepPrice,setKeepPrice]=useState(false),[consent,setConsent]=useState(false);
   const [reason,setReason]=useState((decisionNote??"Apply the agreed customer request.").slice(0,400)),[busy,setBusy]=useState(false),[error,setError]=useState(""),[refreshKey,setRefreshKey]=useState(0);
   const [pickupTime,setPickupTime]=useState(""),[returnTime,setReturnTime]=useState("");
   const [preview,setPreview]=useState<Preview|null>(null),[previewError,setPreviewError]=useState("");

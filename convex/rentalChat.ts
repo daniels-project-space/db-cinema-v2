@@ -6,6 +6,7 @@ import { mergedStream, stream } from "convex-helpers/server/stream";
 import schema from "./schema";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { listingImages } from "./lib/catalogImages";
+import { listingAvailability } from "./availability";
 import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
 import { acknowledgeOwnerNotifications } from "./lib/adminPush";
 import { accountForRental, belongsToRentalAccount, rentalsForAccount } from "./lib/rentalAccount";
@@ -27,18 +28,35 @@ async function ownerAccount(ctx: any, bookingId?: any, accountId?: any) {
   }
   return accountId ? ctx.db.get(accountId) : null;
 }
-async function bookingView(ctx: any, b: any, account: any) {
+async function bookingView(ctx: any, b: any, account: any, options: { includeAvailability?: boolean; thread?: any } = {}) {
   let verificationArchiveReady = false;
   if (b.idVerifyStatus === "verified") { try { await assertVerificationArchive(ctx, b); verificationArchiveReady = true; } catch {} }
-  const thread = account ? await rentalThread(ctx, account._id, b._id) : null;
+  const thread = options.thread ?? (account ? await rentalThread(ctx, account._id, b._id) : null);
   const items = await Promise.all(
     bookingStockLines(b).map(async (li: any) => {
       const l = await ctx.db.get(li.listingId);
+      const stock = options.includeAvailability && l
+        ? await listingAvailability(ctx, {
+            listingId: li.listingId,
+            start: li.start,
+            end: li.end,
+            pickupTime: li.pickupTime,
+            returnTime: li.returnTime,
+            excludeBookingId: String(b._id),
+          })
+        : null;
       return {
         ...li,
         heroImage: listingImages(l)[0] ?? null,
         imageSources: listingImages(l),
         slug: l?.slug ?? null,
+        stockAvailability: stock ? {
+          availableUnits: stock.available,
+          ownedUnits: stock.owned,
+          requestedQty: li.qty,
+          available: stock.available >= li.qty,
+          blocked: !!stock.blocked,
+        } : null,
       };
     }),
   );
@@ -60,6 +78,12 @@ async function bookingView(ctx: any, b: any, account: any) {
     returnChecking: !!b.returnDecision && b.status !== "returned",
     guestEmail: account?.email ?? b.guestEmail,
     name: account?.name ?? null,
+    verifiedRenterEmail: account?.emailVerifiedAt && typeof account.email === "string"
+      ? account.email.trim().toLowerCase()
+      : null,
+    renterPhoto: account
+      ? ((account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? account.googleAvatarUrl ?? null)
+      : null,
     start: Math.min(...items.map((li: any) => li.start)),
     end: Math.max(...items.map((li: any) => li.end)),
     total: b.total,
@@ -87,13 +111,37 @@ export const adminInbox = query({
   handler: async (ctx, { token }) => {
     if (!checkAdminToken(token)) return { authorized: false, items: [] };
     const bookings = await ctx.db.query("bookings").order("desc").take(200);
-    const items = await Promise.all(
-      bookings.map(async (b) => {
-        const a = await accountForRental(ctx,b);
-        return bookingView(ctx, b, a);
-      }),
-    );
+    const conversations = await Promise.all(bookings.map(async (b) => {
+      const account = await accountForRental(ctx, b);
+      const thread = account ? await rentalThread(ctx, account._id, b._id) : null;
+      return { booking: b, account, thread };
+    }));
+    const active = conversations
+      .filter(({ thread }) => typeof thread?.lastMessage === "string" && thread.lastMessage.trim().length > 0)
+      .sort((a, b) => (b.thread?.updatedAt ?? b.booking._creationTime) - (a.thread?.updatedAt ?? a.booking._creationTime))
+      .slice(0, 100);
+    const items = await Promise.all(active.map(({ booking, account, thread }) =>
+      bookingView(ctx, booking, account, { includeAvailability: true, thread }),
+    ));
     return { authorized: true, items };
+  },
+});
+
+/** Private identity bridge for owner-only trust lookup in Rental Manager.
+ *  Only verified DB Cinema emails are eligible for an exact cross-platform match. */
+export const adminRenterIdentity = query({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }) => {
+    if (!checkAdminToken(token)) return { authorized: false, email: null };
+    const booking = await ctx.db.get(bookingId);
+    if (!booking) return { authorized: true, email: null };
+    const account = await accountForRental(ctx, booking);
+    return {
+      authorized: true,
+      email: account?.emailVerifiedAt && typeof account.email === "string"
+        ? account.email.trim().toLowerCase()
+        : null,
+    };
   },
 });
 export const messages = query({

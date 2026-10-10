@@ -34,11 +34,19 @@ export default function AdminPage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
   const [conversationNavigation, setConversationNavigation] = useState(0);
+  const [rentalAction,setRentalAction]=useState<"change"|"dates"|"discount"|"refund"|undefined>(undefined);
   const [detailId, setDetailId] = useState<string | null>(null);
 
   useEffect(() => {
     setToken(localStorage.getItem("dbc_admin"));
     const open = (href: string) => {
+      const url=new URL(href,window.location.origin);
+      const rental=url.searchParams.get("rental");
+      if(url.origin===window.location.origin && rental && /^[a-zA-Z0-9_-]{8,100}$/.test(rental)){
+        const action=url.searchParams.get("action");
+        setRentalAction(["change","dates","discount","refund"].includes(action??"")?action as "change"|"dates"|"discount"|"refund":undefined);
+        setDetailId(rental);setTab("bookings");return;
+      }
       const route = parseOwnerConversationUrl(href, window.location.origin);
       if (!route?.openMessages) return;
       setConversationId(route.bookingId);
@@ -172,6 +180,7 @@ export default function AdminPage() {
             key={detailId}
             token={token}
             bookingId={detailId}
+            initialAction={rentalAction}
             onClose={() => setDetailId(null)}
             onChat={() => {
               setConversationId(detailId);

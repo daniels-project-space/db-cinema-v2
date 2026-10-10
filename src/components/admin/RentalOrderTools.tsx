@@ -16,20 +16,22 @@ import { RentalKitProposalStatus } from "./RentalKitProposalStatus";
 import { RentalKitProposal } from "./RentalKitProposal";
 import { RentalRequestHistory } from "@/components/rentals/RentalRequestHistory";
 
-export function RentalOrderTools(props:{token:string;bookingId:string;showReturn?:boolean}) {
-  return <OrderTools key={JSON.stringify([props.token,props.bookingId,props.showReturn??true])} {...props}/>;
+export function RentalOrderTools(props:{token:string;bookingId:string;showReturn?:boolean;initialMode?:"reschedule"|"refund"|"add"}) {
+  return <OrderTools key={JSON.stringify([props.token,props.bookingId,props.showReturn??true,props.initialMode])} {...props}/>;
 }
 function OrderTools({
   token,
   bookingId,
   showReturn = true,
+  initialMode,
 }: {
   token: string;
   bookingId: string;
   /** Return settlement belongs in the rental conversation, where the customer record is visible. */
   showReturn?: boolean;
+  initialMode?:"reschedule"|"refund"|"add";
 }) {
-  const [kitOpen,setKitOpen]=useState(false);
+  const [kitOpen,setKitOpen]=useState(initialMode === "add");
   const b = useQuery(api.rentalOperations.details, {
     token,
     bookingId: bookingId as any,
@@ -49,7 +51,7 @@ function OrderTools({
     refund = useAction(api.checkout.refundRental);
   const [mode, setMode] = useState<
       "refund" | "remove" | null
-    >(null),
+    >(initialMode === "refund" ? "refund" : null),
     [reason, setReason] = useState(""),
     [amount, setAmount] = useState("");
   const [removeIndex, setRemoveIndex] = useState<number | null>(null);
@@ -207,7 +209,7 @@ function OrderTools({
             Add items
           </button>
         )}
-        {b.status === "confirmed" && <RentalRequestApply token={token} bookingId={bookingId} kind="dates" label="Change dates / reschedule" decisionNote="Update the agreed rental dates." disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || !!(b.activeAdditionId || b.activeExtensionId)} />}
+        {b.status === "confirmed" && <RentalRequestApply token={token} bookingId={bookingId} kind="dates" initialOpen={initialMode === "reschedule"} label="Change dates / reschedule" decisionNote="Update the agreed rental dates." disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || !!(b.activeAdditionId || b.activeExtensionId)} />}
         {["confirmed", "pending_payment"].includes(b.status) && <RentalRequestApply token={token} bookingId={bookingId} kind="cancel" label={b.cancellationDecision ? "Resume cancellation" : "Cancel rental"} decisionNote="Cancel the rental under the agreed terms." disabled={busy || !!b.returnDecision || !!processing || !!(b.activeAdditionId || b.activeExtensionId)} />}
         {["confirmed", "active"].includes(b.status) &&
           b.stripePaymentIntentId && (
