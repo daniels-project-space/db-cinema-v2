@@ -66,7 +66,7 @@ function signed(event) {
     },
   };
   let result;
-  const ctx = { runMutation: async (ref, args) => { assert.equal(ref, 'bookings:setDiditResult'); result = args; return true; } };
+  const ctx = { runQuery:async()=>({verificationProvider:"didit",diditSessionId:"session-1"}), runMutation: async (ref, args) => { assert.equal(ref, 'bookings:setDiditResult'); result = args; return true; } };
   assert.equal(await webhook.handler(ctx, signed(event)), true);
   assert.equal(result.status, 'verified');
   assert.deepEqual(result.poaPostcodes, ['SW1A 1AA']);

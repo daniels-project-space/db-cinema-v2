@@ -18,8 +18,23 @@ const actionCtx = {
   await didit.bookingSession.handler(actionCtx,{bookingId:b._id,accountToken:'owner'});
   assert.equal(body.contact_details.email,owner.email,'new provider case must use permanent owner current email, not a reused old booking address');
   assert.equal(b.diditSessionEmail,owner.email,'provider contact must be persisted with the case');
+  assert.equal(b.diditWorkflowId,'workflow-contact','provider workflow is bound to the case');
   assert.equal(body.contact_details.send_notification_emails,false);
   owner.email='later@example.invalid';
+  process.env.DIDIT_WORKFLOW_ID='workflow-next';
+  const {createHmac}=require('node:crypto');
+  const sort=value=>Array.isArray(value)?value.map(sort):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,sort(value[k])])):value;
+  const signed=event=>({body:JSON.stringify(event),timestamp:String(event.timestamp),signature:createHmac('sha256',process.env.DIDIT_WEBHOOK_SECRET).update(JSON.stringify(sort(event))).digest('hex')});
+  const now=Math.floor(Date.now()/1000);
+  const event={event_id:'case-workflow-event',webhook_type:'status.updated',timestamp:now,created_at:now,application_id:'unused',environment:'sandbox',workflow_id:'workflow-contact',session_id:b.diditSessionId,vendor_data:'dbc-booking-'+b._id,status:'In Progress',decision:{status:'In Progress'}};
+  let writes=0;
+  const webhookCtx={...actionCtx,runMutation:async(ref,args)=>{assert.equal(ref,'bookings.setDiditResult');writes++;return bookings.setDiditResult.handler(ctx,args);}};
+  assert.equal(await didit.webhook.handler(webhookCtx,signed(event)),true,'signed original workflow callback works after configured workflow changes');
+  assert.equal(writes,1);
+  for(const changed of [{workflow_id:'workflow-next'},{environment:'live'},{application_id:'another-app'},{session_id:'foreign-session'}]) {
+   assert.equal(await didit.webhook.handler(webhookCtx,signed({...event,...changed})),false);
+   assert.equal(writes,1,'wrong workflow/environment/application/session cannot mutate verification');
+  }
   const report={session_id:b.diditSessionId,workflow_id:'workflow-contact',session_kind:'user',vendor_data:'dbc-booking-'+b._id,contact_details:{email:'current@example.invalid'},status:'In Progress',session_url:'https://verify.didit.me/session/contact-session-1'};
   global.fetch=async()=>({ok:true,json:async()=>report});
   assert.equal((await didit.bookingSession.handler(actionCtx,{bookingId:b._id,accountToken:'owner'})).url,report.session_url,'reopening validates immutable provider contact despite another account email change');
@@ -27,7 +42,7 @@ const actionCtx = {
   assert.equal(access.verificationContactEmail,owner.email);
   assert.equal(access.diditSessionEmail,'current@example.invalid');
   const refreshCtx={...actionCtx,runMutation:async(ref,args)=>ref==='bookings.claimDiditProgressRefresh'?bookings.claimDiditProgressRefresh.handler(ctx,args):true};
-  assert.equal((await didit.refreshProgress.handler(refreshCtx,{bookingId:b._id,accountToken:'owner'})).status,'updated','live progress validates the case contact, not current account or old booking email');
+  assert.equal((await didit.refreshProgress.handler(refreshCtx,{bookingId:b._id,accountToken:'owner'})).status,'unchanged','live progress validates the original workflow/contact and preserves the already applied callback');
   report.contact_details.email=owner.email;
   b.diditReconciledAt=0;
   await assert.rejects(didit.refreshProgress.handler(refreshCtx,{bookingId:b._id,accountToken:'owner'}),/does not match/);
@@ -40,17 +55,20 @@ const actionCtx = {
   b.guestEmail=undefined;
   const candidates=await bookings.diditReconcileCandidates.handler(ctx,{});
   assert.equal(candidates.find(c=>c.bookingId===b._id).email,'current@example.invalid','account-bound case remains recoverable without a legacy guest email');
+  assert.equal(candidates.find(c=>c.bookingId===b._id).workflowId,'workflow-contact');
   const old=h.put('bookings',{guestEmail:'legacy@example.invalid',status:'confirmed',verificationProvider:'didit',diditSessionId:'legacy-session-1'});
   assert.equal((await bookings.diditReconcileCandidates.handler(ctx,{})).find(c=>c.bookingId===old._id).email,old.guestEmail,'existing cases retain legacy contact');
   assert.equal(await bookings.setDiditSession.handler(ctx,{bookingId:b._id,sessionId:b.diditSessionId,previousSessionId:b.diditSessionId,sessionEmail:owner.email}),false,'retries cannot rewrite immutable session contact');
+  assert.equal(await bookings.setDiditSession.handler(ctx,{bookingId:b._id,sessionId:b.diditSessionId,previousSessionId:b.diditSessionId,sessionWorkflowId:'workflow-next'}),false,'retries cannot replace the original case workflow');
   assert.equal(await bookings.setDiditSession.handler(ctx,{bookingId:b._id,sessionId:'replacement-session',previousSessionId:b.diditSessionId,sessionEmail:'current@example.invalid'}),false,'account email changes during provider creation reject stale contact transactionally');
   assert.equal(b.diditSessionId,'contact-session-1');
   b.idVerifyStatus='requires_input';
   report.status='Expired';
-  global.fetch=async(_url,options)=>options?.method==='POST'?{ok:true,json:async()=>{body=JSON.parse(options.body);return {session_id:'contact-session-2',workflow_id:'workflow-contact',url:'https://verify.didit.me/session/contact-session-2'};}}:{ok:true,json:async()=>report};
+  global.fetch=async(_url,options)=>options?.method==='POST'?{ok:true,json:async()=>{body=JSON.parse(options.body);return {session_id:'contact-session-2',workflow_id:'workflow-next',url:'https://verify.didit.me/session/contact-session-2'};}}:{ok:true,json:async()=>report};
   await didit.bookingSession.handler(actionCtx,{bookingId:b._id,accountToken:'owner'});
   assert.equal(body.contact_details.email,owner.email,'renewal uses latest permanent owner contact');
   assert.equal(b.diditSessionEmail,owner.email);assert.equal(b.diditSessionId,'contact-session-2');
+  assert.equal(b.diditWorkflowId,'workflow-next');assert.equal(archive.workflowId,'workflow-contact','retained old archive keeps its workflow');
   assert.equal(archive.email,'current@example.invalid','old retained archive keeps its original case contact');
   const missing=h.put('bookings',{accountId:'accounts-missing',guestEmail:foreign.email,status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required',depositHoldAmount:0});
   assert.equal((await bookings.verificationAccess.handler(ctx,{bookingId:missing._id})).verificationContactEmail,null);

@@ -37,7 +37,7 @@ export default defineSchema({
     details: v.string(), status: v.union(v.literal("open"), v.literal("closed")),
     openedAt: v.number(), closedAt: v.optional(v.number()), resolution: v.optional(v.string()),
   }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]),
-  verification_archives: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), email: v.string(), source: v.optional(v.union(v.literal("didit"),v.literal("drone"))), status: v.string(), attempts: v.number(), dueAt: v.number(), createdAt: v.number(), completedAt: v.optional(v.number()), error: v.optional(v.string()), retentionHoldReason: v.optional(v.string()), deletedAt: v.optional(v.number()),generation:v.optional(v.number()),leaseUntil:v.optional(v.number()) }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]).index("by_status_due", ["status", "dueAt"]),
+  verification_archives: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), workflowId: v.optional(v.string()), email: v.string(), source: v.optional(v.union(v.literal("didit"),v.literal("drone"))), status: v.string(), attempts: v.number(), dueAt: v.number(), createdAt: v.number(), completedAt: v.optional(v.number()), error: v.optional(v.string()), retentionHoldReason: v.optional(v.string()), deletedAt: v.optional(v.number()),generation:v.optional(v.number()),leaseUntil:v.optional(v.number()) }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]).index("by_status_due", ["status", "dueAt"]),
   verification_documents: defineTable({ archiveId: v.id("verification_archives"), bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), kind: v.string(), storageId: v.id("_storage"), sha256: v.string(), size: v.number(), contentType: v.string(), savedAt: v.number() }).index("by_archive", ["archiveId"]).index("by_account", ["accountId"]),
   // ── Layer 1: physical stock (quantity truth) ──────────────────
   inventory_units: defineTable({
@@ -278,6 +278,7 @@ export default defineSchema({
     verificationChecks: v.optional(v.object({ identity: v.string(), selfie: v.string(), address: v.string() })),
     diditSessionId: v.optional(v.string()),
     diditSessionEmail: v.optional(v.string()),
+    diditWorkflowId: v.optional(v.string()),
     diditEventId: v.optional(v.string()),
     diditEventAt: v.optional(v.number()),
     diditManualDecisionAt: v.optional(v.number()),

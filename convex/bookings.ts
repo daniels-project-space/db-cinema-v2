@@ -1444,7 +1444,7 @@ export const verificationAccess = internalQuery({
     const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
     const account = await accountForRental(ctx, b);
     return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,
-      idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId, diditSessionEmail: b.diditSessionEmail,
+      idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId, diditSessionEmail: b.diditSessionEmail, diditWorkflowId: b.diditWorkflowId,
       verificationContactEmail: account?.email ?? (b.accountId ? null : b.guestEmail),
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
@@ -1483,7 +1483,7 @@ export const diditReconcileCandidates = internalQuery({
       .filter((b) => !!b.diditSessionId && !!(b.diditSessionEmail ?? b.guestEmail))
       .sort((a, b) => (a.diditReconciledAt ?? 0) - (b.diditReconciledAt ?? 0))
       .slice(0, 50)
-      .map((b) => ({ bookingId: b._id, sessionId: b.diditSessionId!, email: (b.diditSessionEmail ?? b.guestEmail)! }));
+      .map((b) => ({ bookingId: b._id, sessionId: b.diditSessionId!, workflowId: b.diditWorkflowId, email: (b.diditSessionEmail ?? b.guestEmail)! }));
   },
 });
 
@@ -1517,14 +1517,15 @@ export const setIdentity = internalMutation({
 
 /** Bind a Didit session to the paid booking before any result can be accepted. */
 export const setDiditSession = internalMutation({
-  args: { bookingId: v.id("bookings"), sessionId: v.string(), previousSessionId: v.optional(v.string()), sessionEmail: v.optional(v.string()) },
-  handler: async (ctx, { bookingId, sessionId, previousSessionId, sessionEmail }) => {
+  args: { bookingId: v.id("bookings"), sessionId: v.string(), previousSessionId: v.optional(v.string()), sessionEmail: v.optional(v.string()), sessionWorkflowId: v.optional(v.string()) },
+  handler: async (ctx, { bookingId, sessionId, previousSessionId, sessionEmail, sessionWorkflowId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || !["confirmed", "active"].includes(b.status) ||
         !verificationSessionCanOpen(b)) return false;
     if (b.diditSessionId !== previousSessionId && b.diditSessionId !== sessionId) return false;
     if (b.diditSessionId === sessionId && sessionEmail !== undefined &&
         sessionEmail !== (b.diditSessionEmail ?? b.guestEmail)) return false;
+    if (b.diditSessionId === sessionId && b.diditWorkflowId && sessionWorkflowId !== undefined && sessionWorkflowId !== b.diditWorkflowId) return false;
     if (b.diditSessionId !== sessionId) {
       if (sessionEmail !== undefined) {
         const account = await accountForRental(ctx, b);
@@ -1534,6 +1535,7 @@ export const setDiditSession = internalMutation({
       await ctx.db.patch(bookingId, {
         diditSessionId: sessionId,
         diditSessionEmail: sessionEmail ?? b.guestEmail,
+        diditWorkflowId: sessionWorkflowId,
         verificationChecks: undefined,
         idVerifiedAt: undefined,
         verificationExpiresAt: undefined,

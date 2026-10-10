@@ -15,7 +15,7 @@ async function run(options = {}) {
   const booking = put('bookings', { status: 'confirmed',diditSessionId:'fixture-session' });
   const job = put('verification_archives', {
     bookingId: booking._id, sessionId: 'fixture-session', email: 'fixture@example.invalid',
-    status: 'pending', attempts: 0, dueAt: Date.now(), createdAt: Date.now(),
+    status: 'pending', attempts: 0, dueAt: Date.now(), createdAt: Date.now(), ...options.archive,
   });
   const stored = new Map(), removed = [], requests = [];
   const report = {
@@ -56,6 +56,12 @@ async function run(options = {}) {
   return { job,booking, documents, stored, removed, requests,ctx,mutationCtx,report };
 }
 (async () => {
+  const oldWorkflow=await run({archive:{workflowId:'original-case-workflow'},report:{workflow_id:'original-case-workflow'}});
+  assert.equal(oldWorkflow.job.status,'complete','old provider workflow remains valid after configuration changes');
+  assert.equal(oldWorkflow.documents.length,2);
+  const changedWorkflow=await run({archive:{workflowId:'original-case-workflow'}});
+  assert.equal(changedWorkflow.job.status,'pending','current workflow cannot replace an archive’s original case identity');
+  assert.equal(changedWorkflow.documents.length,0);
   const good = await run();
   assert.equal(good.job.status, 'complete'); assert.equal(good.documents.length, 2);
   for (const d of good.documents) assert.equal(sha(Buffer.from(await good.stored.get(d.storageId).arrayBuffer())), d.sha256);

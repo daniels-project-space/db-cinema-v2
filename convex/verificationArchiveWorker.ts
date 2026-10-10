@@ -33,7 +33,7 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
     const response = await fetch(`https://verification.didit.me/v3/session/${archive.sessionId}/decision/`, { headers: { "x-api-key": key }, signal: AbortSignal.timeout(20000) });
     if (!response.ok) throw Error("Provider decision unavailable");
     const report = await response.json();
-    if (report.session_id !== archive.sessionId || report.vendor_data !== `dbc-booking-${archive.bookingId}` || report.contact_details?.email?.trim().toLowerCase() !== archive.email.trim().toLowerCase() || report.workflow_id !== process.env.DIDIT_WORKFLOW_ID || report.session_kind !== "user") throw Error("Verification case mismatch");
+    if (report.session_id !== archive.sessionId || report.vendor_data !== `dbc-booking-${archive.bookingId}` || report.contact_details?.email?.trim().toLowerCase() !== archive.email.trim().toLowerCase() || report.workflow_id !== (archive.workflowId ?? process.env.DIDIT_WORKFLOW_ID) || report.session_kind !== "user") throw Error("Verification case mismatch");
     const media = documentMedia(report);
     if (media.length > 30) throw Error("Too many provider documents");
     async function saveFile(file:{kind:string;url:string}) {

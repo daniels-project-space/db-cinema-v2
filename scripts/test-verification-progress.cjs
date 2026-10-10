@@ -84,7 +84,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}}};
  const event={event_id:'identity-progress-1',webhook_type:'status.updated',timestamp:now,created_at:now,application_id:'app',environment:'sandbox',workflow_id:'workflow',session_id:'session-progress',vendor_data:'dbc-booking-'+b._id,status:'Approved',decision:{status:'Approved',id_verifications:[{status:'Approved',full_name:'Alex Example',date_of_birth:'1990-01-01'}],liveness_checks:[{status:'Approved'}],face_matches:[{status:'Approved'}],poa_verifications:[{status:'Approved',poa_parsed_address:{postal_code:'WC2H 7ER'}}]}};
  const canonical=v=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
  const signed=e=>({body:JSON.stringify(e),signature:createHmac('sha256',process.env.DIDIT_WEBHOOK_SECRET).update(JSON.stringify(canonical(e))).digest('hex'),timestamp:String(e.timestamp)});
- const webCtx={runMutation:async(ref,args)=>{assert.equal(ref,'bookings.setDiditResult');return bookings.setDiditResult.handler(ctx,args)}};
+ const webCtx={runQuery:async(ref,args)=>bookings.verificationAccess.handler(ctx,args),runMutation:async(ref,args)=>{assert.equal(ref,'bookings.setDiditResult');return bookings.setDiditResult.handler(ctx,args)}};
  assert.equal(await didit.webhook.handler(webCtx,signed(event)),true);assert.equal(b.idVerifyStatus,'verified');assert.match(b.renterPersonKey,/^[a-f0-9]{64}$/);assert(!b.renterPersonKey.includes('1990'));assert.deepEqual(b.verificationChecks,{identity:'approved',selfie:'approved',address:'approved'});
  const mine=load('convex/accounts.ts').myBookings;
  let ownSummary=(await mine.handler(ctx,{token:'own'})).find(row=>row._id===b._id);
