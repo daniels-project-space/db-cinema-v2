@@ -814,6 +814,33 @@ function assertReturnRefund(refund:Stripe.Refund,job:any,allocation:any){
   throw Error("The deposit refund does not match its frozen original payment allocation.");
 }
 
+/** Review reads current receipts without settling, notifying or creating money. */
+async function observeReturnRefundProgress(job:any){
+ let confirmed=0,processing=0,unobserved=0,failed=false;
+ for(const allocation of job.allocations){
+  let refund:Stripe.Refund|undefined;
+  if(allocation.stripeRefundId){
+   refund=await stripe().refunds.retrieve(allocation.stripeRefundId);
+   if(refund.id!==allocation.stripeRefundId)throw Error("Deposit refund identity mismatch.");
+  }else{
+   let count=0;
+   for await(const receipt of stripe().refunds.list({payment_intent:allocation.paymentIntentId,limit:100})){
+    if(++count>1000)throw Error("The original security payment history needs review.");
+    if(receipt.metadata?.returnSecurityId!==job._id)continue;
+    assertReturnRefund(receipt,job,allocation);
+    if(refund)throw Error("Multiple deposit refunds match the frozen payment allocation.");
+    refund=receipt;
+   }
+  }
+  if(!refund){unobserved+=allocation.amountPence;continue;}
+  assertReturnRefund(refund,job,allocation);
+  if(refund.status==="succeeded")confirmed+=refund.amount;
+  else if(["failed","canceled"].includes(refund.status??""))failed=true;
+  else processing+=refund.amount;
+ }
+ return {status:confirmed===job.amountPence?"succeeded":unobserved?"prepared":processing?"pending":failed?"failed":"prepared",expected:job.amountPence/100,confirmed:confirmed/100,processing:processing/100,unobserved:unobserved/100,checkedAt:Date.now(),...(job.error?{error:job.error}:{})};
+}
+
 /** Recover an existing provider request before creating money, even after the
  * provider's idempotency-key retention period. Callbacks never create refunds. */
 async function settleReturnRefunds(ctx:any,job:any,create:boolean){
@@ -914,9 +941,9 @@ export const previewReturned = action({
     if (pdf.length > 1_000_000 || pdf.subarray(0, 5).toString() !== "%PDF-") throw Error("The return statement preview did not produce a valid PDF");
     const current: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId: args.bookingId });
     const refundJob:any=await ctx.runQuery(internal.returnSecurity.context,{bookingId:args.bookingId});
-    const refundProgress=refundJob?{status:refundJob.status,expected:refundJob.amountPence/100,confirmed:refundJob.allocations.filter((a:any)=>a.status==="succeeded").reduce((n:number,a:any)=>n+a.amountPence,0)/100,processing:refundJob.allocations.filter((a:any)=>a.status==="pending").reduce((n:number,a:any)=>n+a.amountPence,0)/100,...(refundJob.error?{error:refundJob.error}:{})}:null;
+    const refundProgress=refundJob?await observeReturnRefundProgress(refundJob):null;
     const email = returnStatementEmail({...statement, customerEmail:current?.notificationEmail ?? ""}, draft);
-    return { draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement&&(!refundJob||refundJob.status==="succeeded"), securityAlreadySettled: !!b.depositRefunded, refundProgress,financial: { ...plan,...(refundJob?{depositRefund:refundJob.amountPence/100}:{}), holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email, pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
+    return { draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement&&(!refundProgress||refundProgress.status==="succeeded"), securityAlreadySettled: refundProgress?refundProgress.status==="succeeded":!!b.depositRefunded, refundProgress,financial: { ...plan,...(refundJob?{depositRefund:refundJob.amountPence/100}:{}), holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email, pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
   },
 });
 

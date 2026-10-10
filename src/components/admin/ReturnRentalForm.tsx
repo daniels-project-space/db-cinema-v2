@@ -67,7 +67,7 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
   const reviewData = reviewed?.key === decisionKey ? reviewed.data : null;
   async function inspectReview() {
     if (!valid || reviewBusy || working) return;
-    setReviewBusy(true); setError(null);
+    setReviewBusy(true); setError(null); setReviewed(null);
     try { const data = await review(selection); if (alive.current) setReviewed({ key: decisionKey, data }); }
     catch (e: any) { if (alive.current) setError(e?.message ?? "Could not prepare the return statement. No settlement has been executed."); }
     finally { if (alive.current) setReviewBusy(false); }

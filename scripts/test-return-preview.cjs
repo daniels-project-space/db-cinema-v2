@@ -59,5 +59,13 @@ const review=(extra={})=>checkout.previewReturned.handler(ctx,{...args,...extra}
  const returned=await inspections.context.handler({db},{token:process.env.ADMIN_TOKEN,bookingId:b._id});assert.equal(returned.returnStatement.securityRefunded,35.5);assert.equal(returned.returnStatement.damageFromHold,20);
  global.fetch=async(_url,options)=>{const body=JSON.parse(options.body);assert.equal(body.draft,false);return {ok:true,arrayBuffer:async()=>Buffer.from('%PDF-1.7\nfixture')}};
  const eventsBefore=events.length;const issued=await review();assert.equal(issued.draft,false);assert.equal(issued.alreadySettled,true);assert.equal(issued.securityAlreadySettled,true);assert.equal(issued.financial.holdRelease,0);assert.equal(issued.financial.depositRefund,35.5);assert.equal(events.length,eventsBefore);assert.equal((await db.query('rental_damage_cases').collect()).length,1);
+ const ledger=await returnSecurity.context.handler(ctx,{bookingId:b._id}),beforeLive=JSON.stringify({b,ledger}),beforeLiveEvents=events.length;
+ returnRefunds[0].status='failed';
+ const freshFailure=await review();assert.equal(freshFailure.refundProgress.status,'failed');assert.equal(freshFailure.refundProgress.confirmed,0);assert.equal(freshFailure.alreadySettled,false);assert.equal(freshFailure.securityAlreadySettled,false,'saved paid flag cannot override a fresh bank reversal');assert.equal(freshFailure.statement.securityRefunded,35.5,'pure review preserves saved issued evidence');
+ assert.equal(JSON.stringify({b,ledger}),beforeLive,'fresh bank review never commits financial or notification state');assert.equal(events.length,beforeLiveEvents);
+ returnRefunds[0].status='pending';const freshPending=await review();assert.equal(freshPending.refundProgress.processing,35.5);assert.equal(freshPending.refundProgress.confirmed,0);assert.equal(events.length,beforeLiveEvents);
+ returnRefunds[0].status='succeeded';delete ledger.allocations[0].stripeRefundId;const unrecordedBefore=JSON.stringify(ledger);
+ const recoveredPreview=await review();assert.equal(recoveredPreview.refundProgress.confirmed,35.5);assert.equal(JSON.stringify(ledger),unrecordedBefore,'review discovers a lost receipt through original-payment history without saving or recreating it');assert.equal(events.length,beforeLiveEvents);
+ ledger.allocations[0].stripeRefundId=returnRefunds[0].id;
  console.log('PASS actual return review and execution: issuer balances, hold/deposit split, midnight late retention, source ownership, frozen inspection, escaped shared email, private PDF, zero preview finance/email/case writes and matching final partial-hold settlement.');
 })().catch(e=>{console.error(e);process.exitCode=1});
