@@ -18,11 +18,13 @@ export function RentalWorkspace({
   bookingId,
   onClose,
   onChat,
+  initialAction,
 }: {
   token: string;
   bookingId: string;
   onClose: () => void;
   onChat: () => void;
+  initialAction?:"change"|"dates"|"discount"|"refund";
 }) {
   const b = useQuery(api.rentalOperations.details, {
     token,
@@ -170,7 +172,7 @@ export function RentalWorkspace({
             )}
           </div>
           <div>
-            <RentalOrderTools token={token} bookingId={bookingId} showReturn={false} />
+            <RentalOrderTools token={token} bookingId={bookingId} showReturn={false} initialMode={initialAction==="change"?"add":initialAction==="dates"?"reschedule":initialAction?"refund":undefined} />
           </div>
         </div>
       )}
