@@ -48,11 +48,13 @@ export const list = query({
       const validSwap=row.kind==="items"&&selection?.change==="swap"&&linkedSwap?.bookingId===row.bookingId&&linkedSwap.accountId===row.accountId&&linkedSwap.changeRequestId===row._id;
       const selectedEquipment=selection?[...(selection.sourceListingId?[{listingId:selection.sourceListingId,title:selection.sourceTitle??"Requested equipment",qty:selection.quantity,role:"current"}]:[]),...(selection.listingId?[{listingId:selection.listingId,title:selection.additionTitle??"Requested equipment",qty:selection.quantity,role:"requested"}]:[])]:validAddition?[{listingId:linkedAddition!.listingId,title:linkedAddition!.title,qty:linkedAddition!.qty,role:"requested"}]:booking!.lineItems.slice(0,1).map(line=>({listingId:line.listingId,title:line.title,qty:line.qty,role:"current"}));
       const equipment=await Promise.all(selectedEquipment.map(async item=>{const images=await imagesFor(item.listingId);return {...item,heroImage:images[0]??null,imageSources:images};}));
-      return {
+      const linkedSwapRefund=validSwap&&linkedSwap?.settlementRefundId?await ctx.db.get(linkedSwap.settlementRefundId):null;
+    const validSwapRefund=linkedSwapRefund?.bookingId===bookingId&&linkedSwapRefund?.swapProposalId===linkedSwap?._id;
+    return {
       _id: row._id, kind: row.kind, detail: row.detail, createdAt: row.createdAt,
       status: extension ? extension.status === "pending" ? "pending" as const : ["declined", "withdrawn", "expired", "refunded"].includes(extension.status) ? "declined" as const : "approved" as const : row.status ?? "pending", decisionNote: row.decisionNote, decidedAt: row.decidedAt,
       execution: row.execution ? { operation: row.execution.operation, status: row.execution.status, appliedAt: row.execution.appliedAt, detail: row.execution.detail } : undefined,
-      extension,addition,equipment,...(validSwap?{swapProposalId:linkedSwap!._id,swapProposalState:linkedSwap!.state,...(linkedSwap!.refundOnlyResolution?{swapRefundOnly:{reason:linkedSwap!.refundOnlyResolution.reason,closedAt:linkedSwap!.refundOnlyResolution.closedAt,amount:linkedSwap!.refundOnlyResolution.refundedPence/100}}:{})}:{}),...(row.dateSelection?{dateSelection:row.dateSelection}:{}),...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
+      extension,addition,equipment,...(validSwap?{swapProposalId:linkedSwap!._id,swapProposalState:linkedSwap!.state,...(linkedSwap!.refundOnlyResolution?{swapRefundOnly:{reason:linkedSwap!.refundOnlyResolution.reason,closedAt:linkedSwap!.refundOnlyResolution.closedAt,amount:validSwapRefund?(linkedSwapRefund!.parts??[]).filter(p=>p.status==="succeeded").reduce((n,p)=>n+p.amountPence,0)/100:0,agreedAmount:linkedSwap!.refundOnlyResolution.refundedPence/100,needsAttention:!validSwapRefund||linkedSwapRefund!.status!=="succeeded"}}:{})}:{}),...(row.dateSelection?{dateSelection:row.dateSelection}:{}),...(row.kitSelection ? { kitSelection: row.kitSelection } : {}),
     }; })) };
   },
 });

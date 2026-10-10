@@ -306,6 +306,56 @@ export const refundReceipt = internalQuery({
   args: {id:v.id("rental_refunds")},
   handler: async(ctx,{id})=>ctx.db.get(id),
 });
+/** Fence current-provider observations before any network read. A later refresh
+ * supersedes an older in-flight result; callbacks refresh all known parts. */
+export const beginRefundRefresh = internalMutation({
+ args:{id:v.id("rental_refunds")},handler:async(ctx,{id})=>{
+  const job=await ctx.db.get(id);if(!job)throw Error("Unknown rental refund receipt");
+  const generation=(job.providerGeneration??0)+1;
+  if(!Number.isSafeInteger(generation))throw Error("Refund observation history needs reconciliation");
+  await ctx.db.patch(id,{providerGeneration:generation});return {job,generation};
+ }
+});
+/** Commit the complete fresh provider observation together. Applying one part
+ * before reading another could incorrectly finish a swap or report full repayment. */
+export const recordRefundObservation=internalMutation({args:{id:v.id("rental_refunds"),generation:v.number(),receipts:v.array(v.object({paymentIntentId:v.optional(v.string()),stripeRefundId:v.string(),status:v.union(v.literal("pending"),v.literal("succeeded"),v.literal("failed")),failureReason:v.optional(v.string())}))},handler:async(ctx,{id,generation,receipts})=>{
+ const r=await ctx.db.get(id);if(!r)throw Error("Unknown rental refund receipt");
+ if(r.providerGeneration!==generation)return {job:r,stale:true};
+ if(receipts.length>200||new Set(receipts.map(p=>p.stripeRefundId)).size!==receipts.length)throw Error("Duplicate refund provider receipts");
+ let parts=r.parts,status=r.status,legacyId=r.stripeRefundId;
+ const paidBefore=r.parts?r.parts.filter(p=>p.status==="succeeded").reduce((n,p)=>n+p.amountPence,0):r.status==="succeeded"?r.amountPence:0;
+ let reversed=false;
+ if(r.allocations){
+  if(new Set(receipts.map(p=>p.paymentIntentId)).size!==receipts.length)throw Error("Duplicate original refund payment");
+  const next=[...(r.parts??[])];
+  for(const receipt of receipts){
+   const allocation=r.allocations.find(p=>p.paymentIntentId===receipt.paymentIntentId);
+   if(!allocation)throw Error("Unknown refund payment source");
+   const at=next.findIndex(p=>p.paymentIntentId===receipt.paymentIntentId),old=at<0?null:next[at];
+   if(old&&old.stripeRefundId!==receipt.stripeRefundId)throw Error("Refund identity mismatch");
+   if(old?.status==="succeeded"&&receipt.status!=="succeeded")reversed=true;
+   const part={paymentIntentId:allocation.paymentIntentId,stripeRefundId:receipt.stripeRefundId,status:receipt.status,amountPence:allocation.amountPence,...(receipt.failureReason?{failureReason:receipt.failureReason}:{})};
+   if(at<0)next.push(part);else next[at]=part;
+  }
+  parts=next;
+  status=next.length!==r.allocations.length?"prepared":next.every(p=>p.status==="succeeded")?"succeeded":next.some(p=>p.status==="pending")?"pending":"failed";
+ }else if(receipts.length){
+  if(receipts.length!==1||receipts[0].paymentIntentId||legacyId&&legacyId!==receipts[0].stripeRefundId)throw Error("Refund identity mismatch");
+  legacyId=receipts[0].stripeRefundId;status=receipts[0].status;reversed=r.status==="succeeded"&&status!=="succeeded";
+ }
+ const confirmed=parts?parts.filter(p=>p.status==="succeeded").reduce((n,p)=>n+p.amountPence,0):status==="succeeded"?r.amountPence:0;
+ const pending=parts?parts.filter(p=>p.status==="pending").reduce((n,p)=>n+p.amountPence,0):status==="pending"?r.amountPence:0;
+ const changed=status!==r.status||confirmed!==paidBefore,reversalAt=reversed?Date.now():r.bankReversalAt;
+ await ctx.db.patch(id,{parts,status,stripeRefundId:legacyId,providerCheckedAt:Date.now(),bankReversalAt:reversalAt,...(changed?{updatedAt:Date.now()}:{} )});
+ if(status==="succeeded"&&r.swapProposalId)await completeRefundSwap(ctx,id);
+ if(changed){
+  const b=await ctx.db.get(r.bookingId),account=b?await accountForRental(ctx,b):null;
+  const detail=`Rental refund £${(r.amountPence/100).toFixed(2)}: £${(confirmed/100).toFixed(2)} confirmed, £${(pending/100).toFixed(2)} processing, £${(Math.max(0,r.amountPence-confirmed-pending)/100).toFixed(2)} outstanding.${reversed?" The bank returned a previously confirmed refund; the team will review the outstanding repayment.":""} ${r.reason}`;
+  if(account&&b)await postRentalMessage(ctx,{accountId:account._id,bookingId:b._id,sender:"system",text:detail});
+  if(b){await ctx.scheduler.runAfter(0,internal.notify.changeEmail,{bookingId:b._id,kind:reversed?"refund needs review":"rental refund",detail});await queueRmv2Sync(ctx,b._id);}
+ }
+ return {job:await ctx.db.get(id),stale:false};
+}});
 export const recordRefund = internalMutation({
   args: {
     id: v.id("rental_refunds"),
@@ -319,13 +369,10 @@ export const recordRefund = internalMutation({
   handler: async (ctx, { id, stripeRefundId, status }) => {
     const r = await ctx.db.get(id);
     if (!r) return;
-    if (
-      r.status === "succeeded" ||
-      (r.status === status && r.stripeRefundId === stripeRefundId)
-    )
-      return;
+    if(r.providerGeneration!==undefined)return {stale:true};
     if (r.stripeRefundId && r.stripeRefundId !== stripeRefundId)
       throw Error("Refund identity mismatch");
+    if(r.status==="succeeded"||r.status===status&&r.stripeRefundId===stripeRefundId)return;
     await ctx.db.patch(id, { stripeRefundId, status, updatedAt: Date.now() });
     if(status==="succeeded"&&r.swapProposalId)await completeRefundSwap(ctx,id);
     const b = await ctx.db.get(r.bookingId);
@@ -427,11 +474,13 @@ export const recordRefundPart = internalMutation({
     id: v.id("rental_refunds"),
     paymentIntentId: v.string(),
     stripeRefundId: v.string(),
-    status: v.string(),
+    status: v.union(v.literal("pending"),v.literal("succeeded"),v.literal("failed")),
   },
   handler: async (ctx, { id, paymentIntentId, stripeRefundId, status }) => {
     const r = await ctx.db.get(id);
     if (!r) return;
+    if(r.providerGeneration!==undefined)return {stale:true};
+    const priorStatus=r.status;
     const allocation = r.allocations?.find(
       (p) => p.paymentIntentId === paymentIntentId,
     );
@@ -439,9 +488,9 @@ export const recordRefundPart = internalMutation({
     const existing = r.parts?.find(
       (p) => p.paymentIntentId === paymentIntentId,
     );
-    if (existing?.status === "succeeded") return;
     if (existing && existing.stripeRefundId !== stripeRefundId)
       throw Error("Refund identity mismatch");
+    if(existing?.status==="succeeded"||existing?.status===status)return;
     const parts = [
       ...(r.parts ?? []).filter((p) => p.paymentIntentId !== paymentIntentId),
       {
@@ -461,7 +510,7 @@ export const recordRefundPart = internalMutation({
             : "failed";
     await ctx.db.patch(id, { parts, status: aggregate, updatedAt: Date.now() });
     if(aggregate==="succeeded"&&r.swapProposalId)await completeRefundSwap(ctx,id);
-    if (aggregate !== "prepared" && aggregate !== r.status) {
+    if (aggregate !== "prepared" && aggregate !== priorStatus) {
       const b = await ctx.db.get(r.bookingId);
       if (!b) return;
       const a = await accountForRental(ctx, b);

@@ -21,21 +21,23 @@ export function failedRefundHasNoMoney(refund:any){
 }
 /** A terminal status alone is insufficient: every original payment allocation
  * must have its own complete, exact provider receipt. */
-export function fullyConfirmedRentalRefund(refund:any){
- if(refund?.status!=='succeeded'||!Number.isSafeInteger(refund.amountPence)||refund.amountPence<=0||!refund.allocations?.length||refund.parts?.length!==refund.allocations.length)return false;
+function completeRentalRefundReceipts(refund:any){
+ if(!refund||!Number.isSafeInteger(refund.amountPence)||refund.amountPence<=0||!refund.allocations?.length||refund.parts?.length!==refund.allocations.length)return false;
  if(new Set(refund.allocations.map((p:any)=>p.paymentIntentId)).size!==refund.allocations.length||new Set(refund.parts.map((p:any)=>p.stripeRefundId)).size!==refund.parts.length)return false;
  return refund.allocations.reduce((n:number,p:any)=>n+p.amountPence,0)===refund.amountPence&&refund.allocations.every((a:any)=>{
   const part=refund.parts.find((p:any)=>p.paymentIntentId===a.paymentIntentId);
-  return Number.isSafeInteger(a.amountPence)&&a.amountPence>0&&part?.status==='succeeded'&&part.amountPence===a.amountPence&&typeof part.stripeRefundId==='string'&&part.stripeRefundId.length>0;
+  return Number.isSafeInteger(a.amountPence)&&a.amountPence>0&&['succeeded','pending','failed'].includes(part?.status)&&part.amountPence===a.amountPence&&typeof part.stripeRefundId==='string'&&part.stripeRefundId.length>0;
  });
 }
+export function fullyConfirmedRentalRefund(refund:any){return refund?.status==='succeeded'&&completeRentalRefundReceipts(refund)&&refund.parts.every((p:any)=>p.status==='succeeded');}
 export function assertRefundOnlyResolution(row:any,refund:any){
  const receipt=row.refundOnlyResolution;
- if(!receipt||row.state!=='withdrawn'||!fullyConfirmedRentalRefund(refund)||receipt.refundedPence!==refund.amountPence||receipt.refundedPence!==row.refundPence||
+ const laterBankFailure=completeRentalRefundReceipts(refund)&&Number.isSafeInteger(refund.bankReversalAt)&&refund.bankReversalAt>=receipt?.closedAt;
+ if(!receipt||row.state!=='withdrawn'||!fullyConfirmedRentalRefund(refund)&&!laterBankFailure||receipt.refundedPence!==refund.amountPence||receipt.refundedPence!==row.refundPence||
     receipt.operationKey!==`kit-swap-refund-only:${row.bookingId}:${row._id}:${row.quoteKey}`||!Number.isSafeInteger(receipt.closedAt)||receipt.reason.trim().length<5)
   throw Error('The saved refund-only swap resolution needs reconciliation.');
  if(receipt.securityAtClosure&&Object.values(receipt.securityAtClosure).some(amount=>!Number.isSafeInteger(amount)||Number(amount)<0))throw Error("The saved refund-only security receipt needs reconciliation.");
- return {closed:true,refunded:receipt.refundedPence/100};
+ return {closed:true,refunded:refund.parts.filter((p:any)=>p.status==='succeeded').reduce((n:number,p:any)=>n+p.amountPence,0)/100};
 }
 /** Provider receipts are durable even if the final kit needs reconciliation.
  * Preserve the booking lock and its permanent replacement allocation until the

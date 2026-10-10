@@ -821,8 +821,8 @@ export default defineSchema({
     bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.number(),reason:v.string(),
     status:v.union(v.literal("prepared"),v.literal("pending"),v.literal("succeeded"),v.literal("failed")),
     allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()}))),
-    parts:v.optional(v.array(v.object({paymentIntentId:v.string(),stripeRefundId:v.string(),status:v.string(),amountPence:v.number()}))),
-    stripeRefundId:v.optional(v.string()),createdAt:v.number(),updatedAt:v.number(),
+    parts:v.optional(v.array(v.object({paymentIntentId:v.string(),stripeRefundId:v.string(),status:v.string(),amountPence:v.number(),failureReason:v.optional(v.string())}))),
+    stripeRefundId:v.optional(v.string()),providerGeneration:v.optional(v.number()),providerCheckedAt:v.optional(v.number()),bankReversalAt:v.optional(v.number()),createdAt:v.number(),updatedAt:v.number(),
   }).index("by_booking",["bookingId"]).index("by_request",["requestId"]),
 
   // ── Reschedule / item-level extend requests (Phase 3b) ──────────

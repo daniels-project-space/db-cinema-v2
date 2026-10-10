@@ -3,6 +3,7 @@ import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { RentalRefundRecovery } from "./RentalRefundRecovery";
 import { ReturnRentalForm } from "./ReturnRentalForm";
 import { ReturnInspectionHistory } from "./ReturnInspectionHistory";
 import { RentalManagerDelivery } from "./RentalManagerDelivery";
@@ -97,16 +98,16 @@ function OrderTools({
       setBusy(false);
     }
   }
-  async function retry() {
-    if (!processing) return;
+  async function retry(saved: {requestId:string;reason:string} | undefined = processing) {
+    if (!saved) return;
     setBusy(true);
     setError("");
     try {
       const r = await refund({
         token,
         bookingId: bookingId as any,
-        requestId: processing.requestId,
-        reason: processing.reason,
+        requestId: saved.requestId,
+        reason: saved.reason,
       });
       setResult(`${formatGbp(r.amount)} refund: ${r.status}.`);
     } catch (e: any) {
@@ -243,17 +244,7 @@ function OrderTools({
             ),
         )
         .map((r) => <RentalKitProposalStatus key={r._id} proposal={r} busy={busy} onResume={()=>void resumeAddition(r)} onCheck={()=>void checkSavedAddition(r)} onWithdraw={()=>void withdrawAddition(r._id)} />)}
-      {processing && (
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-amber-200">
-          <span>
-            {formatGbp(processing.amountPence / 100)} refund awaiting
-            settlement.
-          </span>
-          <button disabled={busy} onClick={retry} className="underline">
-            Check or resume this refund
-          </button>
-        </div>
-      )}
+      <RentalRefundRecovery token={token} bookingId={bookingId} refunds={b.rentalRefunds} onResume={retry} busy={busy}/>
       {mode && (
         <form
           onSubmit={(e) => {
