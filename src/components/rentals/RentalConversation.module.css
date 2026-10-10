@@ -149,6 +149,9 @@
 .bookingStrip>.kitImage{flex:0 0 84px}
 .extensionDetails{margin-top:24px;border-top:1px solid #353737;padding-top:18px}
 .requestHistory{margin-top:24px;padding-top:20px;border-top:1px solid #353737}
+.securityStatus{display:block;margin-top:6px;font-size:10px;color:#c99a76;white-space:normal;line-height:1.5;max-width:150px;text-align:right}
+.securityStatus[data-status=held],.securityStatus[data-status=released]{color:#82b69a}
+.securityStatus[data-status=failed],.securityStatus[data-status=expired],.securityStatus[data-status=requires_action]{color:#dfaa88}
 .tools :global([aria-label="Owner rental controls"]){display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:12px}
 .tools :global([aria-label="Owner rental controls"]>button),.tools :global([aria-label="Owner rental controls"]>div>button){width:100%;min-height:38px;text-align:left;border-radius:4px;padding:10px 13px}
 .extensionDetails>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;list-style:none;cursor:pointer;font:19px Georgia,serif;color:#e6e3df;padding:4px 0 16px}

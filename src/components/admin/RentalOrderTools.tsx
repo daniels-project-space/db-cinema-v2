@@ -1,6 +1,6 @@
 "use client";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalRefundRecovery } from "./RentalRefundRecovery";
@@ -19,6 +19,23 @@ import { RentalRequestHistory } from "@/components/rentals/RentalRequestHistory"
 
 export function RentalOrderTools(props:{token:string;bookingId:string;showReturn?:boolean;initialMode?:"reschedule"|"refund"|"add"}) {
   return <OrderTools key={JSON.stringify([props.token,props.bookingId,props.showReturn??true,props.initialMode])} {...props}/>;
+}
+
+function CardAuthorisation({booking}:{booking:{depositHoldAmount?:number;depositHoldStatus?:string;depositHoldExpiresAt?:number;depositHoldCapturedForDamage?:number}}) {
+  const [now,setNow]=useState(Date.now);
+  useEffect(()=>{
+    const expires=booking.depositHoldExpiresAt;
+    if(booking.depositHoldStatus!=="held"||expires==null||expires<=Date.now())return;
+    const timer=setTimeout(()=>setNow(Date.now()),Math.min(expires-Date.now()+1,2147483647));
+    return()=>clearTimeout(timer);
+  },[booking.depositHoldStatus,booking.depositHoldExpiresAt,now]);
+  const amount=booking.depositHoldAmount??0;
+  const expired=booking.depositHoldStatus==="held"&&booking.depositHoldExpiresAt!=null&&booking.depositHoldExpiresAt<=Math.max(now,Date.now());
+  const status=amount===0?"Not required":expired?"Expired · needs review":({scheduled:"Scheduled for collection",awaiting_payment:"Waiting for payment",processing:"Authorisation processing",requires_action:"Bank approval required",held:booking.depositHoldExpiresAt==null?"Held · expiry unconfirmed":"Held · not charged",released:"Released",captured:"Captured",failed:"Authorisation failed",expired:"Expired · needs review"} as Record<string,string>)[booking.depositHoldStatus??""]??"Status needs review";
+  return <>
+    <div data-testid="owner-card-authorisation"><dt>Card authorisation target</dt><dd>{formatGbp(amount)}<small className={chatStyles.securityStatus} data-status={expired?"expired":booking.depositHoldStatus??"unknown"}>{status}</small></dd></div>
+    {(booking.depositHoldCapturedForDamage??0)>0&&<div><dt>Captured for damage</dt><dd>{formatGbp(booking.depositHoldCapturedForDamage!)}</dd></div>}
+  </>;
 }
 function OrderTools({
   token,
@@ -168,12 +185,12 @@ function OrderTools({
     <div data-testid="owner-rental-tools">
       <section className={chatStyles.bookingFacts} aria-label="Booked equipment and handover">
         <div className={chatStyles.factsIdentity}><SmartImage src={b.lineItems[0]?.heroImage} fallbackSources={b.lineItems[0]?.imageSources} alt={b.lineItems[0]?.title ?? "Rental kit"} className={chatStyles.factsPhoto} /><div><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
-        <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{rentalHandoverLabel(b,"pickup")}</dd></div><div><dt>Return</dt><dd>{rentalHandoverLabel(b,"return")}</dd></div><div><dt>Customer</dt><dd>{b.guestName || b.guestEmail}</dd></div><div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
+        <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{rentalHandoverLabel(b,"pickup")}</dd></div><div><dt>Return</dt><dd>{rentalHandoverLabel(b,"return")}</dd></div><div data-testid="owner-current-customer"><dt>Customer</dt><dd>{b.customer ? b.customer.name || b.customer.email : b.accountId ? "Account needs review" : b.guestName || "Guest renter"}</dd></div>{(b.customer?.email || !b.accountId && b.guestEmail) && <div data-testid="owner-current-email"><dt>{b.customer ? "Account email" : "Booking email"}</dt><dd>{b.customer?.email || b.guestEmail}</dd></div>}{b.customer?.phone&&<div><dt>Phone</dt><dd>{b.customer.phone}</dd></div>}<div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
       </section>
       <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">
         <div><dt>Booking total</dt><dd>{formatGbp(b.total)}</dd></div>
         <div><dt>Refundable deposit</dt><dd>{formatGbp(b.depositAmount ?? 0)}</dd></div>
-        <div><dt>Card authorisation</dt><dd>{formatGbp(b.depositHoldAmount ?? 0)}</dd></div>
+        <CardAuthorisation booking={b}/>
       </dl>
       <p className="mb-2 text-[10px] uppercase tracking-[.16em] text-white/35">Manage rental · owner only</p>
       {cancellation && cancellation.status !== "succeeded" && <div role="status" className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-100">

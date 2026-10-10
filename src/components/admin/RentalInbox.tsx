@@ -253,7 +253,7 @@ export function RentalInbox({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-white/85">
-                      {r.name || r.guestEmail || "Guest renter"}
+                      {"accountNeedsReview" in r && r.accountNeedsReview ? "Account needs review" : r.name || r.guestEmail || "Guest renter"}
                     </p>
                     <p className="mt-1 truncate text-xs text-white/45">
                       {rentalTitle(r.items[0]?.title ?? "General support")}
@@ -272,7 +272,7 @@ export function RentalInbox({
                   </span>
                 </div>
                 <p className="mt-2 truncate text-xs text-white/40">
-                  {r.lastMessage ??
+                  {"accountNeedsReview" in r && r.accountNeedsReview ? "Associated account is unavailable" : r.lastMessage ??
                     (r.accountId
                       ? "Conversation ready"
                       : "Renter account not created yet")}

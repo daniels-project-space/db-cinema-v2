@@ -76,7 +76,8 @@ async function bookingView(ctx: any, b: any, account: any, options: { includeAva
     depositHoldStatus: b.depositHoldStatus ?? null,
     depositHoldExpiresAt: b.depositHoldExpiresAt ?? null,
     returnChecking: !!b.returnDecision && b.status !== "returned",
-    guestEmail: account?.email ?? b.guestEmail,
+    guestEmail: b.accountId ? account?.email ?? "" : account?.email ?? b.guestEmail,
+    accountNeedsReview: !!b.accountId && !account,
     name: account?.name ?? null,
     verifiedRenterEmail: account?.emailVerifiedAt && typeof account.email === "string"
       ? account.email.trim().toLowerCase()
@@ -88,7 +89,7 @@ async function bookingView(ctx: any, b: any, account: any, options: { includeAva
     end: Math.max(...items.map((li: any) => li.end)),
     total: b.total,
     items,
-    accountId: account?._id ?? null,
+    accountId: account?._id ?? b.accountId ?? null,
     escalated: !!thread?.escalated,
     unreadOwner: thread?.unreadOwner ?? 0,
     unreadRenter: thread?.unreadRenter ?? 0,
