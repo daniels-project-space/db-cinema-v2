@@ -110,7 +110,7 @@ export function GearCard({ listing }: { listing: GearListing }) {
             −{quietDeal}% quiet deal
           </span>
         ) : null}
-        <SmartImage
+        <SmartImage fit="contain"
           src={heroImage}
           fallbackSources={listing.imageSources}
           alt={title}

@@ -691,3 +691,12 @@
 @media(min-width:1101px) { .overviewGrid { grid-template-rows:minmax(255px,auto) minmax(207px,auto); } }
 
 .contacts svg { width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:7px; }
+
+/* Customer tools belong in the page flow below the website navigation. */
+.pageTools { position:static; inset:auto; margin-bottom:18px; display:flex; flex-wrap:wrap; gap:10px; }
+.pageTools > label { flex:1; min-width:180px; }
+.root { min-width:0; }
+.profileTabs { flex-wrap:wrap; }
+
+.pageTools { grid-column:1/-1; }
+@media(max-width:1100px){ .root { grid-template-columns:minmax(0,1fr); } }

@@ -24,6 +24,7 @@ export const track = mutation({
     // slugs. (Full per-session/IP rate-limiting is a separate task.)
     if (typeof type !== "string" || type.length === 0 || type.length > 40 || !/^[a-z0-9_.:-]+$/i.test(type)) return;
     const p = typeof path === "string" ? path.slice(0, 200) : undefined;
+    if (type === "view" && /^\/admin(?:\/|$)/.test(p ?? "")) return;
     const s = typeof sessionId === "string" ? sessionId.slice(0, 80) : undefined;
     const li = typeof listingId === "string" ? listingId.slice(0, 60) : undefined;
     const t = typeof title === "string" ? title.slice(0, 120) : undefined;
@@ -98,7 +99,8 @@ export const adminSummary = query({
     const events = (await ctx.db.query("events")
       .withIndex("by_at", q => q.gte("at", now - 7 * DAY)).collect())
       // Preserve original creation ordering for equally ranked pages/searches.
-      .sort((a, b) => a._creationTime - b._creationTime);
+      .sort((a, b) => a._creationTime - b._creationTime)
+      .filter(e => !(e.type === "view" && /^\/admin(?:\/|$)/.test(e.path ?? "")));
     const in24 = events.filter((e) => e.at >= now - DAY);
     const in7 = events.filter((e) => e.at >= now - 7 * DAY);
 
@@ -227,18 +229,23 @@ export const insights = query({
     if(!checkAdminToken(token))return {authorized:false as const};
     const duration=[7,30,90].includes(days)?days:30;
     const end=Math.floor(now/DAYMS)*DAYMS+DAYMS, since=end-duration*DAYMS;
-    const events=(await ctx.db.query("events").withIndex("by_at",q=>q.gte("at",since)).collect()).filter(e=>e.at<=now);
+    const sampled=await ctx.db.query("events").withIndex("by_at",q=>q.gte("at",since)).order("desc").take(20001);
+    const partial=sampled.length>20000;
+    const events=sampled.slice(0,20000).filter(e=>e.at<=now && !(e.type==="view" && /^\/admin(?:\/|$)/.test(e.path??"")));
     const series=Array.from({length:duration},(_,i)=>({date:new Date(since+i*DAYMS).toISOString().slice(0,10),visitors:0,adds:0}));
     const unique=new Set<string>(), daily=series.map(()=>new Set<string>());
     const items=new Map<string,{listingId:string|null,title:string,adds:number,units:number}>(),searches=new Map<string,number>(),misses=new Map<string,number>(),pages=new Map<string,Set<string>>();
     const increment=(map:Map<string,number>,key:string)=>{if(key)map.set(key,(map.get(key)??0)+1)};
-    let cartAdds=0,gaffer=0,checkouts=0,interest=0;
+    let cartAdds=0,gaffer=0,checkouts=0,interest=0,pageViews=0,searchCount=0,purchases=0;
+    const tags=new Map<string,number>(), terms=new Map<string,number>();
     for(const event of events){
       const index=Math.floor((event.at-since)/DAYMS);
+      if(event.type==="view")pageViews++;
+      if(event.type==="purchase")purchases++;
       if(event.type==="view"&&event.sessionId){unique.add(event.sessionId);daily[index]?.add(event.sessionId);const page=pages.get(event.path??"/")??new Set<string>();page.add(event.sessionId);pages.set(event.path??"/",page)}
       if(event.type==="add_to_cart"){cartAdds++;if(series[index])series[index].adds++;const key=event.listingId??event.path??event.title??"unknown";const item=items.get(key)??{listingId:event.listingId??null,title:event.title??event.path??"Unknown equipment",adds:0,units:0};item.adds++;item.units+=Number.isSafeInteger(event.qty)&&event.qty!>0?event.qty!:1;items.set(key,item)}
-      if(event.type==="search_tag")increment(searches,`Tag: ${(event.path??"").trim()}`);
-      if(event.type==="search")increment(searches,(event.path??"").trim().toLowerCase());
+      if(event.type==="search_tag"){increment(tags,(event.path??"").trim());increment(searches,`Tag: ${(event.path??"").trim()}`);}
+      if(event.type==="search"){searchCount++;increment(terms,(event.path??"").trim().toLowerCase());increment(searches,(event.path??"").trim().toLowerCase());}
       if(event.type==="search_no_results")increment(misses,(event.path??"").trim().toLowerCase());
       if(event.type==="gaffer_connected")gaffer++;
       if(event.type==="checkout_start")checkouts++;
@@ -252,6 +259,6 @@ export const insights = query({
     const accounts=await ctx.db.query("accounts").collect(), members=accounts.filter(membershipActiveNow), tiers=new Map<string,number>();
     for(const member of members)increment(tiers,membershipTierFor(member)??"Member");
     const sorted=(map:Map<string,number>)=>[...map].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
-    return {authorized:true as const,days:duration,since,now,uniqueVisitors:unique.size,cartAdds,gaffer,noResults:[...misses.values()].reduce((n,v)=>n+v,0),checkouts,interest,series,top,searches:sorted(searches).slice(0,20),misses:sorted(misses).slice(0,20),pages:sorted(new Map([...pages].map(([key,value])=>[key,value.size]))).slice(0,8),membership:{active:members.length,new:members.filter(a=>(a.membershipSubscriptionCreatedAt??a.createdAt)>=since&&(a.membershipSubscriptionCreatedAt??a.createdAt)<=now).length,scheduledCancellations:members.filter(a=>a.membershipCancelAtPeriodEnd).length,tiers:sorted(tiers)}};
+    return {authorized:true as const,partial,pageViews,searchCount,purchases,tags:sorted(tags),terms:sorted(terms).slice(0,50),days:duration,since,now,uniqueVisitors:unique.size,cartAdds,gaffer,noResults:[...misses.values()].reduce((n,v)=>n+v,0),checkouts,interest,series,top,searches:sorted(searches).slice(0,20),misses:sorted(misses).slice(0,20),pages:sorted(new Map([...pages].map(([key,value])=>[key,value.size]))).slice(0,8),membership:{active:members.length,new:members.filter(a=>(a.membershipSubscriptionCreatedAt??a.createdAt)>=since&&(a.membershipSubscriptionCreatedAt??a.createdAt)<=now).length,scheduledCancellations:members.filter(a=>a.membershipCancelAtPeriodEnd).length,tiers:sorted(tiers)}};
   }
 });

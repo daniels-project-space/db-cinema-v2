@@ -6,6 +6,7 @@ import { AccountDocuments, AccountDocumentSummary } from "./AccountDocuments";
 import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
 import styles from "./AccountAdmin.module.css";
+import { AdminInvoiceLibrary } from "@/components/management/AdminInvoiceLibrary";
 import { CustomerInvite } from "./CustomerInvite";
 
 const LEVELS = [
@@ -193,7 +194,7 @@ export function AccountAdmin({
           onClick={() => onRental?.(rental.id)}
           disabled={!onRental}
         >
-          <SmartImage
+          <SmartImage fit="contain"
             src={rental.imageSources[0]}
             fallbackSources={rental.imageSources.slice(1)}
             alt={rental.title}
@@ -250,6 +251,7 @@ export function AccountAdmin({
       ))
     );
   }
+  if (selected && !panelClosed && section === "invoices") return <section aria-label="Customer invoices"><div className="admin-section-tabs"><button onClick={() => setSection("overview")}>← Back to {selected.name || selected.email}</button></div><AdminInvoiceLibrary key={selected.id} token={token} accountId={selected.id}/></section>;
   if (selected && !panelClosed && section === "documents") return (
     <AccountDocuments key={selected.id} token={token} accountId={selected.id}
       customer={{name:selected.name || "DB Cinema renter",email:selected.email,avatarUrl:selected.avatarUrl,verified:selected.verified}}
@@ -543,6 +545,7 @@ export function AccountAdmin({
               ["rentals", "Rentals"],
               ["conversations", "Conversations"],
               ["documents", "Documents"],
+              ["invoices", "Invoices"],
               ["access", "Access"],
               ["notes", "Notes"],
             ].map(([key, name]) => (
@@ -569,7 +572,7 @@ export function AccountAdmin({
               <>
                 {section === "overview" && (
                   <>
-                    <div className={styles.overviewGrid}>
+                    <div className={styles.overviewGrid}><section className={styles.card}><header><h3>Invoices & PDFs</h3><button onClick={() => setSection("invoices")}>View invoices →</button></header><p className={styles.empty}>Rental receipts and return settlements for this customer, with PDF previews and downloads.</p></section>
                       <section className={styles.card}>
                         <header>
                           <h3>Recent rentals</h3>

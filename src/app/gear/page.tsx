@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useGafferFocus } from "@/components/gaffer/GafferFocus";
 import { IconSliders, IconSearch } from "@/components/icons";
@@ -60,18 +60,21 @@ function GearPageInner() {
 
   // log searches that return nothing (demand signal for the owner dashboard)
   const track = useMutation(api.analytics.track);
+  const recordedSearch = useRef<string | null>(null);
   useEffect(()=>{if(cat==="All")return;const timer=setTimeout(()=>{void track({type:"search_tag",path:cat,sessionId:getSessionId()}).catch(()=>{})},700);return()=>clearTimeout(timer)},[cat,track]);
   useEffect(() => {
     const q = search.trim();
-    if (!q || listings === undefined) return;
-    {
-      const t = setTimeout(
-        () => { void track({ type: "search", path: q, sessionId: getSessionId() }).catch(() => {}); if(listings.length===0)void track({ type: "search_no_results", path: q, sessionId: getSessionId() }).catch(() => {}); },
-        700,
-      );
-      return () => clearTimeout(t);
-    }
-  }, [search, listings, track]);
+    if (!q) { recordedSearch.current = null; return; }
+    if (listings === undefined) return;
+    const key = JSON.stringify([cat, q.toLowerCase()]);
+    if (recordedSearch.current === key) return;
+    const timer = setTimeout(() => {
+      recordedSearch.current = key;
+      void track({ type: "search", path: q, sessionId: getSessionId() }).catch(() => { if (recordedSearch.current === key) recordedSearch.current = null; });
+      if (listings.length === 0) void track({ type: "search_no_results", path: q, sessionId: getSessionId() }).catch(() => {});
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [cat, search, listings, track]);
 
   return (
     <>

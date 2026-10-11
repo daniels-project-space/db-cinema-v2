@@ -662,11 +662,18 @@ export const adminCalendarPage=query({
 });
 
 export const adminInvoicePage=query({
-  args:{token:v.string(),paginationOpts:paginationOptsValidator},
-  handler:async(ctx,{token,paginationOpts})=>{
+  args:{token:v.string(),accountId:v.optional(v.id("accounts")),paginationOpts:paginationOptsValidator},
+  handler:async(ctx,{token,accountId,paginationOpts})=>{
     if(!checkAdminToken(token))return {page:[],isDone:true,continueCursor:""};
     if(!Number.isSafeInteger(paginationOpts.numItems)||paginationOpts.numItems<1)throw Error("Invalid document page size");
-    const result=await ctx.db.query("bookings").order("desc").paginate({...paginationOpts,numItems:Math.min(50,paginationOpts.numItems),maximumRowsRead:50});
+    const opts={...paginationOpts,numItems:Math.min(50,paginationOpts.numItems),maximumRowsRead:50};
+    let result;
+    if(accountId){
+      const account=await ctx.db.get(accountId);if(!account)return {page:[],isDone:true,continueCursor:""};
+      const legacy=paginationOpts.cursor?.startsWith("legacy:")??false;
+      const page=await (legacy?ctx.db.query("bookings").withIndex("by_account_guestEmail",q=>q.eq("accountId",undefined).eq("guestEmail",account.email)):ctx.db.query("bookings").withIndex("by_account",q=>q.eq("accountId",accountId))).order("desc").paginate({...opts,cursor:legacy?paginationOpts.cursor!.slice(7)||null:paginationOpts.cursor});
+      result=legacy?{...page,continueCursor:page.isDone?"":`legacy:${page.continueCursor}`} : page.isDone?{...page,isDone:false,continueCursor:"legacy:"}:page;
+    }else result=await ctx.db.query("bookings").order("desc").paginate(opts);
     return {...result,page:result.page.map(b=>({_id:b._id,at:b._creationTime,status:b.status,total:b.total,guestEmail:b.guestEmail,guestName:b.guestName,
       hasPayment:!!b.stripePaymentIntentId||["confirmed","active","returned"].includes(b.status),hasReturnStatement:!!b.returnStatement,returnStatementIssuedAt:b.returnStatement?.issuedAt,
       lineItems:b.lineItems.map(l=>({title:l.title,start:l.start,end:l.end})),
