@@ -7,6 +7,7 @@ import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { lateFeeQuote } from "./lib/lateFee";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
 import { requiresDroneLicence } from "./lib/droneVerification";
+import { isExcludedAnalyticsEvent } from "../shared/analyticsTraffic";
 
 /** Record a first-party event (views, funnel steps, zero-result searches). */
 export const track = mutation({
@@ -24,7 +25,7 @@ export const track = mutation({
     // slugs. (Full per-session/IP rate-limiting is a separate task.)
     if (typeof type !== "string" || type.length === 0 || type.length > 40 || !/^[a-z0-9_.:-]+$/i.test(type)) return;
     const p = typeof path === "string" ? path.slice(0, 200) : undefined;
-    if (type === "view" && /^\/admin(?:\/|$)/.test(p ?? "")) return;
+    if (isExcludedAnalyticsEvent({ path: p, sessionId })) return;
     const s = typeof sessionId === "string" ? sessionId.slice(0, 80) : undefined;
     const li = typeof listingId === "string" ? listingId.slice(0, 60) : undefined;
     const t = typeof title === "string" ? title.slice(0, 120) : undefined;
@@ -50,7 +51,7 @@ export const cartDemand = query({
       ...(await ctx.db.query("events").withIndex("by_type_at", (q) => q.eq("type", "add_to_cart").gte("at", since)).collect()).sort((a, b) => a._creationTime - b._creationTime),
       ...(await ctx.db.query("events").withIndex("by_type_at", (q) => q.eq("type", "register_interest").gte("at", since)).collect()).sort((a, b) => a._creationTime - b._creationTime),
     ];
-    const adds = ev.filter((e) => e.at >= since);
+    const adds = ev.filter((e) => e.at >= since && !isExcludedAnalyticsEvent(e));
 
     // daily buckets, oldest → newest
     const series = Array.from({ length: D }, (_, i) => {
@@ -100,7 +101,7 @@ export const adminSummary = query({
       .withIndex("by_at", q => q.gte("at", now - 7 * DAY)).collect())
       // Preserve original creation ordering for equally ranked pages/searches.
       .sort((a, b) => a._creationTime - b._creationTime)
-      .filter(e => !(e.type === "view" && /^\/admin(?:\/|$)/.test(e.path ?? "")));
+      .filter(e => !isExcludedAnalyticsEvent(e));
     const in24 = events.filter((e) => e.at >= now - DAY);
     const in7 = events.filter((e) => e.at >= now - 7 * DAY);
 
@@ -231,7 +232,7 @@ export const insights = query({
     const end=Math.floor(now/DAYMS)*DAYMS+DAYMS, since=end-duration*DAYMS;
     const sampled=await ctx.db.query("events").withIndex("by_at",q=>q.gte("at",since)).order("desc").take(20001);
     const partial=sampled.length>20000;
-    const events=sampled.slice(0,20000).filter(e=>e.at<=now && !(e.type==="view" && /^\/admin(?:\/|$)/.test(e.path??"")));
+    const events=sampled.slice(0,20000).filter(e=>e.at<=now && !isExcludedAnalyticsEvent(e));
     const series=Array.from({length:duration},(_,i)=>({date:new Date(since+i*DAYMS).toISOString().slice(0,10),visitors:0,adds:0}));
     const unique=new Set<string>(), daily=series.map(()=>new Set<string>());
     const items=new Map<string,{listingId:string|null,title:string,adds:number,units:number}>(),searches=new Map<string,number>(),misses=new Map<string,number>(),pages=new Map<string,Set<string>>();
