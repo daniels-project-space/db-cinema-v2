@@ -665,6 +665,7 @@ export default defineSchema({
     .index("by_account", ["accountId"])
     .index("by_unread", ["sender", "readByOwner"])
     .index("by_booking_at", ["bookingId", "at"])
+    .index("by_booking_account_sender_at", ["bookingId", "accountId", "sender", "at"])
     .index("by_account_at", ["accountId", "at"]),
 
   renter_push_subscriptions: defineTable({

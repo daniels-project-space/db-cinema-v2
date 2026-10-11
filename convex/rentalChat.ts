@@ -1,3 +1,4 @@
+import { renterMessageTime } from "./lib/renterMessageTime";
 import {
   query,
   mutation,
@@ -105,7 +106,7 @@ async function bookingView(
     .join(" ");
   return {
     requestedGearTexts,
-    ...(options.includeAvailability ? { searchText } : {}),
+    ...(options.includeAvailability ? { searchText, lastRenterAt: await renterMessageTime(ctx, b, account) } : {}),
     _id: b._id,
     status: b.status,
     idVerifyStatus: b.idVerifyStatus ?? "required",
