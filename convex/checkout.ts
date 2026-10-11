@@ -1497,8 +1497,13 @@ export const reconcileCancellations=internalAction({args:{},handler:async(ctx)=>
  for(const job of jobs){
   try{
    const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId:job.bookingId});
-   if(b?.status==="cancelled"){await ctx.runMutation(internal.cancellationRecovery.finishAttempt,{id:job._id,complete:true});continue;}
-   if(b?.cancellationDecision?.quote)await cancelRental(ctx,job.bookingId,b,job.accountId,job.adminReason,b.cancellationDecision.fullCreditOfferId);
+   if(b?.status==="cancelled"){await ctx.runMutation(internal.cancellationRecovery.finishAttempt,{id:job._id,complete:true,generation:job.generation});continue;}
+   const customerInitiated=!job.adminReason;
+   if(customerInitiated&&b?.rentalStarted){
+    await ctx.runMutation(internal.cancellationRecovery.finishAttempt,{id:job._id,complete:false,generation:job.generation,review:true});
+    continue;
+   }
+   if(b?.cancellationDecision?.quote)await cancelRental(ctx,job.bookingId,b,job.accountId,job.adminReason,b.cancellationDecision.fullCreditOfferId,undefined,undefined,customerInitiated);
   }catch{/* The durable ledger retains provider receipts and the next retry. */}
  }
  return {checked:jobs.length};
