@@ -7,7 +7,9 @@ export function checkoutDemand(events: Event[], now: number) {
   const unmet = new Map<string,{listingId:string|null;title:string;requests:number;units:number}>();
   const switches = new Map<string,{listingId:string|null;replacementId:string|null;title:string;count:number;units:number}>();
   const stages: Record<string,string> = {checkout_opened:"Checkout opened",checkout_form_ready:"Details & agreements complete",checkout_start:"Payment requested",checkout_failure:"Payment could not start",payment_redirect:"Handed to payment provider"};
-  for (const e of events.filter(e=>e.at<=now&&!isExcludedAnalyticsEvent(e)).sort((a,b)=>a.at-b.at)) {
+  // Concurrent stage mutations can receive the same millisecond timestamp.
+  const stageOrder = Object.keys(stages);
+  for (const e of events.filter(e=>e.at<=now&&!isExcludedAnalyticsEvent(e)).sort((a,b)=>a.at-b.at || stageOrder.indexOf(a.type)-stageOrder.indexOf(b.type))) {
     if (e.type === "unavailable_request") { const id=e.listingId??e.title??"Unknown equipment", row=unmet.get(id)??{listingId:e.listingId??null,title:e.title??id,requests:0,units:0};row.requests++;row.units+=e.qty??1;unmet.set(id,row); }
     if (e.type === "replacement_selected") { const id=JSON.stringify([e.listingId,e.path]), row=switches.get(id)??{listingId:e.listingId??null,replacementId:e.path??null,title:e.title??"Requested equipment",count:0,units:0};row.count++;row.units+=e.qty??1;switches.set(id,row); }
     if (!e.sessionId) continue;

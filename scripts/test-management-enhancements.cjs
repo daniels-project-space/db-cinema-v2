@@ -33,7 +33,9 @@ const replyDb={...db,query(table){const q=db.query(table);q.first=async()=> (awa
  const event=(type,sessionId,minutes,path,extra={})=>({type,sessionId,at:now-minutes*60000,path,...extra});
  const events=[event('checkout_opened','details',60,'/checkout'),event('checkout_form_ready','details',40),event('checkout_opened','failed',80,'/checkout'),event('checkout_start','failed',70),event('checkout_failure','failed',69),event('checkout_opened','paid',60,'/checkout'),event('checkout_start','paid',59),event('payment_redirect','paid',58),event('checkout_opened','active',5,'/checkout'),event('unavailable_request','human',50,'/cart',{listingId:'camera',title:'Camera',qty:2}),event('replacement_selected','human',49,'replacement',{listingId:'camera',title:'Camera',qty:2}),event('unavailable_request','excluded:bot',40,'/cart',{listingId:'fake'}),event('checkout_opened','future',-20,'/checkout'),event('view','legacy',100,'/checkout'),event('checkout_start','legacy',90)];
  let journey=checkoutDemand(events,now);assert.equal(journey.checkoutSessions,4);assert.equal(journey.paymentHandoffs,1);assert.equal(journey.inactiveBeforePayment,2);
- assert.deepEqual(Object.fromEntries(journey.exitStages),{'Details & agreements complete':1,'Payment could not start':1});
+  assert.deepEqual(Object.fromEntries(journey.exitStages),{'Details & agreements complete':1,'Payment could not start':1});
+  const tied=checkoutDemand([event('checkout_form_ready','tied',40),event('checkout_opened','tied',40)],now);
+  assert.deepEqual(tied.exitStages,[['Details & agreements complete',1]],'Same-millisecond stages retain the furthest observed progress regardless of database order');
  assert.equal(journey.unavailable.length,1);assert.equal(journey.unavailable[0].units,2);assert.equal(journey.replacements[0].replacementId,'replacement');
  journey=checkoutDemand([...events,event('checkout_opened','paid',40,'/checkout')],now);assert.equal(journey.checkoutSessions,5);assert.equal(journey.inactiveBeforePayment,3,'Returning to checkout after payment handoff starts another journey');
 
