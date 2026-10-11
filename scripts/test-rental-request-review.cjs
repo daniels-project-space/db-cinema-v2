@@ -47,6 +47,28 @@ const admin = { token: process.env.ADMIN_TOKEN, bookingId: booking._id, paginati
   assert.equal(renter.decisionNote, decision.note); assert.equal(renter.status, 'approved');
   assert.deepEqual(Object.keys(renter).sort(), ['_id', 'kind', 'detail', 'createdAt', 'status', 'decisionNote', 'decidedAt', 'execution', 'extension', 'addition', 'equipment'].sort(), 'Public view contains no credential or foreign account metadata');
   assert.equal(renter.equipment[0].heroImage,image);assert.deepEqual(Object.keys(renter.equipment[0]).sort(),['listingId','title','qty','role','heroImage','imageSources'].sort());assert(!JSON.stringify(renter.equipment).includes('private catalogue note'));
+const linkedExtension = put('booking_change_requests', {
+  type: 'extend', bookingId: booking._id, accountId: owner._id, status: 'awaiting_payment',
+  priceDelta: 24.68, extraDays: 2, requestedReturnTime: '16:00', approvedReturnTime: '18:00',
+  expiresAt: Date.UTC(2029, 11, 31, 16), approvalReason: 'Approved the extra shoot days with the agreed return time.',
+  quoteItems: [{lineIndex:0,listingId:listing._id,title:'Sony FX3',qty:1,start:Date.UTC(2030,0,3),end:Date.UTC(2030,0,4),dailyRate:12.34,lineTotal:24.68}],
+  baseLines: JSON.stringify([[{...booking.lineItems[0],returnTime:'18:00'}],'18:00']),
+  paymentLinkUrl: 'https://private-checkout.example.invalid/session',
+});
+const extensionRow = put('rental_change_requests', {
+  bookingId:booking._id,accountId:owner._id,kind:'extension',detail:'2 extra days · £24.68 · 1× Sony FX3',createdAt:Date.UTC(2029,11,29),
+  status:'approved',extensionRequestId:linkedExtension._id,
+});
+const extensionRequest = (await requests.list.handler(ctx,view)).page.find(row=>row._id===extensionRow._id);
+assert.equal(extensionRequest.extension.days,2);
+assert.equal(extensionRequest.extension.amount,24.68);
+assert.equal(extensionRequest.extension.returnTime,'18:00');
+assert.equal(extensionRequest.extension.returnTimeApproved,true);
+assert.equal(extensionRequest.extension.items[0].originalEnd,booking.lineItems[0].end);
+assert.equal(extensionRequest.extension.items[0].originalReturnTime,'18:00');
+assert.equal(extensionRequest.extension.items[0].proposedEnd,Date.UTC(2030,0,4));
+assert.equal(extensionRequest.extension.items[0].heroImage,image);
+assert(!JSON.stringify(extensionRequest).includes('private-checkout.example.invalid'),'Private payment URLs are never exposed through request history');
   const legacy = put('rental_change_requests', { bookingId: booking._id, accountId: owner._id, kind: 'items', detail: 'Please add another camera.', createdAt: Date.now(), messageId: 'old-message' });
   assert.equal((await requests.list.handler(ctx, view)).page[0].status, 'pending');
   await requests.review.handler(ctx, { ...admin, id: legacy._id, decision: 'declined', note: 'The extra camera is reserved. We can discuss an alternative.' });

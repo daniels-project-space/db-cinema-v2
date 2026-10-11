@@ -39,7 +39,43 @@ export const list = query({
     return { ...rows, page: await Promise.all(rows.page.map(async row => {
       const linked = row.extensionRequestId ? await ctx.db.get(row.extensionRequestId) : null;
       const validExtension = row.kind === "extension" && linked?.type === "extend" && linked.bookingId === row.bookingId && linked.accountId === row.accountId;
-      const extension = row.extensionRequestId ? validExtension ? { status: linked!.status, amount: linked!.priceDelta ?? null, returnTime: linked!.approvedReturnTime ?? linked!.requestedReturnTime ?? null, returnTimeApproved: !!linked!.approvedReturnTime, reason: linked!.approvalReason, completedAt: linked!.status === "applied" ? linked!.resolvedAt : undefined } : { status: "unavailable" as const, amount: null, returnTime: null, returnTimeApproved: false, reason: undefined, completedAt: undefined } : undefined;
+      let extensionItems: any[] = [];
+      if (validExtension) {
+        let original: any[] = [], savedReturnTime: string | null = null;
+        try {
+          const saved = JSON.parse(linked!.baseLines ?? "null");
+          if (Array.isArray(saved?.[0])) original = saved[0];
+          if (typeof saved?.[1] === "string") savedReturnTime = saved[1];
+        } catch {}
+        extensionItems = await Promise.all((Array.isArray(linked!.quoteItems) ? linked!.quoteItems : []).map(async (item: any) => {
+          const old = Number.isSafeInteger(item.lineIndex) ? original[item.lineIndex] : null;
+          const bound = old?.listingId === item.listingId && old?.qty === item.qty;
+          const images = await imagesFor(item.listingId);
+          const safeTime = (value: unknown) => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : null;
+          return {
+            listingId: item.listingId,
+            title: typeof item.title === "string" ? item.title : "Rental equipment",
+            qty: Number.isSafeInteger(item.qty) && item.qty > 0 ? item.qty : 1,
+            originalEnd: bound && Number.isFinite(old.end) ? old.end : null,
+            originalReturnTime: bound ? safeTime(old.returnTime === undefined ? savedReturnTime : old.returnTime) : null,
+            proposedEnd: Number.isFinite(item.end) ? item.end : null,
+            returnTime: safeTime(linked!.approvedReturnTime ?? linked!.requestedReturnTime),
+            heroImage: images[0] ?? null,
+            imageSources: images,
+          };
+        }));
+      }
+      const extension = row.extensionRequestId ? validExtension ? {
+        status: linked!.status,
+        amount: linked!.priceDelta ?? null,
+        days: linked!.extraDays,
+        returnTime: linked!.approvedReturnTime ?? linked!.requestedReturnTime ?? null,
+        returnTimeApproved: !!linked!.approvedReturnTime,
+        reason: linked!.approvalReason,
+        expiresAt: linked!.expiresAt,
+        items: extensionItems,
+        completedAt: linked!.status === "applied" ? linked!.resolvedAt : undefined,
+      } : { status: "unavailable" as const, amount: null, returnTime: null, returnTimeApproved: false, reason: undefined, expiresAt: undefined, items: [], completedAt: undefined } : undefined;
       const linkedAddition=row.additionRequestId?await ctx.db.get(row.additionRequestId):null;
       const validAddition=row.kind==="items"&&linkedAddition?.bookingId===row.bookingId&&linkedAddition.changeRequestId===row._id;
       const addition=row.additionRequestId?(validAddition?{id:linkedAddition!._id,status:linkedAddition!.status,title:linkedAddition!.title,qty:linkedAddition!.qty,start:linkedAddition!.start,end:linkedAddition!.end,amount:(linkedAddition!.draftReplacement?linkedAddition!.baseTotal??0:0)+linkedAddition!.lineTotal+linkedAddition!.securityCharge+(linkedAddition!.membershipFee??0),paymentReceived:!!linkedAddition!.paymentIntentId,updatedAt:linkedAddition!.updatedAt}:{id:null,status:"unavailable",title:null,qty:null,start:null,end:null,amount:null,paymentReceived:false,updatedAt:null}):undefined;
