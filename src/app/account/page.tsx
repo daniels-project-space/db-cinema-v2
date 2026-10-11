@@ -62,15 +62,22 @@ function AuthForm() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function go() {
+  async function go(values: FormData) {
+    // Password managers can fill the DOM without dispatching React onChange.
+    // Authenticate the values the renter sees, rather than stale component state.
+    const submittedEmail = String(values.get("email") ?? "").trim();
+    const submittedPassword = String(values.get("password") ?? "");
+    const submittedName = String(values.get("name") ?? "").trim();
+    setEmail(submittedEmail);
+    setPassword(submittedPassword);
     setBusy(true);
     setErr(null);
     try {
       if (mode === "signup") {
-        await account.signUp(email, password, name || undefined);
+        await account.signUp(submittedEmail, submittedPassword, submittedName || undefined);
         setLinkSent(true);
       }
-      else await account.signIn(email, password);
+      else await account.signIn(submittedEmail, submittedPassword);
     } catch (e: unknown) {
       setErr(accountAuthErrorMessage(e, mode === "signup"
         ? "We couldn't create your account right now. Please try again."
@@ -98,10 +105,11 @@ function AuthForm() {
           {mode === "signup" ? "Sign in" : "Create one"}
         </button>
       </p>
-      <form className="mt-6 flex flex-col gap-3" onSubmit={e => { e.preventDefault(); if (!busy) void go(); }}>
+      <form className="mt-6 flex flex-col gap-3" onSubmit={e => { e.preventDefault(); if (!busy) void go(new FormData(e.currentTarget)); }}>
         {mode === "signup" && (
           <input
             aria-label="Name"
+            name="name"
             autoComplete="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -115,6 +123,7 @@ function AuthForm() {
           placeholder="Email"
           type="email"
           aria-label="Email"
+          name="email"
           autoComplete="email"
           autoCapitalize="none"
           spellCheck={false}
@@ -127,6 +136,7 @@ function AuthForm() {
           placeholder="Password (6+ chars)"
           type="password"
           aria-label="Password"
+          name="password"
           autoComplete={mode === "signup" ? "new-password" : "current-password"}
           required
           className="input"
