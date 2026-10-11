@@ -47,9 +47,9 @@ type AccountCtx = {
   token: string | null;
   me: Me;
   loading: boolean;
-  signUp: (email: string, password: string, name?: string) => Promise<void>;
+  signUp: (email: string, password: string, name?: string, basketReminderDisabled?: boolean) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
-  signInWithGoogle: (credential: string) => Promise<void>;
+  signInWithGoogle: (credential: string, basketReminderDisabled?: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   acceptSession: (token: string) => void;
   updateProfile: (patch: {
@@ -98,8 +98,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = useCallback(
-    async (email: string, password: string, name?: string) => {
-      const { token } = await signUpA({ email, password, name });
+    async (email: string, password: string, name?: string, basketReminderDisabled = false) => {
+      const { token } = await signUpA({ email, password, name, basketReminderDisabled });
       if(!token)return;
       persist(token);
       // Someone who took a Gaffer call, got an email follow-up and only then
@@ -121,8 +121,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [signInA],
   );
   const signInWithGoogle = useCallback(
-    async (credential: string) => {
-      const { token } = await signInGoogleA({ credential });
+    async (credential: string, basketReminderDisabled = false) => {
+      const { token } = await signInGoogleA({ credential, basketReminderDisabled });
       persist(token);
     },
     [signInGoogleA],

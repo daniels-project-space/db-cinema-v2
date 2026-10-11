@@ -24,7 +24,7 @@ for (const [now, start] of [
 const { bookingCancelKind, cancellationDaysForBooking } = policy.exports;
 const booking = { lineItems: [{start:at(2026,10,25)}], agreementDocs:[{kind:'cancellation',version:'2026-10-v11'}] };
 assert.equal(cancellationDaysForBooking(booking),14);
-for (const version of ['2026-10-v12', '2026-10-v13']) {
+for (const version of ['2026-10-v12', '2026-10-v13', '2026-10-v14']) {
   const current = {...booking, agreementDocs:[{kind:'cancellation',version}]};
   assert.equal(cancellationDaysForBooking(current),14,'New agreement versions keep the agreed 14-day policy');
   assert.equal(bookingCancelKind(current,at(2026,10,20)),'store_credit','New terms cannot silently restore the old three-day cash window');

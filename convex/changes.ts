@@ -149,7 +149,7 @@ export const _applyReschedule = internalMutation({
     await ctx.db.patch(r.bookingId,{lineItems:lines});
     await schedulePickupHold(ctx,{...b,lineItems:lines});
     for(const res of reservations)if(["confirmed","active","hold"].includes(res.status))await ctx.db.patch(res._id,{status:"cancelled"});
-    for(const li of lines){const listing=await ctx.db.get(li.listingId);const window=mode==="legacy"?{start:li.start,end:li.end}:stockWindow(li,mode==="precise");for(const comp of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:li.listingId,bookingId:r.bookingId,...window,qty:comp.qty*li.qty,source:"site",status:"confirmed"});}
+    for(const li of lines){const listing=await ctx.db.get(li.listingId);const window=mode==="legacy"?{start:li.start,end:li.end,pickupTime:li.pickupTime??null,returnTime:li.returnTime??null}:stockWindow(li,mode==="precise");for(const comp of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:li.listingId,bookingId:r.bookingId,...window,qty:comp.qty*li.qty,source:"site",status:"confirmed"});}
     await ctx.db.patch(requestId, { status: "applied", resolvedAt: Date.now() });
     await postRentalMessage(ctx, { accountId: r.accountId, bookingId: r.bookingId, sender: "system", text: `Done — your rental is rescheduled to ${iso(newStart)} → ${iso(newEnd)}. ✓`, });
     await ctx.scheduler.runAfter(0, internal.notify.changeEmail, { bookingId: r.bookingId, kind: "rescheduled", detail: `${iso(newStart)} → ${iso(newEnd)}` });

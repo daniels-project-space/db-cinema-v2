@@ -133,6 +133,8 @@ export default defineSchema({
     subscriptionId: v.optional(v.id("subscriptions")),
     start: v.number(), // epoch ms (UTC)
     end: v.number(),
+    pickupTime: v.optional(v.union(v.string(), v.null())),
+    returnTime: v.optional(v.union(v.string(), v.null())),
     endExclusive: v.optional(v.boolean()), // exact half-open reservation windows
     stockWindowVersion: v.optional(v.number()),
     turnaroundBufferMinutes:v.optional(v.number()), // v2 upstream uses confirmed London instants
@@ -980,12 +982,22 @@ export default defineSchema({
   checkout_recoveries: defineTable({
     accountId: v.id("accounts"),
     lines: v.array(v.object({ listingId: v.id("listings"), qty: v.number(), start: v.number(), end: v.number(),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()) })),
-    consentAt: v.number(), updatedAt: v.number(), dueAt: v.number(), expiresAt: v.number(),
+    activityRecordedAt: v.optional(v.number()),
+    consentAt: v.optional(v.number()), // Legacy field; automatic basket activity is not user consent.
+    updatedAt: v.number(), dueAt: v.number(), expiresAt: v.number(),
     state: v.union(v.literal("waiting"), v.literal("sent"), v.literal("stopped")),
     leaseUntil: v.optional(v.number()), attempts: v.number(), deliveredAt: v.optional(v.number()),
     bookingId: v.optional(v.id("bookings")),
   }).index("by_account", ["accountId"]).index("by_state_due", ["state", "dueAt"]),
-  account_codes: defineTable({email:v.string(),name:v.optional(v.string()),phone:v.optional(v.string()),purpose:v.union(v.literal("setup"),v.literal("reset")),challengeHash:v.string(),codeHash:v.string(),attempts:v.number(),expiresAt:v.number(),verifiedAt:v.optional(v.number()),setupHash:v.optional(v.string()),usedAt:v.optional(v.number()),cartKey:v.optional(v.string())}).index("by_challenge",["challengeHash"]).index("by_setup",["setupHash"]).index("by_email",["email"]),
+  checkout_recovery_email_preferences: defineTable({
+    accountId: v.id("accounts"),
+    email: v.string(),
+    unsubscribeToken: v.optional(v.string()),
+    disabledAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_account", ["accountId"]).index("by_unsubscribe_token", ["unsubscribeToken"]),
+  account_codes: defineTable({email:v.string(),name:v.optional(v.string()),phone:v.optional(v.string()),purpose:v.union(v.literal("setup"),v.literal("reset")),challengeHash:v.string(),codeHash:v.string(),attempts:v.number(),expiresAt:v.number(),verifiedAt:v.optional(v.number()),setupHash:v.optional(v.string()),usedAt:v.optional(v.number()),cartKey:v.optional(v.string()),basketReminderDisabled:v.optional(v.boolean())}).index("by_challenge",["challengeHash"]).index("by_setup",["setupHash"]).index("by_email",["email"]),
   checkout_carts: defineTable({shareKey:v.string(),email:v.string(),accountId:v.optional(v.id("accounts")),lines:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number(),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string())})),createdAt:v.number(),expiresAt:v.number()}).index("by_share",["shareKey"]),
   account_access_links: defineTable({accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),secretHash:v.string(),purpose:v.optional(v.literal("signup")),credentialHash:v.optional(v.string()),expiresAt:v.number(),usedAt:v.optional(v.number()),createdAt:v.number()}).index("by_hash",["secretHash"]).index("by_booking",["bookingId"]).index("by_account",["accountId"]),
   film_fund_rounds: defineTable({

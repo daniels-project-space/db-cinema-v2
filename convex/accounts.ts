@@ -87,20 +87,25 @@ export const _create = internalMutation({
     name: v.optional(v.string()),
     token: v.string(),
     pendingEmailVerification: v.optional(v.boolean()),
+    basketReminderDisabled: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
     if(await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",a.email)).first())throw Error("An account with that email already exists.");
+    const now = Date.now();
     const accountId = await ctx.db.insert("accounts", {
       email: a.email,
       salt: a.salt,
       hash: a.hash,
       emailVerificationRequired: !!a.pendingEmailVerification,
       name: a.name,
-      createdAt: Date.now(),
+      createdAt: now,
     });
+    if (a.basketReminderDisabled)
+      await ctx.db.insert("checkout_recovery_email_preferences", {
+        accountId, email: a.email, disabledAt: now, createdAt: now, updatedAt: now,
+      });
     await ensureReferralCode(ctx,accountId);
     await _applyPendingCollectiveGrant(ctx, accountId, a.email);
-    const now = Date.now();
     if(!a.pendingEmailVerification)await ctx.db.insert("sessions", { token: a.token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
     return accountId;
   },
@@ -157,8 +162,8 @@ export const sweepExpiredSessions = internalMutation({
 
 // ── public actions ───────────────────────────────────────────────
 export const signUp = action({
-  args: { email: v.string(), password: v.string(), name: v.optional(v.string()) },
-  handler: async (ctx, { email, password, name }): Promise<{ token: string }> => {
+  args: { email: v.string(), password: v.string(), name: v.optional(v.string()), basketReminderDisabled: v.optional(v.boolean()) },
+  handler: async (ctx, { email, password, name, basketReminderDisabled }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
     if (e.length>254||!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(e) || password.length < 6)
       throw new Error("Enter a valid email and a password of 6+ characters.");
@@ -167,7 +172,7 @@ export const signUp = action({
     const salt = randomHex(16);
     const hash = await pbkdf2(password, salt);
     const token = randomHex(24);
-    await ctx.runMutation(internal.accounts._create, { email: e, salt, hash, name, token, pendingEmailVerification: true });
+    await ctx.runMutation(internal.accounts._create, { email: e, salt, hash, name, token, pendingEmailVerification: true, basketReminderDisabled });
     await ctx.scheduler.runAfter(0,internal.accountAccess.sendForSignup,{email:e,credentialHash:hash});
     return { token: "" };
   },

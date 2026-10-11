@@ -24,7 +24,8 @@ const line = v.object({
   end: v.number(),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
 });
 export const sync = mutation({
-  // Accept older clients' flag, but populated baskets are saved automatically.
+  // Accept the old flag for deployed clients; populated account baskets are
+  // automatically scheduled unless the account has explicitly opted out.
   args: { token: v.string(), enabled: v.optional(v.boolean()), lines: v.array(line) },
   handler: async (ctx, a) => {
     const account = await requireAccount(ctx, a.token);
@@ -34,6 +35,16 @@ export const sync = mutation({
       .query("checkout_recoveries")
       .withIndex("by_account", (q) => q.eq("accountId", account._id))
       .collect();
+    const preference = await ctx.db
+      .query("checkout_recovery_email_preferences")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .unique();
+    if (preference?.disabledAt) {
+      for (const r of rows)
+        if (r.state === "waiting")
+          await ctx.db.patch(r._id, { state: "stopped", leaseUntil: undefined });
+      return null;
+    }
     const current = rows.find((r) => r.state !== "stopped");
     if (!a.lines.length) {
       for (const r of rows)
@@ -88,7 +99,7 @@ export const sync = mutation({
     return ctx.db.insert("checkout_recoveries", {
       accountId: account._id,
       lines: a.lines,
-      consentAt: now,
+      activityRecordedAt: now,
       updatedAt: now,
       dueAt: now + 30 * 60000,
       expiresAt: Math.min(
@@ -98,6 +109,104 @@ export const sync = mutation({
       state: "waiting",
       attempts: 0,
     });
+  },
+});
+export const preference = query({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const account = await requireAccount(ctx, token);
+    const row = await ctx.db
+      .query("checkout_recovery_email_preferences")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .unique();
+    return { disabled: !!row?.disabledAt };
+  },
+});
+async function stopPendingForAccount(ctx: any, accountId: any) {
+  const rows = await ctx.db
+    .query("checkout_recoveries")
+    .withIndex("by_account", (q: any) => q.eq("accountId", accountId))
+    .take(100);
+  for (const row of rows)
+    if (row.state === "waiting")
+      await ctx.db.patch(row._id, { state: "stopped", leaseUntil: undefined });
+}
+export const setPreference = mutation({
+  args: { token: v.string(), disabled: v.boolean() },
+  handler: async (ctx, a) => {
+    const account = await requireAccount(ctx, a.token);
+    const existing = await ctx.db
+      .query("checkout_recovery_email_preferences")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .unique();
+    const now = Date.now();
+    if (existing)
+      await ctx.db.patch(existing._id, {
+        email: account.email,
+        disabledAt: a.disabled ? (existing.disabledAt ?? now) : undefined,
+        updatedAt: now,
+      });
+    else
+      await ctx.db.insert("checkout_recovery_email_preferences", {
+        accountId: account._id,
+        email: account.email,
+        disabledAt: a.disabled ? now : undefined,
+        createdAt: now,
+        updatedAt: now,
+      });
+    if (a.disabled) await stopPendingForAccount(ctx, account._id);
+    return { disabled: a.disabled };
+  },
+});
+export const ensureUnsubscribeToken = internalMutation({
+  args: {
+    accountId: v.id("accounts"),
+    email: v.string(),
+    candidate: v.string(),
+  },
+  handler: async (ctx, a) => {
+    const account = await ctx.db.get(a.accountId);
+    if (!account || account.blockedAt != null || account.email !== a.email) return null;
+    const existing = await ctx.db
+      .query("checkout_recovery_email_preferences")
+      .withIndex("by_account", (q) => q.eq("accountId", a.accountId))
+      .unique();
+    if (existing?.disabledAt) return null;
+    if (existing?.unsubscribeToken) return existing.unsubscribeToken;
+    const now = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        email: account.email,
+        unsubscribeToken: a.candidate,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("checkout_recovery_email_preferences", {
+        accountId: account._id,
+        email: account.email,
+        unsubscribeToken: a.candidate,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    return a.candidate;
+  },
+});
+export const unsubscribe = internalMutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const preference = await ctx.db
+      .query("checkout_recovery_email_preferences")
+      .withIndex("by_unsubscribe_token", (q) => q.eq("unsubscribeToken", token))
+      .unique();
+    if (!preference) return false;
+    const account = await ctx.db.get(preference.accountId);
+    if (!account) return false;
+    const now = Date.now();
+    if (!preference.disabledAt)
+      await ctx.db.patch(preference._id, { disabledAt: now, updatedAt: now });
+    await stopPendingForAccount(ctx, account._id);
+    return true;
   },
 });
 export const mine = query({
@@ -178,7 +287,12 @@ export const _claim = internalMutation({
     if (process.env.CHECKOUT_RECOVERY_ENABLED !== "true" || process.env.RENTAL_CHECKOUT_ENABLED !== "true") return null;
     if ((await ctx.db.query("settings").first())?.acceptingOrders === false) return null;
     const account = await ctx.db.get(r.accountId);
-    if (!account || account.blockedAt!=null || account.emailVerificationRequired&&!account.emailVerifiedAt) {
+    const preference = account ? await ctx.db
+      .query("checkout_recovery_email_preferences")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .unique() : null;
+    if (!account || account.blockedAt!=null || preference?.disabledAt ||
+        account.emailVerificationRequired&&!account.emailVerifiedAt) {
       await ctx.db.patch(id,{state:"stopped",leaseUntil:undefined});return null;
     }
     // Recheck permanent ownership and payment state immediately before claiming.
@@ -214,7 +328,7 @@ export const _claim = internalMutation({
     }
     const leaseUntil = now + 10 * 60000;
     await ctx.db.patch(id, { leaseUntil, dueAt:leaseUntil, attempts: r.attempts + 1 });
-    return { id, leaseUntil, email: account.email };
+    return { id, leaseUntil, email: account.email, accountId: account._id };
   },
 });
 export const _finish = internalMutation({
@@ -222,13 +336,16 @@ export const _finish = internalMutation({
     id: v.id("checkout_recoveries"),
     leaseUntil: v.number(),
     sent: v.boolean(),
+    stop: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
     const r = await ctx.db.get(a.id);
     if (!r || r.state !== "waiting" || r.leaseUntil !== a.leaseUntil) return;
     await ctx.db.patch(
       a.id,
-      a.sent
+      a.stop
+        ? { state: "stopped", leaseUntil: undefined }
+        : a.sent
         ? { state: "sent", deliveredAt: Date.now(), leaseUntil: undefined }
         : { dueAt: Date.now() + 5*60000*2**Math.max(0,r.attempts-1), leaseUntil: undefined },
     );
@@ -244,7 +361,12 @@ export const _ready = internalQuery({
         a.leaseUntil <= now || r.expiresAt <= now ||
         r.lines.some(line => line.start < londonDay())) return false;
     const account = await ctx.db.get(r.accountId);
+    const preference = account ? await ctx.db
+      .query("checkout_recovery_email_preferences")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .unique() : null;
     if (!account || account.email !== a.email || account.blockedAt != null ||
+        preference?.disabledAt ||
         (account.emailVerificationRequired && !account.emailVerifiedAt) ||
         process.env.CHECKOUT_RECOVERY_ENABLED !== "true" ||
         process.env.RENTAL_CHECKOUT_ENABLED !== "true" ||

@@ -12,7 +12,9 @@ export function paidSwapEligible(booking: any, row: any) {
    (compoundSwapShape(row) && canDeferAdditionSecurity(booking)));
 }
 export function swapStockWindow(line: any, mode: string) {
- return mode === 'legacy' ? {start:line.start,end:line.end} : stockWindow(line, mode === 'precise');
+ return mode === 'legacy'
+  ? {start:line.start,end:line.end,pickupTime:line.pickupTime??null,returnTime:line.returnTime??null}
+  : stockWindow(line, mode === 'precise');
 }
 /** Hold only positive physical deltas. Retain the original allocation until payment
  * and exchange succeed, without reserving shared accessories a second time. */

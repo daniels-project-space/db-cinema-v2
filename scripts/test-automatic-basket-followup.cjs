@@ -11,7 +11,7 @@ const worker={runQuery:(ref,args)=>recovery[ref.split('.').at(-1)].handler(ctx,a
 (async()=>{
  process.env.CHECKOUT_RECOVERY_ENABLED='true';process.env.RENTAL_CHECKOUT_ENABLED='true';
  await assert.rejects(()=>recovery.sync.handler(ctx,{token:'foreign',lines}),/sign in/);
- const id=await recovery.sync.handler(ctx,{token:'owner',lines}),row=await h.db.get(id);assert.equal(row.dueAt,now+30*60000);assert.equal(row.accountId,owner._id);
+ const id=await recovery.sync.handler(ctx,{token:'owner',lines}),row=await h.db.get(id);assert.equal(row.dueAt,now+30*60000);assert.equal(row.accountId,owner._id);assert.equal(row.activityRecordedAt,now);assert.equal(row.consentAt,undefined,'Automatic basket activity is not recorded as legal consent');
  now+=29*60000;assert.equal(await recovery._claim.handler(ctx,{id}),null,'No reminder before 30 minutes');
  await recovery.sync.handler(ctx,{token:'owner',enabled:false,lines});assert.equal(row.dueAt,now+30*60000,'Old clients cannot disable populated automatic baskets');
  const due=row.dueAt;await recovery.sync.handler(ctx,{token:'owner',lines});assert.equal(row.dueAt,due,'Immediate repeats do not churn writes');
@@ -37,6 +37,7 @@ const worker={runQuery:(ref,args)=>recovery[ref.split('.').at(-1)].handler(ctx,a
  const foreignId=await recovery.sync.handler(ctx,{token:'owner',lines:[{...lines[0],end:Date.parse('2026-11-04T00:00Z')}]});
  await lib.stopMatchingRecovery(ctx,foreign.email,secondLines,booking._id);assert.equal((await h.db.get(recycledId)).state,'waiting','Permanent booking owner never targets reused guest email');
  await h.db.patch(owner._id,{blockedAt:now});now+=30*60000;assert.equal(await recovery._claim.handler(ctx,{id:foreignId}),null);assert.equal((await h.db.get(foreignId)).state,'stopped','Blocked accounts cannot receive recovery');
+ await h.db.patch(owner._id,{blockedAt:undefined});
  const restoreOwner=h.put('accounts',{email:'restore@example.invalid'});h.put('sessions',{token:'restore',accountId:restoreOwner._id,expiresAt:now+86400000});
  const mixed=[{...lines[0],qty:2},{...lines[0],start:Date.parse('2026-11-05T00:00Z'),end:Date.parse('2026-11-08T00:00Z'),pickupTime:'20:00',returnTime:'12:00'}];
  const mixedId=await recovery.sync.handler(ctx,{token:'restore',lines:mixed});
@@ -73,5 +74,15 @@ const worker={runQuery:(ref,args)=>recovery[ref.split('.').at(-1)].handler(ctx,a
  }};
  await mail.processDue.handler(racingWorker,{});assert.equal(deliveries,beforeRaceDelivery,'Actual reminder worker sends no email when payment arrives between claim and ready');
  const limited=h.put('accounts',{email:'limited@example.invalid'});h.put('sessions',{token:'limited',accountId:limited._id,expiresAt:now+86400000});for(let i=0;i<60;i++)await recovery.sync.handler(ctx,{token:'limited',lines});await assert.rejects(()=>recovery.sync.handler(ctx,{token:'limited',lines}),/Please wait/,'Repeated identical saves are rate-limited, not just new baskets');
+ const tokenMatch=delivered[0].html.match(/email-preferences\/basket\?token=([A-Za-z0-9_-]{43})/);assert(tokenMatch,'The reminder contains a one-click preference link');
+ h.put('sessions',{token:'owner-preference',accountId:owner._id,expiresAt:now+86400000});
+ const optOutLines=[{...lines[0],start:Date.parse('2026-11-22T00:00Z'),end:Date.parse('2026-11-23T00:00Z')}];
+ const waitingForOptOut=h.put('checkout_recoveries',{accountId:owner._id,lines:optOutLines,activityRecordedAt:now,updatedAt:now,dueAt:now+1800000,expiresAt:now+86400000,state:'waiting',attempts:0});
+ assert.deepEqual(await mail.unsubscribe.handler(worker,{token:tokenMatch[1]}),{ok:true},'Email opt-out does not require an account session');
+ assert.equal((await recovery.preference.handler(ctx,{token:'owner-preference'})).disabled,true);
+ assert.equal((await h.db.get(waitingForOptOut._id)).state,'stopped','Opt-out stops already queued reminders');
+ assert.equal(await recovery.sync.handler(ctx,{token:'owner-preference',lines:optOutLines}),null,'Opted-out accounts are not requeued');
+ await recovery.setPreference.handler(ctx,{token:'owner-preference',disabled:false});
+ assert(await recovery.sync.handler(ctx,{token:'owner-preference',lines:optOutLines}),'A signed-in customer can turn automatic reminders back on');
  console.log('PASS automatic 30-minute basket recovery: auth, activity, throttling, clock persistence, unavailable inventory, leasing/crash recovery, stale fencing, pre-send payment/cancellation/expiry and foreign-link rechecks, delivery retry, sent dedup, clearing, daily cap, pause gates and permanent account ownership; mixed-period quantities, current quotes and exact clock restoration; malformed/private links and repeated-call rate limiting. No provider writes.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{Date.now=originalNow});

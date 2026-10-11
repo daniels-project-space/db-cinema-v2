@@ -18,6 +18,7 @@ import { formatGbp } from "@/lib/pricing";
 import { CheckoutMembership } from "@/components/CheckoutMembership";
 import { useBasketPrice } from "@/components/cart/useBasketPrice";
 import { CartItemDates } from "@/components/cart/CartItemDates";
+import { CheckoutReminderNotice } from "@/components/cart/CheckoutReminderNotice";
 import { IconX, IconArrowRight, IconLock } from "@/components/icons";
 
 
@@ -68,6 +69,7 @@ export default function CartPage() {
         ) : (
           <>
             <CartStockNotice checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/>
+            <CheckoutReminderNotice className="mb-4" />
             <CheckoutMembership
               compact
               loading={loading}

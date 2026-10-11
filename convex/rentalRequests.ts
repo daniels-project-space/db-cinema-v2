@@ -169,13 +169,13 @@ export const submit = mutation({
     if (!a) throw Error("Please sign in.");
     const b = await ownedBooking(ctx, a, bookingId);
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestId)) throw Error("Invalid request.");
+    if (kind === "cancel" && rentalHasStarted(b, Date.now())) throw Error(STARTED_RENTAL_REFUND_MESSAGE);
     const previous = await ctx.db.query("rental_change_requests").withIndex("by_request", q => q.eq("requestId", requestId)).first();
     if (previous) {
       if (previous.accountId !== a._id || previous.bookingId !== bookingId || previous.kind !== kind || previous.detail !== detail.trim() || !sameKitInput(previous.kitSelection, kit)||!sameDateInput(previous.dateSelection,dates)) throw Error("Request belongs to a different change.");
       return { ok: true, messageId: previous.messageId };
     }
     if (!["pending_payment", "confirmed", "active"].includes(b.status)) throw Error("This rental has finished. Please message the team instead.");
-    if (kind === "cancel" && rentalHasStarted(b, Date.now())) throw Error(STARTED_RENTAL_REFUND_MESSAGE);
     if (b.cancellationDecision || b.returnDecision) throw Error("A cancellation or return is already being processed.");
     const text = detail.trim();
     if (text.length < 5 || text.length > 1000) throw Error("Describe your request in 5–1000 characters.");

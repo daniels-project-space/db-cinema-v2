@@ -390,10 +390,21 @@ export const placeHolds = internalMutation({
       throw Error("This checkout's stock is already committed; reconcile the original rental");
     const holds = current.filter(r => r.status === "hold");
     if (holds.length) {
-      const fingerprint = (rows: { inventoryUnitId: unknown; listingId?: unknown; start: number; end: number; qty: number }[]) => JSON.stringify(rows.map(r =>
+      const fingerprint = (rows: { inventoryUnitId: unknown; listingId?: unknown; start: number; end: number; qty: number; pickupTime?:string|null; returnTime?:string|null }[]) => JSON.stringify(rows.map(r =>
+        JSON.stringify([String(r.inventoryUnitId), r.listingId ? String(r.listingId) : null, r.start, r.end, r.qty,(r as {endExclusive?:boolean}).endExclusive===true,(r as {turnaroundBufferMinutes?:number}).turnaroundBufferMinutes??0,r.pickupTime??null,r.returnTime??null])).sort());
+      const physicalFingerprint = (rows: { inventoryUnitId: unknown; listingId?: unknown; start: number; end: number; qty: number }[]) => JSON.stringify(rows.map(r =>
         JSON.stringify([String(r.inventoryUnitId), r.listingId ? String(r.listingId) : null, r.start, r.end, r.qty,(r as {endExclusive?:boolean}).endExclusive===true,(r as {turnaroundBufferMinutes?:number}).turnaroundBufferMinutes??0])).sort());
       if (fingerprint(holds) !== fingerprint(requested))
-        throw Error("This checkout's inventory reservation has changed; reconcile or cancel the original checkout");
+        if (holds.every(r=>r.pickupTime===undefined&&r.returnTime===undefined) && physicalFingerprint(holds)===physicalFingerprint(requested)) {
+          const identity=(r:{inventoryUnitId:unknown;listingId?:unknown;start:number;end:number;qty:number})=>JSON.stringify([String(r.inventoryUnitId),r.listingId?String(r.listingId):null,r.start,r.end,r.qty,(r as {endExclusive?:boolean}).endExclusive===true,(r as {turnaroundBufferMinutes?:number}).turnaroundBufferMinutes??0]);
+          for(const hold of holds){
+            const candidates=requested.filter(row=>identity(row)===identity(hold));
+            const clocks=new Map(candidates.map(row=>[JSON.stringify([row.pickupTime??null,row.returnTime??null]),row]));
+            if(!candidates.length||clocks.size!==1)throw Error("This checkout's inventory reservation has changed; reconcile or cancel the original checkout");
+            const row=[...clocks.values()][0];
+            await ctx.db.patch(hold._id,{pickupTime:row.pickupTime??null,returnTime:row.returnTime??null});
+          }
+        } else throw Error("This checkout's inventory reservation has changed; reconcile or cancel the original checkout");
       return { created: 0, alreadyReserved: true };
     }
     await ctx.db.patch(bookingId,{stockHoldFingerprint:stockAllocationFingerprint(booking,requested)});
@@ -517,6 +528,7 @@ export const confirm = internalMutation({
       for (const h of committed) await ctx.db.insert("reservations", {
         inventoryUnitId:h.inventoryUnitId,listingId:h.listingId,bookingId,
         start:h.start,end:h.end,endExclusive:h.endExclusive,turnaroundBufferMinutes:h.turnaroundBufferMinutes,
+        pickupTime:h.pickupTime??null,returnTime:h.returnTime??null,
         qty:h.qty,source:"site",status:"confirmed",
       });
     } else {
@@ -631,13 +643,16 @@ export const attachAddon = internalMutation({
   const b=await ctx.db.get(a.bookingId);
   if(!b||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||(b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId))return {closed:true};
   const listing=await ctx.db.get(a.listingId);if(!listing)return {closed:true};
-  const line={listingId:a.listingId,title:listing.title,start:a.start,end:a.end,qty:1,lineTotal:a.total,dailyRate:listing.pricing.daily};
+  const matchingPeriods=bookingStockLines<any>(b).filter(li=>li.start===a.start&&li.end===a.end);
+  const timeEvidence=new Map(matchingPeriods.map(li=>[JSON.stringify([li.pickupTime??null,li.returnTime??null]),li]));
+  const agreedTimes=timeEvidence.size===1?[...timeEvidence.values()][0]:undefined;
+  const line={listingId:a.listingId,title:listing.title,start:a.start,end:a.end,qty:1,lineTotal:a.total,dailyRate:listing.pricing.daily,pickupTime:agreedTimes?.pickupTime??null,returnTime:agreedTimes?.returnTime??null};
   if(!Number.isFinite(a.total)||a.total<=0||a.start%86400000!==0||a.end%86400000!==0)return {closed:true};
   try{await assertRenterExposure(ctx,b,[...b.lineItems,line]);await assertRentalInventory(ctx,[...b.lineItems,line],b._id);}catch{return {closed:true};}
   const now=Date.now();
   await ctx.db.insert("rental_additions",{...line,bookingId:b._id,requestId:`legacy-${a.sessionId}`,securityCharge:0,holdTotal:b.depositHoldAmount??0,status:"applied",reason:"Legacy paid item addition",createdAt:now,updatedAt:now,sessionId:a.sessionId,paymentIntentId:a.paymentIntentId});
   await ctx.db.patch(b._id,{replacementValues:await replacementValues(ctx,b,[...b.lineItems,line]),lineItems:[...b.lineItems,line],subtotal:b.subtotal+a.total,total:b.total+a.total});
-  for(const comp of listing.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:a.listingId,bookingId:b._id,start:a.start,end:a.end,qty:comp.qty,source:"site",status:b.status==="active"?"active":"confirmed"});
+  for(const comp of listing.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:a.listingId,bookingId:b._id,start:a.start,end:a.end,pickupTime:line.pickupTime,returnTime:line.returnTime,qty:comp.qty,source:"site",status:b.status==="active"?"active":"confirmed"});
   const account=await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",(b.guestEmail??"").trim().toLowerCase())).first();
   if(account)await postRentalMessage(ctx,{accountId:account._id,bookingId:b._id,sender:"system",text:`Added to your rental: ${listing.title}. Rental charge £${a.total.toFixed(2)}.`});
   await queueRmv2Sync(ctx, b._id);
@@ -1771,7 +1786,7 @@ export const getForCancel = internalQuery({
 /** Freeze cancellation policy and order edits before any external payment call. */
 export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers")),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit"))),customerInitiated:v.optional(v.boolean())},handler:async(ctx,{bookingId,fullCreditOfferId,changeRequestId,expectedCancellationKind,customerInitiated})=>{
  const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeSwapRefundId || b?.activeAdditionId || b?.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
- if(customerInitiated && !b.cancellationDecision && rentalHasStarted(b,Date.now()))throw Error(STARTED_RENTAL_REFUND_MESSAGE);
+ if(customerInitiated && rentalHasStarted(b,Date.now()))throw Error(STARTED_RENTAL_REFUND_MESSAGE);
  if(!b.cancellationDecision && (["starting","processing"].includes(b.depositHoldRenewalStatus ?? "") ||
   (b.status === "confirmed" && b.depositHoldAmount && b.depositHoldStatus === "awaiting_payment"))) throw Error("Security hold setup or renewal is still processing. Please retry once it is resolved.");
  if(b.cancellationDecision){

@@ -147,7 +147,7 @@ export const reschedule = mutation({
     for(const li of lines){
       const listing=await ctx.db.get(li.listingId);
       const clockChange=pickupTime!==undefined||returnTime!==undefined;
-      const window=allocationMode==="legacy"&&!clockChange?{start:li.start,end:li.end}:stockWindow(li,clockChange||allocationMode==="precise");
+      const window=allocationMode==="legacy"&&!clockChange?{start:li.start,end:li.end,pickupTime:li.pickupTime??null,returnTime:li.returnTime??null}:stockWindow(li,clockChange||allocationMode==="precise");
       for(const comp of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:comp.inventoryUnitId,listingId:li.listingId,bookingId,...window,qty:comp.qty*li.qty,source:"site",status:"confirmed"});
     }
     const a = await accountForRental(ctx, b);

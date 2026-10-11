@@ -88,6 +88,7 @@ export const _upsertGoogle = internalMutation({
     googleId: v.string(),
     picture: v.optional(v.string()),
     token: v.string(),
+    basketReminderDisabled: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
     const now = Date.now();
@@ -106,6 +107,10 @@ export const _upsertGoogle = internalMutation({
         emailVerificationRequired: false,
         createdAt: now,
       });
+      if (a.basketReminderDisabled)
+        await ctx.db.insert("checkout_recovery_email_preferences", {
+          accountId: id, email: a.email, disabledAt: now, createdAt: now, updatedAt: now,
+        });
       await ensureReferralCode(ctx,id);
       await _applyPendingCollectiveGrant(ctx, id, a.email);
       await ctx.db.insert("sessions", {
@@ -136,8 +141,8 @@ export const _upsertGoogle = internalMutation({
 
 /** Exchange a Google ID token for a Db Cinema session token. */
 export const signInWithGoogle = action({
-  args: { credential: v.string() },
-  handler: async (ctx, { credential }): Promise<{ token: string }> => {
+  args: { credential: v.string(), basketReminderDisabled: v.optional(v.boolean()) },
+  handler: async (ctx, { credential, basketReminderDisabled }): Promise<{ token: string }> => {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     if (!clientId) throw new Error("Google sign-in isn't configured yet.");
     const profile = await verifyGoogleIdToken(credential, clientId);
@@ -148,6 +153,7 @@ export const signInWithGoogle = action({
       googleId: profile.googleId,
       picture: profile.picture,
       token,
+      basketReminderDisabled,
     });
     return { token };
   },

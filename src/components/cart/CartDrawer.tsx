@@ -8,6 +8,7 @@ import { formatGbp } from "@/lib/pricing";
 import { CheckoutMembership } from "../CheckoutMembership";
 import { useBasketPrice } from "./useBasketPrice";
 import { CartItemDates } from "./CartItemDates";
+import { CheckoutReminderNotice } from "./CheckoutReminderNotice";
 
 export function CartDrawer() {
   const { items, remove, clear, isOpen, close, membership, setMembership } = useCart();
@@ -112,6 +113,7 @@ export function CartDrawer() {
                   <div className="col-span-3"><CartItemDates item={it} /></div>
                 </div>
               ))}
+              {isOpen && <CheckoutReminderNotice />}
               {isOpen && (
                 <CheckoutMembership
                   loading={loading}

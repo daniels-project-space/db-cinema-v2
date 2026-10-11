@@ -58,6 +58,7 @@ function AuthForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [basketReminderDisabled, setBasketReminderDisabled] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -66,7 +67,7 @@ function AuthForm() {
     setErr(null);
     try {
       if (mode === "signup") {
-        await account.signUp(email, password, name || undefined);
+        await account.signUp(email, password, name || undefined, basketReminderDisabled);
         setLinkSent(true);
       }
       else await account.signIn(email, password);
@@ -113,6 +114,20 @@ function AuthForm() {
           aria-label="Email"
           className="input"
         />
+        <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3 text-left">
+          <p className="text-xs leading-relaxed text-white/60">
+            If you create an account and leave a saved rental basket unfinished, we may send one reminder after 30 minutes. It contains a link to review that basket; each email includes a one-click way to turn reminders off.
+          </p>
+          <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs leading-relaxed text-white/75">
+            <input
+              type="checkbox"
+              checked={basketReminderDisabled}
+              onChange={(event) => setBasketReminderDisabled(event.target.checked)}
+              className="mt-0.5 accent-[var(--accent)]"
+            />
+            <span>Do not send me the saved-basket reminder.</span>
+          </label>
+        </div>
         <input
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -130,7 +145,7 @@ function AuthForm() {
           {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
         </button>
         {mode === "signup" && linkSent && <p role="status" className="text-xs text-accent-300">Check your email to confirm account creation and activate your password. Private rentals stay locked until then.</p>}
-        <GoogleSignIn onError={setErr} />
+        <GoogleSignIn onError={setErr} basketReminderDisabled={basketReminderDisabled} />
         {mode === "signin" && <>
           <Link href="/account/setup?purpose=reset" className="text-sm text-accent-300 hover:underline">Forgot password?</Link>
           <div className="mt-2 border-t border-white/10 pt-4 text-xs text-white/50">Booked without a password? Sign in with your rental email.</div>

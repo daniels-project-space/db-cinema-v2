@@ -10,12 +10,16 @@ const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 export function GoogleSignIn({
   onError,
   onDone,
+  basketReminderDisabled = false,
 }: {
   onError?: (m: string) => void;
   onDone?: () => void;
+  basketReminderDisabled?: boolean;
 }) {
   const { signInWithGoogle } = useAccount();
   const ref = useRef<HTMLDivElement>(null);
+  const reminderDisabled = useRef(basketReminderDisabled);
+  reminderDisabled.current = basketReminderDisabled;
 
   useEffect(() => {
     if (!CLIENT_ID || !ref.current) return;
@@ -28,7 +32,7 @@ export function GoogleSignIn({
         client_id: CLIENT_ID,
         callback: async (resp: any) => {
           try {
-            await signInWithGoogle(resp.credential);
+            await signInWithGoogle(resp.credential, reminderDisabled.current);
             onDone?.();
           } catch (e: any) {
             onError?.(e?.message ?? "Google sign-in failed.");

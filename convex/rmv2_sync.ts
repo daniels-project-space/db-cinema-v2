@@ -153,9 +153,23 @@ export function mapBookingForSync(
         });
         const evidence = new Map(matchingLines.map(li => [JSON.stringify([li.start, li.end, li.pickupTime ?? null, li.returnTime ?? null]), li]));
         const signedLine = evidence.size === 1 ? [...evidence.values()][0] : undefined;
-        // Preserve explicit unknown clocks and never select one ambiguous line.
-        const pickupTime = signedLine?.pickupTime ?? null;
-        const returnTime = signedLine?.returnTime ?? null;
+        const clock = (value:unknown):string|null => typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : null;
+        const pickupClocks = matchingLines.map(li => clock(li.pickupTime));
+        const commonPickup = pickupClocks.length && pickupClocks.every(Boolean) && pickupClocks.every(value => value === pickupClocks[0])
+          ? pickupClocks[0] : null;
+        const returnClocks = matchingLines.map(li => clock(li.returnTime));
+        // When old rows lost their line reference, a common pickup plus several
+        // confirmed returns can safely reserve through the latest deadline.
+        // Conflicting or unconfirmed pickups/returns stay unknown and therefore
+        // block the full day in Rental Manager instead of guessing.
+        const conservativeReturn = commonPickup && returnClocks.length && returnClocks.every(Boolean)
+          ? [...returnClocks].sort().at(-1) ?? null : null;
+        const fallbackPickup = signedLine ? clock(signedLine.pickupTime) : commonPickup;
+        const fallbackReturn = signedLine ? clock(signedLine.returnTime) : conservativeReturn;
+        // Persisted reservation clocks identify the exact physical allocation;
+        // use them before the legacy booking-line reconstruction.
+        const pickupTime = r.pickupTime !== undefined ? clock(r.pickupTime) : fallbackPickup;
+        const returnTime = r.returnTime !== undefined ? clock(r.returnTime) : fallbackReturn;
         return { reservationId: String(r._id), inventoryUnitId: String(r.inventoryUnitId),
           rmv2ItemId: unit?.rmv2ItemId ?? null, name: unit?.name ?? "Unmapped equipment",
           sku: unit?.sku ?? null, qty: r.qty, start: r.start, end: r.end,

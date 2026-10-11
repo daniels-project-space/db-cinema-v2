@@ -1533,7 +1533,7 @@ export const acceptFullCredit = action({
   if(b.status==="cancelled"&&b.cancellationDecision?.fullCreditOfferId===offerId){await ctx.runMutation(internal.rentalCreditOffers.accepted,{offerId});return {ok:true};}
   const booking:any=await ctx.runQuery(internal.rentalCreditOffers.context,{bookingId:offer.bookingId});
   if(b.cancellationDecision?.fullCreditOfferId !== offerId) assertCreditOffer(offer,booking);
-  if(b.rentalStarted && !b.cancellationDecision)throw Error(STARTED_RENTAL_REFUND_MESSAGE);
+  if(b.rentalStarted)throw Error(STARTED_RENTAL_REFUND_MESSAGE);
   const result=await cancelRental(ctx,offer.bookingId,b,me._id,undefined,offerId,undefined,undefined,true);
   await ctx.runMutation(internal.rentalCreditOffers.accepted,{offerId});return result;
  }
@@ -1592,7 +1592,7 @@ export const cancelUnpaidByCustomer = action({
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
   if(!belongsToRentalAccount(b,me))throw Error("unauthorized");
   if(b.status!=="pending_payment"||!b.siteOnly)throw Error("Only unpaid direct checkouts can be abandoned here.");
-  if(b.rentalStarted && !b.cancellationDecision)throw Error(STARTED_RENTAL_REFUND_MESSAGE);
+  if(b.rentalStarted)throw Error(STARTED_RENTAL_REFUND_MESSAGE);
   return cancelRental(ctx,bookingId,b,me._id,undefined,undefined,undefined,undefined,true);
  }
 });
@@ -1605,7 +1605,7 @@ export const cancelByCustomer = action({
   if(!belongsToRentalAccount(b,me))throw Error("unauthorized");
   if(b.cancelledAt||b.status==="cancelled")throw Error("This booking is already cancelled.");
   if(!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Please contact us to change this booking.");
-  if(b.rentalStarted && !b.cancellationDecision)throw Error(STARTED_RENTAL_REFUND_MESSAGE);
+  if(b.rentalStarted)throw Error(STARTED_RENTAL_REFUND_MESSAGE);
   return cancelRental(ctx,bookingId,b,me._id,undefined,undefined,undefined,undefined,true);
  }
 });
