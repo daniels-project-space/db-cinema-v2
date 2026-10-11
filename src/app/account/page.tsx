@@ -31,6 +31,7 @@ import { ShootLists } from "@/components/plans/ShootLists";
 import { AvatarUpload } from "@/components/account/AvatarUpload";
 import { ManagementShell } from "@/components/management/ManagementShell";
 import { InvoiceLibrary } from "@/components/management/InvoiceLibrary";
+import { accountAuthErrorMessage } from "../../../shared/accountAuth";
 
 export default function AccountPage() {
   const account = useAccount();
@@ -61,17 +62,26 @@ function AuthForm() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function go() {
+  async function go(values: FormData) {
+    // Password managers can fill the DOM without dispatching React onChange.
+    // Authenticate the values the renter sees, rather than stale component state.
+    const submittedEmail = String(values.get("email") ?? "").trim();
+    const submittedPassword = String(values.get("password") ?? "");
+    const submittedName = String(values.get("name") ?? "").trim();
+    setEmail(submittedEmail);
+    setPassword(submittedPassword);
     setBusy(true);
     setErr(null);
     try {
       if (mode === "signup") {
-        await account.signUp(email, password, name || undefined);
+        await account.signUp(submittedEmail, submittedPassword, submittedName || undefined);
         setLinkSent(true);
       }
-      else await account.signIn(email, password);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed");
+      else await account.signIn(submittedEmail, submittedPassword);
+    } catch (e: unknown) {
+      setErr(accountAuthErrorMessage(e, mode === "signup"
+        ? "We couldn't create your account right now. Please try again."
+        : "We couldn't sign you in right now. Please try again or request an email sign-in link."));
     } finally {
       setBusy(false);
     }
@@ -89,16 +99,18 @@ function AuthForm() {
       <p className="mt-2 text-sm text-white/40">
         {mode === "signup" ? "Already have one? " : "New here? "}
         <button
-          onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
+          onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setErr(null); setLinkSent(false); }}
           className="text-accent-400 underline-offset-2 hover:underline"
         >
           {mode === "signup" ? "Sign in" : "Create one"}
         </button>
       </p>
-      <div className="mt-6 flex flex-col gap-3">
+      <form className="mt-6 flex flex-col gap-3" onSubmit={e => { e.preventDefault(); if (!busy) void go(new FormData(e.currentTarget)); }}>
         {mode === "signup" && (
           <input
             aria-label="Name"
+            name="name"
+            autoComplete="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Name"
@@ -111,6 +123,11 @@ function AuthForm() {
           placeholder="Email"
           type="email"
           aria-label="Email"
+          name="email"
+          autoComplete="email"
+          autoCapitalize="none"
+          spellCheck={false}
+          required
           className="input"
         />
         <input
@@ -119,14 +136,17 @@ function AuthForm() {
           placeholder="Password (6+ chars)"
           type="password"
           aria-label="Password"
+          name="password"
+          autoComplete={mode === "signup" ? "new-password" : "current-password"}
+          required
           className="input"
         />
         {err && (
-          <div className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">
+          <div role="alert" className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">
             {err}
           </div>
         )}
-        <button onClick={go} disabled={busy} className="btn-primary py-3">
+        <button type="submit" disabled={busy} className="btn-primary py-3">
           {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
         </button>
         {mode === "signup" && linkSent && <p role="status" className="text-xs text-accent-300">Check your email to confirm account creation and activate your password. Private rentals stay locked until then.</p>}
@@ -134,10 +154,10 @@ function AuthForm() {
         {mode === "signin" && <>
           <Link href="/account/setup?purpose=reset" className="text-sm text-accent-300 hover:underline">Forgot password?</Link>
           <div className="mt-2 border-t border-white/10 pt-4 text-xs text-white/50">Booked without a password? Sign in with your rental email.</div>
-          <button className="btn-secondary py-3" disabled={busy || !email.trim()} onClick={async()=>{setBusy(true);setErr(null);setLinkSent(false);try{await requestSignIn({email});setLinkSent(true);}catch{setErr("Could not request a link. Please try again.");}finally{setBusy(false);}}}>Email me a sign-in link</button>
+          <button type="button" className="btn-secondary py-3" disabled={busy || !email.trim()} onClick={async()=>{setBusy(true);setErr(null);setLinkSent(false);try{await requestSignIn({email});setLinkSent(true);}catch{setErr("Could not request a link. Please try again.");}finally{setBusy(false);}}}>Email me a sign-in link</button>
           {linkSent && <p role="status" className="text-xs text-accent-300">If an account uses this email, a private sign-in link is on its way. It expires in 15 minutes.</p>}
         </>}
-      </div>
+      </form>
     </div>
   );
 }

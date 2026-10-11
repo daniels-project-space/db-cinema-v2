@@ -21,6 +21,7 @@ import { paginationOptsValidator } from "convex/server";
 import { listingImages } from "./lib/catalogImages";
 import { stream, mergedStream } from "convex-helpers/server/stream";
 import schema from "./schema";
+import { accountAuthError, validAccountEmail } from "../shared/accountAuth";
 
 // ── crypto helpers (Web Crypto, available in Convex actions) ──────
 const toHex = (b: Uint8Array) =>
@@ -89,7 +90,7 @@ export const _create = internalMutation({
     pendingEmailVerification: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
-    if(await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",a.email)).first())throw Error("An account with that email already exists.");
+    if(await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",a.email)).first())throw new ConvexError(accountAuthError("ACCOUNT_EXISTS"));
     const accountId = await ctx.db.insert("accounts", {
       email: a.email,
       salt: a.salt,
@@ -130,7 +131,9 @@ export const _session = internalMutation({
   args: { accountId: v.id("accounts"), token: v.string() },
   handler: async (ctx, { accountId, token }) => {
     const account = await ctx.db.get(accountId);
-    if (!account || account.blockedAt != null) throw Error("This account is blocked. Contact DB Cinema Rentals.");
+    if (!account || account.blockedAt != null) throw new ConvexError(accountAuthError("ACCOUNT_BLOCKED"));
+    if (account.emailVerificationRequired && !account.emailVerifiedAt)
+      throw new ConvexError(accountAuthError("EMAIL_VERIFICATION_REQUIRED"));
     const now = Date.now();
     await ctx.db.insert("sessions", { token, accountId, createdAt: now, expiresAt: now + SESSION_TTL_MS });
   },
@@ -160,10 +163,10 @@ export const signUp = action({
   args: { email: v.string(), password: v.string(), name: v.optional(v.string()) },
   handler: async (ctx, { email, password, name }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
-    if (e.length>254||!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(e) || password.length < 6)
-      throw new Error("Enter a valid email and a password of 6+ characters.");
+    if (!validAccountEmail(e) || password.length < 6)
+      throw new ConvexError(accountAuthError("SIGNUP_INVALID_INPUT"));
     const existing = await ctx.runQuery(internal.accounts._byEmail, { email: e });
-    if (existing) throw new Error("An account with that email already exists.");
+    if (existing) throw new ConvexError(accountAuthError("ACCOUNT_EXISTS"));
     const salt = randomHex(16);
     const hash = await pbkdf2(password, salt);
     const token = randomHex(24);
@@ -177,14 +180,16 @@ export const signIn = action({
   args: { email: v.string(), password: v.string() },
   handler: async (ctx, { email, password }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
+    if (!validAccountEmail(e) || !password)
+      throw new ConvexError(accountAuthError("INVALID_INPUT"));
     const acct: any = await ctx.runQuery(internal.accounts._byEmail, { email: e });
-    if (!acct) throw new Error("No account found for that email.");
-    if (acct.blockedAt != null) throw Error("This account is blocked. Contact DB Cinema Rentals.");
-    if(acct.emailVerificationRequired&&!acct.emailVerifiedAt)throw Error("Confirm your signup email or request a private sign-in link first.");
+    if (!acct) throw new ConvexError(accountAuthError("INVALID_CREDENTIALS"));
+    if (acct.blockedAt != null) throw new ConvexError(accountAuthError("ACCOUNT_BLOCKED"));
+    if(acct.emailVerificationRequired&&!acct.emailVerifiedAt)throw new ConvexError(accountAuthError("EMAIL_VERIFICATION_REQUIRED"));
     if (!acct.hash || !acct.salt)
-      throw new Error("Use an email sign-in link or Continue with Google for this account.");
+      throw new ConvexError(accountAuthError("PASSWORD_NOT_SET"));
     const hash = await pbkdf2(password, acct.salt);
-    if (hash !== acct.hash) throw new Error("Incorrect password.");
+    if (hash !== acct.hash) throw new ConvexError(accountAuthError("INVALID_CREDENTIALS"));
     const token = randomHex(24);
     await ctx.runMutation(internal.accounts._session, { accountId: acct._id, token });
     return { token };
