@@ -85,6 +85,7 @@ import type * as lib_rentalAccount from "../lib/rentalAccount.js";
 import type * as lib_rentalAllocation from "../lib/rentalAllocation.js";
 import type * as lib_rentalBillingLines from "../lib/rentalBillingLines.js";
 import type * as lib_rentalChat from "../lib/rentalChat.js";
+import type * as lib_rentalControlsSnapshot from "../lib/rentalControlsSnapshot.js";
 import type * as lib_rentalCreditPolicy from "../lib/rentalCreditPolicy.js";
 import type * as lib_rentalEmailQueue from "../lib/rentalEmailQueue.js";
 import type * as lib_rentalExposure from "../lib/rentalExposure.js";
@@ -98,6 +99,7 @@ import type * as lib_rentalRequestExecution from "../lib/rentalRequestExecution.
 import type * as lib_renterPush from "../lib/renterPush.js";
 import type * as lib_repeatRental from "../lib/repeatRental.js";
 import type * as lib_repeatRentalProvider from "../lib/repeatRentalProvider.js";
+import type * as lib_replacementSets from "../lib/replacementSets.js";
 import type * as lib_reservationOccupancy from "../lib/reservationOccupancy.js";
 import type * as lib_reservationPayment from "../lib/reservationPayment.js";
 import type * as lib_returnInspection from "../lib/returnInspection.js";
@@ -244,6 +246,7 @@ declare const fullApi: ApiFromModules<{
   "lib/rentalAllocation": typeof lib_rentalAllocation;
   "lib/rentalBillingLines": typeof lib_rentalBillingLines;
   "lib/rentalChat": typeof lib_rentalChat;
+  "lib/rentalControlsSnapshot": typeof lib_rentalControlsSnapshot;
   "lib/rentalCreditPolicy": typeof lib_rentalCreditPolicy;
   "lib/rentalEmailQueue": typeof lib_rentalEmailQueue;
   "lib/rentalExposure": typeof lib_rentalExposure;
@@ -257,6 +260,7 @@ declare const fullApi: ApiFromModules<{
   "lib/renterPush": typeof lib_renterPush;
   "lib/repeatRental": typeof lib_repeatRental;
   "lib/repeatRentalProvider": typeof lib_repeatRentalProvider;
+  "lib/replacementSets": typeof lib_replacementSets;
   "lib/reservationOccupancy": typeof lib_reservationOccupancy;
   "lib/reservationPayment": typeof lib_reservationPayment;
   "lib/returnInspection": typeof lib_returnInspection;

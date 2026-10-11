@@ -30,6 +30,8 @@ export const save = mutation({
     const rows = await Promise.all(changes.map(async c => {
       const listing = await ctx.db.get(c.listingId);
       if (!listing) throw Error("A listing was removed. Discard changes and review the list again.");
+      if (listing.marketingOnlySource === "rental_manager")
+        throw Error("Edit this listing’s marketing-only tag in the Rental Manager admin panel.");
       if ((listing.marketingOnlyUpdatedAt ?? 0) !== (c.expectedUpdatedAt ?? 0))
         throw Error("A tag changed in another session. Discard changes and review the latest list.");
       return { listing, change: c };

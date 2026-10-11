@@ -22,6 +22,15 @@ const importItem=(l,title=l.title)=>({hyggloProductId:l===owned?10:20,stockMappi
  await admin.seedIdentified.handler(ctx,{});assert.equal(marketing.marketingOnly,false,'Seeding never overwrites manual exemptions');
  await save(marketing,null);assert.equal(marketing.marketingOnly,true);assert.equal(marketing.marketingOnlySource,'auto');await save(owned,false);assert.equal((await availability.forCart.handler(ctx,lines(owned)))[owned._id].ok,true);
  await assert.rejects(admin.save.handler(ctx,{token:process.env.ADMIN_TOKEN,changes:[{listingId:owned._id,marketingOnly:true},{listingId:owned._id,marketingOnly:false}]}),/distinct/);
+ const rmImport={...importItem(marketing,'Cannon R5 C cinema camera'),slug:'rental-manager-r5',hyggloProductId:31,marketingOnly:true,marketingOnlyMode:'manual',marketingOnlyUpdatedAt:500};
+ await sync.applyCatalog.handler(ctx,{items:[rmImport]});const rmListing=await db.query('listings').withIndex('by_slug',q=>q.eq('slug','rental-manager-r5')).unique();
+ assert.equal(rmListing.marketingOnly,true);assert.equal(rmListing.marketingOnlySource,'rental_manager');assert.equal((await availability.forCart.handler(ctx,lines(rmListing)))[rmListing._id].ok,false);
+ await assert.rejects(save(rmListing,false),/Rental Manager admin panel/,'Manager-owned tags cannot be overwritten by the legacy local settings tool');
+ const pushed=await sync.applyManagerMarketingTags.handler(ctx,{changes:[{productId:31,marketingOnly:false,mode:'manual',updatedAt:501}]});
+ assert.deepEqual(pushed,{protocolVersion:1,acknowledged:1,missing:0,stale:0});assert.equal(rmListing.marketingOnly,false);assert.equal((await availability.forCart.handler(ctx,lines(rmListing)))[rmListing._id].ok,true,'The live tag update changes cart availability');
+ assert.deepEqual(await sync.applyManagerMarketingTags.handler(ctx,{changes:[{productId:31,marketingOnly:false,mode:'manual',updatedAt:501}]}),{protocolVersion:1,acknowledged:1,missing:0,stale:0},'Push retries are idempotent');
+ assert.deepEqual(await sync.applyManagerMarketingTags.handler(ctx,{changes:[{productId:31,marketingOnly:true,mode:'manual',updatedAt:500}]}),{protocolVersion:1,acknowledged:0,missing:0,stale:1},'A delayed older push cannot undo a newer tag');
+ assert.equal(rmListing.marketingOnly,false);assert.deepEqual(await sync.applyManagerMarketingTags.handler(ctx,{changes:[{productId:999,marketingOnly:true,mode:'manual',updatedAt:501}]}),{protocolVersion:1,acknowledged:0,missing:1,stale:0});
  assert(tables.get('admin_audit_log').some(l=>l.success&&l.fn==='marketingAdmin.save'));
  console.log('PASS marketing admin: protected reads/writes, seeded aliases, preserved browse selection, cart/checkout guards and replacements, untag/reset, conflict-safe batches, import persistence and new-listing auto-tagging.');
 })().catch(e=>{console.error(e);process.exitCode=1});

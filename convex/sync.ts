@@ -106,6 +106,8 @@ type RawProduct = {
   name?: string;
   isPublished?: boolean;
   isMarketingOnly?: boolean;
+  marketingOnlyMode?: "automatic" | "manual";
+  marketingOnlyUpdatedAt?: number;
   valuation?: number;
   minimumRentalDays?: number;
   prices?: { days?: number; pricePerDay?: number; price?: number }[];
@@ -130,6 +132,10 @@ export const syncFromRmv2 = action({
     );
 
     const payload = live.map((p) => {
+      if (typeof p.isMarketingOnly !== "boolean" ||
+          (p.marketingOnlyMode !== "automatic" && p.marketingOnlyMode !== "manual") ||
+          !Number.isSafeInteger(p.marketingOnlyUpdatedAt) || (p.marketingOnlyUpdatedAt ?? -1) < 0)
+        throw Error("Rental Manager catalogue lacks the verified marketing-only tag state");
       const mapping = p.stockMapping;
       if (!mapping || mapping.version !== 1 || typeof mapping.complete !== "boolean" ||
           !(mapping.owned === null || typeof mapping.owned === "boolean") || !Array.isArray(mapping.components))
@@ -154,6 +160,9 @@ export const syncFromRmv2 = action({
         hyggloProductId: p.productId,
         stockComponents: mapping.components,
         stockMappingStatus: mapping.complete && mapping.owned === true && mapping.components.length > 0 ? "complete" as const : mapping.owned === false ? "not_owned" as const : "incomplete" as const,
+        marketingOnly: p.isMarketingOnly,
+        marketingOnlyMode: p.marketingOnlyMode,
+        marketingOnlyUpdatedAt: p.marketingOnlyUpdatedAt,
         slug: `${slugify(title)}-${p.productId}`,
         title,
         category: categoryFor(title),
@@ -194,6 +203,9 @@ export const applyCatalog = internalMutation({
         hyggloProductId: v.number(),
         stockMappingStatus: v.union(v.literal("complete"),v.literal("incomplete"),v.literal("not_owned")),
         stockComponents: v.array(v.object({masterItemId:v.string(),name:v.string(),qty:v.number(),quantityOwned:v.number(),active:v.boolean(),replacementCost:v.number()})),
+        marketingOnly: v.optional(v.boolean()),
+        marketingOnlyMode: v.optional(v.union(v.literal("automatic"),v.literal("manual"))),
+        marketingOnlyUpdatedAt: v.optional(v.number()),
         slug: v.string(),
         title: v.string(),
         category: v.string(),
@@ -217,7 +229,7 @@ export const applyCatalog = internalMutation({
     ),
   },
   handler: async (ctx, { items, fingerprint }) => {
-    const stateKey = "catalog-payload-v3-canonical-components";
+    const stateKey = "catalog-payload-v4-manager-marketing-tags";
     const state = fingerprint
       ? await ctx.db
           .query("rmv2_sync_state")
@@ -327,6 +339,12 @@ export const applyCatalog = internalMutation({
         depositAmount: it.depositAmount,
         components,
         stockMappingStatus: it.stockMappingStatus,
+        ...(typeof it.marketingOnly === "boolean" && it.marketingOnlyMode && it.marketingOnlyUpdatedAt !== undefined ? {
+          marketingOnly: it.marketingOnly,
+          marketingOnlyMode: it.marketingOnlyMode,
+          marketingOnlySource: "rental_manager" as const,
+          marketingOnlyUpdatedAt: it.marketingOnlyUpdatedAt,
+        } : {}),
         hyggloListingSlug: it.hyggloListingSlug,
         hyggloProductId: it.hyggloProductId,
         unavailableDates: it.unavailableDates,
@@ -380,6 +398,56 @@ export const applyCatalog = internalMutation({
       else await ctx.db.insert("rmv2_sync_state", next);
     }
     return { listings: listingCount, units: unitCount, deactivated, skipped: false };
+  },
+});
+
+/** Immediate, authenticated write-through from the Rental Manager tag tool.
+ * Periodic catalogue sync remains the recovery path if this push cannot run. */
+export const applyManagerMarketingTags = internalMutation({
+  args: {
+    changes: v.array(v.object({
+      productId: v.number(),
+      marketingOnly: v.boolean(),
+      mode: v.union(v.literal("automatic"), v.literal("manual")),
+      updatedAt: v.number(),
+    })),
+  },
+  handler: async (ctx, { changes }) => {
+    if (changes.length < 1 || changes.length > 50 ||
+        new Set(changes.map(change => change.productId)).size !== changes.length ||
+        changes.some(change => !Number.isSafeInteger(change.productId) || change.productId <= 0 ||
+          !Number.isSafeInteger(change.updatedAt) || change.updatedAt < 0))
+      throw Error("Choose up to 50 distinct, valid listing changes.");
+
+    let acknowledged = 0;
+    let missing = 0;
+    let stale = 0;
+    for (const change of changes) {
+      const listings = await ctx.db.query("listings")
+        .withIndex("by_hyggloProductId", q => q.eq("hyggloProductId", change.productId))
+        .collect();
+      if (!listings.length) { missing++; continue; }
+      const managerListings = listings.filter(listing => listing.hyggloProductId === change.productId);
+      if (managerListings.some(listing => listing.marketingOnlySource === "rental_manager" &&
+          (listing.marketingOnlyUpdatedAt ?? 0) > change.updatedAt)) {
+        stale++;
+        continue;
+      }
+      for (const listing of managerListings) {
+        if (listing.marketingOnlySource === "rental_manager" &&
+            listing.marketingOnlyUpdatedAt === change.updatedAt &&
+            listing.marketingOnly === change.marketingOnly &&
+            listing.marketingOnlyMode === change.mode) continue;
+        await ctx.db.patch(listing._id, {
+          marketingOnly: change.marketingOnly,
+          marketingOnlyMode: change.mode,
+          marketingOnlySource: "rental_manager",
+          marketingOnlyUpdatedAt: change.updatedAt,
+        });
+      }
+      acknowledged++;
+    }
+    return { protocolVersion: 1 as const, acknowledged, missing, stale };
   },
 });
 
