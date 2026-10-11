@@ -25,3 +25,5 @@
 .demandTable table { width:100%; border-collapse:collapse; font-size:12px; }
 .demandTable th,.demandTable td { padding:10px; text-align:left; border-bottom:1px solid #ffffff13; }
 .demandTable td:first-child { min-width:180px; }
+
+.outcomes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin-top:20px}.outcomes>section{min-width:0}.outcomes h3{font-size:14px;color:#eed9c8;margin-bottom:8px}.outcomes p{font-size:11px;color:#a4aaa3;line-height:1.7;margin:8px 0 16px}.outcomes .rankings{display:block}.outcomes .rankings strong{overflow-wrap:anywhere;white-space:normal}.journeyTotals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}.journeyTotals strong{display:block;font-size:24px;color:#e5c3a9}.journeyTotals span{display:block;margin-top:5px;font-size:10px;color:#a4aaa3;line-height:1.5}@media(max-width:1100px){.outcomes{grid-template-columns:1fr}.outcomes>section+section{padding-top:20px;border-top:1px solid #ffffff15}}

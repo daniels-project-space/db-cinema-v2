@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { documentReadiness } from "../../../shared/documentReadiness";
 import styles from "./AccountDocuments.module.css";
 import { SmartImage } from "@/components/SmartImage";
 
@@ -9,14 +10,37 @@ function documentTitle(kind: string) {
   return kind === "drone-operator-licence" ? "Drone operator licence" : kind.startsWith("address-") ? "Proof of address" : `Proof of identity · ${kind.includes("back") ? "back" : "front"}${kind.includes("full_") ? " · full image" : ""}`;
 }
 
+function DocumentReadinessCard({ archives, verified, verificationExpiresAt }: { archives: Parameters<typeof documentReadiness>[0] | undefined; verified: boolean; verificationExpiresAt: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const deadlines = [...(archives ?? []).map(a => a.retention.expiresAt), verificationExpiresAt].filter((at): at is number => at !== null && at > now);
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(60000, ...deadlines.map(at => Math.max(1, at - Date.now()))));
+    return () => clearTimeout(timer);
+  }, [archives, verificationExpiresAt, now]);
+  if (!archives) return <p role="status" className={styles.readiness}>Checking document readiness…</p>;
+  const state = documentReadiness(archives, verified, verificationExpiresAt, now);
+  return <section className={styles.readiness} aria-label="Customer document readiness">
+    <header><h4>Document readiness</h4><span data-ready={state.ready}>{state.ready ? "Approval & copies ready" : "Needs attention"}</span></header>
+    <dl><div><dt>Verification</dt><dd data-good={state.approved}>{state.approval}{verificationExpiresAt && <small>Valid until {new Date(verificationExpiresAt).toLocaleDateString("en-GB")}</small>}</dd></div>
+    <div><dt>Proof of identity</dt><dd data-good={state.identitySaved}>{state.identitySaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : "Private copy missing"}</dd></div>
+    <div><dt>Proof of address</dt><dd data-good={state.addressSaved}>{state.addressSaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : "Private copy missing"}</dd></div></dl>
+    <p>{state.daysLeft !== null ? `Earliest archive deletion in ${state.daysLeft} ${state.daysLeft === 1 ? "day" : "days"} · ${new Date(state.archiveExpiry!).toLocaleDateString("en-GB")}` : state.protectedArchive ? "Copies retained while a rental or insurance hold is active." : "Retention countdown begins after the rental closes."}</p>
+    <small>Copies are admin-only. Retention normally ends 30 days after rental closure; verification expiry is separate.</small>
+  </section>;
+}
+
 export function AccountDocumentSummary({
   token,
   accountId,
   onReview,
+  verified,
+  verificationExpiresAt,
 }: {
   token: string;
   accountId: string;
   onReview: () => void;
+  verified: boolean;
+  verificationExpiresAt: number | null;
 }) {
   const archives = useQuery(api.verificationArchive.accountDocuments, {
     token,
@@ -30,6 +54,7 @@ export function AccountDocumentSummary({
     .slice(-3);
   return (
     <div>
+      <DocumentReadinessCard archives={archives} verified={verified} verificationExpiresAt={verificationExpiresAt} />
       {archives === undefined ? (
         <p className="py-2 text-[11px] text-white/45">
           Loading retained documents…
@@ -88,12 +113,14 @@ export function AccountDocuments({
   token,
   accountId,
   customer,
+  verificationExpiresAt = null,
   onBack,
   onSection,
 }: {
   token: string;
   accountId: string;
   customer?: { name: string; email: string; avatarUrl?: string | null; verified: boolean };
+  verificationExpiresAt?: number | null;
   onBack?: () => void;
   onSection?: (section: string) => void;
 }) {
@@ -254,6 +281,7 @@ export function AccountDocuments({
         <span className={styles.shield}><DocumentIcon type="shield" /></span><div><strong>Retained during the rental and for 30 days after return.</strong><p>An active rental keeps its documents available.</p></div>
         <ol aria-label="Document retention timeline">{["Uploaded","Saved","Rental active","Returned","30-day retention"].map((name,i) => <li key={name} className={i === 0 && allFiles.length || i === 1 && savedCount || i === 2 && active ? styles.reached : ""}><span/><strong>{name}</strong><small>{i === 0 && allFiles[0] ? shortDate(Math.min(...allFiles.map(d => d.savedAt))) : i === 1 && selectedArchive?.completedAt ? shortDate(selectedArchive.completedAt) : i === 2 && active ? "Active" : i === 4 && selectedArchive?.retention.expiresAt ? shortDate(selectedArchive.retention.expiresAt) : "—"}</small></li>)}</ol>
       </div>
+      <DocumentReadinessCard archives={archives} verified={customer?.verified ?? false} verificationExpiresAt={verificationExpiresAt} />
       {error && <p role="alert" className={styles.error}>{error}</p>}
       <div className={styles.columns}>
         <section className={styles.library} aria-label="Saved documents">

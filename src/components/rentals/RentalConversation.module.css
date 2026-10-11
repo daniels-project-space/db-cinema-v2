@@ -148,3 +148,7 @@
  :global([data-management-screen=messages]) .withTools { height:calc(100dvh - var(--management-site-header-height) - 74px); }
  :global([data-management-screen=messages]) .withTools { grid-template-columns:minmax(0,1.344fr) minmax(240px,1fr); }
 }
+
+.replyStatus{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin:0 0 12px;color:#a6c6b1;font-size:11px}.replyStatus[data-waiting=true]{color:#edc8a4}.replyStatus span{font-size:10px;color:#a8a9a3}.rentalContext{padding:16px;border:1px solid #393c38;border-radius:7px;background:#121615}.rentalContext h5{font-size:14px;color:#f0e8df;margin:8px 0 18px}.operationDetails{margin-top:18px;border-top:1px solid #393c38;padding-top:16px}.operationDetails>summary{cursor:pointer;font-size:13px;color:#d7b49b}.tools{overflow-y:auto}
+
+.main>:not(.messages){flex-shrink:0}@media(min-width:1151px){.main{overflow-y:auto}.tools{min-height:0}}

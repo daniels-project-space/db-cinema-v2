@@ -247,6 +247,11 @@ export default function CheckoutPage() {
 
   const valid = draftReady && (!account.token || !!account.me) && (!membership || membership.termsAccepted) && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
 
+  const openedRecorded=useRef(false);
+  useEffect(()=>{if(items.length&&draftReady&&!openedRecorded.current){openedRecorded.current=true;void track({type:"checkout_opened",sessionId:getSessionId()}).catch(()=>{});}},[items.length,draftReady,track]);
+  const readyRecorded=useRef(false);
+  useEffect(()=>{if(valid&&!readyRecorded.current){readyRecorded.current=true;void track({type:"checkout_form_ready",sessionId:getSessionId()}).catch(()=>{});}},[valid,track]);
+
   const deliveryKey = JSON.stringify({ postcode: postcode.trim().toUpperCase(), items: items.map(i => i.listingId) });
   const currentDeliveryKey = useRef(deliveryKey);
   currentDeliveryKey.current = deliveryKey;
@@ -312,8 +317,10 @@ export default function CheckoutPage() {
         returnTime:effectiveReturnTime,
         agreement: { name: signature.trim(), requestId: acceptanceAttempt, securityHoldConsent: agreed, laterChargeConsent: agreed, documents: docs },
       });
+      await Promise.race([track({type:"payment_redirect",sessionId:getSessionId()}).catch(()=>{}),new Promise(resolve=>setTimeout(resolve,400))]);
       window.location.href = url;
     } catch (e: any) {
+      void track({type:"checkout_failure",sessionId:getSessionId()}).catch(()=>{});
       if (e?.data?.code === "CHECKOUT_STOCK_REJECTED" && e.data.freshAcceptanceRequired === true && agreementRequest.current === acceptanceAttempt) {
         agreementRequest.current = null;
         if (membershipRequest.current === membershipAttempt) membershipRequest.current = null;

@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
-import { useConvex, useQuery } from "convex/react";
+import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { recordReplacement } from "@/lib/demandTracking";
 import { dayMs } from "@/lib/dates";
 import { formatGbp } from "@/lib/pricing";
 import { SmartImage } from "@/components/SmartImage";
@@ -9,6 +10,7 @@ import { useCart, type CartItem } from "./CartProvider";
 
 export function ReplacementSets({ item }: { item: CartItem }) {
   const cart = useCart(), convex = useConvex();
+  const track = useMutation(api.analytics.track);
   const [limit, setLimit] = useState(2), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const args = { items: cart.items.map(i => ({ key: i.key, listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime })), sourceKey: item.key, limit: Math.min(20, limit + 1) };
   const data = useQuery(api.cartReplacements.sets, args);
@@ -26,6 +28,7 @@ export function ReplacementSets({ item }: { item: CartItem }) {
       if (choices.some(c => !c)) throw Error("This replacement changed. Try again.");
       if (single || index != null) cart.addReplacement(expected, item.key, { ...choices[0], start: item.start, end: item.end,pickupTime:item.pickupTime,returnTime:item.returnTime });
       else cart.switchSet(expected, fresh.keys, choices.map(c => ({ ...c, start: item.start, end: item.end,pickupTime:item.pickupTime,returnTime:item.returnTime })));
+      recordReplacement(track,item,choices);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not add replacements."); }
     finally { setBusy(false); }
   }
