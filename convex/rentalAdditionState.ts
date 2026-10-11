@@ -1,9 +1,9 @@
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
 import {schedulePickupHold} from "./pickupSecurity";
 import { tierByKey } from "../shared/membership";
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import { internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import type { Id } from "./_generated/dataModel";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
@@ -16,6 +16,8 @@ import {
 } from "./lib/rentalChat";
 import { quote } from "./lib/pricing";
 import { securityForPolicy } from "../shared/rentalSecurity";
+import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
+import { listingImages } from "./lib/catalogImages";
 
 async function note(ctx: any, b: any, text: string, meta?: any) {
   const a = await ctx.db
@@ -59,31 +61,12 @@ export const list = query({
     return rows.map(({ securityCreationParams: _privateParams, ...row }) => row);
   },
 });
-export const prepare = internalMutation({
-  args: {
-    token: v.string(),
-    bookingId: v.id("bookings"),
-    requestId: v.string(),
-    listingId: v.id("listings"),
-    qty: v.number(),
-    reason: v.string(),
-    start: v.optional(v.number()),
-    end: v.optional(v.number()),
-    complimentary: v.optional(v.boolean()),
-  },
-  handler: async (ctx, a) => {
-    await assertAdmin(ctx, a.token, "rentalAdditions.prepare");
-    if (!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))
-      throw Error("Invalid addition request");
-    const prior = await ctx.db
-      .query("rental_additions")
-      .withIndex("by_request", (q) => q.eq("requestId", a.requestId))
-      .first();
-    if (prior) {
-      if (prior.bookingId !== a.bookingId)
-        throw Error("Request belongs to another rental");
-      return prior;
-    }
+type AdditionSelection = {
+  bookingId: Id<"bookings">; listingId: Id<"listings">; qty: number; reason: string;
+  start?: number; end?: number; complimentary?: boolean; expectedSnapshot?: string;
+};
+/** Shared read-only qualification. Confirm rechecks the same stock and money rules. */
+async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
     const b = await ctx.db.get(a.bookingId);
     if (
       !b ||
@@ -114,6 +97,8 @@ export const prepare = internalMutation({
       .collect();
     if (jobs.some((r) => r.status === "prepared" || r.status === "pending"))
       throw Error("Wait for the refund to settle before adding items");
+    if (a.expectedSnapshot && a.expectedSnapshot !== rentalControlsSnapshot(b, jobs))
+      throw new ConvexError({code:"EQUIPMENT_REVIEW_STALE",message:"The rental changed. Review the equipment addition again."});
     const reservations = await ctx.db
       .query("reservations")
       .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
@@ -181,8 +166,58 @@ export const prepare = internalMutation({
     const membershipParams=membership?.sessionParams?JSON.parse(membership.sessionParams):null;
     const membershipFee=membership?membershipParams?.metadata?.membershipFeePence?Number(membershipParams.metadata.membershipFeePence)/100:membership.intro==="trial"?0:tierByKey(membership.tier)?.monthlyGbp:undefined;
     if(membership&&membershipFee===undefined)throw Error("Membership price snapshot is unavailable.");
+    return {b,l,line,start,end,holdTotal,securityCharge,membership,membershipFee,
+      snapshot:rentalControlsSnapshot(b,jobs), imageSources:listingImages(l)};
+}
+export const preview = query({
+  args: {token:v.string(),bookingId:v.id("bookings"),listingId:v.id("listings"),qty:v.number(),
+    reason:v.string(),start:v.optional(v.number()),end:v.optional(v.number()),complimentary:v.optional(v.boolean())},
+  handler:async(ctx,a)=>{
+    if(!checkAdminToken(a.token)) throw Error("unauthorized");
+    try {
+    const p=await qualifyAddition(ctx,a);
+    return {ok:true,snapshot:p.snapshot,listingId:p.l._id,title:p.l.title,qty:p.line.qty,start:p.start,end:p.end,
+      lineTotal:p.line.lineTotal,securityCharge:p.securityCharge,holdTotal:p.holdTotal,
+      imageSources:p.imageSources,complimentary:!!a.complimentary,
+      quoteSnapshot:JSON.stringify([p.snapshot,p.l.pricing,p.l.depositAmount,p.l.components,p.line,p.holdTotal,p.securityCharge])};
+    }catch(e){return {ok:false,reason:e instanceof Error?e.message:"Equipment review failed."};}
+  },
+});
+export const prepare = internalMutation({
+  args: {
+    expectedSnapshot:v.optional(v.string()),
+    expectedQuote:v.optional(v.string()),
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    requestId: v.string(),
+    listingId: v.id("listings"),
+    qty: v.number(),
+    reason: v.string(),
+    start: v.optional(v.number()),
+    end: v.optional(v.number()),
+    complimentary: v.optional(v.boolean()),
+  },
+  handler: async (ctx, a) => {
+    await assertAdmin(ctx, a.token, "rentalAdditions.prepare");
+    if (!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))
+      throw Error("Invalid addition request");
+    const prior = await ctx.db
+      .query("rental_additions")
+      .withIndex("by_request", (q) => q.eq("requestId", a.requestId))
+      .first();
+    if (prior) {
+      if (prior.bookingId !== a.bookingId)
+        throw Error("Request belongs to another rental");
+      if(a.expectedQuote && prior.reviewQuote!==a.expectedQuote) throw Error("Addition request has changed.");
+      return prior;
+    }
+    const {b,l,line,start,end,holdTotal,securityCharge,membership,membershipFee,snapshot}=await qualifyAddition(ctx,a);
+    const quoteSnapshot=JSON.stringify([snapshot,l.pricing,l.depositAmount,l.components,line,holdTotal,securityCharge]);
+    if(a.expectedQuote && a.expectedQuote!==quoteSnapshot)
+      throw new ConvexError({code:"EQUIPMENT_REVIEW_STALE",message:"The equipment quote changed. Review the addition again."});
     const id = await ctx.db.insert("rental_additions", {
       ...line,
+      reviewQuote:a.expectedQuote,
       bookingId: b._id,
       requestId: a.requestId,
       dailyRate: a.complimentary ? 0 : l.pricing.daily * a.qty,

@@ -20,7 +20,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { assertRenterExposure } from "./lib/rentalExposure";
@@ -312,6 +312,7 @@ export const reschedule = mutation({
  * Refunds use the existing provider-backed refund control; security settles separately. */
 export const removeItem = mutation({
   args: {
+    expectedSnapshot:v.optional(v.string()),
     token: v.string(),
     bookingId: v.id("bookings"),
     requestId: v.string(),
@@ -351,6 +352,8 @@ export const removeItem = mutation({
       .query("rental_refunds")
       .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
       .collect();
+    if(args.expectedSnapshot && args.expectedSnapshot!==rentalControlsSnapshot(b,refunds))
+      throw new ConvexError({code:"EQUIPMENT_REVIEW_STALE",message:"The rental changed. Review the removal again."});
     if (refunds.some((r) => ["prepared", "pending"].includes(r.status)))
       throw Error("Wait for the open refund to settle first.");
     if (
@@ -653,5 +656,20 @@ export const recordRefundPart = internalMutation({
         detail: `£${(r.amountPence / 100).toFixed(2)} · ${aggregate}. ${r.reason}`,
       });
     }
+  },
+});
+
+/** On-demand bounded catalog for the operator equipment picker, never a subscription scan. */
+export const equipmentCatalog = query({
+  args:{token:v.string(),search:v.optional(v.string())},
+  handler:async(ctx,{token,search})=>{
+    if(!checkAdminToken(token)) throw Error("unauthorized");
+    const term=(search??"").trim().toLowerCase();
+    if(term.length>120) throw Error("Search is too long.");
+    const rows=await ctx.db.query("listings").withIndex("by_active",q=>q.eq("active",true)).take(501);
+    if(rows.length>500) throw Error("The equipment catalog needs a paginated review.");
+    return rows.filter(l=>!l.suppressed && !l.marketingOnly && l.components.length && l.title.toLowerCase().includes(term))
+      .sort((a,b)=>a.title.localeCompare(b.title)).slice(0,24)
+      .map(l=>({listingId:l._id,title:l.title,imageSources:listingImages(l),daily:l.pricing.daily}));
   },
 });
