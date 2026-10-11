@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { SiteHeader } from "@/components/SiteHeader";
 import styles from "./ManagementShell.module.css";
 
 export type ManagementNav = { key: string; label: string; icon?: string; badge?: number };
@@ -17,16 +18,29 @@ const icons: Record<string, string> = {
 };
 export function ManagementShell({ role, title, name, subtitle, nav, active, onNavigate, actions, children, screenOverride, breadcrumb }: { screenOverride?: string; breadcrumb?: ReactNode; role: "renter" | "admin"; title: string; name: string; subtitle?: string; nav: ManagementNav[]; active: string; onNavigate: (key: string) => void; actions?: ReactNode; children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const managementRef = useRef<HTMLDivElement>(null);
+  const siteNavigationRef = useRef<HTMLDivElement>(null);
   const screen = screenOverride ?? (active === "inbox" || active === "chat" ? "messages" : active === "bookings" ? "rentals" : active);
   const secondaryNav = screen === "documents" ? nav.filter(item => ["enquiries","calls","fund","stories"].includes(item.key)) : [];
   const primaryNav = screen === "documents" ? nav.filter(item => !secondaryNav.includes(item)) : nav;
+  useEffect(() => {
+    const header = siteNavigationRef.current;
+    if (!header) return;
+    const measure = () => managementRef.current?.style.setProperty("--management-site-header-height", `${header.getBoundingClientRect().height}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     if (!menuOpen) return;
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, [menuOpen]);
-  return <div className={styles.shell} data-management-role={role} data-management-screen={screen}>
+  return <div ref={managementRef} className={styles.management}>
+    <div ref={siteNavigationRef} className={styles.siteNavigation}><SiteHeader /></div>
+    <div className={styles.shell} data-management-role={role} data-management-screen={screen}>
     <aside className={`${styles.sidebar} ${menuOpen ? styles.open : ""}`}>
       <button type="button" aria-label="Close account menu" className={styles.closeButton} onClick={() => setMenuOpen(false)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
       <Link href="/" className={styles.brand}><span>DB <small>CINEMA</small></span><b>RENTALS</b></Link>
@@ -49,8 +63,6 @@ export function ManagementShell({ role, title, name, subtitle, nav, active, onNa
     <div className={styles.workspace}>
       <header className={styles.topbar}>
         <button type="button" aria-label="Toggle account menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(v => !v)} className={styles.menuButton}>☰</button>
-        {screen === "messages" && <Link href="/" className={styles.chatBrand}><span>DB</span> CINEMA <small>RENTALS</small></Link>}
-        {screen === "messages" && <nav className={styles.chatNav} aria-label="Workspace shortcuts">{nav.slice(0, 6).map(item => <button type="button" key={item.key} aria-current={active === item.key ? "page" : undefined} onClick={() => onNavigate(item.key)}>{role === "admin" && /^(inventory|customers)\s*&/i.test(item.label) ? item.label.split(" &")[0] : item.label}</button>)}</nav>}
         <div className={styles.breadcrumb}>{breadcrumb ?? <><span>{role === "admin" ? "Management" : "My account"}</span><i>/</i><strong>{title}</strong></>}</div>
         <div className={styles.actor}><span className={styles.avatar}>{name.slice(0, 1).toUpperCase()}</span><span>{name}<small>{role === "admin" ? "Administrator" : "Renter"}</small></span>{active !== "accounts" && actions}</div>
       </header>
@@ -58,6 +70,7 @@ export function ManagementShell({ role, title, name, subtitle, nav, active, onNa
         <div className={styles.heading}><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div></div>
         {children}
       </main>
+    </div>
     </div>
   </div>;
 }

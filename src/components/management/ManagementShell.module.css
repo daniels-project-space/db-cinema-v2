@@ -1,5 +1,7 @@
-.shell { font-family:var(--font-inter, Arial),sans-serif; --management-copper: #bd8d6c; display: grid; grid-template-columns: 237px minmax(0, 1fr); min-height: 100vh; position: relative; isolation: isolate; background: #171817; color: #eeeae4; }
-.sidebar { background: #101213; border-right: 1px solid #ffffff0f; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.management { --management-site-header-height: 80px; }
+.siteNavigation { position: sticky; top: 0; z-index: 50; background: #060608; }
+.shell { font-family:var(--font-inter, Arial),sans-serif; --management-copper: #bd8d6c; display: grid; grid-template-columns: 237px minmax(0, 1fr); min-height: calc(100dvh - var(--management-site-header-height)); position: relative; isolation: isolate; background: #171817; color: #eeeae4; }
+.sidebar { background: #101213; border-right: 1px solid #ffffff0f; display: flex; flex-direction: column; position: sticky; top: var(--management-site-header-height); height: calc(100dvh - var(--management-site-header-height)); overflow-y: auto; }
 .brand { display: block; padding: 24px 20px 4px; color: var(--management-copper); border-bottom: 0; }
 .brand > span { display: flex; align-items: baseline; gap: 7px; font-family: Georgia, "Times New Roman", serif; font-size: 40px; line-height: 1; letter-spacing: -.06em; white-space: nowrap; }
 .brand small { font-family: Georgia, "Times New Roman", serif; color: #eeeae4; font-size: 28px; letter-spacing: .075em; }
@@ -76,42 +78,23 @@
 .nav button.selected svg { color:var(--management-copper); }
 @media(min-width:1101px) {
  .shell[data-management-role=admin][data-management-screen=accounts] .content { padding-top:34px; }
- .shell[data-management-role=renter][data-management-screen=rentals] { grid-template-columns:197px minmax(0,1fr); }
+ .shell[data-management-role=renter] { grid-template-columns:197px minmax(0,1fr); }
  .shell[data-management-role=renter][data-management-screen=rentals] .topbar { min-height:65px; padding:12px 38px; }
  .shell[data-management-role=renter][data-management-screen=rentals] .content { padding:23px 38px 40px; }
  .shell[data-management-role=renter][data-management-screen=rentals] .heading h1 { font-size:46px; line-height:1.2; }
- .shell[data-management-role=renter][data-management-screen=rentals] .brand > span { display:block; text-align:center; font-size:57px; letter-spacing:-.025em; }
- .shell[data-management-role=renter][data-management-screen=rentals] .brand small { display:block; font-size:24px; margin-top:5px; }
- .shell[data-management-role=renter][data-management-screen=rentals] .brand b { padding:0; text-align:center; }
- .shell[data-management-role=renter][data-management-screen=rentals] .brand { padding-bottom:35px; }
+ .shell[data-management-role=renter] .brand > span { display:block; text-align:center; font-size:57px; letter-spacing:-.025em; }
+ .shell[data-management-role=renter] .brand small { display:block; font-size:24px; margin-top:5px; }
+ .shell[data-management-role=renter] .brand b { padding:0; text-align:center; }
+ .shell[data-management-role=renter] .brand { padding-bottom:35px; }
  .shell[data-management-role=admin][data-management-screen=insights] .brand > span { display:block; text-align:center; font-size:60px; }
  .shell[data-management-role=admin][data-management-screen=insights] .brand small { display:block; font-size:25px; }
  .shell[data-management-role=admin][data-management-screen=insights] .brand b { text-align:center; padding:0; }
  .shell[data-management-role=admin][data-management-screen=insights] .brand { padding-bottom:20px; }
 }
 
-.chatBrand { display:flex; align-items:baseline; gap:6px; white-space:nowrap; font:22px Georgia,serif; letter-spacing:.06em; }
-.chatBrand > span { color:#bd8d6c; font-size:32px; letter-spacing:-.07em; }
-.chatBrand small { font:7px var(--font-inter,Arial),sans-serif; letter-spacing:.4em; align-self:flex-end; padding-bottom:6px; }
-.chatNav { display:flex; gap:25px; align-items:center; font-size:12px; color:#aaa9a6; }
-.chatNav button[aria-current=page] { color:#d0ab92; }
 @media(min-width:1024px) {
- .shell[data-management-screen=messages] { display:block; }
- .shell[data-management-screen=messages] .sidebar { display:none; position:fixed; width:237px; z-index:40; box-shadow:20px 0 70px #000a; }
- .shell[data-management-screen=messages] .sidebar.open { display:flex; }
- .shell[data-management-screen=messages] .closeButton { display:grid; position:absolute; right:6px; top:76px; font-size:20px; width:25px; }
- .shell[data-management-screen=messages] .closeButton svg { width:20px; }
- .shell[data-management-screen=messages] .topbar { height:61px; min-height:61px; padding:9px 29px; gap:24px; }
- .shell[data-management-screen=messages] .breadcrumb { display:none; }
- .shell[data-management-screen=messages] .menuButton { display:block; color:#b5b4ae; order:3; }
- .shell[data-management-screen=messages] .actor { margin-left:auto; order:2; }
  .shell[data-management-screen=messages] .content { padding:0; max-width:none; }
  .shell[data-management-role=admin][data-management-screen=invoices] .content { padding:24px 0 40px 21px; }
-}
-@media(max-width:1023px) { .chatBrand,.chatNav { display:none; } }
-/* Keep account actions and the full navigation menu reachable on tablets. */
-@media(min-width:1024px) and (max-width:1150px) {
- .shell[data-management-screen=messages] .chatNav { display:none; }
 }
 
 @media(min-width:1101px) { .shell[data-management-screen=insights] .brand { padding-top:18px; padding-bottom:10px; } }
@@ -126,13 +109,6 @@
 @media(min-width:1000px) { .shell[data-management-role=admin][data-management-screen=overview] .heading h1 { font-family:var(--font-inter,Arial),sans-serif; font-weight:600; } .shell[data-management-role=admin][data-management-screen=overview] .content { padding-top:17px; } }
 
 .sidebarActions { margin-top:16px; font-size:12px; color:#c1ae9e; }
-
-@media(min-width:1200px) {
-  .chatBrand { width:307px; flex:none; gap:10px; font-size:20px; letter-spacing:2px; }
-  .chatBrand > span { font-size:40px; }
-  .chatBrand small { align-self:center; padding:0; font:20px Georgia,serif; letter-spacing:3px; }
-  .chatNav { font-size:13px; gap:32px; }
-}
 
 .shell[data-management-screen=insights],.shell[data-management-screen=insights] .workspace { background:#101112; }
 .shell[data-management-role=admin][data-management-screen=invoices] .workspace { background:#151514; }
