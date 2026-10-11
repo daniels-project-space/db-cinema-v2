@@ -140,3 +140,11 @@
 .inboxScreen .inboxHeading button[aria-pressed=true] { border-color:#b9816066; }
 .inboxScreen .tabs button { padding:8px 12px; }
 .inboxScreen .attentionToggle { padding:0; border:0; }
+
+/* The shared website header and persistent sidebar remain around Messages. */
+@media(min-width:1151px) {
+ :global([data-management-screen=messages]) .inbox { grid-template-columns:clamp(210px,24%,280px) minmax(0,1fr); min-height:calc(100dvh - var(--management-site-header-height) - 74px); }
+ :global([data-management-screen=messages]) .inboxScreen .directory,
+ :global([data-management-screen=messages]) .withTools { height:calc(100dvh - var(--management-site-header-height) - 74px); }
+ :global([data-management-screen=messages]) .withTools { grid-template-columns:minmax(0,1.344fr) minmax(240px,1fr); }
+}
