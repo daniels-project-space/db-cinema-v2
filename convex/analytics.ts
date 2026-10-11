@@ -145,17 +145,37 @@ export const adminSummary = query({
       return date(a) - date(b) || a._creationTime - b._creationTime;
     });
     const sourceImages = new Map<string, Promise<string[]>>();
-    const customers = new Map<string, ReturnType<typeof accountForRental>>();
+    const legacyOwners = new Map<string, ReturnType<typeof accountForRental>>();
+    const customers = new Map<string, Promise<{account: Awaited<ReturnType<typeof accountForRental>>; accountNeedsReview: boolean}>>();
     const photos = new Map<string, Promise<string | null>>();
-    const customerKey = (b: typeof active[number]) => b.accountId ? `account:${b.accountId}` : `email:${(b.guestEmail ?? "").trim().toLowerCase()}`;
+    const normalizeIdentity = (value: unknown) => typeof value === "string" ? value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase() : "";
+    const normalizePhone = (value: unknown) => typeof value === "string" ? value.replace(/\D/g, "") : "";
+    const accountCandidateFor = (b: typeof active[number]) => {
+      if (b.accountId) return accountForRental(ctx, b);
+      const email = (b.guestEmail ?? "").trim().toLowerCase();
+      if (!email) return Promise.resolve(null);
+      if (!legacyOwners.has(email)) legacyOwners.set(email, accountForRental(ctx, b));
+      return legacyOwners.get(email)!;
+    };
     const customerFor = (b: typeof active[number]) => {
-      const key = customerKey(b);
-      if (!customers.has(key)) customers.set(key, accountForRental(ctx, b));
+      const key = b.accountId ? `account:${b.accountId}` : `booking:${b._id}`;
+      if (!customers.has(key)) customers.set(key, accountCandidateFor(b).then(account => {
+        if (b.accountId) return {account, accountNeedsReview: !account};
+        if (!account) return {account: null, accountNeedsReview: false};
+        const bookingCreatedAt = Number(b._creationTime);
+        const accountCreatedAt = Number(account.createdAt ?? account._creationTime);
+        const bookingName = normalizeIdentity(b.guestName ?? b.agreementName);
+        const accountName = normalizeIdentity(account.name);
+        const bookingPhone = normalizePhone(b.guestPhone);
+        const accountPhone = normalizePhone(account.phone);
+        const identityMatches = (!!bookingName && bookingName === accountName) || (!!bookingPhone && bookingPhone === accountPhone);
+        const legacyOwner = Number.isFinite(bookingCreatedAt) && Number.isFinite(accountCreatedAt) && accountCreatedAt < bookingCreatedAt && identityMatches;
+        return {account: legacyOwner ? account : null, accountNeedsReview: !legacyOwner};
+      }));
       return customers.get(key)!;
     };
     const project = async (b: typeof active[number]) => {
-      const account = await customerFor(b);
-      const accountNeedsReview = !!b.accountId && !account;
+      const {account, accountNeedsReview} = await customerFor(b);
       const droneRequired = await requiresDroneLicence(ctx, b);
       const droneVerification = droneRequired ? await droneLicenceStatusForRental(ctx, b) : b.droneLicenceStatus ?? null;
       let verificationReady = false;
@@ -203,8 +223,9 @@ export const adminSummary = query({
       ...awaitingCollection.filter(dashboardVerificationPending).slice(0, DASHBOARD_PREVIEW_COUNT)];
     await Promise.all(previews.map(async row => {
       const b = originals.get(row._id)!;
-      const key = customerKey(b);
-      if (!photos.has(key)) photos.set(key, customerFor(b).then(async account => account
+      const customer = await customerFor(b);
+      const key = customer.account ? `account:${customer.account._id}` : `booking:${b._id}`;
+      if (!photos.has(key)) photos.set(key, Promise.resolve(customer.account).then(async account => account
         ? (account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? account.googleAvatarUrl ?? null : null));
       row.customerPhoto = await photos.get(key)!;
       row.kit = await Promise.all(b.lineItems.map(async line => {

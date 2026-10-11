@@ -82,7 +82,10 @@ const ctx={db:{...db,normalizeId(table,id){return tables.get(table)?.some(row=>r
  assert.equal(contacts.ongoing.find(row=>row._id===onHire._id).customerName,'Known customer','Unlinked legacy booking details remain supported');
  const legacyOwner=put('accounts',{email:'on-hire@example.invalid',name:'Legacy account current name'});
  contacts=await analytics.adminSummary.handler(ownerCtx,{token:'fixture-owner',now});
- assert.equal(contacts.ongoing.find(row=>row._id===onHire._id).customerName,legacyOwner.name,'Unlinked legacy rental uses its indexed account when present');
+ const unverifiedLegacy=contacts.ongoing.find(row=>row._id===onHire._id);
+ assert.equal(unverifiedLegacy.customerName,'Linked account unavailable','An account created after an unlinked booking is not inferred to own it from email alone');
+ assert.equal(unverifiedLegacy.guestEmail,'','A possibly recycled email is hidden until the owner verifies the legacy link');
+ assert.equal(unverifiedLegacy.accountNeedsReview,true);
  eventReads=0;
  const demand=await analytics.cartDemand.handler(ctx,{token:'fixture-owner',days:30,now});
  assert.equal(demand.total,3);assert.equal(eventReads,3,'bounded type/date reads exclude history');
