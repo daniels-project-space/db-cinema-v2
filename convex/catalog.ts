@@ -251,7 +251,6 @@ export const itemTypes = query({
 export const listingsByIds = query({
   args: { ids: v.array(v.id("listings")) },
   handler: async (ctx, { ids }) => {
-    if (ids.length > 100) throw Error("Too many equipment listings requested.");
     const out: any[] = [];
     for (const id of new Set(ids)) {
       const l = await ctx.db.get(id);
