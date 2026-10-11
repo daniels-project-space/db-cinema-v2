@@ -340,7 +340,7 @@ async function buildCard(
   }
   const q: any = quote(l.pricing, days);
   const item: any = {
-    listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null,
+    listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, imageSources: l.imageSources ?? l.gallery ?? [],
     start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0, available,
     itemType: l.itemType ?? null, mount: l.specs?.mount ?? null, lensClass: l.specs?.lensClass ?? null,
     tier: l.specs?.tier ?? null, pricing: l.pricing,
