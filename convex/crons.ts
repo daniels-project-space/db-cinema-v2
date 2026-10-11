@@ -11,7 +11,7 @@ crons.interval("release-holds", { minutes: 5 }, internal.bookings.releaseExpired
 
 // Reconcile paid checkouts when webhooks are delayed; retire only Stripe-confirmed unpaid ones.
 crons.interval("reconcile-rental-checkouts", { minutes: 5 }, internal.checkout.reconcilePendingPayments, {});
-crons.interval("reconcile-requested-cancellations", { minutes: 5 }, internal.checkout.reconcileCancellations, {});
+crons.interval("reconcile-requested-cancellations", { minutes: 5 }, internal.checkout.reconcileFinancialReturns, {});
 
 crons.interval("reconcile-rental-extensions",{minutes:5},internal.rentalExtensionPayments.reconcile,{});
 

@@ -2,6 +2,7 @@ import { query, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { accountForToken, ownedBooking, postRentalMessage } from "./lib/rentalChat";
 import { assertCreditOffer, creditOfferFingerprint } from "./lib/rentalCreditPolicy";
+import { rentalHasStarted } from "../src/lib/cancellationPolicy";
 
 export const byId = internalQuery({ args: { offerId: v.id("rental_credit_offers") }, handler: async (ctx, { offerId }) => ctx.db.get(offerId) });
 export const context = internalQuery({
@@ -13,9 +14,10 @@ export const get = query({
     const account = await accountForToken(ctx, token), offer = await ctx.db.get(offerId);
     if (!account || !offer || offer.accountId !== account._id) return null;
     const booking = await ownedBooking(ctx, account, offer.bookingId);
+    const rentalStarted = rentalHasStarted(booking, Date.now());
     const processing = booking.status === "confirmed" && booking.cancellationDecision?.fullCreditOfferId === offerId;
-    let eligible = processing;
-    try { assertCreditOffer(offer, booking); eligible = processing || (offer.status === "offered" && !booking.cancellationDecision); } catch {}
+    let eligible = processing && !rentalStarted;
+    try { assertCreditOffer(offer, booking); eligible = !rentalStarted && (processing || (offer.status === "offered" && !booking.cancellationDecision)); } catch {}
     return { amountPence: offer.amountPence, status: offer.status, eligible, enabled: process.env.CUSTOMER_BOOKING_ACTIONS === "true" };
   },
 });

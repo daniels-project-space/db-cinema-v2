@@ -24,6 +24,9 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
   useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const submit = useAction(api.checkout.markReturned);
   const review = useAction(api.checkout.previewReturned);
+  const recover = useAction(api.checkout.retryReturnDeposit);
+  const [recoveryReason, setRecoveryReason] = useState("");
+  const recoveryIdentity = useRef<{requestId:string;reason:string}|null>(null);
   const [reviewed, setReviewed] = useState<{ key: string; data: any } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const saved = booking.returnDecision;
@@ -67,7 +70,7 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
   const reviewData = reviewed?.key === decisionKey ? reviewed.data : null;
   async function inspectReview() {
     if (!valid || reviewBusy || working) return;
-    setReviewBusy(true); setError(null);
+    setReviewBusy(true); setError(null); setReviewed(null);
     try { const data = await review(selection); if (alive.current) setReviewed({ key: decisionKey, data }); }
     catch (e: any) { if (alive.current) setError(e?.message ?? "Could not prepare the return statement. No settlement has been executed."); }
     finally { if (alive.current) setReviewBusy(false); }
@@ -80,9 +83,26 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     try {
       const result = await submit(selection);
       if (!alive.current) return;
-      alert(`Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
+      const pending=result.refundStatus&&result.refundStatus!=="succeeded";
+      alert(`Return recorded. Damage/loss ${formatGbp(result.kept)}; cash deposit refund confirmed ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. ${pending ? `The deposit refund is ${result.refundStatus === "pending" ? "processing" : "awaiting team review"}. Resume this settlement to check the existing refund. The final statement waits for bank confirmation.` : "The return statement is queued for email delivery."}`);
       onClose();
     } catch (e: any) { if (alive.current) setError(e?.message ?? "Return could not be recorded."); }
+    finally { if (alive.current) setWorking(false); }
+  }
+
+  async function retryFailedRefund() {
+    if (working || reviewBusy || reviewData?.refundProgress?.status !== "failed" || recoveryReason.trim().length < 10) return;
+    setWorking(true); setError(null); setReviewed(null);
+    const reason = recoveryReason.trim();
+    if (!recoveryIdentity.current || recoveryIdentity.current.reason !== reason) recoveryIdentity.current = { requestId: crypto.randomUUID(), reason };
+    try {
+      const result = await recover({token,bookingId:booking._id,...recoveryIdentity.current});
+      if (!alive.current) return;
+      const data = await review(selection);
+      if (!alive.current) return;
+      setReviewed({key:decisionKey,data});
+      if (alive.current && result.status !== "succeeded") setError(result.status === "pending" ? "The retry is processing. Reconcile this saved attempt before authorising another repayment." : "The retry has not completed. Review its saved bank receipt before authorising another repayment.");
+    } catch (e:any) { if (alive.current) setError(e?.message ?? "Deposit recovery needs review. Resume the saved attempt before another payout."); }
     finally { if (alive.current) setWorking(false); }
   }
 
@@ -116,6 +136,7 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     {error && <p role="alert" className="mt-2 text-rose-300">{error}</p>}
     {!inspectionValid && !legacyResume && <p className="mt-3 text-amber-200">Select a condition for every item and complete the required issue details. Any deduction must correspond to an item with an issue.</p>}
     <ReturnSettlementReview data={reviewData} busy={reviewBusy || working} enabled={valid} onReview={inspectReview} paymentSummary={<section className={styles.paymentSummary}><h4>Payment summary</h4><dl><div><dt>Paid refundable deposit</dt><dd>{formatGbp(booking.depositAmount ?? 0)}</dd></div><div><dt>Original card authorisation</dt><dd>{formatGbp(booking.depositHoldAmount ?? 0)}</dd></div></dl><p>The review checks the current card balance and calculates the cash refund separately.</p><label>Documented damage or loss to retain (£)<input type="number" disabled={working || reviewBusy || !!saved} min="0" max={booking.depositAmount + (booking.depositHoldAmount ?? 0)} step="0.01" value={damage} onChange={e => setDamage(e.target.value)} /></label>{damageAmount > 0 && <label>Itemised evidence and reason<textarea disabled={working || reviewBusy || !!saved} value={damageNote} onChange={e => setDamageNote(e.target.value)} rows={3} placeholder="Describe the item, damage or loss, evidence, and calculation" /></label>}</section>} />
+    {reviewData?.refundProgress?.status === "failed" && <section className={`${styles.paymentSummary} ${styles.recoveryCard}`} aria-label="Failed deposit refund recovery"><div className={styles.recoveryHeading}><span aria-hidden="true" className={styles.recoveryIcon}>↻</span><h4>Retry failed deposit refund</h4></div><p>Return only the outstanding deposit to its original payment method. Stripe must confirm the failed repayment returned to the business before another attempt.</p><label>Admin reason<textarea disabled={working || reviewBusy} value={recoveryReason} maxLength={1000} onChange={e => setRecoveryReason(e.target.value)} placeholder="Explain why this failed repayment should be retried" /></label><button type="button" disabled={working || reviewBusy || recoveryReason.trim().length < 10} onClick={retryFailedRefund}>Authorise original-payment retry</button></section>}
     <button type="button" disabled={!valid || working || reviewBusy || !reviewData || reviewData.alreadySettled} onClick={finish} className={styles.confirm}>{working ? "Settling…" : "Confirm settlement and email renter"}</button>
     </div>
   </dialog>;

@@ -22,10 +22,23 @@ export function AccountDocumentSummary({
     token,
     accountId: accountId as any,
   });
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const expiries = (archives ?? []).map(a => a.retention.expiresAt)
+      .filter((at): at is number => at !== null && at > clock);
+    if (!expiries.length) return;
+    const timer = setTimeout(() => setClock(Date.now()),
+      Math.min(86400000, Math.max(1, Math.min(...expiries) - Date.now())));
+    return () => clearTimeout(timer);
+  }, [archives, clock]);
   const files = (archives ?? [])
     .filter((a) => a.status !== "deleted")
     .flatMap((a) =>
-      a.documents.map((d) => ({ ...d, complete: a.status === "complete" && a.copiesReady && d.available })),
+      a.documents.map((d) => {
+        const expired = a.retention.expiresAt !== null && a.retention.expiresAt <= clock;
+        return { ...d, expired, complete: !expired && a.retention.viewable &&
+          a.status === "complete" && a.copiesReady && d.available };
+      }),
     )
     .slice(-3);
   return (
@@ -68,7 +81,7 @@ export function AccountDocumentSummary({
             <span
               className={`text-[9px] ${file.complete ? "text-emerald-400/70" : "text-amber-200/70"}`}
             >
-              {file.complete ? "✓ Saved" : "Incomplete"}
+              {file.expired ? "Retention ended" : file.complete ? "✓ Saved" : "Incomplete"}
             </span>
           </button>
         ))
@@ -120,6 +133,10 @@ export function AccountDocuments({
   const activeUrl = useRef<string | null>(null);
   const request = useRef<AbortController | null>(null);
   const scope = useRef(0);
+  // A response can outlive the query snapshot, retention deadline or account.
+  // Check the latest metadata again before creating a browser copy.
+  const access = useRef({ archives, accountId, token });
+  access.current = { archives, accountId, token };
   const [holdEditor, setHoldEditor] = useState<string | null>(null);
   const [holdReason, setHoldReason] = useState("");
   const [search, setSearch] = useState("");
@@ -141,9 +158,6 @@ export function AccountDocuments({
   const active = currentArchives.some(a => a.retention.status === "active-rental");
   const unhealthy = currentArchives.some(a => a.status !== "deleted" && a.retention.viewable && !a.copiesReady);
   const shortDate = (at: number) => new Date(at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
-  useEffect(() => {
-    if (selectedFile?.available && selectedDocument === null) void view(selectedFile);
-  }, [accountId, token, selectedFile?.id, selectedFile?.available]);
   useEffect(()=>{
     if(!preview || !archives)return;
     const archive=archives.find(a=>a.documents.some(d=>d.id===preview.documentId));
@@ -177,6 +191,9 @@ export function AccountDocuments({
     },
     [],
   );
+  useEffect(() => {
+    if (selectedFile?.available && selectedDocument === null) void view(selectedFile);
+  }, [accountId, token, selectedDocument, selectedFile?.id, selectedFile?.available]);
   async function view(document: {
     id: string;
     kind: string;
@@ -188,7 +205,16 @@ export function AccountDocuments({
     request.current = controller;
     setBusy(true);
     setError("");
+    const canView = () => {
+      const current = access.current;
+      if (current.accountId !== accountId || current.token !== token) return false;
+      const archive = current.archives?.find(a => a.documents.some(d => d.id === document.id));
+      return !!archive && archive.status !== "deleted" && archive.retention.viewable &&
+        (archive.retention.expiresAt === null || archive.retention.expiresAt > Date.now()) &&
+        archive.documents.some(d => d.id === document.id && d.available);
+    };
     try {
+      if (!canView()) throw Error("This document is no longer available.");
       const site = process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
       if (!site) throw Error("Document service configuration is missing.");
       const response = await fetch(`${site}/admin-verification-document`, {
@@ -207,6 +233,7 @@ export function AccountDocuments({
         );
       const blob = await response.blob();
       if (controller.signal.aborted || currentScope !== scope.current) return;
+      if (!canView()) throw Error("This document is no longer available.");
       if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
       const url = URL.createObjectURL(blob);
       activeUrl.current = url;
@@ -222,7 +249,7 @@ export function AccountDocuments({
       if (!controller.signal.aborted && currentScope === scope.current)
         setError(e instanceof Error ? e.message : "Could not open document.");
     } finally {
-      if (currentScope === scope.current) setBusy(false);
+      if (currentScope === scope.current && request.current === controller) setBusy(false);
       if (request.current === controller) request.current = null;
     }
   }
@@ -272,7 +299,7 @@ export function AccountDocuments({
         <section className={styles.preview} aria-label="Document preview">
           <header><h3>{selectedFile ? documentTitle(selectedFile.kind) : "Document preview"}</h3><span className={styles.private}><DocumentIcon type="lock" /> Private document</span></header>
           <div className={styles.previewCanvas}>
-            {preview && preview.accountId === accountId && preview.token === token && preview.documentId === selectedFile?.id ? preview.type === "application/pdf" ? <iframe src={preview.url} title={preview.title} /> : <img src={preview.url} alt={preview.title} /> : <div className={styles.previewEmpty}><DocumentIcon /><strong>{busy ? "Opening private document…" : selectedFile?.available ? "Open the saved original" : "No available preview"}</strong><p>{selectedFile?.available ? "Select a document to securely view its saved copy." : "Files become viewable once their private archive is complete."}</p></div>}
+            {preview && selectedFile?.available && preview.accountId === accountId && preview.token === token && preview.documentId === selectedFile.id ? preview.type === "application/pdf" ? <iframe src={preview.url} title={preview.title} /> : <img src={preview.url} alt={preview.title} /> : <div className={styles.previewEmpty}><DocumentIcon /><strong>{busy ? "Opening private document…" : selectedFile?.available ? "Open the saved original" : "No available preview"}</strong><p>{selectedFile?.available ? "Select a document to securely view its saved copy." : "Files become viewable once their private archive is complete."}</p></div>}
           </div>
           {selectedFile && <div className={styles.original}><div><strong>{selectedFile.available ? "Original file saved" : "Copy unavailable"}</strong><small>{selectedFile.contentType === "application/pdf" ? "PDF" : "Image"} · {Math.ceil(selectedFile.size / 1024)} KB</small><small>Linked to {customer?.name ?? "this account"} · {selectedFile.archive.bookingId.slice(-8)}</small></div>{selectedFile.available && <div><button type="button" disabled={busy} onClick={() => void view(selectedFile,"open")}>↗ Open original</button><button type="button" disabled={busy} className={styles.primary} onClick={() => void view(selectedFile,true)}>↓ Download</button></div>}</div>}
           <div className={styles.retention}><h4>Retention</h4>{selectedArchive ? <>
@@ -284,7 +311,7 @@ export function AccountDocuments({
         </section>
       </div>
       <dialog ref={originalDialog} className={styles.originalDialog} aria-label="Saved original document" onCancel={()=>setOriginalOpen(false)} onClose={()=>setOriginalOpen(false)}>
-        {preview && preview.accountId===accountId && preview.token===token && <><header><h3>{preview.title}</h3><button type="button" onClick={()=>setOriginalOpen(false)} aria-label="Close original document">×</button></header>{preview.type==="application/pdf" ? <iframe src={preview.url} title={preview.title} /> : <img src={preview.url} alt={preview.title} />}</>}
+        {preview && selectedFile?.available && preview.documentId===selectedFile.id && preview.accountId===accountId && preview.token===token && <><header><h3>{preview.title}</h3><button type="button" onClick={()=>setOriginalOpen(false)} aria-label="Close original document">×</button></header>{preview.type==="application/pdf" ? <iframe src={preview.url} title={preview.title} /> : <img src={preview.url} alt={preview.title} />}</>}
       </dialog>
       <footer className={styles.activity}><h3>◷ Recent activity</h3>{[...allFiles].sort((a,b)=>b.savedAt-a.savedAt).slice(0,3).map(d => <div key={d.id}><DocumentIcon /><span><strong>Document saved</strong><small>{documentTitle(d.kind)} · {shortDate(d.savedAt)}</small></span></div>)}<span className={styles.private}><DocumentIcon type="lock" /> Admin access only · Downloads are logged</span></footer>
     </section>

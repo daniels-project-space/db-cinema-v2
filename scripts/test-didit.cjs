@@ -66,7 +66,7 @@ function signed(event) {
     },
   };
   let result;
-  const ctx = { runMutation: async (ref, args) => { assert.equal(ref, 'bookings:setDiditResult'); result = args; return true; } };
+  const ctx = { runQuery:async()=>({verificationProvider:"didit",diditSessionId:"session-1",diditWorkflowId:"workflow-1"}), runMutation: async (ref, args) => { assert.equal(ref, 'bookings:setDiditResult'); result = args; return true; } };
   assert.equal(await webhook.handler(ctx, signed(event)), true);
   assert.equal(result.status, 'verified');
   assert.deepEqual(result.poaPostcodes, ['SW1A 1AA']);
@@ -133,7 +133,7 @@ function signed(event) {
     face_matches:[{status:'Approved',node_id:'feature_face'}],
     poa_verifications:[{status:'Approved',node_id:'feature_poa'}]};
   const reviewBooking = {status:'confirmed',verificationProvider:'didit',idVerifyStatus:'manual_review',
-    diditSessionId:'session-1',guestEmail:'renter@example.invalid'};
+    diditSessionId:'session-1',diditWorkflowId:'workflow-1',guestEmail:'renter@example.invalid'};
   const calls = [];
   const reviewCtx = {
     runQuery: async () => reviewBooking,
@@ -240,7 +240,7 @@ function signed(event) {
     global.fetch = async () => new Response(JSON.stringify(report),{status:200});
     await reconcileOpenSessions.handler({
       runQuery: async ref => ref === 'bookings:diditReconcileCandidates'
-        ? [{bookingId:'booking-1',sessionId:'session-1',email:'renter@example.invalid'}] : [],
+        ? [{bookingId:'booking-1',sessionId:'session-1',workflowId:'workflow-1',email:'renter@example.invalid'}] : [],
       runMutation: async (ref,args) => { reconciled.push({ref,args}); return true; },
     },{});
     const recovered = reconciled.find(x=>x.ref==='bookings:setDiditResult');

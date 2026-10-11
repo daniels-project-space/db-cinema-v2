@@ -1,0 +1,20 @@
+{
+  "bucket": "db-cinema-v2",
+  "at": "2026-10-09T15:59:36.775Z",
+  "assets": [
+    {
+      "file": "docs/design/rental-experience/request-workflows/extension-desktop-mobile-v2.png",
+      "key": "design/request-workflows-2026-10-09/52f34e66e5e24fa0ae81b51abf63b1e29f644e934604e50dbe66496a4baf9312/extension-desktop-mobile-v2.png",
+      "sha256": "52f34e66e5e24fa0ae81b51abf63b1e29f644e934604e50dbe66496a4baf9312",
+      "bytes": 1789700,
+      "readbackVerified": true
+    },
+    {
+      "file": "docs/design/rental-experience/request-workflows/kit-dates-cancellation-v2.png",
+      "key": "design/request-workflows-2026-10-09/42411939a343c11118b24753fd38d09a4ef833a910686ff55e0d77e05449e5d6/kit-dates-cancellation-v2.png",
+      "sha256": "42411939a343c11118b24753fd38d09a4ef833a910686ff55e0d77e05449e5d6",
+      "bytes": 1873725,
+      "readbackVerified": true
+    }
+  ]
+}

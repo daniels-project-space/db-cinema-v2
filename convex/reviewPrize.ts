@@ -1,3 +1,6 @@
+import { paginationOptsValidator } from "convex/server";
+import { stream, mergedStream } from "convex-helpers/server/stream";
+import schema from "./schema";
 import { unlockLoyalty, encoreGate } from "./lib/loyalty";
 import { REVIEW_PRIZE_GBP } from "../shared/reviewPrize";
 import {
@@ -85,35 +88,62 @@ export const schedule = query({
     };
   },
 });
+async function reviewRentalView(ctx: any, b: any) {
+  return {
+    _id: b._id,
+    title: b.lineItems.map((line: any) => line.title).join(", "),
+    settled: await settled(ctx, b),
+    review: await ctx.db.query("reviews")
+      .withIndex("by_booking", (q: any) => q.eq("verifiedBookingId", b._id)).first(),
+  };
+}
+async function returnedRentalPage(ctx: any, account: any, paginationOpts: any) {
+  if (!Number.isInteger(paginationOpts.numItems) || paginationOpts.numItems < 1)
+    throw Error("Invalid rental page size");
+  const linked = stream(ctx.db, schema).query("bookings")
+    .withIndex("by_account", q => q.eq("accountId", account._id)).order("desc");
+  const legacy = stream(ctx.db, schema).query("bookings")
+    .withIndex("by_account_guestEmail", q => q.eq("accountId", undefined).eq("guestEmail", account.email)).order("desc");
+  const page = await mergedStream([linked, legacy], ["_creationTime"])
+    .filterWith(async booking => booking.status === "returned" && !customerReviewGate(booking))
+    .paginate({ ...paginationOpts, numItems: Math.min(30, paginationOpts.numItems), maximumRowsRead: 100 });
+  return { ...page, page: await Promise.all(page.page.map(booking => reviewRentalView(ctx, booking))) };
+}
+export const rentalsPage = query({
+  args: { token: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { token, paginationOpts }) => {
+    const account = await accountForToken(ctx, token);
+    if (!account) throw Error("Please sign in.");
+    return returnedRentalPage(ctx, account, paginationOpts);
+  },
+});
+/** Existing entries can be edited even when their rental is on an older page. */
+export const rental = query({
+  args: { token: v.string(), bookingId: v.id("bookings") },
+  handler: async (ctx, { token, bookingId }) => {
+    const account = await accountForToken(ctx, token);
+    if (!account) throw Error("Please sign in.");
+    const booking = await ownedBooking(ctx, account, bookingId);
+    if (customerReviewGate(booking)) return null;
+    return reviewRentalView(ctx, booking);
+  },
+});
 export const mine = query({
-  args: { token: v.string() },
-  handler: async (ctx, { token }) => {
+  args: { token: v.string(), includeBookings: v.optional(v.boolean()) },
+  handler: async (ctx, { token, includeBookings }) => {
     const a = await accountForToken(ctx, token);
     if (!a) throw Error("Please sign in.");
     const entries = await ctx.db
       .query("review_prize_entries")
       .withIndex("by_account", (q) => q.eq("accountId", a._id))
       .collect();
-    const bookings = await ctx.db
-      .query("bookings")
-      .withIndex("by_guestEmail", (q) => q.eq("guestEmail", a.email))
-      .collect();
+    const bookings = includeBookings === false ? null :
+      await returnedRentalPage(ctx, a, { numItems: 20, cursor: null });
     return {
       currentRoundKey: reviewPrizeRound().key,
       entries: await Promise.all(entries.map((e) => entryView(ctx, e))),
-      bookings: await Promise.all(
-        bookings
-          .filter((b) => b.status === "returned" && !customerReviewGate(b))
-          .map(async (b) => ({
-            _id: b._id,
-            title: b.lineItems.map((l) => l.title).join(", "),
-            settled: await settled(ctx, b),
-            review: await ctx.db
-              .query("reviews")
-              .withIndex("by_booking", (q) => q.eq("verifiedBookingId", b._id))
-              .first(),
-          })),
-      ),
+      bookings: bookings?.page ?? [],
+      bookingsHasMore: bookings ? !bookings.isDone : false,
     };
   },
 });

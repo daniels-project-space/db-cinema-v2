@@ -1,5 +1,6 @@
 import { securityReady, verificationExpired } from "./verificationProgress";
 import type { VerificationBooking } from "./rentalReadiness";
+import { verificationReuseNeedsReview } from "./rentalReadiness";
 
 /** Display real provider decisions; payment alone never means pickup approval. */
 export function verificationJourney(
@@ -26,7 +27,8 @@ export function verificationJourney(
       !booking.verificationChecks ||
       checksPassed);
   const reviewed = verified && booking.verificationArchiveReady === true;
-  const documents = unexpired && (checksPassed || verified);
+  const reuseNeedsReview = verificationReuseNeedsReview(booking, now);
+  const documents = unexpired && !reuseNeedsReview && (checksPassed || verified);
   const drone =
     !booking.requiresDroneLicence || booking.droneLicenceStatus === "approved";
   const security =
@@ -43,14 +45,16 @@ export function verificationJourney(
     },
     {
       label: "Documents",
-      detail: documents ? "Checks complete" : "Verify your identity",
+      detail: reuseNeedsReview ? "Needs team check" : documents ? "Checks complete" : "Verify your identity",
       done: documents,
     },
     {
       label: "Review",
       detail: reviewed
         ? "Approved"
-        : verified
+        : reuseNeedsReview
+          ? "Team review needed"
+          : verified
           ? "Saving documents"
           : "We'll check your details",
       done: reviewed,

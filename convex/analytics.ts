@@ -6,7 +6,11 @@ import { isMarketingOnly } from "./lib/marketingInventory";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { lateFeeQuote } from "./lib/lateFee";
 import { confirmedRentalRefundPence } from "./lib/rentalPaymentPlan";
-import { requiresDroneLicence } from "./lib/droneVerification";
+import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
+import { assertVerificationArchive } from "./verificationArchive";
+import { VERIFICATION_REUSE_DAYS } from "./lib/verificationReuse";
+import { accountForRental } from "./lib/rentalAccount";
+import { DASHBOARD_PREVIEW_COUNT, dashboardVerificationPending } from "../shared/dashboardPreviews";
 
 /** Record a first-party event (views, funnel steps, zero-result searches). */
 export const track = mutation({
@@ -141,7 +145,53 @@ export const adminSummary = query({
       return date(a) - date(b) || a._creationTime - b._creationTime;
     });
     const sourceImages = new Map<string, Promise<string[]>>();
-    const project = async (b: typeof active[number], index: number) => {
+    const legacyOwners = new Map<string, ReturnType<typeof accountForRental>>();
+    const customers = new Map<string, Promise<{account: Awaited<ReturnType<typeof accountForRental>>; accountNeedsReview: boolean}>>();
+    const photos = new Map<string, Promise<string | null>>();
+    const normalizeIdentity = (value: unknown) => typeof value === "string" ? value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase() : "";
+    const normalizePhone = (value: unknown) => typeof value === "string" ? value.replace(/\D/g, "") : "";
+    const accountCandidateFor = (b: typeof active[number]) => {
+      if (b.accountId) return accountForRental(ctx, b);
+      const email = (b.guestEmail ?? "").trim().toLowerCase();
+      if (!email) return Promise.resolve(null);
+      if (!legacyOwners.has(email)) legacyOwners.set(email, accountForRental(ctx, b));
+      return legacyOwners.get(email)!;
+    };
+    const customerFor = (b: typeof active[number]) => {
+      const key = b.accountId ? `account:${b.accountId}` : `booking:${b._id}`;
+      if (!customers.has(key)) customers.set(key, accountCandidateFor(b).then(account => {
+        if (b.accountId) return {account, accountNeedsReview: !account};
+        if (!account) return {account: null, accountNeedsReview: false};
+        const bookingCreatedAt = Number(b._creationTime);
+        const accountCreatedAt = Number(account.createdAt ?? account._creationTime);
+        const bookingName = normalizeIdentity(b.guestName ?? b.agreementName);
+        const accountName = normalizeIdentity(account.name);
+        const bookingPhone = normalizePhone(b.guestPhone);
+        const accountPhone = normalizePhone(account.phone);
+        const identityMatches = (!!bookingName && bookingName === accountName) || (!!bookingPhone && bookingPhone === accountPhone);
+        const legacyOwner = Number.isFinite(bookingCreatedAt) && Number.isFinite(accountCreatedAt) && accountCreatedAt < bookingCreatedAt && identityMatches;
+        return {account: legacyOwner ? account : null, accountNeedsReview: !legacyOwner};
+      }));
+      return customers.get(key)!;
+    };
+    const project = async (b: typeof active[number]) => {
+      const {account, accountNeedsReview} = await customerFor(b);
+      const droneRequired = await requiresDroneLicence(ctx, b);
+      const droneVerification = droneRequired ? await droneLicenceStatusForRental(ctx, b) : b.droneLicenceStatus ?? null;
+      let verificationReady = false;
+      let verificationReviewReason: string | null = null;
+      if (!account) verificationReviewReason = "Account needs review";
+      else if (b.idVerifyStatus !== "verified") verificationReviewReason = "Needs verification";
+      else if (!(Math.min(b.verificationExpiresAt ?? ((b.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * DAY),
+        b.documentExpiresAt ?? Infinity) > now)) verificationReviewReason = "Verification expired";
+      else {
+        try { await assertVerificationArchive(ctx, b); verificationReady = true; }
+        catch { verificationReviewReason = "Saved documents need attention"; }
+        if (verificationReady && droneRequired && droneVerification !== "approved") {
+          verificationReady = false;
+          verificationReviewReason = "Drone licence needs review";
+        }
+      }
       const starts = b.lineItems.map(line => line.start).filter(Number.isFinite);
       const ends = b.lineItems.map(line => line.end).filter(Number.isFinite);
       const lastDay = ends.length ? Math.max(...ends) : null;
@@ -152,21 +202,39 @@ export const adminSummary = query({
         try { overdue = lateFeeQuote(b.lineItems, b.returnTime ?? null, now).breakdown.length > 0; }
         catch { deadlineNeedsReview = true; }
       }
-      const kit = index < 6 ? await Promise.all(b.lineItems.map(async line => {
-        const id = String(line.listingId ?? "");
-        if (id && !sourceImages.has(id)) sourceImages.set(id, ctx.db.get(line.listingId).then(listing => listingImages(listing)));
-        const images = id ? await sourceImages.get(id)! : [];
-        return { title: line.title, qty: line.qty ?? 1, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
-      })) : [];
-      return { _id: b._id, guestEmail: b.guestEmail, customerName: b.guestName ?? b.agreementName ?? null,
-        status: b.status, verification: b.idVerifyStatus ?? "required", requiresDroneLicence: await requiresDroneLicence(ctx, b), droneVerification: b.droneLicenceStatus ?? null, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
+      return { _id: b._id, guestEmail: account?.email ?? (accountNeedsReview ? "" : b.guestEmail),
+        customerName: accountNeedsReview ? "Linked account unavailable" : account?.name ?? b.guestName ?? b.agreementName ?? null,
+        accountNeedsReview,
+        customerPhoto: null as string | null,
+        status: b.status, verification: b.idVerifyStatus ?? "required", verificationReady, verificationReviewReason,
+        requiresDroneLicence: droneRequired, droneVerification, start: starts.length ? Math.min(...starts) : null, end: ends.length ? Math.max(...ends) : null,
         pickupTime: b.pickupTime ?? null, returnTime, total: b.total,
-        items: b.lineItems.map(line => line.title).join(", "), kit, fulfilment: b.fulfilment,
+        items: b.lineItems.map(line => line.title).join(", "),
+        kit: [] as { title: string; qty: number; start: number; end: number; heroImage: string | null; imageSources: string[] }[], fulfilment: b.fulfilment,
         calendarLines: b.lineItems.map(line => ({title:line.title,qty:line.qty ?? 1,start:line.start,end:line.end,returnTime:line.returnTime})),
         overdue, deadlineNeedsReview };
     };
     const ongoing = await Promise.all(byDate(active, "end").map(project));
     const awaitingCollection = await Promise.all(byDate(confirmed, "start").map(project));
+    const originals = new Map([...active, ...confirmed].map(b => [b._id, b]));
+    // Keep the full operational/calendar projection, then load media for the
+    // exact visible groups. Verified confirmations cannot consume review slots.
+    const previews = [...ongoing.slice(0, DASHBOARD_PREVIEW_COUNT),
+      ...awaitingCollection.filter(dashboardVerificationPending).slice(0, DASHBOARD_PREVIEW_COUNT)];
+    await Promise.all(previews.map(async row => {
+      const b = originals.get(row._id)!;
+      const customer = await customerFor(b);
+      const key = customer.account ? `account:${customer.account._id}` : `booking:${b._id}`;
+      if (!photos.has(key)) photos.set(key, Promise.resolve(customer.account).then(async account => account
+        ? (account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : null) ?? account.googleAvatarUrl ?? null : null));
+      row.customerPhoto = await photos.get(key)!;
+      row.kit = await Promise.all(b.lineItems.map(async line => {
+        const id = String(line.listingId ?? "");
+        if (id && !sourceImages.has(id)) sourceImages.set(id, ctx.db.get(line.listingId).then(listing => listingImages(listing)));
+        const images = id ? await sourceImages.get(id)! : [];
+        return { title: line.title, qty: line.qty ?? 1, start: line.start, end: line.end, heroImage: images[0] ?? null, imageSources: images };
+      }));
+    }));
 
     return {
       authorized: true as const,

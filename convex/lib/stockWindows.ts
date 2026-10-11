@@ -8,7 +8,8 @@ export async function stockTimePrecision(ctx:any):Promise<boolean> {
 export function stockWindow(input:RentalWindowInput,precise:boolean) {
  if(input.start%STOCK_DAY!==0||input.end%STOCK_DAY!==0)throw Error("Rental dates must be UTC-midnight labels");
  const window=rentalWindow(input,precise);
- return {...window,end:window.end+3600000,turnaroundBufferMinutes:60};
+ return {...window,end:window.end+3600000,turnaroundBufferMinutes:60,
+  pickupTime:input.pickupTime??null,returnTime:input.returnTime??null};
 }
 /** Legacy UTC wall labels never support intraday release. */
 export function legacyStockWindow(row:StockInterval) {

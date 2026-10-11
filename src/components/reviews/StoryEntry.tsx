@@ -2,7 +2,7 @@
 import { REVIEW_PRIZE_GBP } from "../../../shared/reviewPrize";
 import Link from "next/link";
 import { useState } from "react";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { useQuery, useMutation, useAction, usePaginatedQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "../account/AccountProvider";
 import {
@@ -12,7 +12,10 @@ import {
 } from "../../../shared/reviewPrize";
 export function StoryEntry() {
   const { token, me } = useAccount();
-  const data = useQuery(api.reviewPrize.mine, token && me ? { token } : "skip");
+  const data = useQuery(api.reviewPrize.mine, token && me ? { token, includeBookings: false } : "skip");
+  const { results: bookings, status: rentalPageStatus, loadMore } = usePaginatedQuery(
+    api.reviewPrize.rentalsPage, token && me ? { token } : "skip", { initialNumItems: 20 },
+  );
   const check = useAction(api.reviewActions.checkEligibility),
     upload = useMutation(api.reviewPrize.uploadEvidence),
     submit = useMutation(api.reviewPrize.submit);
@@ -28,7 +31,9 @@ export function StoryEntry() {
     [ad, setAd] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const booking = data?.bookings.find((b) => b._id === bookingId);
+  const selectedRental = useQuery(api.reviewPrize.rental,
+    token && me && bookingId ? { token, bookingId: bookingId as any } : "skip");
+  const booking = selectedRental ?? bookings.find((b) => b._id === bookingId);
   const editing = data?.entries.find((e) => e.bookingId === bookingId);
   async function send(e: React.FormEvent) {
     e.preventDefault();
@@ -183,11 +188,11 @@ export function StoryEntry() {
             }}
           >
             <option value="">Choose a rental</option>
-            {data?.bookings
+            {(booking && !bookings.some(b => b._id === booking._id) ? [booking, ...bookings] : bookings)
               .filter(
                 (b) =>
                   b._id === bookingId ||
-                  !data.entries.some((e) => e.bookingId === b._id),
+                  !data?.entries.some((e) => e.bookingId === b._id),
               )
               .map((b) => (
                 <option key={b._id} value={b._id}>
@@ -196,7 +201,13 @@ export function StoryEntry() {
               ))}
           </select>
         </label>
-        {!data?.bookings.length && (
+        {(rentalPageStatus === "CanLoadMore" || rentalPageStatus === "LoadingMore") && (
+          <button type="button" className="mt-3 text-xs text-amber-200 disabled:opacity-50"
+            disabled={rentalPageStatus === "LoadingMore"} onClick={() => loadMore(20)}>
+            {rentalPageStatus === "LoadingMore" ? "Loading older rentals…" : "Show more returned rentals"}
+          </button>
+        )}
+        {!bookings.length && rentalPageStatus === "Exhausted" && (
           <p className="mt-3 text-xs text-white/45">
             Entries become available once a rental is returned, its deposit is
             fully refunded and every hold is released without deductions.

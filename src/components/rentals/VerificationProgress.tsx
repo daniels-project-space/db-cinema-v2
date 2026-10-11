@@ -19,7 +19,7 @@ import { ManagementShell } from "@/components/management/ManagementShell";
 import styles from "./VerificationProgress.module.css";
 import { DroneLicenceUpload } from "./DroneLicence";
 import { useVerificationRefresh } from "./useVerificationRefresh";
-import { rentalStageLabel } from "../../../shared/rentalReadiness";
+import { rentalStageLabel, verificationReuseNeedsReview } from "../../../shared/rentalReadiness";
 
 function useVerificationClock(booking?: VerificationBooking | null) {
   const [now, setNow] = useState(() => Date.now());
@@ -250,6 +250,9 @@ export function VerificationProgress({
     booking.idVerifyStatus === "verified" &&
     booking.verificationExpiresAt == null;
   const expired = verificationExpired(booking, now);
+  const reusedNeedsReview = !journey.closed && verificationReuseNeedsReview(booking, now);
+  const savingCopies = !journey.closed && !approvalUnknown && !expired && !reusedNeedsReview &&
+    booking.idVerifyStatus === "verified" && booking.verificationArchiveReady === false;
   const uploadStatus =
     expired && booking.idVerifyStatus === "verified"
       ? "requires_input"
@@ -261,7 +264,7 @@ export function VerificationProgress({
     address: "A recent bill, bank statement or official address document.",
   };
   const stage =
-    approvalUnknown && !journey.closed
+    (approvalUnknown || reusedNeedsReview) && !journey.closed
       ? "Verification needs review"
       : booking.cancellationPending
         ? "Cancellation in progress"
@@ -298,9 +301,13 @@ export function VerificationProgress({
                   : booking.returnPending
                     ? "Return being settled"
                     : "Rental closed"
-                : approvalUnknown
+                : reusedNeedsReview
+                  ? "Your previous verification needs review"
+                  : approvalUnknown
                   ? "Verification needs a team check"
-                  : approved
+                  : savingCopies
+                    ? "Saving your verification documents"
+                    : approved
                     ? "Your documents are approved"
                     : expired
                       ? "Renew your verification"
@@ -310,7 +317,11 @@ export function VerificationProgress({
             <p role="status" aria-live="polite" className={styles.intro}>
               {journey.closed
                 ? "This rental no longer accepts document uploads."
-                : !ready
+                : reusedNeedsReview
+                  ? "The team needs to check the documents linked to your earlier rental before this booking can be approved. Message us in your rental conversation."
+                  : savingCopies
+                    ? "Your checks have passed. Your booking can be approved once the document copies are saved."
+                    : !ready
                   ? "Complete your rental payment before verification can begin."
                   : approved
                     ? booking.verificationReused
@@ -320,6 +331,7 @@ export function VerificationProgress({
                       ? "The team is reviewing your documents. We'll contact you if anything else is needed."
                       : "Have your photo ID and proof of address ready."}
             </p>
+            {reusedNeedsReview && <Link href={chat} className={`${styles.link} mt-5`}>Message the team →</Link>}
             {ready && !journey.closed && (
               <div className={styles.checks}>
                 {(
@@ -329,7 +341,9 @@ export function VerificationProgress({
                     ["address", "Proof of address"],
                   ] as const
                 ).map(([key, label]) => {
-                  const check = expired
+                  const check = reusedNeedsReview
+                    ? "review"
+                    : expired
                     ? "requires_input"
                     : (booking.verificationChecks?.[key] ??
                       (approved ? "approved" : "waiting"));
@@ -339,7 +353,9 @@ export function VerificationProgress({
                       className={`${styles.check} ${check === "approved" ? styles.checkApproved : ""}`}
                     >
                       <span className={styles.checkStatus}>
-                        {check === "waiting"
+                        {reusedNeedsReview
+                          ? "Needs team review"
+                          : check === "waiting"
                           ? "Required"
                           : (checkLabels[check] ?? "Pending")}
                       </span>
@@ -351,7 +367,7 @@ export function VerificationProgress({
                 })}
               </div>
             )}
-            {ready && !journey.closed && (
+            {ready && !journey.closed && !reusedNeedsReview && !savingCopies && (
               <div id="verification-upload" className={styles.action}>
                 <IdVerify
                   bookingId={bookingId}
@@ -392,7 +408,7 @@ export function VerificationProgress({
                 · London time
               </p>
             )}
-            {!wide && (
+            {!wide && !reusedNeedsReview && (
               <Link href={chat} className={`${styles.link} mt-5`}>
                 Message the team
               </Link>
@@ -535,7 +551,9 @@ export function VerificationProgress({
         subtitle={
           journey.closed
             ? "View your rental details and conversation."
-            : approved
+            : reusedNeedsReview
+              ? "Message us to review your previous verification."
+              : approved
               ? "Your documents are approved. Check your pickup and card hold below."
               : "Complete verification to get ready for pickup."
         }

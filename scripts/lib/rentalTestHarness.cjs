@@ -70,6 +70,7 @@ function put(table, data) {
   tables.get(table).push(row);
   return row;
 }
+const compareIndex = (a,b) => a === b ? 0 : a === undefined ? -1 : b === undefined ? 1 : a < b ? -1 : 1;
 const db = {
   system: { get: async id => docs.get(id) ?? null },
   normalizeId: (table,id) => typeof id === "string" && id.startsWith(table+"-") ? id : null,
@@ -86,23 +87,24 @@ const db = {
   },
   query(table) {
     let rows = [...(tables.get(table) ?? [])],
-      descending = false;
+      descending = false, chatOrder = false;
     const query = {
       withIndex(_, fn) {
+        chatOrder = ["by_account_chat_updated", "by_account_guest_chat_updated", "by_chat_updated", "by_status_chat_updated", "by_guest_chat_updated", "by_owner_unread_updated"].includes(_);
         const q = {
           eq(k, v) {
             rows = rows.filter((r) => r[k] === v);
             return q;
           },
-          lte(k,v) { rows=rows.filter(r=>r[k]<=v); return q; },
-          lt(k,v) { rows=rows.filter(r=>r[k]<v); return q; },
-          gt(k,v) { rows=rows.filter(r=>r[k]>v); return q; },
+          lte(k,v) { rows=rows.filter(r=>compareIndex(r[k],v)<=0); return q; },
+          lt(k,v) { rows=rows.filter(r=>compareIndex(r[k],v)<0); return q; },
+          gt(k,v) { rows=rows.filter(r=>compareIndex(r[k],v)>0); return q; },
           gte(k, v) {
-            rows = rows.filter((r) => r[k] >= v);
+            rows = rows.filter((r) => compareIndex(r[k],v) >= 0);
             return q;
           },
         };
-        fn(q);
+        if (fn) fn(q);
         return query;
       },
       filter(fn) {
@@ -138,7 +140,7 @@ const db = {
         };
       },
       async *[Symbol.asyncIterator]() {
-        const ordered = [...rows].sort((a,b) => (descending ? -1 : 1) * (a._creationTime-b._creationTime || (a._id < b._id ? -1 : a._id > b._id ? 1 : 0)));
+        const ordered = [...rows].sort((a,b) => (descending ? -1 : 1) * ((chatOrder ? (a.chatUpdatedAt ?? -Infinity)-(b.chatUpdatedAt ?? -Infinity) : 0) || a._creationTime-b._creationTime || (a._id < b._id ? -1 : a._id > b._id ? 1 : 0)));
         for (const row of ordered) yield row;
       },
     };

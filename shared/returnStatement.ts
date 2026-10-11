@@ -1,4 +1,4 @@
-import {rentalEmail} from "./rentalEmail";
+import {rentalEmail, emailRows} from "./rentalEmail";
 import type { InspectionInput, InspectionItem } from "./returnInspection";
 export type ReturnStatementData = {
   inspection?: (InspectionInput & InspectionItem)[];
@@ -15,6 +15,12 @@ export type ReturnStatementData = {
 };
 const amount = (value: number) => `£${value.toFixed(2)}`;
 const esc = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+/** Itemised advance notice: a successful send precedes any damage collection. */
+export function damageDeductionEmail({to,bookingId,damage,reason,url}:{to:string;bookingId:string;damage:number;reason:string;url:string}) {
+  return {to,subject:`DB Cinema Rentals · ${amount(damage)} return deduction`,
+    html:rentalEmail({title:"Your return inspection",preview:`Please review the documented ${amount(damage)} deduction.`,url,button:"View your rental conversation",
+      body:`<p>Our return inspection recorded a damage or loss deduction for your rental.</p>${emailRows([["Rental reference",`DBC-${bookingId.slice(-8).toUpperCase()}`],["Documented deduction",amount(damage)]])}<h3>Evidence and calculation</h3><p>${esc(reason)}</p><p>We will use the available card authorisation first, then the refundable deposit for any remaining amount. The same deduction will not be collected twice. Your final return statement will show the amount retained, any deposit refund and the release of any remaining authorisation separately.</p><p>If the evidence or amount is wrong, reply to this email or contact us in your rental conversation.</p>`})};
+}
 /** The same escaped content is used for the pre-confirmation review and issued email. */
 export function returnStatementEmail(s: ReturnStatementData, draft = false, url="https://dbcinemarentals.com/account#invoices") {
   const lines = s.lineItems.map(line => `<li>${esc(line.title)} × ${line.qty}: ${amount(line.lineTotal)}${line.returnTime ? ` · return ${new Date(line.end).toISOString().slice(0, 10)} at ${esc(line.returnTime)} London time` : ""}</li>`).join("");

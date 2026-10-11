@@ -21,11 +21,25 @@ const backend=process.env.DBC_CONVEX_URL||'https://deafening-stoat-340.convex.cl
   for(const candidate of rows){const s=await client.query(api.availability.forTimeSlots,{listingId:candidate._id,start:date,end:date,pickupTime:'18:00',returnTime:'20:00',items:[]});if(s.validPairs?.some(p=>p.pickupTime==='21:00'&&p.returnTime==='22:00')&&s.pickupBoundarySlots?.includes('22:00')&&s.returnBoundarySlots?.includes('09:00')){listing=candidate;slots=s;break}}
   assert(listing,'Requires a real available listing with independently free boundary times');
   async function until(expr,label){for(let i=0;i<200;i++){if(await c.evaluate(expr))return;await delay(200)}throw Error(label)}
+  async function loadDocument(method,params={}){
+   let finished=false,timer,unsubscribe;
+   const loaded=new Promise((resolve,reject)=>{
+    timer=setTimeout(()=>{finished=true;reject(Error('Document load timed out: '+method))},30000);
+    unsubscribe=c.on(event=>{
+     if(!finished&&event.method==='Page.javascriptDialogOpening'){
+      if(event.params?.type!=='beforeunload'){finished=true;clearTimeout(timer);reject(Error('Unexpected browser dialog during '+method+': '+event.params?.type));}
+      else void c.cmd('Page.handleJavaScriptDialog',{accept:true}).catch(error=>{if(!finished){finished=true;clearTimeout(timer);reject(error)}});
+     }
+     if(!finished&&event.method==='Page.domContentEventFired'){finished=true;clearTimeout(timer);resolve()}
+    });
+   });
+   try{await Promise.all([c.cmd(method,params),loaded])}finally{clearTimeout(timer);unsubscribe?.()}
+  }
   async function reload(){
-   const before=await c.evaluate('performance.timeOrigin');await c.cmd('Page.reload');
+   const before=await c.evaluate('performance.timeOrigin');await loadDocument('Page.reload');
    await until(`performance.timeOrigin!==${before}&&document.readyState==='complete'`,'New checkout document finishes loading');
   }
-  await c.cmd('Page.navigate',{url:base+'/checkout'});await until(`document.querySelector('main')&&location.pathname==='/checkout'`,'Checkout loads');
+  await loadDocument('Page.navigate',{url:base+'/checkout'});await until(`document.querySelector('main')&&location.pathname==='/checkout'`,'Checkout loads');
   const item={key:listing._id+':boundary-proof',listingId:listing._id,slug:listing.slug,title:listing.title,heroImage:listing.heroImage??null,start:dateString,end:dateString,pickupTime:'18:00',returnTime:'20:00',days:1,perDay:listing.pricing.daily,total:listing.pricing.daily,deposit:listing.depositAmount};
   await c.cmd('Page.addScriptToEvaluateOnNewDocument',{source:`if(!sessionStorage.getItem('boundary-proof-seeded')){localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([item]))});localStorage.removeItem('dbc_membership_selection_v1');sessionStorage.setItem('boundary-proof-seeded','1')}`});await reload();
   const picker=n=>`document.querySelectorAll('[data-checkout-item-times] [role=combobox]')[${n}]`;

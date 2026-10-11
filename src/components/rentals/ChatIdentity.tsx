@@ -12,7 +12,7 @@ export function GafferIcon({ className = "h-5 w-5" }: { className?: string }) {
 export function ChatAvatar({ sender, name, photo, className = "" }: { sender: string; name?: string | null; photo?: string | null; className?: string }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [photo]);
-  const base = `flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl ${className}`;
+  const base = `flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full ${className}`;
   if (sender === "bot") return <span className={`${base} bg-emerald-300/15 text-emerald-200`}><GafferIcon /></span>;
   if (sender === "owner") return <span className={`${base} bg-white/10`}>
     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -23,6 +23,6 @@ export function ChatAvatar({ sender, name, photo, className = "" }: { sender: st
     {photo && !failed ? (
       // eslint-disable-next-line @next/next/no-img-element
       <img src={photo} alt={name ?? "Renter"} onError={() => setFailed(true)} className="h-full w-full object-cover" />
-    ) : (name?.trim()[0]?.toUpperCase() ?? "R")}
+    ) : (name?.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join("").toUpperCase() || "R")}
   </span>;
 }

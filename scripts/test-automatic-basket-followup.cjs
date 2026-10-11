@@ -11,7 +11,7 @@ const worker={runQuery:(ref,args)=>recovery[ref.split('.').at(-1)].handler(ctx,a
 (async()=>{
  process.env.CHECKOUT_RECOVERY_ENABLED='true';process.env.RENTAL_CHECKOUT_ENABLED='true';
  await assert.rejects(()=>recovery.sync.handler(ctx,{token:'foreign',lines}),/sign in/);
- const id=await recovery.sync.handler(ctx,{token:'owner',lines}),row=await h.db.get(id);assert.equal(row.dueAt,now+30*60000);assert.equal(row.accountId,owner._id);
+ const id=await recovery.sync.handler(ctx,{token:'owner',lines}),row=await h.db.get(id);assert.equal(row.dueAt,now+30*60000);assert.equal(row.accountId,owner._id);assert.equal(row.activityRecordedAt,now);assert.equal(row.consentAt,undefined,'Automatic basket activity is not recorded as legal consent');
  now+=29*60000;assert.equal(await recovery._claim.handler(ctx,{id}),null,'No reminder before 30 minutes');
  await recovery.sync.handler(ctx,{token:'owner',enabled:false,lines});assert.equal(row.dueAt,now+30*60000,'Old clients cannot disable populated automatic baskets');
  const due=row.dueAt;await recovery.sync.handler(ctx,{token:'owner',lines});assert.equal(row.dueAt,due,'Immediate repeats do not churn writes');
@@ -37,6 +37,7 @@ const worker={runQuery:(ref,args)=>recovery[ref.split('.').at(-1)].handler(ctx,a
  const foreignId=await recovery.sync.handler(ctx,{token:'owner',lines:[{...lines[0],end:Date.parse('2026-11-04T00:00Z')}]});
  await lib.stopMatchingRecovery(ctx,foreign.email,secondLines,booking._id);assert.equal((await h.db.get(recycledId)).state,'waiting','Permanent booking owner never targets reused guest email');
  await h.db.patch(owner._id,{blockedAt:now});now+=30*60000;assert.equal(await recovery._claim.handler(ctx,{id:foreignId}),null);assert.equal((await h.db.get(foreignId)).state,'stopped','Blocked accounts cannot receive recovery');
+ await h.db.patch(owner._id,{blockedAt:undefined});
  const restoreOwner=h.put('accounts',{email:'restore@example.invalid'});h.put('sessions',{token:'restore',accountId:restoreOwner._id,expiresAt:now+86400000});
  const mixed=[{...lines[0],qty:2},{...lines[0],start:Date.parse('2026-11-05T00:00Z'),end:Date.parse('2026-11-08T00:00Z'),pickupTime:'20:00',returnTime:'12:00'}];
  const mixedId=await recovery.sync.handler(ctx,{token:'restore',lines:mixed});
@@ -44,6 +45,44 @@ const worker={runQuery:(ref,args)=>recovery[ref.split('.').at(-1)].handler(ctx,a
  const expanded=h.load('shared/kitCart.ts').expandKitCart(resumed.cartLines);assert.equal(expanded.length,3);assert.equal(expanded[2].start,'2026-11-05');assert.equal(expanded[2].end,'2026-11-08');assert.equal(expanded[2].total,180);assert.equal(expanded[2].pickupTime,'20:00');assert.equal(expanded[2].returnTime,'12:00');
  assert.equal(await recovery.resume.handler(ctx,{token:'restore',id:'malformed'}),null,'Invalid links get a safe unavailable response');
  assert.equal(await recovery.resume.handler(ctx,{token:'foreign-owner',id:mixedId}),null,'Recovery is private to its permanent owner');
+ // Payment/cancellation can arrive after claim, before the delivery fence.
+ const racing=h.put('accounts',{email:'race@example.invalid'});h.put('sessions',{token:'race',accountId:racing._id,expiresAt:now+86400000});
+ for(const status of ['pending_payment','confirmed','cancelled']){
+   const raceLines=[{...lines[0],qty:status==='pending_payment'?3:status==='confirmed'?4:5}];
+   const raceId=await recovery.sync.handler(ctx,{token:'race',lines:raceLines});now+=30*60000;
+   const raceClaim=await recovery._claim.handler(ctx,{id:raceId});assert(raceClaim);assert(await recovery._ready.handler(ctx,raceClaim));
+   h.put('bookings',{accountId:racing._id,guestEmail:racing.email,status,lineItems:raceLines});
+   assert.equal(await recovery._ready.handler(ctx,raceClaim),false,`${status} arriving after claim suppresses delivery even before recovery linkage`);
+ }
+ const recoverableLines=[{...lines[0],qty:8}],recoverableId=await recovery.sync.handler(ctx,{token:'race',lines:recoverableLines});now+=30*60000;
+ const recoverableClaim=await recovery._claim.handler(ctx,{id:recoverableId});assert(recoverableClaim);
+ h.put('bookings',{accountId:racing._id,status:'cancelled',checkoutExpiredAt:now,lineItems:recoverableLines});
+ assert.equal(await recovery._ready.handler(ctx,recoverableClaim),true,'A provider-expired unpaid checkout remains recoverable');
+ const foreignBooking=h.put('bookings',{accountId:foreign._id,status:'confirmed',lineItems:recoverableLines});
+ assert.equal(await recovery._ready.handler(ctx,recoverableClaim),true,'Another account using the same kit never suppresses this account reminder');
+ await h.db.patch(recoverableId,{bookingId:foreignBooking._id});
+ assert.equal(await recovery._ready.handler(ctx,recoverableClaim),false,'A malformed foreign booking link fails closed before email');
+ const expiredId=await recovery.sync.handler(ctx,{token:'race',lines:[{...lines[0],qty:6}]});now+=30*60000;
+ const expiredClaim=await recovery._claim.handler(ctx,{id:expiredId});assert(expiredClaim);
+ await h.db.patch(expiredId,{expiresAt:now});assert.equal(await recovery._ready.handler(ctx,expiredClaim),false,'Expired basket cannot be emailed while its lease is still valid');
+ const workerLines=[{...lines[0],qty:7}],workerId=await recovery.sync.handler(ctx,{token:'race',lines:workerLines});now+=30*60000;
+ const beforeRaceDelivery=deliveries;
+ const racingWorker={...worker,runQuery:async(ref,args)=>{const result=await worker.runQuery(ref,args);return ref==='checkoutRecovery._due'?result.filter(row=>row._id===workerId):result;},runMutation:async(ref,args)=>{
+   const result=await worker.runMutation(ref,args);
+   if(ref==='checkoutRecovery._claim'&&args.id===workerId&&result)h.put('bookings',{accountId:racing._id,status:'confirmed',lineItems:workerLines});
+   return result;
+ }};
+ await mail.processDue.handler(racingWorker,{});assert.equal(deliveries,beforeRaceDelivery,'Actual reminder worker sends no email when payment arrives between claim and ready');
  const limited=h.put('accounts',{email:'limited@example.invalid'});h.put('sessions',{token:'limited',accountId:limited._id,expiresAt:now+86400000});for(let i=0;i<60;i++)await recovery.sync.handler(ctx,{token:'limited',lines});await assert.rejects(()=>recovery.sync.handler(ctx,{token:'limited',lines}),/Please wait/,'Repeated identical saves are rate-limited, not just new baskets');
- console.log('PASS automatic 30-minute basket recovery: auth, activity, throttling, clock persistence, unavailable inventory, leasing/crash recovery, stale fencing, delivery retry, sent dedup, clearing, daily cap, pause gates and permanent account ownership; mixed-period quantities, current quotes and exact clock restoration; malformed/private links and repeated-call rate limiting. No provider writes.');
+ const tokenMatch=delivered[0].html.match(/email-preferences\/basket\?token=([A-Za-z0-9_-]{43})/);assert(tokenMatch,'The reminder contains a one-click preference link');
+ h.put('sessions',{token:'owner-preference',accountId:owner._id,expiresAt:now+86400000});
+ const optOutLines=[{...lines[0],start:Date.parse('2026-11-22T00:00Z'),end:Date.parse('2026-11-23T00:00Z')}];
+ const waitingForOptOut=h.put('checkout_recoveries',{accountId:owner._id,lines:optOutLines,activityRecordedAt:now,updatedAt:now,dueAt:now+1800000,expiresAt:now+86400000,state:'waiting',attempts:0});
+ assert.deepEqual(await mail.unsubscribe.handler(worker,{token:tokenMatch[1]}),{ok:true},'Email opt-out does not require an account session');
+ assert.equal((await recovery.preference.handler(ctx,{token:'owner-preference'})).disabled,true);
+ assert.equal((await h.db.get(waitingForOptOut._id)).state,'stopped','Opt-out stops already queued reminders');
+ assert.equal(await recovery.sync.handler(ctx,{token:'owner-preference',lines:optOutLines}),null,'Opted-out accounts are not requeued');
+ await recovery.setPreference.handler(ctx,{token:'owner-preference',disabled:false});
+ assert(await recovery.sync.handler(ctx,{token:'owner-preference',lines:optOutLines}),'A signed-in customer can turn automatic reminders back on');
+ console.log('PASS automatic 30-minute basket recovery: auth, activity, throttling, clock persistence, unavailable inventory, leasing/crash recovery, stale fencing, pre-send payment/cancellation/expiry and foreign-link rechecks, delivery retry, sent dedup, clearing, daily cap, pause gates and permanent account ownership; mixed-period quantities, current quotes and exact clock restoration; malformed/private links and repeated-call rate limiting. No provider writes.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{Date.now=originalNow});

@@ -1,3 +1,4 @@
+import type { Doc } from "../_generated/dataModel";
 /** Permanent rental ownership, with email compatibility for older bookings. */
 export function belongsToRentalAccount(booking: any, account: any): boolean {
   return !!booking && !!account && (booking.accountId
@@ -5,7 +6,7 @@ export function belongsToRentalAccount(booking: any, account: any): boolean {
     : (booking.guestEmail ?? "").trim().toLowerCase() === account.email.trim().toLowerCase());
 }
 
-export async function accountForRental(ctx: any, booking: any) {
+export async function accountForRental(ctx: any, booking: any): Promise<Doc<"accounts"> | null> {
   if (!booking) return null;
   return booking.accountId ? ctx.db.get(booking.accountId) : ctx.db.query("accounts")
     .withIndex("by_email", (q: any) => q.eq("email", (booking.guestEmail ?? "").trim().toLowerCase())).first();

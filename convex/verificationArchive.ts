@@ -2,7 +2,8 @@ import { query, mutation, internalQuery, internalMutation } from "./_generated/s
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
-import { accountForRental } from "./lib/rentalAccount";
+import { accountForRental, belongsToRentalAccount } from "./lib/rentalAccount";
+import { VERIFICATION_REUSE_DAYS } from "./lib/verificationReuse";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
 import { queueOwnerNotification } from "./lib/adminPush";
@@ -16,7 +17,12 @@ async function flagArchiveFailure(ctx:any,archive:any){
   title:"Verification documents need attention",body:"Document copying could not finish after repeated attempts. Open this rental and retry its account document archive. Handover remains blocked."});
 }
 function rentalClosedAt(booking: any): number | undefined {
-  return booking?.status === "returned" ? booking.returnedAt : booking?.status === "cancelled" ? booking.cancelledAt : undefined;
+  // Refund settlement can happen days after equipment was returned. It must
+  // neither prolong retention nor leave a physically closed rental indefinite.
+  const closedAt = booking?.status === "returned"
+    ? booking.actualReturnedAt ?? booking.returnDecision?.actualReturnedAt ?? booking.returnedAt
+    : booking?.status === "cancelled" ? booking.cancelledAt : undefined;
+  return Number.isFinite(closedAt) && closedAt > 0 && closedAt <= Date.now() + 60000 ? closedAt : undefined;
 }
 
 /** One retention decision shared by the admin screen and byte deletion. */
@@ -56,7 +62,7 @@ export async function queueVerificationArchive(ctx: any, booking: any,refresh=fa
     await ctx.scheduler.runAfter(0, internal.verificationArchiveWorker.capture, { archiveId: previous._id });
     return;
   }
-  const archiveId = await ctx.db.insert("verification_archives", { bookingId: booking._id, accountId: account?._id, sessionId: booking.diditSessionId, source:"didit", email: booking.guestEmail ?? account?.email ?? "", status: "pending", attempts: 0, dueAt: Date.now(), createdAt: Date.now() });
+  const archiveId = await ctx.db.insert("verification_archives", { bookingId: booking._id, accountId: account?._id, sessionId: booking.diditSessionId, source:"didit", workflowId: booking.diditWorkflowId, email: booking.diditSessionEmail ?? booking.guestEmail ?? account?.email ?? "", status: "pending", attempts: 0, dueAt: Date.now(), createdAt: Date.now() });
   await ctx.scheduler.runAfter(0, internal.verificationArchiveWorker.capture, { archiveId });
 }
 /** Private metadata checks subscribe to the real storage objects; no file URLs
@@ -93,6 +99,16 @@ async function archiveCopies(ctx: any, archive: any) {
 }
 export async function assertVerificationArchive(ctx: any, booking: any) {
   const source = booking.verificationReusedFrom ? await ctx.db.get(booking.verificationReusedFrom) : booking;
+  if (booking.verificationReusedFrom) {
+    const account = await accountForRental(ctx, booking);
+    // Reuse never inherits the direct manual/legacy exemption below. Its
+    // original provider decision must still be valid for this permanent owner.
+    if (!source?.diditSessionId || source.idVerificationSource !== "didit" || source.idVerifyStatus !== "verified" ||
+        !belongsToRentalAccount(source, account) ||
+        !(Math.min(source.verificationExpiresAt ?? ((source.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * 86400000),
+          source.documentExpiresAt ?? Infinity) > Date.now()))
+      throw Error("Reused verification requires a current approved Didit source belonging to the same account. Complete a new verification before handover.");
+  }
   if (!source?.diditSessionId) return;
   const archives = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", source._id)).collect();
   // A completed copy can already be outside retention while the deletion job
@@ -116,6 +132,20 @@ export const claim=internalMutation({args:{archiveId:v.id("verification_archives
  await ctx.db.patch(archiveId,patch);
  return {...archive,...patch,documents:await ctx.db.query("verification_documents").withIndex("by_archive",q=>q.eq("archiveId",archiveId)).collect()};
 }});
+/** Only the authenticated provider reader may attest a legacy archive case. */
+export const bindCase = internalMutation({
+  args: { archiveId: v.id("verification_archives"), generation: v.number(), sessionId: v.string(), email: v.string(), workflowId: v.string() },
+  handler: async (ctx, { archiveId, generation, sessionId, email, workflowId }) => {
+    const archive = await ctx.db.get(archiveId);
+    if (!archive || archive.source === "drone" || archive.status !== "pending" || archive.generation !== generation ||
+        archive.sessionId !== sessionId || archive.email.trim().toLowerCase() !== email.trim().toLowerCase() ||
+        !/^[A-Za-z0-9_-]{1,100}$/.test(workflowId) ||
+        (archive.workflowId !== undefined && archive.workflowId !== workflowId) ||
+        !(await archiveRetention(ctx, archive)).viewable || !(await archiveOwnerMatches(ctx, archive))) return false;
+    if (archive.workflowId === undefined) await ctx.db.patch(archiveId, { workflowId });
+    return true;
+  },
+});
 export const save = internalMutation({ args: { archiveId: v.id("verification_archives"), generation:v.number(),kind: v.string(), storageId: v.id("_storage"), sha256: v.string(), size: v.number(), contentType: v.string(), replaceStorageId: v.optional(v.id("_storage")) }, handler: async (ctx, args) => {
   const archive = await ctx.db.get(args.archiveId);
   if (!archive || archive.status!=="pending" || archive.generation!==args.generation || (archive.leaseUntil??0)<=Date.now() || !(await archiveRetention(ctx,archive)).viewable) { await deletePrivateFile(ctx,args.storageId); return false; }
@@ -220,17 +250,29 @@ export const retentionHold = mutation({ args: { token: v.string(), archiveId: v.
   await ctx.db.patch(archive._id, { retentionHoldReason: args.reason.trim().slice(0, 500) || undefined });
 } });
 /** Retain during rental/claim; remove bytes 30 days after actual return or cancellation. */
-export const purgeExpired = internalMutation({ args: {}, handler: async ctx => {
-  const archives = await ctx.db.query("verification_archives").collect();
+export const purgeExpired = internalMutation({ args: {
+  cursor: v.optional(v.union(v.string(), v.null())), cutoff: v.optional(v.number()),
+}, handler: async (ctx, { cursor, cutoff: suppliedCutoff }) => {
+  // A stable creation-time window visits every status, including legacy rows,
+  // without moving the cursor when an archive becomes a deletion tombstone.
+  const cutoff = suppliedCutoff ?? Date.now();
+  if (!Number.isFinite(cutoff) || cutoff <= 0 || cutoff > Date.now() + 60000) throw Error("Invalid archive cleanup window");
+  const archives = await ctx.db.query("verification_archives")
+    .withIndex("by_creation_time", q => q.lte("_creationTime", cutoff))
+    .order("asc").paginate({ numItems: 20, cursor: cursor ?? null, maximumRowsRead: 20, maximumBytesRead: 256 * 1024 });
   let removed = 0;
-  for (const archive of archives) {
-    if (removed >= 25 || archive.status === "deleted" || archive.retentionHoldReason) continue;
+  for (const archive of archives.page) {
+    if (archive.status === "deleted" || archive.retentionHoldReason) continue;
     const retention = await archiveRetention(ctx, archive);
     if (retention.status !== "expires" || retention.expiresAt === null || retention.expiresAt > Date.now()) continue;
     const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archive._id)).collect();
     for (const document of documents) await deletePrivateFile(ctx,document.storageId);
     await ctx.db.patch(archive._id, { status: "deleted", deletedAt: Date.now(), error: undefined });
     removed++;
+  }
+  if (!archives.isDone) {
+    if (!archives.continueCursor || archives.continueCursor === cursor) throw Error("Archive cleanup cursor did not advance");
+    await ctx.scheduler.runAfter(1000, internal.verificationArchive.purgeExpired, { cursor: archives.continueCursor, cutoff });
   }
   return removed;
 } });

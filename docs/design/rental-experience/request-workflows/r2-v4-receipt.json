@@ -1,0 +1,12 @@
+{
+  "bucket": "db-cinema-v2",
+  "assets": [
+    {
+      "file": "docs/design/rental-experience/request-workflows/renter-request-drawers-v4.png",
+      "key": "design/request-workflows-2026-10-09/cdd58d712345b9634dc7875701193a7393e6a45ddf6e01b52794eb9b45e18524/renter-request-drawers-v4.png",
+      "sha256": "cdd58d712345b9634dc7875701193a7393e6a45ddf6e01b52794eb9b45e18524",
+      "bytes": 2044272,
+      "readbackVerified": true
+    }
+  ]
+}

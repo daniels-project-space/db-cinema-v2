@@ -1,4 +1,6 @@
 "use node";
+import { invoiceRequest } from "./lib/invoiceRequest";
+import { createHash } from "node:crypto";
 import {rentalEmail,emailRows} from "../shared/rentalEmail";
 import { returnStatementEmail } from "../shared/returnStatement";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
@@ -13,7 +15,7 @@ const esc = (value: string) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;",
 
 /** The customer attachment must contain an actual bounded PDF, never a route error or JSON. */
 async function fetchInvoicePdf(url:string,secret:string):Promise<Buffer>{
- const response=await fetch(url,{headers:{"x-invoice-key":secret},signal:AbortSignal.timeout(20_000)});
+ const response=await invoiceRequest(url,{headers:{"x-invoice-key":secret},signal:AbortSignal.timeout(20_000)});
  if(!response.ok||response.headers.get("content-type")?.split(";")[0].trim().toLowerCase()!=="application/pdf")throw Error("Invoice route did not return a PDF");
  const bytes=Buffer.from(await response.arrayBuffer());
  if(bytes.length<5||bytes.length>10_000_000||bytes.subarray(0,5).toString("ascii")!=="%PDF-")throw Error("Invoice PDF is invalid");
@@ -72,16 +74,22 @@ export const returnSettlementEmail = internalAction({
     const s = context?.statement;
     const secret = process.env.INVOICE_SECRET;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
-    if (!s?.customerEmail || !secret) {
+    if (!s || !context.notificationEmail || !secret) {
       await ctx.runMutation(internal.bookings.markReturnStatementEmail, { bookingId, sent: false });
       return;
     }
     let sent = false;
     try {
       const pdf=await fetchInvoicePdf(`${app}/api/invoice/${bookingId}?phase=return`,secret);
-      const content = returnStatementEmail(s,false,`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`);
+      // PDF generation can outlive a contact change or account removal. Resolve
+      // delivery against the permanent rental account again before sending.
+      const current: any = await ctx.runQuery(internal.bookings.returnStatementContext, { bookingId });
+      if (!current?.notificationEmail || current.status !== "sending")
+        throw Error("The rental account needs review before its return statement can be emailed.");
+      const content = returnStatementEmail({...current.statement, customerEmail:current.notificationEmail},false,`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`);
       sent = await sendMail({
         ...content,
+        deliveryKey: `rental-return-${createHash("sha256").update(JSON.stringify([bookingId,current.statement.number,current.statement.issuedAt,content.to])).digest("hex")}`,
         attachments: [{ filename: `DbCinema-return-${String(bookingId).slice(-8)}.pdf`, content: pdf.toString("base64") }],
       });
     } catch (error) { console.error("Return statement email failed", bookingId, error); }

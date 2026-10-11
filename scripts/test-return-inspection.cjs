@@ -50,7 +50,10 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  await assert.rejects(()=>bookings.beginReturnDecision.handler(ctx,{...decision,inspection:input}),/already in progress/);
  await assert.rejects(()=>cases.validate.handler(ctx,{bookingId:b._id,inspection:input,damage:0}),/saved item inspection/,'Reject changed inspection before any Stripe operation');
  await db.patch(unit._id,{name:'Edited catalogue name'});assert.deepEqual(await returnInspectionSchedule(ctx,b),schedule,'Saved equipment identity survives catalogue edits');
- await archives.queueVerificationArchive(ctx,b);const archive=tables.get('verification_archives')[0];await db.patch(b._id,{status:'returned',returnedAt:Date.now()-31*86400000});
+ await archives.queueVerificationArchive(ctx,b);const archive=tables.get('verification_archives')[0];
+ const retentionNow=Date.now;Date.now=()=>decision.actualReturnedAt+31*86400000;
+ await db.patch(b._id,{status:'returned',returnedAt:Date.now()-86400000});
+ assert.equal((await archives.archiveRetention(ctx,archive)).openCases,1,'Physical return is past retention but its open insurance case preserves documents');
  assert.equal(await archives.purgeExpired.handler(ctx,{}),0,'An actual open damage case preserves verification evidence');
  const damageCase=tables.get('rental_damage_cases')[0];await assert.rejects(()=>cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:damageCase._id,bookingId:'other-rental',resolution:'Resolved by insurance'}),/does not belong/);await assert.rejects(()=>cases.closeCase.handler(ctx,{token:'wrong',caseId:damageCase._id,resolution:'Resolved by insurance'}),/unauthorized/);
  await cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:damageCase._id,resolution:'Resolved by insurance without further claim'});
@@ -59,6 +62,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  assert.equal(await archives.purgeExpired.handler(ctx,{}),0,'Resolving one case does not release documents needed by another open case');
  await cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:otherCase._id,resolution:'Second insurance investigation resolved'});
  assert.equal(await archives.purgeExpired.handler(ctx,{}),1,'Closing case resumes the existing retention window');assert(b.rmv2Revision>=2,'Case opening and closure queue fresh durable website revisions');
+ Date.now=retentionNow;
  const legacy=put('bookings',{lineItems:[{title:'Legacy camera',qty:2}]});assert.equal((await returnInspectionSchedule(ctx,legacy)).length,2);
  await bookings.markReturnedStatus.handler(ctx,{bookingId:b._id});assert.equal(removed.status,'cancelled','Return never revives cancelled inventory lines');
  const statement={number:'RETURN-FIXTURE',issuedAt:Date.now(),actualReturnedAt:Date.now(),supplierName:'DB Cinema fixture',customerEmail:account.email,
@@ -67,7 +71,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  let mail;setMock('./lib/mailer',{sendMail:async value=>{mail=value;return true}});
  const worker=load('convex/invoice.ts'),originalFetch=global.fetch;
  process.env.INVOICE_SECRET='isolated-invoice-test';global.fetch=async()=>new Response('%PDF-isolated-worker-fixture',{headers:{'content-type':'application/pdf'}});
- try{await worker.returnSettlementEmail.handler({runMutation:async()=>true,runQuery:async()=>({statement})},{bookingId:b._id})}finally{global.fetch=originalFetch}
+ try{await worker.returnSettlementEmail.handler({runMutation:async()=>true,runQuery:async()=>({statement,notificationEmail:account.email,status:'sending'})},{bookingId:b._id})}finally{global.fetch=originalFetch}
  assert(mail.html.includes('Equipment inspection'));assert(mail.html.includes('damage case opened'));assert(mail.html.includes('Damaged battery casing'));
  assert(mail.html.includes('&lt;evidence&gt;'),'Escape evidence in customer email');assert(!mail.html.includes('<evidence>'));
  assert.equal(mail.attachments.length,1);

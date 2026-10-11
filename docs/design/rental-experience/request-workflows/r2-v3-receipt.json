@@ -1,0 +1,13 @@
+{
+  "bucket": "db-cinema-v2",
+  "at": "2026-10-09T18:06:30.510Z",
+  "assets": [
+    {
+      "file": "docs/design/rental-experience/request-workflows/extension-desktop-mobile-v3.png",
+      "key": "design/request-workflows-2026-10-09/8271729e2e58eb9b1be8d097641a96b904ec9996f23c9019440e9324c76ebaf7/extension-desktop-mobile-v3.png",
+      "sha256": "8271729e2e58eb9b1be8d097641a96b904ec9996f23c9019440e9324c76ebaf7",
+      "bytes": 1841629,
+      "readbackVerified": true
+    }
+  ]
+}

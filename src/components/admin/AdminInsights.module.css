@@ -2,16 +2,28 @@
 @media(max-width:1300px){.heading h1{font-size:37px}.heading p{font-size:15px}.metrics{gap:10px}.metrics>div{padding:15px 12px}.metrics small{max-width:100%}.metrics svg{display:none}.central{grid-template-columns:1fr}.right{grid-template-columns:1fr 1fr;grid-template-rows:auto}.legend{flex-wrap:wrap}.bottom{gap:12px}.equipment article{grid-template-columns:60px minmax(0,1fr) minmax(80px,.8fr) 40px 40px}}
 @media(max-width:850px){.heading{flex-direction:column}.heading h1{font-size:33px}.scope{text-align:left;line-height:1.6}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics>div:last-child{grid-column:1/-1}.right,.bottom{grid-template-columns:1fr}.panel{padding:16px}.panel h2{font-size:21px}.equipment article{grid-template-columns:50px minmax(0,1fr) 26px 26px;gap:10px}.equipment article img{width:50px;height:48px}.equipment .bar{display:none}.equipment h3{font-size:11px}.equipment small{font-size:9px}.pages .rankings{grid-template-columns:1fr}.memberGrid{gap:12px}.memberNumbers{padding-right:12px;gap:7px}.memberNumbers strong{font-size:25px}.tiers>div{grid-template-columns:65px 1fr 20px;gap:7px}.actions{gap:10px}.actions select,.actions button{padding:10px 12px}}
 /* Match the render's compact two-tier right column and clear numeric typography. */
-.right{grid-template-rows:auto auto;align-content:start}.chart svg{height:170px;margin-top:18px}.equipment article :is(h3,strong,span,small),.metrics :is(span,strong,small),.memberNumbers :is(strong,span),.rankings,.tiers,.activity{font-family:var(--font-inter,Arial),sans-serif}.metrics small{max-width:100%;padding-right:0}.metrics svg{bottom:40px;right:14px;width:66px;height:24px}.equipment{align-self:stretch}.chart header{flex-wrap:wrap}
+.right{grid-template-rows:auto auto;align-content:start}.chart svg{height:170px;margin-top:18px}.equipment article :is(h3,strong,span,small),.metrics :is(span,strong,small),.memberNumbers :is(strong,span),.rankings,.tiers,.activity{font-family:var(--font-inter,Arial),sans-serif}.metrics small{max-width:100%;padding-right:0}.metrics svg{bottom:18px;right:14px;width:100px;height:34px}.equipment{align-self:stretch}.chart header{flex-wrap:wrap}
 @media(min-width:1301px){.heading{padding-right:190px}.heading h1{font-size:40px}.heading p{font-size:16px}}
 @media(max-width:850px){.memberGrid{grid-template-columns:1fr}.memberNumbers{border-right:0;padding-right:0;padding-bottom:14px;border-bottom:1px solid #ffffff15}.chart svg{height:auto}.chart header{gap:10px}.legend{gap:14px}.tiers>div{grid-template-columns:80px 1fr 24px}}
 
 .equipmentPhoto{width:60px;height:53px;border-radius:4px;background:#0d100e}.equipmentPhoto img{object-fit:contain!important}@media(max-width:850px){.equipmentPhoto{width:50px;height:48px}}
-@media(min-width:1301px){.insights{position:relative}.heading{margin-bottom:14px}.heading h1{font-size:46px}.heading p{font-size:18px}.scope{position:absolute;top:73px;right:0;margin:0;font-size:10px}.metrics>div{min-height:118px}.metrics strong{line-height:1.1}.metrics{margin-bottom:18px}.chart svg{height:130px}.memberships{min-height:181px}}
+@media(min-width:1301px){.insights{position:relative}.heading{margin-bottom:14px}.heading h1{font-size:46px}.heading p{font-size:18px}.scope{position:absolute;top:73px;right:0;margin:0;font-size:10px}.metrics>div{min-height:118px}.metrics strong{line-height:1.1}.metrics{margin-bottom:18px}.chart svg{height:158px;margin-top:0;display:block}.chart{padding-top:14px;padding-bottom:13px}.chartDates{padding-top:5px}.memberships{min-height:181px}}
 
 /* Neutral charcoal sampled from the Insights render, with copper bars. */
 .insights { color:#efefec; }
-.metrics>div { background:linear-gradient(125deg,#1b1e1e,#111515); border-color:#2b302d; }
-.panel { background:linear-gradient(125deg,#1a1e1d,#111515); border-color:#2b302d; border-radius:6px; }
+.metrics>div { background:linear-gradient(125deg,#1b1c1b,#111212); border-color:#2b302d; }
+.panel { background:linear-gradient(125deg,#1a1b1a,#111212); border-color:#2b302d; border-radius:6px; }
 .equipmentPhoto,.equipment article img { background:#101312; }
-@media(min-width:1301px) { .central { grid-template-columns:minmax(0,1.037fr) minmax(0,1fr); } .panel { padding:18px 19px; } .equipment article { padding:14px 0; } .chart { min-height:229px; } .bottom .panel { min-height:271px; } .right { gap:17px; } }
+@media(min-width:1301px) { .central { grid-template-columns:minmax(0,1.037fr) minmax(0,1fr); } .panel { padding:18px 19px; } .equipment article { padding:9px 0; } .equipmentPhoto,.equipment article img { height:44px; } .chart { min-height:229px; } .bottom .panel { min-height:271px; } .right { gap:17px; } }
+
+.chartDates span{white-space:nowrap}
+@media(max-width:850px){.chartDates span:nth-child(even){display:none}}
+
+@media(min-width:1500px){.equipment article{grid-template-columns:74px minmax(0,1fr) 160px 50px 80px}.equipment h3{font-size:14px}.equipment small{font-size:12px}.equipment article>strong,.equipment article>span{text-align:center;font-size:14px}}
+
+.actions label{position:relative}.controlIcon{width:16px;height:16px;flex-shrink:0}.actions label .controlIcon{position:absolute;left:14px;top:50%;transform:translateY(-50%);pointer-events:none}.actions select{padding-left:40px}.actions button{display:flex;align-items:center;gap:10px}.metrics strong{font-size:30px}.metrics small{font-size:11px}
+
+.metrics>div>span{display:block;line-height:1.5}.tiers span{text-transform:capitalize}.tiers>div{font-size:13px}.memberNumbers span{font-size:12px}.rankings li{font-size:13px}.activity span{font-size:12px}.legend{font-size:11px}
+@media(min-width:1301px){.panel.chart{padding-top:14px;padding-bottom:13px}.chart svg{margin-top:-3px}.chartDates{padding-top:2px}}
+
+@media(max-width:850px){.chart svg text{font-size:18px}}

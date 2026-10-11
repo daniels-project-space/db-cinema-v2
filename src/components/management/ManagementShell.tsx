@@ -29,7 +29,7 @@ export function ManagementShell({ role, title, name, subtitle, nav, active, onNa
   return <div className={styles.shell} data-management-role={role} data-management-screen={screen}>
     <aside className={`${styles.sidebar} ${menuOpen ? styles.open : ""}`}>
       <button type="button" aria-label="Close account menu" className={styles.closeButton} onClick={() => setMenuOpen(false)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
-      <Link href="/" className={styles.brand}><span>DB <small>CINEMA</small></span><b>RENTALS</b></Link>
+      <Link href="/" className={styles.brand}><span>DB {screen !== "insights" && <small>CINEMA</small>}</span><b>{screen === "insights" ? "CINEMA RENTALS" : "RENTALS"}</b></Link>
       <nav aria-label={role === "admin" ? "Management navigation" : "Account navigation"} className={styles.nav}>
         {primaryNav.map(item => <button type="button" key={item.key} aria-current={active === item.key ? "page" : undefined} onClick={() => { onNavigate(item.key); setMenuOpen(false); }} className={active === item.key ? styles.selected : ""}>
           <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={icons[item.key === "marketing" || item.key === "inventory" ? "inventory" : item.key === "reports" ? "reports" : item.icon ?? "rentals"] ?? icons.rentals} /></svg>

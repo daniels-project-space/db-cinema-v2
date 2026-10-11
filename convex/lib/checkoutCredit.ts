@@ -7,9 +7,15 @@ export function creditKind(c:any):"refund"|"earned" {
 /** Per-source reservations prevent a refund balance from reserving promotional money. */
 export async function availableCreditRows(ctx:any,accountId:any){
   const account=await ctx.db.get(accountId);if(!account)return [];
-  const now=Date.now(),all=await ctx.db.query("credits").withIndex("by_account",(q:any)=>q.eq("accountId",accountId)).collect();
-  const rows=all.filter((c:any)=>c.status==="active"&&c.expiresAt>now).sort((a:any,b:any)=>a.expiresAt-b.expiresAt);
-  const pending=(await ctx.db.query("bookings").withIndex("by_guestEmail",(q:any)=>q.eq("guestEmail",account.email.trim().toLowerCase())).collect()).filter((b:any)=>b.status==="pending_payment");
+  const now=Date.now();
+  const [rows,owned,legacyBookings]=await Promise.all([
+    ctx.db.query("credits").withIndex("by_account_status_expiry",(q:any)=>q.eq("accountId",accountId).eq("status","active").gt("expiresAt",now)).take(501),
+    ctx.db.query("bookings").withIndex("by_account_status",(q:any)=>q.eq("accountId",accountId).eq("status","pending_payment")).take(101),
+    ctx.db.query("bookings").withIndex("by_account_guestEmail_status",(q:any)=>q.eq("accountId",undefined).eq("guestEmail",account.email.trim().toLowerCase()).eq("status","pending_payment")).take(101),
+  ]);
+  if(rows.length>500||owned.length>100||legacyBookings.length>100)
+    throw Error("This account's credit reservations need reconciliation before its balance can be used.");
+  const pending=[...owned,...legacyBookings];
   const reserved=new Map<string,number>();let legacy=0;
   for(const b of pending){
     if(b.creditAllocations)for(const a of b.creditAllocations)reserved.set(a.creditId,(reserved.get(a.creditId)??0)+Math.round(a.amount*100));

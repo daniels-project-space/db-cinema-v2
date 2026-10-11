@@ -1,0 +1,13 @@
+{
+  "bucket": "db-cinema-v2",
+  "at": "2026-10-09T19:38:41.753Z",
+  "assets": [
+    {
+      "file": "docs/design/rental-experience/request-workflows/requests-admin-renter-v5.png",
+      "key": "design/request-workflows-2026-10-09/aba4786e0ed29d8a707de5fee5b1a7072e921884b97c04583a723dd9daeace65/requests-admin-renter-v5.png",
+      "sha256": "aba4786e0ed29d8a707de5fee5b1a7072e921884b97c04583a723dd9daeace65",
+      "bytes": 1859637,
+      "readbackVerified": true
+    }
+  ]
+}

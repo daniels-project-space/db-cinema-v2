@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict');
+const h=require('./lib/rentalTestHarness.cjs');
+const {rentalRequestDetail:detail}=h.load('src/lib/rentalRequestDraft.ts');
+const d={kind:'dates',note:'Different shoot dates',start:'2030-01-08',end:'2030-01-09',pickup:'17:00',dropoff:'18:00'};
+assert.match(detail(d),/2030-01-08 at 17:00.*2030-01-09 at 18:00.*London/);
+for(const patch of [{start:'2030-02-30'},{start:'9999-99-99'},{end:'2030-01-07'},{pickup:'23:00'},{end:'2030-01-08',dropoff:'16:00'}])assert.throws(()=>detail({...d,...patch}));
+assert.match(detail({kind:'items',note:'Needed for camera coverage',change:'swap',item:'Sony FX3',addition:'Sony FX30',qty:1,currentQty:2}),/Swap 1× Sony FX3 for 1× Sony FX30/);
+assert.throws(()=>detail({kind:'items',note:'Remove the camera',change:'remove',item:'Sony FX3',qty:3,currentQty:2}));
+assert.throws(()=>detail({...d,note:'x'.repeat(1000)}));
+const req=h.load('convex/rentalRequests.ts'),a=h.put('accounts',{email:'a@example.invalid'}),other=h.put('accounts',{email:'other@example.invalid'});
+h.put('sessions',{token:'owned',accountId:a._id,expiresAt:Date.now()+60000});h.put('sessions',{token:'foreign',accountId:other._id,expiresAt:Date.now()+60000});
+const listing=h.put('listings',{title:'Real Sony FX3',r2Images:['https://images.example.invalid/fx3.jpg'],sourceImages:['https://images.example.invalid/backup.jpg','javascript:bad']});
+const b=h.put('bookings',{accountId:a._id,guestEmail:'old@example.invalid',status:'confirmed',pickupTime:'17:00',returnTime:'18:00',lineItems:[{listingId:listing._id,title:listing.title,qty:2,start:Date.UTC(2030,0,8),end:Date.UTC(2030,0,9),returnTime:null}],stripePaymentIntentId:'private-do-not-project'});
+(async()=>{const ctx={db:h.db};const c=await req.context.handler(ctx,{token:'owned',bookingId:b._id});assert.equal(c.lineItems[0].heroImage,listing.r2Images[0]);assert.equal(c.lineItems[0].pickupTime,'17:00');assert.equal(c.lineItems[0].returnTime,null);assert.equal(c.lineItems[0].imageSources.length,2);assert(!JSON.stringify(c).includes('private-do-not-project'));await assert.rejects(req.context.handler(ctx,{token:'foreign',bookingId:b._id}),/not available/);console.log('PASS renter draft validation and owned real-image/times projection');})().catch(e=>{console.error(e);process.exit(1)});
