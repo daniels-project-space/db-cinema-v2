@@ -811,7 +811,7 @@ export default defineSchema({
   }).index("by_request", ["changeRequestId"]).index("by_booking_state", ["bookingId", "state"]),
 
   rental_additions:defineTable({
-    bookingId:v.id("bookings"),requestId:v.string(),changeRequestId:v.optional(v.id("rental_change_requests")),listingId:v.id("listings"),title:v.string(),
+    bookingId:v.id("bookings"),requestId:v.string(),changeRequestId:v.optional(v.id("rental_change_requests")),reviewQuote:v.optional(v.string()),listingId:v.id("listings"),title:v.string(),
     swapProposalId:v.optional(v.id("rental_swap_proposals")),
     start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number(),
     complimentary:v.optional(v.boolean()),draftReplacement:v.optional(v.boolean()),baseTotal:v.optional(v.number()),baseSecurity:v.optional(v.number()),baseSessionId:v.optional(v.string()),

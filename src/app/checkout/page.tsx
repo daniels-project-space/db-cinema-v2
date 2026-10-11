@@ -454,9 +454,10 @@ export default function CheckoutPage() {
               <div className="mb-4 space-y-3">{items.map(item=><CartItemTimes key={item.key} item={item} defaultPickupTime={pickupTime} defaultReturnTime={returnTime} ready={stock.ready} delivery={fulfilment==="delivery"}/>)}</div>
               {availabilityBlocked && <p className="mt-4 text-sm text-amber-200">Item-specific times apply on each item’s pickup and return dates. Choose a valid rental period; your saved choices are kept.</p>}
               {!allItemTimes&&<><p className="mb-2 text-xs text-white/55">Default times apply only to items without their own collection times.</p>              <div className="mt-4 flex gap-3">
-                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.pickupBoundarySlots??defaultSlots?.pickupSlots}/>
-                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.returnBoundarySlots??defaultSlots?.returnSlots}/>
+                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={!stock.ready||!defaultSlots?.precision} allowedSlots={defaultSlots?.precision?(defaultSlots.pickupBoundarySlots??defaultSlots.pickupSlots):undefined}/>
+                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={!stock.ready||!defaultSlots?.precision} allowedSlots={defaultSlots?.precision?(defaultSlots.returnBoundarySlots??defaultSlots.returnSlots):undefined}/>
               </div></>}
+              {!allItemTimes&&!defaultSlots?.precision&&<p className="mt-3 text-xs text-slate-300" role="status">{defaultSlots?"Refreshing live stock before showing time choices…":"Checking live stock before showing time choices…"}</p>}
             </StepCard>
 
             {/* 03 — protection */}

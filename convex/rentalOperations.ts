@@ -8,6 +8,7 @@ import {rescheduledLines} from "../shared/rentalReschedule";
 import {stockWindow} from "./lib/stockWindows";
 import {schedulePickupHold} from "./pickupSecurity";
 import {bookingStockLines,rentalWindow} from "../shared/rentalWindow";
+import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { accountForRental } from "./lib/rentalAccount";
 import { listingImages } from "./lib/catalogImages";
@@ -67,6 +68,7 @@ export const details = query({
         return { ...line, heroImage: imageSources[0] ?? null, imageSources };
       })),
       rentalRefunds: refunds,
+      controlsSnapshot: rentalControlsSnapshot(b, refunds),
       cancellationKind: bookingCancelKind(b, Date.now()),
     };
   },
@@ -95,6 +97,58 @@ export const reschedulePreview = query({
   }catch(e:any){return {available:false,reason:e.message??"Unable to check these dates."};}
  }
 });
+/** Read-only date review for the admin quick-reply flow. The mutation below
+ * repeats these checks and binds the displayed quote to the same rental snapshot. */
+export const previewReschedule = query({
+  args: {
+    token: v.string(),
+    bookingId: v.id("bookings"),
+    start: v.number(),
+    end: v.optional(v.number()),
+    keepAgreedPrice: v.optional(v.boolean()),
+    reason: v.string(),
+  },
+  handler: async (ctx, { token, bookingId, start, end, keepAgreedPrice, reason }) => {
+    if (!checkAdminToken(token)) throw Error("Unauthorized");
+    const b = await ctx.db.get(bookingId);
+    try {
+      if (!b || b.status !== "confirmed")
+        throw Error("Only an upcoming rental can be rescheduled");
+      if (
+        b.cancellationDecision || b.activeSwapRefundId || b.activeAdditionId ||
+        b.activeExtensionId || b.returnDecision
+      ) throw Error("Finish the open rental operation first");
+      if (reason.trim().length < 5) throw Error("Record the reason for the change");
+      const refunds = await ctx.db.query("rental_refunds")
+        .withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
+      if (refunds.some(r => ["prepared", "pending"].includes(r.status)))
+        throw Error("Wait for the open refund to settle first.");
+      const reservations = await ctx.db.query("reservations")
+        .withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
+      if (reservations.some(r => r.source !== "site" || r.status === "hold"))
+        throw Error("Resolve stock holds or manage this rental through its original platform.");
+      await assertRentalAllocation(ctx, b, reservations);
+      const { lines, endShift } = rescheduledLines(b, start, end);
+      if (endShift !== 0 && keepAgreedPrice !== true)
+        throw Error("Confirm that the changed duration keeps the agreed charges; extra days are complimentary.");
+      await assertRenterExposure(ctx, b, lines);
+      await assertRentalInventory(ctx, lines, bookingId);
+      return {
+        ok: true,
+        controlsSnapshot: rentalControlsSnapshot(b, refunds),
+        start,
+        end: end ?? Math.max(...lines.map(line => line.end)),
+        total: b.total,
+        depositHoldAmount: b.depositHoldAmount ?? 0,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof Error ? error.message : "The date change could not be checked.",
+      };
+    }
+  },
+});
 export const reschedule = mutation({
   args: {
     token: v.string(),
@@ -104,9 +158,10 @@ export const reschedule = mutation({
     keepAgreedPrice: v.optional(v.boolean()),
     pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
     reason: v.string(),
+    expectedSnapshot: v.optional(v.string()),
     changeRequestId: v.optional(v.id("rental_change_requests")),
   },
-  handler: async (ctx, { token, bookingId, start, end, pickupTime, returnTime, keepAgreedPrice, reason, changeRequestId }) => {
+  handler: async (ctx, { token, bookingId, start, end, pickupTime, returnTime, keepAgreedPrice, reason, expectedSnapshot, changeRequestId }) => {
     await assertAdmin(ctx, token, "rentalOperations.reschedule");
     const b = await ctx.db.get(bookingId);
     const operationKey = rescheduleRequestKey(start, end, keepAgreedPrice, reason, pickupTime, returnTime);
@@ -118,6 +173,8 @@ export const reschedule = mutation({
     if (b.cancellationDecision || (b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId) || b.returnDecision)
       throw Error("Finish the open cancellation, item addition or approved extension first");
     const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", bookingId)).collect();
+    if (expectedSnapshot && expectedSnapshot !== rentalControlsSnapshot(b, refunds))
+      throw Error("The rental changed. Refresh and review the dates again.");
     if (refunds.some(r => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
     if (reason.trim().length < 5)
       throw Error("Record the reason for the change");
@@ -176,6 +233,7 @@ export const reschedule = mutation({
 export const removeItem = mutation({
   args: { token: v.string(), bookingId: v.id("bookings"), requestId: v.string(),
     changeRequestId:v.optional(v.id("rental_change_requests")),removeQty:v.optional(v.number()),keepAgreedCharges:v.optional(v.boolean()),
+    expectedSnapshot: v.optional(v.string()),
     lineIndex: v.number(), listingId: v.id("listings"), expectedQty: v.number(), expectedStart: v.number(), expectedEnd: v.number(), reason: v.string() },
   handler: async (ctx, args) => {
     await assertAdmin(ctx, args.token, "rentalOperations.removeItem");
@@ -198,6 +256,8 @@ export const removeItem = mutation({
     if (b.status !== "confirmed") throw Error("Only an unstarted confirmed rental can have kit removed.");
     if (b.cancellationDecision || (b.activeSwapRefundId || b.activeAdditionId || b.activeExtensionId) || b.returnDecision) throw Error("Finish the open rental operation first.");
     const refunds = await ctx.db.query("rental_refunds").withIndex("by_booking", q => q.eq("bookingId", b._id)).collect();
+    if (args.expectedSnapshot && args.expectedSnapshot !== rentalControlsSnapshot(b, refunds))
+      throw Error("The rental changed. Review the removal again.");
     if (refunds.some(r => ["prepared", "pending"].includes(r.status))) throw Error("Wait for the open refund to settle first.");
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId) || args.reason.trim().length < 5 || args.reason.trim().length > 400) throw Error("Record a valid removal request and reason.");
     if (!Number.isSafeInteger(args.lineIndex) || args.lineIndex < 0) throw Error("Invalid item.");
@@ -543,5 +603,26 @@ export const recordRefundPart = internalMutation({
         detail: `£${(r.amountPence / 100).toFixed(2)} · ${aggregate}. ${r.reason}`,
       });
     }
+  },
+});
+
+/** Bounded live catalog for the admin equipment picker. */
+export const equipmentCatalog = query({
+  args: { token: v.string(), search: v.optional(v.string()) },
+  handler: async (ctx, { token, search }) => {
+    if (!checkAdminToken(token)) throw Error("unauthorized");
+    const term = (search ?? "").trim().toLowerCase();
+    if (term.length > 120) throw Error("Search is too long.");
+    const rows = await ctx.db
+      .query("listings")
+      .withIndex("by_active", q => q.eq("active", true))
+      .take(501);
+    if (rows.length > 500)
+      throw Error("The equipment catalog needs a paginated review.");
+    return rows
+      .filter(l => !l.suppressed && !l.marketingOnly && l.components.length && l.title.toLowerCase().includes(term))
+      .sort((a, b) => a.title.localeCompare(b.title))
+      .slice(0, 24)
+      .map(l => ({ listingId: l._id, title: l.title, imageSources: listingImages(l), daily: l.pricing.daily }));
   },
 });

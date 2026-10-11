@@ -26,11 +26,12 @@ export function CartItemTimes({item,defaultPickupTime,defaultReturnTime,ready,de
   <p className="text-sm font-medium text-white/90">{item.title}</p>
   <p className="mt-1 text-xs text-white/50">{item.start} → {item.end}</p>
   <div className="mt-3 grid grid-cols-2 gap-3">
-   <TimeSlotPicker id={`${id}-pickup`} label={`${delivery?"Delivery":"Pickup"} · ${dateLabel(item.start)}`} value={pickupTime} onChange={choosePickup} disabled={!ready||!slots} allowedSlots={slots?.pickupBoundarySlots??slots?.pickupSlots}/>
-   <TimeSlotPicker id={`${id}-return`} label={`${delivery?"Collection":"Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time=>choose(pickupTime,time)} disabled={!ready||!slots} allowedSlots={slots?.returnBoundarySlots??slots?.returnSlots}/>
+   <TimeSlotPicker id={`${id}-pickup`} label={`${delivery?"Delivery":"Pickup"} · ${dateLabel(item.start)}`} value={pickupTime} onChange={choosePickup} disabled={!ready||!slots?.precision} allowedSlots={slots?.precision?(slots.pickupBoundarySlots??slots.pickupSlots):undefined}/>
+   <TimeSlotPicker id={`${id}-return`} label={`${delivery?"Collection":"Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time=>choose(pickupTime,time)} disabled={!ready||!slots?.precision} allowedSlots={slots?.precision?(slots.returnBoundarySlots??slots.returnSlots):undefined}/>
   </div>
   {invalidOrder&&<p role="alert" className="mt-2 text-xs text-amber-200">Return must be later than pickup on the same day. Choose a later return time or change the return date in your basket.</p>}
-  {slots&&!slots.available&&!invalidOrder&&<p className="mt-2 text-xs text-amber-200">The equipment is unavailable for this full rental period. Adjust the pickup or return time, or choose different dates or a replacement in your basket.</p>}
+  {slots&&!slots.precision&&<p role="status" className="mt-2 text-xs text-slate-300">Refreshing live stock before showing time choices…</p>}
+  {slots?.precision&&!slots.available&&!invalidOrder&&<p className="mt-2 text-xs text-amber-200">The equipment is unavailable for this full rental period. Adjust the pickup or return time, or choose different dates or a replacement in your basket.</p>}
   {error&&<p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
  </div>;
 }

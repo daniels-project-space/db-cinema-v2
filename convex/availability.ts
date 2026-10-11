@@ -318,16 +318,16 @@ export const forTimeSlots=query({
 export const forCheckoutTimeSlots=query({
  args:{items:v.array(stockRequest),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string())},
  handler:async(ctx,{items,pickupTime,returnTime})=>{
-  const empty={pickupSlots:[] as string[],returnSlots:[] as string[],pickupBoundarySlots:[] as string[],returnBoundarySlots:[] as string[],validPairs:[] as Array<{pickupTime:string;returnTime:string}>};
-  if(!items.length)return empty;
+  const empty=(precision=false)=>({precision,pickupSlots:[] as string[],returnSlots:[] as string[],pickupBoundarySlots:[] as string[],returnBoundarySlots:[] as string[],validPairs:[] as Array<{pickupTime:string;returnTime:string}>});
+  if(!items.length)return empty();
   if(items.length>100)throw Error("Invalid basket time request");
   const precision=await stockTimePrecision(ctx),records=new Map<string,any>(),requirements=new Map<string,number>();
   const full=items.map(i=>stockWindow({start:i.start,end:i.end},false)),lo=Math.min(...full.map(w=>w.start)),hi=Math.max(...full.map(w=>w.end));
   for(const i of items){
    if(!Number.isSafeInteger(i.qty??1)||(i.qty??1)<1||(i.qty??1)>100)throw Error("Invalid cart quantity");
    const l=records.get(String(i.listingId))??await ctx.db.get(i.listingId);records.set(String(i.listingId),l);
-   if(!l||rentalUnavailable(l)||!l.components.length||dayRange(i.start,i.end).some(d=>blockedSet(l.unavailableDates??[]).has(d)))return empty;
-   for(const c of l.components){if(!Number.isSafeInteger(c.qty)||c.qty<1)return empty;requirements.set(String(c.inventoryUnitId),0);}
+   if(!l||rentalUnavailable(l)||!l.components.length||dayRange(i.start,i.end).some(d=>blockedSet(l.unavailableDates??[]).has(d)))return empty(precision);
+   for(const c of l.components){if(!Number.isSafeInteger(c.qty)||c.qty<1)return empty(precision);requirements.set(String(c.inventoryUnitId),0);}
   }
   const pools=new Map<string,{owned:number;occupied:Iv[]}>();
   for(const uid of requirements.keys())pools.set(uid,{owned:inventoryCapacity(await ctx.db.get(uid as any) as any)??0,occupied:await unitReservations(ctx,uid,lo,hi)});
@@ -358,6 +358,6 @@ export const forCheckoutTimeSlots=query({
   const pickupBoundary=new Set<string>(),returnBoundary=new Set<string>();
   for(const first of RENTAL_TIME_SLOTS)if(returnTime?fits(first,returnTime,"pickup"):RENTAL_TIME_SLOTS.some(last=>fits(first,last,"pickup")))pickupBoundary.add(first);
   for(const last of RENTAL_TIME_SLOTS)if(pickupTime?fits(pickupTime,last,"return"):RENTAL_TIME_SLOTS.some(first=>fits(first,last,"return")))returnBoundary.add(last);
-  return {pickupSlots:[...(pickups.size?pickups:allPickup)],returnSlots:[...(returns.size?returns:allReturn)],pickupBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>pickupBoundary.has(t)),returnBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>returnBoundary.has(t)),validPairs};
+  return {precision,pickupSlots:[...(pickups.size?pickups:allPickup)],returnSlots:[...(returns.size?returns:allReturn)],pickupBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>pickupBoundary.has(t)),returnBoundarySlots:RENTAL_TIME_SLOTS.filter(t=>returnBoundary.has(t)),validPairs};
  },
 });
