@@ -1,4 +1,5 @@
 "use client";
+import { SmartImage } from "@/components/SmartImage";
 import { useState } from "react";
 import Link from "next/link";
 import { useConvex, useQuery } from "convex/react";
@@ -27,7 +28,7 @@ export function CartReplacements({ item }: { item: CartItem }) {
     <p className="text-sm font-medium text-white/85">Available alternatives for your dates</p>
     <p className="mt-1 text-xs text-white/50">{item.start}{item.pickupTime?` at ${item.pickupTime}`:""} → {item.end}{item.returnTime?` at ${item.returnTime}`:""} · {item.days}d · dates stay selected</p>
     {choices === undefined ? <p role="status" className="mt-3 text-sm text-white/50">Checking alternatives…</p> : choices.length === 0 ? <p className="mt-3 text-sm text-white/60">No suitable replacement is available for this period. Change dates or remove this item.</p> : <div className="mt-3 flex flex-col gap-3">{choices.slice(0, visible).map((choice, index) => <div key={choice.listingId} data-testid="replacement-card" className="grid grid-cols-[56px_minmax(0,1fr)] gap-3 rounded-xl border border-white/10 bg-charcoal-900 p-3 sm:grid-cols-[64px_minmax(0,1fr)_auto]">
-      <Link href={`/gear/${choice.slug}`} className="h-14 w-14 overflow-hidden rounded-lg bg-charcoal-800 sm:h-16 sm:w-16">{choice.heroImage && <img src={choice.heroImage} alt={choice.title} className="h-full w-full object-cover" />}</Link>
+      <Link href={`/gear/${choice.slug}`} className="h-14 w-14 overflow-hidden rounded-lg bg-charcoal-800 sm:h-16 sm:w-16"><SmartImage fit="contain" src={choice.heroImage} fallbackSources={choice.imageSources} alt={choice.title} className="h-full w-full" /></Link>
       <div className="min-w-0"><p className="text-[11px] text-accent-300">{index === 0 ? "Closest available match" : "Another available option"}</p><Link href={`/gear/${choice.slug}`} className="mt-1 block text-sm text-white/90">{choice.title}</Link><p className="mt-1 text-xs text-emerald-300">Available · {formatGbp(choice.total)} for {choice.days} days</p></div>
       <button type="button" disabled={busy} onClick={() => switchTo(choice.listingId)} className="btn-primary col-span-2 px-4 py-2 text-sm disabled:opacity-50 sm:col-span-1 sm:self-center" aria-label={`Switch ${item.title} to ${choice.title}`}>Switch to this</button>
     </div>)}</div>}

@@ -1,4 +1,5 @@
 "use client";
+import { SmartImage } from "@/components/SmartImage";
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { IconSliders, IconBolt, IconCheck, IconX, IconChevronLeft, IconArrowRight } from "@/components/icons";
@@ -393,7 +394,7 @@ export default function AssemblePage() {
                             {adapter && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Adapter</span>}
                             {on && <span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white"><IconCheck className="h-3 w-3" /></span>}
                             <div className="aspect-[4/3] bg-charcoal-800">
-                              {o.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={o.image} alt="" className="h-full w-full object-cover" />}
+                              <SmartImage fit="contain" src={o.image} fallbackSources={o.imageSources} alt={o.title} className="h-full w-full" />
                             </div>
                             <div className="p-2">
                               <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
@@ -435,7 +436,7 @@ export default function AssemblePage() {
                   {selList.length === 0 && <div className="text-sm text-white/40">Nothing selected yet — scroll up and pick some gear.</div>}
                   {selList.map((c) => (
                     <div key={c.listingId} className="flex items-center gap-3 rounded-xl glass p-2">
-                      {c.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={c.image} alt="" className="h-12 w-12 rounded object-cover" />}
+                      <SmartImage fit="contain" src={c.image} fallbackSources={c.imageSources} alt={c.title} className="h-12 w-12 shrink-0 rounded" />
                       <div className="min-w-0 flex-1"><div className="truncate text-sm text-white/85">{c.title}</div><div className="text-[11px] text-white/40">£{c.total} · {c.stageKey}</div></div>
                       <button onClick={() => setSel((p) => { const n = { ...p }; delete n[c.listingId]; return n; })} className="rounded-full px-3 py-1 text-xs text-white/35 hover:text-red-300">remove</button>
                     </div>
@@ -471,7 +472,7 @@ export default function AssemblePage() {
               <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
                 {selList.map((c) => (
                   <div key={c.listingId} className="flex shrink-0 items-center gap-2 rounded-full bg-white/[0.06] py-1 pl-1 pr-2 ring-1 ring-emerald-400/20">
-                    {c.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={c.image} alt="" className="h-7 w-7 rounded-full object-cover" />}
+                    <SmartImage fit="contain" src={c.image} fallbackSources={c.imageSources} alt={c.title} className="h-7 w-7 shrink-0 rounded-full" />
                     <span className="max-w-[130px] truncate text-xs text-white/75">{c.title}</span>
                     <button
                       onClick={() => setSel((p) => { const n = { ...p }; delete n[c.listingId]; return n; })}

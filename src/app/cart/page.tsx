@@ -1,4 +1,5 @@
 "use client";
+import { SmartImage } from "@/components/SmartImage";
 
 import Link from "next/link";
 import { useCheckoutStatus, CheckoutPauseNotice } from "@/components/cart/CheckoutStatus";
@@ -95,14 +96,7 @@ export default function CartPage() {
                         href={`/gear/${it.slug}`}
                         className="block h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-charcoal-800 sm:h-20 sm:w-20"
                       >
-                        {it.heroImage ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={it.heroImage}
-                            alt={it.title}
-                            className={`h-full w-full object-cover transition-transform duration-500 hover:scale-105 ${dim ? "grayscale" : ""}`}
-                          />
-                        ) : null}
+                        <SmartImage fit="contain" src={it.heroImage} fallbackSources={it.imageSources} alt={it.title} className="h-full w-full" imgClassName={dim ? "grayscale" : ""} />
                       </Link>
                       <div className="min-w-0 flex-1">
                         <Link

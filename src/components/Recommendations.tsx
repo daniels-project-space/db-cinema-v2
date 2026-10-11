@@ -1,4 +1,5 @@
 "use client";
+import { SmartImage } from "@/components/SmartImage";
 
 import { useState } from "react";
 import { useQuery } from "convex/react";
@@ -94,10 +95,7 @@ export function Recommendations({
                 {on ? <IconCheck className="h-3 w-3" /> : <IconPlus className="h-3 w-3" />}
               </span>
               <div className="aspect-[4/3] overflow-hidden bg-charcoal-800">
-                {r.heroImage ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={r.heroImage} alt={r.title} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                ) : null}
+                <SmartImage fit="contain" src={r.heroImage} fallbackSources={r.imageSources} alt={r.title} className="h-full w-full" />
               </div>
               <div className="flex flex-1 flex-col gap-1 p-3">
                 <span className="hud-label !text-accent-400/90">

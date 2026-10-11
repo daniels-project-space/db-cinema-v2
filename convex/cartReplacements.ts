@@ -39,11 +39,11 @@ export const sets = query({
         const score = (l: any) => (redirect?.alternative.test(l.title) ? 100 : 0) + (l.specs?.mount && l.specs.mount === original.specs?.mount ? 20 : 0) - Math.abs(l.pricing.daily - original.pricing.daily) / Math.max(1, original.pricing.daily);
         return score(b) - score(a) || String(a._id).localeCompare(String(b._id));
       });
-    const options: { id: string; total: number; items: { listingId: string; slug: string; title: string; heroImage: string | null; days: number; perDay: number; total: number; deposit: number }[] }[] = [];
+    const options: { id: string; total: number; items: { listingId: string; slug: string; title: string; heroImage: string | null; imageSources: string[]; days: number; perDay: number; total: number; deposit: number }[] }[] = [];
     const describe = (l: typeof original) => {
       const price = quote(l.pricing, days);
       const total = l.quietDeal ? Math.round(price.total * (1 - l.quietDeal / 100)) : price.total;
-      return { listingId: String(l._id), slug: l.slug, title: l.title, heroImage: listingImages(l)[0] ?? null, days, perDay: Math.round(total / days * 100) / 100, total, deposit: l.depositAmount };
+      return { listingId: String(l._id), slug: l.slug, title: l.title, heroImage: listingImages(l)[0] ?? null, imageSources: listingImages(l), days, perDay: Math.round(total / days * 100) / 100, total, deposit: l.depositAmount };
     };
     const availability = new Map<string, boolean>();
     async function available(trial: typeof candidates) {
@@ -98,7 +98,7 @@ export const forCart = query({
     limit = Math.max(2, Math.min(100, Math.floor(limit)));
     if (items.length > 100) throw Error("Basket is too large");
     const originals = await Promise.all(items.map(i => ctx.db.get(i.listingId)));
-    const result: Record<string, { listingId: string; slug: string; title: string; heroImage: string | null; days: number; perDay: number; total: number; deposit: number }[]> = {};
+    const result: Record<string, { listingId: string; slug: string; title: string; heroImage: string | null; imageSources: string[]; days: number; perDay: number; total: number; deposit: number }[]> = {};
     const categories = new Map<string, any[]>();
     for (let index = 0; index < items.length; index++) {
       const source = originals[index], line = items[index];
@@ -142,7 +142,7 @@ export const forCart = query({
         } catch { continue; }
         const price = quote(candidate.pricing, days);
         const total = candidate.quietDeal ? Math.round(price.total * (1-candidate.quietDeal/100)) : price.total;
-        result[line.key].push({ listingId: candidate._id, slug: candidate.slug, title: candidate.title, heroImage: listingImages(candidate)[0] ?? null, days, perDay: Math.round(total/days*100)/100, total, deposit: candidate.depositAmount });
+        result[line.key].push({ listingId: candidate._id, slug: candidate.slug, title: candidate.title, heroImage: listingImages(candidate)[0] ?? null, imageSources: listingImages(candidate), days, perDay: Math.round(total/days*100)/100, total, deposit: candidate.depositAmount });
         seen.add(signature);
         if (result[line.key].length >= limit) break;
       }

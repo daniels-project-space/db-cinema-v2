@@ -52,6 +52,7 @@ export async function kitDetails(ctx: any, lines: any[]) {
         title: l?.title ?? "Unavailable item",
         slug: l?.slug ?? "",
         heroImage: l ? (listingImages(l)[0] ?? null) : null,
+        imageSources: listingImages(l),
       };
     }),
   );

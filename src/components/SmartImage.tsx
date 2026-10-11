@@ -10,10 +10,13 @@ export function SmartImage({ src, fallbackSources = [], alt = "", className = ""
 function ImageSources({ sources, alt, className, imgClassName, fit }: { sources: string[]; alt: string; className: string; imgClassName: string; fit?: "contain" | "cover" }) {
   const ref = useRef<HTMLImageElement>(null);
   const [index, setIndex] = useState(0);
-  const [loaded, setLoaded] = useState(false);
+  const [loadedIndex, setLoadedIndex] = useState<number | null>(null);
+  const advance = () => setIndex(current => current === index ? current + 1 : current);
   useEffect(() => {
     const image = ref.current;
-    if (image?.complete && image.naturalWidth > 0) setLoaded(true);
+    if (!image?.complete) return;
+    if (image.naturalWidth > 0) setLoadedIndex(index);
+    else setIndex(current => current === index ? current + 1 : current);
   }, [index]);
   const src = sources[index];
   return <div className={`relative overflow-hidden bg-charcoal-800 ${className}`}>
@@ -22,9 +25,9 @@ function ImageSources({ sources, alt, className, imgClassName, fit }: { sources:
       <span className="text-[10px]">Photo unavailable</span>
     </div> : (
       // eslint-disable-next-line @next/next/no-img-element
-      <img key={src} ref={ref} src={src} alt={alt} loading="lazy" style={fit ? { objectFit: fit } : undefined} onLoad={() => setLoaded(true)}
-        onError={() => { setLoaded(false); setIndex((current) => current + 1); }}
-        className={`smart-img ${loaded ? "loaded" : ""} absolute inset-0 h-full w-full object-cover ${imgClassName}`} />
+      <img key={src} ref={ref} src={src} alt={alt} loading="lazy" style={fit ? { objectFit: fit } : undefined} onLoad={() => setLoadedIndex(index)}
+        onError={advance}
+        className={`smart-img ${loadedIndex === index ? "loaded" : ""} absolute inset-0 h-full w-full object-cover ${imgClassName}`} />
     )}
   </div>;
 }

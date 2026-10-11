@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
       const q: any = quote(cand.pricing, days);
       const diffPerDay = replaced?.perDay ? Math.max(0, q.perDay - replaced.perDay) : q.perDay;
       upgrades.push({
-        listingId: cand._id, slug: cand.slug, title: cand.title, image: cand.heroImage ?? null,
+        listingId: cand._id, slug: cand.slug, title: cand.title, image: cand.heroImage ?? null, imageSources: cand.imageSources,
         start: items[0].start, end: items[0].end, days, perDay: q.perDay, total: q.total, deposit: cand.depositAmount ?? 0,
         replaceListingId: replaced?.listingId ?? null,
         replaceTitle: replaced?.title ?? null,

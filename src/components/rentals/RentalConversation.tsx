@@ -230,7 +230,7 @@ export function RentalConversation({
       {bookingId && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin}/>}
       <div className={`management-conversation-main ${styles.main}`}>
       <div className={styles.bookingStrip}>
-        {bookingSummary?.image && <SmartImage src={bookingSummary.image} fallbackSources={bookingSummary.imageSources} alt={title} className={styles.kitImage} />}
+        {bookingSummary?.image && <SmartImage fit="contain" src={bookingSummary.image} fallbackSources={bookingSummary.imageSources} alt={title} className={styles.kitImage} />}
         <div><h4>{title}</h4><p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
         <span className={styles.stage}>{stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage}</span>
       </div>

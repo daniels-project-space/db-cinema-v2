@@ -9,7 +9,7 @@ import {
   useCallback,
   ReactNode,
 } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { dayMs, daysInclusive } from "@/lib/dates";
@@ -26,6 +26,7 @@ export type CartItem = {
   slug: string;
   title: string;
   heroImage: string | null;
+  imageSources?: string[];
   start: string;
   end: string;
   pickupTime?: string;
@@ -75,6 +76,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
     null,
   );
   const [items, setItems] = useState<CartItem[]>([]);
+  const listingIds = [...new Set(items.map(item => item.listingId))].filter(id => typeof id === "string" && /^[a-z0-9]{32}$/.test(id)).sort().slice(0, 100);
+  const listings = useQuery(api.catalog.listingsByIds, listingIds.length ? { ids: listingIds as any } : "skip");
+  const media = new Map<string, string[]>((listings ?? []).map(listing => [listing._id, listing.imageSources ?? []]));
+  const displayedItems = items.map(item => {
+    const sources = media.get(item.listingId);
+    return sources?.length ? { ...item, heroImage: sources[0], imageSources: sources } : item;
+  });
   const latestItems = useRef(items);
   latestItems.current = items;
   const [promo, setPromoState] = useState<string | null>(null);
@@ -269,7 +277,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       value={{
         membership,
         setMembership,
-        items,
+        items: displayedItems,
         add,
         replace,
         updateDates,

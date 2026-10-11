@@ -1,13 +1,10 @@
+import { listingImages as images } from "./lib/catalogImages";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { COMPLEMENTS, type ItemType } from "./lib/taxonomy";
 import { bestCompat, parseMounts } from "./lib/mount";
 
-function images(l: any): string[] {
-  const r2 = l.r2Images ?? [];
-  if (r2.length) return r2;
-  return l.sourceImages ?? l.gallery ?? [];
-}
+
 const card = (l: any) => ({
   _id: l._id,
   slug: l.slug,
@@ -15,6 +12,7 @@ const card = (l: any) => ({
   category: l.category,
   itemType: l.itemType ?? "accessory",
   heroImage: images(l)[0] ?? null,
+  imageSources: images(l),
   pricing: l.pricing,
   depositAmount: l.depositAmount,
   minimumRentalDays: l.minimumRentalDays ?? 1,

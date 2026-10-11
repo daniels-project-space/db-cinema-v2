@@ -1,4 +1,5 @@
 "use client";
+import { SmartImage } from "@/components/SmartImage";
 import Link from "next/link";
 import {useQuery} from "convex/react";
 import {useRouter} from "next/navigation";
@@ -19,7 +20,7 @@ export function RecoveryBasket({recoveryId}:{recoveryId:string}){
   {!account.me?<p className="mt-6 text-white/60"><Link className="text-accent-300 underline" href="/account">Sign in</Link> with the account you used for this kit, then reopen this link.</p>:data===undefined?<p role="status" className="mt-6 text-white/60">Loading your basket…</p>:!data?<p role="status" className="mt-6 text-white/60">This saved basket is no longer available. <Link href="/cart" className="text-accent-300 underline">Open your current basket</Link>.</p>:<>
    <p className="mt-4 max-w-2xl text-sm text-white/55">Your dates, times and quantities are saved. Review current availability and replacement options in the basket before checkout.</p>
    <div className="mt-8 grid gap-4 sm:grid-cols-2">{data.lines.map((line,index)=>{const item=data.items[index],priced=data.cartLines[index];return <article key={`${line.listingId}-${index}`} className="flex gap-4 rounded-2xl border border-white/10 bg-white/[.025] p-4">
-    {item.heroImage?<img src={item.heroImage} alt={item.title} className="h-24 w-24 shrink-0 rounded-xl object-contain bg-white/[.035]"/>:null}
+    <SmartImage fit="contain" src={item.heroImage} fallbackSources={item.imageSources} alt={item.title} className="h-24 w-24 shrink-0 rounded-xl"/>
     <div className="min-w-0"><h2 className="text-sm font-medium text-white">{item.title} <span className="text-white/40">× {line.qty}</span></h2>
      <p className="mt-2 text-xs text-white/55">Pickup {date(line.start)}{line.pickupTime?` at ${line.pickupTime}`:""}</p>
      <p className="mt-1 text-xs text-white/55">Return {date(line.end)}{line.returnTime?` at ${line.returnTime}`:""}</p>

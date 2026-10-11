@@ -145,7 +145,7 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
       if (compat === "incompatible") compatReason = `${l.specs?.batteryType} won't power your ${camBattery} camera`;
     }
     out.push({
-      listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, category: l.category,
+      listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, imageSources: l.imageSources, category: l.category,
       start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
       role, mount, itemType: l.itemType ?? null,
       compat, compatReason,
