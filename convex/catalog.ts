@@ -46,6 +46,20 @@ export const repriceLines = internalQuery({
 
 const images = listingImages;
 
+/** Refresh only the public media for saved baskets; never trust an old image URL. */
+export const imagesForListings = query({
+  args: { listingIds: v.array(v.string()) },
+  handler: async (ctx, { listingIds }) => {
+    if (listingIds.length > 100) throw Error("Too many equipment images requested.");
+    const rows = await Promise.all([...new Set(listingIds)].map(async value => {
+      const id = ctx.db.normalizeId("listings", value);
+      const listing = id ? await ctx.db.get(id) : null;
+      return [value, listing ? images(listing) : []] as const;
+    }));
+    return Object.fromEntries(rows);
+  },
+});
+
 const card = (l: any) => ({
   _id: l._id,
   slug: l.slug,

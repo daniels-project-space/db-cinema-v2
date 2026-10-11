@@ -1,4 +1,5 @@
 "use client";
+import { SmartImage } from "@/components/SmartImage";
 
 import Link from "next/link";
 import { useCheckoutStatus, CheckoutPauseNotice } from "./CheckoutStatus";
@@ -78,14 +79,7 @@ export function CartDrawer() {
                   }
                 >
                   <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-charcoal-800">
-                    {it.heroImage ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={it.heroImage}
-                        alt={it.title}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : null}
+                    <SmartImage fit="contain" src={it.heroImage} fallbackSources={it.imageSources} alt={it.title} className="h-full w-full" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <Link

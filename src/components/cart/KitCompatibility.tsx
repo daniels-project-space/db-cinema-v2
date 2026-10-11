@@ -1,4 +1,5 @@
 "use client";
+import { SmartImage } from "@/components/SmartImage";
 
 import { useEffect, useState } from "react";
 import { useCart } from "@/components/cart/CartProvider";
@@ -64,7 +65,7 @@ export function KitCompatibility() {
               };
               return (
                 <div key={u.listingId} className="flex w-64 shrink-0 gap-3 rounded-xl border border-amber-400/30 bg-amber-500/[0.05] p-2">
-                  {u.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={u.image} alt="" className="h-14 w-14 rounded object-cover" />}
+                  <SmartImage fit="contain" src={u.image} fallbackSources={u.imageSources} alt={u.title} className="h-14 w-14 shrink-0 rounded" />
                   <div className="min-w-0 flex-1">
                     <div className="line-clamp-2 text-xs font-medium text-white/85">{u.title}</div>
                     <div className="text-[11px] font-medium text-amber-300">{isSwap ? `+£${u.diffPerDay}/day vs your lens` : `£${u.total} · ${u.days}d`}</div>

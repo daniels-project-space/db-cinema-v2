@@ -1,4 +1,5 @@
 "use client";
+import { SmartImage } from "@/components/SmartImage";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -590,12 +591,7 @@ function Tile({ item, tone }: { item: any; tone: "green" | "red" | "plain" }) {
   return (
     <div className={`flex items-center gap-2 rounded-lg border p-1.5 ${ring}`}>
       {item?.image ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={item.image}
-          alt=""
-          className={`h-10 w-10 rounded object-cover ${tone === "red" ? "opacity-60" : ""}`}
-        />
+        <SmartImage fit="contain" src={item.image} fallbackSources={item.imageSources} alt={item.title} className={`h-10 w-10 shrink-0 rounded ${tone === "red" ? "opacity-60" : ""}`} />
       ) : null}
       <div className="min-w-0">
         <div
@@ -651,12 +647,7 @@ function CardView({
               href={`/gear/${card.item.slug}`}
               className="block h-16 w-16 shrink-0 overflow-hidden rounded-lg"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={card.item.image}
-                alt={card.item.title}
-                className="h-full w-full object-cover transition-transform duration-500 hover:scale-110"
-              />
+              <SmartImage fit="contain" src={card.item.image} fallbackSources={card.item.imageSources} alt={card.item.title} className="h-full w-full" />
             </Link>
           )}
           <div className="min-w-0 flex-1">

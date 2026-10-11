@@ -114,7 +114,7 @@ export function RenterChat({
             className={`flex min-w-[230px] items-center gap-3 rounded-2xl p-3 text-left transition lg:min-w-0 ${focus?._id === r._id ? "border border-accent-400/25 bg-accent-500/[0.07]" : "border border-white/[0.05] hover:bg-white/[0.03]"}`}
           >
             <div className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-white/[0.04]">
-              <SmartImage
+              <SmartImage fit="contain"
                 src={r.items[0]?.heroImage}
                 fallbackSources={r.items[0]?.imageSources}
                 alt=""
