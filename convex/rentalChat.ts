@@ -1,3 +1,4 @@
+import { conversationReplyState } from "./lib/conversationReplyState";
 import { renterMessageTime } from "./lib/renterMessageTime";
 import {
   query,
@@ -251,6 +252,7 @@ export const messages = query({
     return {
       ...page,
       escalated: !!thread?.escalated,
+      replyState: admin ? await conversationReplyState(ctx, a._id, bookingId, !!thread?.escalated) : null,
       quickReplies: admin
         ? rentalReplyTemplates(
             bookingId ? await ctx.db.get(bookingId) : null,

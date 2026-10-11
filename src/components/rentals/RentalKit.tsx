@@ -7,7 +7,7 @@ import { formatGbp } from "@/lib/pricing";
 import { groupRentalKit, uniqueKitPhotos, type RentalKitItem } from "@/lib/rentalKit";
 
 /** Full image frames; quantity represents repeated items, never repeated pictures. */
-export function RentalKit({ items, compact = false, prices = false, showcase = false }: { items: RentalKitItem[]; compact?: boolean; prices?: boolean; showcase?: boolean }) {
+export function RentalKit({ items, compact = false, prices = false, showcase = false, expanded = false }: { items: RentalKitItem[]; compact?: boolean; prices?: boolean; showcase?: boolean; expanded?: boolean }) {
   const grouped = groupRentalKit(items);
   const units = grouped.reduce((n, item) => n + (item.qty ?? 1), 0);
   const photos = uniqueKitPhotos(grouped);
@@ -28,7 +28,7 @@ export function RentalKit({ items, compact = false, prices = false, showcase = f
         <p title={item.title} className="mt-1 line-clamp-2 text-[10px] leading-4 text-white/55">{rentalTitle(item.title)}{(item.qty ?? 1) > 1 ? ` ×${item.qty}` : ""}</p>
       </div>)}
     </div>}
-    <details className="group mt-3">
+    <details open={expanded || undefined} className="group mt-3">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs text-white/45 hover:text-white">
         <span>{units} {units === 1 ? "item" : "items"} in kit{photos.length > visible.length ? ` · +${photos.length - visible.length} more` : ""}</span><span className="group-open:hidden">View all ↗</span><span className="hidden group-open:inline">Close −</span>
       </summary>

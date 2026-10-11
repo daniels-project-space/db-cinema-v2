@@ -1,3 +1,4 @@
+import { checkoutDemand } from "../shared/checkoutDemand";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { listingImages } from "./lib/catalogImages";
@@ -29,7 +30,7 @@ export const track = mutation({
     const s = typeof sessionId === "string" ? sessionId.slice(0, 80) : undefined;
     const li = typeof listingId === "string" ? listingId.slice(0, 60) : undefined;
     const t = typeof title === "string" ? title.slice(0, 120) : undefined;
-    const q = typeof qty === "number" && qty > 0 ? Math.min(Math.round(qty), 99) : undefined;
+    const q = typeof qty === "number" && qty > 0 ? Math.min(Math.round(qty), 100) : undefined;
     await ctx.db.insert("events", { type, path: p, sessionId: s, listingId: li, title: t, qty: q, at: Date.now() });
   },
 });
@@ -233,6 +234,12 @@ export const insights = query({
     const sampled=await ctx.db.query("events").withIndex("by_at",q=>q.gte("at",since)).order("desc").take(20001);
     const partial=sampled.length>20000;
     const events=sampled.slice(0,20000).filter(e=>e.at<=now && !isExcludedAnalyticsEvent(e));
+    const demandJourney=checkoutDemand(events,now);
+    const replacementRows=await Promise.all(demandJourney.replacements.map(async row=>{
+      const id=row.replacementId?ctx.db.normalizeId("listings",row.replacementId):null;
+      const listing=id?await ctx.db.get(id):null;
+      return {...row,replacementTitle:listing?.title??"Listing no longer available"};
+    }));
     const series=Array.from({length:duration},(_,i)=>({date:new Date(since+i*DAYMS).toISOString().slice(0,10),visitors:0,adds:0}));
     const unique=new Set<string>(), daily=series.map(()=>new Set<string>());
     const items=new Map<string,{listingId:string|null,title:string,adds:number,units:number}>(),searches=new Map<string,number>(),misses=new Map<string,number>(),pages=new Map<string,Set<string>>();
@@ -260,6 +267,6 @@ export const insights = query({
     const accounts=await ctx.db.query("accounts").collect(), members=accounts.filter(membershipActiveNow), tiers=new Map<string,number>();
     for(const member of members)increment(tiers,membershipTierFor(member)??"Member");
     const sorted=(map:Map<string,number>)=>[...map].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
-    return {authorized:true as const,partial,pageViews,searchCount,purchases,tags:sorted(tags),terms:sorted(terms).slice(0,50),days:duration,since,now,uniqueVisitors:unique.size,cartAdds,gaffer,noResults:[...misses.values()].reduce((n,v)=>n+v,0),checkouts,interest,series,top,searches:sorted(searches).slice(0,20),misses:sorted(misses).slice(0,20),pages:sorted(new Map([...pages].map(([key,value])=>[key,value.size]))).slice(0,8),membership:{active:members.length,new:members.filter(a=>(a.membershipSubscriptionCreatedAt??a.createdAt)>=since&&(a.membershipSubscriptionCreatedAt??a.createdAt)<=now).length,scheduledCancellations:members.filter(a=>a.membershipCancelAtPeriodEnd).length,tiers:sorted(tiers)}};
+    return {authorized:true as const,journey:{...demandJourney,replacements:replacementRows},partial,pageViews,searchCount,purchases,tags:sorted(tags),terms:sorted(terms).slice(0,50),days:duration,since,now,uniqueVisitors:unique.size,cartAdds,gaffer,noResults:[...misses.values()].reduce((n,v)=>n+v,0),checkouts,interest,series,top,searches:sorted(searches).slice(0,20),misses:sorted(misses).slice(0,20),pages:sorted(new Map([...pages].map(([key,value])=>[key,value.size]))).slice(0,8),membership:{active:members.length,new:members.filter(a=>(a.membershipSubscriptionCreatedAt??a.createdAt)>=since&&(a.membershipSubscriptionCreatedAt??a.createdAt)<=now).length,scheduledCancellations:members.filter(a=>a.membershipCancelAtPeriodEnd).length,tiers:sorted(tiers)}};
   }
 });

@@ -7,7 +7,7 @@ const traffic = load('shared/analyticsTraffic.ts');
 process.env.ADMIN_TOKEN = 'fixture-owner';
 const analytics = load('convex/analytics.ts');
 const now = Date.now();
-const types = ['view', 'search', 'search_tag', 'search_no_results', 'add_to_cart', 'register_interest', 'gaffer_connected', 'checkout_start'];
+const types = ['view', 'search', 'search_tag', 'search_no_results', 'add_to_cart', 'register_interest', 'gaffer_connected', 'checkout_start', 'unavailable_request', 'replacement_selected', 'checkout_opened', 'checkout_form_ready', 'checkout_failure', 'payment_redirect'];
 
 function browser({ua='Mozilla/5.0 Chrome/140.0 Safari/537.36', webdriver=false, storage=true}={}) {
   const values = new Map();

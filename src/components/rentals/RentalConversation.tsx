@@ -102,6 +102,8 @@ export function RentalConversation({
     };
   }, [thread?.page[0]?._id, scopeKey]);
   const body = useRef<HTMLDivElement>(null);
+  const composerInput = useRef<HTMLTextAreaElement>(null);
+  const useReply = (value: string) => {setText(value);composerInput.current?.focus();};
   useEffect(() => {
     if (!openRevision || !thread) return;
     const frame = requestAnimationFrame(() => {
@@ -208,6 +210,7 @@ export function RentalConversation({
     ).values(),
   ].sort((a, b) => a.at - b.at);
   const teamHandling = thread?.escalated ?? escalated;
+  const replyState = thread && "replyState" in thread ? thread.replyState : null;
   return (
     <section
       ref={container}
@@ -227,17 +230,17 @@ export function RentalConversation({
           {admin ? teamHandling ? "Hand to Gaffer" : "Take over" : teamHandling ? "Team notified" : "Request a human"}
         </button>
       </header>
-      {bookingId && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin}/>}
       <div className={`management-conversation-main ${styles.main}`}>
       <div className={styles.bookingStrip}>
         {bookingSummary?.image && <SmartImage fit="contain" src={bookingSummary.image} fallbackSources={bookingSummary.imageSources} alt={title} className={styles.kitImage} />}
         <div><h4>{title}</h4><p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
         <span className={styles.stage}>{stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage}</span>
       </div>
+      {bookingId && (!admin || !tools) && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin}/>}
       {!admin && bookingId && (
         <RentalAdditionApproval token={token} bookingId={bookingId} />
       )}
-      {bookingId && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
+      {bookingId && (!admin || !tools) && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
       <div
         ref={body}
         className={`management-conversation-messages ${styles.messages}`}
@@ -316,13 +319,14 @@ export function RentalConversation({
         )}
       </div>
       <footer className={styles.composer}>
+        {admin && replyState && <p className={styles.replyStatus} data-waiting={replyState.awaitingTeam || replyState.awaitingReply} role="status">{replyState.awaitingTeam ? "Renter is waiting for the team" : replyState.awaitingReply ? "Renter is waiting for a reply" : "No unanswered renter message"}{(replyState.awaitingTeam || replyState.awaitingReply) && replyState.renterAt && <span>Since {new Date(replyState.renterAt).toLocaleString("en-GB", {timeZone:"Europe/London",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} · London time</span>}</p>}
         {admin && <div className="mb-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={suggest} disabled={drafting} className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-200 disabled:opacity-50"><GafferIcon className="h-4 w-4" />{drafting ? "Drafting…" : "Suggest replies"}</button>
-            {thread && "quickReplies" in thread && thread.quickReplies?.map((reply) => <button key={reply.label} type="button" onClick={() => setText(reply.text)} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60">{reply.label}</button>)}
+            {thread && "quickReplies" in thread && thread.quickReplies?.map((reply) => <button key={reply.label} type="button" onClick={() => useReply(reply.text)} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60">{reply.label}</button>)}
           </div>
           {drafts && drafts.messageId === (thread?.page[0]?._id ?? null) && <div className="flex snap-x gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible" aria-label="Suggested replies">
-            {drafts.drafts.map((draft, index) => <button key={index} type="button" onClick={() => setText(draft.text)} className="w-[85%] shrink-0 snap-start rounded-xl border border-emerald-300/15 bg-emerald-300/[0.04] p-3 text-left sm:w-auto">
+            {drafts.drafts.map((draft, index) => <button key={index} type="button" onClick={() => useReply(draft.text)} className="w-[85%] shrink-0 snap-start rounded-xl border border-emerald-300/15 bg-emerald-300/[0.04] p-3 text-left sm:w-auto">
               <span className="text-xs font-medium text-emerald-200">{draft.label}</span><p className="mt-1 line-clamp-4 text-xs leading-relaxed text-white/60">{draft.text}</p><span className="mt-2 block text-[10px] text-white/30">Use draft · review before sending</span>
             </button>)}
           </div>}
@@ -340,6 +344,7 @@ export function RentalConversation({
           className={styles.composeForm}
         >
           <textarea
+            ref={composerInput}
             aria-label="Message"
             value={text}
             maxLength={2000}
@@ -366,7 +371,7 @@ export function RentalConversation({
       </footer>
       </div>
       {tools && (
-        <aside aria-label={admin ? "Rental management controls" : "Your rental details"} className={`management-conversation-tools ${styles.tools}`}><div className={styles.toolsHeading}><p className={styles.eyebrow}>{admin ? "Operations" : "Your booking"}</p><h4>{admin ? "Booking details" : "Rental details"}</h4></div>{tools}</aside>
+        <aside aria-label={admin ? "Rental management controls" : "Your rental details"} className={`management-conversation-tools ${styles.tools}`}><div className={styles.toolsHeading}><p className={styles.eyebrow}>{admin ? "Operations" : "Your booking"}</p><h4>{admin ? "Booking details" : "Rental details"}</h4></div>{tools}{admin && bookingId && <><details className={styles.operationDetails}><summary>Verification progress</summary><RentalVerificationSummary bookingId={bookingId} token={token} admin /></details><details className={styles.operationDetails}><summary>Extension requests</summary><RentalExtensionPanel token={token} bookingId={bookingId} admin /></details></>}</aside>
       )}
     </section>
   );

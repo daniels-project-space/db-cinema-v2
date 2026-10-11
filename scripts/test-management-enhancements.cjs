@@ -1,0 +1,68 @@
+const assert=require('node:assert/strict');
+const {load,db,put}=require('./lib/rentalTestHarness.cjs');
+const {conversationReplyState}=load('convex/lib/conversationReplyState.ts');
+const {documentReadiness}=load('shared/documentReadiness.ts');
+const {checkoutDemand}=load('shared/checkoutDemand.ts');
+const {switchCartSet}=load('shared/cartReplacementSet.ts');
+const now=Date.now(),day=86400000;
+const replyDb={...db,query(table){const q=db.query(table);q.first=async()=> (await q.take(1))[0] ?? null;return q;}};
+(async()=>{
+ const account=put('accounts',{email:'fixture@example.invalid'}),foreign=put('accounts',{email:'foreign@example.invalid'}),booking=put('bookings',{status:'confirmed'});
+ const msg=(sender,at,accountId=account._id)=>put('messages',{accountId,bookingId:booking._id,sender,text:'fixture',at});
+ msg('owner',now-2000);msg('renter',now-1000);
+ for(let i=0;i<100;i++)msg('system',now+i);
+ msg('owner',now+500,foreign._id);
+ const first=await conversationReplyState({db:replyDb},account._id,booking._id,true);
+ assert.equal(first.awaitingReply,true);assert.equal(first.awaitingTeam,true);assert.equal(first.renterAt,now-1000,'System/foreign messages never hide the waiting renter');
+ await db.patch(put('rental_threads',{accountId:account._id,bookingId:booking._id,unreadOwner:1})._id,{unreadOwner:0});
+ assert.deepEqual(await conversationReplyState({db:replyDb},account._id,booking._id,true),first,'Reading does not resolve reply debt');
+ msg('bot',now);assert.equal((await conversationReplyState({db:replyDb},account._id,booking._id,true)).awaitingTeam,true,'Gaffer acknowledgement does not resolve requested team response');
+ msg('owner',now+1000);assert.equal((await conversationReplyState({db:replyDb},account._id,booking._id,true)).awaitingTeam,false);
+ assert.equal((await conversationReplyState({db:replyDb},account._id,undefined,false)).awaitingReply,false,'Rental messages do not leak into general support');
+
+ const archive={status:'complete',copiesReady:true,retention:{status:'expires',viewable:true,expiresAt:now+2*day},documents:[{kind:'identity-0-front_image',available:true},{kind:'address-0',available:true}]};
+ let state=documentReadiness([archive],true,now+3*day,now);assert.equal(state.ready,true);assert.equal(state.approval,'Approval expiring soon');assert.equal(state.daysLeft,2);
+ assert.equal(documentReadiness([archive],false,null,now).ready,false,'Stored documents do not imply verification approval');
+ assert.equal(documentReadiness([{...archive,copiesReady:false}],true,null,now).identitySaved,false);
+ assert.equal(documentReadiness([{...archive,documents:[archive.documents[0]]}],true,null,now).addressSaved,false);
+ assert.equal(documentReadiness([{...archive,retention:{...archive.retention,expiresAt:now}}],true,null,now).identitySaved,false,'Exact retention deadline hides saved copies');
+ assert.equal(documentReadiness([archive],true,now,now).approved,false,'Verification expiry is independent of retention');
+ assert.equal(documentReadiness([{...archive,retention:{status:'insurance-case',viewable:true,expiresAt:null}}],true,null,now).protectedArchive,true);
+ assert.equal(documentReadiness([{...archive,status:'deleted'}],true,null,now).ready,false);
+
+ const event=(type,sessionId,minutes,path,extra={})=>({type,sessionId,at:now-minutes*60000,path,...extra});
+ const events=[event('checkout_opened','details',60,'/checkout'),event('checkout_form_ready','details',40),event('checkout_opened','failed',80,'/checkout'),event('checkout_start','failed',70),event('checkout_failure','failed',69),event('checkout_opened','paid',60,'/checkout'),event('checkout_start','paid',59),event('payment_redirect','paid',58),event('checkout_opened','active',5,'/checkout'),event('unavailable_request','human',50,'/cart',{listingId:'camera',title:'Camera',qty:2}),event('replacement_selected','human',49,'replacement',{listingId:'camera',title:'Camera',qty:2}),event('unavailable_request','excluded:bot',40,'/cart',{listingId:'fake'}),event('checkout_opened','future',-20,'/checkout'),event('view','legacy',100,'/checkout'),event('checkout_start','legacy',90)];
+ let journey=checkoutDemand(events,now);assert.equal(journey.checkoutSessions,4);assert.equal(journey.paymentHandoffs,1);assert.equal(journey.inactiveBeforePayment,2);
+ assert.deepEqual(Object.fromEntries(journey.exitStages),{'Details & agreements complete':1,'Payment could not start':1});
+ assert.equal(journey.unavailable.length,1);assert.equal(journey.unavailable[0].units,2);assert.equal(journey.replacements[0].replacementId,'replacement');
+ journey=checkoutDemand([...events,event('checkout_opened','paid',40,'/checkout')],now);assert.equal(journey.checkoutSessions,5);assert.equal(journey.inactiveBeforePayment,3,'Returning to checkout after payment handoff starts another journey');
+
+ const original={key:'source',start:'2030-01-01',end:'2030-01-02',total:50,heroImage:'old',imageSources:['old']},replacement={...original,key:'replacement'};
+ assert.equal(switchCartSet([original],JSON.stringify([{...original,heroImage:'new',imageSources:['new','fallback']}]),['source'],[replacement])[0].key,'replacement','Fresh media does not invalidate stock-checked switches');
+ assert.throws(()=>switchCartSet([original],JSON.stringify([{...original,total:51}]),['source'],[replacement]),/basket changed/,'Financial changes retain concurrency protection');
+ assert.throws(()=>switchCartSet([original],'invalid',['source'],[replacement]),/basket changed/);
+ process.env.ADMIN_TOKEN='fixture-owner';
+ const analytics=load('convex/analytics.ts');
+ const listing=put('listings',{title:'Available alternative'});
+ for(const e of events)put('events',e);
+ put('events',event('replacement_selected','human',45,listing._id,{listingId:'camera',title:'Camera',qty:1}));
+ const insight=await analytics.insights.handler({db:{...db,normalizeId:(_table,id)=>id===listing._id?id:null}},{token:'fixture-owner',now,days:30});
+ assert.equal(insight.journey.unavailable.length,1);assert(insight.journey.replacements.some(r=>r.replacementTitle==='Available alternative'));
+ assert.deepEqual(await analytics.insights.handler({db},{token:'wrong',now,days:30}),{authorized:false});
+ const globals=['window','navigator','localStorage','sessionStorage','crypto'], originals=new Map(globals.map(k=>[k,Object.getOwnPropertyDescriptor(globalThis,k)]));
+ const storage=()=>{const m=new Map();return {getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,v)}};
+ try {
+  for(const [key,value] of Object.entries({window:{location:{pathname:'/cart',search:''}},navigator:{userAgent:'Mozilla/5.0 Firefox/144.0',webdriver:false},localStorage:storage(),sessionStorage:storage(),crypto:require('node:crypto').webcrypto}))Object.defineProperty(globalThis,key,{value,writable:true,configurable:true});
+  const {recordUnavailableDemand,recordReplacement}=load('src/lib/demandTracking.ts');
+  const tracked=[],track=async e=>{tracked.push(e)};
+  const item={listingId:'camera',title:'Camera',start:'2030-01-01',end:'2030-01-02'};
+  await Promise.all([recordUnavailableDemand(track,item,2),recordUnavailableDemand(track,item,2)]);
+  await recordUnavailableDemand(track,item,2);assert.equal(tracked.length,1,'Rerenders and concurrent checks do not multiply unmet demand');
+  await recordUnavailableDemand(track,{...item,start:'2030-01-03'},2);assert.equal(tracked.length,2,'Different rental periods are genuine separate requests');
+  await assert.rejects(()=>recordUnavailableDemand(async()=>{throw Error('offline')},{...item,listingId:'retry'},1));
+  await recordUnavailableDemand(track,{...item,listingId:'retry'},1);assert.equal(tracked.length,3,'Failed ingestion remains retryable');
+  recordReplacement(track,item,[{listingId:'alternative'},{listingId:'alternative'}]);assert.equal(tracked[3].qty,2);assert.equal(tracked[3].path,'alternative');
+  navigator.webdriver=true;await recordUnavailableDemand(track,{...item,listingId:'bot'},1);recordReplacement(track,item,[{listingId:'bot'}]);assert.equal(tracked.length,4,'Bot/QA activity does not even send demand events');
+ } finally { for(const key of globals){const descriptor=originals.get(key);if(descriptor)Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];} }
+ console.log('PASS management enhancements: scoped reply debt, >100 system messages, read receipts, team follow-up; private-copy readiness/retention/verification expiry; genuine demand and pre-payment journeys; refreshed media and stale financial edits.');
+})().catch(e=>{console.error(e);process.exitCode=1});

@@ -2,14 +2,16 @@
 import { SmartImage } from "@/components/SmartImage";
 import { useState } from "react";
 import Link from "next/link";
-import { useConvex, useQuery } from "convex/react";
+import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { recordReplacement } from "@/lib/demandTracking";
 import { dayMs } from "@/lib/dates";
 import { formatGbp } from "@/lib/pricing";
 import { useCart, type CartItem } from "./CartProvider";
 
 export function CartReplacements({ item }: { item: CartItem }) {
   const cart = useCart(), convex = useConvex();
+  const track = useMutation(api.analytics.track);
   const [visible, setVisible] = useState(2);
   const args = { items: cart.items.map(i => ({ key: i.key, listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime })), limit: visible + 1 };
   const choices = useQuery(api.cartReplacements.forCart, args)?.[item.key];
@@ -21,6 +23,7 @@ export function CartReplacements({ item }: { item: CartItem }) {
       const choice = current[item.key]?.find(c => c.listingId === listingId);
       if (!choice) throw Error("That alternative is no longer available. Choose another option.");
       cart.switchItem(item.key, { ...choice, start: item.start, end: item.end, pickupTime:item.pickupTime,returnTime:item.returnTime });
+      recordReplacement(track,item,[choice]);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not switch gear. Please try again."); }
     finally { setBusy(false); }
   }

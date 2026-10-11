@@ -1,15 +1,17 @@
 "use client";
 import {useCallback,useEffect,useRef,useState} from "react";
-import {useAction,useQuery} from "convex/react";
+import {useAction,useQuery,useMutation} from "convex/react";
 import {api} from "@cvx/_generated/api";
 import {dayMs} from "@/lib/dates";
+import { recordUnavailableDemand } from "@/lib/demandTracking";
 import type {CartItem} from "./CartProvider";
 
 type Availability=Record<string,{available:number;demanded:number;ok:boolean}>;
 type Receipt={checkedAt:number;availability:Availability};
 type State={key:string;phase:"checking"|"ready"|"error";receipt:Receipt|null};
-export function useCartStockCheck(items:Pick<CartItem,"listingId"|"start"|"end"|"pickupTime"|"returnTime">[]) {
+export function useCartStockCheck(items:Array<Pick<CartItem,"listingId"|"start"|"end"|"pickupTime"|"returnTime"> & {title?:string}>) {
   const key=JSON.stringify(items.map(i=>({listingId:i.listingId,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})));
+  const track=useMutation(api.analytics.track);
   const refresh=useAction(api.sync.refreshCartStock);
   const live=useQuery(api.availability.forCart,items.length?{items:JSON.parse(key)}:"skip");
   const [state,setState]=useState<State|null>(null);
@@ -43,5 +45,11 @@ export function useCartStockCheck(items:Pick<CartItem,"listingId"|"start"|"end"|
   },[key,recheck]);
   const current=state?.key===key?state:null;
   const availability:Availability|undefined=current?.receipt&&live?Object.fromEntries(Object.entries(current.receipt.availability).map(([id,value])=>[id,{...value,available:Math.min(value.available,live[id]?.available??0),ok:value.ok&&live[id]?.ok===true}])):undefined;
+  useEffect(()=>{
+    if(current?.phase!=="ready" || !availability || document.hidden)return;
+    const grouped=new Map<string,{item:typeof items[number];qty:number}>();
+    for(const item of items)if(availability[item.listingId]?.ok===false){const k=JSON.stringify([item.listingId,item.start,item.end,item.pickupTime,item.returnTime]),prev=grouped.get(k);grouped.set(k,{item,qty:(prev?.qty??0)+1});}
+    for(const {item,qty} of grouped.values())void recordUnavailableDemand(track,item,qty).catch(()=>{});
+  },[current?.phase,availability,items,track]);
   return {availability,recheck,ready:!items.length||(current?.phase==="ready"&&!!availability),checking:!!items.length&&(!current||current.phase==="checking"),error:current?.phase==="error"};
 }

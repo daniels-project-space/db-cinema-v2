@@ -253,7 +253,7 @@ export function AccountAdmin({
   }
   if (selected && !panelClosed && section === "invoices") return <section aria-label="Customer invoices"><div className="admin-section-tabs"><button onClick={() => setSection("overview")}>← Back to {selected.name || selected.email}</button></div><AdminInvoiceLibrary key={selected.id} token={token} accountId={selected.id}/></section>;
   if (selected && !panelClosed && section === "documents") return (
-    <AccountDocuments key={selected.id} token={token} accountId={selected.id}
+    <AccountDocuments key={selected.id} token={token} accountId={selected.id} verificationExpiresAt={detail?.verificationExpiresAt ?? null}
       customer={{name:selected.name || "DB Cinema renter",email:selected.email,avatarUrl:selected.avatarUrl,verified:selected.verified}}
       onBack={() => setSection("overview")} onSection={setSection} />
   );
@@ -648,6 +648,8 @@ export function AccountAdmin({
                           </button>
                         </header>
                         <AccountDocumentSummary
+                          verified={selected.verified}
+                          verificationExpiresAt={detail?.verificationExpiresAt ?? null}
                           token={token}
                           accountId={selected.id}
                           onReview={() => setSection("documents")}

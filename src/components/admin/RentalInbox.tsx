@@ -1,4 +1,5 @@
 "use client";
+import { formatGbp } from "@/lib/pricing";
 import { RentalKit } from "@/components/rentals/RentalKit";
 import { RentalOrderTools } from "./RentalOrderTools";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
@@ -317,7 +318,7 @@ export function RentalInbox({
               escalated={focus.escalated}
               tools={
                 focus.status !== "support" ? (
-                  <><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /><details className="mt-3"><summary className="cursor-pointer text-xs text-white/55">Kit · {focus.items.length} listings</summary><div className="mt-3"><RentalKit items={focus.items} compact /></div></details></>
+                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><RentalKit items={focus.items} compact expanded /><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div><details className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
                 ) : undefined
               }
             />
