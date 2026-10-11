@@ -76,10 +76,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
     null,
   );
   const [items, setItems] = useState<CartItem[]>([]);
-  const listingIds = [...new Set(items.map(item => item.listingId))].sort().slice(0, 100);
-  const media = useQuery(api.catalog.imagesForListings, listingIds.length ? { listingIds } : "skip");
+  const listingIds = [...new Set(items.map(item => item.listingId))].filter(id => typeof id === "string" && /^[a-z0-9]{32}$/.test(id)).sort().slice(0, 100);
+  const listings = useQuery(api.catalog.listingsByIds, listingIds.length ? { ids: listingIds as any } : "skip");
+  const media = new Map<string, string[]>((listings ?? []).map(listing => [listing._id, listing.imageSources ?? []]));
   const displayedItems = items.map(item => {
-    const sources = media?.[item.listingId];
+    const sources = media.get(item.listingId);
     return sources?.length ? { ...item, heroImage: sources[0], imageSources: sources } : item;
   });
   const latestItems = useRef(items);
