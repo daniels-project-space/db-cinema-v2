@@ -444,6 +444,8 @@ async function finish(
 }
 export const start = action({
   args: {
+    expectedSnapshot:v.optional(v.string()),
+    expectedQuote:v.optional(v.string()),
     token: v.string(),
     bookingId: v.id("bookings"),
     requestId: v.string(),
@@ -477,6 +479,7 @@ export const start = action({
         throw Error("The initial checkout is still being prepared");
       r = await ctx.runMutation(internal.rentalAdditionState.prepare, args);
     }
+    if(args.expectedQuote && r.reviewQuote!==args.expectedQuote) throw Error("Addition request has changed.");
     // Reserve and validate the proposed order before expiring its original checkout.
     // Every retry attests the original provider state until the replacement is bound.
     if (r.draftReplacement && !r.sessionId && r.baseSessionId) {
