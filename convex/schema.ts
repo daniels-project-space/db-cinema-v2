@@ -96,7 +96,8 @@ export default defineSchema({
     quietDeal: v.optional(v.number()), // % off — auto-set on genuinely-idle items (catalog.refreshQuietDeals)
     suppressed: v.optional(v.boolean()), // local marketing-only override — kept inactive every sync
     marketingOnly: v.optional(v.boolean()),
-    marketingOnlySource: v.optional(v.union(v.literal("auto"), v.literal("admin"))),
+    marketingOnlySource: v.optional(v.union(v.literal("auto"), v.literal("admin"), v.literal("rental_manager"))),
+    marketingOnlyMode: v.optional(v.union(v.literal("automatic"), v.literal("manual"))),
     marketingOnlyUpdatedAt: v.optional(v.number()),
     unavailableDates: v.optional(v.array(v.string())),
     publicUrl: v.optional(v.string()),

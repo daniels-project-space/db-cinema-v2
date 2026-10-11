@@ -41,14 +41,29 @@ export function marketingRedirect(listing: { title: string; itemType?: string | 
   const advertised = title.split(/\b(?:like|similar to|equivalent to|compatible with|same sensor as|same as)\b/i)[0];
   return redirects.find(r => r.types.includes(type) && r.match.test(advertised));
 }
-type MarketingListing = { title: string; itemType?: string | null; marketingOnly?: boolean; marketingOnlySource?: "auto" | "admin"; marketingOnlyUpdatedAt?: number };
+type MarketingListing = { title: string; itemType?: string | null; marketingOnly?: boolean; marketingOnlySource?: "auto" | "admin" | "rental_manager"; marketingOnlyMode?: "automatic" | "manual"; marketingOnlyUpdatedAt?: number };
 export function isMarketingOnly(listing: MarketingListing) {
-  if (listing.marketingOnlySource === "admin") return !!listing.marketingOnly;
+  if (listing.marketingOnlySource === "admin" || listing.marketingOnlySource === "rental_manager") return !!listing.marketingOnly;
   return !!listing.marketingOnly || !!marketingRedirect(listing);
 }
 /** Catalog imports classify new models without overwriting an owner's choice. */
 export function automaticMarketingFields(listing: MarketingListing, existing?: MarketingListing | null) {
-  if (existing?.marketingOnlySource === "admin") return {};
+  if (listing.marketingOnlySource === "rental_manager" && typeof listing.marketingOnly === "boolean") {
+    const incomingAt = listing.marketingOnlyUpdatedAt ?? 0;
+    if (existing?.marketingOnlySource === "rental_manager" &&
+        (existing.marketingOnlyUpdatedAt ?? 0) > incomingAt) return {};
+    if (existing?.marketingOnlySource === "rental_manager" &&
+        existing.marketingOnly === listing.marketingOnly &&
+        existing.marketingOnlyMode === listing.marketingOnlyMode &&
+        existing.marketingOnlyUpdatedAt === listing.marketingOnlyUpdatedAt) return {};
+    return {
+      marketingOnly: listing.marketingOnly,
+      marketingOnlyMode: listing.marketingOnlyMode,
+      marketingOnlySource: "rental_manager" as const,
+      marketingOnlyUpdatedAt: incomingAt,
+    };
+  }
+  if (existing?.marketingOnlySource === "admin" || existing?.marketingOnlySource === "rental_manager") return {};
   const marketingOnly = !!marketingRedirect(listing);
   if (existing?.marketingOnlySource === "auto" && existing.marketingOnly === marketingOnly) return {};
   return { marketingOnly, marketingOnlySource: "auto" as const, marketingOnlyUpdatedAt: Math.max(Date.now(), (existing?.marketingOnlyUpdatedAt ?? 0) + 1) };

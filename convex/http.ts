@@ -5,6 +5,48 @@ import { droneDocumentType, DRONE_DOCUMENT_LIMIT } from "./lib/droneDocument";
 
 const http = httpRouter();
 
+// Rental Manager → storefront marketing tags. The shared secret is the same
+// server-to-server credential used for the existing Rental Manager reads.
+http.route({
+  path: "/dbcinema/manager-marketing-tags",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const headers = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+    const expected = process.env.RMV2_WEBHOOK_SECRET ?? "";
+    const supplied = req.headers.get("x-dbcinema-sync-token") ?? "";
+    if (!expected || supplied.length !== expected.length || supplied !== expected)
+      return new Response("Forbidden", { status: 403, headers });
+    if (!req.headers.get("content-type")?.toLowerCase().startsWith("application/json"))
+      return new Response("Unsupported media type", { status: 415, headers });
+
+    let body: any;
+    try {
+      const raw = await req.text();
+      if (new TextEncoder().encode(raw).byteLength > 16_384)
+        return new Response("Request too large", { status: 413, headers });
+      body = JSON.parse(raw);
+    } catch { return new Response("Invalid JSON", { status: 400, headers }); }
+    if (!body || typeof body !== "object" || Array.isArray(body) ||
+        Object.keys(body).some(key => key !== "protocolVersion" && key !== "changes") ||
+        body.protocolVersion !== 1 || !Array.isArray(body.changes) ||
+        body.changes.length < 1 || body.changes.length > 50 ||
+        body.changes.some((change: any) => !change || typeof change !== "object" || Array.isArray(change) ||
+          Object.keys(change).some(key => !["productId", "marketingOnly", "mode", "updatedAt"].includes(key)) ||
+          !Number.isSafeInteger(change.productId) || change.productId <= 0 ||
+          typeof change.marketingOnly !== "boolean" || !["automatic", "manual"].includes(change.mode) ||
+          !Number.isSafeInteger(change.updatedAt) || change.updatedAt < 0) ||
+        new Set(body.changes.map((change: any) => change.productId)).size !== body.changes.length)
+      return new Response("Invalid marketing tag batch", { status: 400, headers });
+
+    try {
+      const receipt = await ctx.runMutation(internal.sync.applyManagerMarketingTags, { changes: body.changes });
+      return Response.json(receipt, { headers });
+    } catch {
+      return new Response("Marketing tag update failed", { status: 500, headers });
+    }
+  }),
+});
+
 function documentCors(req: Request) {
   const origin = req.headers.get("origin") ?? "";
   const allowed = new Set([process.env.APP_URL?.replace(/\/$/, ""), "https://dbcinemarentals.com", "https://www.dbcinemarentals.com"]);
