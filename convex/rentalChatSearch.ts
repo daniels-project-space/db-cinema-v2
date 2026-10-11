@@ -1,5 +1,5 @@
 import { action, internalQuery } from "./_generated/server";
-import { makeFunctionReference } from "convex/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { checkAdminToken } from "./adminAuth";
 
@@ -37,7 +37,7 @@ export const page = action({
     return Promise.all(
       requests.map((request) =>
         ctx.runQuery(
-          makeFunctionReference<"query">("rentalChatSearch:__bookingPage"),
+          internal.rentalChatSearch.__bookingPage,
           request,
         ),
       ),

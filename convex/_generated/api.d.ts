@@ -127,6 +127,7 @@ import type * as referrals from "../referrals.js";
 import type * as rentalAdditionState from "../rentalAdditionState.js";
 import type * as rentalAdditions from "../rentalAdditions.js";
 import type * as rentalChat from "../rentalChat.js";
+import type * as rentalChatSearch from "../rentalChatSearch.js";
 import type * as rentalContents from "../rentalContents.js";
 import type * as rentalCreditOffers from "../rentalCreditOffers.js";
 import type * as rentalEmailDelivery from "../rentalEmailDelivery.js";
@@ -285,6 +286,7 @@ declare const fullApi: ApiFromModules<{
   rentalAdditionState: typeof rentalAdditionState;
   rentalAdditions: typeof rentalAdditions;
   rentalChat: typeof rentalChat;
+  rentalChatSearch: typeof rentalChatSearch;
   rentalContents: typeof rentalContents;
   rentalCreditOffers: typeof rentalCreditOffers;
   rentalEmailDelivery: typeof rentalEmailDelivery;
