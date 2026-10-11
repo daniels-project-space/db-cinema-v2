@@ -29,8 +29,12 @@ export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<
-    "overview" | "bookings" | "calendar" | "invoices" | "insights" | "reports" | "inbox" | "enquiries" | "calls" | "settings" | "fund" | "stories" | "accounts" | "marketing"
+    "overview" | "bookings" | "insights" | "inbox" | "settings" | "promotions" | "accounts"
   >("overview");
+  const [inboxSection, setInboxSection] = useState<"conversations" | "enquiries">("conversations");
+  const [promotionSection, setPromotionSection] = useState<"campaigns" | "fund" | "stories">("campaigns");
+  const [customerSection, setCustomerSection] = useState<"customers" | "invoices">("customers");
+  const [calendarExpanded, setCalendarExpanded] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [supportAccountId, setSupportAccountId] = useState<string | null>(null);
   const [conversationNavigation, setConversationNavigation] = useState(0);
@@ -53,9 +57,9 @@ export default function AdminPage() {
       setSupportAccountId(route.accountId);
       setConversationNavigation(value => value + 1);
       setDetailId(null);
-      setTab("inbox");
+      setInboxSection("conversations");setTab("inbox");
     };
-    const fromLocation = () => { if (window.location.hash === "#marketing") setTab("marketing"); else if (window.location.hash === "#settings") setTab("settings"); else open(window.location.href); };
+    const fromLocation = () => { if (["#marketing", "#settings"].includes(window.location.hash)) setTab("settings"); else if (window.location.hash === "#invoices") {setCustomerSection("invoices");setTab("accounts");} else if (["#fund", "#stories", "#promotions"].includes(window.location.hash)) {setPromotionSection(window.location.hash === "#fund" ? "fund" : window.location.hash === "#stories" ? "stories" : "campaigns");setTab("promotions");} else if(window.location.hash === "#calendar") {setCalendarExpanded(true);setTab("overview");} else if(window.location.hash === "#reports") setTab("overview"); else if(window.location.hash === "#enquiries") {setInboxSection("enquiries");setTab("inbox");} else open(window.location.href); };
     const fromPush = (event: MessageEvent) => {
       if (event.data?.type !== "dbc:open-owner-conversation" || typeof event.data.url !== "string") return;
       const route = parseOwnerConversationUrl(event.data.url, window.location.origin);
@@ -130,47 +134,42 @@ export default function AdminPage() {
   }
 
   return (
-    <ManagementShell screenOverride={tab === "accounts" && documentsOpen ? "documents" : undefined} breadcrumb={tab === "accounts" && documentsOpen ? <><span>Customers</span><i>/</i><strong>{documentsOpen}</strong></> : undefined} role="admin" name="DB Cinema team" title={tab === "accounts" && documentsOpen ? "Documents & verification" : { overview: "Dashboard", bookings: "Rentals", calendar: "Rental calendar", invoices: "Invoices", insights: "Insights & Demand", reports: "Reports", inbox: "Messages", accounts: "Customers & members", marketing: "Inventory & marketing", enquiries: "Enquiries", calls: "Gaffer calls", fund: "Film Fund", stories: "Story Prize", settings: "Settings" }[tab]} subtitle={tab === "accounts" && documentsOpen ? "Securely saved documents linked to this customer and their rentals." : tab==="invoices"?"View rental receipts, payments and issued settlements.":"Manage rentals, accounts and equipment operations."}
+    <ManagementShell screenOverride={tab === "accounts" && documentsOpen ? "documents" : undefined} breadcrumb={tab === "accounts" && documentsOpen ? <><span>Customers</span><i>/</i><strong>{documentsOpen}</strong></> : undefined} role="admin" name="DB Cinema team" title={tab === "accounts" && documentsOpen ? "Documents & verification" : { overview: "Dashboard", bookings: "Rentals", insights: "Insights & Demand", inbox: "Messages & enquiries", accounts: "Customers & members", promotions: "Promotional actions", settings: "Settings" }[tab]} subtitle={tab === "accounts" && documentsOpen ? "Securely saved documents linked to this customer and their rentals." : "Manage rentals, accounts and equipment operations."}
       active={tab} nav={[
-        { key: "overview", label: "Dashboard", icon: "dashboard" }, { key: "bookings", label: "Rentals", icon: "rentals" },
-        { key: "calendar", label: "Calendar", icon: "calendar" },
-        { key: "marketing", label: "Inventory & marketing", icon: "rentals" }, { key: "accounts", label: "Customers & members", icon: "people" },
-        { key: "inbox", label: "Messages", icon: "messages", badge: rentalUnread || attention.length },
-        { key: "invoices", label: "Invoices", icon: "documents" }, { key: "insights", label: "Insights", icon: "dashboard" }, { key: "reports", label: "Reports", icon: "dashboard" },
-        { key: "enquiries", label: "Enquiries", icon: "messages", badge: contacts?.items.filter((m: any) => !m.handled).length },
-        { key: "calls", label: "Gaffer calls", icon: "messages" }, { key: "fund", label: "Film Fund", icon: "dashboard" },
-        { key: "stories", label: "Story Prize", icon: "dashboard" }, { key: "settings", label: "Settings", icon: "settings" },
-      ]} onNavigate={key => { setTab(key as typeof tab); if (key === "marketing" || key === "settings") window.history.replaceState(null, "", `#${key}`); else if (["#marketing", "#settings"].includes(window.location.hash)) window.history.replaceState(null, "", window.location.pathname); }}
+        { key: "overview", label: "Dashboard", icon: "dashboard" },
+        { key: "bookings", label: "Rentals", icon: "rentals" },
+        { key: "accounts", label: "Customers & members", icon: "people" },
+        { key: "inbox", label: "Messages & enquiries", icon: "messages", badge: rentalUnread + (contacts?.items.filter(m => !m.handled).length ?? 0) },
+        { key: "insights", label: "Insights", icon: "reports" },
+        { key: "promotions", label: "Promotional actions", icon: "people" },
+        { key: "settings", label: "Settings", icon: "settings" },
+      ]} onNavigate={key => {setDocumentsOpen(null);setTab(key as typeof tab);window.history.replaceState(null, "", window.location.pathname);}}
+
       actions={<><OwnerNotificationBell token={token} /><button onClick={lock} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] text-white/65">Lock</button></>}>
 
         {tab === "overview" && (
           <div>
             <AdminDashboard token={token} unread={rentalUnread} alerts={attention.length}
               onRental={id => { setDetailId(id); setTab("bookings"); }} onRentals={() => setTab("bookings")}
-              onCalendar={() => setTab("calendar")} onMessages={() => setTab("inbox")} onReports={() => setTab("reports")} onInventory={() => setTab("marketing")} />
-            <details className="mt-6 rounded-3xl border border-white/[0.06] p-5">
-              <summary className="cursor-pointer text-sm text-white/70">
-                Gear demand
-              </summary>
-              <AdminCartDemand token={token} />
-            </details>
+              onCalendar={() => {setCalendarExpanded(value => !value);}} onMessages={() => setTab("inbox")} onReports={() => setTab("insights")} onInventory={() => setTab("settings")} />
+            {calendarExpanded && <section className="admin-tool-panel" aria-label="Detailed rental calendar"><header><h2>Rental calendar</h2><button onClick={() => setCalendarExpanded(false)}>Close calendar ×</button></header><AdminRentalCalendar token={token}/></section>}
+            <section className="admin-tool-panel" aria-label="Gaffer calls"><AdminGafferCalls token={token}/></section>
           </div>
         )}
 
-        {tab === "inbox" && (
-          <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusRevision={conversationNavigation} />
-        )}
-        {tab === "insights" && <AdminInsights token={token} onInventory={() => setTab("marketing")} />}
-        {tab === "reports" && <div className="mt-6"><AdminAnalytics token={token} /><AdminCartDemand token={token} /></div>}
-        {tab === "invoices" && <AdminInvoiceLibrary token={token} />}
-        {tab === "calendar" && <AdminRentalCalendar key={token} token={token} />}
+        {tab === "inbox" && <div className="admin-section-tabs" role="group" aria-label="Messages sections"><button aria-pressed={inboxSection === "conversations"} onClick={() => setInboxSection("conversations")}>Conversations {rentalUnread > 0 ? `(${rentalUnread})` : ""}</button><button aria-pressed={inboxSection === "enquiries"} onClick={() => setInboxSection("enquiries")}>Enquiries ({contacts?.items.filter(m => !m.handled).length ?? 0} pending)</button></div>}
+        {tab === "inbox" && inboxSection === "conversations" && <RentalInbox token={token} focusBookingId={conversationId} focusAccountId={supportAccountId} focusRevision={conversationNavigation} />}
+        {tab === "insights" && <AdminInsights token={token} onInventory={() => setTab("settings")} />}
+
+
+
         {tab === "bookings" && !detailId && (
           <AdminRentalCards
             token={token}
             onChat={(id) => {
               setConversationId(id);
               setSupportAccountId(null);
-              setTab("inbox");
+              setInboxSection("conversations");setTab("inbox");
             }}
             onDetails={setDetailId}
           />
@@ -185,12 +184,12 @@ export default function AdminPage() {
             onChat={() => {
               setConversationId(detailId);
               setSupportAccountId(null);
-              setTab("inbox");
+              setInboxSection("conversations");setTab("inbox");
             }}
           />
         )}
 
-        {tab === "enquiries" && (
+        {tab === "inbox" && inboxSection === "enquiries" && (
           <div className="mt-6 grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
             {contacts?.items.map((m: any) => (
               <div
@@ -223,11 +222,15 @@ export default function AdminPage() {
           </div>
         )}
 
-        {tab === "fund" && <FilmFundAdmin token={token} />}
-        {tab === "accounts" && <AccountAdmin token={token} onDocumentsChange={setDocumentsOpen} onRental={id => { setDetailId(id); setTab("bookings"); }} onConversation={(accountId, bookingId) => { setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1); setTab("inbox"); }} />}
-        {tab === "marketing" && <MarketingListingsAdmin token={token} />}
-        {tab === "stories" && <StoryPrizeAdmin token={token} />}
-        {tab === "calls" && <AdminGafferCalls token={token} />}
+        {tab === "promotions" && <div className="admin-section-tabs" role="group" aria-label="Promotional actions"><button aria-pressed={promotionSection === "campaigns"} onClick={() => setPromotionSection("campaigns")}>Campaigns & referrals</button><button aria-pressed={promotionSection === "fund"} onClick={() => setPromotionSection("fund")}>Film Fund</button><button aria-pressed={promotionSection === "stories"} onClick={() => setPromotionSection("stories")}>Story Prize</button></div>}
+        {tab === "promotions" && promotionSection === "fund" && <FilmFundAdmin token={token}/>}
+        {tab === "promotions" && promotionSection === "campaigns" && <div className="admin-tool-panel"><AdminPromos token={token}/><ReferralCampaignAdmin token={token}/></div>}
+        {tab === "accounts" && !documentsOpen && <div className="admin-section-tabs" role="group" aria-label="Customer pages"><button aria-pressed={customerSection === "customers"} onClick={() => setCustomerSection("customers")}>Customers & members</button><button aria-pressed={customerSection === "invoices"} onClick={() => setCustomerSection("invoices")}>Invoices & PDFs</button></div>}
+        {tab === "accounts" && customerSection === "invoices" && <AdminInvoiceLibrary token={token}/>}
+        {tab === "accounts" && customerSection === "customers" && <AccountAdmin token={token} onDocumentsChange={setDocumentsOpen} onRental={id => { setDetailId(id); setTab("bookings"); }} onConversation={(accountId, bookingId) => { setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1); setInboxSection("conversations");setTab("inbox"); }} />}
+
+        {tab === "promotions" && promotionSection === "stories" && <StoryPrizeAdmin token={token}/>}
+
 
         {tab === "settings" && (
           <div className="mt-6 space-y-4">
@@ -236,7 +239,7 @@ export default function AdminPage() {
             <AdminSettings token={token} />
             {[
               ["Community", <AdminCollective key="collective" token={token} />],
-              ["Promotions", <div className="space-y-5"><AdminPromos key="promos" token={token} /><ReferralCampaignAdmin token={token}/></div>],
+
             ].map(([label, content]) => (
               <details
                 key={String(label)}
@@ -447,199 +450,6 @@ function AdminPromos({ token }: { token: string }) {
           Add code
         </button>
         {err && <span className="text-xs text-red-300">{err}</span>}
-      </div>
-    </section>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number | string;
-  accent?: boolean;
-}) {
-  return (
-    <div className="rounded-2xl glass p-4">
-      <div
-        className={`font-display text-2xl font-bold ${accent ? "gradient-text" : "text-white/90"}`}
-      >
-        {value}
-      </div>
-      <div className="mt-1 text-[11px] uppercase tracking-wide text-white/40">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function AdminAnalytics({ token }: { token: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 60000);
-    return () => clearInterval(t);
-  }, []);
-  const s = useQuery(api.analytics.adminSummary, { token, now });
-  if (!s || !(s as any).authorized) return null;
-  const a: any = s;
-  const fmtDay = (ms: number | null) => ms == null || !Number.isFinite(ms) ? "Unconfirmed" : new Date(ms).toISOString().slice(0, 10);
-
-  return (
-    <section className="mt-6">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Live viewers · 15m" value={a.live} accent />
-        <Stat label="Views · 24h" value={a.views24} />
-        <Stat label="Add to cart · 24h" value={a.carts24} />
-        <Stat label="Purchases · 24h" value={a.purchases24} />
-      </div>
-      <div className="mt-2 rounded-xl glass px-4 py-2 text-xs text-white/50">
-        Funnel (24h): <b className="text-white/80">{a.views24}</b> views →{" "}
-        <b className="text-white/80">{a.carts24}</b> cart →{" "}
-        <b className="text-white/80">{a.checkouts24}</b> checkout →{" "}
-        <b className="text-white/80">{a.purchases24}</b> paid · conversion{" "}
-        <b className="text-accent-300">{a.conversion}%</b> · views 7d {a.views7}
-      </div>
-
-      <h2 className="mt-8 font-display text-lg font-semibold text-white/80">
-        Ongoing rentals ({a.ongoing.length})
-      </h2>
-      <div className="mt-3 flex flex-col gap-2">
-        {a.ongoing.length === 0 && (
-          <div className="text-sm text-white/30">Nothing out right now.</div>
-        )}
-        {a.ongoing.map((b: any) => (
-          <div
-            key={b._id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-xl glass px-4 py-2 text-sm"
-          >
-            <span className="text-white/80">{b.guestEmail}</span>
-            <span className="text-white/45">{b.items.slice(0, 50)}</span>
-            <span className="text-white/50">
-              {fmtDay(b.start)} → {fmtDay(b.end)} · {b.fulfilment}
-            </span>
-            <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase text-emerald-300">
-              {b.status}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {a.topMisses.length > 0 && (
-        <div className="mt-6">
-          <h3 className="font-display text-sm font-semibold text-white/70">
-            Searches with no results (7d)
-          </h3>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {a.topMisses.map(([term, n]: [string, number]) => (
-              <span
-                key={term}
-                className="rounded-full glass px-3 py-1 text-xs text-white/60"
-              >
-                {term} <span className="text-white/30">×{n}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function AdminCartDemand({ token }: { token: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  const [days, setDays] = useState(30);
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 300000);
-    return () => clearInterval(t);
-  }, []);
-  const d = useQuery(api.analytics.cartDemand, { token, days, now });
-  if (!d || !(d as any).authorized) return null;
-  const data: any = d;
-  const maxC = Math.max(1, ...data.series.map((s: any) => s.count));
-  const maxA = Math.max(1, ...data.top.map((t: any) => t.adds));
-  const mmdd = (iso: string) => (iso ? iso.slice(5) : "");
-
-  return (
-    <section className="mt-10">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-display text-lg font-semibold text-white/80">
-          Add-to-cart demand{" "}
-          <span className="text-white/40">
-            ({data.total} adds · {days}d)
-          </span>
-        </h2>
-        <div className="flex gap-1">
-          {[7, 30, 90].map((n) => (
-            <button
-              key={n}
-              onClick={() => setDays(n)}
-              className={`rounded-full px-3 py-1 text-xs ${days === n ? "bg-accent-500 text-white" : "glass text-white/50 hover:text-white"}`}
-            >
-              {n}d
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* daily volume — real demand over time */}
-      <div className="mt-3 rounded-2xl glass p-4">
-        <div className="flex h-40 items-end gap-px">
-          {data.series.map((s: any, i: number) => (
-            <div
-              key={i}
-              className="group relative flex-1"
-              title={`${s.date}: ${s.count} adds · ${s.units} units`}
-            >
-              <div
-                className="w-full rounded-t bg-accent-500/70 transition-colors group-hover:bg-accent-400"
-                style={{
-                  height: `${Math.max(s.count > 0 ? 4 : 0, (s.count / maxC) * 100)}%`,
-                }}
-              />
-            </div>
-          ))}
-        </div>
-        <div className="mt-2 flex justify-between font-mono text-[10px] text-white/30">
-          <span>{mmdd(data.series[0]?.date)}</span>
-          <span>
-            {mmdd(data.series[Math.floor(data.series.length / 2)]?.date)}
-          </span>
-          <span>{mmdd(data.series[data.series.length - 1]?.date)}</span>
-        </div>
-      </div>
-
-      {/* most-added items (incl. marketing-only) */}
-      <h3 className="mt-6 font-display text-sm font-semibold text-white/70">
-        Most-added items
-      </h3>
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
-        {data.top.length === 0 && (
-          <div className="text-sm text-white/30">
-            No add-to-cart events yet in this window.
-          </div>
-        )}
-        {data.top.map((t: any, i: number) => (
-          <div key={i} className="flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 text-sm">
-            <SmartImage src={t.heroImage} fallbackSources={t.imageSources} alt={t.title} className="h-16 w-16 shrink-0 rounded-xl" imgClassName="!object-contain" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-white/75">{t.title}</span>
-                <span className="shrink-0 font-mono text-xs text-white/45">
-                  {t.adds} total
-                </span>
-              </div>
-              <p className="mt-1 text-[10px] text-white/35">{t.cartAdds ? `${t.cartAdds} cart adds` : ""}{t.cartAdds && t.interestRequests ? " · " : ""}{t.interestRequests ? `${t.interestRequests} requests` : ""}</p>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-                <div
-                  className="h-full rounded-full bg-accent-500"
-                  style={{ width: `${(t.adds / maxA) * 100}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        ))}
       </div>
     </section>
   );

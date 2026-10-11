@@ -11,6 +11,7 @@ export function AnalyticsTracker() {
   const track = useMutation(api.analytics.track);
   const path = usePathname();
   useEffect(() => {
+    if (path === "/admin" || path.startsWith("/admin/")) return;
     track({ type: "view", path, sessionId: getSessionId() }).catch(() => {});
   }, [path, track]);
   return null;

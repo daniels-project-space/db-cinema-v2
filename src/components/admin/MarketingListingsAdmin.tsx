@@ -54,7 +54,7 @@ export function MarketingListingsAdmin({ token }: { token: string }) {
         const selected = draft ? (draft.marketingOnly ?? l.automaticMatch) : l.marketingOnly;
         return <div key={l._id} data-marketing-listing={l._id} className={`flex min-w-0 flex-col overflow-hidden rounded-xl border transition ${selected ? "border-amber-500/60 bg-amber-500/[.06]" : "border-white/10 bg-white/[0.02]"}`}>
           <label className="flex flex-1 cursor-pointer flex-col p-4 hover:bg-white/[.04]">
-            <SmartImage src={l.heroImage} alt={l.title} className="mb-4 aspect-[4/3] w-full rounded-lg bg-black/30" imgClassName="!object-contain" />
+            <SmartImage fit="contain" src={l.heroImage} alt={l.title} className="mb-4 aspect-[4/3] w-full rounded-lg bg-black/30" imgClassName="!object-contain" />
             <span className="mb-3 block break-words text-sm font-medium text-white/85">{l.title}</span>
             <span className="mb-4 block text-xs text-white/45">{l.category} · {l.source === "admin" ? "Manual choice" : "Automatic"}{!l.active ? " · Inactive listing" : ""}{draft ? " · Unsaved" : ""}</span>
             <span className="mt-auto flex items-center gap-3">

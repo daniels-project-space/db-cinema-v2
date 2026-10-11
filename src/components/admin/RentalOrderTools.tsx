@@ -204,7 +204,7 @@ export function RentalOrderTools({
     <div data-testid="owner-rental-tools">
       <RentalRequestHistory token={token} bookingId={bookingId} admin />
       <section className={chatStyles.bookingFacts} aria-label="Booked equipment and handover">
-        <div className={chatStyles.factsIdentity}><SmartImage src={b.lineItems[0]?.heroImage} fallbackSources={b.lineItems[0]?.imageSources} alt={b.lineItems[0]?.title ?? "Rental kit"} className={chatStyles.factsPhoto} /><div><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
+        <div className={chatStyles.factsIdentity}><SmartImage fit="contain" src={b.lineItems[0]?.heroImage} fallbackSources={b.lineItems[0]?.imageSources} alt={b.lineItems[0]?.title ?? "Rental kit"} className={chatStyles.factsPhoto} /><div><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
         <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{rentalHandoverLabel(b,"pickup")}</dd></div><div><dt>Return</dt><dd>{rentalHandoverLabel(b,"return")}</dd></div><div><dt>Customer</dt><dd>{b.guestName || b.guestEmail}</dd></div><div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
       </section>
       <dl className={chatStyles.paymentSummary} aria-label="Booking financial summary">
@@ -428,7 +428,7 @@ export function RentalOrderTools({
                       title={l.title}
                       className={`flex items-center gap-2 rounded-xl border p-2 text-left ${listingId === l._id ? "border-accent-400/60" : "border-white/10"}`}
                     >
-                      <SmartImage
+                      <SmartImage fit="contain"
                         src={l.heroImage}
                         alt=""
                         className="h-9 w-9 shrink-0 overflow-hidden rounded-lg"

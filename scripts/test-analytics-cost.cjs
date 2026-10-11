@@ -62,6 +62,12 @@ const ctx={db:{...db,normalizeId(table,id){return tables.get(table)?.some(row=>r
  put('accounts',{email:'private-member@example.invalid',createdAt:now-DAY,membershipActive:true,membershipTier:'pro',membershipCancelAtPeriodEnd:true});
  put('accounts',{email:'blocked-member@example.invalid',createdAt:now-DAY,membershipActive:true,membershipTier:'pro',blockedAt:now});
  put('accounts',{email:'expired-member@example.invalid',createdAt:now-DAY,membershipActive:true,membershipTier:'pro',stripeSubscriptionId:'sub_expired',membershipStatus:'active',membershipPaidThrough:1});
+ const baseline=await analytics.insights.handler(ctx,{token:'fixture-owner',days:30,now});
+ put('events',{type:'view',at:now-100,path:'/admin',sessionId:'admin-only-browser'});
+ put('events',{type:'view',at:now-100,path:'/admin/customers',sessionId:'admin-only-browser'});
+ const withoutAdmin=await analytics.insights.handler(ctx,{token:'fixture-owner',days:30,now});
+ assert.equal(withoutAdmin.uniqueVisitors,baseline.uniqueVisitors);assert.equal(withoutAdmin.pageViews,baseline.pageViews);assert(!withoutAdmin.pages.some(([path])=>path.startsWith('/admin')));
+ assert.equal(withoutAdmin.searchCount,2);assert.deepEqual(withoutAdmin.terms,[['sony fx3',2]]);assert.equal(withoutAdmin.partial,false);
  const denied=await analytics.insights.handler(ctx,{token:'wrong',days:30,now});assert.deepEqual(denied,{authorized:false});
  const insights=await analytics.insights.handler(ctx,{token:'fixture-owner',days:30,now});
  assert.equal(insights.uniqueVisitors,1,'Duplicate browser sessions count once; future and anonymous views excluded');

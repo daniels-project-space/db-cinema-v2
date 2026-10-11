@@ -15,3 +15,13 @@
 .panel { background:linear-gradient(125deg,#1a1e1d,#111515); border-color:#2b302d; border-radius:6px; }
 .equipmentPhoto,.equipment article img { background:#101312; }
 @media(min-width:1301px) { .central { grid-template-columns:minmax(0,1.037fr) minmax(0,1fr); } .panel { padding:18px 19px; } .equipment article { padding:14px 0; } .chart { min-height:229px; } .bottom .panel { min-height:271px; } .right { gap:17px; } }
+
+.scope { position:static; inset:auto; margin:10px 0 20px; line-height:1.7; }
+.metrics { grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); }
+.insights { min-width:0; }
+
+.demandChart { width:100%; max-height:180px; margin-top:20px; }
+.demandTable { overflow-x:auto; margin-top:15px; }
+.demandTable table { width:100%; border-collapse:collapse; font-size:12px; }
+.demandTable th,.demandTable td { padding:10px; text-align:left; border-bottom:1px solid #ffffff13; }
+.demandTable td:first-child { min-width:180px; }

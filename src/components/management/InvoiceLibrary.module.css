@@ -158,3 +158,10 @@
 .library[data-admin=true] .detail h4 { font-family:var(--font-inter,Arial),sans-serif; font-size:13px; font-weight:500; }
 @media(min-width:1201px) { .library[data-admin=true][data-has-detail=true] { grid-template-columns:minmax(0,1.444fr) minmax(370px,1fr); gap:24px; } .library[data-admin=true][data-has-detail=true] > .detail { padding:22px 24px; margin-top:-24px; min-height:calc(100vh - 54px); max-height:calc(100vh - 54px); top:0; } .library[data-admin=true] .tabs { margin-top:29px; padding-right:360px; gap:20px; } .library[data-admin=true] .searchControls { top:80px; gap:8px; } .library[data-admin=true] .toolbar input { width:217px; padding:10px; } .library[data-admin=true] .searchControls select { padding:9px; font-size:11px; } .library[data-admin=true] .list { margin-top:18px; } }
 @media(max-width:640px) { .library[data-admin=true] .list td { height:auto; padding:4px 0; } }
+
+[data-layout=customer-page] .workspace { grid-template-columns:minmax(0,1fr); }
+[data-layout=customer-page] .detail { position:static; max-height:none; overflow:visible; margin-top:20px; }
+[data-layout=customer-page] .list { min-width:0; overflow-x:auto; }
+
+.library[data-admin=true][data-layout=customer-page] { display:block; }
+.library[data-admin=true][data-layout=customer-page] > .detail { position:static; grid-column:auto; grid-row:auto; margin:20px 0 0; max-height:none; overflow:visible; }

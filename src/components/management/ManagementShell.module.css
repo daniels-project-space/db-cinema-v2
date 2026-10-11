@@ -128,3 +128,27 @@
 @media(max-width:640px){.shell[data-management-role=admin][data-management-screen=documents]{display:block}.shell[data-management-role=admin][data-management-screen=documents] .content{padding:20px 14px 35px}.shell[data-management-role=admin][data-management-screen=documents] .topbar{padding:12px 14px}.shell[data-management-role=admin][data-management-screen=documents] .heading{margin-bottom:18px}.shell[data-management-role=admin][data-management-screen=documents] .heading h1{font-size:28px}.shell[data-management-role=admin][data-management-screen=documents] .heading p{font-size:12px;line-height:1.6}}
 
 .moreTools{padding:0 27px 8px;color:#a8aaa1;font-size:11px}.moreTools summary{cursor:pointer;padding:5px 0;list-style-position:inside}.moreTools button{display:block;text-align:left;padding:8px 0;color:#cec6bb;font-size:12px}.shell[data-management-role=admin][data-management-screen=documents] .nav button{min-height:43px;padding-block:10px}.shell[data-management-role=admin][data-management-screen=documents] .sidebarImage{height:260px;margin-bottom:0;mask-image:linear-gradient(transparent,#000 8%,#000 88%,transparent)}.shell[data-management-role=admin][data-management-screen=documents] .sidebarImage img{object-fit:contain;object-position:center}.shell[data-management-role=admin][data-management-screen=documents] .sidebarBottom p{font-size:11px;margin-bottom:12px;line-height:1.4}.shell[data-management-role=admin][data-management-screen=documents] .sidebarBottom .locations{font-size:9px;margin:10px 0 14px}.shell[data-management-role=admin][data-management-screen=documents] .sidebarBottom>span{font-size:10px;margin-top:8px}.shell[data-management-role=admin][data-management-screen=documents] .brand>span{font-size:43px}.shell[data-management-role=admin][data-management-screen=documents] .brand small{font-size:30px}
+
+/* All management sections flow beneath the shared website header. */
+.management .shell[data-management-role=admin] .topbar { position:relative; inset:auto; min-height:74px; padding:14px 24px; background:#171818; border-bottom:1px solid #ffffff0d; }
+.management .shell[data-management-role=admin] .topbar .breadcrumb { display:flex; visibility:visible; }
+.management .shell[data-management-role=admin] .topbar .actor > span { display:block; }
+.management .shell[data-management-role=admin] .topbar .actor > .avatar { display:grid; }
+.management .shell[data-management-role=admin] .content { padding:24px; max-width:1720px; }
+.management .shell[data-management-role=admin] .heading { position:static; inset:auto; max-width:none; padding:0; margin-bottom:22px; }
+.shell[data-management-screen=messages] .content { padding:0 0 30px; }
+.nav { padding-top:18px; }
+.sidebarBottom { padding-top:24px; }
+.sidebarImage { height:170px; }
+.sidebarImage img { object-fit:contain; object-position:center; }
+.shell :global(.admin-section-tabs) { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 20px; padding:16px 20px; border-bottom:1px solid #ffffff15; }
+.shell :global(.admin-section-tabs button) { border:1px solid #ffffff18; background:#202322; color:#bdbbb3; border-radius:6px; padding:10px 16px; font-size:12px; }
+.shell :global(.admin-section-tabs button[aria-pressed=true]) { color:#f2d8c4; border-color:#b88769; background:#493326; }
+.shell :global(.admin-tool-panel) { margin-top:24px; padding:22px; border:1px solid #343736; border-radius:8px; background:#1b1e1d; min-width:0; }
+.shell :global(.admin-tool-panel > header) { display:flex; gap:15px; justify-content:space-between; margin-bottom:20px; }
+@media(max-width:640px) {
+ .management .shell[data-management-role=admin] .content { padding:20px 14px; }
+ .management .shell[data-management-role=admin] .topbar { padding:12px 14px; gap:10px; }
+ .management .shell[data-management-role=admin] .topbar .actor > span:not(.avatar) { display:none; }
+ .shell :global(.admin-tool-panel) { padding:14px; }
+}

@@ -174,7 +174,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
           {/* gallery + copy */}
           <div className="page-in">
             <div className="spot gradient-border group relative overflow-hidden rounded-2xl">
-              <SmartImage
+              <SmartImage fit="contain"
                 key={hero ?? "none"}
                 src={hero}
                 fallbackSources={gallery}
@@ -206,7 +206,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
                         : "opacity-55 ring-1 ring-white/10 hover:opacity-90"
                     }`}
                   >
-                    <SmartImage src={g} className="aspect-square" />
+                    <SmartImage fit="contain" src={g} className="aspect-square" />
                   </button>
                 ))}
               </div>
