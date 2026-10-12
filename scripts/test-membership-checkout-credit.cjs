@@ -120,14 +120,14 @@ async function pay(fixture,fee=1900) {
  camera.pricing.daily=375;camera.depositAmount=1620;
  const reportedBase=await checkout.priceQuote.handler(ctx,input());
  const reportedSelected=await checkout.priceQuote.handler(ctx,{...input(),selectedMembership:{tier:'studio',intro:'none'}});
- assert.equal(reportedBase.combinedTotalDue,415.5);
+ assert.equal(reportedBase.combinedTotalDue,375);
  assert.equal(reportedSelected.membershipSignupOfferSaving,10);
  assert.equal(reportedSelected.membershipCreditApplied,128.7);
  assert.equal(reportedSelected.totalDue-reportedSelected.depositAmount,236.3);
  assert.equal(reportedSelected.membershipFee,99);
- assert.equal(reportedSelected.depositAmount,40.5);
- assert.equal(reportedSelected.depositHoldAmount,162);
- assert.equal(reportedSelected.combinedTotalDue,375.8);
+ assert.equal(reportedSelected.depositAmount,0);
+ assert.equal(reportedSelected.depositHoldAmount,0);
+ assert.equal(reportedSelected.combinedTotalDue,335.3);
  assert.equal(Math.round((reportedBase.combinedTotalDue-reportedSelected.combinedTotalDue)*100)/100,39.7);
  camera.depositAmount=1000;
  // Regression for the real five-line £1,905 basket: a retired £45 gear
@@ -160,7 +160,7 @@ async function pay(fixture,fee=1900) {
  const f=await prepare();assert.equal(f.price.membershipCreditApplied,20.9);assert.equal(f.price.membershipSignupOfferSaving,5);assert.equal(f.price.combinedTotalDue,f.price.depositAmount+93.1);
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),0,'unpaid credit is unavailable to other rentals');
  await assert.rejects(bookings.confirm.handler(ctx,{bookingId:f.booking._id}),/has not settled/);
- assert(f.price.depositAmount>0,"first checkout retains upfront security");const receipt=await pay(f);assert.equal(account.membershipPerksPendingBookingId,f.booking._id);assert.equal(load("shared/membership.ts").paidDepositExempt(account),false);assert.equal(receipt.credit.remaining,0);assert.equal(!!account.membershipSignupOfferUsed,true);
+ assert.equal(f.price.depositAmount,0,"first checkout never takes security money");const receipt=await pay(f);assert.equal(account.membershipPerksPendingBookingId,f.booking._id);assert.equal(load("shared/membership.ts").paidDepositExempt(account),false);assert.equal(receipt.credit.remaining,0);assert.equal(!!account.membershipSignupOfferUsed,true);
  await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:'pi-fixture'});
  await bookings.confirm.handler(ctx,{bookingId:f.booking._id,paymentIntentId:'pi-fixture'});
  assert.equal(receipt.credit.remaining,0,'confirm does not spend first-month credit twice');assert.equal(account.membershipPerksPendingBookingId,undefined);assert.equal(load('shared/membership.ts').paidDepositExempt(account),true);
@@ -181,7 +181,7 @@ async function pay(fixture,fee=1900) {
  account.membershipActive=false;account.membershipStatus='canceled';const rejoin=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},selectedMembership:{tier:'plus',intro:'none'}});assert.equal(rejoin.membershipSignupOfferSaving,0,'Starter cannot repeat its £5 joining discount');
  camera.pricing.daily=300;const starterUpgrade=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},selectedMembership:{tier:'studio',intro:'none'}});assert.equal(starterUpgrade.membershipSignupOfferSaving,0,'Starter joining discount blocks another Studio joining discount');
  account=put('accounts',{email:'pro-welcome@example.invalid'});camera.pricing.daily=200;const welcome=await prepare('pro');assert.equal(welcome.price.membershipSignupOfferSaving,10);assert.equal(welcome.price.combinedTotalDue,welcome.price.depositAmount+180.2);await pay(welcome,4900);assert.equal(!!account.membershipSignupOfferUsed,true);account.membershipActive=false;account.membershipStatus='canceled';camera.pricing.daily=300;const upgrade=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},selectedMembership:{tier:'studio',intro:'none'}});assert.equal(upgrade.membershipSignupOfferSaving,0,'switching/rejoining Studio cannot repeat the Pro signup discount');
- account=put('accounts',{email:'weekend-signup@example.invalid'});camera.pricing.daily=300;const weekendInput=input();weekendInput.items[0].start=Date.UTC(2027,0,8);weekendInput.items[0].end=Date.UTC(2027,0,9);const weekend=await calculateRentalPrice(ctx,{...weekendInput,customer:{email:account.email},selectedMembership:{tier:'pro',intro:'none'}});assert.equal(weekend.weekendSaving,0,'checkout-added membership has no weekend perk on its first rental');assert.equal(weekend.membershipSignupOfferSaving,10);assert(weekend.depositAmount>0);assert.equal(weekend.deliveryReduction,0);
+ account=put('accounts',{email:'weekend-signup@example.invalid'});camera.pricing.daily=300;const weekendInput=input();weekendInput.items[0].start=Date.UTC(2027,0,8);weekendInput.items[0].end=Date.UTC(2027,0,9);const weekend=await calculateRentalPrice(ctx,{...weekendInput,customer:{email:account.email},selectedMembership:{tier:'pro',intro:'none'}});assert.equal(weekend.weekendSaving,0,'checkout-added membership has no weekend perk on its first rental');assert.equal(weekend.membershipSignupOfferSaving,10);assert.equal(weekend.depositAmount,0);assert.equal(weekend.deliveryReduction,0);
  account=put('accounts',{email:'unused-credit@example.invalid'});camera.pricing.daily=50;const partial=await prepare('pro');const partialReceipt=await pay(partial,4900);assert.equal(partial.price.membershipCreditApplied,50);assert.equal(partialReceipt.credit.remaining,8.8,'unused first-month credit survives');
  await bookings.confirm.handler(ctx,{bookingId:partial.booking._id});
  await billing.revokeRefundedInvoice.handler(ctx,{invoiceId:partialReceipt.args.invoiceId,membershipRefundedPence:2450});
@@ -191,7 +191,7 @@ async function pay(fixture,fee=1900) {
  assert.equal(await bookings.availableCheckoutCredit.handler({db},{accountId:account._id}),0,'remaining restored credit stays linked after a partial membership reversal');assert.equal(account.membershipCreditDebtPence,0);
  account=put('accounts',{email:'existing-credit@example.invalid'});camera.pricing.daily=300;put('credits',{accountId:account._id,amount:300,remaining:300,createdAt:now-1000,expiresAt:now+86400000,status:'active'});
  const covered=await checkout.priceQuote.handler(ctx,input());assert(covered.recommendations.every(r=>r.netSaving<=0),'already-credit-covered order does not claim a new saving');
- const trial=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},selectedMembership:{tier:'plus',intro:'trial'}});assert.equal(trial.membershipCreditApplied,0);assert.equal(trial.membershipSignupOfferSaving,0);assert(trial.depositAmount>0);
+ const trial=await calculateRentalPrice(ctx,{...input(),customer:{email:account.email},selectedMembership:{tier:'plus',intro:'trial'}});assert.equal(trial.membershipCreditApplied,0);assert.equal(trial.membershipSignupOfferSaving,0);assert.equal(trial.depositAmount,0);
  account=put('accounts',{email:'debt-before-payment@example.invalid'});camera.pricing.daily=100;const reserved=await prepare();account.membershipCreditDebtPence=600;await pay(reserved);assert.equal(account.membershipCreditDebtPence,600,'a later reversal cannot steal credit promised to an open checkout');
  account=put('accounts',{email:'actual-welcome@example.invalid',membershipCreditDebtPence:2090});camera.pricing.daily=100;const joined=await prepare();assert.equal(joined.price.benefitKind,'joining');assert.equal(joined.price.membershipSignupOfferSaving,5);assert.equal(joined.price.membershipCreditApplied,0);await pay(joined);assert.equal(account.membershipSignupOfferUsed,true,'a chosen joining discount is recorded once');
  account=put('accounts',{email:'unpaid-cancel@example.invalid'});const abandoned=await prepare();await db.patch(abandoned.booking._id,{status:'cancelled'});const late=await pay(abandoned);assert.equal(late.credit.remaining,20.9,'a late paid invoice does not consume credit for an already-closed rental');

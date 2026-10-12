@@ -31,6 +31,9 @@ import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 import { dayMs as ms } from "@/lib/dates";
 import { HOURS_SENTENCE } from "@/lib/site";
 
+import { savedCardChargeLimit, SECURITY_POLICY_VERSION } from "../../../shared/rentalSecurity";
+import { savedCardConsentText } from "../../../shared/savedCardSecurity";
+
 const PC_RE = /\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i;
 const DRAFT_TERMS = JSON.stringify({ documents: AGREEMENTS, delivery: DELIVERY_TERMS_VERSION });
 
@@ -113,6 +116,8 @@ export default function CheckoutPage() {
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState("");
   const agreementRequest = useRef<string | null>(null);
+  const signatureLimit = useRef<number | null>(null);
+  const signedContext = useRef<string | null>(null);
   const draftScope = account.loading ? null : account.me ? `account:${account.me._id}` : "guest";
   const [restoredScope, setRestoredScope] = useState<string | null>(null);
   const draftReady = !!draftScope && restoredScope === draftScope;
@@ -243,9 +248,12 @@ export default function CheckoutPage() {
     return () => window.removeEventListener("pageshow", restore);
   }, []);
 
-  const signDone = agreed && signature.trim().length > 2;
+  const futureChargeLimit = currentQuote?.savedCardLimit ?? savedCardChargeLimit(equipmentValue);
+  const savedCardQuoteReady = !!currentQuote && currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION && Number.isFinite(currentQuote.savedCardLimit) && currentQuote.depositAmount === 0 && currentQuote.depositHoldAmount === 0;
+  useEffect(()=>{setSignature("");agreementRequest.current=null;},[futureChargeLimit]);
+  const signDone = agreed && signature.trim().length > 2 && signatureLimit.current === futureChargeLimit && signedContext.current === signingContext;
 
-  const valid = draftReady && (!account.token || !!account.me) && (!membership || membership.termsAccepted) && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
+  const valid = draftReady && savedCardQuoteReady && (!account.token || !!account.me) && (!membership || membership.termsAccepted) && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
 
   const openedRecorded=useRef(false);
   useEffect(()=>{if(items.length&&draftReady&&!openedRecorded.current){openedRecorded.current=true;void track({type:"checkout_opened",sessionId:getSessionId()}).catch(()=>{});}},[items.length,draftReady,track]);
@@ -310,6 +318,7 @@ export default function CheckoutPage() {
         deliveryPostcode: fulfilment === "delivery" ? postcode : undefined,
         deliveryFee: currentQuote!.quotedDeliveryFee,
         expectedTotalDue: currentQuote!.combinedTotalDue,
+        expectedSavedCardLimit:futureChargeLimit,
         selectedMembership: membership ? {tier:membership.tier,intro:membership.intro,termsVersion:MEMBERSHIP_TERMS_VERSION,requestId:membershipAttempt!} : undefined,
         promoCode: promo.applied ?? undefined,
         protection,
@@ -359,7 +368,7 @@ export default function CheckoutPage() {
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
         <CheckoutMembership variant="checkout" loading={rentalPreview.loading && !quoteError} appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
-          <span>Any upfront refundable security payment is returned after safe return; the card hold is released separately</span>
+          <span>No security payment or card hold is taken upfront; later charges require evidence and notice</span>
           <span className="text-white/20">·</span>
           <span>Need a hand? Message us any time</span>
         </p>
@@ -466,64 +475,22 @@ export default function CheckoutPage() {
               </div></>}
             </StepCard>
 
-            {/* 03 — protection */}
-
-
-            <StepCard n="03" title="Protection" sub="Choose how you cover the gear." done delay={140}>
-              <div className="flex flex-col gap-2.5">
-                <button
-                  onClick={() => setProtection("verify")}
-                  className={`group rounded-xl border p-4 text-left transition-all ${
-                    protection === "verify"
-                      ? "border-accent-400 bg-accent-400/10 accent-glow"
-                      : "border-white/10 hover:border-white/25"
-                  }`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                    <span className="flex min-w-0 flex-wrap items-center gap-2.5 text-sm font-medium text-white/85">
-                      <IconShield className={`h-4.5 w-4.5 shrink-0 ${protection === "verify" ? "text-accent-400" : "text-white/40"}`} />
-                      ID verification & security
-                      <span className="rounded bg-accent-500/20 px-1.5 py-0.5 font-mono text-[10px] uppercase text-accent-300">
-                        recommended
-                      </span>
-                    </span>
-                    <span className="shrink-0 font-mono text-sm text-accent-300">{smallDamageHold(equipmentValue) ? `${formatGbp(smallDamageHold(equipmentValue))} hold` : "No card hold"}</span>
-                  </div>
-                  <p className="mt-1.5 text-xs text-white/40">
-                    {formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("verify", equipmentValue))} refundable deposit at checkout{smallDamageHold(equipmentValue) > 0 ? `, plus a separate ${formatGbp(smallDamageHold(equipmentValue))} card hold at pickup.` : ". No separate card hold is required."} Pay first, then complete the automatic ID, selfie and address check. Approval is required before handover.
-                  </p>
-                </button>
-
-                {equipmentValue >= 1000 && <button
-                  onClick={() => setProtection("deposit")}
-                  className={`rounded-xl border p-4 text-left transition-all ${
-                    protection === "deposit"
-                      ? "border-accent-400 bg-accent-400/10 accent-glow"
-                      : "border-white/10 hover:border-white/25"
-                  }`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                    <span className="flex min-w-0 flex-wrap items-center gap-2.5 text-sm font-medium text-white/85">
-                      <IconLock className={`h-4.5 w-4.5 shrink-0 ${protection === "deposit" ? "text-accent-400" : "text-white/40"}`} />
-                      Full-value card hold
-                    </span>
-                    <span className="shrink-0 font-mono text-sm text-accent-300">{formatGbp(equipmentValue)} hold</span>
-                  </div>
-                  <p className="mt-1.5 text-xs text-white/40">{formatGbp(currentQuote?.securityWaiverReason ? 0 : depositChargeFor("deposit", equipmentValue))} refundable security payment at checkout, plus a separate {formatGbp(equipmentValue)} card hold at pickup. Automatic ID, selfie and address check before handover.</p>
-                </button>}
+            <StepCard n="03" title="Saved-card security" sub={savedCardQuoteReady?"No security money taken or blocked upfront.":"Payment remains paused until the updated quote is ready."} done={savedCardQuoteReady} delay={140}>
+              <div className="rounded-xl border border-accent-400/25 bg-accent-400/[.04] p-4">
+                <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 font-medium text-white"><IconShield className="h-5 w-5 text-accent-300"/>Damage &amp; late-fee collection limit</span><strong className="font-mono text-accent-300">{formatGbp(futureChargeLimit)}</strong></div>
+                <p className="mt-3 text-xs leading-6 text-white/65">{savedCardQuoteReady?"10% of your equipment replacement value: £100 per £1,000. We save your card during this checkout. No refundable deposit, card hold or hold renewal is created at checkout or pickup. A later, properly evidenced charge can fail or require bank approval.":"This quote uses the existing security policy. Updated saved-card checkout is temporarily unavailable; you cannot pay against this older quote."}</p>
+                <p className="mt-3 text-xs leading-6 text-white/50">Automatic ID, selfie and address checks must still be approved before handover.</p>
               </div>
-              <p className="mt-3 text-[11px] leading-5 text-white/45">Security is based on the combined replacement value of your gear{currentQuote ? ` (${formatGbp(equipmentValue)})` : ""}. The standard card authorisation is 10% of that value — £100 per £1,000, or £250 for £2,500 — rounded to the nearest penny. We save your card at checkout and request this authorisation automatically at your agreed pickup or delivery time. It reserves funds rather than charging them; your bank may ask you to authenticate. The optional full-value hold remains available for equipment worth £1,000 or more, with its separately quoted refundable payment. Any eligible waiver is shown in your quote.</p>
             </StepCard>
 
             {/* 04 — agreements */}
             <StepCard n="04" title="Agreements & signature" sub="Required before hire. Security does not cap your responsibility." done={signDone} delay={210}>
               <div data-testid="rental-consent" className="rounded-xl border border-white/10 bg-black/10 p-4">
-                <p className="text-xs leading-5 text-white/60">{depositAmount > 0 ? `${formatGbp(depositAmount)} refundable deposit is charged with this booking.` : "Your upfront refundable deposit is waived."} {holdAmount > 0 ? `I agree that Stripe saves my card at checkout and DB automatically requests a separate ${formatGbp(holdAmount)} card hold at my agreed pickup or delivery time, equal to ${protection === "deposit" ? "the full equipment value" : "10% of the equipment value"}. I authorise an attempted replacement hold of the same agreed amount within 24 hours of bank expiry if still required. It is not charged; bank approval may be needed, and both holds may briefly appear before the earlier one is released.` : "No separate card hold is required."}</p>
-                <p className="mt-2 text-xs leading-5 text-white/60">I remain responsible for evidenced loss, theft, missing items, non-return and damage under the Rental Agreement, excluding fair wear, pre-existing defects and loss attributable to DB. Security and DB’s insurance excess are not automatic liability caps. My own insurance is optional for currently declared company-owned or declared leased kit; rental charges do not buy comprehensive renter cover. Separately itemised late time and properly owed loss/damage follow notice, evidence and a dispute opportunity. An unused active hold may cover late time if no damage is due; a remaining saved-card payment may require authentication. No amount is collected twice.</p>
+                <p data-testid="saved-card-consent-text" className="text-xs leading-6 text-white/75">{savedCardConsentText(futureChargeLimit)}</p>
                 <details className="mt-3 text-xs text-white/55"><summary className="cursor-pointer text-accent-300">Read the rental agreements</summary><ul className="mt-2 space-y-1.5">{AGREEMENTS.map(d=><li key={d.kind}><a href={`/legal/${d.kind}?version=${encodeURIComponent(d.version)}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{d.title} · {d.version}</a></li>)}</ul></details>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">
                   <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreed} disabled={!currentQuote} onChange={e=>{setAgreed(e.target.checked);agreementRequest.current=null;}} className="mt-1 accent-accent-500 disabled:opacity-40"/>
-                  <span>I have read and accept the rental agreements, the security amounts above and the separate later-charge authority.</span>
+                  <span>I have read and accept the rental agreements and expressly authorise the saved-card damage/late-fee payments described above, up to {formatGbp(futureChargeLimit)} in total. No security payment or hold is taken now.</span>
                 </label>
               </div>
               <div className="mt-4">
@@ -532,7 +499,7 @@ export default function CheckoutPage() {
                   id="co-sig"
                   value={signature}
                   disabled={!draftReady || !currentQuote || busy}
-                  onChange={(e) => setSignature(e.target.value)}
+                  onChange={(e) => { signatureLimit.current = futureChargeLimit; signedContext.current = signingContext; setSignature(e.target.value); }}
                   placeholder="Your signature"
                   className="input serif-accent w-full border-b-2 border-b-accent-400/30 !text-xl text-white/90 placeholder:font-sans placeholder:text-sm"
                 />
@@ -576,10 +543,8 @@ export default function CheckoutPage() {
               <div data-testid="checkout-secondary-charges" className="space-y-2">
                 {!!membership && <Row label={membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"} value={currentQuote?.membershipFee ?? 0} muted />}
                 <section data-testid="refundable-security" className="mt-3 rounded-xl border border-white/10 bg-white/[.015] p-3">
-                  <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">Fully refundable security</h3>
-                  <Row label={currentQuote?.securityWaiverReason ? "Refundable deposit · waived" : "Refundable deposit · charged today"} value={depositAmount} muted />
-                  {holdAmount > 0 ? <div className="mt-2"><Row label="Card authorisation at pickup · not charged" value={holdAmount} muted /></div> : <p className="mt-2 text-[11px] text-white/40">No card hold required.</p>}
-                  <p className="mt-3 text-[10px] leading-4 text-white/45">Your deposit is refunded in full after safe return and settlement, less any agreed charges under the rental terms. Any uncaptured hold is released separately; it is not included in the amount charged.</p>
+                  <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">{savedCardQuoteReady?'Saved-card collection permission':'Existing quote · payment paused'}</h3>
+                  {savedCardQuoteReady?<><Row label="Damage & late-fee limit · not charged" value={futureChargeLimit} muted /><p className="mt-3 text-[10px] leading-5 text-white/55">No security money is charged or blocked now or at pickup. This limit is excluded from today’s total.</p></>:<><Row label="Previous policy refundable deposit" value={currentQuote?.depositAmount??0} muted/><Row label="Previous policy card authorisation" value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">The updated quote must remove these security amounts before payment is available.</p></>}
                 </section>
               </div>
               <hr className="receipt-sep" />
@@ -587,7 +552,7 @@ export default function CheckoutPage() {
                 <span>Total due</span>
                 <span data-testid="checkout-due" className="font-mono">{currentQuote ? formatGbp(currentQuote.combinedTotalDue) : "Calculating…"}</span>
               </div>
-              {!!membership && currentQuote && <p className="mt-2 text-[11px] leading-5 text-white/50">Includes the rental with credits applied, {currentQuote.membershipFee > 0 ? "your first subscription month and " : ""}the refundable deposit shown above. The card authorisation is excluded.</p>}
+              {!!membership && currentQuote && <p className="mt-2 text-[11px] leading-5 text-white/50">Includes the rental with credits applied, {currentQuote.membershipFee > 0 ? "your first subscription month and " : ""}any delivery charge. The saved-card collection limit is excluded.</p>}
             </div>
             {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
             {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}

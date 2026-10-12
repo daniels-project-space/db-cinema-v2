@@ -1,6 +1,12 @@
 /** Canonical security amounts, based on combined catalog replacement value. */
 export type Protection = "verify" | "deposit";
-export const SECURITY_POLICY_VERSION = "2026-10-ten-percent-hold-v2";
+export const SECURITY_POLICY_VERSION = "2026-10-saved-card-v1";
+export const LEGACY_TEN_PERCENT_HOLD_POLICY = "2026-10-ten-percent-hold-v2";
+/** An agreed collection ceiling, not a bank authorisation or reserved balance. */
+export function savedCardChargeLimit(replacementSum: number) {
+  if (!Number.isFinite(replacementSum) || replacementSum < 0) throw Error("Invalid equipment replacement value.");
+  return Math.round(replacementSum * 10) / 100;
+}
 
 /** Retain the agreed security policy for additions to older bookings. */
 export function legacyDepositFor(protection: Protection, replacementSum: number): number {
@@ -17,14 +23,20 @@ export function valueBandSecurity(protection: Protection, replacementSum: number
 
 /** Standard card authorisations are 10% of authoritative equipment value.
  * The optional full-value choice and separate upfront payments keep their prior rules. */
-export function rentalSecurity(protection: Protection, replacementSum: number) {
+function tenPercentHoldSecurity(protection: Protection, replacementSum: number) {
   const previous = valueBandSecurity("verify", replacementSum);
   if (protection === "deposit" && replacementSum >= 1000) return valueBandSecurity("deposit", replacementSum);
   return { deposit: previous.deposit, hold: Math.round(replacementSum * 10) / 100 };
 }
 
+export function rentalSecurity(_protection: Protection, replacementSum: number) {
+  savedCardChargeLimit(replacementSum);
+  return { deposit: 0, hold: 0 };
+}
+
 export function securityForPolicy(version: string | undefined, protection: Protection, value: number) {
   if (version === SECURITY_POLICY_VERSION) return rentalSecurity(protection, value);
+  if (version === LEGACY_TEN_PERCENT_HOLD_POLICY) return tenPercentHoldSecurity(protection, value);
   if (version === "2026-10-value-bands-v1") return valueBandSecurity(protection, value);
   const hold = legacyDepositFor(protection, value);
   return { hold, deposit: Math.round(hold * 50) / 100 };

@@ -30,6 +30,8 @@ crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {
 crons.daily("review-story-prize-deadlines", { hourUTC: 8, minuteUTC: 15 }, internal.reviewPrize.maintenance, {});
 crons.interval("settled-rental-review-emails", { hours: 12 }, internal.reviewFollowUp.processDue, {});
 crons.interval("late-fee-notices-and-collection", { hours: 1 }, internal.lateFees.processDue, {});
+// Provider reads only: an administrator must explicitly initiate each collection.
+crons.interval("saved-card-charge-reconciliation", { minutes: 5 }, internal.securityCharges.processPending, {});
 crons.interval("send-return-statements", { hours: 1 }, internal.invoice.retryReturnStatements, {});
 // This is an expiry check, not a repeated charge. A hold is replaced only when it
 // is within 24 hours of its issuer-provided expiry, so a six-hour cadence leaves

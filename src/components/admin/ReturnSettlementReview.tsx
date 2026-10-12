@@ -16,14 +16,14 @@ export function ReturnSettlementReview({ data, busy, enabled, onReview, paymentS
   return <section className={styles.review}>
     <div className={styles.reviewHead}><div><h3>Settlement review</h3><p>Review the card balance, itemised statement and email before confirming.</p></div><button type="button" disabled={!enabled || busy} onClick={onReview}>{busy ? "Preparing statement…" : data ? "Refresh review" : "Review statement & email"}</button></div>
     <div className={styles.settlementColumns}>{paymentSummary}<section className={styles.settlementPreview}><h4>Settlement preview</h4>{data ? <>
-      <dl className={styles.reviewAmounts}>
+      {data.financial.savedCardLimit!==undefined?<><dl className={styles.reviewAmounts}><div><dt>Damage/loss assessed · not collected</dt><dd>{formatGbp(data.financial.damageAssessed)}</dd></div><div><dt>Late time assessed · not collected</dt><dd>{formatGbp(data.financial.lateAssessed)}</dd></div><div><dt>Combined saved-card collection limit</dt><dd>{formatGbp(data.financial.savedCardLimit)}</dd></div></dl><p>No money is charged by confirming this return. Any card collection requires a separate itemised notice, dispute period and admin action. Further amounts above the limit require separate payment approval.</p></>:<><dl className={styles.reviewAmounts}>
         <div><dt>{data.securityAlreadySettled ? "Cash deposit refunded" : "Expected cash deposit refund"}</dt><dd>{formatGbp(data.financial.depositRefund)}</dd></div>
         <div><dt>Authorisation release in this step · not a cash refund</dt><dd>{formatGbp(data.financial.holdRelease)}</dd></div>
         <div><dt>Damage from card hold</dt><dd>{formatGbp(data.financial.damageFromHold)}</dd></div>
         <div><dt>Damage from cash deposit</dt><dd>{formatGbp(data.financial.damageFromDeposit)}</dd></div>
         <div><dt>Separate late rental assessed · not yet collected</dt><dd>{formatGbp(data.financial.lateAssessed)}</dd></div>
         {data.financial.lateWaived > 0 && <div><dt>Late rental waived</dt><dd>{formatGbp(data.financial.lateWaived)}</dd></div>}
-      </dl>
+      </dl></>}
       {data.financial.holdRetainedForLate > 0 && <p>{formatGbp(data.financial.holdRetainedForLate)} remains authorised for the separate late-rental notice and dispute process. It is not charged now.</p>}
       <p>{data.draft ? "Draft only. Current card balances are checked again at confirmation; previewing sends no email and moves no money." : "This is the issued return statement. Security has already been settled."}</p>
     </> : <p>Complete the inspection to prepare the review. Editing any return decision requires a fresh review.</p>}</section></div>

@@ -9,7 +9,7 @@ import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
 import { depositFor, depositChargeFor } from "./pricing";
-import { SECURITY_POLICY_VERSION } from "../../shared/rentalSecurity";
+import { SECURITY_POLICY_VERSION, savedCardChargeLimit } from "../../shared/rentalSecurity";
 import { londonMonth } from "./memberDelivery";
 import { tierByKey, paidDepositExempt } from "./membership";
 
@@ -51,6 +51,7 @@ export type RentalPrice = {
   freedCount: number;
   subtotal: number;
   replacementSum: number;
+  savedCardLimit: number;
   protection: "verify" | "deposit";
   depositHoldAmount: number;
   depositAmount: number;
@@ -110,7 +111,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const depositHoldAmount = depositFor(protection, replacementSum);
   let repeatSourceBookingId: Id<"bookings"> | undefined;
   let repeatSourceFingerprint: string | undefined;
-  if (acct && a.token && !selected && !paidDepositExempt(acct) && process.env.STRIPE_SECRET_KEY) {
+  if (depositChargeFor(protection,replacementSum)>0 && acct && a.token && !selected && !paidDepositExempt(acct) && process.env.STRIPE_SECRET_KEY) {
     const previous: any = await ctx.runQuery(internal.repeatRentals.candidate,{token:a.token,kit:a.items.map(i=>({listingId:i.listingId,qty:i.qty}))});
     if (previous) {
       try { if (await providerRepeatGate(previous.booking,new Stripe(process.env.STRIPE_SECRET_KEY))) {repeatSourceBookingId=previous.booking._id;repeatSourceFingerprint=previous.fingerprint;} }
@@ -199,7 +200,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     pricingVersion:SINGLE_BENEFIT_VERSION,benefitKind,refundCreditApplied,earnedCreditApplied,
     referralCode:benefitKind==="referral_friend"?referral.friend.code:undefined,
     referralRewardId:benefitKind==="referral_reward"?referral.reward.id:undefined,
-    items,customerEmail,acct,month,freedCount,subtotal,replacementSum,protection,
+    items,customerEmail,acct,month,freedCount,subtotal,replacementSum,protection,savedCardLimit:savedCardChargeLimit(replacementSum),
     securityPolicyVersion:SECURITY_POLICY_VERSION,depositHoldAmount,depositAmount,appliedCode,totalReduction,reductionLabel:chosen.kind==="none"?undefined:chosen.label,
     quotedDeliveryFee,deliveryFee,deliveryBenefitMonth,deliveryReduction,securityWaiverReason,weekendSaving,
     rentalSaving:totalReduction,loyaltySaving,membershipSignupOfferSaving,repeatSourceBookingId,repeatSourceFingerprint,

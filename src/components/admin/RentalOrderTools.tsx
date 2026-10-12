@@ -12,6 +12,7 @@ import { formatGbp } from "@/lib/pricing";
 import { rentalHandoverLabel } from "../../../shared/rentalHandover";
 import { rentalDate } from "@/lib/rentalPresentation";
 import { RentalRequestHistory } from "@/components/rentals/RentalRequestHistory";
+import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
 
 export function RentalOrderTools({
   token,
@@ -534,6 +535,7 @@ export function RentalOrderTools({
           {result}
         </p>
       )}
+      <SavedCardCharges token={token} bookingId={bookingId} admin />
     </div>
   );
 }

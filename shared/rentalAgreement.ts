@@ -21,6 +21,7 @@ export type AgreementSnapshot = {
     subtotal: number; discount: number; deliveryFee: number; securityPayment: number;
     securityHold: number; total: number; creditApplied: number; currency: string;
     securityPolicyVersion: string | null; securityWaiverReason: string | null;
+    savedCardLimit?: number; savedCardConsent?: string;
     serialConditionSchedule: "pending-agreed-handover";
   };
 };
@@ -50,6 +51,7 @@ export function snapshotAgreement(a: any, acceptedAt: number, chargedTotal: numb
       lineItems:a.lineItems.map((line:any)=>({...line})),subtotal:a.subtotal,discount:a.discount??0,deliveryFee:a.deliveryFee,
       securityPayment:a.depositAmount,securityHold:a.depositHoldAmount??0,total:chargedTotal,creditApplied,currency:a.currency,
       securityPolicyVersion:a.securityPolicyVersion??null,securityWaiverReason:a.securityWaiverReason??null,
+      ...(a.savedCardLimit !== undefined ? {savedCardLimit:a.savedCardLimit,savedCardConsent:a.savedCardConsentText} : {}),
       serialConditionSchedule:"pending-agreed-handover"},
   };
   return JSON.stringify(snapshot);

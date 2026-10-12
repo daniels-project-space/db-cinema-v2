@@ -77,10 +77,10 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
       runAction: async (ref,args) => { if(ref==='sync:syncHyggloReservations')return {mirrored:0,rows:0}; assert.equal(ref,'delivery:quote'); assert.equal(args.postcode,deliveryPostcode.replace(/\s/g,'').toUpperCase()); assert.equal(args.listingIds.length,prices.length); return {ok:true,fee:quotedFee}; },
       runMutation: async (ref,args) => { assert.equal(ref,'bookings:createPending'); pending=args; throw stop; },
     };
-    const args={items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),token,customer:{email:customerEmail,name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:fulfilment==='delivery'?[...AGREEMENTS,{kind:'delivery-disclaimer',version:'2026-10-delivery-v2'}]:AGREEMENTS}};
+    const args={expectedSavedCardLimit:prices.length*100*qty,items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),token,customer:{email:customerEmail,name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:fulfilment==='delivery'?[...AGREEMENTS,{kind:'delivery-disclaimer',version:'2026-10-delivery-v2'}]:AGREEMENTS}};
     if (!expectedError || expectedTotalOverride !== undefined) {
       const quote = await priceQuote.handler(ctx,{items:args.items,token,customerEmail,fulfilment,address,deliveryPostcode,promoCode:code});
-      args.expectedTotalDue = expectedTotalOverride ?? quote.totalDue;
+      args.expectedTotalDue = expectedTotalOverride ?? quote.totalDue;args.expectedSavedCardLimit=quote.savedCardLimit;
     }
     if (expectedError) {
       await assert.rejects(start.handler(ctx,args),expectedError);
@@ -103,7 +103,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   await checkout([400],{token:'signed-in-session',customerEmail:'other@example.invalid',expectedError:/signed-in account email/});
   order=await checkout([400],{customerEmail:'TEST@EXAMPLE.INVALID'});assert.equal(order.customerEmail,'test@example.invalid');
   order=await checkout([400],{token:'signed-in-session',customerEmail:'owner@example.invalid',availableCredit:30});
-  assert.equal(order.expectedTotalDue,395,'the quoted total includes account credit but keeps the £25 refundable payment');
+  assert.equal(order.expectedTotalDue,370,'the quoted total applies credit without any refundable security charge');
   await checkout([400],{expectedTotalOverride:1,expectedError:/rental total has changed/});
 
   // A second checkout can reserve account credit after the preview. The booking
@@ -121,7 +121,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   };
   await assert.rejects(createPending.handler({db:raceDb},{
     customerEmail:'owner@example.invalid',fulfilment:'pickup',deliveryFee:0,
-    lineItems:[],subtotal:200,depositAmount:25,total:225,expectedTotalDue:225,
+    lineItems:[],subtotal:200,depositAmount:25,total:225,expectedTotalDue:200,expectedSavedCardLimit:100,
     creditAccountId:'acct-1',currency:'GBP',
   }),/available credit changed/);
   assert.equal(inserted,false);
@@ -148,23 +148,23 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   const checkoutResult=await start.handler(checkoutCtx,{
     items:[{listingId:'camera-1',title:'Forged camera',start:0,end:0,qty:1,total:1,deposit:0}],
     customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},
-    fulfilment:'pickup',deliveryFee:0,expectedTotalDue:225,pickupTime:'10:00',returnTime:'18:00',
+    fulfilment:'pickup',deliveryFee:0,expectedTotalDue:200,expectedSavedCardLimit:100,pickupTime:'10:00',returnTime:'18:00',
     agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS},
     origin:'https://attacker.invalid',
   });
   assert.equal(checkoutResult.url,'https://checkout.stripe.test/session');
   assert.equal(savedBooking.lineItems[0].title,'Real camera');
-  assert.equal(savedBooking.depositHoldAmount,100);
-  assert.equal(savedBooking.depositAmount,25);
+  assert.equal(savedBooking.depositHoldAmount,0);
+  assert.equal(savedBooking.depositAmount,0);
   assert.equal(StripeStub.lastCheckout.line_items[0].price_data.unit_amount,20000);
-  assert.equal(StripeStub.lastCheckout.line_items[1].price_data.unit_amount,2500);
+  assert.equal(StripeStub.lastCheckout.line_items.length,1,'Only the rental is charged; no security line');assert.equal(StripeStub.lastCheckout.payment_intent_data.setup_future_usage,'off_session');
   assert.equal(StripeStub.lastCheckout.success_url,'https://example.invalid/checkout/success?session_id={CHECKOUT_SESSION_ID}');
   assert.equal(StripeStub.lastCheckout.cancel_url,'https://example.invalid/cart');
   const ordinaryQuery=checkoutCtx.runQuery;
   checkoutCtx.runQuery=async(ref,args)=>ref==='promo:validate'?{valid:true,discount:10,code:'TEN'}:ordinaryQuery(ref,args);
-  await start.handler(checkoutCtx,{items:[{listingId:'camera-1',title:'Camera',start:0,end:0,qty:1,total:1,deposit:0}],customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment:'pickup',deliveryFee:0,expectedTotalDue:215,promoCode:'TEN',pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}});
+  await start.handler(checkoutCtx,{items:[{listingId:'camera-1',title:'Camera',start:0,end:0,qty:1,total:1,deposit:0}],customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment:'pickup',deliveryFee:0,expectedTotalDue:190,expectedSavedCardLimit:100,promoCode:'TEN',pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}});
   assert.equal(StripeStub.lastCheckout.line_items[0].price_data.unit_amount,19000,'nonmember discount reduces rental only');
-  assert.equal(StripeStub.lastCheckout.line_items[1].price_data.unit_amount,2500,'nonmember/referral checkout protects the full upfront security line');
+  assert.equal(StripeStub.lastCheckout.line_items.length,1,'Nonmembers and referrals also pay no upfront security');
   assert.equal(StripeStub.lastCheckout.discounts,undefined,'no global coupon may discount security');
 
   // An inventory rejection happens before Stripe creation. Exercise the real
@@ -179,7 +179,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
     if(ref==='bookings:placeHolds')throw Error('Physical equipment is already reserved');
     if(ref==='bookings:expireUnpaidPending')return stockBookings.expireUnpaidPending.handler({db:stockHarness.db},args);
     throw Error('Unexpected stock-rejection mutation '+ref);
-  }},{items:[{listingId:'camera-1',title:'Camera',start:0,end:0,qty:1,total:1,deposit:0}],customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment:'pickup',deliveryFee:0,expectedTotalDue:225,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-stock-rejection-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}}),error=>{assert.equal(error.data.code,'CHECKOUT_STOCK_REJECTED');assert.equal(error.data.freshAcceptanceRequired,true);assert.match(error.data.message,/already reserved/);return true;});
+  }},{items:[{listingId:'camera-1',title:'Camera',start:0,end:0,qty:1,total:1,deposit:0}],customer:{email:'test@example.invalid',name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment:'pickup',deliveryFee:0,expectedTotalDue:200,expectedSavedCardLimit:100,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-stock-rejection-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:AGREEMENTS}}),error=>{assert.equal(error.data.code,'CHECKOUT_STOCK_REJECTED');assert.equal(error.data.freshAcceptanceRequired,true);assert.match(error.data.message,/already reserved/);return true;});
   assert.equal(StripeStub.lastCheckout,priorCheckout,'Stock rejection cannot create a payment session');
   assert.equal(failedStockBooking.status,'cancelled','Actual cleanup releases the unbound pending order/credit reservation');
   assert.deepEqual(stockCalls.map(c=>c.ref),['bookings:createPending','bookings:placeHolds','bookings:expireUnpaidPending']);

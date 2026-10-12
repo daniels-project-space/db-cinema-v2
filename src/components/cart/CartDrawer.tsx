@@ -138,7 +138,7 @@ export function CartDrawer() {
             )}
             {!!membership && <div className="mt-2 flex justify-between gap-3 text-[11px] text-white/40"><span>{membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"}</span><span className="font-mono">{quote ? formatGbp(quote.membershipFee) : "…"}</span></div>}
             <p className="mt-1 text-[11px] leading-snug text-white/35">
-              Delivery and refundable security are calculated at checkout.
+              Delivery and saved-card permission are calculated at checkout.
             </p>
             {error && (
               <p role="alert" className="mt-1 text-xs text-red-300">

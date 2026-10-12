@@ -234,7 +234,7 @@ export default function CartPage() {
                         : "Calculating…"}
                     </span>
                   </div>
-                  <p className="text-[11px] leading-relaxed text-white/40">Rental charges{membership ? " + subscription" : ""}, after applied credit. Delivery and refundable security are calculated at checkout.</p>
+                  <p className="text-[11px] leading-relaxed text-white/40">Rental charges{membership ? " + subscription" : ""}, after applied credit. Delivery and saved-card permission are calculated at checkout.</p>
                 </div>
 
                 {!checkout.enabled ? <><button data-testid="checkout-paused-button" type="button" disabled className="mt-5 w-full cursor-not-allowed rounded-full bg-white/10 py-3 text-white/50">Checkout temporarily paused</button><CheckoutPauseNotice loading={checkout.loading}/></> : blocked ? (

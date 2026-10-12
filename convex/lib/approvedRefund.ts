@@ -46,6 +46,7 @@ async function approvedResult(stripe: Stripe, receipt: RefundReceipt, currency: 
 
 export async function recoverApprovedRefund(stripe: Stripe, receipt: RefundReceipt, options: {
   currency: string; idempotencyKey: string; metadata?: Record<string, string>; now: number;
+  maxRefunds?: number;
   persist: (receipt: RefundReceipt) => Promise<void>;
 }): Promise<RefundReceipt> {
   if (receipt.stripeRefundId) return checkedRefund(await stripe.refunds.retrieve(receipt.stripeRefundId), receipt, options.currency);
@@ -53,7 +54,9 @@ export async function recoverApprovedRefund(stripe: Stripe, receipt: RefundRecei
   // Recover an ambiguous network response by our unique metadata, never by amount alone.
   if (options.metadata) {
     const matches: Stripe.Refund[] = [];
+    let scanned=0;
     for await (const refund of stripe.refunds.list({ payment_intent: receipt.paymentIntentId, limit: 100 })) {
+      if(options.maxRefunds!==undefined&&++scanned>options.maxRefunds)throw new RefundReviewRequired("Refund history exceeds the safe review bound. No new refund has been issued.");
       if (Object.entries(options.metadata).every(([key, value]) => refund.metadata?.[key] === value)) matches.push(refund);
     }
     if (matches.length > 1) throw new RefundReviewRequired("Multiple Stripe receipts need review before this cancellation can finish.");

@@ -6,6 +6,7 @@ import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalAdditionApproval } from "./RentalAdditionApproval";
 import { RentalExtensionPanel } from "./RentalExtensionPanel";
+import { SavedCardCharges } from "./SavedCardCharges";
 import { RENTAL_STAGE_LABELS } from "@/lib/rentalPresentation";
 import { ChatAvatar, GafferIcon } from "./ChatIdentity";
 import { RentalCreditOffer } from "./RentalCreditOffer";
@@ -241,6 +242,7 @@ export function RentalConversation({
         <RentalAdditionApproval token={token} bookingId={bookingId} />
       )}
       {bookingId && (!admin || !tools) && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
+      {!admin && bookingId && <SavedCardCharges token={token} bookingId={bookingId} />}
       <div
         ref={body}
         className={`management-conversation-messages ${styles.messages}`}

@@ -31,6 +31,9 @@ export type EnrichedBooking = {
   depositAmount: number;
   depositHoldAmount?: number;
   depositHoldStatus?: string | null;
+  securityPolicyVersion?: string | null;
+  savedCardStatus?: string | null;
+  savedCardLimit?: number | null;
   depositHoldExpiresAt?: number | null;
   securityHoldPolicyVersion?: string | null;
   securityHoldDueAt?: number | null;

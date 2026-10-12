@@ -5,6 +5,7 @@ import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { sendMail } from "./lib/mailer";
+import { isSavedCardRental } from "../shared/savedCardSecurity";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const gbp = (value: number) => `£${value.toFixed(2)}`;
@@ -139,6 +140,7 @@ export const collectOne = internalAction({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, { bookingId }) => {
     if (process.env.LATE_FEE_AUTOCOLLECT_ENABLED !== "true") return;
+    if (isSavedCardRental(await ctx.runQuery(internal.bookings.lateFeeContext,{bookingId}))) return;
     if (!(await ctx.runMutation(internal.bookings.claimLateCharge, { bookingId }))) return;
     const b: any = await ctx.runQuery(internal.bookings.lateFeeContext, { bookingId });
     const key = process.env.STRIPE_SECRET_KEY;
