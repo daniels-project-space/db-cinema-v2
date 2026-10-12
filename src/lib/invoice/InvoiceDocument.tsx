@@ -185,6 +185,7 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
         <View style={s.grand}><Text style={[s.grandTxt,{maxWidth:"75%",flexShrink:1}]}>Rental charges</Text><Text style={s.grandTxt}>{gbp(rentalGross)}</Text></View>
         {data.creditApplied > 0 ? <View style={s.totRow}><Text>Store credit used</Text><Text>−{gbp(data.creditApplied)}</Text></View> : null}
         <View style={s.totRow}><Text>Refundable security payment taken</Text><Text>{gbp(data.securityPaid)}</Text></View>
+        {data.savedCardLimit!==undefined&&<><View style={s.totRow}><Text>Saved-card collection limit · not charged or held</Text><Text>{gbp(data.savedCardLimit)}</Text></View><View style={s.totRow}><Text>Damage/loss assessed · not collected by this return</Text><Text>{gbp(data.damageAssessed??0)}</Text></View></>}
         <View style={s.totRow}><Text>Card charged at checkout</Text><Text>{gbp(data.checkoutPaid)}</Text></View>
         {(data.rentalRefunded??0)>0&&<View style={s.totRow}><Text>Rental payment already refunded</Text><Text>−{gbp(data.rentalRefunded!)}</Text></View>}
         <View style={s.totRow}><Text>{draft ? "Expected security refund at return" : "Security payment refunded at return"}</Text><Text>−{gbp(data.securityRefunded)}</Text></View>
@@ -197,7 +198,7 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
         {data.agreedReturnTime ? <Text style={s.note}>Agreed return slots are shown against each item above (legacy default: {data.agreedReturnTime} London time). Actual return: {dateTime(data.actualReturnedAt)} London time.</Text> : null}
         {data.lateWaived > 0 ? <Text style={s.note}>Late rental time waived: {gbp(data.lateWaived)}.</Text> : null}
         {data.lateBreakdown.map((line, i) => <Text key={i} style={s.note}>{line.title}: {line.days} extra day{line.days === 1 ? "" : "s"} × {gbp(line.dailyRate)} = {gbp(line.amount)}</Text>)}
-        <Text style={s.note}>{draft ? "Expected hold status after settlement" : "Card hold status at return"}: {data.holdStatus || "not recorded"}. {data.damageTotal > 0 ? "The damage deduction used the hold first; a separate late charge is not taken from that same hold." : "An unused active hold may be applied to a late charge after notice; the issuer controls expiry."}</Text>
+        <Text style={s.note}>{data.savedCardLimit!==undefined?"No security payment or card hold was created. This return statement does not execute a damage or late-fee payment; any collection requires a separate itemised notice, seven-day dispute period and administrator approval.":(draft ? "Expected hold status after settlement" : "Card hold status at return")+": "+(data.holdStatus || "not recorded")+". "+(data.damageTotal > 0 ? "The damage deduction used the hold first; a separate late charge is not taken from that same hold." : "An unused active hold may be applied to a late charge after notice; the issuer controls expiry.")}</Text>
         <Text style={s.note}>Db Cinema Rentals is not VAT registered. No VAT is charged. This return statement is not a VAT invoice.</Text>
       </View>
     </Page>

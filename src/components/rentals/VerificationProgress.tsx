@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { IdVerify } from "@/components/IdVerify";
@@ -20,6 +20,13 @@ import styles from "./VerificationProgress.module.css";
 import { DroneLicenceUpload } from "./DroneLicence";
 import { useVerificationRefresh } from "./useVerificationRefresh";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
+import {SECURITY_POLICY_VERSION} from '../../../shared/rentalSecurity';
+
+function SavedCardSetup({token,booking}:{token:string;booking:any}) {
+  const retry=useAction(api.checkout.retrySavedCard);
+  const [busy,setBusy]=useState(false),[error,setError]=useState('');
+  return <section className={styles.hold} aria-label="Rental saved-card setup"><strong>{booking.savedCardStatus==='saved'?'Checkout card saved':'Saved-card setup needs attention'}</strong><p>No security money is taken or blocked. Your combined damage and late-fee permission is {formatGbp(booking.savedCardLimit??0)}.</p>{booking.savedCardStatus==='needs_setup'&&<button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await retry({token,bookingId:booking._id});}catch{setError('The original checkout card could not be confirmed. Contact the team in your rental conversation.');}finally{setBusy(false);}}}>{busy?'Checking…':'Retry confirming checkout card'}</button>}{error&&<p role="alert">{error}</p>}</section>;
+}
 
 function useVerificationClock(booking?: VerificationBooking | null) {
   const [now, setNow] = useState(() => Date.now());
@@ -466,15 +473,16 @@ export function VerificationProgress({
                     <dd>{formatGbp(booking.deliveryFee)}</dd>
                   </div>
                 )}
-                <div>
+                {booking.depositAmount>0&&<div>
                   <dt>Refundable deposit</dt>
                   <dd>{formatGbp(booking.depositAmount)}</dd>
-                </div>
+                </div>}
                 <div className={styles.total}>
                   <dt>Booking total</dt>
                   <dd>{formatGbp(booking.total)}</dd>
                 </div>
               </dl>
+              {booking.securityPolicyVersion===SECURITY_POLICY_VERSION&&account.token&&<SavedCardSetup key={JSON.stringify([account.token,booking._id])} token={account.token} booking={booking}/>}
               {booking.depositHoldAmount > 0 && (
                 <div className={styles.hold}>
                   <div className={styles.holdTop}>
@@ -536,7 +544,7 @@ export function VerificationProgress({
           journey.closed
             ? "View your rental details and conversation."
             : approved
-              ? "Your documents are approved. Check your pickup and card hold below."
+              ? booking.securityPolicyVersion===SECURITY_POLICY_VERSION ? "Your documents are approved. Check your pickup and saved-card setup below." : "Your documents are approved. Check your pickup and card hold below."
               : "Complete verification to get ready for pickup."
         }
         active="rentals"

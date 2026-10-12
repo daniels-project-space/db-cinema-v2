@@ -188,7 +188,7 @@ export function CheckoutMembership({
     displayTier.key === "studio"
       ? "One London delivery included each month"
       : `${displayTier.deliveryPct}% off future delivery`,
-    "Future rentals: no upfront deposit · applicable card hold remains",
+    "New rentals: no upfront deposit · saved-card permission applies",
     displayTier.filmFund
       ? "Film Fund entry included when applications open"
       : "Film Fund entry £15/project when applications open",
@@ -392,8 +392,8 @@ export function CheckoutMembership({
         {!current && (
           <p className={compact ? "mt-1 text-[9px] leading-3 text-white/45" : "mt-2 text-[10px] leading-4 text-white/45"}>
             {compact
-              ? "First rental: normal verification & refundable security. Other perks start next booking."
-              : "This first rental still requires verification and normal upfront refundable security. Other perks start on future bookings."}
+              ? "First rental: verification & saved-card setup. Other perks start next booking."
+              : "This first rental still requires verification and saved-card setup. Other perks start on future bookings."}
           </p>
         )}
         {variant !== "checkout" && <button
@@ -505,7 +505,7 @@ export function CheckoutMembership({
               </div>
               <p className="mt-5 text-xs text-white/40">
                 Paid monthly membership. This first rental still requires
-                verification and normal refundable security. Cancel renewal in
+                verification and saved-card consent. Cancel renewal in
                 account settings.
               </p>
             </div>

@@ -10,6 +10,8 @@ import { ReturnSettlementReview } from "./ReturnSettlementReview";
 import styles from "./ReturnRentalForm.module.css";
 import { SmartImage } from "../SmartImage";
 
+import {isSavedCardRental,savedCardRentalValue} from "../../../shared/savedCardSecurity";
+
 const localNow = () => {
   const now = new Date();
   return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -46,6 +48,9 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     catch { return null; }
   }, [booking.lineItems, booking.returnTime, at]);
   const damageAmount = Number(damage);
+  const savedCard=isSavedCardRental(booking);
+  let damageLimit=booking.depositAmount+(booking.depositHoldAmount??0);
+  if(savedCard){try{damageLimit=savedCardRentalValue(booking);}catch{damageLimit=0;}}
   const legacyResume = !!saved && !saved.inspection;
   const inspectionValid = useMemo(() => {
     if (legacyResume) return true;
@@ -53,7 +58,7 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     try { normalizeReturnInspection(schedule.items, Object.values(conditions), damageAmount); return true; } catch { return false; }
   }, [legacyResume, schedule, conditions, damageAmount]);
   const valid = !!quote && Number.isFinite(at) && at <= Date.now() + 60000 && Number.isFinite(damageAmount) && damageAmount >= 0 &&
-    damageAmount <= booking.depositAmount + (booking.depositHoldAmount ?? 0) &&
+    damageAmount <= damageLimit &&
     (damageAmount === 0 || damageNote.trim().length >= 10) &&
     (chargeLate || !quote?.amount || waiverReason.trim().length >= 5) && inspectionValid;
 
@@ -111,12 +116,12 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
       {quote && quote.amount > 0 && <label className="mt-2 flex items-center gap-2"><input type="checkbox" disabled={working || reviewBusy || !!saved} checked={chargeLate} onChange={(e) => setChargeLate(e.target.checked)} /> Apply this separately agreed late rental charge</label>}
       {quote && quote.amount > 0 && !chargeLate && <label className="mt-2 block">Reason for waiving late time<input disabled={working || reviewBusy || !!saved} value={waiverReason} onChange={(e) => setWaiverReason(e.target.value)} className="input mt-1 w-full" placeholder="Required for the booking record" /></label>}
     </div>
-    <p className="mt-3 text-white/45">An active card hold covers damage first. If there is no damage, an unused active hold may cover the late charge after the separate notice and dispute period. Any remaining late balance is a separate saved-card attempt.</p>
+    <p className="mt-3 text-white/45">{savedCard ? "This records the inspection and assessed late time only. No money is taken here. Prepare an itemised notice and collect a properly owed amount separately using the saved-card controls, within the agreed combined limit." : "An active card hold covers damage first. If there is no damage, an unused active hold may cover the late charge after the separate notice and dispute period. Any remaining late balance is a separate saved-card attempt."}</p>
     </details>
     {error && <p role="alert" className="mt-2 text-rose-300">{error}</p>}
     {!inspectionValid && !legacyResume && <p className="mt-3 text-amber-200">Select a condition for every item and complete the required issue details. Any deduction must correspond to an item with an issue.</p>}
-    <ReturnSettlementReview data={reviewData} busy={reviewBusy || working} enabled={valid} onReview={inspectReview} paymentSummary={<section className={styles.paymentSummary}><h4>Payment summary</h4><dl><div><dt>Paid refundable deposit</dt><dd>{formatGbp(booking.depositAmount ?? 0)}</dd></div><div><dt>Original card authorisation</dt><dd>{formatGbp(booking.depositHoldAmount ?? 0)}</dd></div></dl><p>The review checks the current card balance and calculates the cash refund separately.</p><label>Documented damage or loss to retain (£)<input type="number" disabled={working || reviewBusy || !!saved} min="0" max={booking.depositAmount + (booking.depositHoldAmount ?? 0)} step="0.01" value={damage} onChange={e => setDamage(e.target.value)} /></label>{damageAmount > 0 && <label>Itemised evidence and reason<textarea disabled={working || reviewBusy || !!saved} value={damageNote} onChange={e => setDamageNote(e.target.value)} rows={3} placeholder="Describe the item, damage or loss, evidence, and calculation" /></label>}</section>} />
-    <button type="button" disabled={!valid || working || reviewBusy || !reviewData || reviewData.alreadySettled} onClick={finish} className={styles.confirm}>{working ? "Settling…" : "Confirm settlement and email renter"}</button>
+    <ReturnSettlementReview data={reviewData} busy={reviewBusy || working} enabled={valid} onReview={inspectReview} paymentSummary={<section className={styles.paymentSummary}><h4>Payment summary</h4><dl><div><dt>Paid refundable deposit</dt><dd>{formatGbp(booking.depositAmount ?? 0)}</dd></div><div><dt>{savedCard?"Saved-card collection limit · not held":"Original card authorisation"}</dt><dd>{formatGbp(savedCard?booking.savedCardLimit:booking.depositHoldAmount ?? 0)}</dd></div></dl><p>{savedCard ? "No security money was taken. An assessment does not itself charge the card." : "The review checks the current card balance and calculates the cash refund separately."}</p><label>{savedCard ? "Documented damage or loss assessed (£)" : "Documented damage or loss to retain (£)"}<input type="number" disabled={working || reviewBusy || !!saved} min="0" max={damageLimit} step="0.01" value={damage} onChange={e => setDamage(e.target.value)} /></label>{damageAmount > 0 && <label>Itemised evidence and reason<textarea disabled={working || reviewBusy || !!saved} value={damageNote} onChange={e => setDamageNote(e.target.value)} rows={3} placeholder="Describe the item, damage or loss, evidence, and calculation" /></label>}</section>} />
+    <button type="button" disabled={!valid || working || reviewBusy || !reviewData || reviewData.alreadySettled} onClick={finish} className={styles.confirm}>{working ? "Settling…" : savedCard?"Record inspected return · no payment":"Confirm settlement and email renter"}</button>
     </div>
   </dialog>;
 }

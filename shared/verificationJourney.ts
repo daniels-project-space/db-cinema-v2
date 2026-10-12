@@ -1,5 +1,6 @@
 import { securityReady, verificationExpired } from "./verificationProgress";
 import type { VerificationBooking } from "./rentalReadiness";
+import {SECURITY_POLICY_VERSION} from './rentalSecurity';
 
 /** Display real provider decisions; payment alone never means pickup approval. */
 export function verificationJourney(
@@ -69,7 +70,7 @@ export function verificationJourney(
       detail: ready
         ? "All set"
         : reviewed && drone
-          ? "Card hold required"
+          ? booking.securityPolicyVersion === SECURITY_POLICY_VERSION ? "Complete saved-card setup" : "Card hold required"
           : "Awaiting checks",
       done: ready,
     },

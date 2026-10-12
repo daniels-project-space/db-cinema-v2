@@ -7,7 +7,8 @@ import { availableCreditRows,creditPlan,creditKind } from "./lib/checkoutCredit"
 import { ensurePaidBookingAccount } from "./accountClaims";
 import { referralEligibility,availableReferralReward } from "./lib/referrals";
 import { SINGLE_BENEFIT_VERSION } from "../shared/rentalBenefits";
-import { SECURITY_POLICY_VERSION, depositChargeFor } from "../shared/rentalSecurity";
+import { SECURITY_POLICY_VERSION, depositChargeFor, savedCardChargeLimit } from "../shared/rentalSecurity";
+import { isSavedCardRental, savedCardConsentText, assertSavedCardConsent } from "../shared/savedCardSecurity";
 import { loyaltyProgress } from "./lib/loyalty";
 import { creditDebit,usableCredit } from "./lib/creditLedger";
 import { safeRepeatRental,repeatRentalFingerprint } from "./lib/repeatRental";
@@ -131,6 +132,7 @@ export const createPending = internalMutation({
     depositAmount: v.number(),
     depositHoldAmount: v.optional(v.number()),
     securityPolicyVersion: v.optional(v.string()),
+    savedCardLimit: v.optional(v.number()),
     promoCode: v.optional(v.string()),
     discount: v.optional(v.number()),
     total: v.number(),
@@ -290,8 +292,13 @@ export const createPending = internalMutation({
 
     const exposure = await assertRenterExposure(ctx, { customerEmail, status: "pending_payment", lineItems: a.lineItems });
     const values = await replacementValues(ctx, { lineItems: a.lineItems });
+    const savedCard = a.securityPolicyVersion === SECURITY_POLICY_VERSION;
+    const cardLimit = savedCard ? savedCardChargeLimit(a.lineItems.reduce((n, line) => n + (values.find(value => value.listingId === line.listingId)?.unitPence ?? 0) * line.qty / 100, 0)) : undefined;
+    if (savedCard && (a.depositAmount !== 0 || (a.depositHoldAmount ?? 0) !== 0 || a.savedCardLimit !== cardLimit || !a.laterChargeConsent))
+      throw Error("Review the current saved-card limit and explicitly consent; no upfront security payment or hold is permitted.");
     const acceptedAt = Date.now();
-    const agreementSnapshot = newAgreement ? snapshotAgreement(a, acceptedAt, chargedTotal, creditApplied) : undefined;
+    const cardConsent = cardLimit !== undefined ? savedCardConsentText(cardLimit) : undefined;
+    const agreementSnapshot = newAgreement ? snapshotAgreement({...a,savedCardConsentText:cardConsent}, acceptedAt, chargedTotal, creditApplied) : undefined;
     const bookingId = await ctx.db.insert("bookings", {
       pricingVersion:a.pricingVersion,benefitKind:a.benefitKind,
       refundCreditApplied:a.refundCreditApplied,earnedCreditApplied:a.earnedCreditApplied,creditAllocations:allocations,
@@ -315,6 +322,9 @@ export const createPending = internalMutation({
       depositAmount: a.depositAmount,
       depositHoldAmount: a.depositHoldAmount,
       securityPolicyVersion: a.securityPolicyVersion,
+      savedCardLimit: cardLimit,
+      savedCardStatus: savedCard ? "awaiting_payment" : undefined,
+      savedCardConsentText: cardConsent,
       depositHoldStatus: a.depositHoldAmount ? "awaiting_payment" : undefined,
       total: chargedTotal,
       creditApplied,
@@ -335,7 +345,7 @@ export const createPending = internalMutation({
       agreementRequestId: a.agreementRequestId,
       agreementRequestFingerprint,
       checkoutInputFingerprint:a.checkoutInputFingerprint,
-      securityHoldPolicyVersion: PICKUP_HOLD_POLICY,
+      securityHoldPolicyVersion: savedCard ? undefined : PICKUP_HOLD_POLICY,
       securityHoldConsentAt: a.securityHoldConsent ? Date.now() : undefined,
       laterChargeConsentAt: a.laterChargeConsent ? Date.now() : undefined,
       agreementDocs: a.agreementDocs,
@@ -504,6 +514,7 @@ export const confirm = internalMutation({
     if (booking.securityHoldPolicyVersion === PICKUP_HOLD_POLICY && booking.depositHoldAmount)
       await ctx.scheduler.runAfter(0,internal.checkout.preparePickupSecurity,{bookingId});
     await ensurePaidBookingAccount(ctx,{...booking,status:"confirmed"});
+    if (isSavedCardRental(booking)) await ctx.scheduler.runAfter(0,internal.checkout.prepareSavedCard,{bookingId});
     const membershipAccount = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", booking.guestEmail ?? "")).first();
     if(membershipAccount&&!membershipAccount.firstRentalPaidAt)await ctx.db.patch(membershipAccount._id,{firstRentalPaidAt:Date.now()});
     if (membershipAccount?.membershipPerksPendingBookingId === bookingId)
@@ -699,6 +710,7 @@ export const adminList = query({
       depositAmount: b.depositAmount,
       depositHoldAmount: b.depositHoldAmount ?? 0,
       depositHoldStatus: b.depositHoldStatus ?? null,
+      securityPolicyVersion:b.securityPolicyVersion??null,savedCardStatus:b.savedCardStatus??null,savedCardLimit:b.savedCardLimit??null,
       depositHoldExpiresAt: b.depositHoldExpiresAt ?? null,
       depositHoldRenewalStatus: b.depositHoldRenewalStatus ?? null,
       lateFeeAmount: b.lateFeeAmount ?? 0,
@@ -760,7 +772,10 @@ export const adminSetStatus = mutation({
     if (status === "active" && booking.depositHoldAmount &&
         (booking.depositHoldStatus !== "held" || (booking.depositHoldExpiresAt ?? 0) <= Date.now()))
       throw new Error("The card hold must be active before handover.");
+    if (status === "active" && isSavedCardRental(booking) && booking.savedCardStatus !== "saved")
+      throw new Error("The rental's reusable card and explicit collection permission must be saved before handover.");
     if (status === "active") {
+      if(isSavedCardRental(booking))assertSavedCardConsent(booking);
       await assertDroneApproval(ctx, booking);
       await assertVerificationArchive(ctx, booking);
       assertAgreementBeforeRelease(booking);
@@ -784,7 +799,9 @@ export const getForRefund = internalQuery({
       depositAmount: b.depositAmount,
       depositHoldAmount: b.depositHoldAmount ?? 0,
       depositHoldStatus: b.depositHoldStatus ?? null,
+      securityPolicyVersion:b.securityPolicyVersion??null,savedCardStatus:b.savedCardStatus??null,savedCardLimit:b.savedCardLimit??null,
       depositHoldIntentId: b.stripeDepositIntentId ?? null,
+      replacementValues:b.replacementValues,pickedUpAt:b.pickedUpAt,
       depositHoldPreviousIntentIds: b.depositHoldPreviousIntentIds ?? [],
       lineItems: b.lineItems,
       returnTime: b.returnTime ?? null,
@@ -1014,7 +1031,8 @@ export const recordLateFee = internalMutation({
       lateFeeWaivedAmount: waivedAmount,
       lateFeeWaiverReason: waiverReason,
       lateFeeBreakdown: breakdown,
-      lateFeeStatus: amount > 0 ? "notice_pending" : waivedAmount ? "waived" : "none",
+      lateFeeStatus: amount > 0 ? isSavedCardRental(b) ? "admin_review" : "notice_pending" : waivedAmount ? "waived" : "none",
+      ...(isSavedCardRental(b)&&amount===0&&!b.returnDecision?.damageKept&&b.returnDecision?.inspection?.length&&b.returnDecision.inspection.every(item=>item.condition==='good')?{savedCardStatus:"closed"}:{}),
     });
     const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
     const refundJobs=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
@@ -1034,13 +1052,14 @@ export const recordLateFee = internalMutation({
         securityPaid: b.depositAmount, securityRefunded: b.depositRefundAmount ?? 0,
         holdStatus: b.depositHoldStatus,
         damageTotal: b.depositKept ?? 0, damageFromHold: b.depositHoldCapturedForDamage ?? 0,
+        ...(isSavedCardRental(b)?{savedCardLimit:b.savedCardLimit,damageAssessed:b.returnDecision?.damageKept??0}:{}),
         damageNote: b.depositDeductionNote,
         inspection: b.returnDecision?.inspection,
         lateAssessed: amount, lateWaived: waivedAmount ?? 0, lateBreakdown: breakdown,
       },
       returnStatementEmailStatus: "pending",
     });
-    if (amount > 0) await ctx.scheduler.runAfter(0, internal.lateFees.sendNotice, { bookingId });
+    if (amount > 0 && !isSavedCardRental(b)) await ctx.scheduler.runAfter(0, internal.lateFees.sendNotice, { bookingId });
     await ctx.scheduler.runAfter(0, internal.referralPayments.attest, {bookingId});
     await ctx.scheduler.runAfter(0, internal.invoice.returnSettlementEmail, { bookingId });
   },
@@ -1053,6 +1072,7 @@ export const lateFeeContext = internalQuery({
     if (!b) return null;
     return {
       status: b.status, guestEmail: b.guestEmail ?? null,
+      securityPolicyVersion:b.securityPolicyVersion,
       lateFeeAmount: b.lateFeeAmount ?? 0, lateFeeStatus: b.lateFeeStatus ?? null,
       lateFeeBreakdown: b.lateFeeBreakdown ?? [], lateFeeNoticeAt: b.lateFeeNoticeAt ?? null,
       stripePaymentIntentId: b.stripePaymentIntentId ?? null,
@@ -1304,6 +1324,7 @@ export const get = internalQuery({
       depositAmount: b.depositAmount,
       depositHoldAmount: b.depositHoldAmount ?? 0,
       depositHoldStatus: b.depositHoldStatus ?? null,
+      securityPolicyVersion:b.securityPolicyVersion??null,savedCardStatus:b.savedCardStatus??null,savedCardLimit:b.savedCardLimit??null,
       deliveryFee: b.deliveryFee,
       total: b.total,
       currency: b.currency,
@@ -1370,6 +1391,7 @@ export const invoiceData = query({
       depositAmount: b.depositAmount,
       depositHoldAmount: b.depositHoldAmount ?? 0,
       depositHoldStatus: b.depositHoldStatus ?? null,
+      securityPolicyVersion:b.securityPolicyVersion??null,savedCardStatus:b.savedCardStatus??null,savedCardLimit:b.savedCardLimit??null,
       depositRefunded: b.depositRefunded ?? false,
       depositRefundAmount: b.depositRefundAmount ?? (b.depositRefunded ? null : 0),
       total: b.total,
@@ -1973,6 +1995,7 @@ export const verificationProgress = query({
       verificationNote: renterVerificationNote(b.verificationNote), verificationChecks: b.verificationChecks ?? null,
       verificationUpdatedAt: b.verificationUpdatedAt ?? null, verificationReused: !!b.verificationReusedFrom,
       depositHoldAmount: b.depositHoldAmount ?? 0, depositHoldStatus: b.depositHoldStatus ?? null,
+      securityPolicyVersion:b.securityPolicyVersion??null,savedCardStatus:b.savedCardStatus??null,savedCardLimit:b.savedCardLimit??null,
       depositHoldExpiresAt: b.depositHoldExpiresAt ?? null, securityHoldDueAt: b.securityHoldDueAt ?? null,
       fulfilment: b.fulfilment, total: b.total, subtotal: b.subtotal, discount: b.discount ?? 0,
       deliveryFee: b.deliveryFee ?? 0, depositAmount: b.depositAmount ?? 0,

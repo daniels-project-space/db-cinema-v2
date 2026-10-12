@@ -1,4 +1,4 @@
-import { rentalSecurity } from "../../../../shared/rentalSecurity";
+import { savedCardChargeLimit } from "../../../../shared/rentalSecurity";
 import { contentsText } from "../../../../shared/rentalContents";
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
@@ -52,8 +52,8 @@ const money = (n: number | null | undefined) => (n == null ? "" : `£${Math.roun
 
 /** Per-item estimate only. Final combined-basket security is quoted at checkout. */
 function securitySummary(replacementValue: number | null | undefined): string {
-  const {deposit, hold}=rentalSecurity("verify",Math.max(0,Number(replacementValue)||0));
-  return `, with ${money(deposit)} refundable security before any exemption${hold ? ` and a separate ${money(hold)} card hold` : " and no separate hold"}. Final basket security is shown at checkout; security is not a liability cap`;
+  const limit=savedCardChargeLimit(Math.max(0,Number(replacementValue)||0));
+  return `, with no upfront security payment or bank hold. Saved-card permission covers up to £${limit.toFixed(2)} for damage/loss and late fees combined, after evidenced notice and at least seven days for review. The final combined basket limit and explicit consent are shown at checkout`;
 }
 
 /** Read prices as a range the way a person would, not as a list. */

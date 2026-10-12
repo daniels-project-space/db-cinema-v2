@@ -1,4 +1,5 @@
 import { PICKUP_HOLD_POLICY } from "./pickupSecurity";
+import { SECURITY_POLICY_VERSION } from "./rentalSecurity";
 export const VERIFICATION_FEATURES = ["identity", "selfie", "address"] as const;
 export type VerificationCheck = "waiting" | "processing" | "approved" | "requires_input" | "review" | "rejected";
 export type VerificationChecks = Record<(typeof VERIFICATION_FEATURES)[number], VerificationCheck>;
@@ -16,15 +17,16 @@ export function verificationChecks(decision: any): VerificationChecks {
   }
   return { identity: check(["id_verifications"]), selfie: check(["liveness_checks", "face_matches"]), address: check(["poa_verifications"]) };
 }
-export function securityReady(booking: { status: string; depositHoldAmount?: number; depositHoldStatus?: string | null }) {
+export function securityReady(booking: { status: string; depositHoldAmount?: number; depositHoldStatus?: string | null; securityPolicyVersion?:string|null; savedCardStatus?:string|null }) {
+  if (booking.securityPolicyVersion === SECURITY_POLICY_VERSION) return ["confirmed","active"].includes(booking.status) && booking.savedCardStatus === "saved";
   return ["confirmed", "active"].includes(booking.status) && (!(booking.depositHoldAmount ?? 0) || booking.depositHoldStatus === "held");
 }
 
 /** Paid pickup-policy rentals can complete documents before the scheduled hold.
  * This never substitutes for actual security readiness at handover. */
-export function verificationCanStart(booking: {status:string;depositHoldAmount?:number;depositHoldStatus?:string|null;securityHoldPolicyVersion?:string|null;cancellationDecision?:unknown;returnDecision?:unknown}) {
+export function verificationCanStart(booking: {status:string;depositHoldAmount?:number;depositHoldStatus?:string|null;securityHoldPolicyVersion?:string|null;securityPolicyVersion?:string|null;savedCardStatus?:string|null;cancellationDecision?:unknown;returnDecision?:unknown}) {
   return !booking.cancellationDecision && !booking.returnDecision && (securityReady(booking) ||
-    (booking.securityHoldPolicyVersion === PICKUP_HOLD_POLICY && ["confirmed", "active"].includes(booking.status)));
+    ([booking.securityHoldPolicyVersion,booking.securityPolicyVersion].some(policy=>policy===PICKUP_HOLD_POLICY||policy===SECURITY_POLICY_VERSION) && ["confirmed", "active"].includes(booking.status)));
 }
 
 /** A previous approval cannot authorize an expired identity/document check. */

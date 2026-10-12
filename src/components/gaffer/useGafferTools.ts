@@ -10,7 +10,8 @@ import { GAFFER_PRICE_CODE } from "@cvx/lib/gafferDiscount";
 import { asksForBetterPrice } from "./priceRequest";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
-import { quote, depositFor, depositChargeFor } from "@/lib/pricing";
+import { quote } from "@/lib/pricing";
+import { savedCardChargeLimit } from "../../../shared/rentalSecurity";
 import { resolveDate, inclusiveDays, londonToday } from "@/lib/voiceDates";
 import { dayMs } from "@/lib/dates";
 import { useGafferFocus, scrollToId } from "@/components/gaffer/GafferFocus";
@@ -729,10 +730,9 @@ export function useGafferTools() {
         cart.close();
         router.push("/cart");
         const [bad, compat] = await Promise.all([basketProblems(), compatWarnings()]);
-        const holding = depositFor("verify", cart.depositTotal);
         const summary =
           `Basket breakdown is on screen: ${cart.items.length} line${cart.items.length > 1 ? "s" : ""}, ` +
-          `${await rentalSummary()}. At checkout, normal security is a £${depositChargeFor("verify",cart.depositTotal)} refundable deposit${holding ? ` plus a separate £${holding} card hold` : ", with no card hold"}; the confirmed quote records any deposit waiver.` +
+          `${await rentalSummary()}. Current checkout takes no security payment or bank hold. The quoted saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)} combined; an itemised notice and at least seven days for review precede any admin collection.` +
           speakCompat(compat.warnings ?? []);
         return bad.length
           ? `${summary} ${await replacementBrief()}`
@@ -858,13 +858,12 @@ export function useGafferTools() {
           cart.close();
           router.push("/cart");
           const compat = await compatWarnings();
-          const holding = depositFor("verify", cart.depositTotal);
-          const lines = cart.items
+            const lines = cart.items
             .map((i) => `${i.title}, ${i.start} to ${i.end}, £${i.total}`)
             .join("; ");
           return (
             `Full breakdown is on screen and everything in it is available.${speakCompat(compat.warnings ?? [])} ${lines}. ` +
-            `That's ${await rentalSummary()}. Normal checkout security is a £${depositChargeFor("verify",cart.depositTotal)} refundable deposit${holding ? ` plus a separate £${holding} card hold` : ", with no card hold"}; confirm any waiver in checkout. ` +
+            `That's ${await rentalSummary()}. Current checkout takes no security payment or bank hold. The quoted saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)} combined; an itemised notice and at least seven days for review precede any admin collection. ` +
             `Read it back to them, then ask if they're happy to go through to payment — ` +
             `call go_to_checkout again only once they say yes.`
           );
@@ -873,11 +872,7 @@ export function useGafferTools() {
         instant();
         cart.close();
         router.push("/checkout");
-        // cart.depositTotal is the summed REPLACEMENT value, which checkout runs
-        // through depositFor — quoting it raw would tell the customer an FX3
-        // needs £3,200 down instead of a £160 hold. Mirror the checkout default.
-        const holding = depositFor("verify", cart.depositTotal);
-        return `Taking them to checkout, ${await rentalSummary()}. Normal security is a £${depositChargeFor("verify",cart.depositTotal)} refundable deposit${holding ? ` plus a separate £${holding} card hold` : ", with no card hold"}; the confirmed quote records any waiver.`;
+        return `Taking them to checkout, ${await rentalSummary()}. No security money is taken or blocked upfront. The combined saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)}, subject to the final quote and explicit consent. Any later collection requires itemised evidence, at least seven days for review, and admin action.`;
       },
     }),
     [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest, rentalSummary, replacementBrief],

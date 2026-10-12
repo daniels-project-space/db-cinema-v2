@@ -61,14 +61,14 @@ assert.equal(qualifyingRentalCount([row('a',DAY,'cs-a'),row('a2',DAY*4,'cs-a'),r
   throw Error('unexpected '+ref);
  }};
  const input={items:[{listingId:camera._id,title:'forged',start:Date.UTC(2027,0,4),end:Date.UTC(2027,0,4),qty:1,total:1,deposit:1}],token:'owned',customer:{email:account.email},fulfilment:'pickup'};
- let quote=await calculateRentalPrice(pricingCtx,input);assert.equal(quote.loyaltySaving,30);assert.equal(quote.totalReduction,30);assert(quote.depositAmount>0);assert.equal(quote.deliveryReduction,0);
+ let quote=await calculateRentalPrice(pricingCtx,input);assert.equal(quote.loyaltySaving,30);assert.equal(quote.totalReduction,30);assert.equal(quote.depositAmount,0);assert.equal(quote.deliveryReduction,0);
  const pendingArgs={customerEmail:account.email,fulfilment:'pickup',deliveryFee:quote.deliveryFee,lineItems:quote.items.map(i=>({listingId:i.listingId,title:i.title,start:i.start,end:i.end,qty:1,lineTotal:i.total})),subtotal:quote.subtotal,depositAmount:quote.depositAmount,discount:quote.totalReduction,total:quote.totalBeforeCredit,expectedTotalDue:quote.totalDue,creditAccountId:account._id,loyaltySaving:quote.loyaltySaving,currency:'GBP'};
  const pending=await bookings.createPending.handler(pricingCtx,pendingArgs);assert.equal((await db.get(pending.bookingId)).discount,30);
  await assert.rejects(bookings.createPending.handler(pricingCtx,{...pendingArgs,loyaltySaving:31}),/saving changed/);
- quote=await calculateRentalPrice(pricingCtx,{...input,selectedMembership:{tier:'pro',intro:'none'}});assert.equal(quote.loyaltySaving,0,'checkout-added subscription cannot stack');assert.equal(quote.membershipSignupOfferSaving,10);assert(quote.depositAmount>0);
+ quote=await calculateRentalPrice(pricingCtx,{...input,selectedMembership:{tier:'pro',intro:'none'}});assert.equal(quote.loyaltySaving,0,'checkout-added subscription cannot stack');assert.equal(quote.membershipSignupOfferSaving,10);assert.equal(quote.depositAmount,0);
  account.membershipActive=true;account.membershipTier='pro';account.membershipStatus='active';account.membershipPaidThrough=now+DAY;
  await assert.rejects(bookings.createPending.handler(pricingCtx,pendingArgs),/Encore benefit changed/);
  quote=await calculateRentalPrice(pricingCtx,input);assert.equal(quote.loyaltySaving,0,'existing subscription cannot stack');assert.equal(quote.depositAmount,0);
- account.membershipPerksPendingBookingId=third._id;quote=await calculateRentalPrice(pricingCtx,input);assert(quote.depositAmount>0,'pending first booking cannot unlock security waiver');
+ account.membershipPerksPendingBookingId=third._id;quote=await calculateRentalPrice(pricingCtx,input);assert.equal(quote.depositAmount,0,'No new-policy cash security even while member perks are pending');
  console.log('PASS review-earned Encore: no return-only or cached grants; three clean/provider-attested owned reviews; negative/unpublished ratings equal; permanent accounts and no reused-mail grants; issue/late/security gates; real pricing/checkout guard, nonstack and persisted celebration.');
 })().catch(e=>{console.error(e);process.exitCode=1});
