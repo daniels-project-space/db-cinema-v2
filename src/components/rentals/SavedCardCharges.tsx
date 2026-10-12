@@ -13,7 +13,9 @@ export function SavedCardCharges({token,bookingId,admin=false}:{token:string;boo
 function ScopedCharges({token,bookingId,admin}:{token:string;bookingId:string;admin:boolean}) {
  // This existing authenticated endpoint also lets older deployments render
  // historic rentals without calling a new saved-card-only API.
- const booking=useQuery(api.bookings.get,{token,bookingId:bookingId as any});
+ const renterBooking=useQuery(api.bookings.verificationProgress,!admin?{token,bookingId:bookingId as any}:'skip');
+ const ownerBooking=useQuery(api.rentalOperations.details,admin?{token,bookingId:bookingId as any}:'skip');
+ const booking=admin?ownerBooking:renterBooking;
  const data=useQuery(api.securityChargeState.list,booking?.securityPolicyVersion===SECURITY_POLICY_VERSION?{token,bookingId:bookingId as any,admin}:'skip');
  const prepare=useMutation(api.securityChargeState.prepare),retryCard=useAction(api.checkout.retrySavedCard);
  const request=useRef<string|null>(null);

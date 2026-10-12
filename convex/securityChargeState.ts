@@ -135,6 +135,8 @@ export const evidence=query({args:{token:v.string(),...idArgs},handler:async(ctx
   equipmentInspection:b.returnDecision?.inspection??[],pickedUpAt:b.pickedUpAt,returnedAt:b.actualReturnedAt,
   noticeAt:r.noticeAt,noticeRecipient:r.noticeEmail,noticeSubject:r.noticeSubject,noticeHtml:r.noticeHtml,
   earliestCollectionAt:r.collectAfter,attemptedAt:r.attemptedAt,paymentIntentId:r.intentId,confirmedPaid:(r.paidPence??0)/100,state:r.state,
+  refund:{reason:r.refundReason??null,confirmedRefunded:(r.refundedPence??0)/100,receipt:r.refundReceipt??null,history:r.refundHistory??[]},
+  netPaid:Math.max(0,(r.paidPence??0)-(r.refundedPence??0))/100,
   dispute:r.disputedAt?{at:r.disputedAt,reason:r.disputeReason,resolution:r.disputeResolution,customerAcceptedAt:r.disputeResolvedAt}:null,
   note:'Evidence supports review; it does not waive statutory rights or guarantee a bank dispute outcome.'};
 }});
