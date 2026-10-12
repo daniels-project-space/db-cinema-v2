@@ -94,6 +94,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
     }
   }, []);
   const [imgIdx, setImgIdx] = useState(0);
+  useEffect(() => setImgIdx(0), [slug]);
   const [month, setMonth] = useState(() => {
     const t = new Date();
     return new Date(t.getFullYear(), t.getMonth(), 1);
@@ -174,7 +175,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
           {/* gallery + copy */}
           <div className="page-in">
             <div className="spot gradient-border group relative overflow-hidden rounded-2xl">
-              <SmartImage fit="contain"
+              <SmartImage fit="contain" loading="eager"
                 key={hero ?? "none"}
                 src={hero}
                 fallbackSources={gallery}
@@ -188,25 +189,26 @@ export default function GearDetailClient({ slug }: { slug: string }) {
               >
                 <span className="hud-label rounded bg-black/45 px-2 py-1">
                   {listing.category} <span className="tick">/</span>{" "}
-                  {String(imgIdx + 1).padStart(2, "0")}—
+                  {String(Math.min(imgIdx + 1, gallery.length)).padStart(2, "0")}—
                   {String(gallery.length).padStart(2, "0")}
                 </span>
               </div>
             </div>
             {gallery.length > 1 && (
-              <div className="mt-3 grid grid-cols-5 gap-2.5">
-                {gallery.slice(0, 5).map((g, i) => (
+              <div className="mt-3 flex gap-2.5 overflow-x-auto pb-2">
+                {gallery.map((g, i) => (
                   <button
                     key={i}
                     onClick={() => setImgIdx(i)}
-                    aria-label={`Photo ${i + 1}`}
-                    className={`overflow-hidden rounded-lg transition-all ${
+                    aria-label={`Photo ${i + 1} of ${gallery.length}`}
+                    aria-pressed={i === imgIdx}
+                    className={`w-16 shrink-0 overflow-hidden rounded-lg transition-all sm:w-20 ${
                       i === imgIdx
                         ? "ring-2 ring-accent-400"
                         : "opacity-55 ring-1 ring-white/10 hover:opacity-90"
                     }`}
                   >
-                    <SmartImage fit="contain" src={g} className="aspect-square" />
+                    <SmartImage fit="contain" src={g} alt={`${listing.title} — photo ${i + 1}`} className="aspect-square" />
                   </button>
                 ))}
               </div>

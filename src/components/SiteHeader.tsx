@@ -153,7 +153,7 @@ export function SiteHeader() {
                 Rentals
               </span>
             </Link>
-            <span aria-hidden className="select-none text-lg font-light text-white/25">
+            <span aria-hidden className="site-collab-separator select-none text-lg font-light text-white/25">
               ×
             </span>
             {/* The coin doesn't sit alone any more: hovering slides it right to
@@ -203,7 +203,7 @@ export function SiteHeader() {
             </span>
           </div>
 
-          <nav className="flex items-center gap-2 text-sm sm:gap-2.5">
+          <nav className="flex shrink-0 items-center gap-2 text-sm sm:gap-2.5">
             {/* sits hard against the account slot rather than drifting toward
                 the middle of the bar */}
             <div className="mr-1 hidden items-center gap-4 md:flex lg:gap-5">
