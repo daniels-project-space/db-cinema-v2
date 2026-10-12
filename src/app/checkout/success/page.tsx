@@ -15,6 +15,10 @@ import { loadStripe } from "@stripe/stripe-js";
 function SuccessInner() {
   const params = useSearchParams();
   const sessionId = params.get("session_id");
+  return <SuccessSession key={sessionId ?? "missing"} sessionId={sessionId} />;
+}
+
+function SuccessSession({sessionId}: {sessionId: string | null}) {
   const finalize = useAction(api.checkout.finalize);
   const syncAddition=useAction(api.rentalAdditions.sync);
   const [additionId,setAdditionId]=useState<string|null>(null);
@@ -30,13 +34,16 @@ function SuccessInner() {
   const [holdStatus, setHoldStatus] = useState<string | null>(null);
   const [holdSecret, setHoldSecret] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const ran = useRef(-1);
+  const pending = useRef<{attempt: number; promise: ReturnType<typeof finalize>} | null>(null);
 
   useEffect(() => {
-    if (ran.current === attempt || !sessionId) return;
-    ran.current = attempt;
-    finalize({ sessionId })
+    if (!sessionId) return;
+    let active = true;
+    if (!pending.current || pending.current.attempt !== attempt)
+      pending.current = {attempt, promise: finalize({sessionId})};
+    pending.current.promise
       .then((r) => {
+        if (!active) return;
         if (r.paid) {
           if (r.closed) { setState("cancelled"); return; }
           setBookingId(r.bookingId);
@@ -51,7 +58,8 @@ function SuccessInner() {
           setState("unpaid");
         }
       })
-      .catch(() => setState("error"));
+      .catch(() => { if (active) setState("error"); });
+    return () => { active = false; };
   }, [sessionId, attempt, finalize, clear]);
 
   useEffect(() => {
@@ -84,7 +92,7 @@ function SuccessInner() {
     );
   if (state === "unpaid")
     return (
-      <Msg title="Payment not completed" body="Payment has not been confirmed. Your basket is saved. If your bank shows a pending payment, check its status before paying again." cta />
+      <Msg title="Payment not confirmed yet" body="Your basket is saved. If your bank shows a pending payment, check its status here before paying again." cta onRetry={() => { setState("working"); setAttempt(value => value + 1); }} />
     );
   if (state === "cancelled")
     return <Msg title="This booking is closed" body="This checkout belongs to a cancelled booking. Please contact us if your bank shows a charge so we can confirm its refund." cta />;

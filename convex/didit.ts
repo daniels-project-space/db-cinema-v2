@@ -13,7 +13,7 @@ const hostedSessionUrl = /^https:\/\/verify\.didit\.me\/(?:[a-z-]+\/)?session\/[
 
 async function retrieveSession(apiKey: string, sessionId: string, bookingId: string, email: string): Promise<any> {
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(sessionId)) throw new Error("Invalid verification case ID.");
-  const res = await fetch(`${sessionApi}${sessionId}/decision/`, { headers: { "x-api-key": apiKey } });
+  const res = await fetch(`${sessionApi}${sessionId}/decision/`, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error("Could not check the current verification decision. Please try again.");
   const session: any = await res.json();
   if (session.session_id !== sessionId || session.session_kind !== "user" ||
