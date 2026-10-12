@@ -173,7 +173,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
 
         <div className="mt-6 grid gap-10 lg:grid-cols-2">
           {/* gallery + copy */}
-          <div className="page-in">
+          <div className="page-in min-w-0">
             <div className="spot gradient-border group relative overflow-hidden rounded-2xl">
               <SmartImage fit="contain" loading="eager"
                 key={hero ?? "none"}
@@ -305,7 +305,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
 
           {/* booking — or, for display-only items, register interest */}
           <div
-            className="page-in lg:sticky lg:top-24 lg:self-start"
+            className="page-in min-w-0 lg:sticky lg:top-24 lg:self-start"
             style={{ animationDelay: "0.15s" }}
           >
             {(listing as any).displayOnly ? (
