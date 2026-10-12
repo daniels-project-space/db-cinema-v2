@@ -22,6 +22,7 @@ export function AvatarUpload() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [failedPhoto, setFailedPhoto] = useState<string | null>(null);
 
   const url = (me as any)?.avatarUrl as string | null;
 
@@ -64,9 +65,9 @@ export function AvatarUpload() {
         className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full ring-2 ring-white/10"
         aria-label="Change profile photo"
       >
-        {url ? (
+        {url && url !== failedPhoto ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={url} alt="Profile" className="h-full w-full object-cover" />
+          <img src={url} alt="Profile" decoding="async" onError={() => setFailedPhoto(url)} className="h-full w-full object-cover" />
         ) : (
           <span className="flex h-full w-full items-center justify-center bg-accent-500/20 font-display text-lg font-bold text-accent-200">
             {initials(me?.name, me?.email)}

@@ -19,18 +19,18 @@ export const GUIDES: Guide[] = [
     title: "Camera hire in London: the complete 2026 guide",
     category: "Renting",
     description:
-      "How to rent cinema cameras, lenses and lighting in London — costs, delivery, deposits and how to pick the right kit for your shoot.",
+      "How to rent cinema cameras, lenses and lighting in London — costs, delivery, verification and how to pick the right kit for your shoot.",
     intro:
       "Renting camera gear in London is the fastest way to shoot on professional kit without the five-figure outlay. This guide covers what it costs, how delivery works, and how to choose the right setup for your project.",
     takeaways: [
       "Longer bookings drop the per-day price — 3-day and weekly rates apply automatically.",
-      "Security is quoted separately; verification and renter responsibility still apply.",
+      "New rentals use a saved card; no security money is charged or blocked upfront.",
       "Always add a variable ND for outdoor shoots — it's the cheapest day-saver.",
     ],
     sections: [
       { h: "What does camera hire in London cost?", p: "Daily rates scale with the camera tier — a mirrorless body is a fraction of a full cinema package. The longer you book, the lower the per-day rate: our 3-day and weekly rates are applied automatically at checkout, so a 3-day shoot is far cheaper per day than a single day.", tips: ["Book Friday-to-Monday and you often get the weekend at a 3-day rate.", "Members save a further 10-30% on every rental.", "Bundles (body + lens + media) come in cheaper than the same items added separately."] },
       { h: "Delivery or pickup?", p: "You can collect from central London or have the kit delivered to set. Delivery is quoted both ways (there and back) based on distance and load, and larger setups (speakers, lighting, DJ rigs) travel by van. Pickup and return happen in set time windows so handover is smooth." },
-      { h: "Deposits and insurance", p: "Your quote shows the agreed refundable security payment and any separate card hold. These are security, not liability caps or an insurance purchase. Own insurance is optional for currently declared company-owned or declared leased kit; DB’s contingent cover does not waive renter responsibility. Identity and address checks are required before handover. Existing automatic reuse is capped at 90 days and earlier ID expiry, with unchanged details and provider recheck; it is not verify-once forever and broker approval remains under review." },
+      { h: "Deposits and insurance", p: "New rentals do not charge a refundable security deposit or place a card hold upfront. With explicit consent, your checkout card is saved for later damage or late-fee charges under the rental terms, with a combined collection permission of 10% of the equipment's replacement value. No amount is reserved on your bank balance. This permission is not an insurance policy or a cap on renter responsibility. Complete identity and address checks and obtain approval before handover. Ask the team if your project needs its own insurance." },
       { h: "Picking the right kit", p: "Match the camera to the deliverable: a documentary wants a light, fast body; a commercial wants a large-sensor cinema camera and cine glass. Add ND filters for lenses, a gimbal for movement, and wireless audio for interviews. Browse the full catalogue and the site suggests what pairs well.", tips: ["Pack a spare battery per body and double your media estimate.", "Tell our AI kit-builder your shoot and budget and it specs a compatible kit in seconds."] },
     ],
   },

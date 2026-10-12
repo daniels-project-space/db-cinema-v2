@@ -7,6 +7,7 @@ import { guideBySlug, GUIDES, type GuideVideo } from "@/lib/guides";
 import { IconChevronLeft, IconArrowRight, IconCheck } from "@/components/icons";
 import { AskGaffer } from "@/components/gaffer/AskGaffer";
 
+import { guideReadMinutes, guideSectionIds } from "@/lib/guideLibrary";
 import { SITE_URL as BASE } from "@/lib/site";
 
 export function generateStaticParams() {
@@ -29,8 +30,6 @@ export async function generateMetadata({
   };
 }
 
-const anchor = (h: string) => h.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-
 /** Privacy-friendly, lazy-loaded YouTube embed with an attributed caption. */
 function VideoEmbed({ v }: { v: GuideVideo }) {
   return (
@@ -46,8 +45,8 @@ function VideoEmbed({ v }: { v: GuideVideo }) {
           allowFullScreen
         />
       </div>
-      <figcaption className="flex items-center justify-between gap-3 px-4 py-2.5 text-xs text-white/45">
-        <span className="truncate">
+      <figcaption className="flex flex-wrap items-start justify-between gap-3 px-4 py-2.5 text-xs text-white/45">
+        <span className="min-w-0 flex-1 break-words">
           <span className="text-white/65">{v.title}</span> · {v.author}
         </span>
         <a
@@ -72,6 +71,8 @@ export default async function GuidePage({
   const g = guideBySlug(slug);
   if (!g) notFound();
 
+  const sectionIds = guideSectionIds(g);
+  const related = GUIDES.filter(other => other.slug !== g.slug && other.category === g.category).slice(0, 3);
   const firstVideo = g.sections.find((s) => s.video)?.video;
   const jsonLd: Record<string, unknown> = {
     "@context": "https://schema.org",
@@ -107,7 +108,7 @@ export default async function GuidePage({
           All guides
         </Link>
         <div className="page-in">
-          <div className="hud-label mt-7 !text-accent-400/90">{g.category}</div>
+          <div className="hud-label mt-7 !text-accent-400/90">{g.category} · {guideReadMinutes(g)} min read{firstVideo && " · Video included"}</div>
           <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">{g.title}</h1>
           <p className="serif-accent mt-5 text-xl leading-relaxed text-white/60 sm:text-2xl">{g.intro}</p>
         </div>
@@ -129,27 +130,27 @@ export default async function GuidePage({
 
         {/* in this guide */}
         {g.sections.length > 2 && (
-          <nav className="mt-6 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
-            <div className="hud-label !text-white/45">In this guide</div>
+          <nav aria-label="In this guide" className="mt-6 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+            <details open><summary className="cursor-pointer text-sm text-white/75">In this guide · {g.sections.length} sections</summary>
             <ol className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
               {g.sections.map((s, i) => (
-                <li key={s.h}>
-                  <a href={`#${anchor(s.h)}`} className="text-sm text-white/55 transition-colors hover:text-accent-300">
+                <li key={sectionIds[i]}>
+                  <a href={`#${sectionIds[i]}`} className="text-sm text-white/55 transition-colors hover:text-accent-300">
                     <span className="font-mono text-xs text-white/30">{String(i + 1).padStart(2, "0")}</span> {s.h}
                   </a>
                 </li>
               ))}
-            </ol>
+            </ol></details>
           </nav>
         )}
 
         <div className="mt-10 space-y-9">
           {g.sections.map((s, i) => (
-            <Reveal key={s.h} delay={Math.min(i, 3) * 60}>
-              <section id={anchor(s.h)} className="relative scroll-mt-24 border-l border-white/[0.07] pl-5">
+            <Reveal key={sectionIds[i]} delay={Math.min(i, 3) * 60}>
+              <section id={sectionIds[i]} className="relative scroll-mt-28 border-l border-white/[0.07] pl-5">
                 <span className="absolute -left-px top-1 h-5 w-px bg-accent-400" aria-hidden />
                 <h2 className="font-display text-xl font-semibold text-white/85">{s.h}</h2>
-                <p className="mt-2.5 leading-relaxed text-white/55">{s.p}</p>
+                <p className="mt-2.5 leading-relaxed text-white/70">{s.p}</p>
                 {s.video && <VideoEmbed v={s.video} />}
                 {s.tips && s.tips.length > 0 && (
                   <ul className="mt-4 space-y-2">
@@ -165,6 +166,11 @@ export default async function GuidePage({
             </Reveal>
           ))}
         </div>
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-5 text-sm">
+          <Link href={`/guides?topic=${encodeURIComponent(g.category)}`} className="text-accent-300 hover:underline">More {g.category.toLowerCase()} guides →</Link>
+          <a href="#" className="text-white/65 hover:text-white">Back to top ↑</a>
+        </div>
+        {related.length > 0 && <section aria-label="Related guides" className="mt-8"><h2 className="font-display text-xl text-white/90">Keep learning</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{related.map(other=><Link key={other.slug} href={`/guides/${other.slug}`} className="rounded-xl border border-white/10 bg-white/[0.025] p-4 hover:border-accent-400/40"><p className="text-xs text-accent-300">{guideReadMinutes(other)} min read</p><h3 className="mt-2 text-sm leading-relaxed text-white/85">{other.title}</h3></Link>)}</div></section>}
         {/* topic = the guide's real title, so Gaffer opens the call already
             knowing which setup it's walking them through */}
         <AskGaffer

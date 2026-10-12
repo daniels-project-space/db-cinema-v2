@@ -14,6 +14,7 @@ export function Reveal({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState(false);
+  const [observing, setObserving] = useState(false);
 
   useEffect(() => {
     // Immediately show for reduced-motion users (content must never be hidden)
@@ -23,6 +24,11 @@ export function Reveal({
     }
     const el = ref.current;
     if (!el) return;
+    if (!("IntersectionObserver" in window)) {
+      setShown(true);
+      return;
+    }
+    setObserving(true);
     const io = new IntersectionObserver(
       ([e]) => {
         if (e.isIntersecting) {
@@ -39,6 +45,7 @@ export function Reveal({
   return (
     <div
       ref={ref}
+      data-reveal-pending={observing && !shown ? "true" : undefined}
       className={`reveal ${shown ? "in" : ""} ${className}`}
       style={{ transitionDelay: `${delay}ms` }}
     >
