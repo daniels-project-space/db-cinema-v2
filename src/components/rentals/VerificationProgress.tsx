@@ -22,10 +22,10 @@ import { useVerificationRefresh } from "./useVerificationRefresh";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
 import {SECURITY_POLICY_VERSION} from '../../../shared/rentalSecurity';
 
-function SavedCardSetup({token,booking}:{token:string;booking:any}) {
+function SavedCardSetup({token,booking}:{token?:string|null;booking:any}) {
   const retry=useAction(api.checkout.retrySavedCard);
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
-  return <section className={styles.hold} aria-label="Rental saved-card setup"><strong>{booking.savedCardStatus==='saved'?'Checkout card saved':'Saved-card setup needs attention'}</strong><p>No security money is taken or blocked. Your combined damage and late-fee permission is {formatGbp(booking.savedCardLimit??0)}.</p>{booking.savedCardStatus==='needs_setup'&&<button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await retry({token,bookingId:booking._id});}catch{setError('The original checkout card could not be confirmed. Contact the team in your rental conversation.');}finally{setBusy(false);}}}>{busy?'Checking…':'Retry confirming checkout card'}</button>}{error&&<p role="alert">{error}</p>}</section>;
+  return <section className={styles.hold} aria-label="Rental saved-card setup"><strong>{booking.savedCardStatus==='saved'?'Checkout card saved':'Saved-card setup needs attention'}</strong><p>No security money is taken or blocked. Your combined damage and late-fee permission is {formatGbp(booking.savedCardLimit??0)}.</p>{booking.savedCardStatus==='needs_setup'&&(token?<button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await retry({token,bookingId:booking._id});}catch{setError('The original checkout card could not be confirmed. Contact the team in your rental conversation.');}finally{setBusy(false);}}}>{busy?'Checking…':'Retry confirming checkout card'}</button>:<Link href={`/account?rental=${encodeURIComponent(booking._id)}`} className={styles.link}>Sign in to check saved-card setup</Link>)}{error&&<p role="alert">{error}</p>}</section>;
 }
 
 function useVerificationClock(booking?: VerificationBooking | null) {
@@ -482,7 +482,7 @@ export function VerificationProgress({
                   <dd>{formatGbp(booking.total)}</dd>
                 </div>
               </dl>
-              {booking.securityPolicyVersion===SECURITY_POLICY_VERSION&&account.token&&<SavedCardSetup key={JSON.stringify([account.token,booking._id])} token={account.token} booking={booking}/>}
+              {booking.securityPolicyVersion===SECURITY_POLICY_VERSION&&<SavedCardSetup key={JSON.stringify([account.token,booking._id])} token={account.token} booking={booking}/>}
               {booking.depositHoldAmount > 0 && (
                 <div className={styles.hold}>
                   <div className={styles.holdTop}>

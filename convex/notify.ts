@@ -1,6 +1,7 @@
 "use node";
 
 import {rentalEmail,emailRows,emailMoney,emailEscape} from "../shared/rentalEmail";
+import { rentalSecurityEmailRows, rentalSecurityEmailNote } from "../shared/rentalSecurityEmail";
 import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -66,8 +67,8 @@ export const bookingAlert = internalAction({
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
     const rows:Array<[string,string]>=b.lineItems.map((li:any)=>[`${li.title} · ${day(li.start)} to ${day(li.end)}`,emailMoney(li.lineTotal)]);
-    rows.push(["Payment received",emailMoney(b.total)],["Refundable deposit included",emailMoney(b.depositAmount)]);
-    return email(b.guestEmail,"Payment received — complete your rental checks",rentalEmail({title:"Payment received",preview:"Your rental request is awaiting verification and approval.",url,button:"Complete verification",body:`<p>Thanks for renting with DB Cinema. Your rental request is awaiting verification and approval.</p>${emailRows(rows)}<p>Open your rental to complete the required checks and follow their progress. Equipment handover requires completed checks and approval.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    rows.push(["Payment received",emailMoney(b.total)],...rentalSecurityEmailRows(b));
+    return email(b.guestEmail,"Payment received — complete your rental checks",rentalEmail({title:"Payment received",preview:"Your rental request is awaiting verification and approval.",url,button:"Complete verification",body:`<p>Thanks for renting with DB Cinema. Your rental request is awaiting verification and approval.</p>${emailRows(rows)}${rentalSecurityEmailNote(b)?`<p>${rentalSecurityEmailNote(b)}</p>`:""}<p>Open your rental to complete the required checks and follow their progress. Equipment handover requires completed checks and approval.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 

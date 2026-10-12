@@ -3,6 +3,7 @@ import {rentalEmail,emailRows} from "../shared/rentalEmail";
 import { returnStatementEmail } from "../shared/returnStatement";
 import { rentalBillingLines } from "./lib/rentalBillingLines";
 
+import { rentalSecurityEmailRows, rentalSecurityEmailNote } from "../shared/rentalSecurityEmail";
 import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -49,13 +50,13 @@ export const invoiceEmail = internalAction({
     if(b.discount>0)rows.push(["Discount",`−${amount(b.discount)}`]);
     if(b.creditApplied>0)rows.push(["Account credit applied",`−${amount(b.creditApplied)}`]);
     if(b.deliveryFee>0)rows.push(["Delivery",amount(b.deliveryFee)]);
-    rows.push(["Refundable deposit paid",amount(b.depositAmount)],["Total paid",amount(b.total)]);
+    rows.push(...rentalSecurityEmailRows(b),["Total paid",amount(b.total)]);
     const url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
     const payload={
       deliveryKey,
       to:b.guestEmail,
       subject:"Your DB Cinema rental receipt",
-      html:rentalEmail({title:"Your payment receipt",preview:`Payment received: ${amount(b.total)}. Your rental receipt is ready.`,url,button:"View rental and receipt",body:`<p>Your receipt${attachment?" is attached as a PDF":" is below. You can also download it from your account"}.</p>${emailRows(rows)}${b.membershipCreditApplied?`<p>Account credit above includes ${amount(b.membershipCreditApplied)} from your first subscription month. Subscription charges are itemised separately by Stripe.</p>`:""}<p>Any card authorisation is separate from the payment total shown above.</p><p style="font-size:12px">No VAT was charged. This is a payment receipt, not a VAT invoice.</p>`}),
+      html:rentalEmail({title:"Your payment receipt",preview:`Payment received: ${amount(b.total)}. Your rental receipt is ready.`,url,button:"View rental and receipt",body:`<p>Your receipt${attachment?" is attached as a PDF":" is below. You can also download it from your account"}.</p>${emailRows(rows)}${b.membershipCreditApplied?`<p>Account credit above includes ${amount(b.membershipCreditApplied)} from your first subscription month. Subscription charges are itemised separately by Stripe.</p>`:""}${rentalSecurityEmailNote(b)?`<p>${rentalSecurityEmailNote(b)}</p>`:""}<p style="font-size:12px">No VAT was charged. This is a payment receipt, not a VAT invoice.</p>`}),
       attachments:attachment?[attachment]:[],
     };
     return prepareOnly?payload:sendMail(payload);

@@ -15,39 +15,55 @@ const LABEL: Record<string, string> = {
   verified: "Identity and address verified",
 };
 
-export function IdVerify({ bookingId, status, note, compact, autoStart = false, checkoutSessionId }: {
+type IdVerifyProps = {
   bookingId: string;
   status: string;
   note?: string | null;
   compact?: boolean;
   autoStart?: boolean;
   checkoutSessionId?: string | null;
-}) {
+};
+
+export function IdVerify(props: IdVerifyProps) {
   const account = useAccount();
+  // A provider URL belongs to one renter, rental and upload attempt. Remount
+  // before showing a different context, including replacement documents.
+  return <IdVerifySession key={JSON.stringify([props.bookingId, account.token, props.checkoutSessionId, props.status === "requires_input" ? props.note ?? "replace" : null])} {...props} accountToken={account.token} />;
+}
+
+function IdVerifySession({ bookingId, status, note, compact, autoStart = false, checkoutSessionId, accountToken }: IdVerifyProps & {accountToken: string | null}) {
   const getSession = useAction(api.didit.bookingSession);
   const [sessionUrl, setSessionUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [reused, setReused] = useState(false);
+  const mounted = useRef(false);
+  const flight = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const attempted = useRef<string | null>(null);
   useEffect(() => { setSessionUrl(null); setErr(null); attempted.current = null; }, [bookingId]);
   useEffect(() => { if (status === "requires_input") { setSessionUrl(null); attempted.current = null; } }, [status]);
 
   const open = useCallback(async () => {
-    if (busy || sessionUrl) return;
+    if (flight.current || sessionUrl || reused) return;
+    flight.current = true;
     setBusy(true);
     setErr(null);
     try {
       const result = await getSession({
         bookingId: bookingId as any,
-        accountToken: account.token ?? undefined,
+        accountToken: accountToken ?? undefined,
         checkoutSessionId: checkoutSessionId ?? undefined,
       });
-      setSessionUrl(result.url);
+      if (!mounted.current) return;
+      if (result.reused) setReused(true);
+      else if (result.url) setSessionUrl(result.url);
+      else setErr("Verification could not open. Try again or contact the team from your rental conversation.");
     }
-    catch (e: any) { setErr(e?.message ?? "Could not open verification"); }
-    finally { setBusy(false); }
-  }, [busy, sessionUrl, getSession, bookingId, account.token, checkoutSessionId]);
+    catch { if (mounted.current) setErr("Verification could not open. Try again or contact the team from your rental conversation. Your payment and saved progress are unchanged."); }
+    finally { flight.current = false; if (mounted.current) setBusy(false); }
+  }, [sessionUrl, reused, getSession, bookingId, accountToken, checkoutSessionId]);
 
   useEffect(() => {
     const key = bookingId;
@@ -65,7 +81,8 @@ export function IdVerify({ bookingId, status, note, compact, autoStart = false, 
       {note && (status === "requires_input" || status === "manual_review") && <p className="mt-1 text-xs text-amber-200">{note}</p>}
       {status === "processing" && <p className="mt-1 text-xs text-white/45">We will update this page when the provider completes its check. You can return later.</p>}
       {status === "manual_review" && <p className="mt-1 text-xs text-white/45">We will review this result and contact you if another document is needed.</p>}
-      {status !== "rejected" && status !== "manual_review" && !sessionUrl && (
+      {reused && <p role="status" className="mt-2 text-sm text-emerald-300">Your recent verification has been reused. We’re updating your rental progress.</p>}
+      {status !== "rejected" && status !== "manual_review" && !sessionUrl && !reused && (
         <button onClick={() => void open()} disabled={busy} className="btn-primary mt-2 px-5 py-2 text-sm">
           {busy ? "Opening…" : restart ? "Restart verification" : status === "requires_input" ? "Replace requested document" : "Continue verification"}
         </button>
@@ -81,7 +98,7 @@ export function IdVerify({ bookingId, status, note, compact, autoStart = false, 
           <p className="mt-2 text-xs text-white/45">Your result will update here automatically. If the camera does not open, <a href={sessionUrl} target="_blank" rel="noreferrer" className="underline">open verification in a new tab</a>.</p>
         </div>
       )}
-      {err && <div className="mt-2 text-xs text-red-300">{err}</div>}
+      {err && <div role="alert" className="mt-2 text-xs text-red-300">{err}</div>}
     </div>
   );
 }
