@@ -10,7 +10,7 @@ const state=load('convex/rentalPriceState.ts'),ops=load('convex/rentalOperations
 const token=process.env.ADMIN_TOKEN,account=put('accounts',{email:'price@rental-test.invalid'});
 put('sessions',{token:'fixture-renter',accountId:account._id,expiresAt:Date.now()+86400000});
 const b=put('bookings',{accountId:account._id,guestEmail:account.email,status:'active',total:150,subtotal:100,depositAmount:50,stripePaymentIntentId:'pi_fixture',lineItems:[{listingId:'camera',title:'Camera',qty:1,start:1,end:2,lineTotal:100}]});
-const ctx={db,scheduler:{runAfter:async()=>{}},runMutation:async(ref,args)=>{const [module,fn]=ref.split('.');return ({rentalPriceState:state,rentalOperations:ops})[module][fn].handler(ctx,args)},runQuery:async(ref,args)=>{const [module,fn]=ref.split('.');return ({rentalPriceState:state})[module][fn].handler(ctx,args)}};
+const ctx={db,scheduler:{runAfter:async()=>{}},runMutation:async(ref,args)=>{const [module,fn]=ref.split('.');return ({rentalPriceState:state,rentalOperations:ops,adminAuth:load("convex/adminAuth.ts")})[module][fn].handler(ctx,args)},runQuery:async(ref,args)=>{const [module,fn]=ref.split('.');return ({rentalPriceState:state})[module][fn].handler(ctx,args)}};
 (async()=>{
  await assert.rejects(state.preview.handler(ctx,{token:'outsider',bookingId:b._id,newTotal:125}),/unauthorized/);
  let q=await state.preview.handler(ctx,{token,bookingId:b._id,newTotal:125});assert.equal(q.current,100);assert.equal(q.delta,25);
@@ -36,6 +36,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},runMutation:async(ref,args)=>{con
  await payments.accept.handler(ctx,acceptedArgs);await payments.accept.handler(ctx,acceptedArgs);assert.equal(creates,1,'retry uses original checkout');
  assert.equal((await payments.finalize.handler(ctx,{sessionId:session.id})).paid,false);assert.equal(next.total,150);
  Object.assign(session,{status:'complete',payment_status:'paid',payment_intent:'pi_price_flow'});intents.set('pi_price_flow',{id:'pi_price_flow',status:'succeeded',currency:'gbp',amount_received:2500,metadata:{priceAdjustmentId:nextId}});
+ const requestRow=await db.get(nextId);requestRow.status='payment_review';await assert.rejects(payments.resumeReview.handler(ctx,{token,id:nextId,confirmed:false}),/Confirm/);await payments.resumeReview.handler(ctx,{token,id:nextId,confirmed:true});assert.equal(next.total,175,'operator review resumes original paid receipt');
  assert.equal((await payments.finalize.handler(ctx,{sessionId:session.id})).closed,false);assert.equal(next.total,175);
  await payments.finalize.handler(ctx,{sessionId:session.id});assert.equal(next.total,175);assert.equal(refundCalls,0);
  const closed=put('bookings',{...next,_id:'fixture-closed-price',total:150,subtotal:100,priceAdjustmentCharges:undefined});

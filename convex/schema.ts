@@ -803,6 +803,7 @@ export default defineSchema({
   rental_refunds: defineTable({
     bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.number(),reason:v.string(),
     status:v.union(v.literal("prepared"),v.literal("pending"),v.literal("succeeded"),v.literal("failed")),
+    refundReceipts:v.optional(v.array(depositReturnReceipt)),
     allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()}))),
     parts:v.optional(v.array(v.object({paymentIntentId:v.string(),stripeRefundId:v.string(),status:v.string(),amountPence:v.number()}))),
     stripeRefundId:v.optional(v.string()),createdAt:v.number(),updatedAt:v.number(),

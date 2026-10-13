@@ -188,7 +188,7 @@ export function CheckoutMembership({
     displayTier.key === "studio"
       ? "One London delivery included each month"
       : `${displayTier.deliveryPct}% off future delivery`,
-    "New rentals: no upfront deposit · saved-card permission applies",
+    "Security is shown in your quote · saved-card permission applies",
     displayTier.filmFund
       ? "Film Fund entry included when applications open"
       : "Film Fund entry £15/project when applications open",

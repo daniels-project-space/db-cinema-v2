@@ -1,3 +1,4 @@
+import {depositReturnReceipt} from "./lib/depositReturnReceipt";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
@@ -677,3 +678,6 @@ export const equipmentCatalog = query({
       .map(l=>({listingId:l._id,title:l.title,imageSources:listingImages(l),daily:l.pricing.daily}));
   },
 });
+
+export const refundJob=internalQuery({args:{id:v.id("rental_refunds")},handler:async(ctx,{id})=>ctx.db.get(id)});
+export const recordRefundReceipt=internalMutation({args:{id:v.id("rental_refunds"),receipt:depositReturnReceipt},handler:async(ctx,{id,receipt})=>{const r=await ctx.db.get(id);if(!r)throw Error("Refund missing");const a=r.allocations?.find(p=>p.paymentIntentId===receipt.paymentIntentId);if(!a||a.amountPence!==receipt.amountPence||receipt.attemptedAt!==r.createdAt)throw Error("Refund receipt allocation mismatch");const rows=r.refundReceipts??[],old=rows.find(p=>p.paymentIntentId===receipt.paymentIntentId);if(old&&(old.attemptedAt!==receipt.attemptedAt||(old.stripeRefundId&&old.stripeRefundId!==receipt.stripeRefundId)||(old.approvalRequestId&&old.approvalRequestId!==receipt.approvalRequestId)))throw Error("Original refund identity cannot be replaced");await ctx.db.patch(id,{refundReceipts:[...rows.filter(p=>p.paymentIntentId!==receipt.paymentIntentId),receipt]});}});

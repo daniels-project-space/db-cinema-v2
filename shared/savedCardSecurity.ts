@@ -19,7 +19,7 @@ export function savedCardRentalValue(b: any) {
 }
 export function securityAmendmentConsentText(limit:number,deposit:number,priorLimit:number,priorDeposit:number) {
   const permission=savedCardConsentText(limit,deposit).replace(`A refundable deposit of £${deposit.toFixed(2)} is included in today’s payment;`,`The total refundable deposit for this rental is £${deposit.toFixed(2)}; £${(deposit-priorDeposit).toFixed(2)} extra is due with this equipment update;`);
-  return `I accept the proposed equipment change. The refundable deposit changes from £${priorDeposit.toFixed(2)} to £${deposit.toFixed(2)}, and the combined saved-card damage/late-fee limit changes from £${priorLimit.toFixed(2)} to £${limit.toFixed(2)}. `+permission;
+  return `I accept the proposed equipment change. This updates permission for the card currently saved for this rental; paying this equipment update with another card does not replace that saved card. The refundable deposit changes from £${priorDeposit.toFixed(2)} to £${deposit.toFixed(2)}, and the combined saved-card damage/late-fee limit changes from £${priorLimit.toFixed(2)} to £${limit.toFixed(2)}. `+permission;
 }
 export function assertSavedCardConsent(b:any) {
   const fail=()=>{throw Error("The retained saved-card payment consent is missing or inconsistent. No charge is permitted.")};

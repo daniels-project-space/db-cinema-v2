@@ -1210,8 +1210,7 @@ export const stripeWebhook = internalAction({
       if (feePayment) await ctx.runAction(internal.securityCharges.refundWebhook, {paymentIntentId:feePayment});
       await reconcileFullyRefundedMembership(ctx,refund);
       await ctx.runAction(internal.filmFundPayments.reconcileRefund,{refundId:refund.id});
-      const id=refund.metadata?.rentalRefundId;
-      if(id)await ctx.runMutation(refund.metadata?.rentalPaymentIntent?internal.rentalOperations.recordRefundPart:internal.rentalOperations.recordRefund,{id:id as any,...(refund.metadata?.rentalPaymentIntent?{paymentIntentId:refund.metadata.rentalPaymentIntent}:{}),stripeRefundId:refund.id,status:refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending"});
+      if(refund.metadata?.rentalRefundId)await ctx.runAction(internal.checkout.reconcileRentalRefund,{refundId:refund.id});
     }
     // Retrieve current state: delayed webhook snapshots must not re-enable a canceled subscription.
     if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "customer.subscription.paused", "customer.subscription.resumed"].includes(event.type)) {
@@ -1318,7 +1317,7 @@ async function paymentBeforeCancellation(b: any): Promise<string | null> {
 }
 
 async function remainingCancellationPayment(payment: Stripe.PaymentIntent, maxPaidPence?: number) {
-  const refunds:Stripe.Refund[]=[];for await(const refund of stripe().refunds.list({payment_intent:payment.id,limit:100}))refunds.push(refund);
+  const refunds:Stripe.Refund[]=[];for await(const refund of stripe().refunds.list({payment_intent:payment.id,limit:100})){if(refunds.length>=100)throw new RefundReviewRequired("Refund history exceeds the safe review bound. No new refund was issued.");refunds.push(refund);}
   const memberRefunds=new Map<string,number>();
   if(maxPaidPence!==undefined&&maxPaidPence<payment.amount_received&&refunds.length){
     const payments=await stripe().invoicePayments.list({payment:{type:"payment_intent",payment_intent:payment.id},status:"paid",limit:100});
@@ -1468,7 +1467,7 @@ export const cancelByCustomer = action({
 /** Owner-only, durable and idempotent rental refund. Security is handled by return/cancel. */
 export const refundRental=action({
  args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.optional(v.number()),reason:v.string(),expectedSnapshot:v.optional(v.string())},
- handler:async(ctx,args):Promise<{status:string;amount:number}>=>{
+ handler:async(ctx,args):Promise<{status:string;amount:number;approvalUrl?:string}>=>{
   const job:any=await ctx.runMutation(internal.rentalOperations.prepareRefund,args);
   if(job.status==="succeeded"||job.status==="failed")return {status:job.status,amount:job.amountPence/100};
   // Resume receipts produced by the previous single-payment implementation without charging again.
@@ -1481,7 +1480,16 @@ export const refundRental=action({
   let allocations=job.allocations;
   if(!allocations){const sources=await ctx.runQuery(internal.rentalOperations.paymentSources,{bookingId:args.bookingId});const balances=await Promise.all(sources.map(async(source:any)=>({...source,availablePence:await remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId),source.maxPaidPence)})));allocations=await ctx.runMutation(internal.rentalOperations.bindRefundAllocations,{id:job._id,allocations:rentalRefundPlan(balances,job.amountPence)});}
   let status="succeeded";
-  for(const allocation of allocations){const part=job.parts?.find((p:any)=>p.paymentIntentId===allocation.paymentIntentId);const refund=part?.stripeRefundId?await stripe().refunds.retrieve(part.stripeRefundId):await stripe().refunds.create({payment_intent:allocation.paymentIntentId,amount:allocation.amountPence,metadata:{rentalRefundId:job._id,rentalPaymentIntent:allocation.paymentIntentId,bookingId:args.bookingId}}, {idempotencyKey:allocation.paymentIntentId===allocations[0].paymentIntentId?`dbc-rental-refund-${job._id}`:`dbc-rental-refund-${job._id}-${allocation.paymentIntentId}`});const result=refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending";if(result!=="succeeded")status=result;await ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:job._id,paymentIntentId:allocation.paymentIntentId,stripeRefundId:refund.id,status:result});}
+  for(const allocation of allocations){
+   const part=job.parts?.find((p:any)=>p.paymentIntentId===allocation.paymentIntentId);
+   const initial:RefundReceipt=job.refundReceipts?.find((r:RefundReceipt)=>r.paymentIntentId===allocation.paymentIntentId)??{paymentIntentId:allocation.paymentIntentId,amountPence:allocation.amountPence,attemptedAt:job.createdAt,status:"unknown",...(part?.stripeRefundId?{stripeRefundId:part.stripeRefundId}:{})};
+   const persist=async(receipt:RefundReceipt)=>{await ctx.runMutation(internal.rentalOperations.recordRefundReceipt,{id:job._id,receipt})};await persist(initial);
+   const receipt=await recoverApprovedRefund(stripe(),initial,{currency:"GBP",now:Date.now(),maxRefunds:100,persist,idempotencyKey:allocation.paymentIntentId===allocations[0].paymentIntentId?`dbc-rental-refund-${job._id}`:`dbc-rental-refund-${job._id}-${allocation.paymentIntentId}`,metadata:{rentalRefundId:job._id,rentalPaymentIntent:allocation.paymentIntentId,bookingId:args.bookingId}});await persist(receipt);
+   if(receipt.status==="awaiting_approval")return {status:receipt.status,amount:job.amountPence/100,...(receipt.approvalUrl?{approvalUrl:receipt.approvalUrl}:{})};
+   if(!receipt.stripeRefundId)throw Error("Refund provider receipt requires review.");
+   const result=receipt.status==="succeeded"?"succeeded":receipt.status==="failed"?"failed":"pending";if(result!=="succeeded")status=result;
+   await ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:job._id,paymentIntentId:allocation.paymentIntentId,stripeRefundId:receipt.stripeRefundId,status:result});
+  }
   return {status,amount:job.amountPence/100};
  }
 });
@@ -1513,3 +1521,7 @@ export const retryDepositRefund=action({args:{token:v.string(),bookingId:v.id("b
  await ctx.runMutation(internal.bookings.beginDepositRefundRetry,{bookingId:a.bookingId,refundId:a.refundId,requestId:a.requestId,expectedSnapshot:a.expectedSnapshot});
  const fresh:any=await ctx.runQuery(internal.bookings.getForRefund,{bookingId:a.bookingId,includeControlsSnapshot:true});return resumeDepositDecision(ctx,a.bookingId,fresh);
 }});
+
+export const resumeRentalRefund=action({args:{token:v.string(),refundId:v.id("rental_refunds"),confirmed:v.boolean()},handler:async(ctx,a):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:a.token,fn:"checkout.resumeRentalRefund"});if(!a.confirmed)throw Error("Confirm resuming the original refund first.");const r:any=await ctx.runQuery(internal.rentalOperations.refundJob,{id:a.refundId});if(!r)throw Error("Refund missing");return ctx.runAction(api.checkout.refundRental,{token:a.token,bookingId:r.bookingId,requestId:r.requestId,amountPence:r.amountPence,reason:r.reason});}});
+
+export const reconcileRentalRefund=internalAction({args:{refundId:v.string()},handler:async(ctx,{refundId}):Promise<any>=>{const refund=await stripe().refunds.retrieve(refundId),id=refund.metadata?.rentalRefundId;if(!id)return {ignored:true};const r:any=await ctx.runQuery(internal.rentalOperations.refundJob,{id:id as any});if(!r)return {ignored:true};const pi=typeof refund.payment_intent==="string"?refund.payment_intent:refund.payment_intent?.id,status=refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending";if(!pi||refund.currency!=="gbp"||refund.metadata?.bookingId!==r.bookingId)throw Error("Rental refund receipt mismatch.");if(r.allocations){const a=r.allocations.find((p:any)=>p.paymentIntentId===pi);if(!a||a.amountPence!==refund.amount||refund.metadata?.rentalPaymentIntent!==pi)throw Error("Rental refund allocation mismatch.");const old=r.refundReceipts?.find((p:any)=>p.paymentIntentId===pi);if(old)await ctx.runMutation(internal.rentalOperations.recordRefundReceipt,{id:r._id,receipt:{...old,stripeRefundId:refund.id,status}});return ctx.runMutation(internal.rentalOperations.recordRefundPart,{id:r._id,paymentIntentId:pi,stripeRefundId:refund.id,status});}if(r.stripeRefundId!==refund.id||r.amountPence!==refund.amount)throw Error("Legacy rental refund receipt mismatch.");return ctx.runMutation(internal.rentalOperations.recordRefund,{id:r._id,stripeRefundId:refund.id,status});}});
