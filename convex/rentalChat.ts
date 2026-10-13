@@ -163,36 +163,15 @@ export const adminInbox = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     if (!checkAdminToken(token)) return { authorized: false, items: [] };
-    const bookings = await ctx.db.query("bookings").order("desc").take(200);
-    const conversations = await Promise.all(
-      bookings.map(async (b) => {
-        const account = await accountForRental(ctx, b);
-        const thread = account
-          ? await rentalThread(ctx, account._id, b._id)
-          : null;
-        return { booking: b, account, thread };
-      }),
-    );
-    const active = conversations
-      .filter(
-        ({ thread }) =>
-          typeof thread?.lastMessage === "string" &&
-          thread.lastMessage.trim().length > 0,
-      )
-      .sort(
-        (a, b) =>
-          (b.thread?.updatedAt ?? b.booking._creationTime) -
-          (a.thread?.updatedAt ?? a.booking._creationTime),
-      )
-      .slice(0, 100);
-    const items = await Promise.all(
-      active.map(({ booking, account, thread }) =>
-        bookingView(ctx, booking, account, {
-          includeAvailability: true,
-          thread,
-        }),
-      ),
-    );
+    const threads = await ctx.db.query("chat_threads").withIndex("by_updated", q=>q).order("desc").take(200);
+    const items = (await Promise.all(threads.filter(t=>!!t.lastMessage?.trim()).slice(0,100).map(async thread => {
+      if(!thread.bookingId) return {...await generalConversationView(ctx,thread),_id:`support:${thread.accountId}`};
+      const booking = await ctx.db.get(thread.bookingId);
+      if(!booking) return null;
+      const account = await accountForRental(ctx,booking);
+      if(!account || account._id !== thread.accountId) return null;
+      return bookingView(ctx,booking,account,{includeAvailability:true,thread});
+    }))).filter(Boolean);
     return { authorized: true, items };
   },
 });
@@ -379,12 +358,13 @@ export const setHandler = mutation({
     const t = await rentalThread(ctx, a._id, bookingId);
     await acknowledgeOwnerNotifications(ctx, a._id, bookingId);
     if (t)
-      await ctx.db.patch(t._id, { escalated: !gaffer, updatedAt: Date.now() });
+      await ctx.db.patch(t._id, { escalated: !gaffer, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Date.now() });
     else
       await ctx.db.insert("chat_threads", {
         accountId: a._id,
         bookingId,
         escalated: !gaffer,
+        gafferGeneration: 1,
         updatedAt: Date.now(),
       });
     await postRentalMessage(ctx, {

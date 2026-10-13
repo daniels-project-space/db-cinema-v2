@@ -496,6 +496,7 @@ export default defineSchema({
     memberOnly: v.optional(v.boolean()),
     minTier: v.optional(v.string()),
     onceOnly: v.optional(v.boolean()),
+    firstOrderOnly: v.optional(v.boolean()),
     monthly: v.optional(v.boolean()),
     minSubtotal: v.optional(v.number()),
     active: v.boolean(),
@@ -705,8 +706,13 @@ export default defineSchema({
   admin_notifications: defineTable({
     eventKey: v.string(), kind: v.string(), accountId: v.id("accounts"), bookingId: v.optional(v.id("bookings")),
     title: v.string(), body: v.string(), createdAt: v.number(), read: v.boolean(),
+    income: v.optional(v.object({ gross: v.number(), net: v.number(), currency: v.string() })),
+    managerStatus: v.optional(v.string()), managerAttempts: v.optional(v.number()),
+    managerDueAt: v.optional(v.number()), managerGeneration: v.optional(v.number()),
+    managerPayload: v.optional(v.string()), managerLastError: v.optional(v.string()),
   }).index("by_event", ["eventKey"]).index("by_read_created", ["read", "createdAt"])
-    .index("by_account_booking_read", ["accountId", "bookingId", "read"]),
+    .index("by_account_booking_read", ["accountId", "bookingId", "read"])
+    .index("by_manager_due", ["managerStatus", "managerDueAt"]),
   admin_push_deliveries: defineTable({
     notificationId: v.id("admin_notifications"), subscriptionId: v.id("admin_push_subscriptions"),
     status: v.string(), attempts: v.number(), nextAttemptAt: v.number(), updatedAt: v.number(),
@@ -715,6 +721,7 @@ export default defineSchema({
   }).index("by_status_due", ["status", "nextAttemptAt"]),
 
   promo_redemptions: defineTable({
+    accountId: v.optional(v.id("accounts")),
     email: v.string(),
     code: v.string(),
     at: v.number(),
@@ -870,6 +877,7 @@ export default defineSchema({
     lastMessage: v.optional(v.string()),
     lastSender: v.optional(v.string()),
     gafferReplyTo: v.optional(v.id("messages")),
+    gafferGeneration: v.optional(v.number()),
     escalated: v.boolean(), // true → a human is handling it; Gaffer stops auto-replying
     tgMessageId: v.optional(v.number()), // the Telegram alert msg id (admin replies to it → thread)
     updatedAt: v.number(),

@@ -67,9 +67,9 @@ export async function postRentalMessage(
       chatUnreadOwner: patch.unreadOwner,
       chatUnreadRenter: patch.unreadRenter,
     });
-  if (a.sender === "renter" && thread?.escalated) await queueOwnerNotification(ctx, {
+  if (a.sender === "renter") await queueOwnerNotification(ctx, {
     eventKey: `renter-message:${id}`, kind: "renter_message", accountId: a.accountId, bookingId: a.bookingId,
-    title: "New rental message", body: "A renter has replied in a conversation handled by your team.",
+    title: "New rental message", body: "A renter has sent a new message.",
   });
   if (a.sender === "owner" || a.sender === "system") await queueRenterNotification(ctx, {
     eventKey: `rental-message:${id}`, kind: a.sender === "owner" ? "messages" : "booking",

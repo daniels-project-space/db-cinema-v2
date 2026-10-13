@@ -1,6 +1,7 @@
 "use node";
 
 import Stripe from "stripe";
+import { FIRST_ORDER_VOUCHER_CODE } from "./firstOrderVoucher";
 import { bestBenefit, SINGLE_BENEFIT_VERSION, type BenefitKind, loyaltyPercent } from "../../shared/rentalBenefits";
 import { providerRepeatGate } from "./repeatRentalProvider";
 import { membershipActiveNow, membershipTierFor } from "../../shared/membership";
@@ -139,6 +140,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
       tier:membershipTierFor(acct),membershipActive:membershipActiveNow(acct),email:customerEmail,token:a.token,
     });
     if (res?.valid) {promoDiscount=res.discount;promoCode=res.code;}
+    else if (a.promoCode.trim().toLowerCase() === FIRST_ORDER_VOUCHER_CODE) throw Error(res?.reason ?? "Your first-order voucher is not available.");
   }
   let quotedDeliveryFee = 0;
   let isLondon = false;
@@ -168,8 +170,8 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     Math.round(Math.max(0,subtotal-refundBefore-existingBefore)*100),acct?.membershipCreditDebtPence);
   const pence = (n:number)=>Math.max(0,Math.round(n*100));
   const chosen = bestBenefit([
-    {kind:"quiet",savingPence:pence(subtotal-raw.reduce((n,r)=>n+(r.quietTotal??r.total),0)),label:"Quiet gear saving"},
     {kind:"promo",savingPence:pence(promoDiscount),label:promoCode?.toUpperCase()??"Promo saving"},
+    {kind:"quiet",savingPence:pence(subtotal-raw.reduce((n,r)=>n+(r.quietTotal??r.total),0)),label:"Quiet gear saving"},
     {kind:"weekend",savingPence:pence(weekendCandidate),label:"Member weekend deal · £100 cap"},
     {kind:"delivery",savingPence:pence(deliveryCandidate),label:"Member delivery saving"},
     {kind:"loyalty",savingPence:!selected&&!membershipActiveNow(acct)?pence(subtotal*(acct?.loyaltyPercent??(acct?.loyaltyEligible?loyaltyPercent(3):0))/100):0,label:`Encore · ${acct?.loyaltyPercent??10}% rental saving`},
@@ -180,7 +182,8 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const primaryReduction=["none","delivery","earned_credit"].includes(chosen.kind)?0:chosen.savingPence/100;
   // The one-time joining credit is the sole stacking exception. It can only
   // reduce rental charges, never the membership fee or refundable security.
-  const membershipSignupOfferSaving=Math.min(joiningCandidate,Math.max(0,subtotal-primaryReduction));
+  const membershipSignupOfferSaving=chosen.kind === "promo" && promoCode === FIRST_ORDER_VOUCHER_CODE
+    ? 0 : Math.min(joiningCandidate,Math.max(0,subtotal-primaryReduction));
   const benefitKind=chosen.kind==="none"&&membershipSignupOfferSaving>0?"joining":chosen.kind;
   if(benefitKind==="referral_friend"||benefitKind==="referral_reward"){
     securityWaiverReason=undefined;repeatSourceBookingId=undefined;repeatSourceFingerprint=undefined;

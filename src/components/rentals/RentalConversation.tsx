@@ -73,7 +73,10 @@ export function RentalConversation({
     sendOwner = useMutation(api.rentalChat.sendOwner),
     read = useMutation(api.rentalChat.markRead);
   const human = useMutation(api.chat.requestHuman),
+    resume = useMutation(api.chat.resumeGaffer),
     handler = useMutation(api.rentalChat.setHandler);
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  useEffect(() => { setHandoffBusy(false); }, [bookingId, accountId]);
   const [visible, setVisible] = useState<string | null>(null);
   const container = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -180,7 +183,9 @@ export function RentalConversation({
     }
   }
   async function handoff() {
+    if (handoffBusy) return;
     const requestedScope = scope.current;
+    setHandoffBusy(true);
     setError(null);
     try {
       if (admin)
@@ -190,9 +195,12 @@ export function RentalConversation({
           accountId: accountId as any,
           gaffer: thread?.escalated ?? escalated,
         });
+      else if (thread?.escalated ?? escalated) await resume({ token, bookingId: bookingId as any });
       else await human({ token, bookingId: bookingId as any });
     } catch (e: any) {
       if (scope.current === requestedScope) setError(e.message);
+    } finally {
+      if (scope.current === requestedScope) setHandoffBusy(false);
     }
   }
   async function suggest() {
@@ -228,8 +236,8 @@ export function RentalConversation({
             <p className={styles.supportStatus}><span />{teamHandling ? "Team handling your conversation" : "Gaffer available · team can join"}</p>
           </div>
         </div>
-        <button onClick={handoff} disabled={!admin && teamHandling} className={styles.handoff}>
-          {admin ? teamHandling ? "Hand to Gaffer" : "Take over" : teamHandling ? "Team notified" : "Request a human"}
+        <button onClick={handoff} disabled={handoffBusy} className={styles.handoff}>
+          {handoffBusy ? "Updating…" : admin ? teamHandling ? "Hand to Gaffer" : "Take over" : teamHandling ? "Get back to Gaffer" : "Request a human"}
         </button>
       </header>
       <div className={`management-conversation-main ${styles.main}`}>

@@ -17,10 +17,14 @@ export function ownerPushAllowed(subscription: {humanRequests?:boolean;renterMes
 
 export async function queueOwnerNotification(ctx: any, args: {
   eventKey: string; kind: string; accountId: any; bookingId?: any; title: string; body: string;
+  income?: { gross: number; net: number; currency: string };
 }) {
   const existing = await ctx.db.query("admin_notifications").withIndex("by_event", (q: any) => q.eq("eventKey", args.eventKey)).first();
   if (existing) return existing._id;
-  const id = await ctx.db.insert("admin_notifications", { ...args, createdAt: Date.now(), read: false });
+  const managerEnabled = !!process.env.RMV2_WEBHOOK_URL && !!process.env.RMV2_WEBHOOK_SECRET;
+  const id = await ctx.db.insert("admin_notifications", { ...args, createdAt: Date.now(), read: false,
+    ...(managerEnabled ? { managerStatus: "queued", managerAttempts: 0, managerDueAt: Date.now() } : {}) });
+  if (managerEnabled) await ctx.scheduler.runAfter(0, internal.managerNotifications.deliver, { notificationId: id });
   const subscriptions = await ctx.db.query("admin_push_subscriptions").withIndex("by_enabled", (q: any) => q.eq("enabled", true)).collect();
   for (const subscription of subscriptions) {
     if (!ownerPushAllowed(subscription,args.kind)) continue;

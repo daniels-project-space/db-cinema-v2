@@ -1,5 +1,7 @@
+import { queueOwnerNotification } from "./lib/adminPush";
 import {depositRefundProjection,depositRefundState,depositRefundStatementFields} from "../shared/depositRefundStatus";
 import { depositReturnReceipt } from "./lib/depositReturnReceipt";
+import { assertFirstOrderReservation, FIRST_ORDER_VOUCHER_CODE } from "./lib/firstOrderVoucher";
 import { securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
 import { queueRentalEmail } from "./lib/rentalEmailQueue";
@@ -219,6 +221,14 @@ export const createPending = internalMutation({
     }
     const customerAccount = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", customerEmail)).first();
     if (customerAccount?.blockedAt != null) throw Error("This account is blocked. Contact DB Cinema Rentals.");
+    if (a.promoCode?.toLowerCase() === FIRST_ORDER_VOUCHER_CODE && (!a.accountId || a.accountId !== customerAccount?._id))
+      throw Error("Sign in to use your first-order voucher.");
+    await assertFirstOrderReservation(ctx, customerAccount, a.promoCode);
+    if (a.promoCode?.toLowerCase() === FIRST_ORDER_VOUCHER_CODE &&
+      ((a.membershipSignupOfferSaving ?? 0) !== 0 || (a.membershipCreditApplied ?? 0) !== 0 || (a.earnedCreditApplied ?? 0) !== 0 ||
+       (a.weekendSaving ?? 0) !== 0 || (a.loyaltySaving ?? 0) !== 0 || a.deliveryBenefitMonth || (a.benefitKind && a.benefitKind !== "promo") || a.referralCode || a.referralRewardId ||
+       Math.round((a.discount ?? 0) * 100) > Math.round(a.subtotal * 10)))
+      throw Error("DB10OFF cannot stack with other discounts or earned-credit benefits.");
     if (a.deliveryBenefitMonth) {
       const account = a.creditAccountId ? await ctx.db.get(a.creditAccountId) : null;
       if (a.deliveryBenefitMonth !== londonMonth() || a.fulfilment !== "delivery" || a.deliveryFee !== 0 || !await studioDeliveryAvailable(ctx, account, a.deliveryBenefitMonth, !!(a.membershipCheckoutId && (await ctx.db.get(a.membershipCheckoutId))?.tier === "studio")))
@@ -555,9 +565,14 @@ export const confirm = internalMutation({
     if (booking.promoCode && booking.guestEmail) {
       await ctx.db.insert("promo_redemptions", {
         email: booking.guestEmail.trim().toLowerCase(),
+        accountId: booking.accountId,
         code: booking.promoCode,
         at: Date.now(),
       });
+    }
+    if(booking.promoCode === FIRST_ORDER_VOUCHER_CODE) {
+      const voucher = await ctx.db.query("promo_codes").withIndex("by_code",q=>q.eq("code",FIRST_ORDER_VOUCHER_CODE)).first();
+      if(voucher) await ctx.db.patch(voucher._id,{usedCount:(voucher.usedCount ?? 0)+1});
     }
     // decrement any store credit applied at checkout — only now that payment has succeeded (FIFO by expiry)
     if (booking.creditApplied && booking.creditApplied > 0 && booking.guestEmail) {
@@ -602,7 +617,11 @@ export const confirm = internalMutation({
       if(r?.state==="available"&&r.reservedBookingId===bookingId){await ctx.db.patch(r._id,{state:"used",usedBookingId:bookingId,usedAt:Date.now()});await ctx.db.patch(r.accountId,{referralRewardUsedAt:Date.now()});}
     }
     await ctx.scheduler.runAfter(0, internal.referralPayments.attest, {bookingId});
-    await ctx.scheduler.runAfter(0, internal.notify.bookingOwnerAlert, { bookingId });
+    const paidBooking = await ctx.db.get(bookingId), paidAccount = await accountForRental(ctx, paidBooking);
+    if(paidBooking && paidAccount) {
+      const income = Math.max(0, paidBooking.total - paidBooking.depositAmount);
+      await queueOwnerNotification(ctx, {eventKey:`paid:${bookingId}`,kind:"booking_paid",accountId:paidAccount._id,bookingId,title:"Booking payment received",body:"A DB Cinema Web rental has been paid.",income:{gross:income,net:Math.max(0,paidBooking.subtotal-(paidBooking.discount??0)),currency:"GBP"}});
+    }
     await queueRentalEmail(ctx,bookingId,"payment");
     await queueRentalEmail(ctx,bookingId,"receipt");
     await ctx.scheduler.runAfter(0, internal.chat.postBookingMessages, { bookingId });
@@ -1443,6 +1462,8 @@ export const markReturnStatementEmail = internalMutation({
     const b = await ctx.db.get(bookingId);
     if (!b || b.returnStatementEmailStatus !== "sending") return;
     await ctx.db.patch(bookingId, { returnStatementEmailStatus: sent ? "sent" : "failed", returnStatementEmailedAt: sent ? Date.now() : undefined });
+    const account = await accountForRental(ctx,b);
+    if(account) await queueOwnerNotification(ctx,{eventKey:`statement-email:${bookingId}:${sent ? "sent" : b.returnStatementEmailAttemptAt}`,kind:sent?"email_sent":"email_failure",accountId:account._id,bookingId,title:sent?"Return statement emailed":"Return statement email needs attention",body:sent?"The return statement was accepted for email delivery.":"The return statement email was not accepted for delivery."});
   },
 });
 
@@ -1898,6 +1919,8 @@ export const _finalizeCancellation = internalMutation({
             : `Your booking was cancelled.`;
       await postRentalMessage(ctx,{accountId,bookingId,sender:"system",text:note,...(b.cancellationDecision?.changeRequestId ? {meta:{type:"rental_change_applied",changeRequestId:b.cancellationDecision.changeRequestId}}:{})});
     }
+    const cancelledAccount = await accountForRental(ctx, await ctx.db.get(bookingId));
+    if(cancelledAccount) await queueOwnerNotification(ctx,{eventKey:`cancelled:${bookingId}`,kind:"booking_cancelled",accountId:cancelledAccount._id,bookingId,title:"Rental cancelled",body:"The cancellation settlement is complete. Open the rental for the recorded refund or credit."});
     await queueRentalEmail(ctx,bookingId,"cancellation",{mode,refundAmount,creditAmount});
     await queueRmv2Sync(ctx, bookingId);
     if(b.cancellationDecision?.changeRequestId)await finishRequest(ctx,b,b.cancellationDecision.changeRequestId,"cancellation",cancellationRequestKey(bookingId,b.cancellationDecision.changeRequestId),`Rental cancelled. Card refund £${refundAmount.toFixed(2)}; account credit £${creditAmount.toFixed(2)}. Any uncaptured card authorisations have been released.`);

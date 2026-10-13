@@ -11,7 +11,7 @@ import { asksForBetterPrice } from "./priceRequest";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { quote } from "@/lib/pricing";
-import { savedCardChargeLimit } from "../../../shared/rentalSecurity";
+import { refundableDepositFor, savedCardChargeLimit } from "../../../shared/rentalSecurity";
 import { resolveDate, inclusiveDays, londonToday } from "@/lib/voiceDates";
 import { dayMs } from "@/lib/dates";
 import { useGafferFocus, scrollToId } from "@/components/gaffer/GafferFocus";
@@ -74,6 +74,7 @@ function speakCompat(warnings: { level: string; text: string }[]): string {
 }
 
 export function useGafferTools() {
+  const checkoutSettings = useQuery(api.settings.get, {});
   const router = useRouter();
   const priceRequested = useRef(false);
   const noteCustomerMessage = useCallback((message: string) => {
@@ -281,6 +282,11 @@ export function useGafferTools() {
       return { warnings: [], upgrades: [] };
     }
   }, [cart]);
+
+  const securitySummary = useCallback(() => {
+    const cash = checkoutSettings?.refundableDepositEnabled === true ? refundableDepositFor(cart.depositTotal) : null;
+    return `${cash === null ? "The final checkout quote confirms whether a refundable deposit is due." : cash > 0 ? `A refundable £${cash.toFixed(2)} deposit is paid at checkout.` : "No refundable deposit is due below £1,000 equipment value."} The combined saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)}, subject to the final quote and explicit consent. Any retained deposit reduces later charges for the same loss. Later collection requires itemised evidence, at least seven days for review and admin action.`;
+  }, [checkoutSettings?.refundableDepositEnabled, cart.depositTotal]);
 
   const rentalSummary = useCallback(async () => {
     if (!cart.promo) return `£${cart.subtotal}`;
@@ -732,7 +738,7 @@ export function useGafferTools() {
         const [bad, compat] = await Promise.all([basketProblems(), compatWarnings()]);
         const summary =
           `Basket breakdown is on screen: ${cart.items.length} line${cart.items.length > 1 ? "s" : ""}, ` +
-          `${await rentalSummary()}. Current checkout takes no security payment or bank hold. The quoted saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)} combined; an itemised notice and at least seven days for review precede any admin collection.` +
+          `${await rentalSummary()}. ${securitySummary()}` +
           speakCompat(compat.warnings ?? []);
         return bad.length
           ? `${summary} ${await replacementBrief()}`
@@ -863,7 +869,7 @@ export function useGafferTools() {
             .join("; ");
           return (
             `Full breakdown is on screen and everything in it is available.${speakCompat(compat.warnings ?? [])} ${lines}. ` +
-            `That's ${await rentalSummary()}. Current checkout takes no security payment or bank hold. The quoted saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)} combined; an itemised notice and at least seven days for review precede any admin collection. ` +
+            `That's ${await rentalSummary()}. ${securitySummary()} ` +
             `Read it back to them, then ask if they're happy to go through to payment — ` +
             `call go_to_checkout again only once they say yes.`
           );
@@ -872,10 +878,10 @@ export function useGafferTools() {
         instant();
         cart.close();
         router.push("/checkout");
-        return `Taking them to checkout, ${await rentalSummary()}. No security money is taken or blocked upfront. The combined saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)}, subject to the final quote and explicit consent. Any later collection requires itemised evidence, at least seven days for review, and admin action.`;
+        return `Taking them to checkout, ${await rentalSummary()}. ${securitySummary()}`;
       },
     }),
-    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest, rentalSummary, replacementBrief],
+    [router, cart, account, convex, findOne, findMany, focus, availabilityFor, resolveWindow, alternativesFor, basketProblems, lensMismatch, suggest, rentalSummary, replacementBrief, securitySummary],
   );
 
   /**

@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { TIER_RANK } from "./lib/membership";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { GAFFER_PRICE_CODE, gafferDiscount } from "./lib/gafferDiscount";
+import { FIRST_ORDER_VOUCHER_CODE, firstOrderVoucherReason } from "./lib/firstOrderVoucher";
 
 /**
  * Validate a promo code against the ELIGIBLE subtotal (non-offer rental lines
@@ -41,6 +42,14 @@ export const validate = query({
       .withIndex("by_code", (q) => q.eq("code", norm))
       .first();
     if (!promo || !promo.active) return { valid: false as const, reason: "unknown code" };
+    if (norm === FIRST_ORDER_VOUCHER_CODE) {
+      const account = token ? await accountForToken(ctx, token) : null;
+      if (email && account?.email !== email.trim().toLowerCase()) return { valid: false as const, reason: "Use your signed-in account email." };
+      const reason = await firstOrderVoucherReason(ctx, account);
+      if (reason) return { valid: false as const, reason };
+      if (eligibleSubtotal <= 0) return { valid: false as const, reason: "This voucher applies to standard rental charges only." };
+      return { valid: true as const, code: norm, type: "percent", value: 10, discount: Math.round(eligibleSubtotal * 10) / 100 };
+    }
 
     if (promo.minTier || promo.memberOnly) return {valid:false as const,reason:"Member coupons have been replaced by weekend deals and delivery benefits."};
 
@@ -116,6 +125,7 @@ export const adminList = query({
         active: r.active,
         usedCount: r.usedCount,
         minSubtotal: r.minSubtotal ?? null,
+        firstOrderOnly: r.code === FIRST_ORDER_VOUCHER_CODE || r.firstOrderOnly === true,
       })),
     };
   },
@@ -143,10 +153,22 @@ export const adminCreate = mutation({
       type,
       value,
       minSubtotal,
+      ...(norm === FIRST_ORDER_VOUCHER_CODE ? { type: "percent" as const, value: 10, onceOnly: true, firstOrderOnly: true } : {}),
       usedCount: 0,
       active: true,
     });
     return { ok: true };
+  },
+});
+
+export const installFirstOrderVoucher = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await assertAdmin(ctx, token, "promo.installFirstOrderVoucher");
+    const existing = await ctx.db.query("promo_codes").withIndex("by_code", q => q.eq("code", FIRST_ORDER_VOUCHER_CODE)).first();
+    const policy = { type: "percent" as const, value: 10, onceOnly: true, firstOrderOnly: true };
+    if (existing) { await ctx.db.patch(existing._id, policy); return existing._id; }
+    return ctx.db.insert("promo_codes", { code: FIRST_ORDER_VOUCHER_CODE, ...policy, usedCount: 0, active: true });
   },
 });
 

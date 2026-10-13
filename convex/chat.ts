@@ -1,3 +1,4 @@
+import { rentalsForAccount } from "./lib/rentalAccount";
 import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "./lib/rentalChat";
 import { accountForRental } from "./lib/rentalAccount";
 import { bookingCancelKind, cancellationDaysForBooking } from "../src/lib/cancellationPolicy";
@@ -80,7 +81,7 @@ export const _gafferContext = internalQuery({
   args: { accountId: v.id("accounts"), focusBookingId: v.optional(v.id("bookings")) },
   handler: async (ctx, { accountId, focusBookingId }) => {
     const acct: any = await ctx.db.get(accountId);
-    if (!acct) return null;
+    if (!acct || acct.blockedAt != null) return null;
     const thread = await rentalThread(ctx,accountId,focusBookingId);
     const rawMessages = focusBookingId
       ? await ctx.db.query("messages").withIndex("by_booking_at",q=>q.eq("bookingId",focusBookingId)).filter(q=>q.eq(q.field("accountId"),accountId)).order("desc").take(12)
@@ -117,7 +118,7 @@ export const _gafferContext = internalQuery({
         rentalContents,
         stage:pick.status,
         cancellation:{fullRefundDays:cancellationDaysForBooking(pick),policy:pick.cancellationDecision?.kind??bookingCancelKind(pick,Date.now()),cardRefund:pick.refundAmount??null,creditIssued:credit?.amount??0,creditExpiresAt:credit?.expiresAt??null,rentalRefunds:refunds.map(r=>({amount:r.amountPence/100,status:r.status}))},
-        payment:{total:pick.total,securityPaid:pick.depositAmount,securityRefunded:pick.depositRefundAmount??null,depositRefunded:!!pick.depositRefunded,securityRetained:pick.depositKept??0,holdStatus:pick.depositHoldStatus??null,lateFee:pick.lateFeeAmount??0,lateFeeStatus:pick.lateFeeStatus??null},
+        payment:{securityPolicyVersion:pick.securityPolicyVersion??null,savedCardLimit:pick.savedCardLimit??null,total:pick.total,securityPaid:pick.depositAmount,securityRefunded:pick.depositRefundAmount??null,depositRefunded:!!pick.depositRefunded,securityRetained:pick.depositKept??0,holdStatus:pick.depositHoldStatus??null,savedCardChargePaidPence:pick.savedCardChargePaidPence??0,savedCardChargeReservedPence:pick.savedCardChargeReservedPence??0,lateFee:pick.lateFeeAmount??0,lateFeeStatus:pick.lateFeeStatus??null},
         summary: pick.lineItems.map((li: any) => li.title).join(", "),
         dates: `${iso(start)} → ${iso(end)}`,
         fulfilment: pick.fulfilment,
@@ -128,7 +129,9 @@ export const _gafferContext = internalQuery({
     }
     const settings: any = await ctx.db.query("settings").first();
     return {
+      accountRentals: (await rentalsForAccount(ctx,acct,10)).map(b => ({id:b._id,status:b.status,items:b.lineItems.map((i:any)=>({title:i.title,qty:i.qty,start:i.start,end:i.end})),total:b.total,securityPaid:b.depositAmount})),
       email: acct.email,
+      gafferGeneration: thread?.gafferGeneration ?? 0,
       escalated: !!thread?.escalated,
       messages: msgs,
       latestRenterId:[...msgs].reverse().find(m=>m.sender==="renter")?._id??null,
@@ -142,10 +145,10 @@ export const _gafferContext = internalQuery({
 });
 
 export const _postBot = internalMutation({
-  args:{accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),replyTo:v.optional(v.id("messages")),text:v.string()},
-  handler:async(ctx,{accountId,bookingId,replyTo,text})=>{
+  args:{accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),replyTo:v.optional(v.id("messages")),generation:v.optional(v.number()),text:v.string()},
+  handler:async(ctx,{accountId,bookingId,replyTo,generation,text})=>{
     const t=await rentalThread(ctx,accountId,bookingId);
-    if(t?.escalated || (replyTo && t?.gafferReplyTo===replyTo))return false;
+    if(t?.escalated || (generation ?? 0) !== (t?.gafferGeneration ?? 0) || (replyTo && t?.gafferReplyTo===replyTo))return false;
     if(replyTo){
       const recent=bookingId?await ctx.db.query("messages").withIndex("by_booking_at",q=>q.eq("bookingId",bookingId)).filter(q=>q.eq(q.field("accountId"),accountId)).order("desc").take(20):await ctx.db.query("messages").withIndex("by_account_at",q=>q.eq("accountId",accountId)).filter(q=>q.eq(q.field("bookingId"),undefined)).order("desc").take(20);
       if(recent.find(m=>m.sender==="renter")?._id!==replyTo)return false;
@@ -158,12 +161,13 @@ export const _postBot = internalMutation({
 });
 
 export const _setEscalated = internalMutation({
-  args: { accountId: v.id("accounts"), bookingId:v.optional(v.id("bookings")), escalated: v.boolean(), tgMessageId: v.optional(v.number()) },
-  handler: async (ctx, { accountId, bookingId, escalated, tgMessageId }) => {
+  args: { accountId: v.id("accounts"), bookingId:v.optional(v.id("bookings")), escalated: v.boolean(), tgMessageId: v.optional(v.number()), expectedGeneration: v.optional(v.number()) },
+  handler: async (ctx, { accountId, bookingId, escalated, tgMessageId, expectedGeneration }) => {
     const t = await rentalThread(ctx,accountId,bookingId);
+    if(expectedGeneration !== undefined && expectedGeneration !== (t?.gafferGeneration ?? 0)) return false;
     const wasEscalated = !!t?.escalated;
-    if (t) await ctx.db.patch(t._id, { escalated, ...(tgMessageId != null ? { tgMessageId } : {}), updatedAt: Date.now() });
-    else await ctx.db.insert("chat_threads", { accountId, bookingId, escalated, tgMessageId, updatedAt: Date.now() });
+    if (t) await ctx.db.patch(t._id, { escalated, gafferGeneration: (t.gafferGeneration ?? 0) + 1, ...(tgMessageId != null ? { tgMessageId } : {}), updatedAt: Date.now() });
+    else await ctx.db.insert("chat_threads", { accountId, bookingId, escalated, gafferGeneration: 1, tgMessageId, updatedAt: Date.now() });
     if (escalated && !wasEscalated) await queueOwnerNotification(ctx, {
       eventKey: `human-handoff:${accountId}:${bookingId ?? "general"}:${Date.now()}`, kind: "human_request", accountId, bookingId,
       title: "Gaffer needs your help", body: "A rental conversation has been passed to your team.",
@@ -180,8 +184,8 @@ export const requestHuman = mutation({
     if(bookingId)await ownedBooking(ctx,a,bookingId);
     const t = await rentalThread(ctx,a._id,bookingId);
     if (t?.escalated) return { ok: true };
-    if (t) await ctx.db.patch(t._id, { escalated: true, updatedAt: Date.now() });
-    else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, updatedAt: Date.now() });
+    if (t) await ctx.db.patch(t._id, { escalated: true, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Date.now() });
+    else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, gafferGeneration: 1, updatedAt: Date.now() });
     const messageId = await postRentalMessage(ctx,{accountId:a._id,bookingId,sender:"system",text:"The team has been notified. Your conversation stays here."});
     await queueOwnerNotification(ctx, { eventKey: `human-request:${messageId}`, kind: "human_request", accountId: a._id, bookingId,
       title: "Renter requested a human", body: "A renter is waiting for your team in the rental inbox." });
@@ -190,15 +194,33 @@ export const requestHuman = mutation({
   },
 });
 
+export const resumeGaffer = mutation({
+  args: { token: v.string(), bookingId: v.optional(v.id("bookings")) },
+  handler: async (ctx, { token, bookingId }) => {
+    const account: any = await acctByToken(ctx, token);
+    if (!account || account.blockedAt != null) throw Error("Sign in to return to Gaffer.");
+    if (bookingId) await ownedBooking(ctx, account, bookingId);
+    const thread = await rentalThread(ctx, account._id, bookingId);
+    if (!thread?.escalated) return { ok: true };
+    await ctx.db.patch(thread._id, { escalated: false, gafferGeneration: (thread.gafferGeneration ?? 0) + 1, updatedAt: Date.now() });
+    const id = await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system", text: "Gaffer is available again. Your conversation and team request history are kept here." });
+    await queueOwnerNotification(ctx, { eventKey: `gaffer-resumed:${id}`, kind: "gaffer_resumed", accountId: account._id, bookingId,
+      title: "Renter returned to Gaffer", body: "The renter resumed AI help in their existing conversation." });
+    return { ok: true };
+  },
+});
+
 /** Telegram alert to the team; stores the message id so an admin REPLY routes back to the thread. */
 export const _escalationAlert = internalAction({
   args: { accountId: v.id("accounts"), bookingId:v.optional(v.id("bookings")) },
   handler: async (ctx, { accountId, bookingId }) => {
+    // The manager queue owns channel preferences when the bridge is configured.
+    if(process.env.RMV2_WEBHOOK_URL && process.env.RMV2_WEBHOOK_SECRET) return;
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chat = process.env.TELEGRAM_ADMIN_CHAT_ID;
     if (!token || !chat) return;
     const cx: any = await ctx.runQuery(internal.chat._gafferContext, { accountId, focusBookingId:bookingId });
-    if (!cx) return;
+    if (!cx || !cx.escalated) return;
     const last = cx.messages.slice(-5).map((m: any) => `${m.sender === "renter" ? "👤" : m.sender === "bot" ? "🤖" : "•"} ${m.text}`).join("\n");
     const esc=(text:string)=>text.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]!);
     const origin=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
@@ -211,7 +233,7 @@ export const _escalationAlert = internalAction({
       });
       const j = await res.json();
       const mid = j?.result?.message_id;
-      if (mid) await ctx.runMutation(internal.chat._setEscalated, { accountId, bookingId, escalated: true, tgMessageId: mid });
+      if (mid) await ctx.runMutation(internal.chat._setEscalated, { accountId, bookingId, escalated: true, expectedGeneration: cx.gafferGeneration, tgMessageId: mid });
     } catch {
       /* best-effort */
     }
