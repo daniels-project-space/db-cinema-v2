@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { IconLock, IconShield, IconCheck, IconTruck, IconPin, IconArrowRight } from "@/components/icons";
+import { IconLock, IconCheck, IconTruck, IconPin, IconArrowRight } from "@/components/icons";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { getSessionId } from "@/lib/session";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
-import { CheckoutAccountBenefits } from "@/components/CheckoutAccountBenefits";
 import { CheckoutMembership } from "@/components/CheckoutMembership";
 import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
 import { accountPricingContext, shouldResetMembershipPreference, membershipOfferContext, membershipRecommendationPreview } from "../../../shared/membershipSelection";
@@ -32,7 +31,6 @@ import { dayMs as ms } from "@/lib/dates";
 import { HOURS_SENTENCE } from "@/lib/site";
 
 import { savedCardChargeLimit, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../../shared/rentalSecurity";
-import { savedCardConsentText } from "../../../shared/savedCardSecurity";
 
 const PC_RE = /\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i;
 const DRAFT_TERMS = JSON.stringify({ documents: AGREEMENTS, delivery: DELIVERY_TERMS_VERSION });
@@ -403,7 +401,6 @@ export default function CheckoutPage() {
               </div>
             </StepCard>
 
-            <CheckoutAccountBenefits />
 
             {/* 02 — fulfilment */}
             <StepCard
@@ -478,23 +475,14 @@ export default function CheckoutPage() {
               </div></>}
             </StepCard>
 
-            <StepCard n="03" title={refundablePolicy?"Refundable deposit & card permission":"Saved-card security"} sub={savedCardQuoteReady?refundablePolicy?"Unused deposit returned to your original card.":"No security money taken or blocked upfront.":"Payment remains paused until the updated quote is ready."} done={savedCardQuoteReady} delay={140}>
-              <div className="rounded-xl border border-accent-400/25 bg-accent-400/[.04] p-4">
-                <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 font-medium text-white"><IconShield className="h-5 w-5 text-accent-300"/>Damage &amp; late-fee collection limit</span><strong className="font-mono text-accent-300">{formatGbp(futureChargeLimit)}</strong></div>
-                <p className="mt-3 text-xs leading-6 text-white/65">{savedCardQuoteReady?refundablePolicy?"Deposit: £0 below £1,000 equipment value; £50 from £1,000 to below £4,000; £100 at £4,000 or more. It is included in today’s payment. Any retained deposit reduces the combined 10% damage/late-fee allowance and the same assessment; the unused balance is refunded to your original card on completion. No additional funds are blocked.":"10% of your equipment replacement value: £100 per £1,000. We save your card during this checkout. No refundable deposit, card hold or hold renewal is created at checkout or pickup. A later, properly evidenced charge can fail or require bank approval.":"This quote uses the existing security policy. Updated saved-card checkout is temporarily unavailable; you cannot pay against this older quote."}</p>
-                <p className="mt-3 text-xs leading-6 text-white/50">Automatic ID, selfie and address checks must still be approved before handover.</p>
-              </div>
-            </StepCard>
-
-            {/* 04 — agreements */}
-            <StepCard n="04" title="Agreements & signature" sub="Required before hire. Security does not cap your responsibility." done={signDone} delay={210}>
+            <StepCard n="03" title="Agreements & signature" done={signDone} delay={140}>
               <div data-testid="rental-consent" className="rounded-xl border border-white/10 bg-black/10 p-4">
-                {refundablePolicy&&<div className="mb-3 flex items-center justify-between rounded-lg bg-accent-400/10 p-3"><span>Refundable deposit included today</span><strong>{formatGbp(currentQuote?.depositAmount??0)}</strong></div>}
-                <p data-testid="saved-card-consent-text" className="text-xs leading-6 text-white/75">{savedCardConsentText(futureChargeLimit,refundablePolicy?currentQuote?.depositAmount:undefined)}</p>
-                <details className="mt-3 text-xs text-white/55"><summary className="cursor-pointer text-accent-300">Read the rental agreements</summary><ul className="mt-2 space-y-1.5">{rentalAgreements.map(d=><li key={d.kind}><a href={`/legal/${d.kind}?version=${encodeURIComponent(d.version)}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{d.title} · {d.version}</a></li>)}</ul></details>
+                <nav aria-label="Rental agreements" className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-accent-300">
+                  {rentalAgreements.map(d=><a key={d.kind} href={`/legal/${d.kind}?version=${encodeURIComponent(d.version)}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{d.title}</a>)}
+                </nav>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">
                   <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreed} disabled={!currentQuote} onChange={e=>{setAgreed(e.target.checked);agreementRequest.current=null;}} className="mt-1 accent-accent-500 disabled:opacity-40"/>
-                  <span>{refundablePolicy?`I accept the rental agreements, the £${(currentQuote?.depositAmount??0).toFixed(2)} refundable deposit and the combined £${futureChargeLimit.toFixed(2)} damage/late-fee allowance. Any retained deposit reduces later card collection; unused deposit is refunded to the original card.`:<>I have read and accept the rental agreements and expressly authorise the saved-card damage/late-fee payments described above, up to {formatGbp(futureChargeLimit)} in total. No security payment or hold is taken now.</>}</span>
+                  <span data-testid="saved-card-consent-text">I accept these agreements and authorise saving my card and later payments for damage, loss or late return, up to {formatGbp(futureChargeLimit)} in total.</span>
                 </label>
               </div>
               <div className="mt-4">
@@ -547,8 +535,8 @@ export default function CheckoutPage() {
               <div data-testid="checkout-secondary-charges" className="space-y-2">
                 {!!membership && <Row label={membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"} value={currentQuote?.membershipFee ?? 0} muted />}
                 <section data-testid="refundable-security" className="mt-3 rounded-xl border border-white/10 bg-white/[.015] p-3">
-                  <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">{savedCardQuoteReady?refundablePolicy?'Refundable deposit & card permission':'Saved-card collection permission':'Existing quote · payment paused'}</h3>
-                  {savedCardQuoteReady?<>{refundablePolicy&&<Row label="Refundable deposit included today" value={currentQuote?.depositAmount??0}/>}<Row label="Damage & late-fee limit · not charged" value={futureChargeLimit} muted /><p className="mt-3 text-[10px] leading-5 text-white/55">{refundablePolicy?"Unused deposit returns to your original card. Retained deposit counts toward this combined limit; the limit itself is excluded from today’s total.":"No security money is charged or blocked now or at pickup. This limit is excluded from today’s total."}</p></>:<><Row label="Previous policy refundable deposit" value={currentQuote?.depositAmount??0} muted/><Row label="Previous policy card authorisation" value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">The updated quote must remove these security amounts before payment is available.</p></>}
+                  <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">{savedCardQuoteReady?'Deposit & card limit':'Quote updating'}</h3>
+                  {savedCardQuoteReady?<>{refundablePolicy&&<Row label="Refundable deposit today" value={currentQuote?.depositAmount??0}/>}<Row label="Later card limit · not charged" value={futureChargeLimit} muted /><p className="mt-3 text-[10px] leading-5 text-white/55">{refundablePolicy?"Unused deposit refunded to your card; retained amounts reduce later charges.":"No deposit or card hold. The limit is not charged today."}</p></>:<><Row label="Previous policy refundable deposit" value={currentQuote?.depositAmount??0} muted/><Row label="Previous policy card authorisation" value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">The updated quote must remove these security amounts before payment is available.</p></>}
                 </section>
               </div>
               <hr className="receipt-sep" />
