@@ -4,7 +4,7 @@ const bookings = load('convex/bookings.ts'), availability = load('convex/availab
 const {assertRentalInventory} = load('convex/lib/rentalInventory.ts');
 const realNow = Date.now, day = 86400000, now = Date.UTC(2026, 9, 8, 12);
 let clock = now; Date.now = () => clock;
-const ctx = {db}, start = Date.UTC(2027, 0, 1), end = start + day;
+const ctx = {db,scheduler:{runAfter:async()=>{}}}, start = Date.UTC(2027, 0, 1), end = start + day;
 const camera = put('inventory_units', {name:'Camera',active:true,quantityOwned:2});
 const battery = put('inventory_units', {name:'Battery',active:true,quantityOwned:2});
 const body = put('listings', {title:'Camera body',active:true,components:[{inventoryUnitId:camera._id,qty:1}]});

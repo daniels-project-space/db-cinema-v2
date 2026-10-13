@@ -1,3 +1,4 @@
+import {ASSESSMENT_SECURITY_POLICY_VERSION,depositForBookingPolicy} from "../shared/rentalSecurity";
 import { replacementSets } from "./lib/replacementSets";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
@@ -28,6 +29,12 @@ async function context(ctx: any, bookingId: any, lineIndex: number) {
   return { b, original, line: b.lineItems[lineIndex] };
 }
 /** Bounded, category-indexed candidates; every result checks the entire proposed basket. */
+async function assertReplacementDeposit(ctx:any,b:any,lines:any[]){
+ if(b.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION)return;
+ const values=await replacementValues(ctx,b,lines);
+ const value=lines.reduce((sum:number,line:any)=>sum+values.find(v=>v.listingId===line.listingId)!.unitPence*line.qty/100,0);
+ if(depositForBookingPolicy(b,value)>b.depositAmount)throw Error("This equipment upgrade needs a reviewed deposit update before it can be applied.");
+}
 export const options = query({
   args: {
     token: v.string(),
@@ -50,7 +57,7 @@ export const options = query({
     const options = [];
     for (const candidate of candidates) {
       if (
-        !replacementCompatible(original, candidate) ||
+        !replacementCompatible(original, candidate,b) ||
         b.lineItems.some((l: any) => l.listingId === candidate._id)
       )
         continue;
@@ -143,7 +150,7 @@ export const accept = mutation({
     );
     const replacement = await ctx.db.get(a.newListingId);
     if (
-      !replacementCompatible(original, replacement) ||
+      !replacementCompatible(original, replacement,b) ||
       b.lineItems.some((l: any) => l.listingId === a.newListingId)
     )
       throw Error("Replacement needs a separate price or equipment review.");
@@ -182,6 +189,7 @@ export const accept = mutation({
         : l,
     );
     await assertRentalInventory(ctx, lines, b._id);
+    await assertReplacementDeposit(ctx,b,lines);
     await assertRenterExposure(ctx, b, lines);
     for (const r of reservations)
       if (r.status === "confirmed")
@@ -301,7 +309,7 @@ async function completeBasketOptions(ctx: any, bookingId: any): Promise<any> {
     for (const candidate of candidates
       .filter(
         (candidate: any) =>
-          replacementCompatible(source, candidate) &&
+          replacementCompatible(source, candidate,b) &&
           !lines.some((line: any) => line.listingId === candidate._id),
       )
       .sort(
@@ -345,6 +353,7 @@ async function completeBasketOptions(ctx: any, bookingId: any): Promise<any> {
       });
       try {
         await assertRentalInventory(ctx, proposed, b._id, cache);
+        await assertReplacementDeposit(ctx,b,proposed);
         await assertRenterExposure(ctx, b, proposed);
         return true;
       } catch {
@@ -503,6 +512,7 @@ export const acceptBasket = mutation({
         : line;
     });
     await assertRentalInventory(ctx, lines, b._id);
+    await assertReplacementDeposit(ctx,b,lines);
     await assertRenterExposure(ctx, b, lines);
     for (const reservation of reservations)
       if (reservation.status === "confirmed")

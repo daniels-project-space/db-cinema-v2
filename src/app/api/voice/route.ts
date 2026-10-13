@@ -52,8 +52,8 @@ const money = (n: number | null | undefined) => (n == null ? "" : `£${Math.roun
 
 /** Per-item estimate only. Final combined-basket security is quoted at checkout. */
 function securitySummary(replacementValue: number | null | undefined): string {
-  const limit=savedCardChargeLimit(Math.max(0,Number(replacementValue)||0));
-  return `, with no upfront security payment or bank hold. Saved-card permission covers up to £${limit.toFixed(2)} for damage/loss and late fees combined, after evidenced notice and at least seven days for review. The final combined basket limit and explicit consent are shown at checkout`;
+  return `, with the exact refundable deposit and any active membership or Encore exemption confirmed by the final account-bound checkout quote. Security is not rental income. Stripe saves a card for future evidenced damage, loss or late fees under the accepted agreement, after itemised notice and at least seven days for review. Never infer a booking's accepted terms or invent a collection ceiling`;
+
 }
 
 /** Read prices as a range the way a person would, not as a list. */

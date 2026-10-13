@@ -11,7 +11,7 @@ import { asksForBetterPrice } from "./priceRequest";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { quote } from "@/lib/pricing";
-import { refundableDepositFor, savedCardChargeLimit } from "../../../shared/rentalSecurity";
+import { refundableDepositFor, assessmentDepositFor, savedCardChargeLimit } from "../../../shared/rentalSecurity";
 import { resolveDate, inclusiveDays, londonToday } from "@/lib/voiceDates";
 import { dayMs } from "@/lib/dates";
 import { useGafferFocus, scrollToId } from "@/components/gaffer/GafferFocus";
@@ -284,9 +284,10 @@ export function useGafferTools() {
   }, [cart]);
 
   const securitySummary = useCallback(() => {
+    if(checkoutSettings?.assessmentSecurityEnabled) return `The refundable deposit starts at £20, rises to £50 from £1,000 equipment value and £100 from £4,000. Eligible active members/subscribers and verified Encore renters are exempt; the final account-bound quote confirms eligibility. Stripe saves a card for evidenced future damage, loss and late-fee payments. Retained deposit is deducted from the same assessment. Later collection requires an itemised notice, at least seven days for review and admin action.`;
     const cash = checkoutSettings?.refundableDepositEnabled === true ? refundableDepositFor(cart.depositTotal) : null;
     return `${cash === null ? "The final checkout quote confirms whether a refundable deposit is due." : cash > 0 ? `A refundable £${cash.toFixed(2)} deposit is paid at checkout.` : "No refundable deposit is due below £1,000 equipment value."} The combined saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)}, subject to the final quote and explicit consent. Any retained deposit reduces later charges for the same loss. Later collection requires itemised evidence, at least seven days for review and admin action.`;
-  }, [checkoutSettings?.refundableDepositEnabled, cart.depositTotal]);
+  }, [checkoutSettings?.assessmentSecurityEnabled, checkoutSettings?.refundableDepositEnabled, cart.depositTotal]);
 
   const rentalSummary = useCallback(async () => {
     if (!cart.promo) return `£${cart.subtotal}`;

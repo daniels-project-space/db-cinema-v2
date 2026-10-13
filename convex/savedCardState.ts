@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery, query } from './_generated/server';
 import { v } from 'convex/values';
-import { REFUNDABLE_DEPOSIT_POLICY_VERSION } from '../shared/rentalSecurity';
+import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, REFUNDABLE_DEPOSIT_POLICY_VERSION } from '../shared/rentalSecurity';
 import { checkAdminToken } from './adminAuth';
 import { accountForToken, ownedBooking } from './lib/rentalChat';
 import { assertSavedCardConsent, isSavedCardRental } from '../shared/savedCardSecurity';
@@ -19,11 +19,11 @@ export const failed = internalMutation({args:{bookingId:v.id('bookings')},handle
 export const status = query({args:{token:v.string(),bookingId:v.id('bookings'),admin:v.optional(v.boolean())},handler:async(ctx,a)=>{
  let b;if(a.admin){if(!checkAdminToken(a.token))return null;b=await ctx.db.get(a.bookingId);}else{const account=await accountForToken(ctx,a.token);if(!account)return null;b=await ownedBooking(ctx,account,a.bookingId);}
  if(!isSavedCardRental(b))return null;
- return {limit:b!.savedCardLimit??0,status:b!.savedCardStatus??'awaiting_payment',reserved:(b!.savedCardChargeReservedPence??0)/100,paid:(b!.savedCardChargePaidPence??0)/100};
+ return {limit:b!.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?null:b!.savedCardLimit??0,status:b!.savedCardStatus??'awaiting_payment',reserved:(b!.savedCardChargeReservedPence??0)/100,paid:(b!.savedCardChargePaidPence??0)/100};
 }});
 export const markReturn=internalMutation({args:{bookingId:v.id('bookings'),damageNote:v.optional(v.string())},handler:async(ctx,a)=>{
  const b=await ctx.db.get(a.bookingId);if(!isSavedCardRental(b)||b!.status!=='returned'||!b!.returnDecision)throw Error('An inspected saved-card return is required.');
- if (b!.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION) {
+ if (hasCashDepositPolicy(b!.securityPolicyVersion)) {
   if (!b!.depositRefunded) throw Error('Finish the deposit refund decision before closing this return.');
   await ctx.db.patch(a.bookingId,{depositHoldStatus:'not_applicable',returnedAt:b!.returnedAt??b!.returnDecision!.actualReturnedAt});
   return;

@@ -10,7 +10,7 @@ import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
 import { depositFor, depositChargeFor } from "./pricing";
-import { SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit } from "../../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardLimitForPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit } from "../../shared/rentalSecurity";
 import { londonMonth } from "./memberDelivery";
 import { tierByKey, paidDepositExempt } from "./membership";
 
@@ -110,9 +110,10 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const protection = a.protection ?? "verify";
   const replacementSum = items.reduce((n, i) => n + Math.round(i.deposit*100), 0)/100;
   // Only enable after checkout, immutable terms and both admin surfaces qualify.
-  const refundablePolicy = process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED === "true";
-  const securityPolicyVersion = refundablePolicy ? REFUNDABLE_DEPOSIT_POLICY_VERSION : SECURITY_POLICY_VERSION;
-  const cashDeposit = refundablePolicy ? refundableDepositFor(replacementSum) : depositChargeFor(protection, replacementSum);
+  const assessmentPolicy=process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true";
+  const refundablePolicy = assessmentPolicy || process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED === "true";
+  const securityPolicyVersion = assessmentPolicy?ASSESSMENT_SECURITY_POLICY_VERSION:refundablePolicy ? REFUNDABLE_DEPOSIT_POLICY_VERSION : SECURITY_POLICY_VERSION;
+  const cashDeposit = assessmentPolicy?assessmentDepositFor(replacementSum):refundablePolicy ? refundableDepositFor(replacementSum) : depositChargeFor(protection, replacementSum);
   const depositHoldAmount = refundablePolicy ? 0 : depositFor(protection, replacementSum);
   let repeatSourceBookingId: Id<"bookings"> | undefined;
   let repeatSourceFingerprint: string | undefined;
@@ -124,6 +125,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     }
   }
   let securityWaiverReason = !refundablePolicy && !selected && paidDepositExempt(acct) ? "paid_membership" : repeatSourceBookingId ? "safe_repeat_kit" : undefined;
+  if(assessmentPolicy)securityWaiverReason=membershipActiveNow(acct)?"active_membership":acct?.loyaltyEligible && acct.loyaltyLevel>=3 ? "encore": selected ? "membership_checkout" : undefined;
   let depositAmount = securityWaiverReason ? 0 : cashDeposit;
   const month = londonMonth();
   const freedCount = 0;
@@ -185,7 +187,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const membershipSignupOfferSaving=chosen.kind === "promo" && promoCode === FIRST_ORDER_VOUCHER_CODE
     ? 0 : Math.min(joiningCandidate,Math.max(0,subtotal-primaryReduction));
   const benefitKind=chosen.kind==="none"&&membershipSignupOfferSaving>0?"joining":chosen.kind;
-  if(benefitKind==="referral_friend"||benefitKind==="referral_reward"){
+  if(!assessmentPolicy&&(benefitKind==="referral_friend"||benefitKind==="referral_reward")){
     securityWaiverReason=undefined;repeatSourceBookingId=undefined;repeatSourceFingerprint=undefined;
     depositAmount=cashDeposit;
   }
@@ -207,7 +209,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     pricingVersion:SINGLE_BENEFIT_VERSION,benefitKind,refundCreditApplied,earnedCreditApplied,
     referralCode:benefitKind==="referral_friend"?referral.friend.code:undefined,
     referralRewardId:benefitKind==="referral_reward"?referral.reward.id:undefined,
-    items,customerEmail,acct,month,freedCount,subtotal,replacementSum,protection,savedCardLimit:savedCardChargeLimit(replacementSum),
+    items,customerEmail,acct,month,freedCount,subtotal,replacementSum,protection,savedCardLimit:cardLimitForPolicy(securityPolicyVersion,replacementSum),
     securityPolicyVersion,depositHoldAmount,depositAmount,appliedCode,totalReduction,reductionLabel:chosen.kind==="none"?undefined:chosen.label,
     quotedDeliveryFee,deliveryFee,deliveryBenefitMonth,deliveryReduction,securityWaiverReason,weekendSaving,
     rentalSaving:totalReduction,loyaltySaving,membershipSignupOfferSaving,repeatSourceBookingId,repeatSourceFingerprint,

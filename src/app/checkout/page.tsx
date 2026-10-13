@@ -30,7 +30,7 @@ import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 import { dayMs as ms } from "@/lib/dates";
 import { HOURS_SENTENCE } from "@/lib/site";
 
-import { savedCardChargeLimit, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, savedCardChargeLimit, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../../shared/rentalSecurity";
 
 const PC_RE = /\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i;
 const DRAFT_TERMS = JSON.stringify({ documents: AGREEMENTS, delivery: DELIVERY_TERMS_VERSION });
@@ -248,9 +248,10 @@ export default function CheckoutPage() {
   }, []);
 
   const futureChargeLimit = currentQuote?.savedCardLimit ?? savedCardChargeLimit(equipmentValue);
-  const refundablePolicy = currentQuote?.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION;
+  const refundablePolicy = hasCashDepositPolicy(currentQuote?.securityPolicyVersion);
+  const assessmentPolicy=currentQuote?.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION;
   const rentalAgreements = agreementsForSecurityPolicy(currentQuote?.securityPolicyVersion);
-  const savedCardQuoteReady = !!currentQuote && (currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION || refundablePolicy) && Number.isFinite(currentQuote.savedCardLimit) && (refundablePolicy ? [0,50,100].includes(currentQuote.depositAmount) : currentQuote.depositAmount === 0) && currentQuote.depositHoldAmount === 0;
+  const savedCardQuoteReady = !!currentQuote && (currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION || refundablePolicy) && Number.isFinite(currentQuote.savedCardLimit) && (refundablePolicy ? [0,20,50,100].includes(currentQuote.depositAmount) : currentQuote.depositAmount === 0) && currentQuote.depositHoldAmount === 0;
   useEffect(()=>{setAgreed(false);setSignature("");agreementRequest.current=null;},[futureChargeLimit,currentQuote?.depositAmount,currentQuote?.securityPolicyVersion]);
   const signDone = agreed && signature.trim().length > 2 && signatureLimit.current === futureChargeLimit && signedContext.current === signingContext;
 
@@ -288,7 +289,8 @@ export default function CheckoutPage() {
   }, [draftReady, restoreDeliveryQuote, items.length]);
 
   const recoveryKey=JSON.stringify({priceArgs,phone,billingAddress,name,email,pickupTime:effectivePickupTime,returnTime:effectiveReturnTime,signature,agreed,deliveryAgreed,total:currentQuote?.combinedTotalDue,deliveryFee:currentQuote?.quotedDeliveryFee,membershipTermsAccepted:membership?.termsAccepted});
-  const canRecover=recovery?.key===recoveryKey&&recovery.acceptance===agreementRequest.current;
+  const recoveryStock = useQuery(api.bookings.recoveryStock,recovery?.acceptance ? {requestId:recovery.acceptance,token:account.token??undefined}:"skip");
+  const canRecover=recovery?.key===recoveryKey&&recovery.acceptance===agreementRequest.current&&recoveryStock?.ready===true;
   async function pay() {
     if (!checkout.enabled) { setErr(CHECKOUT_PAUSED_MESSAGE); return; }
     if (availabilityBlocked&&!canRecover) { setErr("Review your basket and choose available alternatives before checkout."); return; }
@@ -468,7 +470,7 @@ export default function CheckoutPage() {
 
               {/* times (both pickup & delivery) */}
               <div className="mb-4 space-y-3">{items.map(item=><CartItemTimes key={item.key} item={item} defaultPickupTime={pickupTime} defaultReturnTime={returnTime} ready={stock.ready} delivery={fulfilment==="delivery"}/>)}</div>
-              {availabilityBlocked && <p className="mt-4 text-sm text-amber-200">Item-specific times apply on each item’s pickup and return dates. Choose a valid rental period; your saved choices are kept.</p>}
+              {availabilityBlocked && !canRecover && <p className="mt-4 text-sm text-amber-200">Item-specific times apply on each item’s pickup and return dates. Choose a valid rental period; your saved choices are kept.</p>}
               {!allItemTimes&&<><p className="mb-2 text-xs text-white/55">Default times apply only to items without their own collection times.</p>              <div className="mt-4 flex gap-3">
                 <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.pickupBoundarySlots??defaultSlots?.pickupSlots}/>
                 <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={!stock.ready||!defaultSlots} allowedSlots={defaultSlots?.returnBoundarySlots??defaultSlots?.returnSlots}/>
@@ -482,7 +484,7 @@ export default function CheckoutPage() {
                 </nav>
                 <label className="mt-4 flex items-start gap-2.5 text-sm leading-6 text-white/80">
                   <input data-testid="rental-agreement-checkbox" type="checkbox" checked={agreed} disabled={!currentQuote} onChange={e=>{setAgreed(e.target.checked);agreementRequest.current=null;}} className="mt-1 accent-accent-500 disabled:opacity-40"/>
-                  <span data-testid="saved-card-consent-text">I accept these agreements and authorise saving my card and later payments for damage, loss or late return, up to {formatGbp(futureChargeLimit)} in total.</span>
+                  <span data-testid="saved-card-consent-text">I agree to all the linked terms and authorise my card for future damage, loss and late-fee payments.</span>
                 </label>
               </div>
               <div className="mt-4">
@@ -535,8 +537,8 @@ export default function CheckoutPage() {
               <div data-testid="checkout-secondary-charges" className="space-y-2">
                 {!!membership && <Row label={membership.intro === "trial" ? "Subscription · first 7 days free" : "First subscription month"} value={currentQuote?.membershipFee ?? 0} muted />}
                 <section data-testid="refundable-security" className="mt-3 rounded-xl border border-white/10 bg-white/[.015] p-3">
-                  <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">{savedCardQuoteReady?'Deposit & card limit':'Quote updating'}</h3>
-                  {savedCardQuoteReady?<>{refundablePolicy&&<Row label="Refundable deposit today" value={currentQuote?.depositAmount??0}/>}<Row label="Later card limit · not charged" value={futureChargeLimit} muted /><p className="mt-3 text-[10px] leading-5 text-white/55">{refundablePolicy?"Unused deposit refunded to your card; retained amounts reduce later charges.":"No deposit or card hold. The limit is not charged today."}</p></>:<><Row label="Previous policy refundable deposit" value={currentQuote?.depositAmount??0} muted/><Row label="Previous policy card authorisation" value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">The updated quote must remove these security amounts before payment is available.</p></>}
+                  <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[.12em] text-white/55">{savedCardQuoteReady?assessmentPolicy?'Refundable deposit':'Deposit & card limit':'Quote updating'}</h3>
+                  {savedCardQuoteReady?<>{refundablePolicy&&<Row label="Refundable deposit today" value={currentQuote?.depositAmount??0}/>}{!assessmentPolicy&&<Row label="Later card limit · not charged" value={futureChargeLimit} muted />}<p className="mt-3 text-[10px] leading-5 text-white/55">{refundablePolicy?"Unused deposit refunded to your card; retained amounts reduce later charges.":"No deposit or card hold. The limit is not charged today."}</p></>:<><Row label="Previous policy refundable deposit" value={currentQuote?.depositAmount??0} muted/><Row label="Previous policy card authorisation" value={currentQuote?.depositHoldAmount??0} muted/><p className="mt-3 text-[10px] leading-5 text-white/55">The updated quote must remove these security amounts before payment is available.</p></>}
                 </section>
               </div>
               <hr className="receipt-sep" />
@@ -551,7 +553,7 @@ export default function CheckoutPage() {
             {!!items.length&&<div className="mt-4"><CartStockNotice checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
             {invalidTimeOrder&&<p role="status" className="mt-4 text-sm text-amber-200">Choose a return time later than pickup, or a later return date in your basket.</p>}
             {availabilityBlocked&&!invalidTimeOrder&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
-            {canRecover&&<p role="status" className="mt-3 text-sm text-white/65">Your earlier checkout may already have reserved this kit. Retry securely to recover the same payment session.</p>}
+            {canRecover&&<p role="status" className="mt-3 text-sm text-white/65">This checkout has reserved your kit. Resume the same payment session.</p>}
             {!checkout.enabled && <CheckoutPauseNotice loading={checkout.loading}/>}
             <button data-testid="checkout-pay-button" onClick={pay} disabled={!checkout.enabled || !valid || busy || (availabilityBlocked&&!canRecover)} className="btn-primary mt-5 w-full py-3">
               {!checkout.enabled ? "Checkout temporarily paused" : busy ? "Redirecting…" : canRecover ? "Retry secure checkout" : "Pay with card"}

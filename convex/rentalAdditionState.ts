@@ -1,3 +1,4 @@
+import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
 import {schedulePickupHold} from "./pickupSecurity";
 import { tierByKey } from "../shared/membership";
@@ -153,7 +154,7 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
     );
     const securityCharge = ["paid_membership","new_paid_membership"].includes(b.securityWaiverReason??"") ? 0 : Math.max(
       0,
-      security.deposit - b.depositAmount,
+      (b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION ? depositForBookingPolicy(b,value) : security.deposit) - b.depositAmount,
     );
     const membership=b.status==="pending_payment"&&b.membershipCheckoutId?await ctx.db.get(b.membershipCheckoutId):null;
     if(membership&&(!membership.sessionParams||!["creating","open"].includes(membership.state)||membership.bookingId!==b._id))throw Error("Refresh the initial membership checkout before changing its order.");
@@ -217,7 +218,7 @@ export const prepare = internalMutation({
       dailyRate: a.complimentary ? 0 : l.pricing.daily * a.qty,
       complimentary: !!a.complimentary || line.lineTotal === 0,
       securityCharge,
-      ...(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION?{securityPolicyVersion:b.securityPolicyVersion,proposedSavedCardLimit:Math.max(b.savedCardLimit??0,savedCardChargeLimit(value)),replacementValuePence:Math.round(value*100),priorSavedCardLimit:b.savedCardLimit}:{}),
+      ...(hasCashDepositPolicy(b.securityPolicyVersion)?{securityPolicyVersion:b.securityPolicyVersion,proposedSavedCardLimit:Math.max(b.savedCardLimit??0,cardLimitForPolicy(b.securityPolicyVersion,value)),replacementValuePence:Math.round(value*100),priorSavedCardLimit:b.savedCardLimit}:{}),
       holdTotal,
       oldHoldId: b.stripeDepositIntentId,
       draftReplacement: b.status === "pending_payment",
@@ -225,7 +226,7 @@ export const prepare = internalMutation({
       baseSecurity: b.depositAmount,
       baseSessionId: b.stripeCheckoutSessionId,
       ...(membership?{membershipCheckoutId:membership._id,membershipFee,membershipSessionParams:membership.sessionParams}:{}),
-      status: b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION?"awaiting_acceptance":"prepared",
+      status: hasCashDepositPolicy(b.securityPolicyVersion)?"awaiting_acceptance":"prepared",
       reason: a.reason.trim().slice(0, 400),
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -244,7 +245,7 @@ export const prepare = internalMutation({
         externalRef: `addition:${id}`,
         holdExpiresAt: Date.now() + 35 * 60000,
       });
-    if(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION){await note(ctx,b,`Proposed equipment addition: ${line.qty}× ${line.title}. Review and accept the revised deposit and saved-card limit in your rental conversation before payment.`);await queueRmv2Sync(ctx,b._id);}
+    if(hasCashDepositPolicy(b.securityPolicyVersion)){await note(ctx,b,`Proposed equipment addition: ${line.qty}× ${line.title}. Review and accept the revised deposit and future card-payment permission in your rental conversation before payment.`);await queueRmv2Sync(ctx,b._id);}
     return (await ctx.db.get(id))!;
   },
 });
@@ -383,10 +384,10 @@ export const apply = internalMutation({
     }
     const updatedValues=await replacementValues(ctx,b,[...b.lineItems,line]);
     const updatedValue=[...b.lineItems,line].reduce((sum,li)=>sum+updatedValues.find(v=>v.listingId===li.listingId)!.unitPence*li.qty,0);
-    if(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION&&r.replacementValuePence!==updatedValue)return {closed:true};
+    if(hasCashDepositPolicy(b.securityPolicyVersion)&&r.replacementValuePence!==updatedValue)return {closed:true};
     let amendment:any;
-    if(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION){
-      if(!r.customerAcceptedAt||!r.customerAccountId||r.priorSavedCardLimit!==b.savedCardLimit||r.baseSecurity!==b.depositAmount||r.customerConsentText!==securityAmendmentConsentText(r.proposedSavedCardLimit!,b.depositAmount+r.securityCharge,b.savedCardLimit!,b.depositAmount))throw Error("The renter must accept this equipment security update first.");
+    if(hasCashDepositPolicy(b.securityPolicyVersion)){
+      if(!r.customerAcceptedAt||!r.customerAccountId||r.priorSavedCardLimit!==b.savedCardLimit||r.baseSecurity!==b.depositAmount||r.customerConsentText!==securityAmendmentConsentText(r.proposedSavedCardLimit!,b.depositAmount+r.securityCharge,b.savedCardLimit!,b.depositAmount,b.securityPolicyVersion))throw Error("The renter must accept this equipment security update first.");
       amendment={additionId:r._id,accountId:r.customerAccountId,acceptedAt:r.customerAcceptedAt,priorDeposit:b.depositAmount,depositAmount:b.depositAmount+r.securityCharge,priorLimit:b.savedCardLimit,savedCardLimit:r.proposedSavedCardLimit,consentText:r.customerConsentText,replacementValuePence:r.replacementValuePence,sessionId:r.sessionId,paymentIntentId:r.paymentIntentId,draftReplacement:!!r.draftReplacement};
     }
     const patch: any = {
@@ -618,8 +619,8 @@ export const customerState = query({
         r.lineTotal +
         r.securityCharge,
       securityCharge: r.securityCharge,
-      requiresAcceptance:r.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION&&!r.customerAcceptedAt,
-      savedCardLimit:r.proposedSavedCardLimit,depositAmount:(r.baseSecurity??0)+r.securityCharge,
+      requiresAcceptance:hasCashDepositPolicy(r.securityPolicyVersion)&&!r.customerAcceptedAt,
+      securityPolicyVersion:r.securityPolicyVersion,savedCardLimit:r.proposedSavedCardLimit,depositAmount:(r.baseSecurity??0)+r.securityCharge,
       priorSavedCardLimit:r.priorSavedCardLimit,priorDeposit:r.baseSecurity,
       holdTotal: r.holdTotal,
       url: r.withdrawalRequestedAt ? null : r.paymentUrl ?? null,
@@ -629,4 +630,4 @@ export const customerState = query({
   },
 });
 
-export const acceptSecurity=internalMutation({args:{token:v.string(),bookingId:v.id("bookings"),additionId:v.id("rental_additions"),expectedDeposit:v.number(),expectedLimit:v.number(),confirmed:v.boolean()},handler:async(ctx,a)=>{const account=await accountForToken(ctx,a.token);if(!account||!a.confirmed)throw Error("Review and accept the equipment and security update first.");const b=await ownedBooking(ctx,account,a.bookingId),r=await ctx.db.get(a.additionId);if(r&&r.bookingId===b._id&&r.customerAccountId===account._id&&["applied","applied_draft"].includes(r.status)&&a.expectedDeposit===(r.baseSecurity??0)+r.securityCharge&&a.expectedLimit===r.proposedSavedCardLimit)return r;if(!r||b.activeAdditionId!==r._id||r.bookingId!==b._id||r.withdrawalRequestedAt||r.createdAt+23*3600000<=Date.now()||r.securityPolicyVersion!==REFUNDABLE_DEPOSIT_POLICY_VERSION||a.expectedDeposit!==(r.baseSecurity??0)+r.securityCharge||a.expectedLimit!==r.proposedSavedCardLimit||b.depositAmount!==r.baseSecurity||b.savedCardLimit!==r.priorSavedCardLimit)throw Error("The equipment proposal changed or expired. Review it again.");if(r.customerAcceptedAt){if(r.customerAccountId!==account._id)throw Error("Equipment acceptance account mismatch.");return r}const acceptedAt=Date.now(),patch={customerAcceptedAt:acceptedAt,customerAccountId:account._id,customerConsentText:securityAmendmentConsentText(a.expectedLimit,a.expectedDeposit,b.savedCardLimit!,b.depositAmount),status:"prepared",updatedAt:acceptedAt};await ctx.db.patch(r._id,patch);return {...r,...patch};}});
+export const acceptSecurity=internalMutation({args:{token:v.string(),bookingId:v.id("bookings"),additionId:v.id("rental_additions"),expectedDeposit:v.number(),expectedLimit:v.number(),confirmed:v.boolean()},handler:async(ctx,a)=>{const account=await accountForToken(ctx,a.token);if(!account||!a.confirmed)throw Error("Review and accept the equipment and security update first.");const b=await ownedBooking(ctx,account,a.bookingId),r=await ctx.db.get(a.additionId);if(r&&r.bookingId===b._id&&r.customerAccountId===account._id&&["applied","applied_draft"].includes(r.status)&&a.expectedDeposit===(r.baseSecurity??0)+r.securityCharge&&a.expectedLimit===r.proposedSavedCardLimit)return r;if(!r||b.activeAdditionId!==r._id||r.bookingId!==b._id||r.withdrawalRequestedAt||r.createdAt+23*3600000<=Date.now()||!hasCashDepositPolicy(r.securityPolicyVersion)||a.expectedDeposit!==(r.baseSecurity??0)+r.securityCharge||a.expectedLimit!==r.proposedSavedCardLimit||b.depositAmount!==r.baseSecurity||b.savedCardLimit!==r.priorSavedCardLimit)throw Error("The equipment proposal changed or expired. Review it again.");if(r.customerAcceptedAt){if(r.customerAccountId!==account._id)throw Error("Equipment acceptance account mismatch.");return r}const acceptedAt=Date.now(),patch={customerAcceptedAt:acceptedAt,customerAccountId:account._id,customerConsentText:securityAmendmentConsentText(a.expectedLimit,a.expectedDeposit,b.savedCardLimit!,b.depositAmount,b.securityPolicyVersion),status:"prepared",updatedAt:acceptedAt};await ctx.db.patch(r._id,patch);return {...r,...patch};}});

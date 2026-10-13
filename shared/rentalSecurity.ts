@@ -3,6 +3,14 @@ export type Protection = "verify" | "deposit";
 export const SECURITY_POLICY_VERSION = "2026-10-saved-card-v1";
 /** A separate immutable policy: never reinterpret an existing signed rental. */
 export const REFUNDABLE_DEPOSIT_POLICY_VERSION = "2026-10-refundable-deposit-v1";
+export const ASSESSMENT_SECURITY_POLICY_VERSION = "2026-10-refundable-assessment-v2";
+export function hasCashDepositPolicy(version?:string|null){return version===REFUNDABLE_DEPOSIT_POLICY_VERSION || version===ASSESSMENT_SECURITY_POLICY_VERSION;}
+export function assessmentDepositFor(value:number){return refundableDepositFor(value) || 20;}
+export function cardLimitForPolicy(version:string|undefined,value:number){return version===ASSESSMENT_SECURITY_POLICY_VERSION ? 0 : savedCardChargeLimit(value);}
+export function depositForBookingPolicy(b:any,value:number){
+ if(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION)return b.securityWaiverReason ? 0 : assessmentDepositFor(value);
+ return refundableDepositFor(value);
+}
 export function refundableDepositFor(replacementSum: number) {
   if (!Number.isFinite(replacementSum) || replacementSum < 0 || !Number.isSafeInteger(Math.round(replacementSum * 100)))
     throw Error("Invalid equipment replacement value.");
@@ -44,6 +52,7 @@ export function rentalSecurity(_protection: Protection, replacementSum: number) 
 }
 
 export function securityForPolicy(version: string | undefined, protection: Protection, value: number) {
+  if (version === ASSESSMENT_SECURITY_POLICY_VERSION) return { deposit:assessmentDepositFor(value),hold:0 };
   if (version === REFUNDABLE_DEPOSIT_POLICY_VERSION) return { deposit: refundableDepositFor(value), hold: 0 };
   if (version === SECURITY_POLICY_VERSION) return rentalSecurity(protection, value);
   if (version === LEGACY_TEN_PERCENT_HOLD_POLICY) return tenPercentHoldSecurity(protection, value);

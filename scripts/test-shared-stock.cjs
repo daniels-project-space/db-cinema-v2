@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
 const sync=load('convex/sync.ts'),availability=load('convex/availability.ts'),replacements=load('convex/cartReplacements.ts'),bookings=load('convex/bookings.ts');
-const start=Date.UTC(2030,0,2),day=86400000,ctx={db},stamp=Date.now();
+const start=Date.UTC(2030,0,2),day=86400000,ctx={db,scheduler:{runAfter:async()=>{}}},stamp=Date.now();
 const body=put('inventory_units',{name:'Sony FX3',sku:'mi-body',quantityOwned:2,active:true,rmv2ItemId:'body'}),alt=put('inventory_units',{name:'Sony A7 V',sku:'mi-alternative',quantityOwned:2,active:true,rmv2ItemId:'alternative'});
 const listing=unit=>put('listings',{title:unit.name,slug:unit.name,category:'Cameras',itemType:'camera-body',active:true,components:[{inventoryUnitId:unit._id,qty:1}],pricing:{daily:50},depositAmount:1000});
 const source=listing(body),alternative=listing(alt);const removed=put('inventory_units',{name:'Removed master',rmv2ItemId:'deleted-master',active:true,quantityOwned:20});let tick=0;

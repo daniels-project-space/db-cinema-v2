@@ -82,6 +82,7 @@ export const push = internalAction({
 
 export const retryDue = internalAction({ args: {}, handler: async ctx => {
   await ctx.runAction(internal.managerNotifications.retryDue, {});
+  try{await ctx.runAction(internal.managerCheckoutStockPush.push, {});}catch{console.error("[rmv2_webhook] website checkout stock sync requires attention");}
   const bookings = await ctx.runQuery(internal.rmv2Delivery.due, {});
   for (const booking of bookings) {
     try { await ctx.runAction(internal.rmv2_webhook.push, { bookingId: booking._id }); }

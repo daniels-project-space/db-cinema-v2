@@ -3,7 +3,7 @@ const {load,db,put}=require('./lib/rentalTestHarness.cjs');
 const {rentalWindow,londonRentalInstant}=load('shared/rentalWindow.ts');
 const {stockWindow,stockTimePrecision}=load('convex/lib/stockWindows.ts');
 const availability=load('convex/availability.ts'),bookings=load('convex/bookings.ts');
-const day=86400000,date=Date.UTC(2030,5,8),ctx={db};
+const day=86400000,date=Date.UTC(2030,5,8),ctx={db,scheduler:{runAfter:async()=>{}}};
 const unit=put('inventory_units',{name:'Physical lens',quantityOwned:1,active:true});
 const listing=put('listings',{title:'Lens',active:true,components:[{inventoryUnitId:unit._id,qty:1}],unavailableDates:[]});
 const state=put('rmv2_sync_state',{key:'shared-stock-v1',status:'ok',cursor:JSON.stringify({version:2,turnaroundBufferMinutes:60,checkedAt:Date.now()})});

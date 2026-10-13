@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
 const availability=load('convex/availability.ts'),replacements=load('convex/cartReplacements.ts'),{assertRentalInventory}=load('convex/lib/rentalInventory.ts'),{marketingRedirect}=load('convex/lib/marketingInventory.ts');
-const ctx={db},start=Date.UTC(2030,1,1),end=start+2*86400000;
+const ctx={db,scheduler:{runAfter:async()=>{}}},start=Date.UTC(2030,1,1),end=start+2*86400000;
 const unit=name=>put('inventory_units',{name,quantityOwned:1});
 const listing=(title,u,extra={})=>put('listings',{title,slug:title.toLowerCase().replaceAll(' ','-'),category:'Cameras',itemType:'camera-body',active:true,components:[{inventoryUnitId:u._id,qty:1}],pricing:{daily:40},depositAmount:1000,...extra});
 const lines=l=>[{key:'source',listingId:l._id,start,end}];
