@@ -1,3 +1,4 @@
+import { depositReturnReceipt } from "./lib/depositReturnReceipt";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { inspectionRecord } from "./lib/returnInspectionFields";
@@ -196,6 +197,8 @@ export default defineSchema({
     checkoutExpiredAt: v.optional(v.number()),
     activeAdditionId:v.optional(v.id("rental_additions")),
     activeExtensionId:v.optional(v.id("booking_change_requests")),
+    activePriceAdjustmentId:v.optional(v.id("rental_price_adjustments")),
+    priceAdjustmentCharges:v.optional(v.array(v.object({id:v.id("rental_price_adjustments"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),lineTotal:v.number()}))),
     extensionCharges:v.optional(v.array(v.object({requestId:v.id("booking_change_requests"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),lineTotal:v.number(),returnTime:v.optional(v.string())}))),
     chatConfirmationMessageId: v.optional(v.id("messages")),
     chatUpdatedAt:v.optional(v.number()),chatUnreadOwner:v.optional(v.number()),chatUnreadRenter:v.optional(v.number()),
@@ -241,6 +244,7 @@ export default defineSchema({
     depositAmount: v.number(),
     depositHoldAmount: v.optional(v.number()),
     savedCardLimit: v.optional(v.number()),
+    securityAmendments:v.optional(v.array(v.object({additionId:v.id("rental_additions"),accountId:v.id("accounts"),acceptedAt:v.number(),priorDeposit:v.number(),depositAmount:v.number(),priorLimit:v.number(),savedCardLimit:v.number(),consentText:v.string(),replacementValuePence:v.number(),sessionId:v.optional(v.string()),paymentIntentId:v.optional(v.string()),draftReplacement:v.boolean()}))),
     savedCardStatus: v.optional(v.string()),
     savedCardCustomerId: v.optional(v.string()),
     savedCardPaymentMethodId: v.optional(v.string()),
@@ -345,8 +349,10 @@ export default defineSchema({
     damageNoticeSentAt: v.optional(v.number()),
     returnedAt: v.optional(v.number()), // when the rental was marked returned + deposit released
     actualReturnedAt: v.optional(v.number()),
+    depositReturnReceipts: v.optional(v.array(depositReturnReceipt)),
+    depositReturnReceiptHistory:v.optional(v.array(depositReturnReceipt)),
     returnDecision: v.optional(v.object({
-      actualReturnedAt: v.number(), damageKept: v.number(),
+      actualReturnedAt: v.number(), damageKept: v.number(), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()),
       damageNote: v.optional(v.string()), chargeLate: v.boolean(),
       lateWaiverReason: v.optional(v.string()), startedAt: v.number(),
       inspection: v.optional(v.array(inspectionRecord)),
@@ -383,7 +389,7 @@ export default defineSchema({
       checkoutPaid: v.number(), rentalRefunded:v.optional(v.number()), securityPaid: v.number(), securityRefunded: v.number(),
       holdStatus: v.optional(v.string()),
       damageTotal: v.number(), damageFromHold: v.number(), damageNote: v.optional(v.string()),
-      savedCardLimit:v.optional(v.number()),damageAssessed:v.optional(v.number()),
+      savedCardLimit:v.optional(v.number()),damageAssessed:v.optional(v.number()),depositRefundState:v.optional(v.string()),securityRefundedConfirmed:v.optional(v.number()),
       inspection: v.optional(v.array(inspectionRecord)),
       lateAssessed: v.number(), lateWaived: v.number(),
       lateBreakdown: v.array(v.object({ title: v.string(), days: v.number(), dailyRate: v.number(), amount: v.number() })),
@@ -785,7 +791,7 @@ export default defineSchema({
     start:v.number(),end:v.number(),qty:v.number(),dailyRate:v.number(),lineTotal:v.number(),
     complimentary:v.optional(v.boolean()),draftReplacement:v.optional(v.boolean()),baseTotal:v.optional(v.number()),baseSecurity:v.optional(v.number()),baseSessionId:v.optional(v.string()),
     membershipCheckoutId:v.optional(v.id("membership_checkouts")),membershipFee:v.optional(v.number()),membershipSessionParams:v.optional(v.string()),
-    securityCharge:v.number(),holdTotal:v.number(),oldHoldId:v.optional(v.string()),
+    securityCharge:v.number(),securityPolicyVersion:v.optional(v.string()),proposedSavedCardLimit:v.optional(v.number()),replacementValuePence:v.optional(v.number()),priorSavedCardLimit:v.optional(v.number()),customerAcceptedAt:v.optional(v.number()),customerAccountId:v.optional(v.id("accounts")),customerConsentText:v.optional(v.string()),holdTotal:v.number(),oldHoldId:v.optional(v.string()),
     status:v.string(),reason:v.string(),createdAt:v.number(),updatedAt:v.number(),
     sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),
     withdrawalRequestedAt:v.optional(v.number()),withdrawalRefundId:v.optional(v.string()),withdrawalRefundStatus:v.optional(v.string()),
@@ -797,12 +803,21 @@ export default defineSchema({
   rental_refunds: defineTable({
     bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.number(),reason:v.string(),
     status:v.union(v.literal("prepared"),v.literal("pending"),v.literal("succeeded"),v.literal("failed")),
+    refundReceipts:v.optional(v.array(depositReturnReceipt)),
     allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()}))),
     parts:v.optional(v.array(v.object({paymentIntentId:v.string(),stripeRefundId:v.string(),status:v.string(),amountPence:v.number()}))),
     stripeRefundId:v.optional(v.string()),createdAt:v.number(),updatedAt:v.number(),
   }).index("by_booking",["bookingId"]).index("by_request",["requestId"]),
 
   // ── Reschedule / item-level extend requests (Phase 3b) ──────────
+  rental_price_adjustments:defineTable({
+    bookingId:v.id("bookings"),accountId:v.id("accounts"),requestId:v.string(),baseSnapshot:v.string(),
+    currentTotal:v.number(),newTotal:v.number(),delta:v.number(),note:v.optional(v.string()),
+    status:v.union(v.literal("awaiting_acceptance"),v.literal("accepted"),v.literal("awaiting_payment"),v.literal("applied"),v.literal("withdrawn"),v.literal("expired"),v.literal("refund_review"),v.literal("refund_pending"),v.literal("refunded"),v.literal("payment_review")),
+    createdAt:v.number(),updatedAt:v.number(),expiresAt:v.number(),reconcileAfter:v.optional(v.number()),reconcileAttempts:v.optional(v.number()),reconcileError:v.optional(v.string()),acceptedAt:v.optional(v.number()),acceptedEmail:v.optional(v.string()),acceptanceText:v.optional(v.string()),
+    sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),paidAt:v.optional(v.number()),refundReceipt:v.optional(depositReturnReceipt),
+  }).index("by_booking",["bookingId"]).index("by_request",["bookingId","requestId"]).index("by_status",["status"]).index("by_status_due",["status","reconcileAfter"]),
+
   booking_change_requests: defineTable({
     bookingId: v.id("bookings"),
     accountId: v.id("accounts"),

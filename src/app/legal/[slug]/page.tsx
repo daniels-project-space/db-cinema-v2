@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
+import {currentLegalVersion} from "@/lib/currentLegalVersion";
+export const dynamic="force-dynamic";
 import { LEGAL_VERSION } from "@/lib/legal";
 
 import { LEGAL_DOCS as DOCS, LEGAL_ARCHIVE } from "../../../../shared/legalDocuments";
@@ -16,7 +18,8 @@ export default async function LegalPage({
   searchParams: Promise<{version?:string}>;
 }) {
   const { slug } = await params;
-  const {version=LEGAL_VERSION}=await searchParams;
+  const selected=await searchParams;
+  const version=selected.version??await currentLegalVersion();
   const doc = version === LEGAL_VERSION ? DOCS[slug] : LEGAL_ARCHIVE[version]?.[slug];
   if (!doc) notFound();
   return (

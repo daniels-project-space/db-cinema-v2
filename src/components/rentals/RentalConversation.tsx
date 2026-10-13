@@ -5,6 +5,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { RentalAdditionApproval } from "./RentalAdditionApproval";
+import {RentalPricePanel} from "./RentalPricePanel";
 import { RentalExtensionPanel } from "./RentalExtensionPanel";
 import { SavedCardCharges } from "./SavedCardCharges";
 import { RENTAL_STAGE_LABELS } from "@/lib/rentalPresentation";
@@ -242,6 +243,7 @@ export function RentalConversation({
         <RentalAdditionApproval token={token} bookingId={bookingId} />
       )}
       {bookingId && (!admin || !tools) && <RentalExtensionPanel key={bookingId} token={token} bookingId={bookingId} admin={admin} />}
+      {bookingId && (!admin || !tools) && <RentalPricePanel key={`price-${bookingId}`} token={token} bookingId={bookingId} admin={admin}/>}
       {!admin && bookingId && <SavedCardCharges token={token} bookingId={bookingId} />}
       <div
         ref={body}
@@ -373,7 +375,7 @@ export function RentalConversation({
       </footer>
       </div>
       {tools && (
-        <aside aria-label={admin ? "Rental management controls" : "Your rental details"} className={`management-conversation-tools ${styles.tools}`}><div className={styles.toolsHeading}><p className={styles.eyebrow}>{admin ? "Operations" : "Your booking"}</p><h4>{admin ? "Booking details" : "Rental details"}</h4></div>{tools}{admin && bookingId && <><details className={styles.operationDetails}><summary>Verification progress</summary><RentalVerificationSummary bookingId={bookingId} token={token} admin /></details><details className={styles.operationDetails}><summary>Extension requests</summary><RentalExtensionPanel token={token} bookingId={bookingId} admin /></details></>}</aside>
+        <aside aria-label={admin ? "Rental management controls" : "Your rental details"} className={`management-conversation-tools ${styles.tools}`}><div className={styles.toolsHeading}><p className={styles.eyebrow}>{admin ? "Operations" : "Your booking"}</p><h4>{admin ? "Booking details" : "Rental details"}</h4></div>{tools}{admin && bookingId && <><details className={styles.operationDetails}><summary>Verification progress</summary><RentalVerificationSummary bookingId={bookingId} token={token} admin /></details><details className={styles.operationDetails}><summary>Rental price</summary><RentalPricePanel token={token} bookingId={bookingId} admin /></details><details className={styles.operationDetails}><summary>Extension requests</summary><RentalExtensionPanel token={token} bookingId={bookingId} admin /></details></>}</aside>
       )}
     </section>
   );

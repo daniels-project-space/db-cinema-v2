@@ -235,6 +235,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     );
   }
   async function nativeClick(expression) {
+    if(expression.includes('clear-basket')) {
+      // A fresh cart renders the control before quote/stock results finish.
+      // Those results change the summary height: wait before aiming a native
+      // pointer, then retain the hit-target and empty-basket assertions below.
+      await until(`(()=>{const el=(${expression}),summary=el?.closest('aside');return !!summary&&!/Calculating…|Checking availability…/.test(summary.innerText)})()`);
+    }
     await c.evaluate(`(${expression}).scrollIntoView({block:'center',behavior:'instant'})`);
     await wait(80);
     if(expression.includes('clear-basket')){
@@ -384,7 +390,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     ...args,
     selectedMembership: { tier: preferred.tier, intro: "none" },
   });
-  if(paid.securityPolicyVersion==='2026-10-saved-card-v1'){assert.equal(paid.depositAmount,0);assert.equal(paid.depositHoldAmount,0);}else assert(paid.depositAmount>0,'Historic quote preserves its accepted upfront security');
+  if(paid.securityPolicyVersion==='2026-10-refundable-deposit-v1'){assert([0,50,100].includes(paid.depositAmount));assert.equal(paid.depositHoldAmount,0);}else if(paid.securityPolicyVersion==='2026-10-saved-card-v1'){assert.equal(paid.depositAmount,0);assert.equal(paid.depositHoldAmount,0);}else assert(paid.depositAmount>0,'Historic quote preserves its accepted upfront security');
   assert.equal(paid.deliveryReduction,0);
   assert.equal(paid.weekendSaving,0);
   const paidDue = new Intl.NumberFormat("en-GB", {
@@ -468,7 +474,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(paid.combinedTotalDue))}`);
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="checkout-rental-after-credits"]')`),false,'Checkout shows a single final total');
-  assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]');const rows=[...secondary.querySelectorAll('[data-secondary-charge]')];return rows.length===${paid.securityPolicyVersion==='2026-10-saved-card-v1'?2:3}&&rows.every(e=>getComputedStyle(e).fontSize==='11px')&&[...s.querySelectorAll('div')].some(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied'&&e.classList.contains('text-emerald-300'))})()`),true,"Checkout separates small subscription/security rows and green applied credit while retaining the full payment total");
+  assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]');const rows=[...secondary.querySelectorAll('[data-secondary-charge]')];return rows.length===${['2026-10-saved-card-v1','2026-10-refundable-deposit-v1'].includes(paid.securityPolicyVersion)?2:3}&&rows.every(e=>getComputedStyle(e).fontSize==='11px')&&[...s.querySelectorAll('div')].some(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied'&&e.classList.contains('text-emerald-300'))})()`),true,"Checkout separates small subscription/security rows and green applied credit while retaining the full payment total");
   await c.evaluate(`document.querySelector('[data-testid="checkout-summary"]').scrollIntoView({block:'center'})`);
   await shot("checkout-summary-mobile");
   await shot("selected-checkout-mobile");
@@ -690,7 +696,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert(fixture,`Need a real catalog item in the ${band} value band`);
     const bandArgs={...args,items:[{...args.items[0],listingId:fixture._id,title:fixture.title,start:weekdayStart,end:weekdayStart}]};
     const bandQuote=await cv.action(api.checkout.priceQuote,bandArgs);
-    const savedCardPolicy=bandQuote.securityPolicyVersion==='2026-10-saved-card-v1';assert.equal(bandQuote.depositAmount,savedCardPolicy?0:100);assert.equal(bandQuote.depositHoldAmount,savedCardPolicy?0:Math.round(fixture.depositAmount*10)/100);if(savedCardPolicy)assert.equal(bandQuote.savedCardLimit,Math.round(fixture.depositAmount*10)/100);
+    const refundablePolicy=bandQuote.securityPolicyVersion==='2026-10-refundable-deposit-v1',savedCardPolicy=refundablePolicy||bandQuote.securityPolicyVersion==='2026-10-saved-card-v1';assert.equal(bandQuote.depositAmount,refundablePolicy?(fixture.depositAmount<1000?0:fixture.depositAmount<4000?50:100):savedCardPolicy?0:100);assert.equal(bandQuote.depositHoldAmount,savedCardPolicy?0:Math.round(fixture.depositAmount*10)/100);if(savedCardPolicy)assert.equal(bandQuote.savedCardLimit,Math.round(fixture.depositAmount*10)/100);
     const bandItem={...weekdayItem,key:fixture._id+':security-band',listingId:fixture._id,title:fixture.title,slug:fixture.slug,heroImage:fixture.heroImage,deposit:fixture.depositAmount,total:bandQuote.items[0].total};
     await c.evaluate(`localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([bandItem]))});localStorage.removeItem('dbc_membership_selection_v1');true`);
     await navigate(root+'/checkout');
@@ -699,9 +705,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-chooser"]')`),false,'No checkout fallback chooser even when the recommendation is absent');
     if(!bandQuote.recommendations.some(r=>r.netSaving>0)) assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-upsell"]')`),false,'No positive savings means no membership card on checkout');
     assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="rental-consent"] input[type="checkbox"]').length`),1,'One combined rental consent checkbox');
-    assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes(${JSON.stringify(savedCardPolicy?'Saved-card collection permission':'Existing quote · payment paused')})`),true);if(!savedCardPolicy)assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes('£100.00')`),true);
+    assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes(${JSON.stringify(refundablePolicy?'Refundable deposit & card permission':savedCardPolicy?'Saved-card collection permission':'Existing quote · payment paused')})`),true);if(!savedCardPolicy)assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').textContent.includes('£100.00')`),true);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="refundable-security"]').innerText.includes('No card hold required.')`),false);
-    if (band === 'deposit-and-hold') assert.equal(await c.evaluate(`document.querySelector('[data-testid="rental-agreement-checkbox"]').checked`),true,'Already-read documents stay acknowledged when the kit/security amount changes');
+    if (band === 'deposit-and-hold') assert.equal(await c.evaluate(`document.querySelector('[data-testid="rental-agreement-checkbox"]').checked`),false,'A changed kit/security amount requires fresh explicit consent');
     assert.equal(await c.evaluate(`document.getElementById('co-sig').value`),'','A changed kit requires a fresh signature');
     await c.evaluate(`(()=>{const e=document.querySelector('[data-testid="rental-agreement-checkbox"]');if(!e.checked)e.click()})()`);
     assert.equal(await c.evaluate(`document.querySelector('[data-testid="rental-agreement-checkbox"]').checked`),true);

@@ -20,12 +20,12 @@ import styles from "./VerificationProgress.module.css";
 import { DroneLicenceUpload } from "./DroneLicence";
 import { useVerificationRefresh } from "./useVerificationRefresh";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
-import {SECURITY_POLICY_VERSION} from '../../../shared/rentalSecurity';
+import {isSavedCardRental} from '../../../shared/savedCardSecurity';
 
 function SavedCardSetup({token,booking}:{token?:string|null;booking:any}) {
   const retry=useAction(api.checkout.retrySavedCard);
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
-  return <section className={styles.hold} aria-label="Rental saved-card setup"><strong>{booking.savedCardStatus==='saved'?'Checkout card saved':'Saved-card setup needs attention'}</strong><p>No security money is taken or blocked. Your combined damage and late-fee permission is {formatGbp(booking.savedCardLimit??0)}.</p>{booking.savedCardStatus==='needs_setup'&&(token?<button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await retry({token,bookingId:booking._id});}catch{setError('The original checkout card could not be confirmed. Contact the team in your rental conversation.');}finally{setBusy(false);}}}>{busy?'Checking…':'Retry confirming checkout card'}</button>:<Link href={`/account?rental=${encodeURIComponent(booking._id)}`} className={styles.link}>Sign in to check saved-card setup</Link>)}{error&&<p role="alert">{error}</p>}</section>;
+  return <section className={styles.hold} aria-label="Rental saved-card setup"><strong>{booking.savedCardStatus==='saved'?'Checkout card saved':'Saved-card setup needs attention'}</strong><p>{booking.depositAmount>0?<>Refundable deposit paid: {formatGbp(booking.depositAmount)}. Unused deposit returns to your original card after completion, and any retained deposit reduces later collections. </>:<>No security money is taken or blocked. </>}Your combined damage and late-fee permission is {formatGbp(booking.savedCardLimit??0)}.</p>{booking.savedCardStatus==='needs_setup'&&(token?<button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await retry({token,bookingId:booking._id});}catch{setError('The original checkout card could not be confirmed. Contact the team in your rental conversation.');}finally{setBusy(false);}}}>{busy?'Checking…':'Retry confirming checkout card'}</button>:<Link href={`/account?rental=${encodeURIComponent(booking._id)}`} className={styles.link}>Sign in to check saved-card setup</Link>)}{error&&<p role="alert">{error}</p>}</section>;
 }
 
 function useVerificationClock(booking?: VerificationBooking | null) {
@@ -482,7 +482,7 @@ export function VerificationProgress({
                   <dd>{formatGbp(booking.total)}</dd>
                 </div>
               </dl>
-              {booking.securityPolicyVersion===SECURITY_POLICY_VERSION&&<SavedCardSetup key={JSON.stringify([account.token,booking._id])} token={account.token} booking={booking}/>}
+              {isSavedCardRental(booking)&&<SavedCardSetup key={JSON.stringify([account.token,booking._id])} token={account.token} booking={booking}/>}
               {booking.depositHoldAmount > 0 && (
                 <div className={styles.hold}>
                   <div className={styles.holdTop}>
@@ -544,7 +544,7 @@ export function VerificationProgress({
           journey.closed
             ? "View your rental details and conversation."
             : approved
-              ? booking.securityPolicyVersion===SECURITY_POLICY_VERSION ? "Your documents are approved. Check your pickup and saved-card setup below." : "Your documents are approved. Check your pickup and card hold below."
+              ? isSavedCardRental(booking) ? "Your documents are approved. Check your pickup and saved-card setup below." : "Your documents are approved. Check your pickup and card hold below."
               : "Complete verification to get ready for pickup."
         }
         active="rentals"

@@ -1,6 +1,15 @@
 /** Canonical security amounts, based on combined catalog replacement value. */
 export type Protection = "verify" | "deposit";
 export const SECURITY_POLICY_VERSION = "2026-10-saved-card-v1";
+/** A separate immutable policy: never reinterpret an existing signed rental. */
+export const REFUNDABLE_DEPOSIT_POLICY_VERSION = "2026-10-refundable-deposit-v1";
+export function refundableDepositFor(replacementSum: number) {
+  if (!Number.isFinite(replacementSum) || replacementSum < 0 || !Number.isSafeInteger(Math.round(replacementSum * 100)))
+    throw Error("Invalid equipment replacement value.");
+  const valuePence=Math.round(replacementSum*100);
+  return valuePence < 100000 ? 0 : valuePence < 400000 ? 50 : 100;
+}
+
 export const LEGACY_TEN_PERCENT_HOLD_POLICY = "2026-10-ten-percent-hold-v2";
 /** An agreed collection ceiling, not a bank authorisation or reserved balance. */
 export function savedCardChargeLimit(replacementSum: number) {
@@ -35,6 +44,7 @@ export function rentalSecurity(_protection: Protection, replacementSum: number) 
 }
 
 export function securityForPolicy(version: string | undefined, protection: Protection, value: number) {
+  if (version === REFUNDABLE_DEPOSIT_POLICY_VERSION) return { deposit: refundableDepositFor(value), hold: 0 };
   if (version === SECURITY_POLICY_VERSION) return rentalSecurity(protection, value);
   if (version === LEGACY_TEN_PERCENT_HOLD_POLICY) return tenPercentHoldSecurity(protection, value);
   if (version === "2026-10-value-bands-v1") return valueBandSecurity(protection, value);

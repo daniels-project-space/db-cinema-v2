@@ -1,4 +1,4 @@
-import {SECURITY_POLICY_VERSION} from './rentalSecurity';
+import {isSavedCardRental} from './savedCardSecurity';
 export type VerificationBooking = {
   status: string;
   idVerifyStatus?: string;
@@ -21,7 +21,7 @@ export function rentalStageLabel(b: VerificationBooking): string {
   if (b.status === "returned") return "Returned";
   if (b.status === "cancelled") return "Cancelled";
   if (b.status !== "confirmed") return "Awaiting payment";
-  if (b.securityPolicyVersion === SECURITY_POLICY_VERSION && b.savedCardStatus !== 'saved') return "Awaiting saved-card setup";
+  if (isSavedCardRental(b) && b.savedCardStatus !== 'saved') return "Awaiting saved-card setup";
   if (b.depositHoldAmount && (b.depositHoldStatus !== "held" || (b.depositHoldExpiresAt != null && b.depositHoldExpiresAt <= Date.now()))) return "Awaiting card authorisation";
   if (b.idVerifyStatus === "manual_review") return "Verification under review";
   if (b.idVerifyStatus === "requires_input") return "Documents needed";

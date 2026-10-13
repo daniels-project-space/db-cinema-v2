@@ -23,7 +23,7 @@ const quoteIdentity = (items: any[]) => JSON.stringify(items.map(i => [i.lineInd
 
 async function mutableRental(ctx: any, b: any, ownRequest?: any) {
   if (!b || !["confirmed", "active"].includes(b.status)) throw Error("Only confirmed or collected rentals can be extended.");
-  if (b.cancellationDecision || b.returnDecision || b.activeAdditionId || (b.activeExtensionId && b.activeExtensionId !== ownRequest))
+  if (b.cancellationDecision || b.returnDecision || b.activePriceAdjustmentId || b.activeAdditionId || (b.activeExtensionId && b.activeExtensionId !== ownRequest))
     throw Error("Finish the open rental operation first.");
   const reservations = await ctx.db.query("reservations").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
   if (!reservations.length || reservations.some((r: any) => r.source !== "site")) throw Error("Manage this rental through its original booking platform.");
@@ -111,7 +111,7 @@ export const state = query({
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
     const rows = await ctx.db.query("booking_change_requests").withIndex("by_booking", q => q.eq("bookingId", bookingId)).order("desc").take(20);
-    return { status: b.status, locked: !!(b.activeAdditionId || b.activeExtensionId || b.returnDecision || b.cancellationDecision), items: b.lineItems.map((li, i) => ({ index: i, title: li.title, qty: li.qty, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime })), requests: rows.filter(r => r.type === "extend").map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
+    return { status: b.status, locked: !!(b.activeAdditionId || b.activeExtensionId || b.activePriceAdjustmentId || b.returnDecision || b.cancellationDecision), items: b.lineItems.map((li, i) => ({ index: i, title: li.title, qty: li.qty, end: li.end, returnTime: li.returnTime === undefined ? b.returnTime ?? null : li.returnTime })), requests: rows.filter(r => r.type === "extend").map(r => ({ id: r._id, status: r.status, items: r.quoteItems ?? [], amount: r.priceDelta ?? null, days: r.extraDays, requestedReturnTime: r.requestedReturnTime, approvedReturnTime: r.approvedReturnTime, url: r.status === "awaiting_payment" ? r.paymentLinkUrl : undefined, expiresAt: r.expiresAt, reason: r.approvalReason, createdAt: r.createdAt })), paymentsEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" || /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") };
   },
 });
 

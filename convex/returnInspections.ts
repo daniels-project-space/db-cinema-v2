@@ -1,3 +1,5 @@
+import {depositRefundProjection} from "../shared/depositRefundStatus";
+import {rentalControlsSnapshot} from "./lib/rentalControlsSnapshot";
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { checkAdminToken, assertAdmin } from "./adminAuth";
@@ -60,9 +62,13 @@ export const context = query({ args: {token:v.string(),bookingId:v.id("bookings"
   if(!checkAdminToken(args.token))throw Error("unauthorized");
   const b=await ctx.db.get(args.bookingId);if(!b)throw Error("Rental not found");
   const items=await returnInspectionSchedule(ctx,b);
+  const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",b._id)).take(101);if(refunds.length>100)throw Error("Refund history requires review.");
   return {bookingId:b._id,status:b.status,guestName:b.guestName??null,lineItems:b.lineItems,returnTime:b.returnTime??null,
+    securityPolicyVersion:b.securityPolicyVersion??null,savedCardLimit:b.savedCardLimit??0,
+    replacementValue:b.lineItems.reduce((sum,line)=>sum+(b.replacementValues?.find(value=>value.listingId===line.listingId)?.unitPence??0)*line.qty/100,0),
     depositAmount:b.depositAmount,depositHoldAmount:b.depositHoldAmount??0,depositHoldStatus:b.depositHoldStatus??null,
     depositRefunded:b.depositRefunded??false,depositRefundAmount:b.depositRefundAmount??0,depositKept:b.depositKept??0,
+    depositSettlement:{...depositRefundProjection(b),snapshot:rentalControlsSnapshot(b,refunds)},
     returnDecision:b.returnDecision??null,returnStatement:b.returnStatement??null,
     settlementEmailStatus:b.returnStatementEmailStatus??null,
     lateQuote:lateFeeQuote(b.lineItems,b.returnTime??null,args.actualReturnedAt??b.returnDecision?.actualReturnedAt??Date.now()),

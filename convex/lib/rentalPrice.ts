@@ -9,7 +9,7 @@ import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
 import { depositFor, depositChargeFor } from "./pricing";
-import { SECURITY_POLICY_VERSION, savedCardChargeLimit } from "../../shared/rentalSecurity";
+import { SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit } from "../../shared/rentalSecurity";
 import { londonMonth } from "./memberDelivery";
 import { tierByKey, paidDepositExempt } from "./membership";
 
@@ -107,19 +107,23 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const subtotal=items.reduce((n,i)=>n+i.total,0);
 
   const protection = a.protection ?? "verify";
-  const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
-  const depositHoldAmount = depositFor(protection, replacementSum);
+  const replacementSum = items.reduce((n, i) => n + Math.round(i.deposit*100), 0)/100;
+  // Only enable after checkout, immutable terms and both admin surfaces qualify.
+  const refundablePolicy = process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED === "true";
+  const securityPolicyVersion = refundablePolicy ? REFUNDABLE_DEPOSIT_POLICY_VERSION : SECURITY_POLICY_VERSION;
+  const cashDeposit = refundablePolicy ? refundableDepositFor(replacementSum) : depositChargeFor(protection, replacementSum);
+  const depositHoldAmount = refundablePolicy ? 0 : depositFor(protection, replacementSum);
   let repeatSourceBookingId: Id<"bookings"> | undefined;
   let repeatSourceFingerprint: string | undefined;
-  if (depositChargeFor(protection,replacementSum)>0 && acct && a.token && !selected && !paidDepositExempt(acct) && process.env.STRIPE_SECRET_KEY) {
+  if (!refundablePolicy && cashDeposit>0 && acct && a.token && !selected && !paidDepositExempt(acct) && process.env.STRIPE_SECRET_KEY) {
     const previous: any = await ctx.runQuery(internal.repeatRentals.candidate,{token:a.token,kit:a.items.map(i=>({listingId:i.listingId,qty:i.qty}))});
     if (previous) {
       try { if (await providerRepeatGate(previous.booking,new Stripe(process.env.STRIPE_SECRET_KEY))) {repeatSourceBookingId=previous.booking._id;repeatSourceFingerprint=previous.fingerprint;} }
       catch { /* A provider outage retains the normal security payment, never an unproved waiver. */ }
     }
   }
-  let securityWaiverReason = !selected && paidDepositExempt(acct) ? "paid_membership" : repeatSourceBookingId ? "safe_repeat_kit" : undefined;
-  let depositAmount = securityWaiverReason ? 0 : depositChargeFor(protection, replacementSum);
+  let securityWaiverReason = !refundablePolicy && !selected && paidDepositExempt(acct) ? "paid_membership" : repeatSourceBookingId ? "safe_repeat_kit" : undefined;
+  let depositAmount = securityWaiverReason ? 0 : cashDeposit;
   const month = londonMonth();
   const freedCount = 0;
   const discountable = subtotal;
@@ -180,7 +184,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const benefitKind=chosen.kind==="none"&&membershipSignupOfferSaving>0?"joining":chosen.kind;
   if(benefitKind==="referral_friend"||benefitKind==="referral_reward"){
     securityWaiverReason=undefined;repeatSourceBookingId=undefined;repeatSourceFingerprint=undefined;
-    depositAmount=depositChargeFor(protection,replacementSum);
+    depositAmount=cashDeposit;
   }
   const deliveryReduction=benefitKind==="delivery"?chosen.savingPence/100:0;
   const deliveryFee=quotedDeliveryFee-deliveryReduction;
@@ -201,7 +205,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     referralCode:benefitKind==="referral_friend"?referral.friend.code:undefined,
     referralRewardId:benefitKind==="referral_reward"?referral.reward.id:undefined,
     items,customerEmail,acct,month,freedCount,subtotal,replacementSum,protection,savedCardLimit:savedCardChargeLimit(replacementSum),
-    securityPolicyVersion:SECURITY_POLICY_VERSION,depositHoldAmount,depositAmount,appliedCode,totalReduction,reductionLabel:chosen.kind==="none"?undefined:chosen.label,
+    securityPolicyVersion,depositHoldAmount,depositAmount,appliedCode,totalReduction,reductionLabel:chosen.kind==="none"?undefined:chosen.label,
     quotedDeliveryFee,deliveryFee,deliveryBenefitMonth,deliveryReduction,securityWaiverReason,weekendSaving,
     rentalSaving:totalReduction,loyaltySaving,membershipSignupOfferSaving,repeatSourceBookingId,repeatSourceFingerprint,
     membershipFee,membershipCreditApplied,combinedTotalDue:Math.round((totalDue+membershipFee)*100)/100,totalBeforeCredit,creditApplied,totalDue,

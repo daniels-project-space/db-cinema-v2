@@ -12,6 +12,8 @@ export async function rentalPaymentSources(ctx: any, b: any) {
     0,
   );
   const extensions = await ctx.db.query("booking_change_requests").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
+  const priceChanges=await ctx.db.query("rental_price_adjustments").withIndex("by_booking",(q:any)=>q.eq("bookingId",b._id)).take(101);
+  if(priceChanges.length>100)throw Error("Rental price history needs manual review.");
   const sources = [
     ...(b.stripePaymentIntentId
       ? [
@@ -24,6 +26,7 @@ export async function rentalPaymentSources(ctx: any, b: any) {
           },
         ]
       : []),
+    ...priceChanges.filter((r:any)=>r.status==="applied"&&r.paymentIntentId).map((r:any)=>({paymentIntentId:r.paymentIntentId,maxPaidPence:Math.round(r.delta*100),securityPence:0})),
     ...applied.map((r: any) => ({
       paymentIntentId: r.paymentIntentId,
       securityPence: Math.round(r.securityCharge * 100),

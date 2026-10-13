@@ -48,18 +48,8 @@ const b = put("bookings", {
     reason: "Customer request",
   });
   assert.equal(job.amountPence, 3000);
-  assert.equal(
-    (
-      await operations.prepareRefund.handler(ctx, {
-        token,
-        bookingId: b._id,
-        requestId: "0123456789abcdef",
-        amountPence: 5000,
-        reason: "Duplicate click",
-      })
-    )._id,
-    job._id,
-  );
+  assert.equal((await operations.prepareRefund.handler(ctx,{token,bookingId:b._id,requestId:"0123456789abcdef",amountPence:3000,reason:"Customer request"}))._id,job._id);
+  await assert.rejects(operations.prepareRefund.handler(ctx,{token,bookingId:b._id,requestId:"0123456789abcdef",amountPence:5000,reason:"Customer request"}),/amount changed/);
   await assert.rejects(
     operations.prepareRefund.handler(ctx, {
       token,
@@ -102,15 +92,8 @@ const b = put("bookings", {
       { ...line, start: Date.now() + 3600000, end: Date.now() + 7200000 },
     ],
   });
-  await assert.rejects(
-    operations.prepareRefund.handler(ctx, {
-      token,
-      bookingId: late._id,
-      requestId: "late-request-012345",
-      reason: "Late cancellation",
-    }),
-    /window has closed/,
-  );
+  const lateRefund=await operations.prepareRefund.handler(ctx,{token,bookingId:late._id,requestId:"late-request-012345",reason:"Admin rental refund"});
+  assert.equal(lateRefund.amountPence,10000,"owner refunds do not inherit the customer cancellation window");
   await inventory.assertRentalInventory(ctx, [line, line]);
   await assert.rejects(
     inventory.assertRentalInventory(ctx, [line, line, line]),
@@ -192,7 +175,7 @@ const b = put("bookings", {
     3000,
   );
   console.log(
-    "PASS owner operations: unauthorized refunds denied; persistent retry identity; concurrent refunds blocked; out-of-order provider results; security excluded; remaining refund and closed window; shared components/quantities/expired holds/day blocks.",
+    "PASS owner operations: unauthorized refunds denied; persistent retry identity; concurrent refunds blocked; out-of-order provider results; security excluded; remaining refund and owner discretion; shared components/quantities/expired holds/day blocks.",
   );
 })().catch((e) => {
   console.error(e);

@@ -1,4 +1,7 @@
 "use client";
+import { REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../../shared/rentalSecurity";
+import {DepositRefundStatus} from "./DepositRefundStatus";
+import { DepositSettlementControl } from "./DepositSettlementControl";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAction, useQuery } from "convex/react";
@@ -29,6 +32,8 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
   const [reviewed, setReviewed] = useState<{ key: string; data: any } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const saved = booking.returnDecision;
+  const refundablePolicy=booking.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION;
+  const [depositKept,setDepositKept]=useState<number>(saved?.depositKept??0);
   const schedule = useQuery(api.returnInspections.schedule, { token, bookingId: booking._id });
   const [conditions, setConditions] = useState<Record<string, InspectionInput>>(() => Object.fromEntries((saved?.inspection ?? []).map((i: InspectionInput) => [i.key, { key: i.key, condition: i.condition, details: i.details, openCase: i.openCase }])));
   const dialog = useRef<HTMLDialogElement>(null);
@@ -58,13 +63,13 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     try { normalizeReturnInspection(schedule.items, Object.values(conditions), damageAmount); return true; } catch { return false; }
   }, [legacyResume, schedule, conditions, damageAmount]);
   const valid = !!quote && Number.isFinite(at) && at <= Date.now() + 60000 && Number.isFinite(damageAmount) && damageAmount >= 0 &&
-    damageAmount <= damageLimit &&
+    damageAmount <= damageLimit && (!refundablePolicy || (Number.isFinite(depositKept)&&depositKept>=0&&depositKept<=Math.min(booking.depositAmount??0,damageAmount))) &&
     (damageAmount === 0 || damageNote.trim().length >= 10) &&
     (chargeLate || !quote?.amount || waiverReason.trim().length >= 5) && inspectionValid;
 
   const selection = {
         token, bookingId: booking._id, actualReturnedAt: at,
-        damageKept: damageAmount, damageNote: damageAmount ? damageNote.trim() : undefined,
+        damageKept: damageAmount, ...(refundablePolicy?{depositKept}:{}), damageNote: damageAmount ? damageNote.trim() : undefined,
         chargeLate, lateWaiverReason: !chargeLate ? waiverReason.trim() || undefined : undefined,
         inspection: legacyResume ? undefined : schedule?.items.map(i => conditions[i.key]),
   };
@@ -83,9 +88,9 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     setWorking(true);
     setError(null);
     try {
-      const result = await submit(selection);
+      const result = await submit({...selection,expectedSnapshot:reviewData.snapshot});
       if (!alive.current) return;
-      alert(`Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
+      alert(refundablePolicy ? `Return recorded. Deposit retained ${formatGbp(result.kept)}; ${result.refundState==="pending"?"refund processing":"refund confirmed"} to the original card ${formatGbp(result.released)}; damage assessed ${formatGbp(damageAmount)}. An itemised completion statement will be emailed.` : `Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
       onClose();
     } catch (e: any) { if (alive.current) setError(e?.message ?? "Return could not be recorded."); }
     finally { if (alive.current) setWorking(false); }
@@ -96,6 +101,8 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     <header className={styles.header}><div><h4 id="return-inspection-title">Return inspection & settlement</h4><p>Inspect each item, record issues and confirm the security settlement.</p></div><button disabled={working} onClick={onClose} aria-label="Close return inspection">×</button></header>
     <div className={styles.body}>
     {saved && <p className="mt-2 text-amber-200">A return was started but settlement did not finish. The saved time and amounts are loaded so you can retry safely.</p>}
+    {refundablePolicy&&<DepositRefundStatus token={token} bookingId={booking._id}/>}
+    {refundablePolicy&&(booking.depositAmount??0)>0&&<DepositSettlementControl paid={booking.depositAmount} kept={depositKept} disabled={working||reviewBusy||!!saved} onChange={value=>{setDepositKept(value);if(value>damageAmount)setDamage(String(value));}}/>}
     {legacyResume ? <p className="mt-3 text-amber-200">This older saved settlement has no individual inspection record. Resume its original financial decision; do not change the amounts during retry.</p> : <section className={styles.inspection}>
       <div className={styles.sectionHeading}><div><h5>Equipment condition</h5><p>{schedule ? `${schedule.items.length} individual items · ${schedule.items.filter(i => !!conditions[i.key]).length} conditions selected` : "Loading reserved equipment…"}</p></div><button disabled={working || !!saved || !schedule} onClick={() => { setConditions(Object.fromEntries(schedule!.items.map(i => [i.key, { key: i.key, condition: "good", details: "", openCase: false }]))); setDamage("0"); setDamageNote(""); }}>Mark all good</button></div>
       {schedule?.legacy && <p className="mt-2 text-xs text-amber-200">This legacy rental has no physical inventory schedule. The booked listings and quantities are shown.</p>}
@@ -120,8 +127,8 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     </details>
     {error && <p role="alert" className="mt-2 text-rose-300">{error}</p>}
     {!inspectionValid && !legacyResume && <p className="mt-3 text-amber-200">Select a condition for every item and complete the required issue details. Any deduction must correspond to an item with an issue.</p>}
-    <ReturnSettlementReview data={reviewData} busy={reviewBusy || working} enabled={valid} onReview={inspectReview} paymentSummary={<section className={styles.paymentSummary}><h4>Payment summary</h4><dl><div><dt>Paid refundable deposit</dt><dd>{formatGbp(booking.depositAmount ?? 0)}</dd></div><div><dt>{savedCard?"Saved-card collection limit · not held":"Original card authorisation"}</dt><dd>{formatGbp(savedCard?booking.savedCardLimit:booking.depositHoldAmount ?? 0)}</dd></div></dl><p>{savedCard ? "No security money was taken. An assessment does not itself charge the card." : "The review checks the current card balance and calculates the cash refund separately."}</p><label>{savedCard ? "Documented damage or loss assessed (£)" : "Documented damage or loss to retain (£)"}<input type="number" disabled={working || reviewBusy || !!saved} min="0" max={damageLimit} step="0.01" value={damage} onChange={e => setDamage(e.target.value)} /></label>{damageAmount > 0 && <label>Itemised evidence and reason<textarea disabled={working || reviewBusy || !!saved} value={damageNote} onChange={e => setDamageNote(e.target.value)} rows={3} placeholder="Describe the item, damage or loss, evidence, and calculation" /></label>}</section>} />
-    <button type="button" disabled={!valid || working || reviewBusy || !reviewData || reviewData.alreadySettled} onClick={finish} className={styles.confirm}>{working ? "Settling…" : savedCard?"Record inspected return · no payment":"Confirm settlement and email renter"}</button>
+    <ReturnSettlementReview data={reviewData} busy={reviewBusy || working} enabled={valid} onReview={inspectReview} paymentSummary={<section className={styles.paymentSummary}><h4>Payment summary</h4><dl><div><dt>Paid refundable deposit</dt><dd>{formatGbp(booking.depositAmount ?? 0)}</dd></div><div><dt>{savedCard?"Saved-card collection limit · not held":"Original card authorisation"}</dt><dd>{formatGbp(savedCard?booking.savedCardLimit:booking.depositHoldAmount ?? 0)}</dd></div></dl><p>{savedCard ? refundablePolicy ? "The deposit decision above controls the cash refund. Remaining evidenced damage is assessed separately; this action does not charge the saved card." : "No security money was taken. An assessment does not itself charge the card." : "The review checks the current card balance and calculates the cash refund separately."}</p><label>{savedCard ? "Documented damage or loss assessed (£)" : "Documented damage or loss to retain (£)"}<input type="number" disabled={working || reviewBusy || !!saved} min="0" max={damageLimit} step="0.01" value={damage} onChange={e => {setDamage(e.target.value);if(refundablePolicy)setDepositKept(previous=>Math.min(previous,Math.max(0,Number(e.target.value))));}} /></label>{damageAmount > 0 && <label>Itemised evidence and reason<textarea disabled={working || reviewBusy || !!saved} value={damageNote} onChange={e => setDamageNote(e.target.value)} rows={3} placeholder="Describe the item, damage or loss, evidence, and calculation" /></label>}</section>} />
+    <button type="button" disabled={!valid || working || reviewBusy || !reviewData || reviewData.alreadySettled} onClick={finish} className={styles.confirm}>{working ? "Settling…" : refundablePolicy?"Confirm deposit decision and email renter":savedCard?"Record inspected return · no payment":"Confirm settlement and email renter"}</button>
     </div>
   </dialog>;
 }

@@ -15,7 +15,8 @@ import {
   postRentalMessage,
 } from "./lib/rentalChat";
 import { quote } from "./lib/pricing";
-import { securityForPolicy } from "../shared/rentalSecurity";
+import {isSavedCardRental,savedCardConsentText,securityAmendmentConsentText} from "../shared/savedCardSecurity";
+import { securityForPolicy,REFUNDABLE_DEPOSIT_POLICY_VERSION,savedCardChargeLimit } from "../shared/rentalSecurity";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
 import { listingImages } from "./lib/catalogImages";
 
@@ -75,7 +76,7 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
       b.returnDecision
     )
       throw Error("This rental cannot accept items");
-    if (b.activeAdditionId || b.activeExtensionId)
+    if (b.activeAdditionId || b.activeExtensionId || b.activePriceAdjustmentId)
       throw Error("Finish or withdraw the current item addition or approved extension first");
     if (
       ["starting", "requires_action", "failed"].includes(
@@ -85,7 +86,7 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
       throw Error("Resolve the existing card hold renewal before adding items");
     if (
       b.status !== "pending_payment" &&
-      !canDeferAdditionSecurity(b) &&
+      !isSavedCardRental(b) && !canDeferAdditionSecurity(b) &&
       (b.depositHoldExpiresAt ?? 0) <= Date.now() + 36 * 3600000
     )
       throw Error(
@@ -143,15 +144,8 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
     };
     await assertRenterExposure(ctx, b, [...b.lineItems, line]);
     await assertRentalInventory(ctx, [...b.lineItems, line], b._id);
-    const catalog = await Promise.all(
-      b.lineItems.map((li) => ctx.db.get(li.listingId)),
-    );
-    const value =
-      catalog.reduce(
-        (sum, item, i) => sum + (item?.depositAmount ?? 0) * b.lineItems[i].qty,
-        0,
-      ) +
-      l.depositAmount * a.qty;
+    const values=await replacementValues(ctx,b,[...b.lineItems,line]);
+    const value=[...b.lineItems,line].reduce((sum,li)=>sum+values.find(v=>v.listingId===li.listingId)!.unitPence*li.qty/100,0);
     const security = securityForPolicy(b.securityPolicyVersion, b.protection === "deposit" ? "deposit" : "verify", value);
     const holdTotal = Math.max(
       b.depositHoldAmount ?? 0,
@@ -166,7 +160,7 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
     const membershipParams=membership?.sessionParams?JSON.parse(membership.sessionParams):null;
     const membershipFee=membership?membershipParams?.metadata?.membershipFeePence?Number(membershipParams.metadata.membershipFeePence)/100:membership.intro==="trial"?0:tierByKey(membership.tier)?.monthlyGbp:undefined;
     if(membership&&membershipFee===undefined)throw Error("Membership price snapshot is unavailable.");
-    return {b,l,line,start,end,holdTotal,securityCharge,membership,membershipFee,
+    return {b,l,line,start,end,holdTotal,securityCharge,membership,membershipFee,value,
       snapshot:rentalControlsSnapshot(b,jobs), imageSources:listingImages(l)};
 }
 export const preview = query({
@@ -211,7 +205,7 @@ export const prepare = internalMutation({
       if(a.expectedQuote && prior.reviewQuote!==a.expectedQuote) throw Error("Addition request has changed.");
       return prior;
     }
-    const {b,l,line,start,end,holdTotal,securityCharge,membership,membershipFee,snapshot}=await qualifyAddition(ctx,a);
+    const {b,l,line,start,end,holdTotal,securityCharge,membership,membershipFee,snapshot,value}=await qualifyAddition(ctx,a);
     const quoteSnapshot=JSON.stringify([snapshot,l.pricing,l.depositAmount,l.components,line,holdTotal,securityCharge]);
     if(a.expectedQuote && a.expectedQuote!==quoteSnapshot)
       throw new ConvexError({code:"EQUIPMENT_REVIEW_STALE",message:"The equipment quote changed. Review the addition again."});
@@ -223,6 +217,7 @@ export const prepare = internalMutation({
       dailyRate: a.complimentary ? 0 : l.pricing.daily * a.qty,
       complimentary: !!a.complimentary || line.lineTotal === 0,
       securityCharge,
+      ...(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION?{securityPolicyVersion:b.securityPolicyVersion,proposedSavedCardLimit:Math.max(b.savedCardLimit??0,savedCardChargeLimit(value)),replacementValuePence:Math.round(value*100),priorSavedCardLimit:b.savedCardLimit}:{}),
       holdTotal,
       oldHoldId: b.stripeDepositIntentId,
       draftReplacement: b.status === "pending_payment",
@@ -230,7 +225,7 @@ export const prepare = internalMutation({
       baseSecurity: b.depositAmount,
       baseSessionId: b.stripeCheckoutSessionId,
       ...(membership?{membershipCheckoutId:membership._id,membershipFee,membershipSessionParams:membership.sessionParams}:{}),
-      status: "prepared",
+      status: b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION?"awaiting_acceptance":"prepared",
       reason: a.reason.trim().slice(0, 400),
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -249,6 +244,7 @@ export const prepare = internalMutation({
         externalRef: `addition:${id}`,
         holdExpiresAt: Date.now() + 35 * 60000,
       });
+    if(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION){await note(ctx,b,`Proposed equipment addition: ${line.qty}× ${line.title}. Review and accept the revised deposit and saved-card limit in your rental conversation before payment.`);await queueRmv2Sync(ctx,b._id);}
     return (await ctx.db.get(id))!;
   },
 });
@@ -362,7 +358,7 @@ export const apply = internalMutation({
     )
       return { closed: true };
     if (
-      (!r.paymentIntentId && !r.complimentary) ||
+      (!r.paymentIntentId && (!r.complimentary || r.securityCharge>0)) ||
       (!r.draftReplacement && r.holdTotal > 0 && r.status !== "held" && !canDeferAdditionSecurity(b))
     )
       throw Error(
@@ -385,7 +381,16 @@ export const apply = internalMutation({
         return { closed: true };
       throw e;
     }
+    const updatedValues=await replacementValues(ctx,b,[...b.lineItems,line]);
+    const updatedValue=[...b.lineItems,line].reduce((sum,li)=>sum+updatedValues.find(v=>v.listingId===li.listingId)!.unitPence*li.qty,0);
+    if(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION&&r.replacementValuePence!==updatedValue)return {closed:true};
+    let amendment:any;
+    if(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION){
+      if(!r.customerAcceptedAt||!r.customerAccountId||r.priorSavedCardLimit!==b.savedCardLimit||r.baseSecurity!==b.depositAmount||r.customerConsentText!==securityAmendmentConsentText(r.proposedSavedCardLimit!,b.depositAmount+r.securityCharge,b.savedCardLimit!,b.depositAmount))throw Error("The renter must accept this equipment security update first.");
+      amendment={additionId:r._id,accountId:r.customerAccountId,acceptedAt:r.customerAcceptedAt,priorDeposit:b.depositAmount,depositAmount:b.depositAmount+r.securityCharge,priorLimit:b.savedCardLimit,savedCardLimit:r.proposedSavedCardLimit,consentText:r.customerConsentText,replacementValuePence:r.replacementValuePence,sessionId:r.sessionId,paymentIntentId:r.paymentIntentId,draftReplacement:!!r.draftReplacement};
+    }
     const patch: any = {
+      ...(amendment?{securityAmendments:[...(b.securityAmendments??[]),amendment],savedCardLimit:amendment.savedCardLimit,savedCardConsentText:amendment.consentText,laterChargeConsentAt:amendment.acceptedAt}:{}),
       replacementValues: await replacementValues(ctx, b, [...b.lineItems, line]),
       lineItems: [...b.lineItems, line],
       subtotal: b.subtotal + r.lineTotal,
@@ -564,6 +569,7 @@ export const open = internalQuery({
     const rows = await Promise.all(
       [
         "prepared",
+        "awaiting_acceptance",
         "awaiting_payment",
         "paid",
         "requires_action",
@@ -612,6 +618,9 @@ export const customerState = query({
         r.lineTotal +
         r.securityCharge,
       securityCharge: r.securityCharge,
+      requiresAcceptance:r.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION&&!r.customerAcceptedAt,
+      savedCardLimit:r.proposedSavedCardLimit,depositAmount:(r.baseSecurity??0)+r.securityCharge,
+      priorSavedCardLimit:r.priorSavedCardLimit,priorDeposit:r.baseSecurity,
       holdTotal: r.holdTotal,
       url: r.withdrawalRequestedAt ? null : r.paymentUrl ?? null,
       sessionId: r.withdrawalRequestedAt ? null : r.sessionId ?? null,
@@ -619,3 +628,5 @@ export const customerState = query({
     };
   },
 });
+
+export const acceptSecurity=internalMutation({args:{token:v.string(),bookingId:v.id("bookings"),additionId:v.id("rental_additions"),expectedDeposit:v.number(),expectedLimit:v.number(),confirmed:v.boolean()},handler:async(ctx,a)=>{const account=await accountForToken(ctx,a.token);if(!account||!a.confirmed)throw Error("Review and accept the equipment and security update first.");const b=await ownedBooking(ctx,account,a.bookingId),r=await ctx.db.get(a.additionId);if(r&&r.bookingId===b._id&&r.customerAccountId===account._id&&["applied","applied_draft"].includes(r.status)&&a.expectedDeposit===(r.baseSecurity??0)+r.securityCharge&&a.expectedLimit===r.proposedSavedCardLimit)return r;if(!r||b.activeAdditionId!==r._id||r.bookingId!==b._id||r.withdrawalRequestedAt||r.createdAt+23*3600000<=Date.now()||r.securityPolicyVersion!==REFUNDABLE_DEPOSIT_POLICY_VERSION||a.expectedDeposit!==(r.baseSecurity??0)+r.securityCharge||a.expectedLimit!==r.proposedSavedCardLimit||b.depositAmount!==r.baseSecurity||b.savedCardLimit!==r.priorSavedCardLimit)throw Error("The equipment proposal changed or expired. Review it again.");if(r.customerAcceptedAt){if(r.customerAccountId!==account._id)throw Error("Equipment acceptance account mismatch.");return r}const acceptedAt=Date.now(),patch={customerAcceptedAt:acceptedAt,customerAccountId:account._id,customerConsentText:securityAmendmentConsentText(a.expectedLimit,a.expectedDeposit,b.savedCardLimit!,b.depositAmount),status:"prepared",updatedAt:acceptedAt};await ctx.db.patch(r._id,patch);return {...r,...patch};}});

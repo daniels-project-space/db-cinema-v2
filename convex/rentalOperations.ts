@@ -1,3 +1,4 @@
+import {depositReturnReceipt} from "./lib/depositReturnReceipt";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
@@ -109,6 +110,7 @@ async function qualifyReschedule(
     b.cancellationDecision ||
     b.activeAdditionId ||
     b.activeExtensionId ||
+      b.activePriceAdjustmentId ||
     b.returnDecision
   )
     throw Error(
@@ -345,6 +347,7 @@ export const removeItem = mutation({
       b.cancellationDecision ||
       b.activeAdditionId ||
       b.activeExtensionId ||
+      b.activePriceAdjustmentId ||
       b.returnDecision
     )
       throw Error("Finish the open rental operation first.");
@@ -444,10 +447,11 @@ export const prepareRefund = internalMutation({
     requestId: v.string(),
     amountPence: v.optional(v.number()),
     reason: v.string(),
+    expectedSnapshot: v.optional(v.string()),
   },
   handler: async (
     ctx,
-    { token, bookingId, requestId, amountPence, reason },
+    { token, bookingId, requestId, amountPence, reason, expectedSnapshot },
   ) => {
     await assertAdmin(ctx, token, "rentalOperations.refund");
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestId))
@@ -459,29 +463,30 @@ export const prepareRefund = internalMutation({
     if (prior) {
       if (prior.bookingId !== bookingId)
         throw Error("Refund request belongs to another rental");
+      if (amountPence !== undefined && prior.amountPence !== amountPence) throw Error("Refund request amount changed");
+      if (prior.reason !== reason.trim().slice(0,400)) throw Error("Refund request reason changed");
       return prior;
     }
     const b = await ctx.db.get(bookingId);
-    if (!b || b.status !== "confirmed" || !b.stripePaymentIntentId)
-      throw Error("Only a paid upcoming rental can receive a rental refund");
+    if (!b || !["confirmed","active"].includes(b.status) || !b.stripePaymentIntentId)
+      throw Error("Only a paid rental can receive a rental refund");
     if (
       b.cancellationDecision ||
       b.activeAdditionId ||
       b.activeExtensionId ||
+      b.activePriceAdjustmentId ||
       b.returnDecision
     )
       throw Error(
         "Finish the open cancellation, item addition or approved extension first",
       );
-    if (bookingCancelKind(b, Date.now()) !== "full_refund")
-      throw Error(
-        "The rental cash refund window has closed. Cancel to issue account credit instead. Security payment is settled separately on return or cancellation.",
-      );
     if (reason.trim().length < 5) throw Error("Record the refund reason");
     const previous = await ctx.db
       .query("rental_refunds")
       .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
-      .collect();
+      .take(101);
+    if(previous.length>100) throw Error("Refund history needs review");
+    if(expectedSnapshot && rentalControlsSnapshot(b,previous)!==expectedSnapshot) throw Error("The rental changed after price review. Review again.");
     if (previous.some((r) => r.status === "prepared" || r.status === "pending"))
       throw Error(
         "A refund is still processing. Wait for its bank result before another refund or cancellation.",
@@ -673,3 +678,6 @@ export const equipmentCatalog = query({
       .map(l=>({listingId:l._id,title:l.title,imageSources:listingImages(l),daily:l.pricing.daily}));
   },
 });
+
+export const refundJob=internalQuery({args:{id:v.id("rental_refunds")},handler:async(ctx,{id})=>ctx.db.get(id)});
+export const recordRefundReceipt=internalMutation({args:{id:v.id("rental_refunds"),receipt:depositReturnReceipt},handler:async(ctx,{id,receipt})=>{const r=await ctx.db.get(id);if(!r)throw Error("Refund missing");const a=r.allocations?.find(p=>p.paymentIntentId===receipt.paymentIntentId);if(!a||a.amountPence!==receipt.amountPence||receipt.attemptedAt!==r.createdAt)throw Error("Refund receipt allocation mismatch");const rows=r.refundReceipts??[],old=rows.find(p=>p.paymentIntentId===receipt.paymentIntentId);if(old&&(old.attemptedAt!==receipt.attemptedAt||(old.stripeRefundId&&old.stripeRefundId!==receipt.stripeRefundId)||(old.approvalRequestId&&old.approvalRequestId!==receipt.approvalRequestId)))throw Error("Original refund identity cannot be replaced");await ctx.db.patch(id,{refundReceipts:[...rows.filter(p=>p.paymentIntentId!==receipt.paymentIntentId),receipt]});}});
