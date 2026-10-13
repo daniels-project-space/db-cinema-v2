@@ -253,7 +253,7 @@ export default function CartPage() {
                   </button>
                 )}
                 <p className="mt-3 flex items-center justify-center gap-1.5 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/25">
-                  <IconLock className="h-3 w-3" /> Secured by Stripe · test mode
+                  <IconLock className="h-3 w-3" /> Secured by Stripe
                 </p>
                 <div className="mt-4 flex justify-center">
                   <button

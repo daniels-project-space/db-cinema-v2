@@ -1,4 +1,6 @@
 "use client";
+
+import { pickRentalDates } from "@/lib/dateSelection";
 import { SmartImage } from "@/components/SmartImage";
 
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -49,9 +51,9 @@ export default function AssemblePage() {
   const [end, setEnd] = useState("");
   const [month, setMonth] = useState(() => new Date());
   function pickDate(d: string) {
-    if (!start || end) { setStart(d); setEnd(""); }
-    else if (d < start) { setStart(d); }
-    else { setEnd(d); }
+    const next = pickRentalDates(start, end, d);
+    setStart(next.start);
+    setEnd(next.end);
   }
   const [budget, setBudget] = useState(600);
   const [cameras, setCameras] = useState(1);

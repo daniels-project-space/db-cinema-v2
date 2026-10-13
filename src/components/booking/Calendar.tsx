@@ -1,5 +1,7 @@
 "use client";
 
+import { crossesUnavailableDate } from "@/lib/dateSelection";
+
 import { IconChevronLeft, IconChevronRight } from "@/components/icons";
 import { iso, addDaysIso, daysInclusive } from "@/lib/dates";
 
@@ -74,7 +76,7 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
           const isEnd = dayIso === end;
           const inRange = !!start && !!end && dayIso > start && dayIso < end;
           const rangeBlocked = (inRange || isStart || isEnd) && isBlocked;
-          const crossesBlocked=!!start&&!end&&dayIso>=start&&[...unavailable].some(day=>day>=start&&day<=dayIso);
+          const crossesBlocked = crossesUnavailableDate(start, end, dayIso, unavailable);
           const disabled = checking || isPast || isBlocked || crossesBlocked;
 
           let cls =
@@ -109,7 +111,7 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
           ? "Tap your start date"
           : !end
             ? "Now tap your end date"
-            : `${start} → ${end}`}
+            : start === end ? `${start} · 1 day — tap another date to extend` : `${start} → ${end}`}
       </div>
     </div>
   );

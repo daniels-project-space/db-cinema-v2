@@ -1,0 +1,17 @@
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const {load}=require('./lib/rentalTestHarness.cjs');
+const {pickRentalDates:pick,crossesUnavailableDate:blocked}=load('src/lib/dateSelection.ts');
+const day='2027-02-10',next='2027-02-13',before='2027-02-08';
+assert.deepEqual(pick(null,null,day),{start:day,end:day});
+assert.deepEqual(pick('','',day),{start:day,end:day});
+assert.deepEqual(pick(day,day,next),{start:day,end:next});
+assert.deepEqual(pick(day,day,before),{start:before,end:day});
+assert.deepEqual(pick(day,day,day),{start:day,end:day});
+assert.deepEqual(pick(day,next,before),{start:before,end:before});
+assert(blocked(day,day,next,new Set(['2027-02-12'])));
+assert(blocked(day,day,before,new Set(['2027-02-09'])));
+assert(!blocked(day,day,next,new Set(['2027-02-14'])));
+assert(!blocked(day,next,before,new Set(['2027-02-09'])));
+for(const f of ['src/app/gear/[slug]/GearDetailClient.tsx','src/app/assemble/page.tsx'])assert(fs.readFileSync(f,'utf8').includes('pickRentalDates(start, end,'),'Real date consumers share selection rules');
+assert(!fs.readFileSync('src/app/cart/page.tsx','utf8').includes('· test mode'));
+console.log('PASS single click one-day, forward/backward extension, reset, blocked interior dates, both real consumers and live copy.');
