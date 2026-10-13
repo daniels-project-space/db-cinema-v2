@@ -1,4 +1,4 @@
-import { REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../shared/rentalSecurity";
 /**
  * Versioned legal agreements the renter must e-sign at checkout. The accepted
  * {kind, version} list + signer name + timestamp are stored on the booking as
@@ -22,6 +22,7 @@ export type AgreementDoc = { kind: string; version: string };
 
 export const REFUNDABLE_DEPOSIT_LEGAL_VERSION = "2026-10-v14";
 export function agreementsForSecurityPolicy(policy?: string | null) {
-  if (policy !== REFUNDABLE_DEPOSIT_POLICY_VERSION) return AGREEMENTS;
-  return AGREEMENTS.map(doc => ({...doc,version:doc.version===LEGAL_VERSION?REFUNDABLE_DEPOSIT_LEGAL_VERSION:doc.version,title:doc.kind==="deposit-agreement"?"Refundable Deposit & Saved-Card Payment Agreement":doc.title}));
+  if (!hasCashDepositPolicy(policy)) return AGREEMENTS;
+  const version=policy===ASSESSMENT_SECURITY_POLICY_VERSION?"2026-10-v15":REFUNDABLE_DEPOSIT_LEGAL_VERSION;
+  return AGREEMENTS.map(doc => ({...doc,version:doc.version===LEGAL_VERSION?version:doc.version,title:doc.kind==="deposit-agreement"?policy===ASSESSMENT_SECURITY_POLICY_VERSION?"Refundable Deposit & Future Card Payments":"Refundable Deposit & Saved-Card Payment Agreement":doc.title}));
 }

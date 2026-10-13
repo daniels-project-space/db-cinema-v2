@@ -9,7 +9,10 @@ import { deriveItemType } from "./lib/taxonomy";
 import { bestCompat, parseMounts } from "./lib/mount";
 
 /** Listing packs such as "3x Sony FX3" represent three requested bodies. */
-const packSize = (title: string) => Math.min(100, Math.max(1, Number(title.match(/^\s*(\d+)\s*[x×]/i)?.[1] ?? 1)));
+const packSize = (title: string) => Math.min(100, Math.max(1, Number(title.match(/(?:^|[\s(])([1-9]\d*)\s*[x×](?=\s|[A-Za-z)]|$)/i)?.[1] ?? 1)));
+
+const batteryFamily=(title:string)=>/v[ -]?mount/i.test(title)&&!/camera|bmpcc|blackmagic|komodo|pyxis/i.test(title)?"vmount":/np[ -]?f/i.test(title)?"npf":null;
+const powerCompatible=(a:any,b:any)=>!batteryFamily(a.title)||batteryFamily(a.title)===batteryFamily(b.title);
 
 export const sets = query({
   args: { items: v.array(v.object({key:v.string(),...stockRequestFields})), sourceKey: v.string(), limit: v.optional(v.number()) },
@@ -28,7 +31,7 @@ export const sets = query({
     const type = original.itemType ?? deriveItemType(original.title);
     const redirect = marketingRedirect(original);
     const candidates = (await ctx.db.query("listings").withIndex("by_category", q => q.eq("category", original.category)).collect())
-      .filter(l => !rentalUnavailable(l) && (l.itemType ?? deriveItemType(l.title)) === type && days >= (l.minimumRentalDays ?? 1) && packSize(l.title) <= requested)
+      .filter(l => !rentalUnavailable(l) && powerCompatible(original,l) && (l.itemType ?? deriveItemType(l.title)) === type && days >= (l.minimumRentalDays ?? 1))
       .filter(candidate => !retained.some(r => {
         if (!r.listing || rentalUnavailable(r.listing)) return false;
         const other = r.listing.itemType ?? deriveItemType(r.listing.title);
@@ -68,7 +71,7 @@ export const sets = query({
     // quantity. Non-decreasing indices enumerate each combination only once.
     async function search(selected: typeof candidates, covered: number, first: number): Promise<void> {
       if (options.length >= limit || searchLimited) return;
-      if (covered === requested) {
+      if (covered >= requested) {
         const replacements = selected.map(describe);
         options.push({ id: selected.map(l => String(l._id)).sort().join("|"), total: replacements.reduce((sum, l) => sum + l.total, 0), items: replacements });
         return;
@@ -76,7 +79,7 @@ export const sets = query({
       if (selected.length + retained.length >= 100) return;
       for (let index = first; index < viable.length && options.length < limit && !searchLimited; index++) {
         const candidate = viable[index], quantity = packSize(candidate.title);
-        if (covered + quantity > requested) continue;
+        if (covered + quantity > requested && !batteryFamily(original!.title)) continue;
         if (++examined > 10000) { searchLimited = true; return; }
         const trial = [...selected, candidate];
         if (await available(trial)) await search(trial, covered + quantity, index);
@@ -122,7 +125,7 @@ export const forCart = query({
         score -= Math.abs(l.pricing.daily - source.pricing.daily) / Math.max(1, source.pricing.daily);
         return score;
       };
-      const candidates = categories.get(source.category)!.filter(l => l._id !== source._id && !rentalUnavailable(l) && (l.itemType ?? deriveItemType(l.title)) === type && days >= (l.minimumRentalDays ?? 1)).sort((a,b) => score(b)-score(a) || String(a._id).localeCompare(String(b._id)));
+      const candidates = categories.get(source.category)!.filter(l => l._id !== source._id && !rentalUnavailable(l) && powerCompatible(source,l) && packSize(l.title)>=packSize(source.title) && (l.itemType ?? deriveItemType(l.title)) === type && days >= (l.minimumRentalDays ?? 1)).sort((a,b) => score(b)-score(a) || String(a._id).localeCompare(String(b._id)));
       const seen = new Set<string>();
       result[line.key] = [];
       for (const candidate of candidates) {

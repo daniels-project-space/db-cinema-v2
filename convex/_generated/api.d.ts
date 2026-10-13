@@ -8,7 +8,6 @@
  * @module
  */
 
-import type * as managerNotifications from "../managerNotifications.js";
 import type * as accountAccess from "../accountAccess.js";
 import type * as accountAdmin from "../accountAdmin.js";
 import type * as accountClaims from "../accountClaims.js";
@@ -68,6 +67,7 @@ import type * as lib_depositReturnReceipt from "../lib/depositReturnReceipt.js";
 import type * as lib_diditCapacity from "../lib/diditCapacity.js";
 import type * as lib_droneDocument from "../lib/droneDocument.js";
 import type * as lib_droneVerification from "../lib/droneVerification.js";
+import type * as lib_firstOrderVoucher from "../lib/firstOrderVoucher.js";
 import type * as lib_gafferDiscount from "../lib/gafferDiscount.js";
 import type * as lib_inventoryCapacity from "../lib/inventoryCapacity.js";
 import type * as lib_kitPlanning from "../lib/kitPlanning.js";
@@ -117,6 +117,9 @@ import type * as lib_stripeCustomer from "../lib/stripeCustomer.js";
 import type * as lib_taxonomy from "../lib/taxonomy.js";
 import type * as lib_verificationOwnership from "../lib/verificationOwnership.js";
 import type * as lib_verificationReuse from "../lib/verificationReuse.js";
+import type * as managerCheckoutStock from "../managerCheckoutStock.js";
+import type * as managerCheckoutStockPush from "../managerCheckoutStockPush.js";
+import type * as managerNotifications from "../managerNotifications.js";
 import type * as marketingAdmin from "../marketingAdmin.js";
 import type * as membershipBenefits from "../membershipBenefits.js";
 import type * as notify from "../notify.js";
@@ -178,7 +181,6 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  managerNotifications: typeof managerNotifications;
   accountAccess: typeof accountAccess;
   accountAdmin: typeof accountAdmin;
   accountClaims: typeof accountClaims;
@@ -238,6 +240,7 @@ declare const fullApi: ApiFromModules<{
   "lib/diditCapacity": typeof lib_diditCapacity;
   "lib/droneDocument": typeof lib_droneDocument;
   "lib/droneVerification": typeof lib_droneVerification;
+  "lib/firstOrderVoucher": typeof lib_firstOrderVoucher;
   "lib/gafferDiscount": typeof lib_gafferDiscount;
   "lib/inventoryCapacity": typeof lib_inventoryCapacity;
   "lib/kitPlanning": typeof lib_kitPlanning;
@@ -287,6 +290,9 @@ declare const fullApi: ApiFromModules<{
   "lib/taxonomy": typeof lib_taxonomy;
   "lib/verificationOwnership": typeof lib_verificationOwnership;
   "lib/verificationReuse": typeof lib_verificationReuse;
+  managerCheckoutStock: typeof managerCheckoutStock;
+  managerCheckoutStockPush: typeof managerCheckoutStockPush;
+  managerNotifications: typeof managerNotifications;
   marketingAdmin: typeof marketingAdmin;
   membershipBenefits: typeof membershipBenefits;
   notify: typeof notify;

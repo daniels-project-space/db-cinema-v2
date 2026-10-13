@@ -13,8 +13,8 @@ import { availableCreditRows,creditPlan,creditKind } from "./lib/checkoutCredit"
 import { ensurePaidBookingAccount } from "./accountClaims";
 import { referralEligibility,availableReferralReward } from "./lib/referrals";
 import { SINGLE_BENEFIT_VERSION } from "../shared/rentalBenefits";
-import { SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, depositChargeFor, savedCardChargeLimit } from "../shared/rentalSecurity";
-import { isSavedCardRental, savedCardConsentText, assertSavedCardConsent } from "../shared/savedCardSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardLimitForPolicy, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, depositChargeFor, savedCardChargeLimit } from "../shared/rentalSecurity";
+import { isSavedCardRental, assessmentConsentText, savedCardConsentText, assertSavedCardConsent } from "../shared/savedCardSecurity";
 import { loyaltyProgress } from "./lib/loyalty";
 import { creditDebit,usableCredit } from "./lib/creditLedger";
 import { safeRepeatRental,repeatRentalFingerprint } from "./lib/repeatRental";
@@ -110,6 +110,27 @@ async function releaseReferral(ctx:any,b:any){
 /** Private lookup for an exact submitted checkout retry. No new booking,
  * stock or credit is created, and older attempts without this receipt keep
  * their existing reconciliation path. */
+/** A saved Stripe URL is usable only while this exact checkout still holds its entire basket. */
+async function checkoutStockReady(ctx: any, booking: any) {
+  if(!booking || booking.status !== "pending_payment" || !booking.stockHoldFingerprint) return false;
+  const holds = await ctx.db.query("reservations").withIndex("by_booking", (q: any)=>q.eq("bookingId",booking._id)).collect();
+  const now=Date.now();
+  if(!holds.length || holds.some((h:any)=>h.status!=="hold" || !h.holdExpiresAt || h.holdExpiresAt<=now)) return false;
+  if(stockAllocationFingerprint(booking,holds)!==booking.stockHoldFingerprint) return false;
+  try {await assertRentalInventory(ctx,bookingStockLines(booking),booking._id);return true;} catch {return false;}
+}
+export const assertCheckoutReservation = internalQuery({args:{bookingId:v.id("bookings")},handler:async(ctx,{bookingId})=>{
+  if(!await checkoutStockReady(ctx,await ctx.db.get(bookingId))) throw Error("This checkout no longer has available stock reserved. Return to your basket and choose available equipment before paying.");
+  return true;
+}});
+/** The unpredictable acceptance ID is a recovery capability; disclose no booking particulars. */
+export const recoveryStock = query({args:{requestId:v.string(),token:v.optional(v.string())},handler:async(ctx,a)=>{
+  if(!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))return {ready:false};
+  const b=await ctx.db.query("bookings").withIndex("by_agreement_request",q=>q.eq("agreementRequestId",a.requestId)).unique();
+  if(a.token){const account=await accountForToken(ctx,a.token);if(!account || !b || b.accountId!==account._id)return {ready:false};}
+  return {ready:await checkoutStockReady(ctx,b)};
+}});
+
 export const checkoutAttempt = internalQuery({
   args:{requestId:v.string(),checkoutInputFingerprint:v.string()},
   handler:async(ctx,a)=>{
@@ -177,8 +198,8 @@ export const createPending = internalMutation({
       if(!owner||owner.blockedAt!=null||owner.email!==a.customerEmail.trim().toLowerCase())throw Error("Rental account does not match the checkout customer.");
     }
     if(a.checkoutInputFingerprint&&!/^[a-f0-9]{64}$/.test(a.checkoutInputFingerprint))throw Error("Invalid checkout receipt.");
-    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION].includes(d.version));
-    if (a.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION && !newAgreement) throw Error("Review and accept the current refundable-deposit agreements before paying.");
+    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15"].includes(d.version));
+    if (hasCashDepositPolicy(a.securityPolicyVersion) && !newAgreement) throw Error("Review and accept the current refundable-deposit agreements before paying.");
     const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
     if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
     if (a.agreementRequestId) {
@@ -191,7 +212,7 @@ export const createPending = internalMutation({
       }
     }
     if(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && a.securityWaiverReason)throw Error("The refundable deposit cannot be waived by membership or a prior rental.");
-    if(a.securityPolicyVersion && a.securityPolicyVersion!==SECURITY_POLICY_VERSION && !(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"))throw Error("Unsupported security policy.");
+    if(a.securityPolicyVersion && a.securityPolicyVersion!==SECURITY_POLICY_VERSION && !(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true") && !(a.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION && process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"))throw Error("Unsupported security policy.");
     const single=a.pricingVersion===SINGLE_BENEFIT_VERSION;
     if(a.pricingVersion&&!single)throw Error("Unsupported pricing version.");
     const account=a.creditAccountId?await ctx.db.get(a.creditAccountId):null;
@@ -201,8 +222,8 @@ export const createPending = internalMutation({
       if(a.benefitKind==="earned_credit"&&((a.discount??0)!==(a.membershipSignupOfferSaving??0)||a.deliveryFee!==(a.quotedDeliveryFee??a.deliveryFee)))throw Error("Only one price benefit can apply, plus the one-time joining credit.");
       if(["referral_friend","referral_reward"].includes(a.benefitKind??"")){
         const value = isSavedCardRental(a) ? (await Promise.all(a.lineItems.map(line=>ctx.db.get(line.listingId)))).reduce((n,item,i)=>n+(item?.depositAmount??0)*a.lineItems[i].qty,0) : undefined;
-        const normalDeposit = a.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION && value !== undefined ? refundableDepositFor(value) : value === undefined ? Math.round((a.depositHoldAmount??0)*50)/100 : depositChargeFor(a.protection === "deposit" ? "deposit" : "verify",value);
-        if(a.securityWaiverReason||a.depositAmount!==normalDeposit)throw Error("Referral offers require normal upfront security.");
+        const normalDeposit = a.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION && value !== undefined ? a.securityWaiverReason?0:assessmentDepositFor(value) : hasCashDepositPolicy(a.securityPolicyVersion) && value !== undefined ? refundableDepositFor(value) : value === undefined ? Math.round((a.depositHoldAmount??0)*50)/100 : depositChargeFor(a.protection === "deposit" ? "deposit" : "verify",value);
+        if((a.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION&&a.securityWaiverReason)||a.depositAmount!==normalDeposit)throw Error("Referral offers require normal upfront security.");
         if(a.benefitKind==="referral_friend"){
           friend=await referralEligibility(ctx,account,a.referralCode??"");if(!friend.valid)throw Error(friend.reason);
           if(Math.round(((a.discount??0)-(a.membershipSignupOfferSaving??0))*100)!==Math.round(Math.min(10,a.subtotal)*100))throw Error("Referral price changed.");
@@ -309,13 +330,24 @@ export const createPending = internalMutation({
     const exposure = await assertRenterExposure(ctx, { customerEmail, status: "pending_payment", lineItems: a.lineItems });
     const values = await replacementValues(ctx, { lineItems: a.lineItems });
     const savedCard = isSavedCardRental(a);
-    const refundablePolicy = a.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION;
+    const assessmentPolicy=a.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION;
+    const refundablePolicy = hasCashDepositPolicy(a.securityPolicyVersion);
     const equipmentValue = a.lineItems.reduce((n,line)=>n+(values.find(value=>value.listingId===line.listingId)?.unitPence??0)*line.qty/100,0);
-    const cardLimit = savedCard ? savedCardChargeLimit(a.lineItems.reduce((n, line) => n + (values.find(value => value.listingId === line.listingId)?.unitPence ?? 0) * line.qty / 100, 0)) : undefined;
-    if (savedCard && (a.depositAmount !== (refundablePolicy ? refundableDepositFor(equipmentValue) : 0) || (refundablePolicy && !!a.securityWaiverReason) || (a.depositHoldAmount ?? 0) !== 0 || a.savedCardLimit !== cardLimit || !a.laterChargeConsent))
+    const cardLimit = savedCard ? cardLimitForPolicy(a.securityPolicyVersion,equipmentValue) : undefined;
+    let waiverValid=false;
+    if(assessmentPolicy && a.securityWaiverReason){
+      const signedAccount=a.accountId?await ctx.db.get(a.accountId):null;
+      if(!signedAccount || signedAccount._id!==customerAccount?._id)throw Error("Deposit exemption belongs to a different account.");
+      if(a.securityWaiverReason==="active_membership")waiverValid=membershipActiveNow(signedAccount);
+      else if(a.securityWaiverReason==="encore"){const progress=await loyaltyProgress(ctx,signedAccount);waiverValid=progress.eligible&&progress.level>=3;}
+      else if(a.securityWaiverReason==="membership_checkout" && a.membershipCheckoutId){const selected=await ctx.db.get(a.membershipCheckoutId);waiverValid=!!selected && selected.accountId===signedAccount._id && selected.state==="creating";}
+      if(!waiverValid)throw Error("Your deposit exemption changed; review checkout before paying.");
+    }
+    const requiredDeposit=assessmentPolicy?(waiverValid?0:assessmentDepositFor(equipmentValue)):refundablePolicy?refundableDepositFor(equipmentValue):0;
+    if (savedCard && (a.depositAmount !== requiredDeposit || (refundablePolicy && !assessmentPolicy && !!a.securityWaiverReason) || (a.depositHoldAmount ?? 0) !== 0 || a.savedCardLimit !== cardLimit || !a.laterChargeConsent))
       throw Error("Review the current saved-card limit and explicitly consent; review the quoted refundable deposit and no additional card hold is permitted.");
     const acceptedAt = Date.now();
-    const cardConsent = cardLimit !== undefined ? savedCardConsentText(cardLimit,refundablePolicy?a.depositAmount:undefined) : undefined;
+    const cardConsent = assessmentPolicy?assessmentConsentText(a.depositAmount):cardLimit !== undefined ? savedCardConsentText(cardLimit,refundablePolicy?a.depositAmount:undefined) : undefined;
     const agreementSnapshot = newAgreement ? snapshotAgreement({...a,savedCardConsentText:cardConsent}, acceptedAt, chargedTotal, creditApplied) : undefined;
     const bookingId = await ctx.db.insert("bookings", {
       pricingVersion:a.pricingVersion,benefitKind:a.benefitKind,
@@ -429,6 +461,7 @@ export const placeHolds = internalMutation({
     for (const row of requested) await ctx.db.insert("reservations", {
       ...row, bookingId, source: "site", status: "hold", holdExpiresAt: expires,
     });
+    await ctx.scheduler.runAfter(0,internal.managerCheckoutStockPush.push,{});
     return { created: requested.length, alreadyReserved: false };
   },
 });
@@ -667,7 +700,7 @@ export const attachAddon = internalMutation({
   const prior=await ctx.db.query("rental_additions").withIndex("by_session",q=>q.eq("sessionId",a.sessionId)).first();
   if(prior)return {closed:prior.status!=="applied",already:true};
   const b=await ctx.db.get(a.bookingId);
-  if(!b||b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||(b.activeAdditionId || b.activeExtensionId || b.activePriceAdjustmentId))return {closed:true};
+  if(!b||hasCashDepositPolicy(b.securityPolicyVersion)||!["confirmed","active"].includes(b.status)||b.cancellationDecision||b.returnDecision||(b.activeAdditionId || b.activeExtensionId || b.activePriceAdjustmentId))return {closed:true};
   const listing=await ctx.db.get(a.listingId);if(!listing)return {closed:true};
   const line={listingId:a.listingId,title:listing.title,start:a.start,end:a.end,qty:1,lineTotal:a.total,dailyRate:listing.pricing.daily};
   if(!Number.isFinite(a.total)||a.total<=0||a.start%86400000!==0||a.end%86400000!==0)return {closed:true};
@@ -1083,10 +1116,10 @@ export const recordLateFee = internalMutation({
         subtotal: b.subtotal, discount: b.discount ?? 0, deliveryFee: b.deliveryFee ?? 0,
         creditApplied: b.creditApplied ?? 0, checkoutPaid: b.total, rentalRefunded:confirmedRentalRefundPence(refundJobs)/100,
         securityPaid: b.depositAmount, securityRefunded: b.depositRefundAmount ?? 0,
-        ...(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION?depositRefundStatementFields(b):{}),
+        ...(hasCashDepositPolicy(b.securityPolicyVersion)?depositRefundStatementFields(b):{}),
         holdStatus: b.depositHoldStatus,
         damageTotal: b.depositKept ?? 0, damageFromHold: b.depositHoldCapturedForDamage ?? 0,
-        ...(isSavedCardRental(b)?{savedCardLimit:b.savedCardLimit,damageAssessed:b.returnDecision?.damageKept??0}:{}),
+        ...(isSavedCardRental(b)?{securityPolicyVersion:b.securityPolicyVersion,...(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?{}:{savedCardLimit:b.savedCardLimit}),damageAssessed:b.returnDecision?.damageKept??0}:{}),
         damageNote: b.depositDeductionNote,
         inspection: b.returnDecision?.inspection,
         lateAssessed: amount, lateWaived: waivedAmount ?? 0, lateBreakdown: breakdown,
@@ -2049,7 +2082,7 @@ export const verificationProgress = query({
 /** Persist the first provider attempt before sending it; retries preserve that identity. */
 export const recordDepositReturnReceipt=internalMutation({args:{bookingId:v.id("bookings"),receipt:depositReturnReceipt},handler:async(ctx,{bookingId,receipt})=>{
  const b=await ctx.db.get(bookingId);
- if(!b||b.securityPolicyVersion!==REFUNDABLE_DEPOSIT_POLICY_VERSION||!b.returnDecision||b.returnDecision.depositKept===undefined)throw Error("A frozen refundable-deposit decision is required.");
+ if(!b||!hasCashDepositPolicy(b.securityPolicyVersion)||!b.returnDecision||b.returnDecision.depositKept===undefined)throw Error("A frozen refundable-deposit decision is required.");
  const sources=await rentalPaymentSources(ctx,b),amountPence=Math.round((b.depositAmount-b.returnDecision.depositKept)*100);
  const allocation=securityReturnPlan(sources,amountPence).find(row=>row.paymentIntentId===receipt.paymentIntentId);
  if(!allocation||receipt.amountPence!==allocation.amountPence||!Number.isSafeInteger(receipt.attemptedAt)||receipt.attemptedAt<=0)throw Error("The refund receipt does not match the frozen deposit allocation.");
@@ -2061,7 +2094,7 @@ export const recordDepositReturnReceipt=internalMutation({args:{bookingId:v.id("
 }});
 
 export const beginDepositRefundRetry=internalMutation({args:{bookingId:v.id("bookings"),refundId:v.string(),requestId:v.string(),expectedSnapshot:v.string()},handler:async(ctx,a)=>{
- const b=await ctx.db.get(a.bookingId);if(!b||b.securityPolicyVersion!==REFUNDABLE_DEPOSIT_POLICY_VERSION||!b.returnDecision||!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))throw Error("Invalid deposit refund retry.");
+ const b=await ctx.db.get(a.bookingId);if(!b||!hasCashDepositPolicy(b.securityPolicyVersion)||!b.returnDecision||!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))throw Error("Invalid deposit refund retry.");
  const history=b.depositReturnReceiptHistory??[],rows=b.depositReturnReceipts??[];
  const replay=rows.find(r=>r.attemptKey===a.requestId);if(replay&&history.some(r=>r.stripeRefundId===a.refundId&&r.paymentIntentId===replay.paymentIntentId))return replay;
  const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",a.bookingId)).take(101);if(refunds.length>100||rentalControlsSnapshot(b,refunds)!==a.expectedSnapshot)throw Error("The refund changed after review. Refresh and review again.");

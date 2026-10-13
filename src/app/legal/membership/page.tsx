@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
-export default function MembershipTerms() {
+import {currentLegalVersion} from "@/lib/currentLegalVersion";
+export const dynamic="force-dynamic";
+export default async function MembershipTerms() {
+ const assessment=await currentLegalVersion()==="2026-10-v15";
  const sections = [
   ["Your membership", "DB Cinema Rentals offers Starter at £19, Pro at £49 and Studio at £99 per month, billed in GBP. You must be at least 18 and have an account. These are recurring memberships, not a single rental purchase. We are not VAT registered and do not add VAT."],
   ["Welcome offer and renewal", "The standalone membership page may offer seven free days followed by the monthly fee. Membership added in a rental basket or checkout starts paid membership immediately; no free-week offer is available there. The former £20 welcome-credit offer is no longer available for new checkouts; previously granted credits and already accepted offers retain their applicable terms. The free-week offer is available once per customer and cannot be repeated by canceling and rejoining. Stripe shows your first charge and renewal before you approve. The free week earns no monthly credit and does not waive the upfront rental security payment."],
@@ -16,5 +19,13 @@ export default function MembershipTerms() {
   ["Consumer rights", "For a new online membership you may have a statutory 14-day cancellation right. Contact DB Cinema Rentals through your account conversation to exercise it. Where you explicitly request immediate services, any lawful proportionate charge for services actually supplied will be explained; nothing in these terms removes your statutory rights. Unused promotional credits associated with a refunded or reversed membership payment may be removed. If refunded membership credit has already been spent, that credit balance may be offset against future earned membership credit; it is not an automatic card charge. We will not automatically charge your card merely because earned credit has already been spent."],
   ["Film Fund", "Pro and Studio include the application fee for one qualifying project entry, subject to the separate Film Fund rules and eligibility at submission. Starter entries cost £15 and nonmember entries cost £30, once per project, with no multiple ticket purchases. An included entry is not automatic submission of a project, a guaranteed award, or a lottery entry. The fund is Coming soon: no applications or entry payments are accepted until an announced round opens."],
  ];
+ if(assessment){
+  for(const section of sections){
+   if(section[0]==="Rental security")section[1]="For new rentals under the current refundable-deposit policy, eligible active members/subscribers and verified Encore renters have no cash deposit. Stripe still saves and verifies a card for evidenced future damage, loss and late-fee payments after itemised notice. ID and address verification remain required. Existing rentals retain their accepted terms; eligibility is confirmed by the final account-bound quote.";
+   if(section[0]==="Monthly credit")section[1]=section[1].replace("The upfront refundable security payment, applicable card hold and verification remain required; weekend deals, delivery benefits and the security waiver begin after that booking is confirmed and apply to future bookings.","Verification and future card-payment permission remain required. The new rental deposit exemption is confirmed in the final quotation, including eligible combined membership checkouts.");
+   if(section[0]==="Welcome offer and renewal")section[1]=section[1].replace("and does not waive the upfront rental security payment","; rental deposit eligibility follows the accepted rental policy and final account-bound quote");
+   if(section[0]==="One price benefit")section[1]=section[1].replace("Referral benefits always require the normal upfront security payment and any applicable hold, including for subscribers.","Referral price benefits do not change the deposit exemption recorded in a new-policy rental quote.");
+  }
+ }
  return <><SiteHeader/><main className="mx-auto max-w-3xl px-6 py-14"><Link href="/membership" className="text-sm text-accent-300">← Membership</Link><h1 className="mt-6 font-display text-4xl text-white">Membership terms</h1><p className="mt-3 text-xs text-white/40">{MEMBERSHIP_TERMS_VERSION} · effective on acceptance</p><div className="mt-10 space-y-8">{sections.map(([title,text])=><section key={title}><h2 className="text-lg font-medium text-white">{title}</h2><p className="mt-2 text-sm leading-7 text-white/60">{text}</p></section>)}</div></main></>;
 }

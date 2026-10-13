@@ -1,6 +1,10 @@
+import {ASSESSMENT_SECURITY_POLICY_VERSION,depositForBookingPolicy} from "../../shared/rentalSecurity";
 /** Conservative substitution: same category/type/mount and no increase in security exposure. */
-export function replacementCompatible(original: any, candidate: any): boolean {
+export function replacementCompatible(original: any, candidate: any, booking?:any): boolean {
+  const sourceFamily=/v[ -]?mount/i.test(original.title)&&!/camera|bmpcc|blackmagic/i.test(original.title)?"vmount":/np[ -]?f/i.test(original.title)?"npf":null;
+  const candidateFamily=/v[ -]?mount/i.test(candidate?.title??"")?"vmount":/np[ -]?f/i.test(candidate?.title??"")?"npf":null;
   return (
+    (!sourceFamily || sourceFamily===candidateFamily) &&
     !!candidate &&
     original._id !== candidate._id &&
     candidate.active === true &&
@@ -16,7 +20,7 @@ export function replacementCompatible(original: any, candidate: any): boolean {
     Number.isFinite(original.depositAmount) &&
     Number.isFinite(candidate.depositAmount) &&
     candidate.depositAmount >= 0 &&
-    candidate.depositAmount <= original.depositAmount
+    (candidate.depositAmount <= original.depositAmount || booking?.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION && depositForBookingPolicy(booking,booking.lineItems.reduce((sum:number,line:any)=>sum+(line.listingId===original._id?candidate.depositAmount:(booking.replacementValues?.find((v:any)=>v.listingId===line.listingId)?.unitPence??0)/100)*line.qty,0))<=booking.depositAmount)
   );
 }
 export function assertReplacementSnapshot(saved: any, next: any) {

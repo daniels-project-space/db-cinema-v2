@@ -120,6 +120,7 @@ export default defineSchema({
     decisionNote: v.optional(v.string()), decidedAt: v.optional(v.number()), decisionMessageId: v.optional(v.id("messages")),
     execution: v.optional(v.object({ operation: v.union(v.literal("reschedule"), v.literal("cancellation")), operationKey: v.string(), status: v.union(v.literal("processing"), v.literal("applied")), startedAt: v.number(), appliedAt: v.optional(v.number()), detail: v.optional(v.string()) })),
   }).index("by_request", ["requestId"]).index("by_account", ["accountId"]).index("by_booking", ["bookingId"]),
+  manager_checkout_stock: defineTable({key:v.string(),revision:v.number(),payload:v.string(),generatedAt:v.optional(v.number()),deliveredRevision:v.optional(v.number()),attempts:v.number(),dueAt:v.number(),error:v.optional(v.string())}).index("by_key",["key"]),
   reservations: defineTable({
     inventoryUnitId: v.id("inventory_units"),
     listingId: v.optional(v.id("listings")),
@@ -151,7 +152,7 @@ export default defineSchema({
     .index("by_unit_and_start", ["inventoryUnitId", "start"])
     .index("by_booking", ["bookingId"])
     .index("by_source", ["source"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"]).index("by_status_expiry",["status","holdExpiresAt"]),
 
   // ── Commerce ──────────────────────────────────────────────────
   carts: defineTable({
@@ -389,7 +390,7 @@ export default defineSchema({
       checkoutPaid: v.number(), rentalRefunded:v.optional(v.number()), securityPaid: v.number(), securityRefunded: v.number(),
       holdStatus: v.optional(v.string()),
       damageTotal: v.number(), damageFromHold: v.number(), damageNote: v.optional(v.string()),
-      savedCardLimit:v.optional(v.number()),damageAssessed:v.optional(v.number()),depositRefundState:v.optional(v.string()),securityRefundedConfirmed:v.optional(v.number()),
+      securityPolicyVersion:v.optional(v.string()),savedCardLimit:v.optional(v.number()),damageAssessed:v.optional(v.number()),depositRefundState:v.optional(v.string()),securityRefundedConfirmed:v.optional(v.number()),
       inspection: v.optional(v.array(inspectionRecord)),
       lateAssessed: v.number(), lateWaived: v.number(),
       lateBreakdown: v.array(v.object({ title: v.string(), days: v.number(), dailyRate: v.number(), amount: v.number() })),
