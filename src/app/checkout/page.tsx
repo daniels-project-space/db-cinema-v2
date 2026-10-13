@@ -235,7 +235,8 @@ export default function CheckoutPage() {
   }, [quoteKey, getPriceQuote, draftReady]);
 
   // Reading the documents and signing the current order are separate. Changes
-  // to the order invalidate only the signature/attempt, never the read checkbox.
+  // to the order invalidate the signature/attempt. Changed security amounts or
+  // policy also reset consent below, since the checkbox accepts those terms.
   const signingContext = JSON.stringify({ quoteKey, name, phone, billingAddress, pickupTime:effectivePickupTime, returnTime:effectiveReturnTime,
     deliveryAgreed, due: currentQuote?.combinedTotalDue, policy: currentQuote?.securityPolicyVersion, deposit: currentQuote?.depositAmount, hold: currentQuote?.depositHoldAmount });
   useEffect(() => { setSignature(""); agreementRequest.current = null; setRecovery(null); }, [signingContext]);
