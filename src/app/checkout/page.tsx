@@ -371,7 +371,7 @@ export default function CheckoutPage() {
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
         <CheckoutMembership variant="checkout" loading={rentalPreview.loading && !quoteError} appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
-          <span>No security payment or card hold is taken upfront; later charges require evidence and notice</span>
+          <span data-testid="checkout-security-note">{refundablePolicy && (currentQuote?.depositAmount ?? 0) > 0 ? `${formatGbp(currentQuote!.depositAmount)} refundable deposit included; later card charges require evidence and notice` : "Security is shown in your quote; later card charges require evidence and notice"}</span>
           <span className="text-white/20">·</span>
           <span>Need a hand? Message us any time</span>
         </p>
