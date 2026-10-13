@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as managerNotifications from "../managerNotifications.js";
 import type * as accountAccess from "../accountAccess.js";
 import type * as accountAdmin from "../accountAdmin.js";
 import type * as accountClaims from "../accountClaims.js";
@@ -177,6 +178,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  managerNotifications: typeof managerNotifications;
   accountAccess: typeof accountAccess;
   accountAdmin: typeof accountAdmin;
   accountClaims: typeof accountClaims;

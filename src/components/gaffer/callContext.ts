@@ -91,6 +91,7 @@ export function pageBrief(pathname: string, topic?: string): CallBrief {
     mode: SUPPORT_INTENTS.has(intent) ? "support" : "sales",
     opening,
     brief:
+      "CURRENT RENTAL UI: signed-in customers have account-bound rental chats, basket contents, extension requests and payment/refund status. Request a human notifies the team; Get back to Gaffer resumes assistance and keeps history. Rental changes, replacements and refunds require review and confirmation; do not claim you performed them. DB10OFF is 10% off the first order per account and cannot stack with other discounts. Use authenticated tools for account facts; never infer identity from a spoken email. " +
       `[Context — not spoken by the caller] ` +
       (SUPPORT_INTENTS.has(intent)
         ? `THIS IS A SUPPORT CALL, not a sales call. They already have kit, or are about to use ` +

@@ -46,5 +46,6 @@ async function dispatch(id){await delivery.dispatchOne.handler(ctx,{deliveryId:i
  const pending=[];for(let n=0;n<25;n++){const booking=h.put('bookings',{...b,_id:'bookings-burst-'+n});pending.push(await queue.queueRentalEmail(ctx,booking._id,'payment'))}
  const one=await delivery.dispatchDue.handler(ctx,{});assert.equal(one.dispatched,20);const two=await delivery.dispatchDue.handler(ctx,{});assert.equal(two.dispatched,5);assert.equal(pending.filter(id=>get(id).state==='sending').length,25);
  const deleted=await queue.queueRentalEmail(ctx,b._id,'receipt');assert.equal(deleted,receipt);await h.db.delete(account._id);now=get(receipt).dueAt;await delivery.dispatchOne.handler(ctx,{deliveryId:receipt});assert.equal(get(receipt).state,'skipped','Removed permanent account cannot redirect mail to guest mailbox');
+ assert(h.tables.get('admin_notifications').some(n=>n.kind==='email_sent'),'Accepted email creates a delivery-status notification');
  console.log('PASS durable booking notices: false/throw recovery, real mail actions, recipient binding, provider key, dedup, crash leases, stale generations, status supersession, cancellation, bounded retries and non-starving batches. No customer SMTP or payments.');
 })().catch(e=>{console.error(e);process.exitCode=1});

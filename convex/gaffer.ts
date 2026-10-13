@@ -35,8 +35,8 @@ export const gafferReply = internalAction({
     if (!cx || cx.escalated || (messageId && cx.latestRenterId!==messageId)) return; // human is handling it — stay quiet
 
     const fallback=async()=>{
-      const posted=await ctx.runMutation(internal.chat._postBot,{accountId,bookingId,replyTo:messageId??cx.latestRenterId??undefined,text:"I couldn't complete that answer just now. I've passed this rental conversation to the team so they can help."});
-      if(posted){await ctx.runMutation(internal.chat._setEscalated,{accountId,bookingId,escalated:true});await ctx.scheduler.runAfter(0,internal.chat._escalationAlert,{accountId,bookingId});}
+      const posted=await ctx.runMutation(internal.chat._postBot,{accountId,bookingId,generation:cx.gafferGeneration,replyTo:messageId??cx.latestRenterId??undefined,text:"I couldn't complete that answer just now. I've passed this rental conversation to the team so they can help."});
+      if(posted){await ctx.runMutation(internal.chat._setEscalated,{accountId,bookingId,expectedGeneration:cx.gafferGeneration,escalated:true});await ctx.scheduler.runAfter(0,internal.chat._escalationAlert,{accountId,bookingId});}
     };
     if(!process.env.OPENROUTER_API_KEY){await fallback();return;}
     const or = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
@@ -65,12 +65,13 @@ export const gafferReply = internalAction({
         : `No pickup/depot address is on file. If asked where to collect, say ONLY that the team will message the exact pickup details before the rental. Do NOT name any street, area, neighbourhood, postcode, city district, or landmark, and do not say "central London" or otherwise guess a location.`,
       b
         ? `This customer's most relevant rental — STATUS: ${b.status}. Gear: ${b.summary}. Dates: ${b.dates}. Fulfilment: ${b.fulfilment === "delivery" ? "delivered to the address on their order (you do NOT have that address and must NOT recite or guess it)" : "the customer collects it themselves"}.${b.pickupTime ? ` Pickup time ${b.pickupTime}.` : ""}${b.returnTime ? ` Return time ${b.returnTime}.` : ""}`
-        : `This customer has no rental on file right now.`,
+        : `No rental is selected. Account-owned rental summaries: ${JSON.stringify(cx.accountRentals)}. Ask which rental they mean before discussing changes.`,
       ``,
       ...(b?.rentalContents ?? []).map((contents:string) => `RENTAL CONTENTS FACTS: ${contents}`),
       b?.payment?`CUSTOMER SETTLEMENT FACTS: ${JSON.stringify({items:b.items,payment:b.payment,cancellation:b.cancellation,pendingItemAddition:b.pendingItemAddition,pendingExtension:b.pendingExtension})}. These describe the current recorded state, not a promise that a bank refund has arrived. Changes, additions, rescheduling and refunds require the team; never say you applied them.`:"",
       `CANCELLATION CREDIT OPTION: When the customer asks to cancel, set offerCredit=true if they may want account credit. The server separately checks eligibility using cancellation.fullRefundDays from the rental context (14 London calendar days for new agreements; older rentals retain their accepted window), quotes the remaining paid value and displays a consent button. Never claim a quote, refund, credit or cancellation has happened in your reply. The offer includes the remaining paid security payment, replaces a card refund, expires in one year, and releases unused holds. The customer must explicitly accept the displayed offer. Keep handoff=true for cancellation requests so the team can assist with cash refunds or ineligible offers. Otherwise set offerCredit=false.`,
-      `STYLE: friendly, concise (under ~80 words), practical. Set handoff=true for a complaint, damage, a refund/cancellation/dispute, or an explicit request for a human — and briefly say you're connecting them with the team.`,
+      `CURRENT CUSTOMER UI: Each rental has its own chat, item basket, request-extension and team-request controls. When the team is notified, Get back to Gaffer resumes assistance without deleting history. An operator reviews replacements, date/price changes and refunds before applying them; never claim that you applied one. DB10OFF gives signed-in accounts 10% off their first order only, cannot combine with other discounts, and is checked by checkout. Explain existing refund/payment status without requesting a human unless action is requested.`,
+      `STYLE: friendly, concise (under ~80 words), practical. Set handoff=true for a complaint, damage, an actual request to execute a refund/cancellation/dispute, or an explicit request for a human — and briefly say you're connecting them with the team.`,
     ].join("\n");
 
     const convo = cx.messages
@@ -95,13 +96,13 @@ export const gafferReply = internalAction({
     }
     if (!reply){await fallback();return;}
 
-    const posted=await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, replyTo:messageId??cx.latestRenterId??undefined, text: reply });
+    const posted=await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation:cx.gafferGeneration,replyTo:messageId??cx.latestRenterId??undefined, text: reply });
     if(!posted)return;
     if (offerCredit && bookingId) {
       try { await ctx.runAction(internal.checkout.offerFullCredit, { accountId, bookingId }); } catch { handoff = true; }
     }
     if (handoff) {
-      await ctx.runMutation(internal.chat._setEscalated, { accountId, bookingId, escalated: true });
+      await ctx.runMutation(internal.chat._setEscalated, { accountId, bookingId, expectedGeneration:cx.gafferGeneration, escalated: true });
       await ctx.scheduler.runAfter(0, internal.chat._escalationAlert, { accountId, bookingId });
     }
   },

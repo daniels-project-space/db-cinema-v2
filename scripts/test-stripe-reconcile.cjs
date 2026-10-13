@@ -77,7 +77,7 @@ const {expire:expireCredits}=load('convex/credits.ts');
   // A credit valid when checkout began remains reserved even when the webhook
   // arrives just after its expiry; it is not silently given away as a discount.
   const booking={_id:'booking-credit',_creationTime:now-10000,status:'pending_payment',
-    guestEmail:'owner@example.invalid',creditApplied:10,lineItems:[]};
+    guestEmail:'owner@example.invalid',subtotal:100,total:90,depositAmount:0,creditApplied:10,lineItems:[]};
   const credit={_id:'credit-1',accountId:'owner-account',createdAt:now-100000,
     expiresAt:now-5000,status:'active',remaining:10};
   const patches=[],queuedEmails=[];
@@ -85,7 +85,7 @@ const {expire:expireCredits}=load('convex/credits.ts');
     get:async id=>id==='booking-credit'?booking:id==='owner-account'?{_id:'owner-account',email:'owner@example.invalid'}:null,
     query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:[],first:async()=>table==='accounts'?{_id:'owner-account'}:null,unique:async()=>table==='accounts'?{_id:'owner-account'}:null,order:()=>({take:async()=>[]})})}),
     patch:async(id,patch)=>patches.push({id,patch}),
-    insert:async(table,value)=>{assert.equal(table,"rental_email_deliveries");queuedEmails.push(value);return "delivery-fixture";},
+    insert:async(table,value)=>{if(table==="admin_notifications")return "notification-fixture";assert.equal(table,"rental_email_deliveries");queuedEmails.push(value);return "delivery-fixture";},
   };
   const bookingCtx={db,scheduler:{runAfter:async()=>{}}};
   await confirm.handler(bookingCtx,{bookingId:'booking-credit',paymentIntentId:'pi_paid'});

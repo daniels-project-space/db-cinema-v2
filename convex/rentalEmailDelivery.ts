@@ -71,6 +71,10 @@ export const finish=internalMutation({args:{deliveryId:v.id("rental_email_delive
   if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:a.result==="sent"?"sent":a.result==="skipped"?"suppressed":failed?"failed":"sending",
     remindedReview:a.result==="sent"||a.result==="skipped",reviewFollowUpSentAt:a.result==="sent"?now:undefined,
     reviewFollowUpReason:a.result==="retry"?(failed?"email_failed":"email_retry"):a.result==="skipped"?"notice_no_longer_applicable":undefined});
+  if(a.result === "sent") {
+    const booking = await ctx.db.get(row.bookingId), account = await accountForRental(ctx, booking);
+    if(account) await queueOwnerNotification(ctx, {eventKey:`rental-email-sent:${row._id}`,kind:"email_sent",accountId:account._id,bookingId:row.bookingId,title:"Booking email sent",body:`The ${row.kind} email was accepted for delivery. This does not confirm that it was read.`});
+  }
   if(failed)await flagFailure(ctx,row);
   return true;
 }});

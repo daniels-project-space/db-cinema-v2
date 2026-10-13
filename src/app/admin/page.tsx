@@ -32,7 +32,7 @@ export default function AdminPage() {
     "overview" | "bookings" | "insights" | "inbox" | "settings" | "promotions" | "accounts"
   >("overview");
   const [inboxSection, setInboxSection] = useState<"conversations" | "enquiries">("conversations");
-  const [promotionSection, setPromotionSection] = useState<"campaigns" | "fund" | "stories">("campaigns");
+  const [promotionSection, setPromotionSection] = useState<"campaigns" | "fund" | "stories" | "vouchers">("campaigns");
   const [customerSection, setCustomerSection] = useState<"customers" | "invoices">("customers");
   const [calendarExpanded, setCalendarExpanded] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -222,9 +222,10 @@ export default function AdminPage() {
           </div>
         )}
 
-        {tab === "promotions" && <div className="admin-section-tabs" role="group" aria-label="Promotional actions"><button aria-pressed={promotionSection === "campaigns"} onClick={() => setPromotionSection("campaigns")}>Campaigns & referrals</button><button aria-pressed={promotionSection === "fund"} onClick={() => setPromotionSection("fund")}>Film Fund</button><button aria-pressed={promotionSection === "stories"} onClick={() => setPromotionSection("stories")}>Story Prize</button></div>}
+        {tab === "promotions" && <div className="admin-section-tabs" role="group" aria-label="Promotional actions"><button aria-pressed={promotionSection === "campaigns"} onClick={() => setPromotionSection("campaigns")}>Campaigns & referrals</button><button aria-pressed={promotionSection === "vouchers"} onClick={() => setPromotionSection("vouchers")}>Discounts voucher</button><button aria-pressed={promotionSection === "fund"} onClick={() => setPromotionSection("fund")}>Film Fund</button><button aria-pressed={promotionSection === "stories"} onClick={() => setPromotionSection("stories")}>Story Prize</button></div>}
         {tab === "promotions" && promotionSection === "fund" && <FilmFundAdmin token={token}/>}
-        {tab === "promotions" && promotionSection === "campaigns" && <div className="admin-tool-panel"><AdminPromos token={token}/><ReferralCampaignAdmin token={token}/></div>}
+        {tab === "promotions" && promotionSection === "vouchers" && <div className="admin-tool-panel"><AdminPromos token={token}/><p>DB10OFF · 10% off the first order per account. Cannot combine with other discounts.</p></div>}
+        {tab === "promotions" && promotionSection === "campaigns" && <div className="admin-tool-panel"><ReferralCampaignAdmin token={token}/></div>}
         {tab === "accounts" && !documentsOpen && <div className="admin-section-tabs" role="group" aria-label="Customer pages"><button aria-pressed={customerSection === "customers"} onClick={() => setCustomerSection("customers")}>Customers & members</button><button aria-pressed={customerSection === "invoices"} onClick={() => setCustomerSection("invoices")}>Invoices & PDFs</button></div>}
         {tab === "accounts" && customerSection === "invoices" && <AdminInvoiceLibrary token={token}/>}
         {tab === "accounts" && customerSection === "customers" && <AccountAdmin token={token} onDocumentsChange={setDocumentsOpen} onRental={id => { setDetailId(id); setTab("bookings"); }} onConversation={(accountId, bookingId) => { setConversationId(bookingId); setSupportAccountId(bookingId ? null : accountId); setConversationNavigation(v => v + 1); setInboxSection("conversations");setTab("inbox"); }} />}
