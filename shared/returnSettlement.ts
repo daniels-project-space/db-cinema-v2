@@ -14,3 +14,16 @@ export function returnSecurityPlan(input: {
     depositRefund: (cash - fromDeposit) / 100, holdRelease: Math.max(0, uncaptured - fromHold) / 100,
     availableSecurity: (cash + hold) / 100 };
 }
+
+/** Refund the unused cash deposit; later card collection must subtract kept cash. */
+export function refundableDepositPlan(input: { deposit: number; capturedSecurity: number; assessedDamage: number; keptDeposit?: number }) {
+  if (![input.deposit, input.capturedSecurity, input.assessedDamage].every(n => Number.isFinite(n) && n >= 0 && Number.isSafeInteger(Math.round(n * 100)) && Math.round(n * 100) / 100 === n))
+    throw Error("Invalid refundable deposit settlement amounts.");
+  if (input.capturedSecurity < input.deposit) throw Error("The refundable deposit payment is not fully accounted for. Review the payment before settlement.");
+  const kept = input.keptDeposit ?? Math.min(input.deposit, input.assessedDamage);
+  if (!Number.isFinite(kept) || kept < 0 || !Number.isSafeInteger(Math.round(kept * 100)) || Math.round(kept * 100) / 100 !== kept || kept > input.deposit || kept > input.assessedDamage)
+    throw Error("Retained deposit must be within the paid deposit and evidenced damage amount.");
+  const depositRefund = (Math.round(input.deposit * 100) - Math.round(kept * 100)) / 100;
+  const damageAfterDeposit = (Math.round(input.assessedDamage * 100) - Math.round(kept * 100)) / 100;
+  return { damageFromDeposit: kept, damageFromHold: 0, depositRefund, holdRelease: 0, availableSecurity: input.deposit, damageAfterDeposit };
+}

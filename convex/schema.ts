@@ -1,3 +1,4 @@
+import { depositReturnReceipt } from "./lib/depositReturnReceipt";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { inspectionRecord } from "./lib/returnInspectionFields";
@@ -345,8 +346,9 @@ export default defineSchema({
     damageNoticeSentAt: v.optional(v.number()),
     returnedAt: v.optional(v.number()), // when the rental was marked returned + deposit released
     actualReturnedAt: v.optional(v.number()),
+    depositReturnReceipts: v.optional(v.array(depositReturnReceipt)),
     returnDecision: v.optional(v.object({
-      actualReturnedAt: v.number(), damageKept: v.number(),
+      actualReturnedAt: v.number(), damageKept: v.number(), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()),
       damageNote: v.optional(v.string()), chargeLate: v.boolean(),
       lateWaiverReason: v.optional(v.string()), startedAt: v.number(),
       inspection: v.optional(v.array(inspectionRecord)),

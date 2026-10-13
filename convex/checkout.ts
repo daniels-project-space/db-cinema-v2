@@ -3,13 +3,13 @@ import {isAllowedReturnTime} from "../src/lib/site";
 
 import Stripe from "stripe";
 import { PICKUP_HOLD_POLICY } from "../shared/pickupSecurity";
-import { SECURITY_POLICY_VERSION } from "../shared/rentalSecurity";
+import { SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../shared/rentalSecurity";
 import { isSavedCardRental, savedCardRentalValue } from "../shared/savedCardSecurity";
-import { returnSecurityPlan } from "../shared/returnSettlement";
+import { returnSecurityPlan, refundableDepositPlan } from "../shared/returnSettlement";
 import { returnStatementEmail, type ReturnStatementData } from "../shared/returnStatement";
 import type { InspectionInput } from "../shared/returnInspection";
 import { rentalRefundBalance } from "./lib/rentalRefundBalance";
-import { recoverApprovedRefund, RefundReviewRequired } from "./lib/approvedRefund";
+import { recoverApprovedRefund, RefundReviewRequired, type RefundReceipt } from "./lib/approvedRefund";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
@@ -231,7 +231,6 @@ export const start = action({
     const slot = /^([01]\d|2[0-3]):[0-5]\d$/;
     if (!a.pickupTime || !slot.test(a.pickupTime) || !a.returnTime || !slot.test(a.returnTime) || !isAllowedReturnTime(a.pickupTime) || !isAllowedReturnTime(a.returnTime) || a.items.some(i=>i.pickupTime!==undefined&&!isAllowedReturnTime(i.pickupTime)||i.returnTime!==undefined&&!isAllowedReturnTime(i.returnTime)))
       throw new Error("Choose the agreed pickup and return times before paying.");
-    assertCurrentAgreement(a.agreement, a.fulfilment);
     if (!a.agreement?.requestId||!/^[a-zA-Z0-9-]{16,80}$/.test(a.agreement.requestId)) throw Error("Review and sign this booking before paying.");
 
     const checkoutInputFingerprint=createHash("sha256").update(agreementRequestFingerprint({...a,token:undefined})).digest("hex");
@@ -271,6 +270,8 @@ export const start = action({
         return {url:session.url};
       }
     }
+
+    assertCurrentAgreement({...a.agreement,securityPolicyVersion:process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"?REFUNDABLE_DEPOSIT_POLICY_VERSION:SECURITY_POLICY_VERSION}, a.fulfilment);
 
     // New checkout must read current upstream stock, not only the scheduled
     // mirror. Existing bound membership recovery above retains its saved URL.
@@ -809,9 +810,13 @@ export const billingPortal = action({
   },
 });
 
-type ReturnSelection = { bookingId: any; damageKept?: number; damageNote?: string; actualReturnedAt?: number; chargeLate: boolean; lateWaiverReason?: string; inspection?: InspectionInput[] };
+type ReturnSelection = { bookingId: any; damageKept?: number; depositKept?: number; expectedSnapshot?: string; damageNote?: string; actualReturnedAt?: number; chargeLate: boolean; lateWaiverReason?: string; inspection?: InspectionInput[] };
 async function validateReturnSelection(ctx: any, b: any, args: ReturnSelection) {
+  if (args.expectedSnapshot && (b.returnDecision?.expectedSnapshot ? args.expectedSnapshot !== b.returnDecision.expectedSnapshot : !b.returnDecision && args.expectedSnapshot !== b.controlsSnapshot)) throw new ConvexError({code:"RETURN_REVIEW_STALE",message:"The rental changed after review. Refresh and review the deposit decision again."});
   const { bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection } = args;
+    if (args.depositKept !== undefined && b.securityPolicyVersion !== REFUNDABLE_DEPOSIT_POLICY_VERSION) throw Error("This rental does not use the refundable-deposit policy.");
+    const depositKept = b.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION ? (args.depositKept ?? Math.min(b.depositAmount ?? 0, damageKept ?? 0)) : undefined;
+    if (b.returnDecision && b.returnDecision.depositKept !== depositKept) throw Error("Resume the saved deposit decision before changing retained amounts.");
     if(!["confirmed","active","returned"].includes(b.status))throw Error("Booking is not available for return.");
     const returned = actualReturnedAt ?? Date.now();
     if (!Number.isFinite(returned) || returned > Date.now() + 60000 || (returned < Date.now() - 45 * 86400000 && returned !== b.returnDecision?.actualReturnedAt))
@@ -831,7 +836,7 @@ async function validateReturnSelection(ctx: any, b: any, args: ReturnSelection) 
     if (!Number.isFinite(damageKept ?? 0) || (damageKept ?? 0) < 0 || (damageKept ?? 0) > damageLimit) throw Error("The damage assessment exceeds the retained equipment value or agreed security. Record fair, evidenced repair or loss costs.");
     const sources = b.paymentSources ?? (b.paymentIntentId ? [{ paymentIntentId: b.paymentIntentId, securityPence: pence(b.depositAmount ?? 0) }] : []);
     securityReturnPlan(sources, 0);
-    return { returned, quotedLate, late, waiver, inspected, sources };
+    return { returned, quotedLate, late, waiver, inspected, sources, depositKept };
 }
 function observedHoldAmounts(b: any, hold: Stripe.PaymentIntent | null) {
   if (!hold || !["requires_capture", "succeeded"].includes(hold.status)) return { available: 0, uncaptured: 0 };
@@ -843,7 +848,7 @@ function observedHoldAmounts(b: any, hold: Stripe.PaymentIntent | null) {
 
 /** Owner review only: provider reads and a draft PDF, never financial execution or email. */
 export const previewReturned = action({
-  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
+  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
   handler: async (ctx, args): Promise<any> => {
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token: args.token, fn: "checkout.previewReturned" });
     const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId: args.bookingId });
@@ -854,7 +859,7 @@ export const previewReturned = action({
     const hold = b.depositHoldIntentId ? await stripe().paymentIntents.retrieve(b.depositHoldIntentId, {}, { timeout: 20000 }) : null;
     const balance = observedHoldAmounts(b, hold);
     const damage = Math.round((args.damageKept ?? 0) * 100) / 100;
-    const plan = isSavedCardRental(b) ? {damageFromHold:0,damageFromDeposit:0,depositRefund:0,holdRelease:0,availableSecurity:0} : b.depositRefunded ? { damageFromHold: invoice.returnStatement?.damageFromHold ?? b.depositHoldCapturedForDamage ?? 0, damageFromDeposit: Math.max(0, (b.depositKept ?? 0) - (invoice.returnStatement?.damageFromHold ?? b.depositHoldCapturedForDamage ?? 0)), depositRefund: b.depositRefundAmount ?? 0, holdRelease: 0, availableSecurity: 0 } : returnSecurityPlan({ deposit: b.depositAmount ?? 0, capturedSecurity: selection.sources.reduce((n: number, source: any) => n + source.securityPence, 0) / 100, damage, holdAvailable: balance.available, holdUncaptured: balance.uncaptured });
+    const plan = b.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION ? refundableDepositPlan({deposit:b.depositAmount??0,capturedSecurity:selection.sources.reduce((n:number,source:any)=>n+source.securityPence,0)/100,assessedDamage:damage,keptDeposit:selection.depositKept}) : isSavedCardRental(b) ? {damageFromHold:0,damageFromDeposit:0,depositRefund:0,holdRelease:0,availableSecurity:0} : b.depositRefunded ? { damageFromHold: invoice.returnStatement?.damageFromHold ?? b.depositHoldCapturedForDamage ?? 0, damageFromDeposit: Math.max(0, (b.depositKept ?? 0) - (invoice.returnStatement?.damageFromHold ?? b.depositHoldCapturedForDamage ?? 0)), depositRefund: b.depositRefundAmount ?? 0, holdRelease: 0, availableSecurity: 0 } : returnSecurityPlan({ deposit: b.depositAmount ?? 0, capturedSecurity: selection.sources.reduce((n: number, source: any) => n + source.securityPence, 0) / 100, damage, holdAvailable: balance.available, holdUncaptured: balance.uncaptured });
     const retainedForLate = selection.late.amount > 0 && (b.depositRefunded || damage === 0) ? balance.uncaptured : 0;
     const statement: ReturnStatementData = invoice.returnStatement ?? {
       number: `DBC-R-${String(args.bookingId).toUpperCase()}`, issuedAt: Date.now(), actualReturnedAt: selection.returned,
@@ -880,7 +885,7 @@ export const previewReturned = action({
     if (!response.ok) throw Error("The return statement PDF preview is unavailable. No settlement has been executed.");
     const pdf = Buffer.from(await response.arrayBuffer());
     if (pdf.length > 1_000_000 || pdf.subarray(0, 5).toString() !== "%PDF-") throw Error("The return statement preview did not produce a valid PDF");
-    return { draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement, securityAlreadySettled: !!b.depositRefunded, financial: { ...plan, ...(isSavedCardRental(b)?{savedCardLimit:b.savedCardLimit,damageAssessed:damage}:{}), holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email: returnStatementEmail(statement, draft), pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
+    return { snapshot:b.returnDecision?.expectedSnapshot??b.controlsSnapshot, draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement, securityAlreadySettled: !!b.depositRefunded, financial: { ...plan, ...(isSavedCardRental(b)?{savedCardLimit:b.savedCardLimit,damageAssessed:damage}:{}), holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email: returnStatementEmail(statement, draft), pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
   },
 });
 
@@ -888,15 +893,34 @@ export const previewReturned = action({
  *  retain part of the deposit for damage (that portion stays captured; the rest is refunded to the
  *  card). Idempotent — the depositRefunded flag plus a Stripe idempotency key prevent a double refund. */
 export const markReturned = action({
-  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
+  args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
   handler: async (
     ctx,
-    { token, bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection },
+    { token, bookingId, damageKept, depositKept, expectedSnapshot, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection },
   ): Promise<{ ok: boolean; released: number; kept: number; lateAmount: number; alreadyReleased: boolean }> => {
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.markReturned" });
-    const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId });
+    const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId, includeControlsSnapshot:true });
     if (!b) throw new Error("Booking not found.");
-    const { returned, quotedLate, late, waiver, sources } = await validateReturnSelection(ctx, b, { bookingId, damageKept, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection });
+    const { returned, quotedLate, late, waiver, sources, depositKept: retainedDeposit } = await validateReturnSelection(ctx, b, { bookingId, damageKept, depositKept, expectedSnapshot, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection });
+    if (b.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION) {
+      const plan = refundableDepositPlan({deposit:b.depositAmount??0,capturedSecurity:sources.reduce((n:number,source:any)=>n+source.securityPence,0)/100,assessedDamage:damageKept??0,keptDeposit:retainedDeposit});
+      await ctx.runMutation(internal.bookings.beginReturnDecision,{bookingId,actualReturnedAt:returned,damageKept:damageKept??0,depositKept:plan.damageFromDeposit,expectedSnapshot,damageNote:(damageKept??0)>0?damageNote?.trim():undefined,chargeLate,lateWaiverReason:!chargeLate&&quotedLate.amount>0?lateWaiverReason?.trim():undefined,inspection});
+      await ctx.runMutation(internal.bookings.markReturnedStatus,{bookingId});
+      if (!b.depositRefunded) {
+        for (const allocation of securityReturnPlan(sources,pence(plan.depositRefund))) {
+          const persist=async(receipt:RefundReceipt)=>{await ctx.runMutation(internal.bookings.recordDepositReturnReceipt,{bookingId,receipt});};
+          const initial:RefundReceipt=b.depositReturnReceipts?.find((row:RefundReceipt)=>row.paymentIntentId===allocation.paymentIntentId)??{paymentIntentId:allocation.paymentIntentId,amountPence:allocation.amountPence,attemptedAt:Date.now(),status:"unknown"};
+          await persist(initial);
+          const refund=await recoverApprovedRefund(stripe(),initial,{currency:"GBP",idempotencyKey:`dbc-deposit-release-${bookingId}-${allocation.paymentIntentId}`,metadata:{dbc_deposit_return_booking:String(bookingId),dbc_deposit_return_source:allocation.paymentIntentId,dbc_deposit_return_pence:String(allocation.amountPence)},now:Date.now(),maxRefunds:100,persist});
+          await persist(refund);
+          if (!['succeeded','pending'].includes(refund.status)) throw new ConvexError({code:"DEPOSIT_REFUND_REVIEW",message:"The original deposit refund requires provider review before completion. Resume the saved decision after review; no second refund was issued.",...(refund.approvalUrl?{approvalUrl:refund.approvalUrl}:{})});
+        }
+        await ctx.runMutation(internal.bookings.markDepositReleased,{bookingId,kept:plan.damageFromDeposit,refunded:plan.depositRefund,capturedFromHold:0,note:damageNote?.trim()});
+      }
+      await ctx.runMutation(internal.savedCardState.markReturn,{bookingId,damageNote:damageNote?.trim()});
+      await ctx.runMutation(internal.bookings.recordLateFee,{bookingId,actualReturnedAt:returned,...late,...waiver});
+      return {ok:true,released:b.depositRefunded?b.depositRefundAmount??0:plan.depositRefund,kept:b.depositRefunded?b.depositKept??0:plan.damageFromDeposit,lateAmount:late.amount,alreadyReleased:!!b.depositRefunded};
+    }
     if(isSavedCardRental(b)){
       await ctx.runMutation(internal.bookings.beginReturnDecision,{bookingId,actualReturnedAt:returned,damageKept:damageKept??0,damageNote:(damageKept??0)>0?damageNote?.trim():undefined,chargeLate,lateWaiverReason:!chargeLate&&quotedLate.amount>0?lateWaiverReason?.trim():undefined,inspection});
       await ctx.runMutation(internal.bookings.markReturnedStatus,{bookingId});

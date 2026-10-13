@@ -1,3 +1,6 @@
+import { depositReturnReceipt } from "./lib/depositReturnReceipt";
+import { securityReturnPlan } from "./lib/rentalPaymentPlan";
+import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
 import { queueRentalEmail } from "./lib/rentalEmailQueue";
 import {assertRentalAllocation} from "./lib/rentalAllocation";
 import { bookingStockLines, rentalWindow } from "../shared/rentalWindow";
@@ -7,7 +10,7 @@ import { availableCreditRows,creditPlan,creditKind } from "./lib/checkoutCredit"
 import { ensurePaidBookingAccount } from "./accountClaims";
 import { referralEligibility,availableReferralReward } from "./lib/referrals";
 import { SINGLE_BENEFIT_VERSION } from "../shared/rentalBenefits";
-import { SECURITY_POLICY_VERSION, depositChargeFor, savedCardChargeLimit } from "../shared/rentalSecurity";
+import { SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, depositChargeFor, savedCardChargeLimit } from "../shared/rentalSecurity";
 import { isSavedCardRental, savedCardConsentText, assertSavedCardConsent } from "../shared/savedCardSecurity";
 import { loyaltyProgress } from "./lib/loyalty";
 import { creditDebit,usableCredit } from "./lib/creditLedger";
@@ -48,7 +51,7 @@ import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
 import { rentalCancellationStart, bookingCancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
-import { LEGAL_VERSION } from "../src/lib/legal";
+import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION } from "../src/lib/legal";
 import { assertAgreementBeforeRelease, snapshotAgreement, readAgreementSnapshot, agreementRequestFingerprint as fingerprintAgreement } from "../shared/rentalAgreement";
 
 
@@ -171,7 +174,8 @@ export const createPending = internalMutation({
       if(!owner||owner.blockedAt!=null||owner.email!==a.customerEmail.trim().toLowerCase())throw Error("Rental account does not match the checkout customer.");
     }
     if(a.checkoutInputFingerprint&&!/^[a-f0-9]{64}$/.test(a.checkoutInputFingerprint))throw Error("Invalid checkout receipt.");
-    const newAgreement = a.agreementDocs?.some(d => d.version === LEGAL_VERSION);
+    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION].includes(d.version));
+    if (a.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION && !newAgreement) throw Error("Review and accept the current refundable-deposit agreements before paying.");
     const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
     if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
     if (a.agreementRequestId) {
@@ -183,7 +187,8 @@ export const createPending = internalMutation({
         return {bookingId:previous._id,creditApplied:previous.creditApplied??0,reused:true,sessionId:previous.stripeCheckoutSessionId};
       }
     }
-    if(a.securityPolicyVersion && a.securityPolicyVersion!==SECURITY_POLICY_VERSION)throw Error("Unsupported security policy.");
+    if(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && a.securityWaiverReason)throw Error("The refundable deposit cannot be waived by membership or a prior rental.");
+    if(a.securityPolicyVersion && a.securityPolicyVersion!==SECURITY_POLICY_VERSION && !(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"))throw Error("Unsupported security policy.");
     const single=a.pricingVersion===SINGLE_BENEFIT_VERSION;
     if(a.pricingVersion&&!single)throw Error("Unsupported pricing version.");
     const account=a.creditAccountId?await ctx.db.get(a.creditAccountId):null;
@@ -192,8 +197,8 @@ export const createPending = internalMutation({
       if((a.earnedCreditApplied??0)>0&&a.benefitKind!=="earned_credit")throw Error("Earned credit cannot stack with another benefit.");
       if(a.benefitKind==="earned_credit"&&((a.discount??0)!==(a.membershipSignupOfferSaving??0)||a.deliveryFee!==(a.quotedDeliveryFee??a.deliveryFee)))throw Error("Only one price benefit can apply, plus the one-time joining credit.");
       if(["referral_friend","referral_reward"].includes(a.benefitKind??"")){
-        const value = a.securityPolicyVersion === SECURITY_POLICY_VERSION ? (await Promise.all(a.lineItems.map(line=>ctx.db.get(line.listingId)))).reduce((n,item,i)=>n+(item?.depositAmount??0)*a.lineItems[i].qty,0) : undefined;
-        const normalDeposit = value === undefined ? Math.round((a.depositHoldAmount??0)*50)/100 : depositChargeFor(a.protection === "deposit" ? "deposit" : "verify",value);
+        const value = isSavedCardRental(a) ? (await Promise.all(a.lineItems.map(line=>ctx.db.get(line.listingId)))).reduce((n,item,i)=>n+(item?.depositAmount??0)*a.lineItems[i].qty,0) : undefined;
+        const normalDeposit = a.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION && value !== undefined ? refundableDepositFor(value) : value === undefined ? Math.round((a.depositHoldAmount??0)*50)/100 : depositChargeFor(a.protection === "deposit" ? "deposit" : "verify",value);
         if(a.securityWaiverReason||a.depositAmount!==normalDeposit)throw Error("Referral offers require normal upfront security.");
         if(a.benefitKind==="referral_friend"){
           friend=await referralEligibility(ctx,account,a.referralCode??"");if(!friend.valid)throw Error(friend.reason);
@@ -292,12 +297,14 @@ export const createPending = internalMutation({
 
     const exposure = await assertRenterExposure(ctx, { customerEmail, status: "pending_payment", lineItems: a.lineItems });
     const values = await replacementValues(ctx, { lineItems: a.lineItems });
-    const savedCard = a.securityPolicyVersion === SECURITY_POLICY_VERSION;
+    const savedCard = isSavedCardRental(a);
+    const refundablePolicy = a.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION;
+    const equipmentValue = a.lineItems.reduce((n,line)=>n+(values.find(value=>value.listingId===line.listingId)?.unitPence??0)*line.qty/100,0);
     const cardLimit = savedCard ? savedCardChargeLimit(a.lineItems.reduce((n, line) => n + (values.find(value => value.listingId === line.listingId)?.unitPence ?? 0) * line.qty / 100, 0)) : undefined;
-    if (savedCard && (a.depositAmount !== 0 || (a.depositHoldAmount ?? 0) !== 0 || a.savedCardLimit !== cardLimit || !a.laterChargeConsent))
-      throw Error("Review the current saved-card limit and explicitly consent; no upfront security payment or hold is permitted.");
+    if (savedCard && (a.depositAmount !== (refundablePolicy ? refundableDepositFor(equipmentValue) : 0) || (refundablePolicy && !!a.securityWaiverReason) || (a.depositHoldAmount ?? 0) !== 0 || a.savedCardLimit !== cardLimit || !a.laterChargeConsent))
+      throw Error("Review the current saved-card limit and explicitly consent; review the quoted refundable deposit and no additional card hold is permitted.");
     const acceptedAt = Date.now();
-    const cardConsent = cardLimit !== undefined ? savedCardConsentText(cardLimit) : undefined;
+    const cardConsent = cardLimit !== undefined ? savedCardConsentText(cardLimit,refundablePolicy?a.depositAmount:undefined) : undefined;
     const agreementSnapshot = newAgreement ? snapshotAgreement({...a,savedCardConsentText:cardConsent}, acceptedAt, chargedTotal, creditApplied) : undefined;
     const bookingId = await ctx.db.insert("bookings", {
       pricingVersion:a.pricingVersion,benefitKind:a.benefitKind,
@@ -788,11 +795,14 @@ export const adminSetStatus = mutation({
 });
 
 export const getForRefund = internalQuery({
-  args: { bookingId: v.id("bookings") },
-  handler: async (ctx, { bookingId }) => {
+  args: { bookingId: v.id("bookings"), includeControlsSnapshot: v.optional(v.boolean()) },
+  handler: async (ctx, { bookingId, includeControlsSnapshot }) => {
     const b = await ctx.db.get(bookingId);
     if (!b) return null;
+    const refunds=includeControlsSnapshot?await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).take(101):[];
+    if(refunds.length>100)throw Error("This rental's refund history requires a manual financial review.");
     return {
+      controlsSnapshot:includeControlsSnapshot?rentalControlsSnapshot(b,refunds):undefined,
       status:b.status,
       paymentSources:await rentalPaymentSources(ctx,b),
       paymentIntentId: b.stripePaymentIntentId ?? null,
@@ -807,6 +817,7 @@ export const getForRefund = internalQuery({
       returnTime: b.returnTime ?? null,
       guestEmail: b.guestEmail ?? null,
       returnDecision: b.returnDecision ?? null,
+      depositReturnReceipts:b.depositReturnReceipts??[],
       depositRefunded: b.depositRefunded ?? false,
       depositKept: b.depositKept ?? 0,
       depositRefundAmount: b.depositRefundAmount ?? 0,
@@ -817,8 +828,8 @@ export const getForRefund = internalQuery({
 });
 
 export const beginReturnDecision = internalMutation({
-  args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), damageKept: v.number(), damageNote: v.optional(v.string()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
-  handler: async (ctx, { bookingId, actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, inspection }) => {
+  args: { bookingId: v.id("bookings"), actualReturnedAt: v.number(), damageKept: v.number(), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()), damageNote: v.optional(v.string()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
+  handler: async (ctx, { bookingId, actualReturnedAt, damageKept, depositKept, expectedSnapshot, damageNote, chargeLate, lateWaiverReason, inspection }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || !["confirmed", "active", "returned"].includes(b.status)) throw new Error("Booking is not available for return.");
     if((b.activeAdditionId || b.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before returning this rental");
@@ -828,13 +839,13 @@ export const beginReturnDecision = internalMutation({
     const saved = b.returnDecision;
     const inspected = inspection ? normalizeReturnInspection(await returnInspectionSchedule(ctx, b), inspection, damageKept) : undefined;
     if (saved) {
-      if (saved.actualReturnedAt !== actualReturnedAt || saved.damageKept !== damageKept ||
+      if (saved.actualReturnedAt !== actualReturnedAt || saved.damageKept !== damageKept || saved.depositKept !== depositKept || (saved.expectedSnapshot && saved.expectedSnapshot !== expectedSnapshot) ||
           (saved.damageNote ?? "") !== (damageNote ?? "") || saved.chargeLate !== chargeLate ||
           (saved.lateWaiverReason ?? "") !== (lateWaiverReason ?? "") || JSON.stringify(saved.inspection ?? null) !== JSON.stringify(inspected ?? null))
         throw new Error("A return settlement is already in progress with different amounts. Resume the saved decision or contact support before changing it.");
       return;
     }
-    await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, damageNote, chargeLate, lateWaiverReason, inspection: inspected as any, startedAt: Date.now() } });
+    await ctx.db.patch(bookingId, { returnDecision: { actualReturnedAt, damageKept, depositKept, expectedSnapshot, damageNote, chargeLate, lateWaiverReason, inspection: inspected as any, startedAt: Date.now() } });
     const accountId = b.accountId ?? (await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first())?._id;
     for (const item of inspected ?? []) if (item.openCase) await ctx.db.insert("rental_damage_cases", { bookingId, accountId, itemKey: item.key, title: item.title, inventoryUnitId: item.inventoryUnitId as any, details: item.details, status: "open", openedAt: Date.now() });
     if ((inspected ?? []).some(item => item.openCase)) await queueRmv2Sync(ctx, bookingId);
@@ -2007,3 +2018,15 @@ export const verificationProgress = query({
     };
   },
 });
+
+/** Persist the first provider attempt before sending it; retries preserve that identity. */
+export const recordDepositReturnReceipt=internalMutation({args:{bookingId:v.id("bookings"),receipt:depositReturnReceipt},handler:async(ctx,{bookingId,receipt})=>{
+ const b=await ctx.db.get(bookingId);
+ if(!b||b.securityPolicyVersion!==REFUNDABLE_DEPOSIT_POLICY_VERSION||!b.returnDecision||b.returnDecision.depositKept===undefined)throw Error("A frozen refundable-deposit decision is required.");
+ const sources=await rentalPaymentSources(ctx,b),amountPence=Math.round((b.depositAmount-b.returnDecision.depositKept)*100);
+ const allocation=securityReturnPlan(sources,amountPence).find(row=>row.paymentIntentId===receipt.paymentIntentId);
+ if(!allocation||receipt.amountPence!==allocation.amountPence||!Number.isSafeInteger(receipt.attemptedAt)||receipt.attemptedAt<=0)throw Error("The refund receipt does not match the frozen deposit allocation.");
+ const rows=b.depositReturnReceipts??[],previous=rows.find(row=>row.paymentIntentId===receipt.paymentIntentId);
+ if(previous&&(previous.amountPence!==receipt.amountPence||previous.attemptedAt!==receipt.attemptedAt||(previous.stripeRefundId&&previous.stripeRefundId!==receipt.stripeRefundId)||(previous.approvalRequestId&&previous.approvalRequestId!==receipt.approvalRequestId)))throw Error("The original deposit refund identity cannot be replaced.");
+ await ctx.db.patch(bookingId,{depositReturnReceipts:[...rows.filter(row=>row.paymentIntentId!==receipt.paymentIntentId),receipt]});
+}});

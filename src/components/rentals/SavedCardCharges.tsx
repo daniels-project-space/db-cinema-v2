@@ -5,7 +5,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { api } from "@cvx/_generated/api";
 import { formatGbp } from "@/lib/pricing";
 import styles from "./SavedCardCharges.module.css";
-import {SECURITY_POLICY_VERSION} from '../../../shared/rentalSecurity';
+import {isSavedCardRental} from '../../../shared/savedCardSecurity';
 const when=(at:number)=>new Date(at).toLocaleString("en-GB",{timeZone:"Europe/London",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
 export function SavedCardCharges({token,bookingId,admin=false}:{token:string;bookingId:string;admin?:boolean}) {
  return <ScopedCharges key={JSON.stringify([token,bookingId,admin])} token={token} bookingId={bookingId} admin={admin}/>;
@@ -16,17 +16,17 @@ function ScopedCharges({token,bookingId,admin}:{token:string;bookingId:string;ad
  const renterBooking=useQuery(api.bookings.verificationProgress,!admin?{token,bookingId:bookingId as any}:'skip');
  const ownerBooking=useQuery(api.rentalOperations.details,admin?{token,bookingId:bookingId as any}:'skip');
  const booking=admin?ownerBooking:renterBooking;
- const data=useQuery(api.securityChargeState.list,booking?.securityPolicyVersion===SECURITY_POLICY_VERSION?{token,bookingId:bookingId as any,admin}:'skip');
+ const data=useQuery(api.securityChargeState.list,isSavedCardRental(booking)?{token,bookingId:bookingId as any,admin}:'skip');
  const prepare=useMutation(api.securityChargeState.prepare),retryCard=useAction(api.checkout.retrySavedCard);
  const request=useRef<string|null>(null);
  const [kind,setKind]=useState<"damage"|"late">("damage"),[amount,setAmount]=useState(""),[reason,setReason]=useState(""),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
  if(!data)return null;
- const remaining=Math.max(0,data.cardStatus==="closed"?0:data.limit-data.used-data.reserved);
+ const remaining=Math.max(0,data.cardStatus==="closed"?0:(data.remaining??data.limit-data.used-data.reserved-(data.depositRetained??0)));
  async function submit(e:React.FormEvent){e.preventDefault();if(busy||!confirmed)return;setBusy(true);setError("");request.current??=crypto.randomUUID();try{await prepare({token,bookingId:bookingId as any,requestId:request.current,kind,amount:Number(amount),reason});request.current=null;setAmount("");setReason("");setConfirmed(false);}catch(e:any){setError(e?.data?.message??e?.message??"The assessment could not be prepared. Check its history before retrying.");}finally{setBusy(false);}}
  return <section className={styles.panel} aria-label={admin?"Saved-card damage and late-fee controls":"Your damage and late-fee assessments"}>
   <header><div><p className={styles.eyebrow}>Saved-card security</p><h3>{admin?"Damage & late-fee collections":"Your card-payment permission"}</h3></div><span>{data.cardStatus==="saved"?"Card saved":data.cardStatus==="closed"?"Permission closed · no amount due":data.cardStatus==="awaiting_payment"?"Awaiting checkout payment":"Card setup needs attention"}</span></header>
   <div className={styles.metrics}><div><small>Agreed combined limit</small><strong>{formatGbp(data.limit)}</strong></div><div><small>Net collected</small><strong>{formatGbp(data.paid)}</strong></div><div><small>Available permission</small><strong>{formatGbp(remaining)}</strong></div></div>
-  <p>No security money was charged or blocked upfront. {formatGbp(data.reserved)} is allocated to pending assessments in this rental record; it is not a bank hold.</p>
+  <p>{data.depositPaid>0?<>Deposit paid {formatGbp(data.depositPaid)} · retained {formatGbp(data.depositRetained)} · refunded {formatGbp(data.depositRefunded)}. Retained deposit reduces the available permission. </>:<>No security money was charged or blocked upfront. </>}{formatGbp(data.reserved)} is allocated to pending assessments in this rental record; it is not a bank hold.</p>
   {data.cardStatus==="needs_setup"&&<button disabled={busy} type="button" onClick={async()=>{setBusy(true);setError("");try{await retryCard({token,bookingId:bookingId as any,admin});}catch(e:any){setError(e?.message??"Card confirmation needs team support.");}finally{setBusy(false);}}}>Retry confirming the checkout card</button>}
   {admin&&data.returnedAt&&data.cardStatus==="saved"&&<details><summary>Prepare an itemised assessment</summary><form onSubmit={submit}>
    <p>Recorded damage/loss: {formatGbp(data.damageAssessed)} · assessed late time: {formatGbp(data.lateAssessed)}. Only the remaining evidenced assessment and combined card limit can be collected.</p>

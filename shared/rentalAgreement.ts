@@ -1,5 +1,5 @@
-import { AGREEMENTS, LEGAL_VERSION } from "../src/lib/legal";
-import { LEGAL_DOCS, RENTAL_DRAFT_RELEASE_READY, type LegalDoc } from "./legalDocuments";
+import { AGREEMENTS, LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION, agreementsForSecurityPolicy } from "../src/lib/legal";
+import { LEGAL_DOCS, LEGAL_ARCHIVE, RENTAL_DRAFT_RELEASE_READY, type LegalDoc } from "./legalDocuments";
 
 export const DELIVERY_TERMS_VERSION = "2026-10-delivery-v2";
 export const DELIVERY_ACCEPTANCE_TEXT = "Delivery uses an agreed third-party courier. Times are estimates and may be affected by traffic. The final delivery price is shown in your accepted quotation. Courier delays do not remove statutory rights; tell us promptly so we can assess the delay and available remedy.";
@@ -26,10 +26,10 @@ export type AgreementSnapshot = {
   };
 };
 
-export function assertCurrentAgreement(a: { name?: string; securityHoldConsent?: boolean; laterChargeConsent?: boolean; documents?: Accepted[] } | undefined, fulfilment: string) {
+export function assertCurrentAgreement(a: { name?: string; securityHoldConsent?: boolean; laterChargeConsent?: boolean; documents?: Accepted[]; securityPolicyVersion?: string } | undefined, fulfilment: string) {
   if (!a?.name || a.name.trim().length < 3 || !a.securityHoldConsent || !a.laterChargeConsent)
     throw Error("Please sign the rental agreement to continue.");
-  const expected: Accepted[] = [...AGREEMENTS];
+  const expected: Accepted[] = [...agreementsForSecurityPolicy(a?.securityPolicyVersion)];
   if (fulfilment === "delivery") expected.push({kind:"delivery-disclaimer",version:DELIVERY_TERMS_VERSION});
   if (a.documents?.length !== expected.length || !expected.every(e => a.documents!.filter(d => d.kind === e.kind && d.version === e.version).length === 1))
     throw Error("Please review and accept the current rental agreements before paying.");
@@ -38,14 +38,16 @@ export function assertCurrentAgreement(a: { name?: string; securityHoldConsent?:
 /** Created only inside the booking transaction from its canonical saved price.
  * Never reconstruct accepted text from whatever the public pages now say. */
 export function snapshotAgreement(a: any, acceptedAt: number, chargedTotal: number, creditApplied: number): string {
-  assertCurrentAgreement({name:a.agreementName,securityHoldConsent:a.securityHoldConsent,laterChargeConsent:a.laterChargeConsent,documents:a.agreementDocs},a.fulfilment);
+  assertCurrentAgreement({name:a.agreementName,securityHoldConsent:a.securityHoldConsent,laterChargeConsent:a.laterChargeConsent,documents:a.agreementDocs,securityPolicyVersion:a.securityPolicyVersion},a.fulfilment);
   if (!a.customerName?.trim() || !a.billingAddress?.trim() || !a.pickupTime || !a.returnTime || !a.lineItems?.length)
     throw Error("Complete booking particulars are required for agreement acceptance.");
+  const legalVersion = agreementsForSecurityPolicy(a.securityPolicyVersion).find(doc=>doc.kind==="rental-agreement")!.version;
+  const docs = legalVersion === LEGAL_VERSION ? LEGAL_DOCS : LEGAL_ARCHIVE[legalVersion];
   const snapshot: AgreementSnapshot = {
-    format:1, version:LEGAL_VERSION, acceptedAt, signer:a.agreementName.trim(),
+    format:1, version:legalVersion, acceptedAt, signer:a.agreementName.trim(),
     documents:a.agreementDocs.map((d:Accepted) => ({...d,text:d.kind === "delivery-disclaimer"
       ? {title:"Delivery arrangements",updated:"October 2026",sections:[{h:"Delivery",p:DELIVERY_ACCEPTANCE_TEXT}]}
-      : LEGAL_DOCS[d.kind]})),
+      : docs[d.kind]})),
     particulars:{customerName:a.customerName.trim(),email:a.customerEmail.trim().toLowerCase(),billingAddress:a.billingAddress,
       fulfilment:a.fulfilment,address:a.address??null,pickupTime:a.pickupTime,returnTime:a.returnTime,timeZone:"Europe/London",
       lineItems:a.lineItems.map((line:any)=>({...line})),subtotal:a.subtotal,discount:a.discount??0,deliveryFee:a.deliveryFee,
@@ -71,9 +73,10 @@ export function assertAgreementBeforeRelease(b: any) {
   if (!b.agreementName?.trim() || !b.agreementSignedAt ||
       !b.agreementDocs?.some((d:Accepted)=>d.kind==="rental-agreement" && !!d.version))
     throw Error("Retained agreement acceptance is required before handover; do not backfill or infer consent.");
-  if (b.agreementDocs.some((d:Accepted)=>d.version===LEGAL_VERSION)) {
+  if (b.agreementDocs.some((d:Accepted)=>[LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION].includes(d.version))) {
+    const legalVersion = agreementsForSecurityPolicy(b.securityPolicyVersion).find(doc=>doc.kind==="rental-agreement")!.version;
     const s=readAgreementSnapshot(b.agreementSnapshot);
-    if (!s || s.version!==LEGAL_VERSION || s.signer!==b.agreementName.trim() || s.acceptedAt!==b.agreementSignedAt ||
+    if (!s || s.version!==legalVersion || s.signer!==b.agreementName.trim() || s.acceptedAt!==b.agreementSignedAt ||
       !b.securityHoldConsentAt || !b.laterChargeConsentAt ||
       s.documents.length!==b.agreementDocs.length || !s.documents.every(d=>b.agreementDocs.some((e:Accepted)=>e.kind===d.kind && e.version===d.version)))
       throw Error("The accepted agreement copy is missing or inconsistent; release is blocked.");

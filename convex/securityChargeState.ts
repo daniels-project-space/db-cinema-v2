@@ -2,7 +2,7 @@ import { query, mutation, internalMutation, internalQuery } from './_generated/s
 import { v } from 'convex/values';
 import { assertAdmin, checkAdminToken } from './adminAuth';
 import { accountForToken, ownedBooking, postRentalMessage } from './lib/rentalChat';
-import { assertSavedCardCollection, isSavedCardRental, SECURITY_COLLECTION_NOTICE_HOURS, SECURITY_COLLECTION_DAYS } from '../shared/savedCardSecurity';
+import { assertSavedCardCollection, retainedDepositPence, isSavedCardRental, SECURITY_COLLECTION_NOTICE_HOURS, SECURITY_COLLECTION_DAYS } from '../shared/savedCardSecurity';
 import { internal } from './_generated/api';
 const released = (state:string) => ['failed','voided'].includes(state);
 const idArgs={id:v.id('rental_security_charges')};
@@ -11,7 +11,7 @@ export const list = query({args:{token:v.string(),bookingId:v.id('bookings'),adm
  const b=await ctx.db.get(a.bookingId);if(!isSavedCardRental(b))return null;
  const rows=await ctx.db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',a.bookingId)).order('desc').take(100);
  const gross=b!.savedCardChargePaidPence??0,refunded=rows.reduce((n,r)=>n+(r.refundedPence??0),0);
- return {limit:b!.savedCardLimit??0,used:gross/100,paid:Math.max(0,gross-refunded)/100,reserved:(b!.savedCardChargeReservedPence??0)/100,cardStatus:b!.savedCardStatus??'awaiting_payment',
+ return {depositPaid:b!.depositAmount??0,depositRetained:retainedDepositPence(b)/100,depositRefunded:b!.depositRefundAmount??0,remaining:Math.max(0,Math.round((b!.savedCardLimit??0)*100)-gross-(b!.savedCardChargeReservedPence??0)-retainedDepositPence(b))/100,limit:b!.savedCardLimit??0,used:gross/100,paid:Math.max(0,gross-refunded)/100,reserved:(b!.savedCardChargeReservedPence??0)/100,cardStatus:b!.savedCardStatus??'awaiting_payment',
   damageAssessed:b!.savedCardDamageAssessed??b!.returnDecision?.damageKept??0,lateAssessed:b!.lateFeeAmount??0,returnedAt:b!.actualReturnedAt??null,
   rows:rows.map(r=>({id:r._id,kind:r.kind,amount:r.amountPence/100,reason:r.reason,state:r.state,paid:(r.paidPence??0)/100,createdAt:r.createdAt,noticeAt:r.noticeAt??null,collectAfter:r.collectAfter??null,disputeReason:r.disputeReason??null,disputeResolution:r.disputeResolution??null,disputeResolvedAt:r.disputeResolvedAt??null,refunded:(r.refundedPence??0)/100,refundStatus:r.refundReceipt?.status??null,refundReason:r.refundReason??null,...(a.admin?{refundApprovalUrl:r.refundReceipt?.approvalUrl??null}:{}),error:r.error??null}))};
 }});
@@ -30,10 +30,11 @@ export const prepare = mutation({args:{token:v.string(),bookingId:v.id('bookings
  if(a.kind==='damage'&&!b!.returnDecision?.inspection?.some(i=>i.condition!=='good'))throw Error('An item-specific inspected issue is required for a damage charge.');
  const firstPendingQuote=a.kind==='damage'&&!b!.returnDecision?.damageKept&&!b!.savedCardDamageAssessed&&!rows.some(r=>r.kind==='damage'&&r.state!=='voided');
  const assessed=firstPendingQuote?amountPence:Math.round((a.kind==='damage'?(b!.savedCardDamageAssessed??b!.returnDecision?.damageKept??0):(b!.lateFeeAmount??0))*100);
- const allocated=rows.filter(r=>r.kind===a.kind&&!released(r.state)).reduce((n,r)=>n+(r.state==='paid'?(r.paidPence??0):r.amountPence),0);
+ const retainedCashPence=retainedDepositPence(b);
+ const allocated=(a.kind==='damage'?retainedCashPence:0)+rows.filter(r=>r.kind===a.kind&&!released(r.state)).reduce((n,r)=>n+(r.state==='paid'?(r.paidPence??0):r.amountPence),0);
  if(amountPence>assessed-allocated)throw Error('The amount exceeds the remaining recorded assessment; do not charge the same loss twice.');
  const reserved=b!.savedCardChargeReservedPence??0,paid=b!.savedCardChargePaidPence??0,limit=Math.round(b!.savedCardLimit!*100);
- if(amountPence>limit-reserved-paid)throw Error('The combined damage and late-fee card limit would be exceeded. Request separate payment consent for any further amount.');
+ if(amountPence>limit-reserved-paid-retainedCashPence)throw Error('The combined damage and late-fee card limit would be exceeded. Request separate payment consent for any further amount.');
  if(firstPendingQuote)await ctx.db.patch(b!._id,{savedCardDamageAssessed:a.amount});
  const now=Date.now(),id=await ctx.db.insert('rental_security_charges',{bookingId:a.bookingId,accountId:b!.accountId,requestId:a.requestId,kind:a.kind,amountPence,reason,customerId:b!.savedCardCustomerId!,paymentMethodId:b!.savedCardPaymentMethodId!,consentSnapshot:b!.agreementSnapshot!,state:'notice_pending',createdAt:now,updatedAt:now});
  await ctx.db.patch(b!._id,{savedCardChargeReservedPence:reserved+amountPence});
@@ -55,6 +56,7 @@ export const noticeResult=internalMutation({args:{...idArgs,sent:v.boolean(),rec
 export const claim=internalMutation({args:idArgs,handler:async(ctx,{id})=>{
  const r=await ctx.db.get(id);if(!r)throw Error('Charge not found.');
  const b=await ctx.db.get(r.bookingId);assertSavedCardCollection(b);
+ if((b!.savedCardChargeReservedPence??0)+(b!.savedCardChargePaidPence??0)+retainedDepositPence(b)>Math.round(b!.savedCardLimit!*100))throw Error('The deposit and later card collections exceed the combined accepted limit.');
  const account=await ctx.db.get(r.accountId);if(!account||account.blockedAt!=null)throw Error('The account requires review before collection.');
  if(r.consentSnapshot!==b!.agreementSnapshot||r.accountId!==b!.accountId)throw Error('The retained rental/account consent changed.');
  const reviews=await ctx.db.query('rental_security_charges').withIndex('by_booking',q=>q.eq('bookingId',r.bookingId)).take(100);

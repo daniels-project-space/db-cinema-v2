@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery, query } from './_generated/server';
 import { v } from 'convex/values';
+import { REFUNDABLE_DEPOSIT_POLICY_VERSION } from '../shared/rentalSecurity';
 import { checkAdminToken } from './adminAuth';
 import { accountForToken, ownedBooking } from './lib/rentalChat';
 import { assertSavedCardConsent, isSavedCardRental } from '../shared/savedCardSecurity';
@@ -22,5 +23,10 @@ export const status = query({args:{token:v.string(),bookingId:v.id('bookings'),a
 }});
 export const markReturn=internalMutation({args:{bookingId:v.id('bookings'),damageNote:v.optional(v.string())},handler:async(ctx,a)=>{
  const b=await ctx.db.get(a.bookingId);if(!isSavedCardRental(b)||b!.status!=='returned'||!b!.returnDecision)throw Error('An inspected saved-card return is required.');
+ if (b!.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION) {
+  if (!b!.depositRefunded) throw Error('Finish the deposit refund decision before closing this return.');
+  await ctx.db.patch(a.bookingId,{depositHoldStatus:'not_applicable',returnedAt:b!.returnedAt??b!.returnDecision!.actualReturnedAt});
+  return;
+ }
  await ctx.db.patch(a.bookingId,{depositRefunded:true,depositKept:0,depositRefundAmount:0,depositHoldCapturedForDamage:0,depositDeductionNote:a.damageNote,depositHoldStatus:'not_applicable',returnedAt:b!.returnedAt??b!.returnDecision!.actualReturnedAt});
 }});

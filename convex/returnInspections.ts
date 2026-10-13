@@ -61,6 +61,8 @@ export const context = query({ args: {token:v.string(),bookingId:v.id("bookings"
   const b=await ctx.db.get(args.bookingId);if(!b)throw Error("Rental not found");
   const items=await returnInspectionSchedule(ctx,b);
   return {bookingId:b._id,status:b.status,guestName:b.guestName??null,lineItems:b.lineItems,returnTime:b.returnTime??null,
+    securityPolicyVersion:b.securityPolicyVersion??null,savedCardLimit:b.savedCardLimit??0,
+    replacementValue:b.lineItems.reduce((sum,line)=>sum+(b.replacementValues?.find(value=>value.listingId===line.listingId)?.unitPence??0)*line.qty/100,0),
     depositAmount:b.depositAmount,depositHoldAmount:b.depositHoldAmount??0,depositHoldStatus:b.depositHoldStatus??null,
     depositRefunded:b.depositRefunded??false,depositRefundAmount:b.depositRefundAmount??0,depositKept:b.depositKept??0,
     returnDecision:b.returnDecision??null,returnStatement:b.returnStatement??null,
