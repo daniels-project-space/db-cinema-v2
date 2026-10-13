@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import {securityAmendmentConsentText} from "../../../shared/savedCardSecurity";
+import { useEffect,useState } from "react";
 import { useQuery, useAction } from "convex/react";
 import { loadStripe } from "@stripe/stripe-js";
 import { api } from "@cvx/_generated/api";
@@ -16,9 +17,12 @@ export function RentalAdditionApproval({
     token,
     bookingId: bookingId as any,
   });
+  const acceptSecurity=useAction(api.rentalAdditions.acceptEquipmentSecurity);
+  const [accepted,setAccepted]=useState(false);
   const resume = useAction(api.rentalAdditions.resumeByCustomer);
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState<string | null>(null);
+  useEffect(()=>setAccepted(false),[r?.id,r?.depositAmount,r?.savedCardLimit]);
   if (!r) return null;
   async function approve() {
     setBusy(true);
@@ -71,9 +75,16 @@ export function RentalAdditionApproval({
       </p>
       <p className="mt-1 text-xs leading-relaxed text-white/50">
         {formatGbp(r.amount)} due · includes {formatGbp(r.securityCharge)} extra
-        refundable security. Updated hold {formatGbp(r.holdTotal)}. Items join
+        refundable security. {r.savedCardLimit===undefined?`Updated hold ${formatGbp(r.holdTotal)}.`:"No card hold."} Items join
         your order after payment and bank approval.
       </p>
+      {r.requiresAcceptance&&<div className="mt-3 space-y-3 rounded-xl border border-sky-300/20 p-3">
+        <p className="text-sm">Refundable deposit {formatGbp(r.priorDeposit??0)} → {formatGbp(r.depositAmount)}<br/>Combined damage / late-fee limit {formatGbp(r.priorSavedCardLimit??0)} → {formatGbp(r.savedCardLimit??0)}</p>
+        <p className="text-xs text-white/60">Retained deposit reduces this combined limit and the same assessed loss. Notice and dispute rights remain unchanged.</p>
+        <details className="text-xs text-white/60"><summary>Read the updated permission</summary><p className="mt-2 leading-relaxed">{securityAmendmentConsentText(r.savedCardLimit??0,r.depositAmount,r.priorSavedCardLimit??0,r.priorDeposit??0)}</p></details>
+        <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={accepted} disabled={busy} onChange={e=>setAccepted(e.target.checked)}/>I accept this equipment change and the deposit / saved-card amounts shown.</label>
+        <button className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold disabled:opacity-40" disabled={busy||!accepted} onClick={()=>{setBusy(true);setMessage(null);void acceptSecurity({token,bookingId:bookingId as any,additionId:r.id,expectedDeposit:r.depositAmount,expectedLimit:r.savedCardLimit??0,confirmed:true}).then(result=>{if(result.url)window.location.assign(result.url);else setMessage("Equipment update accepted.")}).catch(e=>setMessage(e.message)).finally(()=>setBusy(false))}}>Accept equipment update{r.amount>0?" & continue to payment":""}</button>
+      </div>}
       <div className="mt-3 flex flex-wrap gap-3">
         {r.url && r.status === "awaiting_payment" && (
           <a

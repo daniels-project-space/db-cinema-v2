@@ -1,4 +1,4 @@
-import { SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor } from "./rentalSecurity";
+import { SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit } from "./rentalSecurity";
 import { readAgreementSnapshot } from "./rentalAgreement";
 
 export const SECURITY_COLLECTION_NOTICE_HOURS = 7 * 24;
@@ -17,22 +17,26 @@ export function savedCardRentalValue(b: any) {
     return sum+value*line.qty/100;
   },0);
 }
-export function assertSavedCardConsent(b: any) {
-  if (!isSavedCardRental(b) || !Number.isFinite(b?.savedCardLimit) || b.savedCardLimit < 0)
-    throw Error("The retained saved-card payment consent is missing or inconsistent. No charge is permitted.");
-  const snapshot = readAgreementSnapshot(b?.agreementSnapshot);
-  const cashPolicy = b?.securityPolicyVersion === REFUNDABLE_DEPOSIT_POLICY_VERSION;
-  const deposit = cashPolicy ? b.depositAmount : undefined;
-  const expectedConsent = savedCardConsentText(b?.savedCardLimit ?? 0, deposit);
-  if (!isSavedCardRental(b) || !Number.isFinite(b.savedCardLimit) || b.savedCardLimit < 0 || !b.laterChargeConsentAt || !b.agreementSignedAt ||
-      !snapshot || snapshot.acceptedAt !== b.agreementSignedAt || snapshot.signer !== b.agreementName ||
-      snapshot.particulars.securityPolicyVersion !== b.securityPolicyVersion ||
-      snapshot.particulars.savedCardLimit !== b.savedCardLimit ||
-      snapshot.particulars.savedCardConsent !== expectedConsent ||
-      b.savedCardConsentText !== expectedConsent ||
-      (cashPolicy ? b.depositAmount !== refundableDepositFor(savedCardRentalValue(b)) || snapshot.particulars.securityPayment !== b.depositAmount : b.depositAmount !== 0) || (b.depositHoldAmount ?? 0) !== 0)
-    throw Error("The retained saved-card payment consent is missing or inconsistent. No charge is permitted.");
-  return b.savedCardLimit as number;
+export function securityAmendmentConsentText(limit:number,deposit:number,priorLimit:number,priorDeposit:number) {
+  const permission=savedCardConsentText(limit,deposit).replace(`A refundable deposit of £${deposit.toFixed(2)} is included in today’s payment;`,`The total refundable deposit for this rental is £${deposit.toFixed(2)}; £${(deposit-priorDeposit).toFixed(2)} extra is due with this equipment update;`);
+  return `I accept the proposed equipment change. The refundable deposit changes from £${priorDeposit.toFixed(2)} to £${deposit.toFixed(2)}, and the combined saved-card damage/late-fee limit changes from £${priorLimit.toFixed(2)} to £${limit.toFixed(2)}. `+permission;
+}
+export function assertSavedCardConsent(b:any) {
+  const fail=()=>{throw Error("The retained saved-card payment consent is missing or inconsistent. No charge is permitted.")};
+  if(!isSavedCardRental(b)||!Number.isFinite(b.savedCardLimit)||b.savedCardLimit<0) return fail();
+  const snapshot=readAgreementSnapshot(b.agreementSnapshot),cashPolicy=b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION;
+  if(!snapshot||!b.laterChargeConsentAt||!b.agreementSignedAt||snapshot.acceptedAt!==b.agreementSignedAt||snapshot.signer!==b.agreementName||snapshot.particulars.securityPolicyVersion!==b.securityPolicyVersion||(b.depositHoldAmount??0)!==0)return fail();
+  let limit:number=snapshot.particulars.savedCardLimit as number,deposit=cashPolicy?snapshot.particulars.securityPayment:0;
+  if(typeof limit!=="number"||!Number.isFinite(limit)||limit<0||snapshot.particulars.savedCardConsent!==savedCardConsentText(limit,cashPolicy?deposit:undefined))return fail();
+  const rows=b.securityAmendments??[];if(!cashPolicy&&rows.length)return fail();
+  const seen=new Set();let lastAt=snapshot.acceptedAt;
+  for(const r of rows){
+    if(!r.additionId||seen.has(r.additionId)||!r.accountId||!Number.isSafeInteger(r.acceptedAt)||r.acceptedAt<=0||(b.accountId&&r.accountId!==b.accountId)||!Number.isSafeInteger(r.replacementValuePence)||r.replacementValuePence<0||r.acceptedAt<lastAt||r.priorDeposit!==deposit||r.priorLimit!==limit||r.depositAmount<deposit||r.savedCardLimit!==Math.max(limit,Math.round(r.replacementValuePence/10)/100)||r.consentText!==securityAmendmentConsentText(r.savedCardLimit,r.depositAmount,limit,deposit)||r.depositAmount!==Math.max(deposit,refundableDepositFor(r.replacementValuePence/100))||(r.depositAmount>deposit&&!(r.paymentIntentId||r.draftReplacement&&r.sessionId&&b.stripePaymentIntentId)))return fail();
+    seen.add(r.additionId);deposit=r.depositAmount;limit=r.savedCardLimit;lastAt=r.acceptedAt;
+  }
+  if(cashPolicy&&savedCardChargeLimit(savedCardRentalValue(b))>limit)return fail();
+  if(b.savedCardLimit!==limit||b.depositAmount!==deposit||b.savedCardConsentText!==(rows.length?rows[rows.length-1].consentText:savedCardConsentText(limit,cashPolicy?deposit:undefined)))return fail();
+  return limit;
 }
 /** Cash retained is already collected; it consumes the combined allowance permanently. */
 export function retainedDepositPence(b: any) {

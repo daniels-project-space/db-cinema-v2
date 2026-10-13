@@ -6,7 +6,8 @@ export const REFUNDABLE_DEPOSIT_POLICY_VERSION = "2026-10-refundable-deposit-v1"
 export function refundableDepositFor(replacementSum: number) {
   if (!Number.isFinite(replacementSum) || replacementSum < 0 || !Number.isSafeInteger(Math.round(replacementSum * 100)))
     throw Error("Invalid equipment replacement value.");
-  return replacementSum < 1000 ? 0 : replacementSum < 4000 ? 50 : 100;
+  const valuePence=Math.round(replacementSum*100);
+  return valuePence < 100000 ? 0 : valuePence < 400000 ? 50 : 100;
 }
 
 export const LEGACY_TEN_PERCENT_HOLD_POLICY = "2026-10-ten-percent-hold-v2";

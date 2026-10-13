@@ -1,4 +1,6 @@
 "use node";
+import {isSavedCardRental} from "../shared/savedCardSecurity";
+import {REFUNDABLE_DEPOSIT_POLICY_VERSION} from "../shared/rentalSecurity";
 import {canDeferAdditionSecurity,PICKUP_HOLD_POLICY,pickupHoldAt} from "../shared/pickupSecurity";
 import Stripe from "stripe";
 import { checkoutPaymentIntent, syncStripeMembership } from "./checkout";
@@ -23,6 +25,7 @@ async function ensureSession(ctx: any, id: any) {
   });
   if (!state?.booking) throw Error("Rental addition missing");
   const { addition: r, booking: b } = state;
+  if(r.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION&&!r.customerAcceptedAt)throw Error("The renter must accept the revised security before payment.");
   if (r.sessionId) {
     const existing = await sb().checkout.sessions.retrieve(r.sessionId);
     return existing;
@@ -84,7 +87,7 @@ async function ensureSession(ctx: any, id: any) {
       integration_identifier: `db-rental-update-${Array.from(createHash("sha256").update(r.requestId).digest().subarray(0, 8), (n) => String.fromCharCode(97 + (n % 26))).join("")}`,
       custom_text: {
         submit: {
-          message: `By paying you accept the updated rental under our [terms](${origin}/legal/terms), including the stated refundable security charge and updated card authorisation. For pickup-scheduled security, the updated hold is requested at pickup on your saved card. Documented late fees and damage are handled under your rental agreement.`,
+          message: r.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION?`You accepted an equipment update with refundable deposit £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and a combined damage/late-fee card-payment limit of £${r.proposedSavedCardLimit.toFixed(2)}. Retained cash reduces that limit and the same loss. Existing notice and dispute rights remain under your rental agreement.`:`By paying you accept the updated rental under our [terms](${origin}/legal/terms), including the stated refundable security charge and updated card authorisation. For pickup-scheduled security, the updated hold is requested at pickup on your saved card. Documented late fees and damage are handled under your rental agreement.`,
         },
       },
       mode: "payment",
@@ -171,8 +174,9 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
       "This item is already part of the rental. Use rental refund or cancellation controls.",
     );
   if (["refunded", "expired"].includes(r.status)) return;
+  if(r.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION&&!r.customerAcceptedAt&&!r.sessionId&&!r.paymentIntentId){await ctx.runMutation(internal.rentalAdditionState.close,{id,refunded:false,preserveBooking:true});return;}
   if (
-    !r.draftReplacement &&
+    (!r.draftReplacement||r.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION&&!r.customerAcceptedAt) &&
     !r.sessionId &&
     !r.paymentIntentId &&
     r.lineTotal + r.securityCharge === 0
@@ -356,7 +360,7 @@ async function finish(
     return { bookingId: r.bookingId, status: "draft_applied" };
   }
   if(!payment)throw Error("An item addition requires a saved rental payment.");
-  if(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY&&pickupHoldAt(b)>Date.now()){
+  if(!isSavedCardRental(b)&&b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY&&pickupHoldAt(b)>Date.now()){
     if(!canDeferAdditionSecurity(b)||r.holdIntentId||r.securityCreationPending)throw Error("Resolve the existing security authorisation before updating the pickup hold.");
     const result=await ctx.runMutation(internal.rentalAdditionState.apply,{id});
     if(result.closed){const result=await withdraw(ctx,id);return {bookingId:r.bookingId,status:result?.pending?"refund_pending":"refunded",closed:!result?.pending};}
@@ -459,7 +463,7 @@ export const start = action({
   handler: async (
     ctx,
     args,
-  ): Promise<{ url: string; id: string; applied?: boolean }> => {
+  ): Promise<{ url: string; id: string; applied?: boolean;awaitingAcceptance?:boolean }> => {
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, {
       token: args.token,
       fn: "rentalAdditions.start",
@@ -480,6 +484,7 @@ export const start = action({
       r = await ctx.runMutation(internal.rentalAdditionState.prepare, args);
     }
     if(args.expectedQuote && r.reviewQuote!==args.expectedQuote) throw Error("Addition request has changed.");
+    if(r.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION&&!r.customerAcceptedAt)return {url:"",id:r._id,awaitingAcceptance:true};
     // Reserve and validate the proposed order before expiring its original checkout.
     // Every retry attests the original provider state until the replacement is bound.
     if (r.draftReplacement && !r.sessionId && r.baseSessionId) {
@@ -507,7 +512,7 @@ export const start = action({
         internal.rentalAdditionState.context,
         { id: r._id },
       );
-      if(canDeferAdditionSecurity(state.booking)){
+      if(isSavedCardRental(state.booking)||canDeferAdditionSecurity(state.booking)){
         const result=await ctx.runMutation(internal.rentalAdditionState.apply,{id:r._id});
         if(result.closed)throw Error("This rental can no longer accept the item");
         return {url:"",id:r._id,applied:true};
@@ -588,6 +593,7 @@ export const reconcile = internalAction({
     for (const r of rows) {
       try {
         if (r.withdrawalRequestedAt) { await withdraw(ctx, r._id); continue; }
+        if(r.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION&&!r.customerAcceptedAt){if(Date.now()>r.createdAt+23*3600000)await withdraw(ctx,r._id);continue;}
         if (Date.now() > r.createdAt + 24 * 3600000 && r.sessionId) {
           await withdraw(ctx, r._id);
           continue;
@@ -650,3 +656,5 @@ export const resumeByCustomer = action({
     return finish(ctx, r.id, session);
   },
 });
+
+export const acceptEquipmentSecurity=action({args:{token:v.string(),bookingId:v.id("bookings"),additionId:v.id("rental_additions"),expectedDeposit:v.number(),expectedLimit:v.number(),confirmed:v.boolean()},handler:async(ctx,a):Promise<any>=>{const r:any=await ctx.runMutation(internal.rentalAdditionState.acceptSecurity,a);if(!r.draftReplacement&&r.lineTotal+r.securityCharge===0)return ctx.runMutation(internal.rentalAdditionState.apply,{id:r._id});const session=await ensureSession(ctx,r._id);if(session.payment_status==="paid"){if(r.draftReplacement)return ctx.runAction(api.checkout.finalize,{sessionId:session.id});return finish(ctx,r._id,session);}return {url:session.url};}});

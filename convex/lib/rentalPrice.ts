@@ -107,7 +107,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const subtotal=items.reduce((n,i)=>n+i.total,0);
 
   const protection = a.protection ?? "verify";
-  const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
+  const replacementSum = items.reduce((n, i) => n + Math.round(i.deposit*100), 0)/100;
   // Only enable after checkout, immutable terms and both admin surfaces qualify.
   const refundablePolicy = process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED === "true";
   const securityPolicyVersion = refundablePolicy ? REFUNDABLE_DEPOSIT_POLICY_VERSION : SECURITY_POLICY_VERSION;
