@@ -465,7 +465,7 @@ export const start = action({
     if(membershipCheckout)checkoutLines.push({price:await ensurePrice(sb,tierByKey(membershipCheckout.tier)!),quantity:1});
     const meta = {bookingId,rentalPaidPence:String(pence(price.totalDue)),securityPolicyVersion:price.securityPolicyVersion,savedCardLimitPence:String(pence(price.savedCardLimit)),...(membershipCheckout ? {membershipTier:membershipCheckout.tier,accountEmail:acct.email,membershipCheckoutId:String(membershipCheckout._id),membershipTerms:MEMBERSHIP_TERMS_VERSION}: {})};
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
-      custom_text:{submit:{message:`No security money is taken or blocked. You agreed to save this card for evidenced damage/loss and late-return payments up to £${price.savedCardLimit.toFixed(2)} combined, after an itemised notice and at least seven days to raise a dispute. Bank approval may be required.`}},
+      custom_text:{submit:{message:`${depositAmount>0?`A refundable £${depositAmount.toFixed(2)} deposit is included; no extra funds are blocked. Retained deposit reduces later collection for the same loss.`:"No security money is taken or blocked."} You agreed to save this card for evidenced damage/loss and late-return payments up to £${price.savedCardLimit.toFixed(2)} combined, after an itemised notice and at least seven days to raise a dispute. Bank approval may be required.`}},
       mode: membershipCheckout ? "subscription" : price.totalDue === 0 ? "setup" : "payment",
       ...(!membershipCheckout&&price.totalDue===0?{currency:"gbp"}:{}),
       ...(membershipCheckout || price.totalDue > 0 ? {adaptive_pricing:{enabled:false}} : {}),
