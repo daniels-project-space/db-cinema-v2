@@ -235,6 +235,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     );
   }
   async function nativeClick(expression) {
+    if(expression.includes('clear-basket')) {
+      // A fresh cart renders the control before quote/stock results finish.
+      // Those results change the summary height: wait before aiming a native
+      // pointer, then retain the hit-target and empty-basket assertions below.
+      await until(`(()=>{const el=(${expression}),summary=el?.closest('aside');return !!summary&&!/Calculating…|Checking availability…/.test(summary.innerText)})()`);
+    }
     await c.evaluate(`(${expression}).scrollIntoView({block:'center',behavior:'instant'})`);
     await wait(80);
     if(expression.includes('clear-basket')){
