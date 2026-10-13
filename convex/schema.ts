@@ -197,6 +197,8 @@ export default defineSchema({
     checkoutExpiredAt: v.optional(v.number()),
     activeAdditionId:v.optional(v.id("rental_additions")),
     activeExtensionId:v.optional(v.id("booking_change_requests")),
+    activePriceAdjustmentId:v.optional(v.id("rental_price_adjustments")),
+    priceAdjustmentCharges:v.optional(v.array(v.object({id:v.id("rental_price_adjustments"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),lineTotal:v.number()}))),
     extensionCharges:v.optional(v.array(v.object({requestId:v.id("booking_change_requests"),title:v.string(),start:v.number(),end:v.number(),qty:v.number(),lineTotal:v.number(),returnTime:v.optional(v.string())}))),
     chatConfirmationMessageId: v.optional(v.id("messages")),
     chatUpdatedAt:v.optional(v.number()),chatUnreadOwner:v.optional(v.number()),chatUnreadRenter:v.optional(v.number()),
@@ -805,6 +807,14 @@ export default defineSchema({
   }).index("by_booking",["bookingId"]).index("by_request",["requestId"]),
 
   // ── Reschedule / item-level extend requests (Phase 3b) ──────────
+  rental_price_adjustments:defineTable({
+    bookingId:v.id("bookings"),accountId:v.id("accounts"),requestId:v.string(),baseSnapshot:v.string(),
+    currentTotal:v.number(),newTotal:v.number(),delta:v.number(),note:v.optional(v.string()),
+    status:v.union(v.literal("awaiting_acceptance"),v.literal("accepted"),v.literal("awaiting_payment"),v.literal("applied"),v.literal("withdrawn"),v.literal("expired"),v.literal("refund_review"),v.literal("refund_pending"),v.literal("refunded"),v.literal("payment_review")),
+    createdAt:v.number(),updatedAt:v.number(),expiresAt:v.number(),reconcileAfter:v.optional(v.number()),reconcileAttempts:v.optional(v.number()),reconcileError:v.optional(v.string()),acceptedAt:v.optional(v.number()),acceptedEmail:v.optional(v.string()),acceptanceText:v.optional(v.string()),
+    sessionId:v.optional(v.string()),paymentUrl:v.optional(v.string()),paymentIntentId:v.optional(v.string()),paidAt:v.optional(v.number()),refundReceipt:v.optional(depositReturnReceipt),
+  }).index("by_booking",["bookingId"]).index("by_request",["bookingId","requestId"]).index("by_status",["status"]).index("by_status_due",["status","reconcileAfter"]),
+
   booking_change_requests: defineTable({
     bookingId: v.id("bookings"),
     accountId: v.id("accounts"),

@@ -14,6 +14,7 @@ crons.interval("reconcile-rental-checkouts", { minutes: 5 }, internal.checkout.r
 crons.interval("reconcile-requested-cancellations", { minutes: 5 }, internal.checkout.reconcileCancellations, {});
 
 crons.interval("reconcile-rental-extensions",{minutes:5},internal.rentalExtensionPayments.reconcile,{});
+crons.interval("reconcile-rental-prices",{minutes:5},internal.rentalPricePayments.reconcile,{});
 
 crons.interval("reconcile-rental-additions",{minutes:5},internal.rentalAdditions.reconcile,{});
 crons.interval("retry-owner-phone-alerts", { minutes: 5 }, internal.adminPushDelivery.retryDue, {});

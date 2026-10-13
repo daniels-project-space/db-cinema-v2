@@ -75,7 +75,7 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
       b.returnDecision
     )
       throw Error("This rental cannot accept items");
-    if (b.activeAdditionId || b.activeExtensionId)
+    if (b.activeAdditionId || b.activeExtensionId || b.activePriceAdjustmentId)
       throw Error("Finish or withdraw the current item addition or approved extension first");
     if (
       ["starting", "requires_action", "failed"].includes(

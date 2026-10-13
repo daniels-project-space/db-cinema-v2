@@ -1032,6 +1032,7 @@ export const finalize = action({
     }
 
     // extend payment → apply the extra days to the targeted item(s)
+    if (paid && m.priceAdjustmentId) return ctx.runAction(internal.rentalPricePayments.finalize,{sessionId:session.id});
     if (paid && m.changeRequestId) {
       return ctx.runAction(internal.rentalExtensionPayments.finalize, { sessionId: session.id });
     }
@@ -1177,6 +1178,8 @@ export const stripeWebhook = internalAction({
           await fulfillLegacyAddon(ctx,s);
         } else if (m.membershipTier) {
           await fulfillMembership(ctx, await stripe().checkout.sessions.retrieve(s.id));
+        } else if (m.priceAdjustmentId) {
+          await ctx.runAction(internal.rentalPricePayments.finalize,{sessionId:s.id});
         } else if (m.changeRequestId) {
           await ctx.runAction(internal.rentalExtensionPayments.finalize, { sessionId: s.id });
         }
@@ -1459,7 +1462,7 @@ export const cancelByCustomer = action({
 
 /** Owner-only, durable and idempotent rental refund. Security is handled by return/cancel. */
 export const refundRental=action({
- args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.optional(v.number()),reason:v.string()},
+ args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),amountPence:v.optional(v.number()),reason:v.string(),expectedSnapshot:v.optional(v.string())},
  handler:async(ctx,args):Promise<{status:string;amount:number}>=>{
   const job:any=await ctx.runMutation(internal.rentalOperations.prepareRefund,args);
   if(job.status==="succeeded"||job.status==="failed")return {status:job.status,amount:job.amountPence/100};

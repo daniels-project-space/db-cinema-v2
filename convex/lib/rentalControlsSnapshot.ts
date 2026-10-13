@@ -17,6 +17,7 @@ export function rentalControlsSnapshot(
     booking.depositHoldStatus ?? null,
     booking.activeAdditionId ?? null,
     booking.activeExtensionId ?? null,
+    booking.activePriceAdjustmentId ?? null,
     !!booking.cancellationDecision,
     !!booking.returnDecision,
     (booking.lineItems ?? []).map((line: any) => [
