@@ -1,5 +1,7 @@
 "use client";
 
+import { pickRentalDates } from "@/lib/dateSelection";
+
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -103,14 +105,9 @@ export default function GearDetailClient({ slug }: { slug: string }) {
   const [registered, setRegistered] = useState(false);
 
   function pick(iso: string) {
-    if (!start || (start && end)) {
-      setStart(iso);
-      setEnd(null);
-    } else if (iso < start) {
-      setStart(iso);
-    } else {
-      setEnd(iso);
-    }
+    const next = pickRentalDates(start, end, iso);
+    setStart(next.start);
+    setEnd(next.end);
   }
 
   const unavailable = useMemo(
