@@ -1,5 +1,6 @@
 "use client";
 import { REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../../shared/rentalSecurity";
+import {DepositRefundStatus} from "./DepositRefundStatus";
 import { DepositSettlementControl } from "./DepositSettlementControl";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -89,7 +90,7 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     try {
       const result = await submit({...selection,expectedSnapshot:reviewData.snapshot});
       if (!alive.current) return;
-      alert(refundablePolicy ? `Return completed. Deposit retained ${formatGbp(result.kept)}; refunded to the original card ${formatGbp(result.released)}; damage assessed ${formatGbp(damageAmount)}. An itemised completion statement will be emailed.` : `Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
+      alert(refundablePolicy ? `Return recorded. Deposit retained ${formatGbp(result.kept)}; ${result.refundState==="pending"?"refund processing":"refund confirmed"} to the original card ${formatGbp(result.released)}; damage assessed ${formatGbp(damageAmount)}. An itemised completion statement will be emailed.` : `Return recorded. Damage/loss ${formatGbp(result.kept)}; refundable security payment returned ${formatGbp(result.released)}; separate late charge assessed ${formatGbp(result.lateAmount)}. A return statement will be emailed.`);
       onClose();
     } catch (e: any) { if (alive.current) setError(e?.message ?? "Return could not be recorded."); }
     finally { if (alive.current) setWorking(false); }
@@ -100,6 +101,7 @@ function ScopedReturnRentalForm({ booking, token, onClose }: { booking: any; tok
     <header className={styles.header}><div><h4 id="return-inspection-title">Return inspection & settlement</h4><p>Inspect each item, record issues and confirm the security settlement.</p></div><button disabled={working} onClick={onClose} aria-label="Close return inspection">×</button></header>
     <div className={styles.body}>
     {saved && <p className="mt-2 text-amber-200">A return was started but settlement did not finish. The saved time and amounts are loaded so you can retry safely.</p>}
+    {refundablePolicy&&<DepositRefundStatus token={token} bookingId={booking._id}/>}
     {refundablePolicy&&(booking.depositAmount??0)>0&&<DepositSettlementControl paid={booking.depositAmount} kept={depositKept} disabled={working||reviewBusy||!!saved} onChange={value=>{setDepositKept(value);if(value>damageAmount)setDamage(String(value));}}/>}
     {legacyResume ? <p className="mt-3 text-amber-200">This older saved settlement has no individual inspection record. Resume its original financial decision; do not change the amounts during retry.</p> : <section className={styles.inspection}>
       <div className={styles.sectionHeading}><div><h5>Equipment condition</h5><p>{schedule ? `${schedule.items.length} individual items · ${schedule.items.filter(i => !!conditions[i.key]).length} conditions selected` : "Loading reserved equipment…"}</p></div><button disabled={working || !!saved || !schedule} onClick={() => { setConditions(Object.fromEntries(schedule!.items.map(i => [i.key, { key: i.key, condition: "good", details: "", openCase: false }]))); setDamage("0"); setDamageNote(""); }}>Mark all good</button></div>

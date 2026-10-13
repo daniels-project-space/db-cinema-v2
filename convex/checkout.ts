@@ -1,4 +1,5 @@
 "use node";
+import {depositRefundState,depositRefundStatementFields} from "../shared/depositRefundStatus";
 import {isAllowedReturnTime} from "../src/lib/site";
 
 import Stripe from "stripe";
@@ -851,7 +852,7 @@ export const previewReturned = action({
   args: { token: v.string(), bookingId: v.id("bookings"), damageKept: v.optional(v.number()), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()), damageNote: v.optional(v.string()), actualReturnedAt: v.optional(v.number()), chargeLate: v.boolean(), lateWaiverReason: v.optional(v.string()), inspection: v.optional(v.array(inspectionInput)) },
   handler: async (ctx, args): Promise<any> => {
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token: args.token, fn: "checkout.previewReturned" });
-    const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId: args.bookingId });
+    const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId: args.bookingId,includeControlsSnapshot:true });
     if (!b) throw Error("Booking not found.");
     const selection = await validateReturnSelection(ctx, b, args);
     const invoice: any = await ctx.runQuery(api.bookings.invoiceData, { bookingId: args.bookingId, token: args.token });
@@ -875,7 +876,8 @@ export const previewReturned = action({
       ...(args.damageNote ? { damageNote: args.damageNote.trim() } : {}), inspection: selection.inspected ?? [],
       lateAssessed: selection.late.amount, lateWaived: selection.waiver.waivedAmount ?? 0, lateBreakdown: selection.late.breakdown,
     };
-    if(isSavedCardRental(b)){statement.savedCardLimit=b.savedCardLimit;statement.damageAssessed=damage;statement.damageTotal=0;}
+    if(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION)Object.assign(statement,depositRefundStatementFields(b));
+    if(isSavedCardRental(b)){statement.savedCardLimit=b.savedCardLimit;statement.damageAssessed=damage;statement.damageTotal=b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION?plan.damageFromDeposit:0;}
     const draft = !invoice.returnStatement;
     const secret = process.env.INVOICE_SECRET;
     if (!secret) throw Error("Return statement PDF previews are not configured");
@@ -897,7 +899,7 @@ export const markReturned = action({
   handler: async (
     ctx,
     { token, bookingId, damageKept, depositKept, expectedSnapshot, damageNote, actualReturnedAt, chargeLate, lateWaiverReason, inspection },
-  ): Promise<{ ok: boolean; released: number; kept: number; lateAmount: number; alreadyReleased: boolean }> => {
+  ): Promise<{ ok: boolean; released: number; kept: number; lateAmount: number; alreadyReleased: boolean;refundState?:string }> => {
     await ctx.runMutation(internal.adminAuth.assertAdminInternal, { token, fn: "checkout.markReturned" });
     const b: any = await ctx.runQuery(internal.bookings.getForRefund, { bookingId, includeControlsSnapshot:true });
     if (!b) throw new Error("Booking not found.");
@@ -906,20 +908,22 @@ export const markReturned = action({
       const plan = refundableDepositPlan({deposit:b.depositAmount??0,capturedSecurity:sources.reduce((n:number,source:any)=>n+source.securityPence,0)/100,assessedDamage:damageKept??0,keptDeposit:retainedDeposit});
       await ctx.runMutation(internal.bookings.beginReturnDecision,{bookingId,actualReturnedAt:returned,damageKept:damageKept??0,depositKept:plan.damageFromDeposit,expectedSnapshot,damageNote:(damageKept??0)>0?damageNote?.trim():undefined,chargeLate,lateWaiverReason:!chargeLate&&quotedLate.amount>0?lateWaiverReason?.trim():undefined,inspection});
       await ctx.runMutation(internal.bookings.markReturnedStatus,{bookingId});
+      let settlementReceipts:RefundReceipt[]=b.depositReturnReceipts??[];
       if (!b.depositRefunded) {
         for (const allocation of securityReturnPlan(sources,pence(plan.depositRefund))) {
           const persist=async(receipt:RefundReceipt)=>{await ctx.runMutation(internal.bookings.recordDepositReturnReceipt,{bookingId,receipt});};
           const initial:RefundReceipt=b.depositReturnReceipts?.find((row:RefundReceipt)=>row.paymentIntentId===allocation.paymentIntentId)??{paymentIntentId:allocation.paymentIntentId,amountPence:allocation.amountPence,attemptedAt:Date.now(),status:"unknown"};
           await persist(initial);
-          const refund=await recoverApprovedRefund(stripe(),initial,{currency:"GBP",idempotencyKey:`dbc-deposit-release-${bookingId}-${allocation.paymentIntentId}`,metadata:{dbc_deposit_return_booking:String(bookingId),dbc_deposit_return_source:allocation.paymentIntentId,dbc_deposit_return_pence:String(allocation.amountPence)},now:Date.now(),maxRefunds:100,persist});
+          const refund=await recoverApprovedRefund(stripe(),initial,{currency:"GBP",idempotencyKey:`dbc-deposit-release-${bookingId}-${allocation.paymentIntentId}${initial.attemptKey?`-${initial.attemptKey}`:""}`,metadata:{dbc_deposit_return_booking:String(bookingId),dbc_deposit_return_source:allocation.paymentIntentId,dbc_deposit_return_pence:String(allocation.amountPence),...(initial.attemptKey?{dbc_deposit_return_attempt:initial.attemptKey}:{})},now:Date.now(),maxRefunds:100,persist});
           await persist(refund);
+          settlementReceipts=[...settlementReceipts.filter(row=>row.paymentIntentId!==refund.paymentIntentId),refund];
           if (!['succeeded','pending'].includes(refund.status)) throw new ConvexError({code:"DEPOSIT_REFUND_REVIEW",message:"The original deposit refund requires provider review before completion. Resume the saved decision after review; no second refund was issued.",...(refund.approvalUrl?{approvalUrl:refund.approvalUrl}:{})});
         }
         await ctx.runMutation(internal.bookings.markDepositReleased,{bookingId,kept:plan.damageFromDeposit,refunded:plan.depositRefund,capturedFromHold:0,note:damageNote?.trim()});
       }
       await ctx.runMutation(internal.savedCardState.markReturn,{bookingId,damageNote:damageNote?.trim()});
       await ctx.runMutation(internal.bookings.recordLateFee,{bookingId,actualReturnedAt:returned,...late,...waiver});
-      return {ok:true,released:b.depositRefunded?b.depositRefundAmount??0:plan.depositRefund,kept:b.depositRefunded?b.depositKept??0:plan.damageFromDeposit,lateAmount:late.amount,alreadyReleased:!!b.depositRefunded};
+      return {ok:true,released:b.depositRefunded?b.depositRefundAmount??0:plan.depositRefund,kept:b.depositRefunded?b.depositKept??0:plan.damageFromDeposit,lateAmount:late.amount,alreadyReleased:!!b.depositRefunded,refundState:depositRefundState(settlementReceipts,pence(plan.depositRefund))};
     }
     if(isSavedCardRental(b)){
       await ctx.runMutation(internal.bookings.beginReturnDecision,{bookingId,actualReturnedAt:returned,damageKept:damageKept??0,damageNote:(damageKept??0)>0?damageNote?.trim():undefined,chargeLate,lateWaiverReason:!chargeLate&&quotedLate.amount>0?lateWaiverReason?.trim():undefined,inspection});
@@ -1200,10 +1204,11 @@ export const stripeWebhook = internalAction({
         await ctx.runAction(internal.securityCharges.reconcileWebhook,{id:intent.metadata.securityChargeId,intentId:intent.id});
     }
     if (["refund.created","refund.updated","refund.failed"].includes(event.type)) {
-      const refund=event.data.object as Stripe.Refund;
+      const refund=await stripe().refunds.retrieve((event.data.object as Stripe.Refund).id);
+      if(refund.metadata?.dbc_deposit_return_booking)await ctx.runAction(internal.checkout.reconcileDepositRefund,{refundId:refund.id});
       const feePayment = typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
       if (feePayment) await ctx.runAction(internal.securityCharges.refundWebhook, {paymentIntentId:feePayment});
-      await reconcileFullyRefundedMembership(ctx,await stripe().refunds.retrieve(refund.id));
+      await reconcileFullyRefundedMembership(ctx,refund);
       await ctx.runAction(internal.filmFundPayments.reconcileRefund,{refundId:refund.id});
       const id=refund.metadata?.rentalRefundId;
       if(id)await ctx.runMutation(refund.metadata?.rentalPaymentIntent?internal.rentalOperations.recordRefundPart:internal.rentalOperations.recordRefund,{id:id as any,...(refund.metadata?.rentalPaymentIntent?{paymentIntentId:refund.metadata.rentalPaymentIntent}:{}),stripeRefundId:refund.id,status:refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending"});
@@ -1480,3 +1485,31 @@ export const refundRental=action({
   return {status,amount:job.amountPence/100};
  }
 });
+
+async function resumeDepositDecision(ctx:any,bookingId:any,b:any){
+ if(!b.returnDecision||b.depositRefunded)return {ok:true,alreadyReleased:!!b.depositRefunded};
+ const d=b.returnDecision;return ctx.runAction(api.checkout.markReturned,{token:process.env.ADMIN_TOKEN??"",bookingId,actualReturnedAt:d.actualReturnedAt,damageKept:d.damageKept,depositKept:d.depositKept,expectedSnapshot:d.expectedSnapshot,damageNote:d.damageNote,chargeLate:d.chargeLate,lateWaiverReason:d.lateWaiverReason,inspection:d.inspection});
+}
+export const reconcileDepositRefund=internalAction({args:{refundId:v.string()},handler:async(ctx,{refundId}):Promise<any>=>{
+ const refund=await stripe().refunds.retrieve(refundId),bookingId=refund.metadata?.dbc_deposit_return_booking;if(!bookingId)return {ignored:true};
+ const b:any=await ctx.runQuery(internal.bookings.getForRefund,{bookingId:bookingId as any,includeControlsSnapshot:true});if(!b||b.securityPolicyVersion!==REFUNDABLE_DEPOSIT_POLICY_VERSION||!b.returnDecision)return {ignored:true};
+ const pi=typeof refund.payment_intent==="string"?refund.payment_intent:refund.payment_intent?.id;
+ const receipt=b.depositReturnReceipts.find((r:RefundReceipt)=>r.paymentIntentId===pi);
+ if(!receipt||(receipt.stripeRefundId&&receipt.stripeRefundId!==refund.id)||receipt.attemptKey!==(refund.metadata?.dbc_deposit_return_attempt||undefined))return {ignored:true};
+ if(refund.currency!=="gbp"||refund.amount!==receipt.amountPence||refund.metadata?.dbc_deposit_return_source!==pi||refund.metadata?.dbc_deposit_return_pence!==String(receipt.amountPence))throw Error("Deposit refund provider receipt mismatch.");
+ const updated={...receipt,stripeRefundId:refund.id,status:refund.status==="succeeded"?"succeeded":refund.status==="failed"||refund.status==="canceled"?"failed":"pending"};
+ await ctx.runMutation(internal.bookings.recordDepositReturnReceipt,{bookingId:bookingId as any,receipt:updated});
+ if(updated.status==="failed")return {needsReview:true};
+ const fresh:any=await ctx.runQuery(internal.bookings.getForRefund,{bookingId:bookingId as any,includeControlsSnapshot:true});
+ // Resolve only the saved operator decision; this action never makes a new retention choice.
+ try{return await resumeDepositDecision(ctx,bookingId,fresh);}catch(e){if(e instanceof RefundReviewRequired||e instanceof ConvexError&&(e.data as any)?.code==="DEPOSIT_REFUND_REVIEW")return {needsReview:true};throw e;}
+}});
+export const resumeDepositRefund=action({args:{token:v.string(),bookingId:v.id("bookings"),confirmed:v.boolean()},handler:async(ctx,a):Promise<any>=>{await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:a.token,fn:"checkout.resumeDepositRefund"});if(!a.confirmed)throw Error("Confirm resuming the saved deposit decision first.");const b:any=await ctx.runQuery(internal.bookings.getForRefund,{bookingId:a.bookingId,includeControlsSnapshot:true});if(!b||b.securityPolicyVersion!==REFUNDABLE_DEPOSIT_POLICY_VERSION)throw Error("Refundable-deposit rental required.");return resumeDepositDecision(ctx,a.bookingId,b);}});
+export const retryDepositRefund=action({args:{token:v.string(),bookingId:v.id("bookings"),refundId:v.string(),requestId:v.string(),expectedSnapshot:v.string(),confirmed:v.boolean()},handler:async(ctx,a):Promise<any>=>{
+ await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token:a.token,fn:"checkout.retryDepositRefund"});if(!a.confirmed)throw Error("Review and confirm the failed deposit refund first.");
+ const b:any=await ctx.runQuery(internal.bookings.getForRefund,{bookingId:a.bookingId,includeControlsSnapshot:true});if(!b||b.securityPolicyVersion!==REFUNDABLE_DEPOSIT_POLICY_VERSION||!b.returnDecision)throw Error("A saved refundable-deposit decision is required.");
+ const replay=b.depositReturnReceipts.find((r:RefundReceipt)=>r.attemptKey===a.requestId);
+ if(!replay){const receipt=b.depositReturnReceipts.find((r:RefundReceipt)=>r.stripeRefundId===a.refundId);if(!receipt||receipt.status!=="failed")throw Error("Only a failed original-card refund can be retried.");const original=await stripe().refunds.retrieve(a.refundId);const pi=typeof original.payment_intent==="string"?original.payment_intent:original.payment_intent?.id;if(!["failed","canceled"].includes(original.status??"")||pi!==receipt.paymentIntentId||original.currency!=="gbp"||original.amount!==receipt.amountPence)throw Error("The original refund is not confirmed failed. No new refund was issued.");}
+ await ctx.runMutation(internal.bookings.beginDepositRefundRetry,{bookingId:a.bookingId,refundId:a.refundId,requestId:a.requestId,expectedSnapshot:a.expectedSnapshot});
+ const fresh:any=await ctx.runQuery(internal.bookings.getForRefund,{bookingId:a.bookingId,includeControlsSnapshot:true});return resumeDepositDecision(ctx,a.bookingId,fresh);
+}});

@@ -60,6 +60,8 @@ const s = StyleSheet.create({
   cQty: { width: "10%", textAlign: "center", color: C.muted },
   cAmt: { width: "14%", textAlign: "right" },
   totals: { marginTop: 18, marginLeft: "auto", width: "46%" },
+  totLabel:{maxWidth:"75%",flexShrink:1},
+  totValue:{flexShrink:0,textAlign:"right"},
   totRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 },
   grand: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 8, marginTop: 4, borderTopWidth: 2, borderTopColor: C.ink },
   grandTxt: { fontSize: 13, fontFamily: "Helvetica-Bold" },
@@ -117,24 +119,24 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
         ))}
 
         <View style={s.totals}>
-          <View style={s.totRow}><Text style={{ color: C.muted }}>Subtotal</Text><Text>{gbp(data.subtotal)}</Text></View>
+          <View style={s.totRow}><Text style={{ color: C.muted }}>Subtotal</Text><Text style={s.totValue}>{gbp(data.subtotal)}</Text></View>
           {data.discount > 0 ? (
-            <View style={s.totRow}><Text style={{ color: C.muted }}>Discount{data.promoCode ? ` (${data.promoCode})` : ""}</Text><Text>−{gbp(data.discount)}</Text></View>
+            <View style={s.totRow}><Text style={{ color: C.muted }}>Discount{data.promoCode ? ` (${data.promoCode})` : ""}</Text><Text style={s.totValue}>−{gbp(data.discount)}</Text></View>
           ) : null}
           {data.creditApplied > 0 ? (
-            <View style={s.totRow}><Text style={{ color: C.muted }}>Store credit</Text><Text>−{gbp(data.creditApplied)}</Text></View>
+            <View style={s.totRow}><Text style={{ color: C.muted }}>Store credit</Text><Text style={s.totValue}>−{gbp(data.creditApplied)}</Text></View>
           ) : null}
           {data.deliveryFee > 0 ? (
-            <View style={s.totRow}><Text style={{ color: C.muted }}>Delivery</Text><Text>{gbp(data.deliveryFee)}</Text></View>
+            <View style={s.totRow}><Text style={{ color: C.muted }}>Delivery</Text><Text style={s.totValue}>{gbp(data.deliveryFee)}</Text></View>
           ) : null}
           {!!data.membershipCreditApplied && <Text style={s.note}>Store credit above includes {gbp(data.membershipCreditApplied)} from the first paid membership month. The subscription fee is itemised separately by Stripe.</Text>}
           <View style={s.grand}><Text style={s.grandTxt}>Total paid</Text><Text style={s.grandTxt}>{gbp(data.total)}</Text></View>
           {data.depositAmount > 0 ? (
             <Text style={s.note}>Includes {gbp(data.depositAmount)} refundable deposit, returned after the gear is back in good condition.</Text>
           ) : null}
-          {data.rentalRefunds?.map((r,i)=><View key={i} style={s.totRow}><Text>Rental refund ({r.status})</Text><Text>{gbp(r.amount)}</Text></View>)}
-          {(data.cancellationRefund??0)>0&&<View style={s.totRow}><Text>Cancellation card refund</Text><Text>{gbp(data.cancellationRefund!)}</Text></View>}
-          {(data.accountCreditIssued??0)>0&&<View style={s.totRow}><Text>Account credit issued · one year</Text><Text>{gbp(data.accountCreditIssued!)}</Text></View>}
+          {data.rentalRefunds?.map((r,i)=><View key={i} style={s.totRow}><Text>Rental refund ({r.status})</Text><Text style={s.totValue}>{gbp(r.amount)}</Text></View>)}
+          {(data.cancellationRefund??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>Cancellation card refund</Text><Text style={s.totValue}>{gbp(data.cancellationRefund!)}</Text></View>}
+          {(data.accountCreditIssued??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>Account credit issued · one year</Text><Text style={s.totValue}>{gbp(data.accountCreditIssued!)}</Text></View>}
           <Text style={s.note}>Db Cinema Rentals is not VAT registered. No VAT is charged. This receipt is not a VAT invoice.</Text>
         </View>
 
@@ -152,7 +154,7 @@ const sStyle=StyleSheet.create({page:{padding:40,fontSize:9,lineHeight:1.5,fontF
 export function ReturnStatementDocument({ data, draft = false }: { data: ReturnStatementData; draft?: boolean }) {
   const rentalGross = data.subtotal - data.discount + data.deliveryFee;
   const damageFromPayment = Math.max(0, data.damageTotal - data.damageFromHold);
-  const netCardPaid = data.checkoutPaid - data.securityRefunded - (data.rentalRefunded??0) + data.damageFromHold;
+  const netCardPaid = data.checkoutPaid - (draft?data.securityRefunded:data.depositRefundState?data.securityRefundedConfirmed??0:data.securityRefunded) - (data.rentalRefunded??0) + data.damageFromHold;
   return <Document title={`Db Cinema Return Statement ${data.number}`}>
     <Page size="A4" style={s.page}>
       <View style={s.topbar} />
@@ -179,17 +181,18 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
       </View>)}
       {data.inspection?.length ? <View style={s.section}><Text style={s.label}>Equipment return inspection</Text>{data.inspection.map(item => <View key={item.key} style={{ marginBottom: 8 }} wrap={false}><Text style={s.strong}>{item.title} · {item.condition === "good" ? "Good condition" : "Issue found"}</Text>{item.details ? <Text style={{ color: C.muted, marginTop: 3 }}>{item.details}</Text> : null}{item.openCase ? <Text style={{ color: C.muted, marginTop: 3 }}>{draft ? "Damage case selected for review." : "Damage case opened for review."}</Text> : null}</View>)}</View> : null}
       <View style={s.totals}>
-        <View style={s.totRow}><Text>Rental subtotal</Text><Text>{gbp(data.subtotal)}</Text></View>
-        {data.discount > 0 ? <View style={s.totRow}><Text>Rental discount</Text><Text>−{gbp(data.discount)}</Text></View> : null}
-        {data.deliveryFee > 0 ? <View style={s.totRow}><Text>Delivery</Text><Text>{gbp(data.deliveryFee)}</Text></View> : null}
+        <View style={s.totRow}><Text style={s.totLabel}>Rental subtotal</Text><Text style={s.totValue}>{gbp(data.subtotal)}</Text></View>
+        {data.discount > 0 ? <View style={s.totRow}><Text style={s.totLabel}>Rental discount</Text><Text style={s.totValue}>−{gbp(data.discount)}</Text></View> : null}
+        {data.deliveryFee > 0 ? <View style={s.totRow}><Text style={s.totLabel}>Delivery</Text><Text style={s.totValue}>{gbp(data.deliveryFee)}</Text></View> : null}
         <View style={s.grand}><Text style={[s.grandTxt,{maxWidth:"75%",flexShrink:1}]}>Rental charges</Text><Text style={s.grandTxt}>{gbp(rentalGross)}</Text></View>
-        {data.creditApplied > 0 ? <View style={s.totRow}><Text>Store credit used</Text><Text>−{gbp(data.creditApplied)}</Text></View> : null}
-        <View style={s.totRow}><Text>Refundable security payment taken</Text><Text>{gbp(data.securityPaid)}</Text></View>
-        {data.savedCardLimit!==undefined&&<><View style={s.totRow}><Text>Saved-card collection limit · not charged or held</Text><Text>{gbp(data.savedCardLimit)}</Text></View><View style={s.totRow}><Text>Damage/loss assessed · not collected by this return</Text><Text>{gbp(data.damageAssessed??0)}</Text></View></>}
-        <View style={s.totRow}><Text>Card charged at checkout</Text><Text>{gbp(data.checkoutPaid)}</Text></View>
-        {(data.rentalRefunded??0)>0&&<View style={s.totRow}><Text>Rental payment already refunded</Text><Text>−{gbp(data.rentalRefunded!)}</Text></View>}
-        <View style={s.totRow}><Text>{draft ? "Expected security refund at return" : "Security payment refunded at return"}</Text><Text>−{gbp(data.securityRefunded)}</Text></View>
-        {data.damageTotal > 0 ? <View style={s.totRow}><Text>{draft ? "Documented damage/loss to retain" : "Documented damage/loss retained"}</Text><Text>{gbp(data.damageTotal)}</Text></View> : null}
+        {data.creditApplied > 0 ? <View style={s.totRow}><Text style={s.totLabel}>Store credit used</Text><Text style={s.totValue}>−{gbp(data.creditApplied)}</Text></View> : null}
+        <View style={s.totRow}><Text style={s.totLabel}>Refundable security payment taken</Text><Text style={s.totValue}>{gbp(data.securityPaid)}</Text></View>
+        {data.savedCardLimit!==undefined&&<><View style={s.totRow}><Text style={s.totLabel}>Saved-card collection limit · not charged or held</Text><Text style={s.totValue}>{gbp(data.savedCardLimit)}</Text></View><View style={s.totRow}><Text style={s.totLabel}>{data.securityPaid>0?"Damage/loss assessed · cash retained below":"Damage/loss assessed · not collected by this return"}</Text><Text style={s.totValue}>{gbp(data.damageAssessed??0)}</Text></View></>}
+        <View style={s.totRow}><Text style={s.totLabel}>Card charged at checkout</Text><Text style={s.totValue}>{gbp(data.checkoutPaid)}</Text></View>
+        {(data.rentalRefunded??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>Rental payment already refunded</Text><Text style={s.totValue}>−{gbp(data.rentalRefunded!)}</Text></View>}
+        <View style={s.totRow}><Text style={s.totLabel}>{draft?"Expected security refund at return":data.depositRefundState?"Deposit refund confirmed":"Security payment refunded at return"}</Text><Text style={s.totValue}>−{gbp(draft?data.securityRefunded:data.depositRefundState?data.securityRefundedConfirmed??0:data.securityRefunded)}</Text></View>
+        {!draft&&data.depositRefundState&&data.securityRefunded>(data.securityRefundedConfirmed??0)&&<View style={s.totRow}><Text style={s.totLabel}>{data.depositRefundState==="pending"?"Refund processing at bank":"Refund awaiting resolution"}</Text><Text style={s.totValue}>{gbp(data.securityRefunded-(data.securityRefundedConfirmed??0))}</Text></View>}
+        {data.damageTotal > 0 ? <View style={s.totRow}><Text style={s.totLabel}>{draft ? "Documented damage/loss to retain" : "Documented damage/loss retained"}</Text><Text style={s.totValue}>{gbp(data.damageTotal)}</Text></View> : null}
         {data.damageTotal > 0 ? <Text style={s.note}>{draft ? "Expected damage from authorised hold" : "Damage paid from authorised hold"}: {gbp(data.damageFromHold)}. From refundable security payment: {gbp(damageFromPayment)}. These are parts of the same deduction.</Text> : null}
         <View style={s.grand}><Text style={[s.grandTxt,{maxWidth:"75%",flexShrink:1}]}>{draft ? "Expected net card payment" : "Net card paid after return"}</Text><Text style={[s.grandTxt,{flexShrink:0,textAlign:"right"}]}>{gbp(netCardPaid)}</Text></View>
         <Text style={s.note}>All rental card charges, less confirmed rental and security refunds, plus any hold captured for damage. Store credit used: {gbp(data.creditApplied)}. Separate late time is excluded and may be collected later.</Text>
@@ -198,7 +201,7 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
         {data.agreedReturnTime ? <Text style={s.note}>Agreed return slots are shown against each item above (legacy default: {data.agreedReturnTime} London time). Actual return: {dateTime(data.actualReturnedAt)} London time.</Text> : null}
         {data.lateWaived > 0 ? <Text style={s.note}>Late rental time waived: {gbp(data.lateWaived)}.</Text> : null}
         {data.lateBreakdown.map((line, i) => <Text key={i} style={s.note}>{line.title}: {line.days} extra day{line.days === 1 ? "" : "s"} × {gbp(line.dailyRate)} = {gbp(line.amount)}</Text>)}
-        <Text style={s.note}>{data.savedCardLimit!==undefined?"No security payment or card hold was created. This return statement does not execute a damage or late-fee payment; any collection requires a separate itemised notice, seven-day dispute period and administrator approval.":(draft ? "Expected hold status after settlement" : "Card hold status at return")+": "+(data.holdStatus || "not recorded")+". "+(data.damageTotal > 0 ? "The damage deduction used the hold first; a separate late charge is not taken from that same hold." : "An unused active hold may be applied to a late charge after notice; the issuer controls expiry.")}</Text>
+        <Text style={s.note}>{data.savedCardLimit!==undefined&&data.securityPaid>0?`Refundable cash deposit paid: ${gbp(data.securityPaid)}. Retained deposit reduces the same assessed damage and combined saved-card limit; ${gbp(Math.max(0,data.savedCardLimit-data.damageTotal))} remains available for later damage/late-fee collection. No additional card hold was created. ${data.depositRefundState==="failed"?"The unresolved original-card refund requires provider review.":data.depositRefundState==="pending"?"The original-card refund is processing at the bank.":""}`:data.savedCardLimit!==undefined?"No security payment or card hold was created. This return statement does not execute a damage or late-fee payment; any collection requires a separate itemised notice, seven-day dispute period and administrator approval.":(draft ? "Expected hold status after settlement" : "Card hold status at return")+": "+(data.holdStatus || "not recorded")+". "+(data.damageTotal > 0 ? "The damage deduction used the hold first; a separate late charge is not taken from that same hold." : "An unused active hold may be applied to a late charge after notice; the issuer controls expiry.")}</Text>
         <Text style={s.note}>Db Cinema Rentals is not VAT registered. No VAT is charged. This return statement is not a VAT invoice.</Text>
       </View>
     </Page>

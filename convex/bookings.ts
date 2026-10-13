@@ -1,3 +1,4 @@
+import {depositRefundProjection,depositRefundState,depositRefundStatementFields} from "../shared/depositRefundStatus";
 import { depositReturnReceipt } from "./lib/depositReturnReceipt";
 import { securityReturnPlan } from "./lib/rentalPaymentPlan";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
@@ -735,6 +736,7 @@ export const adminList = query({
       returnedAt: b.returnedAt ?? null,
       actualReturnedAt: b.actualReturnedAt ?? null,
       returnDecision: b.returnDecision ?? null,
+      returnStatement:b.returnStatement??null,
       returnTime: b.returnTime ?? null,
       returnStatementEmailStatus: b.returnStatementEmailStatus ?? null,
       hasReturnStatement: !!b.returnStatement,
@@ -818,6 +820,7 @@ export const getForRefund = internalQuery({
       guestEmail: b.guestEmail ?? null,
       returnDecision: b.returnDecision ?? null,
       depositReturnReceipts:b.depositReturnReceipts??[],
+      depositReturnReceiptHistory:b.depositReturnReceiptHistory??[],
       depositRefunded: b.depositRefunded ?? false,
       depositKept: b.depositKept ?? 0,
       depositRefundAmount: b.depositRefundAmount ?? 0,
@@ -1054,13 +1057,14 @@ export const recordLateFee = internalMutation({
         agreedReturnTime: b.returnTime,
         supplierName: "DB Cinema Rentals",
         supplierAddress: undefined,
-        customerName: customer?.name || undefined,
+        customerName: b.guestName || b.agreementName || customer?.name || undefined,
         customerEmail: b.guestEmail ?? "",
         billingAddress: b.billingAddress ?? b.address,
         lineItems: rentalBillingLines(b),
         subtotal: b.subtotal, discount: b.discount ?? 0, deliveryFee: b.deliveryFee ?? 0,
         creditApplied: b.creditApplied ?? 0, checkoutPaid: b.total, rentalRefunded:confirmedRentalRefundPence(refundJobs)/100,
         securityPaid: b.depositAmount, securityRefunded: b.depositRefundAmount ?? 0,
+        ...(b.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION?depositRefundStatementFields(b):{}),
         holdStatus: b.depositHoldStatus,
         damageTotal: b.depositKept ?? 0, damageFromHold: b.depositHoldCapturedForDamage ?? 0,
         ...(isSavedCardRental(b)?{savedCardLimit:b.savedCardLimit,damageAssessed:b.returnDecision?.damageKept??0}:{}),
@@ -2027,6 +2031,19 @@ export const recordDepositReturnReceipt=internalMutation({args:{bookingId:v.id("
  const allocation=securityReturnPlan(sources,amountPence).find(row=>row.paymentIntentId===receipt.paymentIntentId);
  if(!allocation||receipt.amountPence!==allocation.amountPence||!Number.isSafeInteger(receipt.attemptedAt)||receipt.attemptedAt<=0)throw Error("The refund receipt does not match the frozen deposit allocation.");
  const rows=b.depositReturnReceipts??[],previous=rows.find(row=>row.paymentIntentId===receipt.paymentIntentId);
- if(previous&&(previous.amountPence!==receipt.amountPence||previous.attemptedAt!==receipt.attemptedAt||(previous.stripeRefundId&&previous.stripeRefundId!==receipt.stripeRefundId)||(previous.approvalRequestId&&previous.approvalRequestId!==receipt.approvalRequestId)))throw Error("The original deposit refund identity cannot be replaced.");
- await ctx.db.patch(bookingId,{depositReturnReceipts:[...rows.filter(row=>row.paymentIntentId!==receipt.paymentIntentId),receipt]});
+ if(previous&&(previous.amountPence!==receipt.amountPence||previous.attemptedAt!==receipt.attemptedAt||previous.attemptKey!==receipt.attemptKey||(previous.stripeRefundId&&previous.stripeRefundId!==receipt.stripeRefundId)||(previous.approvalRequestId&&previous.approvalRequestId!==receipt.approvalRequestId)))throw Error("The original deposit refund identity cannot be replaced.");
+ if(previous&&JSON.stringify(previous)===JSON.stringify(receipt))return;
+ const updated=[...rows.filter(row=>row.paymentIntentId!==receipt.paymentIntentId),receipt],state=depositRefundState(updated,amountPence);
+ await ctx.db.patch(bookingId,{depositReturnReceipts:updated,...(b.returnStatement?{returnStatement:{...b.returnStatement,...depositRefundStatementFields({...b,depositReturnReceipts:updated})}}:{}),...(["failed","awaiting_approval","processing"].includes(state)?{depositRefunded:false}:{})});await queueRmv2Sync(ctx,bookingId);
 }});
+
+export const beginDepositRefundRetry=internalMutation({args:{bookingId:v.id("bookings"),refundId:v.string(),requestId:v.string(),expectedSnapshot:v.string()},handler:async(ctx,a)=>{
+ const b=await ctx.db.get(a.bookingId);if(!b||b.securityPolicyVersion!==REFUNDABLE_DEPOSIT_POLICY_VERSION||!b.returnDecision||!/^[a-zA-Z0-9-]{16,80}$/.test(a.requestId))throw Error("Invalid deposit refund retry.");
+ const history=b.depositReturnReceiptHistory??[],rows=b.depositReturnReceipts??[];
+ const replay=rows.find(r=>r.attemptKey===a.requestId);if(replay&&history.some(r=>r.stripeRefundId===a.refundId&&r.paymentIntentId===replay.paymentIntentId))return replay;
+ const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",a.bookingId)).take(101);if(refunds.length>100||rentalControlsSnapshot(b,refunds)!==a.expectedSnapshot)throw Error("The refund changed after review. Refresh and review again.");
+ const old=rows.find(r=>r.stripeRefundId===a.refundId);if(!old||old.status!=="failed"||history.length>=100)throw Error("Only a provider-confirmed failed refund can be retried.");
+ const receipt={paymentIntentId:old.paymentIntentId,amountPence:old.amountPence,attemptedAt:Date.now(),attemptKey:a.requestId,status:"unknown" as const};
+ await ctx.db.patch(b._id,{depositRefunded:false,depositReturnReceiptHistory:[...history,old],depositReturnReceipts:rows.map(r=>r===old?receipt:r)});await queueRmv2Sync(ctx,b._id);return receipt;
+}});
+export const depositSettlementStatus=query({args:{token:v.string(),bookingId:v.id("bookings")},handler:async(ctx,a)=>{if(!checkAdminToken(a.token))throw Error("unauthorized");const b=await ctx.db.get(a.bookingId);if(!b)return null;const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",a.bookingId)).take(101);if(refunds.length>100)throw Error("Refund history requires review.");return {...depositRefundProjection(b),decided:!!b.returnDecision,snapshot:rentalControlsSnapshot(b,refunds)};}});

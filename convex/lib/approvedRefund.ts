@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 
 export type RefundReceipt = {
   paymentIntentId: string; amountPence: number; attemptedAt: number;
+  attemptKey?: string;
   stripeRefundId?: string; approvalRequestId?: string; approvalUrl?: string;
   status: "unknown" | "awaiting_approval" | "pending" | "succeeded" | "failed";
 };

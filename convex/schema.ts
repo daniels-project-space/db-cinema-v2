@@ -350,6 +350,7 @@ export default defineSchema({
     returnedAt: v.optional(v.number()), // when the rental was marked returned + deposit released
     actualReturnedAt: v.optional(v.number()),
     depositReturnReceipts: v.optional(v.array(depositReturnReceipt)),
+    depositReturnReceiptHistory:v.optional(v.array(depositReturnReceipt)),
     returnDecision: v.optional(v.object({
       actualReturnedAt: v.number(), damageKept: v.number(), depositKept: v.optional(v.number()), expectedSnapshot: v.optional(v.string()),
       damageNote: v.optional(v.string()), chargeLate: v.boolean(),
@@ -388,7 +389,7 @@ export default defineSchema({
       checkoutPaid: v.number(), rentalRefunded:v.optional(v.number()), securityPaid: v.number(), securityRefunded: v.number(),
       holdStatus: v.optional(v.string()),
       damageTotal: v.number(), damageFromHold: v.number(), damageNote: v.optional(v.string()),
-      savedCardLimit:v.optional(v.number()),damageAssessed:v.optional(v.number()),
+      savedCardLimit:v.optional(v.number()),damageAssessed:v.optional(v.number()),depositRefundState:v.optional(v.string()),securityRefundedConfirmed:v.optional(v.number()),
       inspection: v.optional(v.array(inspectionRecord)),
       lateAssessed: v.number(), lateWaived: v.number(),
       lateBreakdown: v.array(v.object({ title: v.string(), days: v.number(), dailyRate: v.number(), amount: v.number() })),

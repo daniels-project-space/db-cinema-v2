@@ -13,6 +13,7 @@ export function rentalControlsSnapshot(
     booking.savedCardLimit ?? null,
     booking.depositKept ?? 0,
     !!booking.depositRefunded,
+    (booking.depositReturnReceipts??[]).map((r:any)=>[r.paymentIntentId,r.stripeRefundId??null,r.status,r.attemptKey??null,r.attemptedAt]),
     booking.depositHoldAmount ?? null,
     booking.depositHoldStatus ?? null,
     booking.activeAdditionId ?? null,
