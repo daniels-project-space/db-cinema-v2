@@ -203,6 +203,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
       return args.code==='better15'?{valid:true,discount:75}:validate.handler({},args);
     }})},
     '@cvx/_generated/api':{api:refs},'@cvx/lib/gafferDiscount':{GAFFER_PRICE_CODE:'gaffer10'},
+    '@/components/account/useCreditBalance':{useCreditBalance:()=>undefined},
     '@/components/cart/CartProvider':{useCart:()=>cart},'@/components/account/AccountProvider':{useAccount:()=>({})},
     '@/lib/pricing':{},'@/lib/voiceDates':{londonToday:()=> '2026-09-13',resolveDate:()=>({ok:true,date:'2026-09-14'}),inclusiveDays:()=>1},'@/lib/dates':{dayMs:()=>0},
     '@/components/gaffer/GafferFocus':{useGafferFocus:()=>({focusedId:null,suggestedIds:[],focus:()=>{},suggest:async()=>false}),scrollToId:async()=>false},

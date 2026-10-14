@@ -22,7 +22,8 @@ export const claim = internalMutation({ args: { bookingId: v.id("bookings"),
   accountId: v.optional(v.id("accounts")), adminReason: v.optional(v.string()), legacy: v.boolean() },
 handler: async (ctx, args) => {
   const b = await ctx.db.get(args.bookingId), now = Date.now();
-  if (!b?.cancellationDecision?.quote || !["pending_payment", "confirmed"].includes(b.status)) return null;
+  if (!b?.cancellationDecision?.quote || !(["pending_payment", "confirmed"].includes(b.status)||b.status==="cancelled"&&b.cancellationDecision.operatorOfferId)) return null;
+  if(b.cancellationDecision.operatorOfferId){const offer=await ctx.db.get(b.cancellationDecision.operatorOfferId);if(offer?.state!=="chosen"||!offer.choice)throw Error("Operator settlement choice is not ready.");}
   let job = await ctx.db.query("rental_cancellations").withIndex("by_booking", q => q.eq("bookingId", args.bookingId)).unique();
   if (job && (job.status === "succeeded" || job.leaseUntil > now)) return null;
   if (!job) {

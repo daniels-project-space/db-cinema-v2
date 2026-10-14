@@ -1,4 +1,6 @@
 import { rentalsForAccount } from "./lib/rentalAccount";
+import {availableCreditRows} from "./lib/checkoutCredit";
+import {operatorCancellationOptions} from "../shared/operatorCancellationCredit";
 import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "./lib/rentalChat";
 import { accountForRental } from "./lib/rentalAccount";
 import { bookingCancelKind, cancellationDaysForBooking } from "../src/lib/cancellationPolicy";
@@ -107,6 +109,9 @@ export const _gafferContext = internalQuery({
         return `${li.title}: ${contentsText(listing)}`;
       }));
       const credit=pick.creditIssuedId?await ctx.db.get(pick.creditIssuedId as Id<"credits">):null;
+      const creditIssue=await ctx.db.query("credit_issues").withIndex("by_booking",q=>q.eq("bookingId",pick._id)).unique();
+      const operatorChoice=pick.cancellationDecision?.operatorOfferId?await ctx.db.get(pick.cancellationDecision.operatorOfferId as Id<"operator_cancellation_offers">):null;
+      const operatorAmounts=operatorChoice?.cashRemainingPence==null?null:operatorCancellationOptions({cashRemainingPence:operatorChoice.cashRemainingPence,securityRemainingPence:operatorChoice.securityRemainingPence??0,spentCreditPence:operatorChoice.spentCreditPence??0});
       const refunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",pick._id)).collect();
       const addition=pick.activeAdditionId?await ctx.db.get(pick.activeAdditionId as Id<"rental_additions">):null;
       const extensionRequests=await ctx.db.query("booking_change_requests").withIndex("by_booking",q=>q.eq("bookingId",pick._id)).order("desc").take(20);
@@ -116,8 +121,9 @@ export const _gafferContext = internalQuery({
         pendingItemAddition:addition?{title:addition.title,qty:addition.qty,status:addition.status,rentalCharge:addition.lineTotal,securityCharge:addition.securityCharge,updatedHold:addition.holdTotal,applied:false}:null,
         pendingExtension:extension?{status:extension.status,extraDays:extension.extraDays,charge:extension.priceDelta,requestedReturnTime:extension.requestedReturnTime,approvedReturnTime:extension.approvedReturnTime,proposedItems:extension.quoteItems?.map(i=>({title:i.title,qty:i.qty,proposedReturn:iso(i.end)})),applied:false}:null,
         rentalContents,
+        operatorCancellation:operatorChoice?{state:operatorChoice.state,choice:operatorChoice.choice??null,decisionAfter:operatorChoice.decisionAfter,choiceDeadline:operatorChoice.choiceDeadline??null,creditPence:operatorAmounts?.credit.creditPence??null,cashRefundPence:operatorAmounts?.refund.cardRefundPence??null,depositRefundPence:operatorChoice.securityRemainingPence??null}:null,
         stage:pick.status,
-        cancellation:{fullRefundDays:cancellationDaysForBooking(pick),policy:pick.cancellationDecision?.kind??bookingCancelKind(pick,Date.now()),cardRefund:pick.refundAmount??null,creditIssued:credit?.amount??0,creditExpiresAt:credit?.expiresAt??null,rentalRefunds:refunds.map(r=>({amount:r.amountPence/100,status:r.status}))},
+        cancellation:{fullRefundDays:cancellationDaysForBooking(pick),policy:pick.cancellationDecision?.kind??bookingCancelKind(pick,Date.now()),cardRefund:pick.refundAmount??null,creditIssued:creditIssue?creditIssue.amountPence/100:credit?.amount??0,creditBonus:(creditIssue?.bonusPence??0)/100,creditExpiresAt:creditIssue?.expiresAt??credit?.expiresAt??null,rentalRefunds:refunds.map(r=>({amount:r.amountPence/100,status:r.status}))},
         payment:{securityPolicyVersion:pick.securityPolicyVersion??null,savedCardLimit:pick.savedCardLimit??null,total:pick.total,securityPaid:pick.depositAmount,securityRefunded:pick.depositRefundAmount??null,depositRefunded:!!pick.depositRefunded,securityRetained:pick.depositKept??0,holdStatus:pick.depositHoldStatus??null,savedCardChargePaidPence:pick.savedCardChargePaidPence??0,savedCardChargeReservedPence:pick.savedCardChargeReservedPence??0,lateFee:pick.lateFeeAmount??0,lateFeeStatus:pick.lateFeeStatus??null},
         summary: pick.lineItems.map((li: any) => li.title).join(", "),
         dates: `${iso(start)} → ${iso(end)}`,
@@ -128,7 +134,10 @@ export const _gafferContext = internalQuery({
       };
     }
     const settings: any = await ctx.db.query("settings").first();
+    const creditRows=await availableCreditRows(ctx,acct._id),availableCreditPence=creditRows.reduce((n:number,row:any)=>n+row.availablePence,0);
     return {
+      accountCredit:{available:availableCreditPence/100,expiresAt:creditRows.find((row:any)=>row.availablePence>0)?.expiresAt??null,currency:"GBP",selection:"Choose Use account credit at checkout; it is not automatically spent",nonRefundable:true,securityAndMembershipExcluded:true},
+      checkoutUi:{accountCredit:"Header credit bar opens Account credit and receipts. Checkout shows the credit checkbox only when an available balance exists.",cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true",cancellationProtection:"Free shield card at checkout opens the policy. After DB cancels before pickup and the one-hour account decision, eligible renters receive private email links to review a full refund or 130% rental credit, with refundable deposit returned separately. No choice is executed by opening a link."},
       accountRentals: (await rentalsForAccount(ctx,acct,10)).map(b => ({id:b._id,status:b.status,items:b.lineItems.map((i:any)=>({title:i.title,qty:i.qty,start:i.start,end:i.end})),total:b.total,securityPaid:b.depositAmount})),
       email: acct.email,
       gafferGeneration: thread?.gafferGeneration ?? 0,

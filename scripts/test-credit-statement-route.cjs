@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),ts=require('typescript'),h=require('./lib/rentalTestHarness.cjs');
+(async()=>{
+ const renderer=await import('@react-pdf/renderer'),doc={exports:{}};
+ const code=ts.transpileModule(fs.readFileSync('src/lib/invoice/CreditStatementDocument.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+ new Function('require','module','exports',code)(name=>name==='@react-pdf/renderer'?renderer:require(name),doc,doc.exports);
+ const account=h.put('accounts',{email:'receipt-route@example.invalid',name:'Receipt Route QA'}),foreign=h.put('accounts',{email:'foreign@example.invalid'});
+ h.put('sessions',{token:'route-owner',accountId:account._id,expiresAt:Date.now()+86400000});h.put('sessions',{token:'route-foreign',accountId:foreign._id,expiresAt:Date.now()+86400000});
+ const credit=h.put('credits',{accountId:account._id,amount:10,remaining:10,currency:'GBP',reason:'admin_grant:Owner test credit',createdAt:Date.now(),expiresAt:Date.now()+365*86400000,status:'active'});
+ const statements=h.load('convex/accountCredits.ts');let queries=0;
+ h.setMock('convex/browser',{ConvexHttpClient:class{constructor(url){assert.equal(url,'https://fixture.invalid')}async query(ref,args){queries++;assert.equal(ref,'accountCredits.statement');return statements.statement.handler({db:h.db},args)}}});
+ h.setMock('@cvx/_generated/api',{api:{accountCredits:{statement:'accountCredits.statement'}}});h.setMock('@react-pdf/renderer',renderer);h.setMock('@/lib/invoice/CreditStatementDocument',doc.exports);
+ process.env.NEXT_PUBLIC_CONVEX_URL='https://fixture.invalid';const route=h.load('src/app/api/credits/statement/route.ts'),{NextRequest}=require('next/server');
+ const request=(token,creditId=credit._id,origin='https://fixture.invalid')=>new NextRequest('https://fixture.invalid/api/credits/statement',{method:'POST',headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{}),origin},body:JSON.stringify({creditId})});
+ assert.equal((await route.POST(request(null))).status,401);assert.equal(queries,0);
+ assert.equal((await route.POST(request('route-owner',credit._id,'https://foreign.invalid'))).status,403);assert.equal(queries,0);
+ assert.equal((await route.POST(request('route-owner',null))).status,400);assert.equal(queries,0);
+ assert.equal((await route.POST(request('route-foreign'))).status,403);
+ assert.equal((await route.POST(request('route-owner','unknown-credit'))).status,403);
+ const response=await route.POST(request('route-owner'));assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'application/pdf');assert.equal(response.headers.get('cache-control'),'private, no-store');assert.equal(response.headers.get('referrer-policy'),'no-referrer');assert.match(response.headers.get('content-disposition'),/^attachment; filename="DBC-C-[A-Z0-9-]+.pdf"$/);
+ const pdf=Buffer.from(await response.arrayBuffer());assert.equal(pdf.subarray(0,5).toString(),'%PDF-');assert(pdf.length>1000);
+ assert.equal((await statements.statement.handler({db:h.db},{token:'route-owner',creditId:credit._id})).reason,'Owner test credit');
+ console.log('PASS actual PDF HTTP handler → owned registered query → real renderer, with missing auth / cross-origin / invalid receipt / foreign ownership rejection and private PDF headers. No provider calls or production writes.');
+})().catch(e=>{console.error(e);process.exitCode=1});

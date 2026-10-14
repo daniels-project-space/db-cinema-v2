@@ -4,7 +4,7 @@ import { MEMBERSHIP_TERMS_VERSION } from "@/lib/membership";
 import {currentLegalVersion} from "@/lib/currentLegalVersion";
 export const dynamic="force-dynamic";
 export default async function MembershipTerms() {
- const assessment=await currentLegalVersion()==="2026-10-v15";
+ const assessment=["2026-10-v15","2026-10-v16"].includes(await currentLegalVersion());
  const sections = [
   ["Your membership", "DB Cinema Rentals offers Starter at £19, Pro at £49 and Studio at £99 per month, billed in GBP. You must be at least 18 and have an account. These are recurring memberships, not a single rental purchase. We are not VAT registered and do not add VAT."],
   ["Welcome offer and renewal", "The standalone membership page may offer seven free days followed by the monthly fee. Membership added in a rental basket or checkout starts paid membership immediately; no free-week offer is available there. The former £20 welcome-credit offer is no longer available for new checkouts; previously granted credits and already accepted offers retain their applicable terms. The free-week offer is available once per customer and cannot be repeated by canceling and rejoining. Stripe shows your first charge and renewal before you approve. The free week earns no monthly credit and does not waive the upfront rental security payment."],

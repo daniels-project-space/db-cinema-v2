@@ -9,6 +9,7 @@ import { getSessionId } from "@/lib/session";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { BookingPanel } from "@/components/booking/BookingPanel";
+import {RentalContentsList} from "@/components/booking/RentalContentsList";
 import { Recommendations } from "@/components/Recommendations";
 import { useGafferFocus } from "@/components/gaffer/GafferFocus";
 import { SmartImage } from "@/components/SmartImage";
@@ -240,10 +241,11 @@ export default function GearDetailClient({ slug }: { slug: string }) {
               <ShareButton title={listing.title} />
             </div>
             <p className="mt-4 text-balance leading-relaxed text-white/60">
-              {k.summary ||
+              {listing.description || k.summary ||
                 `Professional ${listing.category.toLowerCase()} for hire in London. Pick your dates and the longer you rent, the better the per-day rate. Delivered across London or collect central.`}
             </p>
 
+            {listing.description ? <RentalContentsList listing={listing}/> : null}
             {Array.isArray(k.features) && k.features.length > 0 && (
               <ul className="mt-6 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 {k.features.slice(0, 6).map((f: string, i: number) => (

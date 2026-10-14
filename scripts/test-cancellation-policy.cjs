@@ -32,6 +32,19 @@ assert.equal(cancellationDaysForBooking(booking),14);
 assert.equal(bookingCancelKind(booking,at(2026,10,11,22)),'full_refund');
 assert.equal(bookingCancelKind(booking,at(2026,10,11,23)),'store_credit','London midnight, rather than UTC midnight, closes the window');
 assert.equal(bookingCancelKind(booking,at(2026,10,12)),'store_credit');
+for(const version of ['2026-10-v13','2026-10-v14','2026-10-v15']){
+ const signed={...booking,agreementDocs:[{kind:'cancellation',version}]};
+ assert.equal(cancellationDaysForBooking(signed),14,'The archived signed text governs each historical version');
+ assert.equal(bookingCancelKind(signed,at(2026,10,11)),'full_refund');
+ assert.equal(bookingCancelKind(signed,at(2026,10,12)),'store_credit');
+}
+const seven={...booking,agreementDocs:[{kind:'cancellation',version:'2026-10-v16'}]};
+assert.equal(cancellationDaysForBooking(seven),7);
+for(const [now,start]of [[at(2026,3,22),at(2026,3,29)],[at(2026,10,18),at(2026,10,25)]]){
+ assert.equal(bookingCancelKind({...seven,lineItems:[{start}]},now),'store_credit','Exactly seven London calendar days is the new credit boundary across DST');
+ assert.equal(bookingCancelKind({...seven,lineItems:[{start}]},now-86400000),'full_refund');
+ assert.equal(bookingCancelKind({...seven,lineItems:[{start}]},now+86400000),'store_credit');
+}
 for(const agreementDocs of [undefined,[{kind:'cancellation',version:'2026-10-v10'}]]) {
   const older={...booking,agreementDocs};
   assert.equal(cancellationDaysForBooking(older),3);

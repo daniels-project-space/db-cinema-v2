@@ -1,4 +1,5 @@
 "use client";
+import {AccountCreditReceipts} from "@/components/account/AccountCreditReceipts";
 import { REVIEW_PRIZE_GBP } from "../../../shared/reviewPrize";
 import { ReferralPanel } from "@/components/account/ReferralPanel";
 import { EncoreCrest } from "@/components/account/LoyaltyCelebration";
@@ -205,8 +206,10 @@ function Dashboard() {
   // in your chat" — the chat is a tab, so the hash has to select it or they land
   // on Rentals wondering where the conversation went.
   useEffect(() => {
+    const openCredit=()=>{setTab("rentals");requestAnimationFrame(()=>requestAnimationFrame(()=>{const section=document.getElementById("credits") as HTMLDetailsElement|null;if(section){section.open=true;section.scrollIntoView({block:"center",behavior:"smooth"})}}))};
     const openFromHash = () => {
       const section=window.location.hash.slice(1).toLowerCase();
+      if(section==="credits")openCredit();
       if (["rentals", "calendar", "invoices", "chat", "plans", "profile", "membership", "security"].includes(section)) setTab(section as typeof tab);
       if (window.location.hash.replace("#", "").toLowerCase() === "chat") {
         setTab("chat");
@@ -223,9 +226,10 @@ function Dashboard() {
       const id = (event as CustomEvent<{ bookingId?: string }>).detail?.bookingId;
       if (id) setChatBooking(id);
     };
+    window.addEventListener("dbc:open-account-credit",openCredit);
     window.addEventListener("hashchange", openFromHash);
     window.addEventListener("dbc:open-rental-chat", openChat);
-    return () => { window.removeEventListener("hashchange", openFromHash); window.removeEventListener("dbc:open-rental-chat", openChat); };
+    return () => { window.removeEventListener("dbc:open-account-credit",openCredit);window.removeEventListener("hashchange", openFromHash); window.removeEventListener("dbc:open-rental-chat", openChat); };
   }, []);
 
   async function save() {
@@ -283,7 +287,7 @@ function Dashboard() {
       </AccountProfilePill>}
 
       {tab === "calendar" && <div className="mt-6 max-w-3xl"><RentalCalendar bookings={bookings as any} loading={rentalPages.status !== "Exhausted"} onOpenRental={id=>{setChatBooking(id);setTab("chat");}} /></div>}
-      {tab === "invoices" && <InvoiceLibrary rentals={bookings} token={account.token!} />}
+      {tab === "invoices" && <><InvoiceLibrary rentals={bookings} token={account.token!} /><AccountCreditReceipts token={account.token!}/></>}
       {["calendar", "invoices"].includes(tab) && rentalPages.status === "CanLoadMore" && <button onClick={() => rentalPages.loadMore(30)} className="mt-5 rounded-lg border border-white/15 px-5 py-2 text-xs text-white/70">Load older rentals and documents</button>}
       {tab === "plans" && <ShootLists />}
 
@@ -293,7 +297,7 @@ function Dashboard() {
           historyLoading={rentalPages.status !== "Exhausted"} unreadMessages={unreadMessages}
           onOpenChat={id=>{setChatBooking(id??null);setTab("chat");}}
           onOpenCalendar={()=>setTab("calendar")}/>
-        <details className="mt-6 rounded-lg border border-white/10 bg-[#1b1c1b] p-5">
+        <details id="credits" className="mt-6 rounded-lg border border-white/10 bg-[#1b1c1b] p-5">
           <summary className="cursor-pointer text-sm text-white/65">Account credit, rewards &amp; saved gear</summary>
           <div className="mt-5 grid items-start gap-4 lg:grid-cols-3">
               <div className="mb-4 rounded-3xl border border-white/[0.06] bg-[#141414] p-5">

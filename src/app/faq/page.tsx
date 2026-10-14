@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 export default async function FAQPage() {
-  const version=await currentLegalVersion(),cash=version===REFUNDABLE_DEPOSIT_LEGAL_VERSION,assessment=version==="2026-10-v15";
+  const version=await currentLegalVersion(),cash=version===REFUNDABLE_DEPOSIT_LEGAL_VERSION,assessment=["2026-10-v15","2026-10-v16"].includes(version);
   const faqs=FAQS.map(f=>assessment&&f.q==="What about deposits and insurance?"?{...f,a:"Refundable deposits start at £20 below £1,000 combined equipment value, £50 from £1,000 to below £4,000 and £100 from £4,000. Eligible active members/subscribers and verified Encore renters have no cash deposit. A return without issues automatically refunds unused deposit to the original card. Stripe saves a card for evidenced damage, loss and late-fee payments after an itemised notice and review period. Retained deposit reduces the same assessment. ID and address checks must be approved before handover. Existing bookings retain their accepted terms."}:cash&&f.q==="What about deposits and insurance?"?{...f,a:"No deposit below £1,000 combined equipment replacement value; £50 from £1,000 to below £4,000; £100 at £4,000 or more. Unused deposit returns to the original card after return. Any retained amount and reason appear on your completion statement and reduce the same assessed loss and later card allowance. The existing 10% combined saved-card damage/late-fee permission remains. No extra card hold is placed. Identity and address checks and approval are required before handover. Existing bookings keep their accepted terms. "+f.a.slice(f.a.indexOf("These are security"))}:f);
   const jsonLd = {
     "@context": "https://schema.org",

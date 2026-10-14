@@ -7,9 +7,15 @@ export function creditKind(c:any):"refund"|"earned" {
 /** Per-source reservations prevent a refund balance from reserving promotional money. */
 export async function availableCreditRows(ctx:any,accountId:any){
   const account=await ctx.db.get(accountId);if(!account)return [];
-  const now=Date.now(),all=await ctx.db.query("credits").withIndex("by_account",(q:any)=>q.eq("accountId",accountId)).collect();
-  const rows=all.filter((c:any)=>c.status==="active"&&c.expiresAt>now).sort((a:any,b:any)=>a.expiresAt-b.expiresAt);
-  const pending=(await ctx.db.query("bookings").withIndex("by_guestEmail",(q:any)=>q.eq("guestEmail",account.email.trim().toLowerCase())).collect()).filter((b:any)=>b.status==="pending_payment");
+  const now=Date.now(),all=await ctx.db.query("credits").withIndex("by_account_status",(q:any)=>q.eq("accountId",accountId).eq("status","active")).take(501);
+  if(all.length>500)throw Error("Account credit history needs an administrator review before another checkout.");
+  const rows=all.filter((c:any)=>c.expiresAt>now).sort((a:any,b:any)=>a.expiresAt-b.expiresAt||String(a._id).localeCompare(String(b._id)));
+  const [linked,legacyBookings]=await Promise.all([
+   ctx.db.query("bookings").withIndex("by_account_status",(q:any)=>q.eq("accountId",accountId).eq("status","pending_payment")).take(101),
+   ctx.db.query("bookings").withIndex("by_guestEmail_status",(q:any)=>q.eq("guestEmail",account.email.trim().toLowerCase()).eq("status","pending_payment")).take(101),
+  ]);
+  if(linked.length>100||legacyBookings.length>100)throw Error("Open checkouts need reconciliation before another credit payment.");
+  const pending=[...new Map([...linked,...legacyBookings.filter((b:any)=>b.accountId==null)].map((b:any)=>[String(b._id),b])).values()];
   const reserved=new Map<string,number>();let legacy=0;
   for(const b of pending){
     if(b.creditAllocations)for(const a of b.creditAllocations)reserved.set(a.creditId,(reserved.get(a.creditId)??0)+Math.round(a.amount*100));

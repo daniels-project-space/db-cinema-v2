@@ -47,6 +47,7 @@ StripeFixture.prototype.customers={create:async()=>({id:'cus_fixture'}),retrieve
   assert(!params.custom_text.submit.message.includes('limit'));assert(!params.custom_text.submit.message.includes('10%'));if(cash)assert(!params.custom_text.submit.message.includes('No security money'));else assert(params.custom_text.submit.message.includes('No security money'));assert(params.custom_text.submit.message.length<=500);
   assert.equal(b.depositAmount,cash);assert.equal(JSON.parse(b.agreementSnapshot).version,'2026-10-v15');
   await bookings.confirm.handler(ctx,{bookingId:b._id,paymentIntentId:'pi-'+kind});
+  assert(Number.isSafeInteger(b.paidConfirmedAt),'Actual confirmation records payment evidence even for later cancellation');
   assert.equal(b.status,'confirmed');assert(h.tables.get('reservations').some(r=>r.bookingId===b._id&&r.status==='confirmed'));
   if(kind==='credit')assert.equal(quote.totalDue,20,'Refund credit cannot pay cash security');
   if(kind==='referral')assert.equal(quote.benefitKind,'referral_friend');
@@ -59,5 +60,28 @@ StripeFixture.prototype.customers={create:async()=>({id:'cus_fixture'}),retrieve
     assert.equal((await promo.validate.handler(ctx,{code:'db10off',token,eligibleSubtotal:100})).valid,false,'Refund/cancellation cannot restore the first-order voucher');
   }
  }
+ process.env.CANCELLATION_PROTECTION_POLICY_ENABLED='true';
+ for(const [index,useAccountCredit]of [false,true].entries()){
+  const account=h.put('accounts',{email:'credit-choice-'+index+'@example.invalid',emailVerifiedAt:Date.now(),stripeCustomerId:'cus_fixture'}),token='credit-choice-'+index;
+  h.put('sessions',{token,accountId:account._id,expiresAt:Date.now()+86400000});
+  h.put('credits',{accountId:account._id,amount:10,remaining:10,kind:'earned',currency:'GBP',createdAt:Date.now(),expiresAt:Date.now()+365*86400000,status:'active'});
+  const a=structuredClone(args);a.token=token;a.customer.email=account.email;a.useAccountCredit=useAccountCredit;a.items[0].start+=40*86400000+index*5*86400000;a.items[0].end+=40*86400000+index*5*86400000;
+  a.agreement.documents=legal.agreementsForSecurityPolicy(policy.ASSESSMENT_SECURITY_POLICY_VERSION,true);a.agreement.requestId='fixture-seven-day-choice-'+index;
+  const quote=await checkout.priceQuote.handler(ctx,{items:a.items,token,customerEmail:account.email,fulfilment:'pickup',useAccountCredit});
+  assert.equal(quote.cancellationProtectionEnabled,true);assert.equal(quote.availableAccountCredit,10);assert.equal(quote.creditApplied,useAccountCredit?10:0);
+  a.expectedTotalDue=quote.combinedTotalDue;a.expectedSavedCardLimit=0;
+  const stale={...a,agreement:{...a.agreement,documents:legal.agreementsForSecurityPolicy(policy.ASSESSMENT_SECURITY_POLICY_VERSION)}};
+  await assert.rejects(checkout.start.handler(ctx,stale),/current rental agreements/);
+  await checkout.start.handler(ctx,a);const params=captured.at(-1),b=h.tables.get('bookings').at(-1);
+  assert.equal(b.useAccountCredit,useAccountCredit);assert.equal(b.cancellationProtectionEnabled,true);
+  const snapshot=JSON.parse(b.agreementSnapshot);assert.equal(snapshot.version,'2026-10-v16');assert.equal(snapshot.particulars.useAccountCredit,useAccountCredit);
+  const cancellation=snapshot.documents.find(d=>d.kind==='cancellation').text;assert.match(JSON.stringify(cancellation),/seven or fewer London calendar days/);assert.match(JSON.stringify(snapshot.documents.find(d=>d.kind==='terms').text),/before booking/);
+  assert.equal(params.line_items.reduce((n,l)=>n+l.price_data.unit_amount*l.quantity,0),Math.round(quote.totalDue*100));assert.equal(quote.totalDue,useAccountCredit?110:120);assert.equal(b.depositAmount,20);
+  await bookings.confirm.handler(ctx,{bookingId:b._id,paymentIntentId:'pi-choice-'+index});
+  const invoice=await bookings.invoiceData.handler(ctx,{bookingId:b._id,token});assert.equal(invoice.creditApplied,useAccountCredit?10:0);assert.equal(invoice.total,quote.totalDue);
+  assert.equal(h.tables.get('credits').find(c=>c.accountId===account._id).remaining,useAccountCredit?0:10);
+  const paidNotice=h.tables.get('admin_notifications').find(n=>n.eventKey==='paid:'+b._id);assert.equal(paidNotice.income.net,useAccountCredit?90:100,'Money-made notifications exclude credit already funded or granted earlier');
+ }
+ delete process.env.CANCELLATION_PROTECTION_POLICY_ENABLED;
  console.log('PASS v2 future assessment policy actual quote → checkout → paid stock confirmation: plain, refund credit, paid member and referral; exact v15 acceptance, £20 protected cash and verified member/Encore exemptions, saved-card reuse, truthful Stripe text and physical allocation. Synthetic transport/data only.');
 }finally{global.fetch=realFetch}})().catch(e=>{console.error(e);process.exitCode=1});

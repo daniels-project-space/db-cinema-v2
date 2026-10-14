@@ -30,6 +30,8 @@ import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 import { dayMs as ms } from "@/lib/dates";
 import { HOURS_SENTENCE } from "@/lib/site";
 
+import {useCreditBalance} from "@/components/account/useCreditBalance";
+import {CancellationProtection} from "@/components/cart/CancellationProtection";
 import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, savedCardChargeLimit, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../../shared/rentalSecurity";
 
 const PC_RE = /\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i;
@@ -81,6 +83,8 @@ export default function CheckoutPage() {
   const account = useAccount();
   const promo = usePromo(eligibleSubtotal);
   const checkout = useCheckoutStatus();
+  const checkoutSettings=useQuery(api.settings.get,{});
+  const creditAvailability=useCreditBalance(account.token&&account.me?account.token:null);
   const start = useAction(api.checkout.start);
   const getPriceQuote = useAction(api.checkout.priceQuote);
   const getQuote = useAction(api.delivery.quote);
@@ -91,6 +95,7 @@ export default function CheckoutPage() {
   const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
   const acctPostcode = account.me?.address?.match(PC_RE)?.[1] ?? "";
 
+  const [useAccountCredit,setUseAccountCredit]=useState(false);
   const [email, setEmail] = useState(account.me?.email ?? "");
   const [name, setName] = useState(account.me?.name ?? "");
   const [phone, setPhone] = useState(account.me?.phone ?? "");
@@ -143,6 +148,7 @@ export default function CheckoutPage() {
     setAddress(draft?.address ?? profile?.address ?? "");
     setPostcode(draft?.postcode ?? profile?.address?.match(PC_RE)?.[1] ?? "");
     setProtection(draft?.protection ?? "verify");
+    setUseAccountCredit(draft?.useAccountCredit??false);
     setPickupTime(draft?.pickupTime ?? "");
     setReturnTime(draft?.returnTime ?? "");
     setAgreed(draft?.agreed ?? false);
@@ -158,10 +164,10 @@ export default function CheckoutPage() {
     if (!draftReady) return;
     saveCheckoutDraft(browserCheckoutStorage(), draftScope!, DRAFT_TERMS, {
       email, name, phone, billingAddress, fulfilment, address, postcode, protection,
-      pickupTime, returnTime, agreed, deliveryAgreed,
+      pickupTime, returnTime, agreed, deliveryAgreed,useAccountCredit,
     });
   }, [draftReady, draftScope, email, name, phone, billingAddress, fulfilment, address,
-    postcode, protection, pickupTime, returnTime, agreed, deliveryAgreed]);
+    postcode, protection, pickupTime, returnTime, agreed, deliveryAgreed,useAccountCredit]);
 
   useEffect(() => {
     const profile = account.me;
@@ -193,9 +199,9 @@ export default function CheckoutPage() {
     address: fulfilment === "delivery" ? address : undefined,
     deliveryPostcode: fulfilment === "delivery" ? postcode : undefined,
     promoCode: promo.applied ?? undefined,
-    protection,
+    protection,useAccountCredit,
   };
-  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null, account: accountPricingContext(account.me) });
+  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null, creditReservation:creditAvailability?.available??null, policy:{assessment:checkoutSettings?.assessmentSecurityEnabled,deposit:checkoutSettings?.refundableDepositEnabled,cancellation:checkoutSettings?.cancellationProtectionEnabled}, account: accountPricingContext(account.me) });
   const offerContext = membershipOfferContext({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null, account: accountPricingContext(account.me) });
   const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
   // Delivery details are not needed to quote the rental-only joining saving.
@@ -236,7 +242,7 @@ export default function CheckoutPage() {
   // to the order invalidate the signature/attempt. Changed security amounts or
   // policy also reset consent below, since the checkbox accepts those terms.
   const signingContext = JSON.stringify({ quoteKey, name, phone, billingAddress, pickupTime:effectivePickupTime, returnTime:effectiveReturnTime,
-    deliveryAgreed, due: currentQuote?.combinedTotalDue, policy: currentQuote?.securityPolicyVersion, deposit: currentQuote?.depositAmount, hold: currentQuote?.depositHoldAmount });
+    deliveryAgreed, due: currentQuote?.combinedTotalDue, useAccountCredit,policy: currentQuote?.securityPolicyVersion, cancellationProtection:currentQuote?.cancellationProtectionEnabled, deposit: currentQuote?.depositAmount, hold: currentQuote?.depositHoldAmount });
   useEffect(() => { setSignature(""); agreementRequest.current = null; setRecovery(null); }, [signingContext]);
   useEffect(() => { agreementRequest.current = null; }, [signature, agreed]);
   useEffect(() => {
@@ -250,9 +256,9 @@ export default function CheckoutPage() {
   const futureChargeLimit = currentQuote?.savedCardLimit ?? savedCardChargeLimit(equipmentValue);
   const refundablePolicy = hasCashDepositPolicy(currentQuote?.securityPolicyVersion);
   const assessmentPolicy=currentQuote?.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION;
-  const rentalAgreements = agreementsForSecurityPolicy(currentQuote?.securityPolicyVersion);
+  const rentalAgreements = agreementsForSecurityPolicy(currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled);
   const savedCardQuoteReady = !!currentQuote && (currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION || refundablePolicy) && Number.isFinite(currentQuote.savedCardLimit) && (refundablePolicy ? [0,20,50,100].includes(currentQuote.depositAmount) : currentQuote.depositAmount === 0) && currentQuote.depositHoldAmount === 0;
-  useEffect(()=>{setAgreed(false);setSignature("");agreementRequest.current=null;},[futureChargeLimit,currentQuote?.depositAmount,currentQuote?.securityPolicyVersion]);
+  useEffect(()=>{setAgreed(false);setSignature("");agreementRequest.current=null;},[futureChargeLimit,currentQuote?.depositAmount,currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled]);
   const signDone = agreed && signature.trim().length > 2 && signatureLimit.current === futureChargeLimit && signedContext.current === signingContext;
 
   const valid = draftReady && savedCardQuoteReady && (!account.token || !!account.me) && (!membership || membership.termsAccepted) && items.length > 0 && detailsDone && fulfilmentDone && signDone && !!currentQuote && !quoteError;
@@ -324,7 +330,7 @@ export default function CheckoutPage() {
         expectedSavedCardLimit:futureChargeLimit,
         selectedMembership: membership ? {tier:membership.tier,intro:membership.intro,termsVersion:MEMBERSHIP_TERMS_VERSION,requestId:membershipAttempt!} : undefined,
         promoCode: promo.applied ?? undefined,
-        protection,
+        protection,useAccountCredit,
         pickupTime:effectivePickupTime,
         returnTime:effectiveReturnTime,
         agreement: { name: signature.trim(), requestId: acceptanceAttempt, securityHoldConsent: agreed, laterChargeConsent: agreed, documents: docs },
@@ -369,6 +375,7 @@ export default function CheckoutPage() {
       <CheckoutLoopBanner />
       <main className="section-window mx-auto max-w-5xl px-6 pb-12 pt-8">
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
+        {checkoutSettings?.cancellationProtectionEnabled&&<div className="mb-4"><CancellationProtection/></div>}
         <CheckoutMembership variant="checkout" loading={rentalPreview.loading && !quoteError} appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
           <span data-testid="checkout-security-note">{refundablePolicy && (currentQuote?.depositAmount ?? 0) > 0 ? `${formatGbp(currentQuote!.depositAmount)} refundable deposit included; later card charges require evidence and notice` : "Security is shown in your quote; later card charges require evidence and notice"}</span>
@@ -525,6 +532,7 @@ export default function CheckoutPage() {
                 </div>
               )}
               {(currentQuote?.deliveryFee ?? deliveryFee) > 0 && <Row label="Delivery (round trip)" value={currentQuote?.deliveryFee ?? deliveryFee} />}
+              {(creditAvailability?.available??0)>0&&(currentQuote?.availableAccountCredit??0)>0&&<label className="mb-4 block rounded-xl border border-emerald-300/20 bg-emerald-300/[.04] p-3 text-xs leading-5 text-white/75"><span className="flex items-center gap-2"><input data-testid="checkout-use-credit" type="checkbox" checked={useAccountCredit} disabled={busy} onChange={e=>{setUseAccountCredit(e.target.checked);if(e.target.checked)window.dispatchEvent(new CustomEvent("dbc:credit:selected",{detail:{accountId:account.me?._id}}));}}/>Use account credit · {formatGbp(currentQuote!.availableAccountCredit)} available</span><span className="mt-1 block text-[10px] text-white/50">Selected credit is non-refundable and cannot be withdrawn as cash, subject to statutory rights. Existing expiry dates apply. Credit cannot pay the refundable deposit or membership fee. Earned credit does not stack with discounts.</span></label>}
               {!!currentQuote?.membershipSignupOfferSaving && <Row label="One-time joining credit" value={-currentQuote.membershipSignupOfferSaving} saving />}
               {!!currentQuote?.membershipCreditApplied && <Row label="Subscription credit applied" value={-currentQuote.membershipCreditApplied} saving />}
               {!!currentQuote && currentQuote.creditApplied - currentQuote.membershipCreditApplied > 0 && (

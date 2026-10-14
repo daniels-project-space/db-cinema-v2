@@ -1,5 +1,6 @@
 "use client";
 
+import {CreditEnergyBar} from "./account/CreditEnergyBar";
 import { tierByKey } from "@/lib/membership";
 import { AccountFrame } from "./account/AccountFrame";
 import { ChatAvatar } from "./rentals/ChatIdentity";
@@ -234,7 +235,7 @@ export function SiteHeader() {
             <div className="hidden h-9 items-center justify-end md:flex">
               {me ? (
                 <div className="relative flex items-center">
-                  {(me.storeCredit ?? 0) > 0 && <Link href="/account" className="mr-2 rounded-full bg-emerald-300/10 px-3 py-2 text-xs text-emerald-200">£{me.storeCredit.toFixed(2)} credit</Link>}
+                  {account.token&&<CreditEnergyBar key={me._id} token={account.token} accountId={me._id}/>}
                   <button
                     onClick={() => setMenu((m) => !m)}
                     aria-label={unread ? `Account, ${unread} unread messages` : "Account"}
@@ -359,10 +360,10 @@ export function SiteHeader() {
               )}
             </div>
 
-            <Link href={me ? "/account#chat" : "/account"} onClick={() => { if (me) window.dispatchEvent(new CustomEvent("dbc:open-rental-chat")); }} aria-label={unread ? `Account, ${unread} unread messages` : "Account"} className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] md:hidden">
+            <div className="relative md:hidden"><Link href={me ? "/account#chat" : "/account"} onClick={() => { if (me) window.dispatchEvent(new CustomEvent("dbc:open-rental-chat")); }} aria-label={unread ? `Account, ${unread} unread messages` : "Account"} className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] md:hidden">
               {me ? <AccountFrame tier={memberTier?.key}><ChatAvatar sender="renter" photo={avatar} name={me.name || me.email} className="!h-7 !w-7" /></AccountFrame> : <IconUser className="h-4 w-4 text-white/70" />}
               {messageBadge}
-            </Link>
+            </Link>{me&&account.token&&<CreditEnergyBar key={me._id} token={account.token} accountId={me._id} compact/>}</div>
 
             <button
               onClick={open}

@@ -1,6 +1,7 @@
 /** One policy for the cancellation action, account UI, and signed agreement. */
 export const CANCELLATION_FULL_REFUND_DAYS = 14;
 export const CANCELLATION_CREDIT_DAYS = 365;
+export const SEVEN_DAY_CANCELLATION_VERSION = "2026-10-v16";
 
 export function londonStartOfDay(ms: number): number {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -19,11 +20,15 @@ export function cancelKind(start: number, now: number, fullRefundDays = CANCELLA
 
 /** Preserve the more generous policy already agreed by earlier renters. */
 export function cancellationDaysForBooking(booking: { agreementDocs?: { kind: string; version: string }[] }): number {
-  return booking.agreementDocs?.some(d => d.kind === "cancellation" && ["2026-10-v11", "2026-10-v12"].includes(d.version))
-    ? CANCELLATION_FULL_REFUND_DAYS : 3;
+  if(booking.agreementDocs?.some(d=>d.kind==="cancellation"&&d.version===SEVEN_DAY_CANCELLATION_VERSION))return 7;
+  return booking.agreementDocs?.some(d=>d.kind==="cancellation"&&["2026-10-v11","2026-10-v12","2026-10-v13","2026-10-v14","2026-10-v15"].includes(d.version))?CANCELLATION_FULL_REFUND_DAYS:3;
 }
 
 export function bookingCancelKind(booking: Parameters<typeof rentalCancellationStart>[0] & Parameters<typeof cancellationDaysForBooking>[0], now: number) {
+  if(booking.agreementDocs?.some(d=>d.kind==="cancellation"&&d.version===SEVEN_DAY_CANCELLATION_VERSION)){
+    const days=Math.round((londonStartOfDay(rentalCancellationStart(booking))-londonStartOfDay(now))/86400000);
+    return days>7?"full_refund" as const:"store_credit" as const;
+  }
   return cancelKind(rentalCancellationStart(booking), now, cancellationDaysForBooking(booking));
 }
 

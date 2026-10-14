@@ -1,0 +1,17 @@
+const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs');
+const {calculateRentalPrice}=h.load('convex/lib/rentalPrice.ts'),catalog=h.load('convex/catalog.ts'),bookings=h.load('convex/bookings.ts');
+process.env.ASSESSMENT_SECURITY_POLICY_ENABLED='true';
+const account=h.put('accounts',{email:'credit-choice@example.invalid'}),unit=h.put('inventory_units',{active:true,quantityOwned:1,replacementCost:160}),listing=h.put('listings',{title:'Battery pair',active:true,stockMappingStatus:'complete',pricing:{daily:100},depositAmount:160,components:[{inventoryUnitId:unit._id,qty:1}]});
+h.put('credits',{accountId:account._id,amount:10,remaining:10,currency:'GBP',kind:'earned',status:'active',reason:'admin_grant:fixture',expiresAt:Date.now()+365*86400000,createdAt:Date.now()});
+const ctx={db:h.db,runQuery:async(ref,args)=>{if(ref==='accounts._byToken')return args.token==='owned'?account:null;if(ref==='accounts._byEmail')return null;if(ref==='catalog.repriceLines')return catalog.repriceLines.handler(ctx,args);if(ref==='bookings.availableCheckoutCredit')return bookings.availableCheckoutCredit.handler(ctx,args);if(ref==='promo.validate')return {valid:true,code:'PROMO',discount:25};throw Error(ref)}};
+const input={items:[{listingId:listing._id,title:listing.title,start:Date.UTC(2030,0,1),end:Date.UTC(2030,0,1),qty:1,total:100,deposit:160}],token:'owned',customer:{email:account.email},fulfilment:'pickup'};
+(async()=>{
+ const off=await calculateRentalPrice(ctx,{...input,useAccountCredit:false});assert.equal(off.availableAccountCredit,10);assert.equal(off.creditApplied,0);assert.equal(off.totalDue,120);assert.equal(off.depositAmount,20);
+ const on=await calculateRentalPrice(ctx,{...input,useAccountCredit:true});assert.equal(on.creditApplied,10);assert.equal(on.totalDue,110);assert.equal(on.depositAmount,20);assert.equal(on.earnedCreditApplied,10);
+ const selected=await calculateRentalPrice(ctx,{...input,promoCode:'PROMO',useAccountCredit:true});assert.equal(selected.creditApplied,10);assert.equal(selected.totalReduction,0);assert.equal(selected.appliedCode,undefined,'Earned credit is the explicitly chosen single benefit, never stacked');
+ const discount=await calculateRentalPrice(ctx,{...input,promoCode:'PROMO',useAccountCredit:false});assert.equal(discount.creditApplied,0);assert.equal(discount.totalReduction,25);assert.equal(discount.totalDue,95);
+ const guest=await calculateRentalPrice(ctx,{...input,token:undefined,useAccountCredit:true});assert.equal(guest.availableAccountCredit,0);assert.equal(guest.creditApplied,0);
+ const draft=h.load('src/lib/checkoutDraft.ts'),store=new Map(),storage={getItem:k=>store.get(k),setItem:(k,v)=>store.set(k,v)};
+ draft.saveCheckoutDraft(storage,'account:'+account._id,'v16',{email:account.email,name:'Fixture',phone:'',billingAddress:'Fixture road',fulfilment:'pickup',address:'',postcode:'',protection:'verify',pickupTime:'10:00',returnTime:'18:00',agreed:true,deliveryAgreed:false,useAccountCredit:true});assert.equal(draft.readCheckoutDraft(storage,'account:'+account._id,'v16').useAccountCredit,true);assert.equal(draft.readCheckoutDraft(storage,'other-account','v16'),null);
+ console.log('PASS actual credit choice quote: hidden for guests, optional wallet use, £20 deposit protected, exact deduction, explicit nonstack benefit, deselection restores discount, account-scoped reload preference. Synthetic data only.');
+})().catch(e=>{console.error(e);process.exitCode=1});

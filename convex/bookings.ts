@@ -1,4 +1,5 @@
 import { queueOwnerNotification } from "./lib/adminPush";
+import {operatorCancellationOptions} from "../shared/operatorCancellationCredit";
 import {depositRefundProjection,depositRefundState,depositRefundStatementFields} from "../shared/depositRefundStatus";
 import { depositReturnReceipt } from "./lib/depositReturnReceipt";
 import { assertFirstOrderReservation, FIRST_ORDER_VOUCHER_CODE } from "./lib/firstOrderVoucher";
@@ -144,7 +145,7 @@ export const checkoutAttempt = internalQuery({
 
 export const createPending = internalMutation({
   args: {
-    pricingVersion:v.optional(v.string()),benefitKind:v.optional(v.string()),
+    pricingVersion:v.optional(v.string()),benefitKind:v.optional(v.string()),useAccountCredit:v.optional(v.boolean()),
     refundCreditApplied:v.optional(v.number()),earnedCreditApplied:v.optional(v.number()),
     referralCode:v.optional(v.string()),referralRewardId:v.optional(v.id("referral_rewards")),
     customerEmail: v.string(),
@@ -159,6 +160,7 @@ export const createPending = internalMutation({
     depositAmount: v.number(),
     depositHoldAmount: v.optional(v.number()),
     securityPolicyVersion: v.optional(v.string()),
+    cancellationProtectionEnabled:v.optional(v.boolean()),
     savedCardLimit: v.optional(v.number()),
     promoCode: v.optional(v.string()),
     discount: v.optional(v.number()),
@@ -198,7 +200,7 @@ export const createPending = internalMutation({
       if(!owner||owner.blockedAt!=null||owner.email!==a.customerEmail.trim().toLowerCase())throw Error("Rental account does not match the checkout customer.");
     }
     if(a.checkoutInputFingerprint&&!/^[a-f0-9]{64}$/.test(a.checkoutInputFingerprint))throw Error("Invalid checkout receipt.");
-    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15"].includes(d.version));
+    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16"].includes(d.version));
     if (hasCashDepositPolicy(a.securityPolicyVersion) && !newAgreement) throw Error("Review and accept the current refundable-deposit agreements before paying.");
     const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
     if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
@@ -213,6 +215,7 @@ export const createPending = internalMutation({
     }
     if(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && a.securityWaiverReason)throw Error("The refundable deposit cannot be waived by membership or a prior rental.");
     if(a.securityPolicyVersion && a.securityPolicyVersion!==SECURITY_POLICY_VERSION && !(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true") && !(a.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION && process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"))throw Error("Unsupported security policy.");
+    if(a.cancellationProtectionEnabled && (process.env.CANCELLATION_PROTECTION_POLICY_ENABLED!=="true"||a.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION))throw Error("The cancellation protection policy is not enabled.");
     const single=a.pricingVersion===SINGLE_BENEFIT_VERSION;
     if(a.pricingVersion&&!single)throw Error("Unsupported pricing version.");
     const account=a.creditAccountId?await ctx.db.get(a.creditAccountId):null;
@@ -295,6 +298,7 @@ export const createPending = internalMutation({
     let allocations:any[]|undefined;
     let creditApplied = 0;
     if(single){
+      if(a.useAccountCredit===false&&((a.refundCreditApplied??0)>0||(a.earnedCreditApplied??0)>0))throw Error("Account credit was not selected for this checkout.");
       const refund=a.refundCreditApplied??0,earned=a.earnedCreditApplied??0;
       if(![refund,earned].every(n=>Number.isFinite(n)&&n>=0)||refund+earned>a.total-a.depositAmount)throw Error("Invalid credit allocation.");
       if((refund+earned)>0&&!a.creditAccountId)throw Error("Account credit requires an account.");
@@ -350,7 +354,7 @@ export const createPending = internalMutation({
     const cardConsent = assessmentPolicy?assessmentConsentText(a.depositAmount):cardLimit !== undefined ? savedCardConsentText(cardLimit,refundablePolicy?a.depositAmount:undefined) : undefined;
     const agreementSnapshot = newAgreement ? snapshotAgreement({...a,savedCardConsentText:cardConsent}, acceptedAt, chargedTotal, creditApplied) : undefined;
     const bookingId = await ctx.db.insert("bookings", {
-      pricingVersion:a.pricingVersion,benefitKind:a.benefitKind,
+      pricingVersion:a.pricingVersion,benefitKind:a.benefitKind,useAccountCredit:a.useAccountCredit,
       refundCreditApplied:a.refundCreditApplied,earnedCreditApplied:a.earnedCreditApplied,creditAllocations:allocations,
       referralCode:friend?.code,referralRewardId:reward?._id,
       customerId: customer!._id,
@@ -372,6 +376,7 @@ export const createPending = internalMutation({
       depositAmount: a.depositAmount,
       depositHoldAmount: a.depositHoldAmount,
       securityPolicyVersion: a.securityPolicyVersion,
+      cancellationProtectionEnabled:a.cancellationProtectionEnabled,
       savedCardLimit: cardLimit,
       savedCardStatus: savedCard ? "awaiting_payment" : undefined,
       savedCardConsentText: cardConsent,
@@ -559,6 +564,7 @@ export const confirm = internalMutation({
     for (const h of committed) await ctx.db.delete(h._id);
     await ctx.db.patch(bookingId, {
       status: "confirmed",
+      paidConfirmedAt:Date.now(),
       stripePaymentIntentId: paymentIntentId,
       ...(booking.securityHoldPolicyVersion === PICKUP_HOLD_POLICY && booking.depositHoldAmount ? {securityHoldRetryAt:Date.now(),depositHoldStatus:"scheduled"} : {}),
     });
@@ -653,7 +659,7 @@ export const confirm = internalMutation({
     const paidBooking = await ctx.db.get(bookingId), paidAccount = await accountForRental(ctx, paidBooking);
     if(paidBooking && paidAccount) {
       const income = Math.max(0, paidBooking.total - paidBooking.depositAmount);
-      await queueOwnerNotification(ctx, {eventKey:`paid:${bookingId}`,kind:"booking_paid",accountId:paidAccount._id,bookingId,title:"Booking payment received",body:"A DB Cinema Web rental has been paid.",income:{gross:income,net:Math.max(0,paidBooking.subtotal-(paidBooking.discount??0)),currency:"GBP"}});
+      await queueOwnerNotification(ctx, {eventKey:`paid:${bookingId}`,kind:"booking_paid",accountId:paidAccount._id,bookingId,title:"Booking payment received",body:"A DB Cinema Web rental has been paid.",income:{gross:income,net:Math.max(0,paidBooking.subtotal-(paidBooking.discount??0)-(paidBooking.creditApplied??0)),currency:"GBP"}});
     }
     await queueRentalEmail(ctx,bookingId,"payment");
     await queueRentalEmail(ctx,bookingId,"receipt");
@@ -1425,17 +1431,20 @@ export const invoiceData = query({
     if (!ok) return null;
     // A saved basket or unfinished checkout is not evidence of payment.
     // Keep receipts for settled rentals even after cancellation/refund.
+    const operatorEvidence=b.cancellationDecision?.operatorOfferId?await ctx.db.get(b.cancellationDecision.operatorOfferId):null;
+    const confirmedCancelled=b.status==="cancelled"&&!!(b.paidConfirmedAt||b.creditIssuedId||operatorEvidence?.bookingId===b._id&&operatorEvidence.accountId===b.accountId);
     if (b.status === "pending_payment" ||
-        (!b.stripePaymentIntentId && !["confirmed", "active", "returned"].includes(b.status))) return null;
+        (!b.stripePaymentIntentId && !["confirmed", "active", "returned"].includes(b.status)&&!confirmedCancelled)) return null;
     const customer: any = b.customerId ? await ctx.db.get(b.customerId) : null;
     const account = await accountForRental(ctx, b);
     const rentalRefunds=await ctx.db.query("rental_refunds").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).collect();
     const issuedCredit=b.creditIssuedId?await ctx.db.get(b.creditIssuedId):null;
+    const issuedEvent=await ctx.db.query("credit_issues").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).unique();
     return {
       rentalRefunded:confirmedRentalRefundPence(rentalRefunds)/100,
       billingAddress:b.billingAddress??b.address??null,
       rentalRefunds:rentalRefunds.map(r=>({amount:r.amountPence/100,status:r.status,reason:r.reason})),
-      cancellationRefund:b.refundAmount??0,accountCreditIssued:issuedCredit?.amount??0,
+      cancellationRefund:b.refundAmount??0,accountCreditIssued:issuedEvent?issuedEvent.amountPence/100:issuedCredit?.amount??0,accountCreditBonus:(issuedEvent?.bonusPence??0)/100,
       number: `DBC-${String(b._id).slice(-8).toUpperCase()}`,
       agreementSnapshot: readAgreementSnapshot(b.agreementSnapshot),
       acceptedAgreementEvidence: {name:b.agreementName??null,signedAt:b.agreementSignedAt??null,documents:b.agreementDocs??[]},
@@ -1825,11 +1834,13 @@ export const getForCancel = internalQuery({
 });
 
 /** Freeze cancellation policy and order edits before any external payment call. */
-export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers")),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit")))},handler:async(ctx,{bookingId,fullCreditOfferId,changeRequestId,expectedCancellationKind})=>{
- const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeAdditionId || b?.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before cancellation");if(!b||!["confirmed","pending_payment"].includes(b.status))throw Error("Only an unstarted rental can be cancelled");
+export const prepareCancellation=internalMutation({args:{bookingId:v.id("bookings"),fullCreditOfferId:v.optional(v.id("rental_credit_offers")),operatorOfferId:v.optional(v.id("operator_cancellation_offers")),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit")))},handler:async(ctx,{bookingId,fullCreditOfferId,operatorOfferId,changeRequestId,expectedCancellationKind})=>{
+ const b=await ctx.db.get(bookingId);if(b?.returnDecision)throw Error("Return settlement is in progress; finish it first");if((b?.activeAdditionId || b?.activeExtensionId))throw Error("Finish or withdraw the item addition or approved extension before cancellation");if(!b||!(["confirmed","pending_payment"].includes(b.status)||b.status==="cancelled"&&operatorOfferId&&b.cancellationDecision?.operatorOfferId===operatorOfferId))throw Error("Only an unstarted rental can be cancelled");
  if(!b.cancellationDecision && (["starting","processing"].includes(b.depositHoldRenewalStatus ?? "") ||
   (b.status === "confirmed" && b.depositHoldAmount && b.depositHoldStatus === "awaiting_payment"))) throw Error("Security hold setup or renewal is still processing. Please retry once it is resolved.");
+ if(operatorOfferId){const offer=await ctx.db.get(operatorOfferId);if(!offer||offer.bookingId!==bookingId||offer.state!=="chosen"||!offer.choice)throw Error("The operator cancellation choice is not ready.");}
  if(b.cancellationDecision){
+  if(b.cancellationDecision.operatorOfferId!==operatorOfferId)throw Error("Another cancellation choice is already processing.");
   if(expectedCancellationKind && b.cancellationDecision.kind!==expectedCancellationKind)throw Error("Cancellation eligibility changed. Review the current terms before confirming again.");
   if(b.cancellationDecision.fullCreditOfferId !== fullCreditOfferId)throw Error("Another cancellation choice is already processing. Contact the team.");
   if(changeRequestId !== undefined && b.cancellationDecision.changeRequestId !== changeRequestId)throw Error("Another cancellation request is already processing. Contact the team.");
@@ -1843,9 +1854,15 @@ export const prepareCancellation=internalMutation({args:{bookingId:v.id("booking
  if(changeRequestId)await startRequest(ctx,b,changeRequestId,"cancellation",cancellationRequestKey(bookingId,changeRequestId));
  const decision={kind,createdAt:Date.now(),...(fullCreditOfferId?{fullCreditOfferId}:{}),...(changeRequestId?{changeRequestId}:{})};await ctx.db.patch(bookingId,{cancellationDecision:decision,...(b.securityHoldPolicyVersion===PICKUP_HOLD_POLICY?{securityHoldRetryAt:undefined}:{})});return decision;
 }});
-export const recordCancellationQuote=internalMutation({args:{bookingId:v.id("bookings"),quote:v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})},handler:async(ctx,{bookingId,quote})=>{
+export const recordCancellationQuote=internalMutation({args:{bookingId:v.id("bookings"),quote:v.object({mode:v.union(v.literal("none"),v.literal("refund"),v.literal("credit")),refundAmount:v.number(),creditAmount:v.number(),bonusCreditAmount:v.optional(v.number()),paymentIntentId:v.optional(v.string()),allocations:v.optional(v.array(v.object({paymentIntentId:v.string(),amountPence:v.number()})))})},handler:async(ctx,{bookingId,quote})=>{
  const b=await ctx.db.get(bookingId);if(!b?.cancellationDecision)throw Error("Cancellation has not been prepared");
  if(b.cancellationDecision.quote)return b.cancellationDecision.quote;
+ if(b.cancellationDecision.operatorOfferId){
+  const offer=await ctx.db.get(b.cancellationDecision.operatorOfferId);
+  if(!offer||offer.state!=="chosen"||!offer.choice)throw Error("The operator cancellation choice is not ready.");
+  const options=operatorCancellationOptions({cashRemainingPence:offer.cashRemainingPence!,securityRemainingPence:offer.securityRemainingPence!,spentCreditPence:offer.spentCreditPence!}),credit=offer.choice==="credit";
+  if(quote.mode!==(credit?"credit":"refund")||Math.round(quote.refundAmount*100)!==(credit?options.credit.cardRefundPence:options.refund.cardRefundPence)||Math.round(quote.creditAmount*100)!==(credit?options.credit.creditPence:options.refund.restoredCreditPence)||Math.round((quote.bonusCreditAmount??0)*100)!==(credit?options.credit.bonusPence:0))throw Error("The cancellation quote does not match the selected settlement.");
+ }
  await ctx.db.patch(bookingId,{cancellationDecision:{...b.cancellationDecision,quote}});return quote;
 }});
 
@@ -1876,9 +1893,11 @@ export const _finalizeCancellation = internalMutation({
     const membershipAccount = accountId ? await ctx.db.get(accountId) : await ctx.db.query("accounts").withIndex("by_email",q=>q.eq("email",b.guestEmail??"")).first();
     if (membershipAccount?.membershipPerksPendingBookingId === bookingId)
       await ctx.db.patch(membershipAccount._id,{membershipPerksPendingBookingId:undefined});
-    if (b.status === "cancelled") return { ok: true as const, already: true };
+    const operatorOffer=b.cancellationDecision?.operatorOfferId?await ctx.db.get(b.cancellationDecision.operatorOfferId):null;
+    if (b.status === "cancelled" && (!operatorOffer||operatorOffer.state==="settled")) return { ok: true as const, already: true };
+    if(operatorOffer && (operatorOffer.state!=="chosen"||!cancellationJob))throw Error("Operator cancellation settlement is incomplete.");
 
-    let creditId: any = undefined;
+    let creditId: any = undefined,totalIssuedPence=0,firstCreditExpiry=Infinity;
     if (creditAmount > 0 && accountId) {
       const now = Date.now();
       const grant = b.membershipCreditGrantId ? await ctx.db.get(b.membershipCreditGrantId) : null;
@@ -1888,20 +1907,25 @@ export const _finalizeCancellation = internalMutation({
       // future-credit offset, rather than creating fresh unbacked credit.
       const offset = grant?.revokedPence ? Math.min(restoredMembership, account?.membershipCreditDebtPence ?? 0) : 0;
       if (offset && account) await ctx.db.patch(accountId,{membershipCreditDebtPence:(account.membershipCreditDebtPence ?? 0)-offset});
-      const issue = (amountPence: number, linked: boolean, kind:"refund"|"earned"="earned", source?:any) => ctx.db.insert("credits", {
+      const issue = (amountPence: number, linked: boolean, kind:"refund"|"earned"="earned", source?:any,reasonType?:string) => {
+        const expiry=now + CANCELLATION_CREDIT_DAYS * 86400000;
+        totalIssuedPence+=amountPence;firstCreditExpiry=Math.min(firstCreditExpiry,expiry);
+        return ctx.db.insert("credits", {
         kind,
         accountId,
         amount: amountPence / 100,
         remaining: amountPence / 100,
         currency,
-        reason: `${b.cancellationDecision?.fullCreditOfferId ? "consented_full_credit" : mode === "refund" ? "restored_credit" : "late_cancellation"}:${bookingId}`,
+        reason: `${reasonType??(b.cancellationDecision?.fullCreditOfferId ? "consented_full_credit" : mode === "refund" ? "restored_credit" : operatorOffer?"operator_cancellation_credit":"late_cancellation")}:${bookingId}`,
         bookingId,
         createdAt: now,
-        expiresAt: source?.expiresAt ?? now + CANCELLATION_CREDIT_DAYS * 86400000,
+        expiresAt: expiry,
         status: "active",
         ...(source?.membershipGrantId ? {membershipInvoiceId:source.membershipInvoiceId,membershipGrantId:source.membershipGrantId} : linked && grant ? {membershipInvoiceId:grant.invoiceId,membershipGrantId:grant._id} : {}),
-      });
-      const ordinary = Math.round(creditAmount * 100)-restoredMembership;
+      });};
+      const bonus=Math.round((operatorOffer?b.cancellationDecision?.quote?.bonusCreditAmount??0:0)*100);
+      if(!Number.isSafeInteger(bonus)||bonus<0||bonus>Math.round(creditAmount*100))throw Error("Invalid cancellation bonus.");
+      const ordinary = Math.round(creditAmount * 100)-restoredMembership-bonus;
       if (ordinary > 0){
         const oldSpent=Math.round(((b.creditApplied??0)-(b.membershipCreditApplied??0))*100);
         let restore=Math.min(ordinary,oldSpent);
@@ -1921,7 +1945,9 @@ export const _finalizeCancellation = internalMutation({
         if(cash>0)creditId=await issue(cash,false,"refund");
       }
       if (restoredMembership > offset) creditId = await issue(restoredMembership-offset,!!grant && (grant.membershipRefundedPence ?? 0) < grant.paidMembershipPence);
+      if(bonus>0)creditId=await issue(bonus,false,"earned",undefined,"operator_cancellation_bonus");
     }
+    if(totalIssuedPence>0&&accountId&&creditId)await ctx.db.insert("credit_issues",{requestId:`rental-cancellation-${bookingId}`,bookingId,accountId,creditId,amountPence:totalIssuedPence,bonusPence:Math.round((b.cancellationDecision?.quote?.bonusCreditAmount??0)*100),reason:operatorOffer&&mode==="credit"?"Cancelled rental · account credit +30%":mode==="refund"?"Previously used account credit restored":"Rental cancellation credit",createdAt:Date.now(),expiresAt:firstCreditExpiry});
     if (b.membershipCheckoutId) {
       const member=await ctx.db.get(b.membershipCheckoutId);
       if(member && ["creating","open"].includes(member.state)) await ctx.db.patch(member._id,{state:"expired"});
@@ -1956,6 +1982,7 @@ export const _finalizeCancellation = internalMutation({
     if(cancelledAccount) await queueOwnerNotification(ctx,{eventKey:`cancelled:${bookingId}`,kind:"booking_cancelled",accountId:cancelledAccount._id,bookingId,title:"Rental cancelled",body:"The cancellation settlement is complete. Open the rental for the recorded refund or credit."});
     await queueRentalEmail(ctx,bookingId,"cancellation",{mode,refundAmount,creditAmount});
     await queueRmv2Sync(ctx, bookingId);
+    if(operatorOffer)await ctx.db.patch(operatorOffer._id,{state:"settled",dueAt:undefined,leaseUntil:0,updatedAt:Date.now()});
     if(b.cancellationDecision?.changeRequestId)await finishRequest(ctx,b,b.cancellationDecision.changeRequestId,"cancellation",cancellationRequestKey(bookingId,b.cancellationDecision.changeRequestId),`Rental cancelled. Card refund £${refundAmount.toFixed(2)}; account credit £${creditAmount.toFixed(2)}. Any uncaptured card authorisations have been released.`);
     return { ok: true as const, creditId };
   },

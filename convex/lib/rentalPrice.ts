@@ -26,6 +26,7 @@ export type RentalPriceInput = {
     offerType?: string;
   }[];
   token?: string;
+  useAccountCredit?:boolean;
   selectedMembership?: { tier: string; intro: "trial" | "credit" | "none" };
   customer: { email: string };
   fulfilment: "pickup" | "delivery";
@@ -63,6 +64,8 @@ export type RentalPrice = {
   deliveryFee: number;
   totalBeforeCredit: number;
   creditApplied: number;
+  availableAccountCredit:number;
+  creditUseSelected:boolean;
   membershipCreditApplied: number;
   membershipSignupOfferSaving: number;
   totalDue: number;
@@ -164,14 +167,17 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     ? await ctx.runQuery(internal.membershipBenefits.deliveryAvailable, { accountId: acct._id, month, prospective: selected?.key === "studio" }) : false;
   const deliveryCandidate = studioAvailable ? quotedDeliveryFee : Math.round(quotedDeliveryFee * (member?.deliveryPct ?? 0)) / 100;
   const joiningCandidate = membershipSignupOffer(selected?.key,a.selectedMembership?.intro,subtotal+quotedDeliveryFee,!!(acct?.membershipSignupOfferUsed || acct?.starterRentalOfferUsed));
-  const refundBalance = acct ? await ctx.runQuery(internal.bookings.availableCheckoutCredit,{accountId:acct._id,kind:"refund"}) : 0;
-  const earnedBalance = acct ? await ctx.runQuery(internal.bookings.availableCheckoutCredit,{accountId:acct._id,kind:"earned"}) : 0;
+  const availableRefundBalance = acct ? await ctx.runQuery(internal.bookings.availableCheckoutCredit,{accountId:acct._id,kind:"refund"}) : 0;
+  const availableEarnedBalance = acct ? await ctx.runQuery(internal.bookings.availableCheckoutCredit,{accountId:acct._id,kind:"earned"}) : 0;
+  const creditUseSelected=a.useAccountCredit!==false;
+  const refundBalance=creditUseSelected?availableRefundBalance:0,earnedBalance=creditUseSelected?availableEarnedBalance:0;
+  const availableAccountCredit=Math.round((availableRefundBalance+availableEarnedBalance)*100)/100;
   const refundBefore = Math.min(refundBalance,subtotal+quotedDeliveryFee);
   const existingBefore = Math.min(earnedBalance,Math.max(0,subtotal+quotedDeliveryFee-refundBefore));
   const immediate = checkoutMembershipCredit(selected?.key,a.selectedMembership?.intro,
     Math.round(Math.max(0,subtotal-refundBefore-existingBefore)*100),acct?.membershipCreditDebtPence);
   const pence = (n:number)=>Math.max(0,Math.round(n*100));
-  const chosen = bestBenefit([
+  const chosen = a.useAccountCredit===true && existingBefore>0 ? {kind:"earned_credit" as const,savingPence:pence(existingBefore)+immediate.appliedPence,label:"Selected account credit"} : bestBenefit([
     {kind:"promo",savingPence:pence(promoDiscount),label:promoCode?.toUpperCase()??"Promo saving"},
     {kind:"quiet",savingPence:pence(subtotal-raw.reduce((n,r)=>n+(r.quietTotal??r.total),0)),label:"Quiet gear saving"},
     {kind:"weekend",savingPence:pence(weekendCandidate),label:"Member weekend deal · £100 cap"},
@@ -206,7 +212,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const creditApplied=Math.round((refundCreditApplied+earnedCreditApplied+membershipCreditApplied)*100)/100;
   const totalDue=Math.round((totalBeforeCredit-creditApplied)*100)/100;
   return {
-    pricingVersion:SINGLE_BENEFIT_VERSION,benefitKind,refundCreditApplied,earnedCreditApplied,
+    pricingVersion:SINGLE_BENEFIT_VERSION,benefitKind,refundCreditApplied,earnedCreditApplied,availableAccountCredit,creditUseSelected,
     referralCode:benefitKind==="referral_friend"?referral.friend.code:undefined,
     referralRewardId:benefitKind==="referral_reward"?referral.reward.id:undefined,
     items,customerEmail,acct,month,freedCount,subtotal,replacementSum,protection,savedCardLimit:cardLimitForPolicy(securityPolicyVersion,replacementSum),
