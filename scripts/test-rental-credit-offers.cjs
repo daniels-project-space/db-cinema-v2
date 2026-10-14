@@ -21,6 +21,12 @@ const ctx={db,storage:{getUrl:async()=>null},scheduler:{runAfter:async()=>{}},ru
  return ({bookings:bookingFns,rentalCreditOffers:offers,cancellationRecovery})[module][name].handler(ctx,args);
 }};
 (async()=>{
+ const protectedRental=put('bookings',{...b,_id:'protected-v16',agreementDocs:[{kind:'cancellation',version:'2026-10-v16'}]});
+ const beforeMessages=(tables.get('messages')??[]).length;
+ assert.equal(await checkout.offerFullCredit.handler(ctx,{accountId:account._id,bookingId:protectedRental._id}),null);
+ await assert.rejects(offers.create.handler(ctx,{accountId:account._id,bookingId:protectedRental._id,amountPence:12000,fingerprint:load('convex/lib/rentalCreditPolicy.ts').creditOfferFingerprint(protectedRental)}),/legacy deposit-to-credit offer/);
+ assert.equal((tables.get('messages')??[]).length,beforeMessages,'v16 cannot send a legacy credit invitation');
+ assert.equal((tables.get('rental_credit_offers')??[]).length,0,'v16 cannot create a deposit-to-credit quote');
  const id=await checkout.offerFullCredit.handler(ctx,{accountId:account._id,bookingId:b._id});assert.ok(id);
  assert.equal((await db.get(id)).amountPence,15000,'full remaining payment plus previously redeemed credit');
  assert.equal((tables.get('messages')??[]).filter(m=>m.meta?.kind==='full_credit_offer').length,1);

@@ -7,6 +7,7 @@ import { SmartImage } from "@/components/SmartImage";
 import { formatGbp } from "@/lib/pricing";
 import styles from "./AccountAdmin.module.css";
 import { AdminInvoiceLibrary } from "@/components/management/AdminInvoiceLibrary";
+import {AccountCreditPanel} from "./AccountCreditPanel";
 import { CustomerInvite } from "./CustomerInvite";
 
 const LEVELS = [
@@ -546,6 +547,7 @@ export function AccountAdmin({
               ["conversations", "Conversations"],
               ["documents", "Documents"],
               ["invoices", "Invoices"],
+              ["credits", "Credits"],
               ["access", "Access"],
               ["notes", "Notes"],
             ].map(([key, name]) => (
@@ -570,6 +572,7 @@ export function AccountAdmin({
               </p>
             ) : (
               <>
+                {section==="credits"&&<AccountCreditPanel token={token} accountId={selected.id}/>}
                 {section === "overview" && (
                   <>
                     <div className={styles.overviewGrid}><section className={styles.card}><header><h3>Invoices & PDFs</h3><button onClick={() => setSection("invoices")}>View invoices →</button></header><p className={styles.empty}>Rental receipts and return settlements for this customer, with PDF previews and downloads.</p></section>

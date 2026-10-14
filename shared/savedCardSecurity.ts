@@ -29,7 +29,7 @@ export function assessmentConsentText(deposit:number){
 function assertAssessmentConsent(b:any){
  const snapshot=readAgreementSnapshot(b.agreementSnapshot);
  const fail=()=>{throw Error("The retained future-payment consent is missing or inconsistent. No charge is permitted.")};
- if(!snapshot || snapshot.version!=="2026-10-v15" || snapshot.acceptedAt!==b.agreementSignedAt || !b.laterChargeConsentAt || snapshot.signer!==b.agreementName || snapshot.particulars.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION || snapshot.particulars.savedCardLimit!==0 || b.savedCardLimit!==0 || (b.depositHoldAmount??0)!==0)return fail();
+ if(!snapshot || snapshot.version!==(b.cancellationProtectionEnabled?"2026-10-v16":"2026-10-v15") || snapshot.acceptedAt!==b.agreementSignedAt || !b.laterChargeConsentAt || snapshot.signer!==b.agreementName || snapshot.particulars.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION || snapshot.particulars.savedCardLimit!==0 || b.savedCardLimit!==0 || (b.depositHoldAmount??0)!==0)return fail();
  if((snapshot.particulars.securityWaiverReason??null)!==(b.securityWaiverReason??null) || b.securityWaiverReason && !["active_membership","encore","membership_checkout"].includes(b.securityWaiverReason))return fail();
  let deposit=snapshot.particulars.securityPayment;
  if(snapshot.particulars.savedCardConsent!==assessmentConsentText(deposit))return fail();

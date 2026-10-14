@@ -3,6 +3,7 @@ import {depositRefundState,depositRefundStatementFields} from "../shared/deposit
 import {isAllowedReturnTime} from "../src/lib/site";
 
 import Stripe from "stripe";
+import {operatorCancellationOptions} from "../shared/operatorCancellationCredit";
 import { PICKUP_HOLD_POLICY } from "../shared/pickupSecurity";
 import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../shared/rentalSecurity";
 import { isSavedCardRental, savedCardRentalValue } from "../shared/savedCardSecurity";
@@ -38,6 +39,7 @@ type PriceQuoteResult = {
   replacementValue: number;
   savedCardLimit: number;
   securityPolicyVersion: string;
+  cancellationProtectionEnabled:boolean;
   benefitKind:string;refundCreditApplied:number;earnedCreditApplied:number;
   items: { title: string; total: number }[];
   subtotal: number;
@@ -48,6 +50,8 @@ type PriceQuoteResult = {
   reductionLabel?: string;
   totalReduction: number;
   creditApplied: number;
+  availableAccountCredit:number;
+  creditUseSelected:boolean;
   membershipCreditApplied: number;
   membershipNetSaving: number;
   membershipOffer: {tier:string;netSaving:number;state:"join"|"selected"|"current"}|null;
@@ -89,6 +93,7 @@ export const priceQuote = action({
       listingId: v.id("listings"), title: v.string(), start: v.number(), end: v.number(),
       qty: v.number(), total: v.number(), deposit: v.number(), offerType: v.optional(v.string()),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string()),
     })),
+    useAccountCredit:v.optional(v.boolean()),
     token: v.optional(v.string()),
     customerEmail: v.string(),
     selectedMembership: v.optional(v.object({tier:v.string(),intro:v.union(v.literal("trial"),v.literal("credit"),v.literal("none"))})),
@@ -131,6 +136,7 @@ export const priceQuote = action({
       replacementValue: price.replacementSum,
       savedCardLimit: price.savedCardLimit,
       securityPolicyVersion: price.securityPolicyVersion,
+      cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&price.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION,
       // Renewed membership credit is stored as earned credit. Count what is
       // actually applied to this rental, never the monthly allowance or refunds.
       membershipNetSaving,
@@ -148,6 +154,7 @@ export const priceQuote = action({
       refundCreditApplied: price.refundCreditApplied,
       earnedCreditApplied: price.earnedCreditApplied,
       creditApplied: price.creditApplied,
+      availableAccountCredit:price.availableAccountCredit,creditUseSelected:price.creditUseSelected,
       totalDue: price.totalDue,
       deliveryReduction: price.deliveryReduction,
       securityWaiverReason: price.securityWaiverReason,
@@ -176,6 +183,7 @@ export const start = action({
       }),
     ),
     selectedMembership: v.optional(v.object({tier:v.string(),intro:v.union(v.literal("trial"),v.literal("credit"),v.literal("none")),termsVersion:v.string(),requestId:v.string()})),
+    useAccountCredit:v.optional(v.boolean()),
     token: v.optional(v.string()), // session token — required to apply MEMBER perks (anti-spoof)
     customer: v.object({
       email: v.string(),
@@ -275,7 +283,7 @@ export const start = action({
       }
     }
 
-    assertCurrentAgreement({...a.agreement,securityPolicyVersion:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"?ASSESSMENT_SECURITY_POLICY_VERSION:process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"?REFUNDABLE_DEPOSIT_POLICY_VERSION:SECURITY_POLICY_VERSION}, a.fulfilment);
+    assertCurrentAgreement({...a.agreement,cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true",securityPolicyVersion:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"?ASSESSMENT_SECURITY_POLICY_VERSION:process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"?REFUNDABLE_DEPOSIT_POLICY_VERSION:SECURITY_POLICY_VERSION}, a.fulfilment);
 
     // New checkout must read current upstream stock, not only the scheduled
     // mirror. Existing bound membership recovery above retains its saved URL.
@@ -334,7 +342,7 @@ export const start = action({
     // available balance minus credit already reserved by its other pending checkouts, and returns
     // the amount actually applied, which drives the Stripe discount below.
     const { bookingId, creditApplied, reused, sessionId: existingSessionId } = await ctx.runMutation(internal.bookings.createPending, {
-      pricingVersion:price.pricingVersion,benefitKind:price.benefitKind,
+      pricingVersion:price.pricingVersion,benefitKind:price.benefitKind,useAccountCredit:a.useAccountCredit,
       refundCreditApplied:price.refundCreditApplied,earnedCreditApplied:price.earnedCreditApplied,
       referralCode:price.referralCode,referralRewardId:price.referralRewardId,
       customerEmail: a.customer.email,
@@ -358,6 +366,7 @@ export const start = action({
       depositAmount,
       depositHoldAmount,
       securityPolicyVersion: price.securityPolicyVersion,
+      cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&price.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION,
       savedCardLimit: price.savedCardLimit,
       promoCode: appliedCode,
       discount: totalReduction,
@@ -1340,28 +1349,41 @@ async function remainingCancellationPayment(payment: Stripe.PaymentIntent, maxPa
   return rentalRefundBalance(payment.amount_received,maxPaidPence,refunds,memberRefunds);
 }
 
+async function cancellationSourceBalance(source:any,b:any,bookingId:any,strict=false){
+ const payment=await stripe().paymentIntents.retrieve(source.paymentIntentId);
+ if(strict&&(payment.id!==source.paymentIntentId||payment.status!=="succeeded"||payment.currency!==(b.currency??"GBP").toLowerCase()||!Number.isSafeInteger(payment.amount_received)||payment.amount_received<0||payment.metadata?.bookingId&&payment.metadata.bookingId!==String(bookingId)))throw new RefundReviewRequired("The payment does not match this rental's captured currency or ownership. Review before settlement.");
+ return {...source,availablePence:await remainingCancellationPayment(payment,source.maxPaidPence)};
+}
 async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReason?:string,fullCreditOfferId?:any,changeRequestId?:any,expectedCancellationKind?:"full_refund"|"store_credit"){
  const requestId=changeRequestId??b.cancellationDecision?.changeRequestId;
- const decision=await ctx.runMutation(internal.bookings.prepareCancellation,{bookingId,fullCreditOfferId,...(requestId?{changeRequestId:requestId}:{}),...(expectedCancellationKind?{expectedCancellationKind}:{})});
+ const decision=await ctx.runMutation(internal.bookings.prepareCancellation,{bookingId,fullCreditOfferId,...(b.cancellationDecision?.operatorOfferId?{operatorOfferId:b.cancellationDecision.operatorOfferId}:{}),...(requestId?{changeRequestId:requestId}:{}),...(expectedCancellationKind?{expectedCancellationKind}:{})});
+ const operator:any=decision.operatorOfferId?(await ctx.runQuery(internal.operatorCancellationState.byId,{offerId:decision.operatorOfferId}))?.offer:null;
+ if(decision.operatorOfferId&&(!operator||operator.state!=="chosen"||!operator.choice))throw Error("The cancellation settlement choice is not ready.");
  let quote=decision.quote;
  if(!quote){
   const paidIntentId=await paymentBeforeCancellation(b);
-  let mode:"none"|"refund"|"credit"="none",refundAmount=0,creditAmount=0,allocations:any[]=[];
-  if(paidIntentId || b.status==="confirmed"&&(b.creditApplied??0)>0){
+  let mode:"none"|"refund"|"credit"="none",refundAmount=0,creditAmount=0,bonusCreditAmount=0,allocations:any[]=[];
+  if(paidIntentId || (b.status==="confirmed"||operator)&&(b.creditApplied??0)>0){
    const sources=paidIntentId?(b.paymentSources?.length?b.paymentSources:[{paymentIntentId:paidIntentId,securityPence:pence(b.depositAmount)}]):[];
-   const balances=await Promise.all(sources.map(async(source:any)=>({...source,availablePence:await remainingCancellationPayment(await stripe().paymentIntents.retrieve(source.paymentIntentId),source.maxPaidPence)})));
+   const balances=await Promise.all(sources.map((source:any)=>cancellationSourceBalance(source,b,bookingId,!!operator)));
+   const spent=(b.status==="confirmed"||operator)?pence(b.creditApplied??0):0;
    const settlement = decision.fullCreditOfferId
     ? { allocations: [], refundPence: 0, creditPence: balances.reduce((sum:number, source:any) => sum + source.availablePence, 0) + pence(b.creditApplied ?? 0) }
-    : cancellationPaymentPlan(decision.kind,balances,b.status==="confirmed"?pence(b.creditApplied??0):0);
+    : cancellationPaymentPlan(operator?.choice==="credit"?"store_credit":decision.kind,balances,spent);
+   if(operator){
+    const security=cancellationPaymentPlan("store_credit",balances,0).refundPence,cash=balances.reduce((n:number,s:any)=>n+s.availablePence,0);
+    if(cash!==operator.cashRemainingPence||security!==operator.securityRemainingPence||spent!==operator.spentCreditPence)throw new RefundReviewRequired("The provider balance changed after the cancellation offer. Review the settlement before execution.");
+    if(operator.choice==="credit"){const options=operatorCancellationOptions({cashRemainingPence:cash,securityRemainingPence:security,spentCreditPence:spent});bonusCreditAmount=options.credit.bonusPence/100;settlement.creditPence=options.credit.creditPence;}
+   }
    if(decision.fullCreditOfferId){
     const offer:any=await ctx.runQuery(internal.rentalCreditOffers.byId,{offerId:decision.fullCreditOfferId});
     if(!offer||settlement.creditPence!==offer.amountPence)throw Error("The payment balance changed. The team must review the credit quote before cancellation.");
    }
    allocations=settlement.allocations;
-   mode=decision.fullCreditOfferId?"credit":decision.kind==="full_refund"?"refund":"credit";refundAmount=settlement.refundPence/100;creditAmount=settlement.creditPence/100;
+   mode=operator?(operator.choice==="credit"?"credit":"refund"):decision.fullCreditOfferId?"credit":decision.kind==="full_refund"?"refund":"credit";refundAmount=settlement.refundPence/100;creditAmount=settlement.creditPence/100;
    if(creditAmount>0&&!accountId)throw Error("The renter needs an account with their booking email before account credit can be issued. Resume this cancellation after account creation.");
   }
-  quote=await ctx.runMutation(internal.bookings.recordCancellationQuote,{bookingId,quote:{mode,refundAmount,creditAmount,paymentIntentId:paidIntentId??undefined,allocations}});
+  quote=await ctx.runMutation(internal.bookings.recordCancellationQuote,{bookingId,quote:{mode,refundAmount,creditAmount,...(operator?{bonusCreditAmount}:{}),paymentIntentId:paidIntentId??undefined,allocations}});
  }
  const job:any=await ctx.runMutation(internal.cancellationRecovery.claim,{bookingId,accountId,adminReason,legacy:!!decision.quote});
  const pending=()=>new ConvexError({code:"CANCELLATION_PENDING",message:"Cancellation settlement is processing. Any required Stripe approval must be completed by the team. We will finish automatically once the refund and security release are confirmed."});
@@ -1387,12 +1409,33 @@ async function cancelRental(ctx:any,bookingId:any,b:any,accountId?:any,adminReas
 }
 
 /** Retry only durable, already-requested cancellations; never initiate a new cancellation. */
+/** Read-only source balance for a prepared operator cancellation. */
+export const operatorCancellationBalance=internalAction({args:{offerId:v.id("operator_cancellation_offers")},handler:async(ctx,a):Promise<any>=>{
+ try{
+ const context:any=await ctx.runQuery(internal.operatorCancellationState.byId,a),offer=context?.offer;
+ const b:any=offer?await ctx.runQuery(internal.bookings.getForCancel,{bookingId:offer.bookingId}):null;
+ if(!b||!offer||b.cancellationDecision?.operatorOfferId!==offer._id||Date.now()<offer.decisionAfter)throw Error("The cancellation decision window is still open or changed.");
+ if((context.account?.membershipCreditDebtPence??0)>0&&(b.creditApplied??0)>0)throw new RefundReviewRequired("Reversed membership credit must be reconciled before offering this settlement.");
+ const id=await paymentBeforeCancellation(b),sources=id?(b.paymentSources?.length?b.paymentSources:[{paymentIntentId:id,securityPence:pence(b.depositAmount)}]):[];
+ const balances=await Promise.all(sources.map((source:any)=>cancellationSourceBalance(source,b,offer.bookingId,true)));
+ const cashRemainingPence=balances.reduce((n:number,s:any)=>n+s.availablePence,0),securityRemainingPence=cancellationPaymentPlan("store_credit",balances,0).refundPence,spentCreditPence=pence(b.creditApplied??0);
+ operatorCancellationOptions({cashRemainingPence,securityRemainingPence,spentCreditPence});return {cashRemainingPence,securityRemainingPence,spentCreditPence};
+ }catch(error){if(error instanceof RefundReviewRequired)throw new ConvexError({code:"OPERATOR_CANCELLATION_REVIEW",message:error.message});throw error;}
+}});
+export const settleOperatorCancellation=internalAction({args:{offerId:v.id("operator_cancellation_offers")},handler:async(ctx,a):Promise<any>=>{
+ const context:any=await ctx.runQuery(internal.operatorCancellationState.byId,a);
+ if(context?.offer.state==="settled")return {already:true};
+ if(context?.offer.state!=="chosen")throw Error("The renter settlement choice is not ready.");
+ const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId:context.offer.bookingId});
+ try{return await cancelRental(ctx,context.offer.bookingId,b,context.offer.accountId,context.offer.reason);}catch(error){if(error instanceof RefundReviewRequired)throw new ConvexError({code:"OPERATOR_CANCELLATION_REVIEW",message:error.message});throw error;}
+}});
 export const reconcileCancellations=internalAction({args:{},handler:async(ctx)=>{
+ await ctx.runAction(internal.operatorCancellation.reconcile,{});
  const jobs:any[]=await ctx.runQuery(internal.cancellationRecovery.due,{});
  for(const job of jobs){
   try{
    const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId:job.bookingId});
-   if(b?.status==="cancelled"){await ctx.runMutation(internal.cancellationRecovery.finishAttempt,{id:job._id,complete:true});continue;}
+   if(b?.status==="cancelled"&&!b.cancellationDecision?.operatorOfferId){await ctx.runMutation(internal.cancellationRecovery.finishAttempt,{id:job._id,complete:true});continue;}
    if(b?.cancellationDecision?.quote)await cancelRental(ctx,job.bookingId,b,job.accountId,job.adminReason,b.cancellationDecision.fullCreditOfferId);
   }catch{/* The durable ledger retains provider receipts and the next retry. */}
  }
@@ -1433,11 +1476,15 @@ export const acceptFullCredit = action({
  }
 });
 export const cancelByAdmin = action({
- args:{token:v.string(),bookingId:v.id("bookings"),reason:v.string(),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit")))},
+ args:{token:v.string(),bookingId:v.id("bookings"),reason:v.optional(v.string()),changeRequestId:v.optional(v.id("rental_change_requests")),expectedCancellationKind:v.optional(v.union(v.literal("full_refund"),v.literal("store_credit")))},
  handler:async(ctx,{token,bookingId,reason,changeRequestId,expectedCancellationKind}):Promise<{refundAmount:number;creditAmount:number;mode:string}>=>{
   await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"checkout.cancelByAdmin"});
-  if(reason.trim().length<5)throw Error("Record the cancellation reason");
+  reason=reason?.trim()||(changeRequestId?"Requested cancellation approved":"Equipment unexpectedly unavailable");
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
+  if(!changeRequestId&&(b?.cancellationDecision?.operatorOfferId||process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&b?.status==="confirmed")){
+   const offer:any=await ctx.runMutation(internal.operatorCancellationState.begin,{bookingId,reason});
+   return {refundAmount:0,creditAmount:0,mode:offer.state==="settled"?"settled":"waiting"};
+  }
   if(changeRequestId && b?.status==="cancelled" && b.completedChangeRequestId===changeRequestId && b.cancellationDecision?.quote)return {refundAmount:b.cancellationDecision.quote.refundAmount,creditAmount:b.cancellationDecision.quote.creditAmount,mode:b.cancellationDecision.quote.mode};
   if(!b||!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Only unstarted direct bookings can be cancelled here");
   return cancelRental(ctx,bookingId,b,b.accountId??undefined,reason.trim().slice(0,400),undefined,changeRequestId,expectedCancellationKind);
@@ -1461,6 +1508,7 @@ export const cancelByCustomer = action({
   const me:any=await ctx.runQuery(api.accounts.me,{token});if(!me)throw Error("Please sign in.");
   const b:any=await ctx.runQuery(internal.bookings.getForCancel,{bookingId});
   if(!belongsToRentalAccount(b,me))throw Error("unauthorized");
+  if(b.status==="cancelled"&&b.cancellationDecision?.quote&&!b.cancellationDecision.operatorOfferId){const quote=b.cancellationDecision.quote;return {ok:true,mode:quote.mode,refundAmount:quote.refundAmount,creditAmount:quote.creditAmount};}
   if(b.cancelledAt||b.status==="cancelled")throw Error("This booking is already cancelled.");
   if(!["confirmed","pending_payment"].includes(b.status)||!b.siteOnly)throw Error("Please contact us to change this booking.");
   return cancelRental(ctx,bookingId,b,me._id);

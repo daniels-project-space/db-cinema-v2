@@ -1,6 +1,7 @@
 import { creditDebit,usableCredit } from "./lib/creditLedger";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import {internal} from "./_generated/api";
 
 import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 
@@ -37,27 +38,25 @@ export const expire = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-    const rows = await ctx.db
-      .query("credits")
-      .withIndex("by_status", (q) => q.eq("status", "active"))
-      .collect();
-    let n = 0;
-    for (const c of rows) {
-      if (c.expiresAt <= now) {
-        const account = await ctx.db.get(c.accountId);
-        if (account) {
-          const pending = await ctx.db.query("bookings")
-            .withIndex("by_guestEmail", (q) => q.eq("guestEmail", account.email))
-            .collect();
-          // A checkout can reserve a credit just before expiry. Keep it
-          // redeemable until Stripe's paid/expired outcome is reconciled.
-          if (pending.some((b) => b.status === "pending_payment" && (b.creditApplied ?? 0) > 0 &&
-            b._creationTime < c.expiresAt)) continue;
-        }
-        await ctx.db.patch(c._id, { status: "expired" });
-        n++;
-      }
+    const state=await ctx.db.query("credit_expiry_state").withIndex("by_key",q=>q.eq("key","active-expiry")).unique();
+    const page=await ctx.db.query("credits").withIndex("by_status_expiry",q=>q.eq("status","active").lte("expiresAt",now)).paginate({numItems:100,cursor:state?.cursor??null});
+    let n=0;
+    for(const c of page.page){
+      const account=await ctx.db.get(c.accountId);
+      const [linked,legacy]=account?await Promise.all([
+        ctx.db.query("bookings").withIndex("by_account_status",q=>q.eq("accountId",c.accountId).eq("status","pending_payment")).take(101),
+        ctx.db.query("bookings").withIndex("by_guestEmail_status",q=>q.eq("guestEmail",account.email).eq("status","pending_payment")).take(101),
+      ]):[[],[]];
+      if(linked.length>100||legacy.length>100)continue;
+      const pending=[...linked,...legacy.filter(b=>b.accountId==null)];
+      const reserved=pending.some(b=>b._creationTime<c.expiresAt&&(b.creditAllocations?b.creditAllocations.some(a=>a.creditId===c._id&&a.amount>0):((b.creditApplied??0)-(b.membershipCreditApplied??0))>0));
+      if(reserved)continue;
+      await ctx.db.patch(c._id,{status:"expired"});n++;
     }
+    const progress={key:"active-expiry",cursor:page.isDone?null:page.continueCursor,updatedAt:now};
+    if(state)await ctx.db.patch(state._id,progress);else await ctx.db.insert("credit_expiry_state",progress);
+    if(!page.isDone)await ctx.scheduler.runAfter(0,internal.credits.expire,{});
+
     return { expired: n };
   },
 });

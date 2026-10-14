@@ -1,11 +1,13 @@
 const assert=require('node:assert/strict'),{checkStockBackend}=require('./check-stock-backend.cjs');
 const backendUrl='https://test-deployment.convex.cloud',frontendUrl=backendUrl;
 let calls=0;
-const transport=(status,value,catalog={status:'success',value:[{_id:'real-listing'}]})=>async(url,request)=>{
+const transport=(status,value,catalog={status:'success',value:[{_id:'real-listing'}]},quote={status:'success',value:{availableAccountCredit:0,creditUseSelected:false,combinedTotalDue:50}})=>async(url,request)=>{
  calls++;assert.equal(request.method,'POST');assert(request.signal);
  const body=JSON.parse(request.body);
  if(url.endsWith('/api/query')){assert.deepEqual(body,{path:'catalog:listListings',args:{},format:'json'});return {status:200,ok:true,json:async()=>catalog}}
- assert.equal(url,backendUrl+'/api/action');assert.equal(body.path,'sync:refreshCartStock');assert.equal(body.format,'json');assert.equal(body.args.items.length,1);assert.equal(body.args.items[0].listingId,'real-listing');assert.equal(body.args.items[0].start,body.args.items[0].end);assert(Number.isSafeInteger(body.args.items[0].start));
+ assert.equal(url,backendUrl+'/api/action');
+ if(body.path==='checkout:priceQuote'){assert.equal(body.args.useAccountCredit,false);assert.equal(body.args.customerEmail,'');assert.equal(body.args.items[0].listingId,'real-listing');return {status:200,ok:true,json:async()=>quote}}
+ assert.equal(body.path,'sync:refreshCartStock');assert.equal(body.format,'json');assert.equal(body.args.items.length,1);assert.equal(body.args.items[0].listingId,'real-listing');assert.equal(body.args.items[0].start,body.args.items[0].end);assert(Number.isSafeInteger(body.args.items[0].start));
  return {status,ok:status===200,json:async()=>value};
 };
 (async()=>{
@@ -21,5 +23,7 @@ const transport=(status,value,catalog={status:'success',value:[{_id:'real-listin
  assert.equal((await checkStockBackend({backendUrl,frontendUrl,fetchImpl:async()=>({json:async()=>{throw Error('Bad response')}})})).code,'BACKEND_UNREACHABLE');
  const action=require('./lib/rentalTestHarness.cjs').load('convex/sync.ts').refreshCartStock;assert.equal(action.args.items.json.type,'array');
  await assert.rejects(action.handler({runAction:async()=>{throw Error('Unexpected source effect')}},{items:[]}),/Invalid basket stock request/);
- assert.equal(calls,16);console.log('PASS stock runtime check: matching bindings, actual catalogue/stock shape, empty/missing/hidden-error failures, response redaction and unchanged empty basket guard. No payment or external provider writes.');
+ assert.equal(calls,17);
+ for(const quote of [{status:'error',errorMessage:'ArgumentValidationError useAccountCredit secret'},{status:'success',value:{combinedTotalDue:50}},{status:'success',value:{availableAccountCredit:0,creditUseSelected:true,combinedTotalDue:50}}]){const result=await checkStockBackend({backendUrl,frontendUrl,fetchImpl:transport(200,stock,undefined,quote)});assert.equal(result.code,'CREDIT_QUOTE_NOT_DEPLOYED');assert(!JSON.stringify(result).includes('secret'));}
+ console.log('PASS stock runtime check: matching bindings, actual catalogue/stock and explicit credit quote contracts, empty/missing/hidden-error failures, response redaction and unchanged empty basket guard. No payment or external provider writes.');
 })().catch(e=>{console.error(e);process.exitCode=1});

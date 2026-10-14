@@ -26,7 +26,7 @@ export type InvoiceData = {
   acceptedAgreementEvidence?: {name:string|null;signedAt:number|null;documents:{kind:string;version:string}[]};
   returnStatement?: ReturnStatementData | null;
   rentalRefunds?:{amount:number;status:string;reason:string}[];
-  cancellationRefund?:number;accountCreditIssued?:number;
+  cancellationRefund?:number;accountCreditIssued?:number;accountCreditBonus?:number;
 };
 
 import type { ReturnStatementData } from "../../../shared/returnStatement";
@@ -136,7 +136,8 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
           ) : null}
           {data.rentalRefunds?.map((r,i)=><View key={i} style={s.totRow}><Text>Rental refund ({r.status})</Text><Text style={s.totValue}>{gbp(r.amount)}</Text></View>)}
           {(data.cancellationRefund??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>Cancellation card refund</Text><Text style={s.totValue}>{gbp(data.cancellationRefund!)}</Text></View>}
-          {(data.accountCreditIssued??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>Account credit issued · one year</Text><Text style={s.totValue}>{gbp(data.accountCreditIssued!)}</Text></View>}
+          {(data.accountCreditIssued??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>Account credit issued · see credit receipts</Text><Text style={s.totValue}>{gbp(data.accountCreditIssued!)}</Text></View>}
+          {(data.accountCreditBonus??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>30% bonus included in that credit</Text><Text style={s.totValue}>{gbp(data.accountCreditBonus!)}</Text></View>}
           <Text style={s.note}>Db Cinema Rentals is not VAT registered. No VAT is charged. This receipt is not a VAT invoice.</Text>
         </View>
 

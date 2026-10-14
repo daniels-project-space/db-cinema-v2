@@ -3,7 +3,8 @@ export async function rentalPaymentSources(ctx: any, b: any) {
   const additions = await ctx.db
     .query("rental_additions")
     .withIndex("by_booking", (q: any) => q.eq("bookingId", b._id))
-    .collect();
+    .take(101);
+  if(additions.length>100)throw Error("Rental addition history needs manual review.");
   const applied = additions.filter(
     (r: any) => r.status === "applied" && r.paymentIntentId,
   );
@@ -11,7 +12,8 @@ export async function rentalPaymentSources(ctx: any, b: any) {
     (sum: number, r: any) => sum + r.securityCharge,
     0,
   );
-  const extensions = await ctx.db.query("booking_change_requests").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).collect();
+  const extensions = await ctx.db.query("booking_change_requests").withIndex("by_booking", (q: any) => q.eq("bookingId", b._id)).take(101);
+  if(extensions.length>100)throw Error("Rental extension history needs manual review.");
   const priceChanges=await ctx.db.query("rental_price_adjustments").withIndex("by_booking",(q:any)=>q.eq("bookingId",b._id)).take(101);
   if(priceChanges.length>100)throw Error("Rental price history needs manual review.");
   const sources = [

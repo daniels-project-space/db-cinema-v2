@@ -6,7 +6,7 @@ export type CheckoutDraft = {
   email: string; name: string; phone: string; billingAddress: string;
   fulfilment: "pickup" | "delivery"; address: string; postcode: string;
   protection: "verify" | "deposit"; pickupTime: string; returnTime: string;
-  agreed: boolean; deliveryAgreed: boolean;
+  agreed: boolean; deliveryAgreed: boolean;useAccountCredit?:boolean;
 };
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
 export function browserCheckoutStorage(): Storage | null {
@@ -24,7 +24,7 @@ function fields(value: any): CheckoutDraft {
     fulfilment: value.fulfilment === "delivery" ? "delivery" : "pickup",
     protection: value.protection === "deposit" ? "deposit" : "verify",
     pickupTime: slot("pickupTime"), returnTime: slot("returnTime"),
-    agreed: value.agreed === true, deliveryAgreed: value.deliveryAgreed === true,
+    ...(typeof value.useAccountCredit==="boolean"?{useAccountCredit:value.useAccountCredit}:{}),agreed: value.agreed === true, deliveryAgreed: value.deliveryAgreed === true,
   };
 }
 

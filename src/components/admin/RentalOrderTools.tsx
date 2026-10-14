@@ -13,6 +13,7 @@ import { rentalHandoverLabel } from "../../../shared/rentalHandover";
 import { rentalDate } from "@/lib/rentalPresentation";
 import { RentalRequestHistory } from "@/components/rentals/RentalRequestHistory";
 import { SavedCardCharges } from "@/components/rentals/SavedCardCharges";
+import {OperatorCancellationStatus} from "./OperatorCancellationStatus";
 
 export function RentalOrderTools({
   token,
@@ -120,7 +121,7 @@ export function RentalOrderTools({
       if (mode === "cancel") {
         const r = await cancel({ token, bookingId: bookingId as any, reason });
         setResult(
-          `Cancelled. Card refund ${formatGbp(r.refundAmount)}${r.creditAmount ? ` · account credit ${formatGbp(r.creditAmount)}` : ""}.`,
+          r.mode==="waiting"?"Rental cancelled. Settlement waits one hour for the account decision, then the renter receives their refund or credit options.":`Cancelled. Card refund ${formatGbp(r.refundAmount)}${r.creditAmount ? ` · account credit ${formatGbp(r.creditAmount)}` : ""}.`,
         );
       }
       if (mode === "refund") {
@@ -204,6 +205,7 @@ export function RentalOrderTools({
   return (
     <div data-testid="owner-rental-tools">
       <RentalRequestHistory token={token} bookingId={bookingId} admin />
+      <OperatorCancellationStatus key={bookingId} token={token} bookingId={bookingId}/>
       <section className={chatStyles.bookingFacts} aria-label="Booked equipment and handover">
         <div className={chatStyles.factsIdentity}><SmartImage fit="contain" src={b.lineItems[0]?.heroImage} fallbackSources={b.lineItems[0]?.imageSources} alt={b.lineItems[0]?.title ?? "Rental kit"} className={chatStyles.factsPhoto} /><div><h5>{rentalTitle(b.lineItems[0]?.title ?? "Rental kit")}</h5><p>DBC-{bookingId.slice(-8).toUpperCase()} · {b.lineItems.length} listings</p></div></div>
         <dl><div><dt>Rental dates</dt><dd>{b.lineItems.length ? rentalDate(Math.min(...b.lineItems.map(l => l.start)), Math.max(...b.lineItems.map(l => l.end))) : "Dates need review"}</dd></div><div><dt>{b.fulfilment === "delivery" ? "Delivery" : "Collection"}</dt><dd>{rentalHandoverLabel(b,"pickup")}</dd></div><div><dt>Return</dt><dd>{rentalHandoverLabel(b,"return")}</dd></div><div><dt>Customer</dt><dd>{b.guestName || b.guestEmail}</dd></div><div><dt>Verification</dt><dd data-verified={b.idVerifyStatus === "verified"}>{b.idVerifyStatus === "verified" ? "✓ Verified" : (b.idVerifyStatus ?? "Required").replaceAll("_", " ")}</dd></div></dl>
@@ -497,10 +499,10 @@ export function RentalOrderTools({
             </label>
           )}
           <label className="mt-3 block text-xs text-white/55">
-            Reason · shared with the customer
+            {mode==="cancel"?"Note (optional)":"Reason · shared with the customer"}
             <textarea
-              required
-              minLength={5}
+              required={mode!=="cancel"}
+              minLength={mode==="cancel"?undefined:5}
               maxLength={400}
               value={reason}
               onChange={(e) => setReason(e.target.value)}

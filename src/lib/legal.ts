@@ -21,8 +21,9 @@ export const AGREEMENTS = [
 export type AgreementDoc = { kind: string; version: string };
 
 export const REFUNDABLE_DEPOSIT_LEGAL_VERSION = "2026-10-v14";
-export function agreementsForSecurityPolicy(policy?: string | null) {
+export const CANCELLATION_PROTECTION_LEGAL_VERSION = "2026-10-v16";
+export function agreementsForSecurityPolicy(policy?: string | null, cancellationProtection=false) {
   if (!hasCashDepositPolicy(policy)) return AGREEMENTS;
-  const version=policy===ASSESSMENT_SECURITY_POLICY_VERSION?"2026-10-v15":REFUNDABLE_DEPOSIT_LEGAL_VERSION;
+  const version=policy===ASSESSMENT_SECURITY_POLICY_VERSION?(cancellationProtection?CANCELLATION_PROTECTION_LEGAL_VERSION:"2026-10-v15"):REFUNDABLE_DEPOSIT_LEGAL_VERSION;
   return AGREEMENTS.map(doc => ({...doc,version:doc.version===LEGAL_VERSION?version:doc.version,title:doc.kind==="deposit-agreement"?policy===ASSESSMENT_SECURITY_POLICY_VERSION?"Refundable Deposit & Future Card Payments":"Refundable Deposit & Saved-Card Payment Agreement":doc.title}));
 }

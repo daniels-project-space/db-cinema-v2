@@ -37,6 +37,7 @@ const ctx = { db, scheduler: { runAfter: async () => {} },
   runQuery: async (ref, args) => {
     if (ref.startsWith('bookings.')) return bookings[ref.split('.')[1]].handler(ctx, args);
     if (ref.startsWith('cancellationRecovery.')) return recovery[ref.split('.')[1]].handler(ctx, args);
+    if (ref.startsWith('operatorCancellationState.')) return load('convex/operatorCancellationState.ts')[ref.split('.')[1]].handler(ctx,args);
     throw Error(ref);
   },
   runMutation: async (ref, args) => {
@@ -46,6 +47,7 @@ const ctx = { db, scheduler: { runAfter: async () => {} },
     throw Error(ref);
   },
 };
+ctx.runAction=async(ref,args)=>{assert.equal(ref,'operatorCancellation.reconcile');return load('convex/operatorCancellation.ts').reconcile.handler(ctx,args)};
 (async () => {
   await requests.submit.handler(ctx,{token:'renter',bookingId:b._id,requestId:'approved-cancellation-request-01',kind:'cancel',detail:'Please cancel this booking and settle under the agreed terms.'});
   const linked=await db.query('rental_change_requests').withIndex('by_booking',q=>q.eq('bookingId',b._id)).first();

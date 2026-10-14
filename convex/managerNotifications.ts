@@ -38,6 +38,7 @@ export const finish = internalMutation({
 export const deliver = internalAction({
   args: { notificationId: v.id("admin_notifications") },
   handler: async (ctx, a) => {
+    if(process.env.RMV2_OUTBOUND_ENABLED==="false")return;
     const claimed = await ctx.runMutation(internal.managerNotifications.claim, a);
     if (!claimed) return;
     let result: "sent" | "retry" | "review" = "retry", error: string | undefined;

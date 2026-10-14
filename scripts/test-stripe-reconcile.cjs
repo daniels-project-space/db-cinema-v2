@@ -106,12 +106,19 @@ const {expire:expireCredits}=load('convex/credits.ts');
   assert.equal(deleted,false,'pending payment keeps the physical stock hold');
   let pendingCreditBooking=true;
   const expiryPatches=[];
+  let expiryState=null;
   const expiryCtx={db:{
     get:async()=>({email:'owner@example.invalid'}),
-    query:table=>({withIndex:()=>({collect:async()=>table==='credits'?[credit]:
-      pendingCreditBooking?[booking]:[]})}),
-    patch:async(id,patch)=>expiryPatches.push({id,patch}),
+    query:table=>({withIndex:()=>({
+      unique:async()=>table==='credit_expiry_state'?expiryState:null,
+      paginate:async()=>({page:table==='credits'?[credit]:[],isDone:true,continueCursor:'done'}),
+      take:async()=>table==='bookings'&&pendingCreditBooking?[booking]:[],
+      collect:async()=>table==='credits'?[credit]:table==='bookings'&&pendingCreditBooking?[booking]:[],
+    })}),
+    insert:async(table,value)=>{assert.equal(table,'credit_expiry_state');expiryState={...value,_id:'expiry-state'};return expiryState._id;},
+    patch:async(id,patch)=>{if(id==='expiry-state')Object.assign(expiryState,patch);else expiryPatches.push({id,patch});},
   }};
+
   assert.deepEqual(await expireCredits.handler(expiryCtx,{}),{expired:0});
   pendingCreditBooking=false;
   assert.deepEqual(await expireCredits.handler(expiryCtx,{}),{expired:1});

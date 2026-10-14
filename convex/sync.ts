@@ -361,9 +361,17 @@ export const applyCatalog = internalMutation({
         const patch: any = (existing as any).suppressed ? { ...synced, active: false } : synced;
         // A retitled/replaced configuration must not inherit the old package's packing list.
         const identity = (components: {inventoryUnitId:any;qty:number}[]) => JSON.stringify(components.map(c => [String(c.inventoryUnitId),c.qty]).sort((a,b) => String(a[0]).localeCompare(String(b[0]))));
-        if (existing.title !== it.title || existing.hyggloProductId !== it.hyggloProductId ||
-            identity(existing.components) !== identity(synced.components))
+        const sourceTitle = existing.copyReview?.sourceTitle ?? existing.title;
+        if (sourceTitle !== it.title || existing.hyggloProductId !== it.hyggloProductId ||
+            identity(existing.components) !== identity(synced.components)){
           patch.rentalContents = undefined;
+          // Reviewed facts belong to the exact offer, including its packing list.
+          // A new configuration cannot inherit the former kit's description.
+          if(existing.copyReview){patch.copyReview=undefined;patch.description=undefined;patch.knowledge=undefined;}
+        }else if(existing.copyReview){
+          // The source offer is unchanged; preserve its reviewed public spelling/configuration.
+          patch.title=existing.title;
+        }
         await ctx.db.patch(existing._id, { ...patch, ...automaticMarketingFields(synced, existing) });
       } else {
         await ctx.db.insert("listings", { ...synced, ...automaticMarketingFields(synced), specs: it.specs ?? {} });
@@ -782,8 +790,9 @@ export const applyKnowledge = mutation({
   args: { token: v.string(), items: v.array(v.object({ id: v.id("listings"), knowledge: v.any() })) },
   handler: async (ctx, { token, items }) => {
     await assertAdmin(ctx, token, "sync.applyKnowledge");
+    if(items.length>50)throw Error("Knowledge import batch limit is 50");
     let n = 0;
-    for (const it of items) { await ctx.db.patch(it.id, { knowledge: it.knowledge }); n++; }
+    for (const it of items) {const listing=await ctx.db.get(it.id);if(listing?.copyReview)throw Error("Reviewed catalog copy needs a source-backed review update");await ctx.db.patch(it.id, { knowledge: it.knowledge }); n++; }
     return { updated: n };
   },
 });

@@ -25,9 +25,16 @@ async function checkStockBackend({backendUrl,frontendUrl,fetchImpl=fetch}){
   const stock=json?.value,availability=stock?.availability?.[listing._id];
   if(response.ok&&json?.status==='success'&&Number.isSafeInteger(stock?.checkedAt)&&stock.checkedAt>0&&
      Number.isSafeInteger(availability?.available)&&availability.available>=0&&Number.isSafeInteger(availability?.demanded)&&availability.demanded>0&&typeof availability?.ok==='boolean')
-   return {ok:true,code:'STOCK_FUNCTION_AVAILABLE',backend};
+   {
+    // A frontend revision can add optional quote arguments before its staging
+    // backend is published. Detect this here, before a generic browser timeout.
+    const quote=await request('action','checkout:priceQuote',{items:[{listingId:listing._id,title:listing.title??'Gear',start,end:start,qty:1,total:0,deposit:0}],customerEmail:'',fulfilment:'pickup',protection:'verify',useAccountCredit:false});
+    const value=quote.json?.value;
+    if(!quote.response.ok||quote.json?.status!=='success'||value?.availableAccountCredit!==0||value?.creditUseSelected!==false||!Number.isFinite(value?.combinedTotalDue)||value.combinedTotalDue<0)return {ok:false,code:'CREDIT_QUOTE_NOT_DEPLOYED',backend};
+    return {ok:true,code:'STOCK_FUNCTION_AVAILABLE',backend};
+   }
   return {ok:false,code:'UNEXPECTED_STOCK_BACKEND_RESPONSE',backend};
  }catch{return {ok:false,code:'BACKEND_UNREACHABLE',backend}}
 }
 module.exports={checkStockBackend};
-if(require.main===module)checkStockBackend({backendUrl:process.env.DBC_CONVEX_URL,frontendUrl:process.env.NEXT_PUBLIC_CONVEX_URL}).then(result=>{console.log(JSON.stringify(result));if(!result.ok){console.error('Deploy the compatible backend and stock bridge to the intended environment before running checkout acceptance. Checkout assertions remain required.');process.exitCode=1}}).catch(()=>{console.error('Stock backend check failed');process.exitCode=1});
+if(require.main===module)checkStockBackend({backendUrl:process.env.DBC_CONVEX_URL,frontendUrl:process.env.NEXT_PUBLIC_CONVEX_URL}).then(result=>{console.log(JSON.stringify(result));if(!result.ok){console.error('Deploy the compatible backend, stock bridge and credit quote contract to the intended environment before running checkout acceptance. Checkout assertions remain required.');process.exitCode=1}}).catch(()=>{console.error('Stock backend check failed');process.exitCode=1});

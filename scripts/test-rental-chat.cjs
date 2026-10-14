@@ -103,6 +103,24 @@ process.env.ADMIN_TOKEN = "fixture-owner-only";
     accountId: a._id,
     focusBookingId: booking._id,
   });
+  const creditExpiry=Date.now()+365*86400000;
+  put('credits',{accountId:a._id,amount:10,remaining:10,kind:'earned',status:'active',createdAt:Date.now(),expiresAt:creditExpiry});
+  put('credits',{accountId:other._id,amount:900,remaining:900,kind:'earned',status:'active',createdAt:Date.now(),expiresAt:creditExpiry});
+  put('credits',{accountId:a._id,amount:300,remaining:300,kind:'earned',status:'active',createdAt:Date.now()-10000,expiresAt:Date.now()-1});
+  await db.patch(booking._id,{guestAddress:'PRIVATE_ADDRESS_MARKER',stripePaymentMethodId:'PRIVATE_CARD_MARKER'});
+  const offer=put('operator_cancellation_offers',{state:'offered',choice:undefined,decisionAfter:Date.now()+3600000,choiceDeadline:Date.now()+7*86400000,cashRemainingPence:12000,securityRemainingPence:2000,spentCreditPence:0,proof:'PRIVATE_PROOF_MARKER'});
+  await db.patch(booking._id,{cancellationDecision:{operatorOfferId:offer._id}});
+  const facts=await chat._gafferContext.handler(ctx,{accountId:a._id,focusBookingId:booking._id});
+  assert.equal(facts.accountCredit.available,10,'only owned available, unexpired credit is exposed');
+  assert.equal(facts.accountCredit.expiresAt,creditExpiry);
+  assert.equal(facts.accountCredit.securityAndMembershipExcluded,true);
+  assert.match(facts.accountCredit.selection,/not automatically spent/);
+  assert.equal(facts.booking.operatorCancellation.creditPence,13000);
+  assert.equal(facts.booking.operatorCancellation.cashRefundPence,12000);
+  assert.equal(facts.booking.operatorCancellation.depositRefundPence,2000);
+  for(const secret of ['PRIVATE_ADDRESS_MARKER','PRIVATE_CARD_MARKER','PRIVATE_PROOF_MARKER'])assert.ok(!JSON.stringify(facts).includes(secret),'Gaffer context excludes '+secret);
+  assert.equal(facts.checkoutUi.cancellationProtectionEnabled,process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==='true');
+  await db.patch(booking._id,{cancellationDecision:undefined});
   assert.equal(cx.booking.stage, "pending_payment");
   assert.equal(cx.location, null, "unpaid rental cannot disclose pickup location");
   put("settings", { businessAddress: "Verified collection depot" });

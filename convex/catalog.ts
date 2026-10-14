@@ -277,6 +277,7 @@ export const getListingBySlug = query({
       itemType: l.itemType ?? null,
       specs: l.specs ?? null,
       knowledge: l.knowledge ?? null,
+      description:l.description??null,
       rentalContents: l.rentalContents ?? null,
       heroImage: images(l)[0] ?? null,
       gallery: images(l),

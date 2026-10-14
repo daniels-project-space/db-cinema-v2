@@ -15,6 +15,10 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
   const account=await accountForRental(ctx,b);
   const recipient=account?.email ?? (b.accountId ? null : b.guestEmail);
   if(!recipient || (row.recipientEmail && row.recipientEmail!==recipient)) return false;
+  if(row.kind === "cancellation_choice"){
+    const offer=b.cancellationDecision?.operatorOfferId?await ctx.db.get(b.cancellationDecision.operatorOfferId):null;
+    return !!offer&&offer.emailDeliveryId===row._id&&offer.state==="email_pending"&&account?.blockedAt==null&&offer.recipientEmail===recipient&&Date.now()<(offer.choiceDeadline??0);
+  }
   if(row.kind === "review"){
     if(b.remindedReview || b.reviewFollowUpStatus==="sent")return false;
     if(customerReviewGate(b) || b.reviewEligibilityFingerprint!==reviewSettlementFingerprint(await reviewContext(ctx,b)))return false;

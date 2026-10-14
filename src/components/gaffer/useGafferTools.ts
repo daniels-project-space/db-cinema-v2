@@ -10,6 +10,7 @@ import { GAFFER_PRICE_CODE } from "@cvx/lib/gafferDiscount";
 import { asksForBetterPrice } from "./priceRequest";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
+import {useCreditBalance} from "@/components/account/useCreditBalance";
 import { quote } from "@/lib/pricing";
 import { refundableDepositFor, assessmentDepositFor, savedCardChargeLimit } from "../../../shared/rentalSecurity";
 import { resolveDate, inclusiveDays, londonToday } from "@/lib/voiceDates";
@@ -83,6 +84,7 @@ export function useGafferTools() {
   const resetPriceRequest = useCallback(() => { priceRequested.current = false; }, []);
   const cart = useCart();
   const account = useAccount();
+  const accountCredit=useCreditBalance(account.token);
   const convex = useConvex();
   const emailedCart = useRef<{email:string;shareKey:string;signature:string}|null>(null);
   const cartAlternatives = useQuery(api.cartReplacements.forCart, cart.items.length ? {items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:6} : "skip");
@@ -284,10 +286,12 @@ export function useGafferTools() {
   }, [cart]);
 
   const securitySummary = useCallback(() => {
-    if(checkoutSettings?.assessmentSecurityEnabled) return `The refundable deposit starts at £20, rises to £50 from £1,000 equipment value and £100 from £4,000. Eligible active members/subscribers and verified Encore renters are exempt; the final account-bound quote confirms eligibility. Stripe saves a card for evidenced future damage, loss and late-fee payments. Retained deposit is deducted from the same assessment. Later collection requires an itemised notice, at least seven days for review and admin action.`;
+    const credit=accountCredit&&accountCredit.accountId===account.me?._id?` Available account credit is £${accountCredit.available.toFixed(2)}. ${accountCredit.available>0?"Choose Use account credit at checkout to apply it; the checkbox is hidden without an available balance.":"No account credit is currently available for this checkout."} Credit cannot pay refundable deposits or membership fees and cannot be withdrawn as cash; the account receipts show its expiry.`:" Account credit is selected at checkout only when an available signed-in balance exists.";
+    const protection=checkoutSettings?.cancellationProtectionEnabled?" The free cancellation-protection shield card opens the policy. If DB cancels before pickup, eligible renters receive private email options after the one-hour account decision: original-payment refund or 130% rental credit valid 365 days, with the deposit returned separately. Opening an email link does not execute a choice.":"";
+    if(checkoutSettings?.assessmentSecurityEnabled) return `The refundable deposit starts at £20, rises to £50 from £1,000 equipment value and £100 from £4,000. Eligible active members/subscribers and verified Encore renters are exempt; the final account-bound quote confirms eligibility. Stripe saves a card for evidenced future damage, loss and late-fee payments. Retained deposit is deducted from the same assessment. Later collection requires an itemised notice, at least seven days for review and admin action.${credit}${protection}`;
     const cash = checkoutSettings?.refundableDepositEnabled === true ? refundableDepositFor(cart.depositTotal) : null;
-    return `${cash === null ? "The final checkout quote confirms whether a refundable deposit is due." : cash > 0 ? `A refundable £${cash.toFixed(2)} deposit is paid at checkout.` : "No refundable deposit is due below £1,000 equipment value."} The combined saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)}, subject to the final quote and explicit consent. Any retained deposit reduces later charges for the same loss. Later collection requires itemised evidence, at least seven days for review and admin action.`;
-  }, [checkoutSettings?.assessmentSecurityEnabled, checkoutSettings?.refundableDepositEnabled, cart.depositTotal]);
+    return `${cash === null ? "The final checkout quote confirms whether a refundable deposit is due." : cash > 0 ? `A refundable £${cash.toFixed(2)} deposit is paid at checkout.` : "No refundable deposit is due below £1,000 equipment value."} The combined saved-card damage/loss and late-fee permission is £${savedCardChargeLimit(cart.depositTotal).toFixed(2)}, subject to the final quote and explicit consent. Any retained deposit reduces later charges for the same loss. Later collection requires itemised evidence, at least seven days for review and admin action.${credit}${protection}`;
+  }, [checkoutSettings?.assessmentSecurityEnabled, checkoutSettings?.refundableDepositEnabled,checkoutSettings?.cancellationProtectionEnabled,accountCredit,account.me?._id,cart.depositTotal]);
 
   const rentalSummary = useCallback(async () => {
     if (!cart.promo) return `£${cart.subtotal}`;
