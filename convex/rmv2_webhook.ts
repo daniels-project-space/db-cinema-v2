@@ -30,6 +30,7 @@ export const push = internalAction({
     ctx,
     { bookingId },
   ): Promise<{ ok: boolean; reason?: string }> => {
+    if(process.env.RMV2_OUTBOUND_ENABLED==="false")return {ok:false,reason:"delivery_disabled"};
     const booking = await ctx.runQuery(internal.rmv2_sync.forRmv2SyncOne, { bookingId });
     if (!booking) return { ok: false, reason: "not_found" };
     const revision = booking.revision ?? 0;
@@ -81,6 +82,7 @@ export const push = internalAction({
 });
 
 export const retryDue = internalAction({ args: {}, handler: async ctx => {
+  if(process.env.RMV2_OUTBOUND_ENABLED==="false")return;
   await ctx.runAction(internal.managerNotifications.retryDue, {});
   try{await ctx.runAction(internal.managerCheckoutStockPush.push, {});}catch{console.error("[rmv2_webhook] website checkout stock sync requires attention");}
   const bookings = await ctx.runQuery(internal.rmv2Delivery.due, {});

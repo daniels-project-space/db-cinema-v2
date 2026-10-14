@@ -1,6 +1,7 @@
 import {internalAction} from "./_generated/server";
 import {internal} from "./_generated/api";
 export const push=internalAction({args:{},handler:async(ctx)=>{
+ if(process.env.RMV2_OUTBOUND_ENABLED==="false")return;
  const base=process.env.RMV2_WEBHOOK_URL,secret=process.env.RMV2_WEBHOOK_SECRET;if(!base||!secret)return;
  const snapshot=await ctx.runMutation(internal.managerCheckoutStock.snapshot,{});if(!snapshot)return;
  let ok=false,reason="transport_failed";
