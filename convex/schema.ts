@@ -787,7 +787,7 @@ export default defineSchema({
     acceptedAt: v.optional(v.number()),
   }).index("by_booking", ["bookingId"]),
   credit_issues: defineTable({requestId:v.string(),accountId:v.id("accounts"),creditId:v.id("credits"),bookingId:v.optional(v.id("bookings")),amountPence:v.number(),bonusPence:v.optional(v.number()),reason:v.string(),createdAt:v.number(),expiresAt:v.number()}).index("by_request",["requestId"]).index("by_account_created",["accountId","createdAt"]).index("by_booking",["bookingId"]),
-  credit_expiry_state: defineTable({key:v.string(),cursor:v.union(v.string(),v.null()),updatedAt:v.number()}).index("by_key",["key"]),
+  credit_expiry_state: defineTable({key:v.string(),cursor:v.union(v.string(),v.null()),cutoffAt:v.optional(v.number()),updatedAt:v.number()}).index("by_key",["key"]),
   credits: defineTable({
     accountId: v.id("accounts"),
     amount: v.number(), // original issued (GBP)

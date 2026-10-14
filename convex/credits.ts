@@ -39,7 +39,11 @@ export const expire = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
     const state=await ctx.db.query("credit_expiry_state").withIndex("by_key",q=>q.eq("key","active-expiry")).unique();
-    const page=await ctx.db.query("credits").withIndex("by_status_expiry",q=>q.eq("status","active").lte("expiresAt",now)).paginate({numItems:100,cursor:state?.cursor??null});
+    // Native cursors belong to one exact index range. Hold its cutoff across
+    // continuations; a moving Date.now() bound would invalidate later pages.
+    const continuing=state?.cursor!=null&&state.cutoffAt!==undefined;
+    const cutoffAt=continuing?state.cutoffAt!:now;
+    const page=await ctx.db.query("credits").withIndex("by_status_expiry",q=>q.eq("status","active").lte("expiresAt",cutoffAt)).paginate({numItems:100,cursor:continuing?state.cursor:null});
     let n=0;
     for(const c of page.page){
       const account=await ctx.db.get(c.accountId);
@@ -53,7 +57,7 @@ export const expire = internalMutation({
       if(reserved)continue;
       await ctx.db.patch(c._id,{status:"expired"});n++;
     }
-    const progress={key:"active-expiry",cursor:page.isDone?null:page.continueCursor,updatedAt:now};
+    const progress={key:"active-expiry",cursor:page.isDone?null:page.continueCursor,cutoffAt:page.isDone?undefined:cutoffAt,updatedAt:now};
     if(state)await ctx.db.patch(state._id,progress);else await ctx.db.insert("credit_expiry_state",progress);
     if(!page.isDone)await ctx.scheduler.runAfter(0,internal.credits.expire,{});
 

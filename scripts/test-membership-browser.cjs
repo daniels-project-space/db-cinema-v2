@@ -58,6 +58,7 @@ async function connect(url, existingId) {
 const { ConvexHttpClient } = require("convex/browser"),
   { api } = require("../convex/_generated/api.js");
 const { marketingRedirect } = require("./lib/rentalTestHarness.cjs").load("convex/lib/marketingInventory.ts");
+const {ASSESSMENT_SECURITY_POLICY_VERSION,REFUNDABLE_DEPOSIT_POLICY_VERSION,SECURITY_POLICY_VERSION,assessmentDepositFor}=require("./lib/rentalTestHarness.cjs").load("shared/rentalSecurity.ts");
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   const root = process.env.DBC_BROWSER_ROOT || "http://127.0.0.1:41795",
@@ -390,7 +391,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     ...args,
     selectedMembership: { tier: preferred.tier, intro: "none" },
   });
-  if(paid.securityPolicyVersion==='2026-10-refundable-deposit-v1'){assert([0,50,100].includes(paid.depositAmount));assert.equal(paid.depositHoldAmount,0);}else if(paid.securityPolicyVersion==='2026-10-saved-card-v1'){assert.equal(paid.depositAmount,0);assert.equal(paid.depositHoldAmount,0);}else assert(paid.depositAmount>0,'Historic quote preserves its accepted upfront security');
+  if(paid.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION){
+    assert.equal(paid.depositAmount,paid.securityWaiverReason?0:assessmentDepositFor(paid.replacementValue),'Exact current deposit or attested subscription waiver');
+    assert.equal(paid.depositHoldAmount,0);assert.equal(paid.savedCardLimit,0,'Current assessments do not advertise a fixed future-payment ceiling');
+  }else if(paid.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION){assert([0,50,100].includes(paid.depositAmount));assert.equal(paid.depositHoldAmount,0);}else if(paid.securityPolicyVersion===SECURITY_POLICY_VERSION){assert.equal(paid.depositAmount,0);assert.equal(paid.depositHoldAmount,0);}else assert(paid.depositAmount>0,'Historic quote preserves its accepted upfront security');
   assert.equal(paid.deliveryReduction,0);
   assert.equal(paid.weekendSaving,0);
   const paidDue = new Intl.NumberFormat("en-GB", {
@@ -474,7 +478,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent===${JSON.stringify(new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(paid.combinedTotalDue))}`);
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="checkout-rental-after-credits"]')`),false,'Checkout shows a single final total');
-  assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]');const rows=[...secondary.querySelectorAll('[data-secondary-charge]')];return rows.length===${['2026-10-saved-card-v1','2026-10-refundable-deposit-v1'].includes(paid.securityPolicyVersion)?2:3}&&rows.every(e=>getComputedStyle(e).fontSize==='11px')&&[...s.querySelectorAll('div')].some(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied'&&e.classList.contains('text-emerald-300'))})()`),true,"Checkout separates small subscription/security rows and green applied credit while retaining the full payment total");
+  assert.equal(await c.evaluate(`(()=>{const s=document.querySelector('[data-testid="checkout-summary"]'),secondary=s.querySelector('[data-testid="checkout-secondary-charges"]');const rows=[...secondary.querySelectorAll('[data-secondary-charge]')];return rows.length===${[SECURITY_POLICY_VERSION,ASSESSMENT_SECURITY_POLICY_VERSION].includes(paid.securityPolicyVersion)?2:3}&&rows.every(e=>getComputedStyle(e).fontSize==='11px')&&[...s.querySelectorAll('div')].some(e=>e.children.length===2&&e.firstElementChild.textContent==='Subscription credit applied'&&e.classList.contains('text-emerald-300'))})()`),true,"Checkout separates small subscription/security rows and green applied credit while retaining the full payment total");
   await c.evaluate(`document.querySelector('[data-testid="checkout-summary"]').scrollIntoView({block:'center'})`);
   await shot("checkout-summary-mobile");
   await shot("selected-checkout-mobile");
