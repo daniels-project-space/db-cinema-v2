@@ -249,7 +249,7 @@ export function BookingPanel({
 
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-white/40">
           <span>✓ Delivered across London</span>
-          <span>✓ No upfront security payment</span>
+          <span>✓ Refundable deposit shown at checkout</span>
           <span>✓ Pro-checked gear</span>
         </div>
       </div>
