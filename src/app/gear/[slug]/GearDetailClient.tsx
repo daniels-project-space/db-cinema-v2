@@ -262,7 +262,7 @@ export default function GearDetailClient({ slug }: { slug: string }) {
               </ul>
             )}
 
-            {(k.bestFor?.length || k.tips?.length || k.limits?.length) && (
+            {!!(k.bestFor?.length || k.tips?.length || k.limits?.length) && (
               <div className="spot mt-6 space-y-5 rounded-2xl p-5 text-sm">
                 {k.bestFor?.length > 0 && (
                   <div>
