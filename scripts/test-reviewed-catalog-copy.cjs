@@ -1,6 +1,21 @@
 const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs'),fs=require('node:fs'),ts=require('typescript');
 process.env.ADMIN_TOKEN='catalog-copy-fixture-admin';
-const {deriveSpecs}=h.load('convex/lib/taxonomy.ts');
+const {deriveSpecs,deriveItemType,categoryFor,COMPLEMENTS}=h.load('convex/lib/taxonomy.ts');
+for(const title of [
+ 'Anker Nebula 4K Laser Projector | Portable Battery Powered Smart Cinema',
+ 'Anker Nebula 4K Laser Projector + Projection Screen | Portable Battery Powered',
+ 'Anker Nebula 4K Laser Projector + Projection Screen + 2× JBL PartyBox Speakers |',
+ 'NEBULA Projector, Tripod Screen and 2× JBL PartyBox',
+ 'NEBULA battery-powered projector',
+ 'ViewSonic Projector · Enquiry Only',
+]){assert.equal(deriveItemType(title),'projector',title);assert.equal(categoryFor(title),'Projectors',title);assert.equal(deriveSpecs(title,'projector').batteryType,null,'Projector power must not be inferred from wording');}
+for(const [title,type] of [
+ ['Projector stand for NEBULA','accessory'],['Tripod for NEBULA projector','tripod'],
+ ['Replacement battery for NEBULA projector','battery'],['Projector lens for Epson','lens'],
+ ['NEBULA projector remote control','accessory'],['Anker NEBULA projector carry case','accessory'],
+ ['JBL PartyBox speaker with projector','speaker'],['Anker power station for NEBULA projector','battery'],
+])assert.equal(deriveItemType(title),type,title);
+assert.deepEqual(COMPLEMENTS.projector,['speaker'],'Do not infer a compatible power bank or camera battery');
 for(const [title,includesLens] of [
  ['Blackmagic PYXIS 6K Basic Camera Kit',false],
  ['Blackmagic PYXIS 6K Advanced V-Mount Camera Kit',false],
@@ -47,5 +62,8 @@ const args={token:process.env.ADMIN_TOKEN,requestId:'reviewed-catalog-copy-fixtu
  assert.equal(listing.title,reviewedCopy.title,'unchanged source cannot restore an unreviewed title');assert.equal(listing.description,reviewedCopy.description);assert.deepEqual(listing.rentalContents.included,contents.included);
  await sync.applyCatalog.handler(ctx,{items:[{...source,title:'Source changed camera configuration'}]});
  assert.equal(listing.title,'Source changed camera configuration');assert.equal(listing.copyReview,undefined);assert.equal(listing.description,undefined);assert.equal(listing.rentalContents,undefined);
+ const projector=h.put('listings',{slug:'projector-fixture',hyggloProductId:101,title:'NEBULA Projector Fixture',itemType:'battery',category:'Power',isPackage:false,sizeScore:2,weightKg:1.5,pricing:{daily:30},depositAmount:100,components:[],stockMappingStatus:'not_owned',specs:{includesLens:false},active:true});
+ await sync.applyCatalog.handler(ctx,{items:[{...source,hyggloProductId:101,slug:projector.slug,title:projector.title,itemType:'projector',category:'Projectors',sizeScore:4,weightKg:8,pricing:projector.pricing,depositAmount:100,stockComponents:[],stockMappingStatus:'not_owned'}]});
+ assert.equal(projector.itemType,'projector');assert.equal(projector.category,'Projectors');assert.equal(projector.sizeScore,2);assert.equal(projector.weightKg,1.5);assert.equal(projector.pricing.daily,30);assert.deepEqual(projector.components,[]);assert.equal(projector.stockMappingStatus,'not_owned');
  console.log('PASS actual reviewed-copy publishing → public listing query → real included/optional/excluded UI: two recorded reviews, exact seller identity, stale-copy rejection, immutable request replay, protected auth, plain escaped text, unknown accessories remain unknown; unchanged prices, stock, images and rentals. Synthetic data only.');
 })().catch(e=>{console.error(e);process.exitCode=1});

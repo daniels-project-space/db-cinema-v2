@@ -19,6 +19,7 @@ export type ItemType =
   | "headphones"
   | "light"
   | "monitor"
+  | "projector"
   | "drone"
   | "battery"
   | "accessory";
@@ -108,6 +109,18 @@ export function deriveItemType(name: string): ItemType {
   // Drones win outright (a "Mavic + ND" bundle is a drone).
   if (RULES[0][1].test(name)) return "drone";
 
+  // The leading projector is the product; power wording and bundled speakers
+  // must not turn it into a battery or speaker. Compatibility targets and
+  // projector accessories keep their own types.
+  const primary = modelGuardName(name).split(/[+&,|]|\b(?:with|and)\b/i)[0];
+  if (/\bprojectors?\b/i.test(primary)) {
+    if (/\b(?:batter(?:y|ies)(?![-\s]*powered\b)|charger)\b/i.test(primary)) return "battery";
+    if (/\blens(?:es)?\b/i.test(primary)) return "lens";
+    if (/\b(?:screen|stand|mount|remote|case|bag|cover|cable|cord|lead|adapter|operator|power supply)\b/i.test(primary))
+      return /\btripod\b/i.test(primary) ? "tripod" : "accessory";
+    return "projector";
+  }
+
   // "Operator DP / DOP / for hire" is a SERVICE (accessory) only when no real camera model is
   // named. "BMPCC 6K Pro Kit + Operator DP" names a camera → it's a camera rental, not a service.
   if (/\b(operator ?dp|\bdop\b|for hire)\b/i.test(name) && !CAMERA_MODEL.test(name)) return "accessory";
@@ -184,6 +197,7 @@ export const CATEGORY_OF: Record<ItemType, string> = {
   slider: "Grip",
   tripod: "Grip",
   monitor: "Monitors",
+  projector: "Projectors",
   drone: "Drones",
   battery: "Power",
   "wireless-mic": "Audio",
@@ -504,6 +518,8 @@ export const DELIVERY_BY_TYPE: Record<ItemType, { sizeScore: number; weightKg: n
   slider: { sizeScore: 3, weightKg: 4.0 },
   "dj-deck": { sizeScore: 4, weightKg: 6.0 },
   speaker: { sizeScore: 4, weightKg: 8.0 },
+  // Provisional logistics default for new offers, not a physical model spec.
+  projector: { sizeScore: 4, weightKg: 8.0 },
 };
 
 // itemType -> complementary itemTypes that are commonly rented together.
@@ -523,6 +539,7 @@ export const COMPLEMENTS: Record<ItemType, ItemType[]> = {
   headphones: ["recorder", "dj-deck"],
   light: ["light", "battery", "tripod"],
   monitor: ["camera-body", "battery"],
+  projector: ["speaker"],
   drone: ["battery", "nd-filter"],
   battery: ["camera-body", "light"],
   accessory: ["camera-body", "lens", "light"],

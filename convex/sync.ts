@@ -359,6 +359,12 @@ export const applyCatalog = internalMutation({
         // A locally-suppressed listing (marketing-only override) stays INACTIVE even though it's
         // in the live set — so the bot/assemble/storefront never show it.
         const patch: any = (existing as any).suppressed ? { ...synced, active: false } : synced;
+        // A category correction must not change an existing offer's courier
+        // estimate. Physical projector/package dimensions need separate review.
+        if (it.itemType === "projector") {
+          if (typeof existing.sizeScore === "number") patch.sizeScore = existing.sizeScore;
+          if (typeof existing.weightKg === "number") patch.weightKg = existing.weightKg;
+        }
         // A retitled/replaced configuration must not inherit the old package's packing list.
         const identity = (components: {inventoryUnitId:any;qty:number}[]) => JSON.stringify(components.map(c => [String(c.inventoryUnitId),c.qty]).sort((a,b) => String(a[0]).localeCompare(String(b[0]))));
         const sourceTitle = existing.copyReview?.sourceTitle ?? existing.title;
