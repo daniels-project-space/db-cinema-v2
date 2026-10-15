@@ -104,6 +104,7 @@ const slugify = (s: string) =>
 
 type RawProduct = {
   productId: number;
+  copySourceFingerprint?: string;
   name?: string;
   isPublished?: boolean;
   isMarketingOnly?: boolean;
@@ -137,6 +138,8 @@ export const syncFromRmv2 = action({
           (p.marketingOnlyMode !== "automatic" && p.marketingOnlyMode !== "manual") ||
           !Number.isSafeInteger(p.marketingOnlyUpdatedAt) || (p.marketingOnlyUpdatedAt ?? -1) < 0)
         throw Error("Rental Manager catalogue lacks the verified marketing-only tag state");
+      if (!/^v1:[a-f0-9]{64}$/.test(p.copySourceFingerprint??""))
+        throw Error("Rental Manager catalogue lacks verified seller-copy identity");
       const mapping = p.stockMapping;
       if (!mapping || mapping.version !== 1 || typeof mapping.complete !== "boolean" ||
           !(mapping.owned === null || typeof mapping.owned === "boolean") || !Array.isArray(mapping.components))
@@ -159,6 +162,7 @@ export const syncFromRmv2 = action({
       const spec = DELIVERY_BY_TYPE[itemType];
       return {
         hyggloProductId: p.productId,
+        copySourceFingerprint: p.copySourceFingerprint,
         stockComponents: mapping.components,
         stockMappingStatus: mapping.complete && mapping.owned === true && mapping.components.length > 0 ? "complete" as const : mapping.owned === false ? "not_owned" as const : "incomplete" as const,
         marketingOnly: p.isMarketingOnly,
@@ -202,6 +206,7 @@ export const applyCatalog = internalMutation({
     items: v.array(
       v.object({
         hyggloProductId: v.number(),
+        copySourceFingerprint: v.optional(v.string()),
         stockMappingStatus: v.union(v.literal("complete"),v.literal("incomplete"),v.literal("not_owned")),
         stockComponents: v.array(v.object({masterItemId:v.string(),name:v.string(),qty:v.number(),quantityOwned:v.number(),active:v.boolean(),replacementCost:v.number()})),
         marketingOnly: v.optional(v.boolean()),
@@ -230,7 +235,7 @@ export const applyCatalog = internalMutation({
     ),
   },
   handler: async (ctx, { items, fingerprint }) => {
-    const stateKey = "catalog-payload-v4-manager-marketing-tags";
+    const stateKey = "catalog-payload-v5-seller-copy-identity";
     const state = fingerprint
       ? await ctx.db
           .query("rmv2_sync_state")
@@ -243,6 +248,7 @@ export const applyCatalog = internalMutation({
     // Validate the complete source batch before mutating any stock. Listing
     // contents describe demand, never evidence that we own that many units.
     for (const item of items) {
+      if (item.copySourceFingerprint!==undefined&&!/^v1:[a-f0-9]{64}$/.test(item.copySourceFingerprint))throw Error("Invalid seller-copy identity");
       if (!Array.isArray(item.stockComponents) || !["complete","incomplete","not_owned"].includes(item.stockMappingStatus))
         throw Error("Incomplete source stock mapping contract");
       const seen = new Set<string>();
@@ -330,6 +336,7 @@ export const applyCatalog = internalMutation({
       // shared fields synced from RMv2 every run
       const synced = {
         slug: it.slug,
+        ...(it.copySourceFingerprint?{copySourceFingerprint:it.copySourceFingerprint}:{}),
         title: it.title,
         category: it.category,
         itemType: it.itemType,
@@ -369,8 +376,14 @@ export const applyCatalog = internalMutation({
         // A retitled/replaced configuration must not inherit the old package's packing list.
         const identity = (components: {inventoryUnitId:any;qty:number}[]) => JSON.stringify(components.map(c => [String(c.inventoryUnitId),c.qty]).sort((a,b) => String(a[0]).localeCompare(String(b[0]))));
         const sourceTitle = existing.copyReview?.sourceTitle ?? existing.title;
-        if (sourceTitle !== it.title || existing.hyggloProductId !== it.hyggloProductId ||
-            identity(existing.components) !== identity(synced.components)){
+        const sameSellerCopy=!!existing.copySourceFingerprint && existing.copySourceFingerprint===it.copySourceFingerprint;
+        const sellerCopyChanged=!!existing.copySourceFingerprint && !sameSellerCopy;
+        // Canonical stock repairs do not replace the seller's offer. A verified
+        // unchanged title/description digest preserves reviewed prose across
+        // mapping changes. Legacy rows still require equal component identity
+        // until their first unchanged sync establishes a source baseline.
+        if (sourceTitle !== it.title || existing.hyggloProductId !== it.hyggloProductId || sellerCopyChanged ||
+            identity(existing.components) !== identity(synced.components) && !sameSellerCopy){
           patch.rentalContents = undefined;
           // Reviewed facts belong to the exact offer, including its packing list.
           // A new configuration cannot inherit the former kit's description.

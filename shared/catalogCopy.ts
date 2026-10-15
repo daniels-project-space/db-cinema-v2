@@ -5,5 +5,5 @@ export function canonicalCatalogValue(value:unknown):string{
  return JSON.stringify(sorted(value));
 }
 export function catalogCopyFingerprint(listing:any){
- return canonicalCatalogValue({title:listing.title,productId:listing.hyggloProductId,description:listing.description??null,knowledge:listing.knowledge??null,contents:listing.rentalContents??null,marketingOnly:listing.marketingOnly??false,components:listing.components.map((c:any)=>[String(c.inventoryUnitId),c.qty]).sort((a:any,b:any)=>a[0].localeCompare(b[0]))});
+ return canonicalCatalogValue({title:listing.title,productId:listing.hyggloProductId,copySourceFingerprint:listing.copySourceFingerprint??null,description:listing.description??null,knowledge:listing.knowledge??null,contents:listing.rentalContents??null,marketingOnly:listing.marketingOnly??false,components:listing.components.map((c:any)=>[String(c.inventoryUnitId),c.qty]).sort((a:any,b:any)=>a[0].localeCompare(b[0]))});
 }
