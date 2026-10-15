@@ -9,6 +9,8 @@ for(const [title,includesLens] of [
  ['Blackmagic PYXIS 6K with 25mm, 50mm and 75mm Cine Primes',true],
  ['Blackmagic PYXIS 6K Production Kit with Cine Lens Set',true],
  ['Blackmagic Pyxis 6K Cinema Camera Basic Set | Modular 6K RAW ProRes Body + PL/EF',false],
+ ['Blackmagic PYXIS 6K EF/PL adapter kit',false],
+ ['Blackmagic PYXIS 6K PL / EF adapter kit',false],
 ]){
  const specs=deriveSpecs(title,'camera-body');
  assert.equal(specs.mount,null,'Kit lenses/adapters must not establish the physical camera mount: '+title);

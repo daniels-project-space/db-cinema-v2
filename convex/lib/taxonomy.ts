@@ -402,7 +402,7 @@ export function deriveSpecs(title: string, itemType: ItemType): Specs {
   // A lens or adapter named in a PYXIS kit does not establish its fixed body mount.
   // Keep the physical variant unknown unless the camera model itself names it.
   if (itemType === "camera-body" && /\bpyxis\s*6k\b/.test(t)) {
-    const variant = t.match(/\bpyxis\s*6k\s+(ef|pl|l[-\s]mount)\b/)?.[1];
+    const variant = t.match(/\bpyxis\s*6k\s+(ef|pl|l[-\s]mount)\b(?!\s*[/+])/)?.[1];
     return {
       mount: variant === "ef" ? "EF" : variant === "pl" ? "PL" : variant ? "L" : null,
       batteryType: "BP-U",
