@@ -20,7 +20,18 @@ const backend=process.env.DBC_CONVEX_URL||'https://deafening-stoat-340.convex.cl
   let listing,slots;
   for(const candidate of rows){const s=await client.query(api.availability.forTimeSlots,{listingId:candidate._id,start:date,end:date,pickupTime:'18:00',returnTime:'20:00',items:[]});if(s.validPairs?.some(p=>p.pickupTime==='21:00'&&p.returnTime==='22:00')&&s.pickupBoundarySlots?.includes('22:00')&&s.returnBoundarySlots?.includes('09:00')){listing=candidate;slots=s;break}}
   assert(listing,'Requires a real available listing with independently free boundary times');
-  async function until(expr,label){for(let i=0;i<200;i++){if(await c.evaluate(expr))return;await delay(200)}throw Error(label)}
+  async function until(expr,label){
+   for(let i=0;i<200;i++){
+    try{if(await c.evaluate(expr))return;}
+    catch(error){
+     // Only read-only readiness checks may retry while navigation replaces a
+     // document. Clicks, assertions and all other protocol errors still fail.
+     if(!/Inspected target navigated|Execution context was destroyed|Cannot find context/.test(error.message))throw error;
+    }
+    await delay(200);
+   }
+   throw Error(label);
+  }
   async function reload(){
    const before=await c.evaluate('performance.timeOrigin');await c.cmd('Page.reload');
    await until(`performance.timeOrigin!==${before}&&document.readyState==='complete'`,'New checkout document finishes loading');

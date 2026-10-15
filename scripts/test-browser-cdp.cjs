@@ -6,8 +6,20 @@ const connect = new Function('require', source.slice(0, source.indexOf('const { 
 const navigationStart = source.indexOf('  async function loadDocument(');
 const navigationEnd = source.indexOf('  async function shot(', navigationStart);
 assert(navigationStart >= 0 && navigationEnd > navigationStart, 'Use the actual browser navigation helper');
+const boundarySource=fs.readFileSync(path.join(__dirname,'test-checkout-boundary-browser.cjs'),'utf8');
+const readinessStart=boundarySource.indexOf('  async function until('),readinessEnd=boundarySource.indexOf('  async function reload(',readinessStart);
+assert(readinessStart>=0&&readinessEnd>readinessStart,'Use the actual checkout readiness helper');
+const boundaryUntil=(client,delay)=>new Function('c','delay',boundarySource.slice(readinessStart,readinessEnd)+';return until;')(client,delay);
 
 (async () => {
+  let reads=0;
+  const navigationErrors=['Inspected target navigated or closed','Execution context was destroyed','Cannot find context with specified id'];
+  await boundaryUntil({evaluate:async()=>{if(reads<navigationErrors.length)throw Error(navigationErrors[reads++]);reads++;return true}},async()=>{})('readiness only','Readiness should recover');
+  assert.equal(reads,4,'Readiness survives only the known context replacement errors');
+  for(const message of ['Checkout assertion failed','Browser command timed out: Runtime.evaluate','Target crashed']){
+    let attempts=0;await assert.rejects(boundaryUntil({evaluate:async()=>{attempts++;throw Error(message)}},async()=>{})('readiness only','Unexpected failure'),error=>error.message===message);assert.equal(attempts,1,'Other failures must not be hidden by a retry');
+  }
+  let unavailableReads=0;await assert.rejects(boundaryUntil({evaluate:async()=>{unavailableReads++;throw Error(navigationErrors[0])}},async()=>{})('readiness only','Document never became ready'),/Document never became ready/);assert.equal(unavailableReads,200,'Persistent navigation failure remains bounded');
   const c = await connect();
   try {
     await c.cmd('Page.enable');
@@ -22,6 +34,8 @@ assert(navigationStart >= 0 && navigationEnd > navigationStart, 'Use the actual 
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     assert(ready, 'The actual browser calibration page must load');
+    await c.cmd('Page.navigate',{url:'data:text/html;charset=utf-8,<title>Checkout readiness</title><main>New document</main>'});
+    await boundaryUntil(c,()=>new Promise(resolve=>setTimeout(resolve,50)))('document.title === "Checkout readiness" && document.readyState === "complete"','The actual replacement document must load');
     assert.deepEqual(await c.evaluate('({ok:true,count:2})'), { ok: true, count: 2 });
     assert.equal(await c.evaluate('Promise.resolve("async result")'), 'async result');
     assert.equal(await c.evaluate('undefined'), undefined, 'Legitimate undefined remains a successful result');
