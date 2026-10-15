@@ -1,11 +1,12 @@
 import { stockRequest } from "./lib/stockRequest";
-import { action, internalMutation, mutation } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE, categoryFor, isGenuineBundle } from "./lib/taxonomy";
 import { assertAdmin } from "./adminAuth";
 import { automaticMarketingFields } from "./lib/marketingInventory";
 import { inventoryCapacity } from "./lib/inventoryCapacity";
+import { CART_STOCK_SYNC_MAX_AGE_MS, isSharedStockSyncFresh } from "./lib/shared_stock_sync";
 
 /**
  * Canonical camera-MODEL identity for inventory reconciliation against the rental
@@ -527,13 +528,38 @@ export const applyDemand = internalMutation({
 //  Website reservations stay local; their manager copies are excluded upstream.
 // ──────────────────────────────────────────────────────────────────────────
 
+export const sharedStockSyncFreshness = internalQuery({
+  args: { maxAgeMs: v.number() },
+  handler: async (ctx, { maxAgeMs }) => {
+    if (!Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1) return null;
+    const state = await ctx.db
+      .query("rmv2_sync_state")
+      .withIndex("by_key", (q) => q.eq("key", "shared-stock-v1"))
+      .first();
+    if (!state || state.status !== "ok" || !Number.isSafeInteger(state.lastSyncedAt)) return null;
+    return isSharedStockSyncFresh(state.lastSyncedAt, Date.now(), maxAgeMs)
+      ? { checkedAt: state.lastSyncedAt }
+      : null;
+  },
+});
+
 export const syncHyggloReservations = action({
-  args: {},
-  handler: async (ctx): Promise<{ mirrored: number; rows: number }> => {
+  // Omitting `force` preserves the existing scheduled and checkout behavior.
+  // Cart UI polling may reuse a recently verified mirror for at most 90s;
+  // checkout always passes force=true immediately before charging.
+  args: { force: v.optional(v.boolean()) },
+  handler: async (ctx, { force }): Promise<{ mirrored: number; rows: number; checkedAt: number; cached?: boolean }> => {
+    if (force === false) {
+      const fresh = await ctx.runQuery(internal.sync.sharedStockSyncFreshness, {
+        maxAgeMs: CART_STOCK_SYNC_MAX_AGE_MS,
+      });
+      if (fresh) return { mirrored: 0, rows: 0, checkedAt: fresh.checkedAt, cached: true };
+    }
     const value:any[] = await rmv2Query("items:sharedStockForStorefront", {});
     if(value.length!==1 || ![1,2].includes(value[0]?.version) || !Number.isSafeInteger(value[0].checkedAt) || !Array.isArray(value[0].units))
       throw Error("Invalid Rental Manager shared stock snapshot");
-    return await ctx.runMutation(internal.sync.applySharedStock, {snapshot:value[0]});
+    const applied = await ctx.runMutation(internal.sync.applySharedStock, {snapshot:value[0]});
+    return { ...applied, checkedAt: value[0].checkedAt, cached: false };
   },
 });
 
@@ -544,9 +570,9 @@ export const refreshCartStock = action({
   handler:async(ctx,{items}):Promise<{checkedAt:number;availability:Record<string,{available:number;demanded:number;ok:boolean}>}>=>{
     if(!items.length||items.length>100||items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*86400000))throw Error("Invalid basket stock request");
     try {
-      await ctx.runAction(api.sync.syncHyggloReservations,{});
+      const stock = await ctx.runAction(api.sync.syncHyggloReservations,{force:false});
       const availability=await ctx.runQuery(api.availability.forCart,{items});
-      return {checkedAt:Date.now(),availability};
+      return {checkedAt:stock.checkedAt,availability};
     } catch {
       throw new ConvexError({code:"STOCK_CHECK_UNAVAILABLE",message:"We couldn't check equipment availability. Please try again before checkout."});
     }
