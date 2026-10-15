@@ -385,6 +385,9 @@ export const applyCatalog = internalMutation({
         if (sourceTitle !== it.title || existing.hyggloProductId !== it.hyggloProductId || sellerCopyChanged ||
             identity(existing.components) !== identity(synced.components) && !sameSellerCopy){
           patch.rentalContents = undefined;
+          // A genuinely changed offer needs fresh picture review; preserve
+          // private originals without showing a stale confirmed configuration.
+          if(existing.reviewedImageUrls!==undefined)patch.reviewedImageUrls=[];
           // Reviewed facts belong to the exact offer, including its packing list.
           // A new configuration cannot inherit the former kit's description.
           if(existing.copyReview){patch.copyReview=undefined;patch.description=undefined;patch.knowledge=undefined;}

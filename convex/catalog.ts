@@ -370,7 +370,7 @@ export const applyR2Images = mutation({
   args: {
     token: v.string(),
     items: v.array(
-      v.object({ slug: v.string(), r2Images: v.array(v.string()) }),
+      v.object({ slug: v.string(), r2Images: v.array(v.string()), replaceGallery:v.optional(v.boolean()) }),
     ),
   },
   handler: async (ctx, { token, items }) => {
@@ -383,7 +383,7 @@ export const applyR2Images = mutation({
         .withIndex("by_slug", (q) => q.eq("slug", it.slug))
         .first();
       if (l) {
-        await ctx.db.patch(l._id, { r2Images: it.r2Images });
+        await ctx.db.patch(l._id, { r2Images: it.r2Images, ...(it.replaceGallery!==undefined?{reviewedImageUrls:it.replaceGallery?it.r2Images:undefined}:{}) });
         n++;
       }
     }

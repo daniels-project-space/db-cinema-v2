@@ -46,6 +46,12 @@ const args={token:process.env.ADMIN_TOKEN,requestId:'reviewed-catalog-copy-fixtu
  assert.equal(listing.r2Images,undefined,'An unauthorized image caller cannot change the catalogue');
  await catalog.applyR2Images.handler(ctx,{...imageInput,token:process.env.ADMIN_TOKEN});
  assert.deepEqual(listing.r2Images,imageInput.items[0].r2Images);
+ const sourcePictures=structuredClone(listing.sourceImages);
+ assert((await catalog.getListingBySlug.handler(ctx,{slug:listing.slug})).gallery.includes(sourcePictures[0]),'Normal galleries retain their source photos');
+ await catalog.applyR2Images.handler(ctx,{token:process.env.ADMIN_TOKEN,items:[{...imageInput.items[0],replaceGallery:true}]});
+ assert.deepEqual((await catalog.getListingBySlug.handler(ctx,{slug:listing.slug})).gallery,imageInput.items[0].r2Images,'Reviewed pictures exclude incorrect legacy variants from public output');
+ assert.deepEqual(listing.sourceImages,sourcePictures,'Original pictures are retained privately');
+
  await assert.rejects(catalog.applyR2Images.handler(ctx,{token:process.env.ADMIN_TOKEN,items:Array.from({length:101},()=>imageInput.items[0])}),/batch limit/);
  await assert.rejects(copy.apply.handler(ctx,{...args,token:'foreign'}),/Unauthorized/);
  await assert.rejects(copy.apply.handler(ctx,{...args,requestId:undefined}),/stable publishing/);
@@ -67,8 +73,8 @@ const args={token:process.env.ADMIN_TOKEN,requestId:'reviewed-catalog-copy-fixtu
  await sync.applyCatalog.handler(ctx,{items:[source]});
  assert.equal(listing.title,reviewedCopy.title,'unchanged source cannot restore an unreviewed title');assert.equal(listing.description,reviewedCopy.description);assert.deepEqual(listing.rentalContents.included,contents.included);
  const repaired={...source,stockComponents:[...source.stockComponents,{masterItemId:'reviewed-supplied-card',name:'Supplied card',qty:1,quantityOwned:3,replacementCost:30,active:true}]};
- await sync.applyCatalog.handler(ctx,{items:[repaired]});assert.equal(listing.title,reviewedCopy.title);assert.equal(listing.description,reviewedCopy.description,'A stock-mapping repair with unchanged seller title/description must preserve reviewed copy');assert.equal(listing.components.length,2,'Corrected stock still reaches real availability');
- await sync.applyCatalog.handler(ctx,{items:[{...repaired,copySourceFingerprint:'v1:'+'b'.repeat(64)}]});assert.equal(listing.copyReview,undefined);assert.equal(listing.description,undefined);assert.equal(listing.rentalContents,undefined,'A genuine seller contents change under the same title invalidates old facts');
+ await sync.applyCatalog.handler(ctx,{items:[repaired]});assert.equal(listing.title,reviewedCopy.title);assert.equal(listing.description,reviewedCopy.description,'A stock-mapping repair with unchanged seller title/description must preserve reviewed copy');assert.equal(listing.components.length,2,'Corrected stock still reaches real availability');assert.deepEqual(listing.reviewedImageUrls,imageInput.items[0].r2Images,'Verified stock repairs preserve reviewed pictures');
+ await sync.applyCatalog.handler(ctx,{items:[{...repaired,copySourceFingerprint:'v1:'+'b'.repeat(64)}]});assert.equal(listing.copyReview,undefined);assert.equal(listing.description,undefined);assert.equal(listing.rentalContents,undefined,'A genuine seller contents change under the same title invalidates old facts');assert.deepEqual(listing.reviewedImageUrls,[]);assert.deepEqual((await catalog.getListingBySlug.handler(ctx,{slug:listing.slug})).gallery,[],'Changed offers cannot fall back to old reviewed or legacy pictures');
  listing.copyReview={...reviewedCopy.review,reviewedAt:1,sourceTitle:source.title};listing.title=reviewedCopy.title;listing.description=reviewedCopy.description;listing.rentalContents=contents;
  await sync.applyCatalog.handler(ctx,{items:[{...source,title:'Source changed camera configuration'}]});
  assert.equal(listing.title,'Source changed camera configuration');assert.equal(listing.copyReview,undefined);assert.equal(listing.description,undefined);assert.equal(listing.rentalContents,undefined);

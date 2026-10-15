@@ -30,7 +30,7 @@ export const adminHistory=query({args:{token:v.string(),accountId:v.id("accounts
  const issues=await ctx.db.query("credit_issues").withIndex("by_account_created",q=>q.eq("accountId",a.accountId)).order("desc").take(50);
  return issues.map(row=>({id:row._id,amount:row.amountPence/100,reason:row.reason,createdAt:row.createdAt,expiresAt:row.expiresAt}));
 }});
-export const balance=query({args:{token:v.string()},handler:async(ctx,{token})=>{
+export const balance=query({args:{token:v.string(),refreshAt:v.optional(v.number())},handler:async(ctx,{token})=>{
  const account=await accountForToken(ctx,token);if(!account)throw Error("Sign in to use account credit.");
  const rows=await availableCreditRows(ctx,account._id),pence=rows.reduce((sum:number,row:any)=>sum+row.availablePence,0);
  const recentCredit=(await ctx.db.query("credits").withIndex("by_account",q=>q.eq("accountId",account._id)).order("desc").take(1))[0];
