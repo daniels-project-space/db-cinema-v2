@@ -70,6 +70,7 @@ export default defineSchema({
     title: v.string(),
     description: v.optional(v.string()),
     copySourceFingerprint:v.optional(v.string()),
+    reviewedImageUrls:v.optional(v.array(v.string())),
     copyReview:v.optional(v.object({reviewedAt:v.number(),sourceTitle:v.optional(v.string()),sourceFingerprint:v.optional(v.string()),sourceAccount:v.string(),sourceProductId:v.number(),identityReview:v.string(),firstFactReview:v.string(),secondFactReview:v.string(),ownerCorrections:v.optional(v.string())})),
     category: v.string(),
     itemType: v.optional(v.string()),
