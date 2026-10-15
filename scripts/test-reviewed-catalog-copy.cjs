@@ -41,6 +41,12 @@ const original={price:structuredClone(listing.pricing),deposit:listing.depositAm
 const reviewedCopy={title:'Reviewed fixture camera kit',expectedFingerprint:catalogCopyFingerprint(listing),description:'A camera hire kit with the two listed batteries. Choose your dates to check live stock.',knowledge:{summary:'Camera kit with two batteries.',features:['Camera body','Two batteries'],limits:[],bestFor:['Video production'],tips:[],pairsWith:[]},review:{sourceAccount:'diogo',sourceProductId:200,identityReview:'Matched the exact camera kit and battery quantity against the seller offer.',firstFactReview:'Read the complete seller description and retained only explicit inclusions.',secondFactReview:'Reviewed again for different kits, duplicate accessories and charging exclusions.'}};
 const args={token:process.env.ADMIN_TOKEN,requestId:'reviewed-catalog-copy-fixture-01',items:[{productId:100,listingTitle:listing.title,contents,reviewedCopy}]},ctx={db:h.db};
 (async()=>{
+ const imageInput={items:[{slug:listing.slug,r2Images:['https://assets.example/verified-camera.jpg']}]};
+ await assert.rejects(catalog.applyR2Images.handler(ctx,{...imageInput,token:'foreign'}),/unauthorized/);
+ assert.equal(listing.r2Images,undefined,'An unauthorized image caller cannot change the catalogue');
+ await catalog.applyR2Images.handler(ctx,{...imageInput,token:process.env.ADMIN_TOKEN});
+ assert.deepEqual(listing.r2Images,imageInput.items[0].r2Images);
+ await assert.rejects(catalog.applyR2Images.handler(ctx,{token:process.env.ADMIN_TOKEN,items:Array.from({length:101},()=>imageInput.items[0])}),/batch limit/);
  await assert.rejects(copy.apply.handler(ctx,{...args,token:'foreign'}),/Unauthorized/);
  await assert.rejects(copy.apply.handler(ctx,{...args,requestId:undefined}),/stable publishing/);
  await assert.rejects(copy.apply.handler(ctx,{...args,items:[{...args.items[0],reviewedCopy:{...reviewedCopy,review:{...reviewedCopy.review,secondFactReview:''}}}]}),/Both fact reviews/);

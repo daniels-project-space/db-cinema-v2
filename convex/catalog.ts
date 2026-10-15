@@ -4,6 +4,7 @@ import { quote } from "./lib/pricing";
 import { weekendDays } from "../shared/membership";
 import { listingImages } from "./lib/catalogImages";
 import { isMarketingOnly } from "./lib/marketingInventory";
+import { assertAdmin } from "./adminAuth";
 
 /**
  * SERVER-AUTHORITATIVE line pricing for checkout (anti-tamper). Recomputes each line's
@@ -367,11 +368,14 @@ export const listForMigration = query({
 
 export const applyR2Images = mutation({
   args: {
+    token: v.string(),
     items: v.array(
       v.object({ slug: v.string(), r2Images: v.array(v.string()) }),
     ),
   },
-  handler: async (ctx, { items }) => {
+  handler: async (ctx, { token, items }) => {
+    await assertAdmin(ctx, token, "catalog.applyR2Images");
+    if (items.length > 100) throw Error("Image update batch limit is 100");
     let n = 0;
     for (const it of items) {
       const l = await ctx.db
