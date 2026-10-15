@@ -399,6 +399,18 @@ export function mountOf(title: string): string | null {
 
 export function deriveSpecs(title: string, itemType: ItemType): Specs {
   const t = title.toLowerCase();
+  // A lens or adapter named in a PYXIS kit does not establish its fixed body mount.
+  // Keep the physical variant unknown unless the camera model itself names it.
+  if (itemType === "camera-body" && /\bpyxis\s*6k\b/.test(t)) {
+    const variant = t.match(/\bpyxis\s*6k\s+(ef|pl|l[-\s]mount)\b(?!\s*[/+])/)?.[1];
+    return {
+      mount: variant === "ef" ? "EF" : variant === "pl" ? "PL" : variant ? "L" : null,
+      batteryType: "BP-U",
+      coverage: "ff",
+      includesLens: /\b(primes?|zooms?|zeiss)\b|\blens\s+set\b|\bwith\s+(?:a\s+)?lens\b/.test(t),
+      filterThreadMm: null, lensFocal: null, tier: null, lensClass: null, hasAutofocus: null,
+    };
+  }
   const has = (re: RegExp) => re.test(t);
   const mount = itemType === "camera-body" || itemType === "lens" ? mountOf(title) : null;
 
