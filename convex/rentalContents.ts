@@ -32,7 +32,7 @@ export const apply = mutation({
         if(copy.description.trim().length<20||copy.description.length>3000||copy.knowledge.summary.trim().length<10||copy.knowledge.summary.length>500)throw Error('A concise, reviewed description and summary are required');
         if(![copy.review.identityReview,copy.review.firstFactReview,copy.review.secondFactReview].every(s=>s.trim().length>=20&&s.length<=3000))throw Error('Both fact reviews and the exact offer identity review must be recorded');
         if(!item.contents.sources.some(s=>s.account===copy.review.sourceAccount&&s.productId===copy.review.sourceProductId))throw Error('The copy review must reference its attached seller evidence');
-        await ctx.db.patch(listing._id,{title:copy.title??listing.title,description:copy.description,knowledge:copy.knowledge,rentalContents:item.contents,copyReview:{...copy.review,sourceTitle:listing.copyReview?.sourceTitle??listing.title,reviewedAt:Date.now()}});
+        await ctx.db.patch(listing._id,{title:copy.title??listing.title,description:copy.description,knowledge:copy.knowledge,rentalContents:item.contents,copyReview:{...copy.review,sourceTitle:listing.copyReview?.sourceTitle??listing.title,...(listing.copySourceFingerprint?{sourceFingerprint:listing.copySourceFingerprint}:{}),reviewedAt:Date.now()}});
       }else await ctx.db.patch(listing._id,{rentalContents:item.contents});updated++;
     }
     if(requestId)await ctx.db.insert('catalog_copy_batches',{requestId,inputFingerprint:fingerprint!,updated,appliedAt:Date.now()});
