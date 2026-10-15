@@ -3,7 +3,13 @@
 // processes listings that don't yet have r2Images.
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
-const CONVEX = "https://veracious-wombat-196.convex.cloud";
+// Explicit destination and authorization are required before any R2 upload.
+const CONVEX = process.env.CONVEX_URL?.replace(/\/$/, "");
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+if (!CONVEX || !ADMIN_TOKEN) throw Error("Set CONVEX_URL and ADMIN_TOKEN for the intended catalogue before migrating images");
+const target = new URL(CONVEX);
+if (target.protocol !== "https:" || !target.hostname.endsWith(".convex.cloud") || target.username || target.password || target.port || target.pathname !== "/" || target.search || target.hash)
+  throw Error("CONVEX_URL must be the intended HTTPS Convex deployment origin");
 const PUBLIC_BASE = "https://pub-761e4d18b3b84542809dddc11936a8df.r2.dev";
 const BUCKET = "db-cinema-v2";
 const MAX_IMAGES = 4;
@@ -88,7 +94,7 @@ console.log(`uploaded images for ${results.length} listings; writing back…`);
 // batch the mutation in chunks of 100
 for (let i = 0; i < results.length; i += 100) {
   const chunk = results.slice(i, i + 100);
-  const res = await convexMutation("catalog:applyR2Images", { items: chunk });
+  const res = await convexMutation("catalog:applyR2Images", { token: ADMIN_TOKEN, items: chunk });
   console.log(`  applied ${res.updated} (chunk ${i / 100 + 1})`);
 }
 console.log("done");
