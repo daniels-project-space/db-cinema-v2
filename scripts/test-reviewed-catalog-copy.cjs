@@ -1,5 +1,22 @@
 const assert=require('node:assert/strict'),h=require('./lib/rentalTestHarness.cjs'),fs=require('node:fs'),ts=require('typescript');
 process.env.ADMIN_TOKEN='catalog-copy-fixture-admin';
+const {deriveSpecs}=h.load('convex/lib/taxonomy.ts');
+for(const [title,includesLens] of [
+ ['Blackmagic PYXIS 6K Basic Camera Kit',false],
+ ['Blackmagic PYXIS 6K Advanced V-Mount Camera Kit',false],
+ ['Blackmagic PYXIS 6K with Canon EF Zoom Pair',true],
+ ['Blackmagic PYXIS 6K Documentary Kit with Canon Zooms',true],
+ ['Blackmagic PYXIS 6K with 25mm, 50mm and 75mm Cine Primes',true],
+ ['Blackmagic PYXIS 6K Production Kit with Cine Lens Set',true],
+ ['Blackmagic Pyxis 6K Cinema Camera Basic Set | Modular 6K RAW ProRes Body + PL/EF',false],
+]){
+ const specs=deriveSpecs(title,'camera-body');
+ assert.equal(specs.mount,null,'Kit lenses/adapters must not establish the physical camera mount: '+title);
+ assert.equal(specs.batteryType,'BP-U');assert.equal(specs.coverage,'ff');
+ assert.equal(specs.includesLens,includesLens);assert.equal(specs.hasAutofocus,null);
+}
+for(const [variant,mount] of [['EF','EF'],['PL','PL'],['L-Mount','L']])assert.equal(deriveSpecs('Blackmagic PYXIS 6K '+variant,'camera-body').mount,mount);
+assert.equal(deriveSpecs('Canon EF zoom lens for Blackmagic PYXIS 6K','lens').mount,'EF','Camera rule must not replace a lens mount');
 const copy=h.load('convex/rentalContents.ts'),catalog=h.load('convex/catalog.ts'),{catalogCopyFingerprint}=h.load('shared/catalogCopy.ts');
 const listing=h.put('listings',{slug:'copy-fixture',title:'Fixture camera kit',hyggloProductId:100,category:'Cameras',components:[{inventoryUnitId:'inventory_units-fixture',qty:1}],active:true,pricing:{daily:50},depositAmount:1000,sourceImages:['https://fixture.invalid/image.jpg'],knowledge:{summary:'Old summary'}});
 h.put('inventory_units',{_id:'inventory_units-fixture',rmv2ItemId:'fixture-camera',sku:'mi-fixture-camera',name:'Fixture camera',quantityOwned:1,replacementCost:1000,active:true});
