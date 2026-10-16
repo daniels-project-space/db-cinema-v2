@@ -339,7 +339,10 @@ export const applyCatalog = internalMutation({
         ...(it.copySourceFingerprint?{copySourceFingerprint:it.copySourceFingerprint}:{}),
         title: it.title,
         category: it.category,
-        itemType: it.itemType,
+        // The recommendation index requires every active listing to have an
+        // effective type. Legacy/unclassified source rows are accessories in
+        // recommendation semantics, so materialize that same default here.
+        itemType: it.itemType ?? "accessory",
         sizeScore: it.sizeScore,
         weightKg: it.weightKg,
         sourceImages: it.sourceImages,
@@ -643,12 +646,28 @@ export const applySharedStock = internalMutation({
     if(prior && snapshot.checkedAt===prior.checkedAt) {
       if(prior.fingerprint!==fingerprint)throw Error("Conflicting shared stock snapshot");
     }
+    // Collect inventory once. The previous path did one indexed document read
+    // per shared pool and then read the whole table again to find removed
+    // pools, duplicating every matched unit on every stock receipt.
+    const inventory=await ctx.db.query("inventory_units").collect();
+    const unitByRmv2ItemId=new Map<string,typeof inventory[number]>();
+    const duplicateRmv2ItemIds=new Set<string>();
+    for(const unit of inventory) {
+      const id=unit.rmv2ItemId;
+      if(id===undefined)continue;
+      if(unitByRmv2ItemId.has(id))duplicateRmv2ItemIds.add(id);
+      else unitByRmv2ItemId.set(id,unit);
+    }
     const resolved=[];
     for(const source of snapshot.units) {
-      const unit=await ctx.db.query("inventory_units").withIndex("by_rmv2ItemId",q=>q.eq("rmv2ItemId",source.masterItemId)).unique();
+      // Preserve the indexed `.unique()` safety check: duplicate mappings for
+      // any pool present in this provider snapshot still abort reconciliation.
+      if(duplicateRmv2ItemIds.has(source.masterItemId))
+        throw Error(`RMv2 item ID ${source.masterItemId} is not unique across inventory units`);
+      const unit=unitByRmv2ItemId.get(source.masterItemId);
       if(unit)resolved.push({source,unit});
     }
-    const removed=(await ctx.db.query("inventory_units").collect()).filter(unit=>unit.rmv2ItemId&&!seen.has(unit.rmv2ItemId));
+    const removed=inventory.filter(unit=>unit.rmv2ItemId&&!seen.has(unit.rmv2ItemId));
     const old=await ctx.db.query("reservations").withIndex("by_source",q=>q.eq("source","hygglo")).collect();
     const signature=(rows:any[])=>JSON.stringify(rows.map(r=>[String(r.inventoryUnitId),r.start,r.end,r.qty,r.endExclusive===true,r.stockWindowVersion??1,r.turnaroundBufferMinutes??0,r.status]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
     const expected=resolved.flatMap(({source,unit})=>source.windows.map(window=>({inventoryUnitId:unit._id,...window,endExclusive:true,stockWindowVersion:snapshot.version,turnaroundBufferMinutes:snapshot.turnaroundBufferMinutes,status:"confirmed"})));

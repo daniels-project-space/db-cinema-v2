@@ -41,7 +41,11 @@ export const republish = internalMutation({
     let hasHyggloProductId = 0;
     if (!dryRun) {
       for (const l of targets) {
-        await ctx.db.patch(l._id, { active: true, suppressed: false });
+        await ctx.db.patch(l._id, {
+          active: true,
+          suppressed: false,
+          itemType: l.itemType ?? "accessory",
+        });
         if ((l as { hyggloProductId?: number }).hyggloProductId != null) hasHyggloProductId++;
       }
     } else {
