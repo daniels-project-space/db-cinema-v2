@@ -58,8 +58,8 @@ crons.interval("sync-rmv2-catalog", { minutes: 30 }, api.sync.syncFromRmv2, {});
 crons.interval(
   "sync-hygglo-reservations",
   { minutes: 2 },
-  api.sync.syncHyggloReservations,
-  {},
+  internal.sync.syncHyggloReservations,
+  { force: true },
 );
 
 // Demand is historical analytics, not live availability. Recompute daily
