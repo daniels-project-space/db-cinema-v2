@@ -86,9 +86,11 @@ const db = {
   },
   query(table) {
     let rows = [...(tables.get(table) ?? [])],
-      descending = false;
+      descending = false,
+      indexName = "";
     const query = {
-      withIndex(_, fn) {
+      withIndex(name, fn) {
+        indexName = name;
         const q = {
           eq(k, v) {
             rows = rows.filter((r) => r[k] === v);
@@ -130,7 +132,10 @@ const db = {
           .slice(0, n),
       paginate: async ({ numItems, cursor }) => {
         const start = Number(cursor ?? 0);
-        rows.sort((a, b) => (descending ? -1 : 1) * ((a.at ?? a._creationTime) - (b.at ?? b._creationTime)));
+        const key = (row) => indexName === "by_published_source_date"
+          ? row.date ?? 0
+          : row.at ?? row._creationTime;
+        rows.sort((a, b) => (descending ? -1 : 1) * (key(a) - key(b) || a._creationTime - b._creationTime));
         return {
           page: rows.slice(start, start + numItems),
           isDone: start + numItems >= rows.length,
