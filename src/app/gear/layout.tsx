@@ -14,6 +14,4 @@ export const metadata: Metadata = {
   },
 };
 
-export default function GearLayout({ children }: { children: React.ReactNode }) {
-  return children;
-}
+export default function GearLayout({children}:{children:React.ReactNode}){return children;}

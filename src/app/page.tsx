@@ -1,3 +1,4 @@
+export const metadata = { alternates: { canonical: "/" } };
 import Link from "next/link";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";

@@ -1,3 +1,4 @@
+import {publicPageMetadata} from "@/lib/pageMetadata";
 import Link from "next/link";
 import { PageHero } from "@/components/PageHero";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -5,7 +6,7 @@ import { Reveal } from "@/components/Reveal";
 import { CountUp } from "@/components/CountUp";
 import { IconArrowRight } from "@/components/icons";
 
-export const metadata = { title: "About — Db Cinema Rentals" };
+export const metadata = publicPageMetadata("/about",'About our London hire service','Meet DB Cinema Rentals, a London film and photography equipment hire service. Explore the catalogue, collection and local delivery options.');
 
 export default function AboutPage() {
   return (

@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { ConvexHttpClient } from "convex/browser";
-import { api } from "@cvx/_generated/api";
+import { notFound } from "next/navigation";
+import { publicListing } from "@/lib/discovery";
 import GearDetailClient from "./GearDetailClient";
 import { SITE_URL as BASE } from "@/lib/site";
 
-const client = () => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+export const revalidate = 300;
 
 export async function generateMetadata({
   params,
@@ -13,8 +13,8 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   try {
-    const l: any = await client().query(api.catalog.getListingBySlug, { slug });
-    if (!l) return { title: "Gear not found" };
+    const l: any = await publicListing(slug);
+    if (!l) return { title: "Gear not found",robots:{index:false,follow:true} };
     const daily = l.pricing?.daily;
     const title = `Rent ${l.title} in London`;
     const description = `Hire the ${l.title}${daily ? ` from £${daily}/day` : ""} in London — daily, 3-day & weekly rates, delivered. Verified gear from Db Cinema Rentals.`;
@@ -22,6 +22,7 @@ export async function generateMetadata({
     return {
       title,
       description,
+      robots:{index:l.bookable,follow:true},
       alternates: { canonical: `/gear/${slug}` },
       openGraph: {
         title: `${title} | Db Cinema Rentals`,
@@ -43,11 +44,9 @@ export default async function Page({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  let jsonLd: any = null;
-  try {
-    const l: any = await client().query(api.catalog.getListingBySlug, { slug });
-    if (l) {
-      jsonLd = {
+  const l=await publicListing(slug);
+  if(!l)notFound();
+  const jsonLd = {
         "@context": "https://schema.org",
         "@graph": [
           {
@@ -55,15 +54,18 @@ export default async function Page({
             name: l.title,
             category: l.category,
             image: l.gallery?.length ? l.gallery : l.heroImage ? [l.heroImage] : [],
-            description: `Rent the ${l.title} in London from Db Cinema Rentals — daily, 3-day and weekly rates, delivered.`,
-            brand: { "@type": "Brand", name: "Db Cinema Rentals" },
+            description: l.description ?? l.knowledge?.summary ?? `Hire ${l.title} in London. Select your dates for rental availability.`,
+
             offers: {
               "@type": "Offer",
               priceCurrency: "GBP",
               price: l.pricing?.daily ?? undefined,
-              availability: "https://schema.org/InStock",
+              businessFunction: "http://purl.org/goodrelations/v1#LeaseOut",
+              seller:{"@id":`${BASE}/#organization`},
+              ...(!l.bookable?{availability:"https://schema.org/OutOfStock"}:{}),
+              priceSpecification:{"@type":"UnitPriceSpecification",price:l.pricing.daily,priceCurrency:"GBP",unitCode:"DAY"},
               url: `${BASE}/gear/${slug}`,
-              priceValidUntil: "2027-12-31",
+
             },
           },
           {
@@ -75,9 +77,7 @@ export default async function Page({
             ],
           },
         ],
-      };
-    }
-  } catch {}
+  };
   return (
     <>
       {jsonLd && (
@@ -86,7 +86,7 @@ export default async function Page({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g,"\\u003c") }}
         />
       )}
-      <GearDetailClient slug={slug} />
+      <GearDetailClient slug={slug} initialListing={l} />
     </>
   );
 }

@@ -67,9 +67,10 @@ function ShareButton({ title }: { title: string }) {
   );
 }
 
-export default function GearDetailClient({ slug }: { slug: string }) {
+export default function GearDetailClient({ slug, initialListing }: { slug: string; initialListing?: NonNullable<import("convex/server").FunctionReturnType<typeof api.catalog.getListingBySlug>> }) {
   const { focusedId } = useGafferFocus();
-  const listing = useQuery(api.catalog.getListingBySlug, { slug });
+  const liveListing = useQuery(api.catalog.getListingBySlug, { slug });
+  const listing = liveListing === undefined ? initialListing : liveListing;
   const reviewStats = useQuery(api.reviews.stats, {});
 
   const [start, setStart] = useState<string | null>(null);

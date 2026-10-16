@@ -41,6 +41,8 @@ const orgJsonLd = {
       logo: `${SITE_URL}/db-cinema-logo-512.png`,
       description: "Pro film & cinema gear rental, delivered across London.",
       areaServed: "London, United Kingdom",
+      email: "dbcinemarentals@gmail.com",
+      sameAs: ["https://hygglo.com/uk/users/dbcinemarentals"],
     },
     {
       "@type": "WebSite",
@@ -60,11 +62,11 @@ const orgJsonLd = {
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Camera Hire London — Pro Cinema Cameras, Lenses, Lighting & Drones | Db Cinema Rentals",
+    default: "Camera Hire London | DB Cinema Rentals",
     template: "%s | Db Cinema Rentals",
   },
   description:
-    "Camera hire in London — rent professional cinema cameras, lenses, lighting, audio and drones. Daily, 3-day & weekly rates, delivered or collect in central London. Verified gear, 875+ five-star reviews.",
+    "Hire cinema cameras, lenses, lighting and sound in London. See daily and weekly rates, check your dates and book online with collection or local delivery.",
   keywords: [
     "camera hire London",
     "camera rental London",
@@ -83,13 +85,12 @@ export const metadata: Metadata = {
     "camera equipment hire near me",
   ],
   applicationName: "Db Cinema Rentals",
-  alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     siteName: "Db Cinema Rentals",
     title: "Camera Hire London — Pro Cinema Cameras, Lenses, Lighting & Drones",
     description:
-      "Camera & lens hire across London — cinema cameras, lighting, audio and drones. Daily rates, delivered. 875+ five-star reviews.",
+      "Camera and lens hire across London. Compare the included kit, check your dates and book online for collection or local delivery.",
     locale: "en_GB",
     url: SITE_URL,
   },

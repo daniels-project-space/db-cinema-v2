@@ -4,6 +4,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { Marquee } from "@/components/Marquee";
 import { GafferCall } from "@/components/GafferCall";
+import {HIRE_CATEGORIES} from "@/lib/hireCategories";
 import { HOURS_LABEL } from "@/lib/site";
 import { EmailLink } from "@/components/EmailLink";
 
@@ -62,6 +63,7 @@ export async function Footer() {
           title="Rent"
           links={[
             ["/gear", "All gear"],
+            ...HIRE_CATEGORIES.map(c=>[`/hire/${c.slug}`,`${c.name} London`] as [string,string]),
             ["/membership", "Membership"],
             ["/#reviews", "Reviews"],
             ["/cart", "Your kit"],

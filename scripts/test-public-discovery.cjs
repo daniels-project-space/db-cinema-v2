@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const h=require('./lib/rentalTestHarness.cjs');
+const discovery=h.load('convex/catalog.ts').discovery;
+(async()=>{
+ let reads=0;
+ const source=[{_id:'owned',active:true,slug:'owned-kit',title:'Owned kit',category:'Cameras',components:[{inventoryUnitId:'unit',qty:1}],stockMappingStatus:'complete',_creationTime:100,copyReview:{reviewedAt:200},r2Images:['https://images.example/owned.jpg']},{_id:'marketing',active:true,slug:'marketing',title:'Marketing only',category:'Cameras',marketingOnly:true,_creationTime:100},{_id:'hidden',active:true,suppressed:true,slug:'hidden',title:'Hidden',category:'Cameras',_creationTime:100}];
+ const db={query(table){assert.equal(table,'listings');reads++;return {withIndex(name,select){assert.equal(name,'by_active');select({eq(k,v){assert.equal(k,'active');assert.equal(v,true)}});return {async paginate(opts){assert.equal(opts.numItems,200);return {page:source,isDone:false,continueCursor:'next-page'}}}}}}};
+ source.push({...source[0],_id:'unresolved',slug:'unresolved',stockMappingStatus:'incomplete'});
+ const result=await discovery.handler({db},{paginationOpts:{numItems:200,cursor:null}});
+ assert.deepEqual(result,{page:[{slug:'owned-kit',title:'Owned kit',category:'Cameras',image:'https://images.example/owned.jpg',lastModified:200}],isDone:false,continueCursor:'next-page'});
+ await assert.rejects(()=>discovery.handler({db},{paginationOpts:{numItems:201,cursor:null}}),/limit/);assert.equal(reads,1);
+ for(const row of source)h.put('listings',row);
+ assert.equal((await h.load('convex/catalog.ts').getListingBySlug.handler({db:h.db},{slug:'owned-kit'})).bookable,true);
+ assert.equal((await h.load('convex/catalog.ts').getListingBySlug.handler({db:h.db},{slug:'unresolved'})).bookable,false);
+ const categories=h.load('src/lib/hireCategories.ts').HIRE_CATEGORIES;
+ assert.equal(categories.length,6);assert.equal(new Set(categories.map(c=>c.slug)).size,6);
+ const guides=h.load('src/lib/guides.ts').GUIDES;for(const c of categories)assert(guides.some(g=>g.slug===c.guide));
+ const detail=fs.readFileSync('src/app/gear/[slug]/page.tsx','utf8');assert(!detail.includes('schema.org/InStock'));assert(!detail.includes('priceValidUntil'));assert(detail.includes('initialListing={l}'));assert(detail.includes('notFound()'));assert(detail.includes('LeaseOut'));
+ const root=fs.readFileSync('src/app/layout.tsx','utf8');assert(!root.includes('alternates: { canonical: "/" }'));
+ console.log('PASS public discovery: indexed bounded page, real reviewed timestamp, no marketing/private records, valid department links, initial product data, no false availability or expiry.');
+})().catch(e=>{console.error(e);process.exitCode=1});

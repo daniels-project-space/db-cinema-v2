@@ -1,9 +1,10 @@
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { quote } from "./lib/pricing";
 import { weekendDays } from "../shared/membership";
 import { listingImages } from "./lib/catalogImages";
-import { isMarketingOnly } from "./lib/marketingInventory";
+import { isMarketingOnly, rentalUnavailable } from "./lib/marketingInventory";
 import { assertAdmin } from "./adminAuth";
 
 /**
@@ -288,6 +289,7 @@ export const getListingBySlug = query({
       unavailableDates: l.unavailableDates ?? [],
       marketingOnly: isMarketingOnly(l),
       displayOnly: !!l.suppressed && !isMarketingOnly(l),
+      bookable: !rentalUnavailable(l),
       demandScore: l.demandScore ?? 0,
     };
   },
@@ -401,5 +403,18 @@ export const featured = query({
     const withImg = rows.filter((r) => images(r).length > 0);
     withImg.sort((a, b) => (b.pricing?.daily ?? 0) - (a.pricing?.daily ?? 0));
     return withImg.slice(0, limit ?? 12).map(card);
+  },
+});
+
+/** Public discovery projection: indexed, bounded pages, no customer or inventory data. */
+export const discovery = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    if(paginationOpts.numItems>200)throw Error("Discovery page limit is 200");
+    const page=await ctx.db.query("listings").withIndex("by_active",q=>q.eq("active",true)).paginate(paginationOpts);
+    return {...page,page:page.page.filter(l=>!l.suppressed&&!rentalUnavailable(l)).map(l=>({
+      slug:l.slug,title:l.title,category:l.category,image:images(l)[0]??null,
+      lastModified:l.copyReview?.reviewedAt??l._creationTime,
+    }))};
   },
 });
