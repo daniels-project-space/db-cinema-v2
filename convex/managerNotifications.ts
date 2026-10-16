@@ -15,9 +15,11 @@ export const claim = internalMutation({
     if (!payload) {
       const account = await ctx.db.get(n.accountId);
       if (!account) { await ctx.db.patch(n._id, { managerStatus: "review", managerLastError: "Account no longer exists" }); return null; }
+      const booking = n.bookingId ? await ctx.db.get(n.bookingId) : null;
+      const itemName = booking?.lineItems?.map(line=>line.title).filter(Boolean).join(" + ").slice(0, 1900) || undefined;
       payload = JSON.stringify({ version: 1, eventKey: n.eventKey, kind: n.kind,
         conversationId: n.bookingId ?? `support:${n.accountId}`, createdAt: n.createdAt,
-        title: n.title, body: n.body, renterName: account.name ?? "Renter", income: n.income });
+        title: n.title, body: n.body, renterName: account.name ?? "Renter", itemName, income: n.income });
     }
     await ctx.db.patch(n._id, { managerStatus: "sending", managerAttempts: (n.managerAttempts ?? 0) + 1,
       managerGeneration: generation, managerDueAt: now + LEASE_MS, managerPayload: payload });

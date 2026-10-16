@@ -76,6 +76,7 @@ export default defineSchema({
     itemType: v.optional(v.string()),
     isPackage: v.optional(v.boolean()),
     knowledge: v.optional(v.any()),
+    inventoryFacts: v.optional(v.object({version:v.literal(1),contents:v.array(v.string()),optionalContents:v.array(v.string()),reviewRequired:v.boolean(),owned:v.union(v.boolean(),v.null())})),
     rentalContents: v.optional(v.object({
       included:v.array(v.string()), optional:v.array(v.string()), excluded:v.array(v.string()), notes:v.array(v.string()),
       status:v.union(v.literal("documented"),v.literal("unknown")),

@@ -39,16 +39,19 @@ function extractContents(description) {
   return { included:[...new Set(included)], optional:[...new Set(optional)], excluded:[...new Set(excluded)], notes:[...new Set(notes)], excerpt, status:included.length||optional.length ? 'documented' : 'unknown' };
 }
 function contentsFor(listing) {
+  const f=listing?.inventoryFacts;
+  const inventoryFacts=f?.version===1&&Array.isArray(f.contents)&&Array.isArray(f.optionalContents)?f:null;
   const c=listing?.rentalContents ?? (listing?.contentsSources ? {
     included:listing.includes,optional:listing.optional,excluded:listing.excludes,
     notes:listing.notes,status:listing.contentsStatus,sources:listing.contentsSources,
   } : null);
-  if (!c || !Array.isArray(c.sources) || !c.sources.length) return {includes:[],optional:[],excludes:[],notes:[],contentsStatus:'unknown',contentsSources:[]};
+  if (!c || !Array.isArray(c.sources) || !c.sources.length) return {includes:[],optional:[],excludes:[],notes:[],contentsStatus:'unknown',contentsSources:[],...(inventoryFacts?{inventoryFacts}:{})};
   const strings=x=>Array.isArray(x)?x.filter(v=>typeof v==='string'&&v.trim()):[];
-  return {includes:strings(c.included),optional:strings(c.optional),excludes:strings(c.excluded),notes:strings(c.notes),contentsStatus:c.status==='documented'?'documented':'unknown',contentsSources:c.sources.map(s=>({account:s.account,productId:s.productId,url:s.url,checkedAt:s.checkedAt}))};
+  return {includes:strings(c.included),optional:[...new Set([...strings(c.optional),...strings(inventoryFacts?.optionalContents)])],excludes:strings(c.excluded),notes:strings(c.notes),contentsStatus:c.status==='documented'?'documented':'unknown',contentsSources:c.sources.map(s=>({account:s.account,productId:s.productId,url:s.url,checkedAt:s.checkedAt})),...(inventoryFacts?{inventoryFacts}:{})};
 }
 function contentsText(listing) {
   const c=contentsFor(listing);
-  return [c.includes.length?`Included: ${c.includes.join('; ')}.`:'Included accessories are not documented for this listing; do not infer them from the model, specs or title.',c.optional.length?`Only if explicitly requested: ${c.optional.join('; ')}.`:'',c.excludes.length?`Explicitly excluded: ${c.excludes.join('; ')}.`:'',c.notes.length?`Seller notes: ${c.notes.join(' ')}`:'','Anything not listed is unconfirmed, not automatically excluded.'].filter(Boolean).join(' ');
+  const facts=c.inventoryFacts;
+  return [facts?`CURRENT INVENTORY FACTS (take precedence over older seller notes): ${facts.contents.join('; ')}. ${facts.owned===false?'This listing is not backed by rentable owned stock. ':''}${facts.reviewRequired?'Some remaining packing details need review. ':''}These are partial kit contents, not dated availability; use the live availability tool for the requested dates.`:'',c.includes.length?`Included: ${c.includes.join('; ')}.`:!facts?'Included accessories are not documented for this listing; do not infer them from the model, specs or title.':'',c.optional.length?`Only if explicitly requested: ${c.optional.join('; ')}.`:'',c.excludes.length?`Explicitly excluded: ${c.excludes.join('; ')}.`:'',c.notes.length?`Seller notes: ${c.notes.join(' ')}`:'','Anything not listed is unconfirmed, not automatically excluded.'].filter(Boolean).join(' ');
 }
 module.exports={extractContents,contentsFor,contentsText};
