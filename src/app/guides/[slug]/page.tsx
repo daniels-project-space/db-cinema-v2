@@ -1,3 +1,4 @@
+import {HIRE_CATEGORIES} from "@/lib/hireCategories";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -171,6 +172,7 @@ export default async function GuidePage({
           <a href="#" className="text-white/65 hover:text-white">Back to top ↑</a>
         </div>
         {related.length > 0 && <section aria-label="Related guides" className="mt-8"><h2 className="font-display text-xl text-white/90">Keep learning</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{related.map(other=><Link key={other.slug} href={`/guides/${other.slug}`} className="rounded-xl border border-white/10 bg-white/[0.025] p-4 hover:border-accent-400/40"><p className="text-xs text-accent-300">{guideReadMinutes(other)} min read</p><h3 className="mt-2 text-sm leading-relaxed text-white/85">{other.title}</h3></Link>)}</div></section>}
+        <section aria-label="Explore related hire departments" className="mt-10 rounded-2xl border border-white/10 p-5"><h2 className="font-display text-xl">Find equipment for your shoot</h2><nav className="mt-4 flex flex-wrap gap-3">{HIRE_CATEGORIES.map(c=><Link key={c.slug} href={`/hire/${c.slug}`} className="rounded-full border border-white/10 px-4 py-2 text-sm text-accent-300">{c.name} London</Link>)}</nav></section>
         {/* topic = the guide's real title, so Gaffer opens the call already
             knowing which setup it's walking them through */}
         <AskGaffer

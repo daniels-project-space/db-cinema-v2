@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 export const metadata: Metadata = {
+  robots:{index:false,follow:false},
   manifest: "/account.webmanifest",
   appleWebApp: { capable: true, title: "DB Cinema", statusBarStyle: "black-translucent" },
   icons: { apple: "/db-cinema-logo-512.png" },

@@ -1,3 +1,4 @@
+import {publicPageMetadata} from "@/lib/pageMetadata";
 import Link from "next/link";
 import { PageHero } from "@/components/PageHero";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -6,7 +7,7 @@ import { IconArrowRight, IconClock, IconBolt } from "@/components/icons";
 import { BadgeBrowse, BadgeCalendar, BadgeLock, BadgeTruck } from "@/components/AnimatedIcons";
 import { HOURS_WINDOWS } from "@/lib/site";
 
-export const metadata = { title: "How it works — Db Cinema Rentals" };
+export const metadata = publicPageMetadata("/how-it-works",'How to hire equipment in London','Choose equipment, check your dates, complete booking and verification, then collect in central London or arrange local delivery.');
 
 const STEPS = [
   ["01", "Browse", "Find the gear you need by category — cameras, lenses, lighting, audio and more. Each listing shows live availability and multi-day rates.", BadgeBrowse],
