@@ -663,7 +663,7 @@ export const applySharedStock = internalMutation({
       // Preserve the indexed `.unique()` safety check: duplicate mappings for
       // any pool present in this provider snapshot still abort reconciliation.
       if(duplicateRmv2ItemIds.has(source.masterItemId))
-        throw Error(`Multiple inventory units share RMv2 item ID ${source.masterItemId}`);
+        throw Error(`RMv2 item ID ${source.masterItemId} is not unique across inventory units`);
       const unit=unitByRmv2ItemId.get(source.masterItemId);
       if(unit)resolved.push({source,unit});
     }
