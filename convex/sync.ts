@@ -1,5 +1,5 @@
 import { stockRequest } from "./lib/stockRequest";
-import { action, internalMutation, internalQuery, mutation } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, mutation } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 import { deriveItemType, deriveSpecs, DELIVERY_BY_TYPE, categoryFor, isGenuineBundle } from "./lib/taxonomy";
@@ -559,10 +559,9 @@ export const sharedStockSyncFreshness = internalQuery({
   },
 });
 
-export const syncHyggloReservations = action({
-  // Omitting `force` preserves the existing scheduled and checkout behavior.
-  // Cart UI polling may reuse a recently verified mirror for at most 90s;
-  // checkout always passes force=true immediately before charging.
+export const syncHyggloReservations = internalAction({
+  // Foreground cart/calendar checks can reuse a recent mirror for at most 90s.
+  // Checkout and the reliability cron explicitly force a current source read.
   args: { force: v.optional(v.boolean()) },
   handler: async (ctx, { force }): Promise<{ mirrored: number; rows: number; checkedAt: number; cached?: boolean }> => {
     if (force === false) {
@@ -586,7 +585,7 @@ export const refreshCartStock = action({
   handler:async(ctx,{items}):Promise<{checkedAt:number;availability:Record<string,{available:number;demanded:number;ok:boolean}>}>=>{
     if(!items.length||items.length>100||items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*86400000))throw Error("Invalid basket stock request");
     try {
-      const stock = await ctx.runAction(api.sync.syncHyggloReservations,{force:false});
+      const stock = await ctx.runAction(internal.sync.syncHyggloReservations,{force:false});
       const availability=await ctx.runQuery(api.availability.forCart,{items});
       return {checkedAt:stock.checkedAt,availability};
     } catch {
@@ -852,9 +851,9 @@ export const refreshCalendarStock = action({
     const first=new Date(args.monthStart);
     if(!Number.isSafeInteger(args.monthStart)||first.getUTCDate()!==1||first.getUTCHours()!==0||first.getUTCMinutes()!==0||first.getUTCSeconds()!==0||first.getUTCMilliseconds()!==0||args.items.length>100||args.items.some(i=>!Number.isSafeInteger(i.start)||!Number.isSafeInteger(i.end)||i.end<i.start||i.end-i.start>365*86400000||i.start%86400000!==0||i.end%86400000!==0)||(args.rangeStart!==undefined&&(!Number.isSafeInteger(args.rangeStart)||args.rangeStart%86400000!==0||Math.abs(args.monthStart-args.rangeStart)>365*86400000)))throw Error("Invalid calendar stock request");
     try{
-      await ctx.runAction(api.sync.syncHyggloReservations,{});
+      const stock = await ctx.runAction(internal.sync.syncHyggloReservations,{force:false});
       const days=await ctx.runQuery(api.availability.forCalendar,args);
-      return {checkedAt:Date.now(),days};
+      return {checkedAt:stock.checkedAt,days};
     }catch{throw new ConvexError({code:"STOCK_CHECK_UNAVAILABLE",message:"We couldn't check these dates. Please retry."});}
   },
 });

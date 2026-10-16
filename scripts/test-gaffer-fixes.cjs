@@ -74,7 +74,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
         if(ref==='promo:validate') return validate.handler({},args);
         throw Error(`Unexpected query ${ref}`);
       },
-      runAction: async (ref,args) => { if(ref==='sync:syncHyggloReservations')return {mirrored:0,rows:0}; assert.equal(ref,'delivery:quote'); assert.equal(args.postcode,deliveryPostcode.replace(/\s/g,'').toUpperCase()); assert.equal(args.listingIds.length,prices.length); return {ok:true,fee:quotedFee}; },
+      runAction: async (ref,args) => { if(ref==='sync:syncHyggloReservations')return {mirrored:0,rows:0,checkedAt:123}; assert.equal(ref,'delivery:quote'); assert.equal(args.postcode,deliveryPostcode.replace(/\s/g,'').toUpperCase()); assert.equal(args.listingIds.length,prices.length); return {ok:true,fee:quotedFee}; },
       runMutation: async (ref,args) => { assert.equal(ref,'bookings:createPending'); pending=args; throw stop; },
     };
     const args={expectedSavedCardLimit:prices.length*100*qty,items:prices.map((_,i)=>({listingId:`listing${i}`,title:submittedTitle??`Item ${i}`,start:0,end:0,qty,total:submittedTotal,deposit:0,...(i?{offerType:'tripod50'}:{})})),token,customer:{email:customerEmail,name:'Test Renter',billingAddress:'123 Test Street, London'},fulfilment,address,deliveryPostcode,deliveryFee,promoCode:code,pickupTime:'10:00',returnTime:'18:00',agreement:{name:'Test Renter',requestId:'test-acceptance-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,documents:fulfilment==='delivery'?[...AGREEMENTS,{kind:'delivery-disclaimer',version:'2026-10-delivery-v2'}]:AGREEMENTS}};
@@ -130,7 +130,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   // payment amount and return URLs cannot be supplied by the browser.
   let savedBooking;
   const checkoutCtx = {
-    runAction:async(ref)=>{assert.equal(ref,'sync:syncHyggloReservations');return {mirrored:0,rows:0};},
+    runAction:async(ref)=>{assert.equal(ref,'sync:syncHyggloReservations');return {mirrored:0,rows:0,checkedAt:123};},
     runQuery: async (ref,args) => {
       if(ref==='accounts:_byEmail') return null; // Guest fixture has no stored account.
       if(ref==='bookings:checkoutAttempt') return null;
