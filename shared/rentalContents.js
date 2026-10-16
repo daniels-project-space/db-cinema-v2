@@ -45,7 +45,7 @@ function contentsFor(listing) {
     included:listing.includes,optional:listing.optional,excluded:listing.excludes,
     notes:listing.notes,status:listing.contentsStatus,sources:listing.contentsSources,
   } : null);
-  if (!c || !Array.isArray(c.sources) || !c.sources.length) return {includes:[],optional:[],excludes:[],notes:[],contentsStatus:'unknown',contentsSources:[],...(inventoryFacts?{inventoryFacts}:{})};
+  if (!c || !Array.isArray(c.sources) || !c.sources.length) return {includes:inventoryFacts?.contents??[],optional:inventoryFacts?.optionalContents??[],excludes:[],notes:[],contentsStatus:inventoryFacts?.contents.length?'documented':'unknown',contentsSources:[],...(inventoryFacts?{inventoryFacts}:{})};
   const strings=x=>Array.isArray(x)?x.filter(v=>typeof v==='string'&&v.trim()):[];
   return {includes:strings(c.included),optional:[...new Set([...strings(c.optional),...strings(inventoryFacts?.optionalContents)])],excludes:strings(c.excluded),notes:strings(c.notes),contentsStatus:c.status==='documented'?'documented':'unknown',contentsSources:c.sources.map(s=>({account:s.account,productId:s.productId,url:s.url,checkedAt:s.checkedAt})),...(inventoryFacts?{inventoryFacts}:{})};
 }

@@ -17,7 +17,7 @@ assert.ok(!contentsText({category:'Cameras'}).includes('memory cards are not inc
 assert.equal(extractContents("In this kit, you'll find:\n1x Microphone\nA protective carry bag\n\nKey features:\n- Long range").included.length,2);
 assert.equal(extractContents('⭐️Included in this set⭐️\n- 2x Batteries\n\nAbout us').included.length,1);
 const inventoryFacts={version:1,contents:['1 × Sony A7 V','1 × 256GB SDXC V90 card'],optionalContents:['Sony XLR Handle Unit'],reviewRequired:false,owned:true};
-assert.match(contentsText({inventoryFacts}),/256GB SDXC V90/);assert.match(contentsText({inventoryFacts}),/CURRENT INVENTORY FACTS/);
+assert.deepEqual(contentsFor({inventoryFacts}).optional,['Sony XLR Handle Unit']);assert.deepEqual(contentsFor({inventoryFacts}).includes,inventoryFacts.contents);assert.match(contentsText({inventoryFacts}),/256GB SDXC V90/);assert.match(contentsText({inventoryFacts}),/CURRENT INVENTORY FACTS/);
 assert.match(contentsText({inventoryFacts:{...inventoryFacts,owned:false}}),/not backed by rentable owned stock/);
 const rows=require('../data/rental-contents.json');assert.equal(new Set(rows.map(x=>x.productId)).size,rows.length);
 for(const row of rows){for(const fact of [...row.contents.included,...row.contents.optional,...row.contents.excluded,...row.contents.notes])assert.ok(row.contents.sources.some(s=>s.excerpt.includes(fact)),`${row.productId} unsourced: ${fact}`);}
