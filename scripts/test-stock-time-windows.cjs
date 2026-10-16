@@ -12,7 +12,7 @@ const line=(pickupTime,returnTime,extra={})=>({listingId:listing._id,start:date,
 const fit=items=>availability.forCart.handler(ctx,{items});
 (async()=>{
  const refresh=JSON.parse(load('convex/crons.ts').default.export())['sync-hygglo-reservations'];
- assert.equal(refresh.name,'sync:syncHyggloReservations','Freshness schedule calls the real shared-stock importer');
+ assert.equal(refresh.name,'sync.syncHyggloReservations','Freshness schedule calls the real shared-stock importer');
  const refreshMs=(refresh.schedule.minutes??0)*60000+(refresh.schedule.seconds??0)*1000;
  assert(refreshMs>0,'Shared-stock refresh must be a positive interval');
  const originalNow=Date.now;let now=originalNow();
