@@ -117,7 +117,7 @@ type RawProduct = {
   unavailableDates?: unknown[];
   listings?: { slug?: string; publicUrl?: string }[];
   masterItemId?: string;
-  stockMapping?: {version:number;complete:boolean;owned:boolean|null;components:{masterItemId:string;name:string;qty:number;quantityOwned:number;active:boolean;replacementCost:number}[]};
+  stockMapping?: {version:number;complete:boolean;owned:boolean|null;components:{masterItemId:string;name:string;qty:number;quantityOwned:number;active:boolean;replacementCost:number}[];inventoryFacts?:{version:1;contents:string[];optionalContents:string[];reviewRequired:boolean;owned:boolean|null}};
 };
 
 export const syncFromRmv2 = action({
@@ -164,6 +164,7 @@ export const syncFromRmv2 = action({
         hyggloProductId: p.productId,
         copySourceFingerprint: p.copySourceFingerprint,
         stockComponents: mapping.components,
+        ...(mapping.inventoryFacts?{inventoryFacts:mapping.inventoryFacts}:{}),
         stockMappingStatus: mapping.complete && mapping.owned === true && mapping.components.length > 0 ? "complete" as const : mapping.owned === false ? "not_owned" as const : "incomplete" as const,
         marketingOnly: p.isMarketingOnly,
         marketingOnlyMode: p.marketingOnlyMode,
@@ -207,6 +208,7 @@ export const applyCatalog = internalMutation({
       v.object({
         hyggloProductId: v.number(),
         copySourceFingerprint: v.optional(v.string()),
+        inventoryFacts: v.optional(v.object({version:v.literal(1),contents:v.array(v.string()),optionalContents:v.array(v.string()),reviewRequired:v.boolean(),owned:v.union(v.boolean(),v.null())})),
         stockMappingStatus: v.union(v.literal("complete"),v.literal("incomplete"),v.literal("not_owned")),
         stockComponents: v.array(v.object({masterItemId:v.string(),name:v.string(),qty:v.number(),quantityOwned:v.number(),active:v.boolean(),replacementCost:v.number()})),
         marketingOnly: v.optional(v.boolean()),
@@ -335,6 +337,7 @@ export const applyCatalog = internalMutation({
 
       // shared fields synced from RMv2 every run
       const synced = {
+        ...(it.inventoryFacts?{inventoryFacts:it.inventoryFacts}:{}),
         slug: it.slug,
         ...(it.copySourceFingerprint?{copySourceFingerprint:it.copySourceFingerprint}:{}),
         title: it.title,
