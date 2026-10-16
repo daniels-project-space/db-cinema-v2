@@ -17,7 +17,7 @@ export const discoveryListings=unstable_cache(async():Promise<DiscoveryListing[]
   cursor=result.continueCursor;
  }
  throw Error("Catalogue discovery exceeded its bounded pagination budget");
-},["public-catalogue-discovery-v1"],{revalidate:3600,tags:["catalogue-discovery"]});
+},["public-catalogue-discovery-v1",process.env.NEXT_PUBLIC_CONVEX_URL!],{revalidate:3600,tags:["catalogue-discovery"]});
 
 // Deduplicate metadata + page reads within one server render.
 export const publicListing=cache((slug:string)=>new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.getListingBySlug,{slug}));
