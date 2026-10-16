@@ -23,7 +23,7 @@ const check=(id,items=[],extra={})=>availability.forCalendar.handler(ctx,{listin
  single.marketingOnly=true;assert.equal((await check(single._id))['2030-01-02'].ok,false,'Marketing remains nonrentable in backend; client separately permits demand requests');
  await assert.rejects(check(pair._id,[],{rangeStart:monthStart+3600000}),/Invalid calendar/);
  await assert.rejects(check(pair._id,[],{monthStart:monthStart+day}),/Invalid calendar/);await assert.rejects(check(pair._id,Array(101).fill({listingId:pair._id,start:monthStart,end:monthStart})),/Invalid calendar/);
- let refreshCalls=0;const actionCtx={runAction:async(ref,args)=>{refreshCalls++;assert.equal(ref,'sync:syncHyggloReservations');assert.equal(args.force,false);return {checkedAt:123};},runQuery:async()=>({day:{ok:true,available:3}})};
+ let refreshCalls=0;const actionCtx={runAction:async(ref,args)=>{refreshCalls++;assert.equal(ref,'sync.syncHyggloReservations');assert.equal(args.force,false);return {checkedAt:123};},runQuery:async()=>({day:{ok:true,available:3}})};
  const receipt=await sync.refreshCalendarStock.handler(actionCtx,{listingId:pair._id,monthStart,items:[]});assert.equal(refreshCalls,1);assert.equal(receipt.days.day.available,3);assert.equal(receipt.checkedAt,123,'Calendar receipts retain the age of the shared-stock source snapshot');
  await assert.rejects(sync.refreshCalendarStock.handler(actionCtx,{listingId:pair._id,monthStart:monthStart+day,items:[]}),/Invalid calendar/);assert.equal(refreshCalls,1,'Bad scope rejected before provider traffic');
  await assert.rejects(sync.refreshCalendarStock.handler({...actionCtx,runAction:async()=>{throw Error('provider offline')}},{listingId:pair._id,monthStart,items:[]}),/STOCK_CHECK_UNAVAILABLE|couldn.t check/);
