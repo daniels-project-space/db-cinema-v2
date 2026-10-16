@@ -39,7 +39,10 @@ export function useCartStockCheck(items:Array<Pick<CartItem,"listingId"|"start"|
   useEffect(()=>{
     if(key==="[]")return;
     const check=()=>{if(!document.hidden)void recheck();};
-    check();const timer=setInterval(check,60000);
+    // Keep cart availability reasonably fresh without pulling the shared
+    // Rental Manager stock snapshot every minute. Checkout still forces a
+    // current source read before validating price and taking payment.
+    check();const timer=setInterval(check,5*60*1000);
     window.addEventListener("focus",check);document.addEventListener("visibilitychange",check);
     return()=>{clearInterval(timer);window.removeEventListener("focus",check);document.removeEventListener("visibilitychange",check);scope.current.request++;flight.current=null;};
   },[key,recheck]);
