@@ -122,6 +122,7 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_category", ["category"])
     .index("by_active", ["active"])
+    .index("by_active_itemType", ["active", "itemType"])
     .index("by_hyggloProductId", ["hyggloProductId"]),
 
   // ── Layer 3: the availability ledger (double-booking guard) ───

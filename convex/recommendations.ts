@@ -68,14 +68,22 @@ export const forContext = query({
     }
     if (wanted.length === 0) wanted.push("lens", "camera-body", "light");
 
-    const all = await ctx.db
-      .query("listings")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .collect();
+    // Read only the complementary item types needed for this seed/cart.
+    // Every active listing has a materialized itemType (catalog sync defaults
+    // missing source types to "accessory"), so the composite index preserves
+    // the old in-memory fallback semantics without scanning unrelated listings.
+    const candidatesByType = await Promise.all(
+      wanted.map((type) => ctx.db
+        .query("listings")
+        .withIndex("by_active_itemType", (q) =>
+          q.eq("active", true).eq("itemType", type),
+        )
+        .collect()),
+    );
 
     // bucket candidates by type
     const byType = new Map<string, any[]>();
-    for (const l of all) {
+    for (const l of candidatesByType.flat()) {
       if (exclude.has(l._id)) continue;
       if (images(l).length === 0) continue;
       const t = l.itemType ?? "accessory";
