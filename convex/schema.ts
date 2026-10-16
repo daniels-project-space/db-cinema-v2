@@ -466,7 +466,8 @@ export default defineSchema({
   })
     .index("by_listing", ["listingId"])
     .index("by_booking", ["verifiedBookingId"])
-    .index("by_published", ["published"]),
+    .index("by_published", ["published"])
+    .index("by_published_source_date", ["published", "source", "date"]),
 
   // ── Crew for hire (booked THROUGH us — first name only, keep the middleman) ──
   review_prize_evidence: defineTable({storageId:v.id("_storage"),accountId:v.id("accounts"),claimedAt:v.number()}).index("by_storage",["storageId"]),
