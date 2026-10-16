@@ -42,6 +42,38 @@ export function blockedSet(raw: string[]): Set<string> {
 }
 
 export type Iv = { start: number; end: number; qty: number; endExclusive?: boolean };
+
+export type AvailabilityReadCache = {
+  listings: Map<string, Promise<any>>;
+  inventoryUnits: Map<string, Promise<any>>;
+  reservationsByUnit: Map<string, Promise<any[]>>;
+  occupancyByReservationId: Map<string, Promise<Iv | null>>;
+  stockTimePrecision?: Promise<boolean>;
+};
+
+export function createAvailabilityReadCache(): AvailabilityReadCache {
+  return {
+    listings: new Map(),
+    inventoryUnits: new Map(),
+    reservationsByUnit: new Map(),
+    occupancyByReservationId: new Map(),
+  };
+}
+
+function memoRead<T>(cache: Map<string, Promise<T>>, key: string, load: () => Promise<T>): Promise<T> {
+  let value = cache.get(key);
+  if (!value) {
+    value = load();
+    cache.set(key, value);
+  }
+  return value;
+}
+
+export function getAvailabilityListing(ctx: any, listingId: any, cache?: AvailabilityReadCache): Promise<any> {
+  return cache
+    ? memoRead(cache.listings, String(listingId), () => ctx.db.get(listingId))
+    : ctx.db.get(listingId);
+}
 /** Clip exact upstream windows and inclusive local rental days to the same
  * half-open requested period. A midnight release does not consume the next day. */
 export function overlappingIntervals(intervals:Iv[],start:number,end:number,endExclusive=false):Iv[] {
@@ -67,15 +99,23 @@ export function peak(intervals: Iv[]): number {
   return mx;
 }
 
-async function unitReservations(ctx: any, unitId: any, lo: number, hi: number, excludeBookingId?: string): Promise<Iv[]> {
-  const res = await ctx.db
-    .query("reservations")
-    .withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", unitId))
-    .collect();
+async function unitReservations(ctx: any, unitId: any, lo: number, hi: number, excludeBookingId?: string, cache?: AvailabilityReadCache): Promise<Iv[]> {
+  const key = String(unitId);
+  const res = cache
+    ? await memoRead(cache.reservationsByUnit, key, () => ctx.db
+        .query("reservations")
+        .withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", unitId))
+        .collect())
+    : await ctx.db
+        .query("reservations")
+        .withIndex("by_unit", (q: any) => q.eq("inventoryUnitId", unitId))
+        .collect();
   const intervals = await Promise.all(res
     .filter((row: any) => !excludeBookingId || String(row.bookingId) !== excludeBookingId)
-    .map((row: any) => reservationOccupancy(ctx, row)));
-  return overlappingIntervals(intervals.filter((row): row is Iv => !!row),lo,hi,true);
+    .map((row: any) => cache && row._id
+      ? memoRead(cache.occupancyByReservationId, String(row._id), () => reservationOccupancy(ctx, row))
+      : reservationOccupancy(ctx, row)));
+  return overlappingIntervals(intervals.filter((row): row is Iv => !!row), lo, hi, true);
 }
 
 /** Quantity-aware availability for one listing over [start,end]. The optional
@@ -91,9 +131,13 @@ export async function listingAvailability(
     returnTime?: string | null;
     excludeBookingId?: string;
   },
+  cache?: AvailabilityReadCache,
 ) {
-  const window = stockWindow({ start, end, pickupTime, returnTime }, await stockTimePrecision(ctx));
-  const l = await ctx.db.get(listingId);
+  const precision = cache
+    ? await (cache.stockTimePrecision ??= stockTimePrecision(ctx))
+    : await stockTimePrecision(ctx);
+  const window = stockWindow({ start, end, pickupTime, returnTime }, precision);
+  const l = await getAvailabilityListing(ctx, listingId, cache);
   if (!l || rentalUnavailable(l)) return { available: 0, owned: 0 };
   if (!l.components.length || l.components.some((c: any) => !Number.isSafeInteger(c.qty) || c.qty < 1)) return { available: 0, owned: 0 };
   const requested = dayRange(start, end);
@@ -108,10 +152,13 @@ export async function listingAvailability(
     requirements.set(unitId, (requirements.get(unitId) ?? 0) + comp.qty);
   }
   for (const [unitId, qty] of requirements) {
-    const unit: any = await ctx.db.get(unitId);
+    const loadUnit = () => ctx.db.get(unitId);
+    const unit: any = cache
+      ? await memoRead(cache.inventoryUnits, unitId, loadUnit)
+      : await loadUnit();
     const ownedQ = inventoryCapacity(unit) ?? 0;
     owned = Math.min(owned, Math.floor(ownedQ / qty));
-    const ivs = await unitReservations(ctx, unitId, window.start, window.end, excludeBookingId);
+    const ivs = await unitReservations(ctx, unitId, window.start, window.end, excludeBookingId, cache);
     const free = Math.max(0, ownedQ - peak(ivs));
     minAvail = Math.min(minAvail, Math.floor(free / qty));
   }

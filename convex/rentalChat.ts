@@ -11,7 +11,12 @@ import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { listingImages } from "./lib/catalogImages";
-import { listingAvailability } from "./availability";
+import {
+  createAvailabilityReadCache,
+  getAvailabilityListing,
+  listingAvailability,
+  type AvailabilityReadCache,
+} from "./availability";
 import { rentalReplyTemplates } from "./lib/rentalReplyTemplates";
 import { acknowledgeOwnerNotifications } from "./lib/adminPush";
 import { accountForRental, rentalsForAccount } from "./lib/rentalAccount";
@@ -40,7 +45,7 @@ async function bookingView(
   ctx: any,
   b: any,
   account: any,
-  options: { includeAvailability?: boolean; thread?: any } = {},
+  options: { includeAvailability?: boolean; thread?: any; availabilityCache?: AvailabilityReadCache } = {},
 ) {
   let verificationArchiveReady = false;
   if (b.idVerifyStatus === "verified") {
@@ -54,7 +59,7 @@ async function bookingView(
     (account ? await rentalThread(ctx, account._id, b._id) : null);
   const items = await Promise.all(
     bookingStockLines(b).map(async (li: any) => {
-      const l = await ctx.db.get(li.listingId);
+      const l = await getAvailabilityListing(ctx, li.listingId, options.availabilityCache);
       const stock =
         options.includeAvailability && l
           ? await listingAvailability(ctx, {
@@ -64,7 +69,7 @@ async function bookingView(
               pickupTime: li.pickupTime,
               returnTime: li.returnTime,
               excludeBookingId: String(b._id),
-            })
+            }, options.availabilityCache)
           : null;
       return {
         ...li,
@@ -164,13 +169,14 @@ export const adminInbox = query({
   handler: async (ctx, { token }) => {
     if (!checkAdminToken(token)) return { authorized: false, items: [] };
     const threads = await ctx.db.query("chat_threads").withIndex("by_updated", q=>q).order("desc").take(200);
+    const availabilityCache = createAvailabilityReadCache();
     const items = (await Promise.all(threads.filter(t=>!!t.lastMessage?.trim()).slice(0,100).map(async thread => {
       if(!thread.bookingId) return {...await generalConversationView(ctx,thread),_id:`support:${thread.accountId}`};
       const booking = await ctx.db.get(thread.bookingId);
       if(!booking) return null;
       const account = await accountForRental(ctx,booking);
       if(!account || account._id !== thread.accountId) return null;
-      return bookingView(ctx,booking,account,{includeAvailability:true,thread});
+      return bookingView(ctx,booking,account,{includeAvailability:true,thread,availabilityCache});
     }))).filter(Boolean);
     return { authorized: true, items };
   },
