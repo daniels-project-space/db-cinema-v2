@@ -40,6 +40,8 @@ const line=l=>({listingId:l._id,...window});
  assert.equal(ui.stockLines([{listingId:light._id,start:'2030-06-03T00:00:00.000Z',end:'2030-06-04'}])[0].start,start);
  assert.equal(ui.liveWindow({...original.item,start:'2030-02-30'}).start,undefined,'impossible dates are not silently rolled into another day');
  assert.equal(ui.liveWindow({...original.item,start:'2030-06-03T23:00:00-01:00'}).start,undefined,'arbitrary instants must not shift the rental day');
+ assert.equal(ui.liveWindow({...original.item,estimated:true}).start,undefined,'placeholder dates plus explicit clocks cannot become confirmed availability');
+ assert.equal(ui.liveWindow({...original.item,estimated:true},[{start:'2030-07-01',end:'2030-07-02',pickupTime:'11:00',returnTime:'18:00'}]).start,Date.UTC(2030,6,1),'a real basket window can replace the placeholder when linked');
  assert.equal(ui.liveWindow({...original.item,followBasketWindow:false},[{start:'2030-07-01',end:'2030-07-02'}]).start,start,'an explicitly different request retains its requested window');
  await assert.rejects(options.handler(ctx,{groups:Array.from({length:17},(_,i)=>({key:String(i),types:['light'],...window})),basket:[]}),/Too many/);
  console.log('PASS live recommendations across all 19 equipment types: indexed authoritative catalogue, quantities, confirmed bookings, hold expiry, dates/clocks, basket shared pools, price/contents changes, native EF/E switching, complete assembly capacity and stale chat/alternative safety. No provider writes.');

@@ -6,7 +6,8 @@ export function liveWindow(item:any,basket:any[]=[]){
   const first=basket[0];
   const same=first&&basket.every(i=>i.start===first.start&&i.end===first.end&&i.pickupTime===first.pickupTime&&i.returnTime===first.returnTime);
   const source=item.followBasketWindow&&same?first:item;
-  const start=Date.parse(rentalDateLabel(source?.start)+"T00:00:00Z"),end=Date.parse(rentalDateLabel(source?.end)+"T00:00:00Z");
+  // An AI placeholder is not a chosen hire period, even if clocks were given.
+  const start=Date.parse((source?.estimated?undefined:rentalDateLabel(source?.start))+"T00:00:00Z"),end=Date.parse((source?.estimated?undefined:rentalDateLabel(source?.end))+"T00:00:00Z");
   return {start:Number.isFinite(start)?start:undefined,end:Number.isFinite(end)?end:undefined,pickupTime:source?.pickupTime||undefined,returnTime:source?.returnTime||undefined};
 }
 
