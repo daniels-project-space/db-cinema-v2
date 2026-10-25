@@ -162,6 +162,7 @@ export function BotBubble() {
             title: i.title,
             start: i.start,
             end: i.end,
+            pickupTime: i.pickupTime, returnTime: i.returnTime,
             slug: i.slug,
           })),
         }),
@@ -190,6 +191,7 @@ export function BotBubble() {
   }
 
   function addItem(it: any) {
+    if (it.needsTimes || it.available === false) return;
     cart.add({
       listingId: it.listingId,
       slug: it.slug,
@@ -197,6 +199,7 @@ export function BotBubble() {
       heroImage: it.image ?? null,
       start: it.start,
       end: it.end,
+      pickupTime: it.pickupTime, returnTime: it.returnTime,
       days: it.days,
       perDay: it.perDay,
       total: it.total,
@@ -689,9 +692,9 @@ function CardView({
         </div>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
-        <button
+        {addonItem?.needsTimes ? <Link href={`/gear/${addonItem.slug}`} className="btn-primary rounded-full px-3 py-1.5 text-[11px]">Choose dates and times</Link> : <button
           onClick={onAdd}
-          disabled={added}
+          disabled={added || addonItem?.available === false}
           className={`press inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors ${
             added
               ? "cursor-default bg-emerald-500/20 text-emerald-300"
@@ -699,8 +702,8 @@ function CardView({
           }`}
         >
           {added && <IconCheck className="h-3 w-3" />}
-          {added ? "Added to kit" : swap ? "Accept swap" : "Add to kit"}
-        </button>
+          {added ? "Added to kit" : addonItem?.available === false ? "Unavailable for these times" : swap ? "Accept swap" : "Add to kit"}
+        </button>}
         {!added && canAddBooking && (
           <button
             onClick={onAddBooking}

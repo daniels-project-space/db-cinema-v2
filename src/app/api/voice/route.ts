@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
+import { PICKUP_SLOTS } from "@/lib/site";
 import { dayMs } from "@/lib/dates";
 import { rateLimit } from "@/lib/ratelimit";
 import { londonToday, resolveDate, inclusiveDays, speak } from "@/lib/voiceDates";
@@ -242,7 +243,14 @@ export async function POST(req: NextRequest) {
           );
         }
         const end = args.end ? resolveDate(args.end, today) : start;
-        const endDate = end.ok ? end.date : start.date;
+        if (!end.ok) return say("Please confirm the return date before I check availability.", { needs: "dates" });
+        const endDate = end.date;
+        const pickupTime = String(args.pickupTime ?? args.pickup_time ?? "");
+        const returnTime = String(args.returnTime ?? args.return_time ?? "");
+        if (!PICKUP_SLOTS.includes(pickupTime) || !PICKUP_SLOTS.includes(returnTime))
+          return say(`I found ${shorten(top.title)} in the catalogue. Choose pickup and return times before I can confirm availability. You can select them on the booking page.`, { needs: "times", items: hits, start: start.date, end: endDate });
+        if (start.date === endDate && returnTime <= pickupTime)
+          return say("Return time must be after pickup. Please confirm the times.", { needs: "times" });
         const days = inclusiveDays(start.date, endDate);
 
         const av: any = await c
@@ -250,9 +258,11 @@ export async function POST(req: NextRequest) {
             listingId: top.id as any,
             start: dayMs(start.date),
             end: dayMs(endDate),
+            pickupTime, returnTime,
           })
           .catch(() => null);
         const qt: any = quote({ daily: top.daily ?? 0 } as any, days);
+        if (!av) return say("I could not confirm live availability just now. Please retry; I have not confirmed a booking.", { needs: "availability", items: hits });
 
         if ((av?.available ?? 0) > 0) {
           return say(

@@ -17,12 +17,14 @@ export function CartItemDates({ item }: { item: CartItem }) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
   const valid = !!start && !!end && start >= today && end >= start;
   const prospective = cart.items.map(i => ({ listingId: i.listingId as any, start: dayMs(i.key === item.key ? start : i.start), end: dayMs(i.key === item.key ? end : i.end),pickupTime:i.key===item.key?pickupTime||undefined:i.pickupTime,returnTime:i.key===item.key?returnTime||undefined:i.returnTime }));
-  const fit = useQuery(api.availability.forCart, open && valid ? { items: prospective } : "skip");
+  const haveTimes = !!pickupTime && !!returnTime;
+  const validOrder = start !== end || !haveTimes || returnTime > pickupTime;
+  const fit = useQuery(api.availability.forCart, open && valid && haveTimes && validOrder ? { items: prospective } : "skip");
   const slots=useQuery(api.availability.forTimeSlots,open&&valid?{listingId:item.listingId as any,start:dayMs(start),end:dayMs(end),pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,items:prospective.filter((_,index)=>cart.items[index].key!==item.key)}:"skip");
   const available = !!fit?.[item.listingId]?.ok;
 
   async function save() {
-    if (!valid || busy) return;
+    if (!valid || !haveTimes || !validOrder || busy) return;
     setBusy(true); setError(null);
     try {
       const checked = await convex.query(api.availability.forCart, { items: prospective });
@@ -48,9 +50,9 @@ export function CartItemDates({ item }: { item: CartItem }) {
         <TimeSlotPicker id={`${id}-pickup`} label="Pickup time" value={pickupTime} onChange={setPickupTime} disabled={busy||!slots} allowedSlots={slots?.pickupSlots}/>
         <TimeSlotPicker id={`${id}-return`} label="Return time" value={returnTime} onChange={setReturnTime} disabled={busy||!slots} allowedSlots={slots?.returnSlots}/>
       </div>
-      <p className="mt-2 text-[10px] leading-4 text-white/45" aria-live="polite">{!valid ? "Choose a valid date range from today onwards." : fit === undefined ? "Checking availability for your kit…" : !available ? "Unavailable with your kit. Try different dates." : `${daysInclusive(start, end)} rental day${daysInclusive(start, end) === 1 ? "" : "s"} · available with your kit. Price updates when saved.`}</p>
+      <p className="mt-2 text-[10px] leading-4 text-white/45" aria-live="polite">{!valid ? "Choose a valid date range from today onwards." : !haveTimes ? "Choose pickup and return times to check availability." : !validOrder ? "Return time must be later than pickup." : fit === undefined ? "Checking availability for your kit…" : !available ? "Unavailable with your kit. Try different dates." : `${daysInclusive(start, end)} rental day${daysInclusive(start, end) === 1 ? "" : "s"} · available with your kit. Price updates when saved.`}</p>
       {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
-      <button type="button" data-cart-date-save onClick={save} disabled={!valid || !available || busy} className="btn-ghost mt-3 min-h-9 w-full !px-3 !py-2 text-xs">{busy ? "Updating…" : "Save dates"}</button>
+      <button type="button" data-cart-date-save onClick={save} disabled={!valid || !haveTimes || !validOrder || !available || busy} className="btn-ghost mt-3 min-h-9 w-full !px-3 !py-2 text-xs">{busy ? "Updating…" : "Save dates"}</button>
     </div>}
   </div>;
 }

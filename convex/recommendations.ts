@@ -1,8 +1,11 @@
+import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
 import { listingImages as images } from "./lib/catalogImages";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { COMPLEMENTS, type ItemType } from "./lib/taxonomy";
 import { bestCompat, parseMounts } from "./lib/mount";
+import { rentalUnavailable } from "./lib/marketingInventory";
+import { alreadySupplied, automaticRecommendation, type RecommendationItem } from "../shared/recommendationPolicy";
 
 
 const card = (l: any) => ({
@@ -30,6 +33,7 @@ export const forContext = query({
   },
   handler: async (ctx, { slug, cartListingIds, limit }) => {
     const exclude = new Set<string>();
+    const selected: RecommendationItem[] = [];
     const seedTypes: ItemType[] = [];
     const camMounts = new Set<string>(); // mounts of any camera in the seed/cart — for lens compat
 
@@ -39,6 +43,7 @@ export const forContext = query({
         .withIndex("by_slug", (q) => q.eq("slug", slug))
         .first();
       if (l) {
+        selected.push(l);
         exclude.add(l._id);
         seedTypes.push((l.itemType ?? "accessory") as ItemType);
         if (l.itemType === "camera-body") for (const m of parseMounts(l.specs?.mount)) camMounts.add(m);
@@ -47,6 +52,7 @@ export const forContext = query({
     for (const id of cartListingIds ?? []) {
       const l = await ctx.db.get(id);
       if (l) {
+        selected.push(l);
         exclude.add(id);
         seedTypes.push((l.itemType ?? "accessory") as ItemType);
         if (l.itemType === "camera-body") for (const m of parseMounts(l.specs?.mount)) camMounts.add(m);
@@ -72,6 +78,7 @@ export const forContext = query({
     // Every active listing has a materialized itemType (catalog sync defaults
     // missing source types to "accessory"), so the composite index preserves
     // the old in-memory fallback semantics without scanning unrelated listings.
+    const evidence = wanted.includes("gimbal") ? await verifiedKitEvidence(ctx) : [];
     const candidatesByType = await Promise.all(
       wanted.map((type) => ctx.db
         .query("listings")
@@ -84,7 +91,9 @@ export const forContext = query({
     // bucket candidates by type
     const byType = new Map<string, any[]>();
     for (const l of candidatesByType.flat()) {
-      if (exclude.has(l._id)) continue;
+      if (rentalUnavailable(l)) continue;
+      if (exclude.has(l._id) || alreadySupplied(l, selected)) continue;
+      if (!automaticRecommendation(l, selected, evidence)) continue;
       if (images(l).length === 0) continue;
       const t = l.itemType ?? "accessory";
       if (!wanted.includes(t as ItemType)) continue;
@@ -107,20 +116,17 @@ export const forContext = query({
 
     // round-robin across wanted types for diversity
     const out: any[] = [];
-    const lim = limit ?? 8;
-    let added = true;
-    let round = 0;
-    while (out.length < lim && added) {
-      added = false;
+    const lim = Math.min(24, Math.max(0, Math.floor(limit ?? 8)));
+    const chosen: any[] = [];
+    const rounds = Math.max(0, ...[...byType.values()].map(rows => rows.length));
+    for (let round = 0; round < rounds && out.length < lim; round++) {
       for (const t of wanted) {
-        const arr = byType.get(t);
-        if (arr && arr[round]) {
-          out.push(card(arr[round]));
-          added = true;
-          if (out.length >= lim) break;
-        }
+        const candidate = byType.get(t)?.[round];
+        if (!candidate || !automaticRecommendation(candidate, [...selected, ...chosen], evidence)) continue;
+        chosen.push(candidate);
+        out.push(card(candidate));
+        if (out.length >= lim) break;
       }
-      round++;
     }
     return out;
   },

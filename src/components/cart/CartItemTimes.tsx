@@ -7,10 +7,12 @@ import {TimeSlotPicker} from "../checkout/TimeSlotPicker";
 import {useCart,type CartItem} from "./CartProvider";
 
 /** Checkout edits the saved basket line, so going back retains its own clocks. */
-export function CartItemTimes({item,defaultPickupTime,defaultReturnTime,ready,delivery=false}:{item:CartItem;defaultPickupTime:string;defaultReturnTime:string;ready:boolean;delivery?:boolean}) {
+export function CartItemTimes({item,defaultPickupTime,defaultReturnTime,delivery=false}:{item:CartItem;defaultPickupTime:string;defaultReturnTime:string;delivery?:boolean}) {
  const cart=useCart(),id=useId(),[error,setError]=useState<string|null>(null);
  const pickupTime=item.pickupTime||defaultPickupTime,returnTime=item.returnTime||defaultReturnTime;
- const slots=useQuery(api.availability.forTimeSlots,ready?{listingId:item.listingId as any,start:dayMs(item.start),end:dayMs(item.end),pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,items:cart.items.filter(i=>i.key!==item.key).map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime||defaultPickupTime||undefined,returnTime:i.returnTime||defaultReturnTime||undefined}))}:"skip");
+ // Boundary choices must remain usable before a complete valid pair exists.
+ // The final basket check still gates payment after the customer chooses times.
+ const slots=useQuery(api.availability.forTimeSlots,{listingId:item.listingId as any,start:dayMs(item.start),end:dayMs(item.end),pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,items:cart.items.filter(i=>i.key!==item.key).map(i=>({listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime||defaultPickupTime||undefined,returnTime:i.returnTime||defaultReturnTime||undefined}))});
  const sameDay=item.start===item.end;
  const invalidOrder=sameDay&&!!pickupTime&&!!returnTime&&returnTime<=pickupTime;
  function choose(first:string,last:string,notice?:string){try{cart.updateDates(item.key,item.start,item.end,item.total,first||undefined,last||undefined,notice);setError(null);}catch(e){setError(e instanceof Error?e.message:"Could not save collection times.");}}
@@ -26,11 +28,12 @@ export function CartItemTimes({item,defaultPickupTime,defaultReturnTime,ready,de
   <p className="text-sm font-medium text-white/90">{item.title}</p>
   <p className="mt-1 text-xs text-white/50">{item.start} → {item.end}</p>
   <div className="mt-3 grid grid-cols-2 gap-3">
-   <TimeSlotPicker id={`${id}-pickup`} label={`${delivery?"Delivery":"Pickup"} · ${dateLabel(item.start)}`} value={pickupTime} onChange={choosePickup} disabled={!ready||!slots} allowedSlots={slots?.pickupBoundarySlots??slots?.pickupSlots}/>
-   <TimeSlotPicker id={`${id}-return`} label={`${delivery?"Collection":"Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time=>choose(pickupTime,time)} disabled={!ready||!slots} allowedSlots={slots?.returnBoundarySlots??slots?.returnSlots}/>
+   <TimeSlotPicker id={`${id}-pickup`} label={`${delivery?"Delivery":"Pickup"} · ${dateLabel(item.start)}`} value={pickupTime} onChange={choosePickup} disabled={!slots} allowedSlots={slots?.pickupBoundarySlots??slots?.pickupSlots}/>
+   <TimeSlotPicker id={`${id}-return`} label={`${delivery?"Collection":"Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time=>choose(pickupTime,time)} disabled={!slots} allowedSlots={slots?.returnBoundarySlots??slots?.returnSlots}/>
   </div>
   {invalidOrder&&<p role="alert" className="mt-2 text-xs text-amber-200">Return must be later than pickup on the same day. Choose a later return time or change the return date in your basket.</p>}
-  {slots&&!slots.available&&!invalidOrder&&<p className="mt-2 text-xs text-amber-200">The equipment is unavailable for this full rental period. Adjust the pickup or return time, or choose different dates or a replacement in your basket.</p>}
+  {(!pickupTime||!returnTime)&&<p className="mt-2 text-xs text-white/55">Choose pickup and return times to check availability.</p>}
+  {pickupTime&&returnTime&&slots&&!slots.available&&!invalidOrder&&<p className="mt-2 text-xs text-amber-200">The equipment is unavailable for this full rental period. Adjust the pickup or return time, or choose different dates or a replacement in your basket.</p>}
   {error&&<p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
  </div>;
 }

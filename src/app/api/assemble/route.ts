@@ -8,9 +8,10 @@ import { quote } from "@/lib/pricing";
 import { dayMs as msOf } from "@/lib/dates";
 import { parseMounts, mountCompat } from "@/lib/mount";
 import { coverageCompat, battOk, isRigPower } from "@/lib/compat";
-import { bundleIncludes } from "@cvx/lib/taxonomy";
+import { PICKUP_SLOTS } from "@/lib/site";
 import { rateLimit } from "@/lib/ratelimit";
 import { compareOptions, isCameraSet } from "@/lib/kitRank";
+import { automaticRecommendation, documentedIncludedTypes, includedLensFocals, rentableCandidate, type RecommendationItem } from "../../../../shared/recommendationPolicy";
 
 export const maxDuration = 60;
 
@@ -110,13 +111,14 @@ function batteryCompat(optBatt: string | null | undefined, camBatt: string | nul
   return battOk(camBatt, optBatt) ? "native" : "incompatible";
 }
 
-type StageOpts = { lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean };
+type StageOpts = { compatibilityKits?: RecommendationItem[]; pickupTime?: string; returnTime?: string; selected?: RecommendationItem[]; lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean };
 
 async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, o: StageOpts = {}) {
   const { lensPref, camMounts = [], camCoverage = null, camBattery = null, includedFocal = null, small = false } = o;
   const def = STAGE[key];
   if (!def) return [];
   let items: any[] = await c.query(api.catalog.byItemType, { types: def.types });
+  items = items.filter(rentableCandidate);
   if (def.must) items = items.filter((l) => def.must!.test(l.title));
   // mic stages: drop camera BUNDLES that merely contain mics (a "GoPro interview set" is not a lav-mic)
   if (key === "lav-mic" || key === "wireless-mic" || key === "shotgun-mic") items = items.filter((l) => !CAM_BUNDLE.test(l.title));
@@ -127,7 +129,8 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
   const days = Math.max(1, Math.round((msOf(end) - msOf(start)) / 86400000) + 1);
   const out: any[] = [];
   for (const l of items.slice(0, 36)) {
-    const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: msOf(start), end: msOf(end) });
+
+    const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: msOf(start), end: msOf(end), pickupTime: o.pickupTime, returnTime: o.returnTime });
     if ((av?.available ?? 0) <= 0) continue;
     const q: any = quote(l.pricing, days);
     const role = l.itemType === "camera-body" ? "camera" : l.itemType === "lens" ? "lens" : "other";
@@ -144,11 +147,17 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
       compat = batteryCompat(l.specs?.batteryType, camBattery);
       if (compat === "incompatible") compatReason = `${l.specs?.batteryType} won't power your ${camBattery} camera`;
     }
+    if (key === "lens" && !automaticRecommendation(l, o.selected ?? [], o.compatibilityKits) && !compatReason)
+      compatReason = "Check the exact mount, sensor coverage and included glass before adding this lens.";
+    if (key === "gimbal" && !automaticRecommendation(l, o.selected ?? [], o.compatibilityKits))
+      compatReason = "Confirm the camera/lens payload, mounting and balance before adding this combination.";
     out.push({
       listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, imageSources: l.imageSources, category: l.category,
-      start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
+      start, end, pickupTime: o.pickupTime, returnTime: o.returnTime, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
       role, mount, itemType: l.itemType ?? null,
       compat, compatReason,
+      components: l.components, inventoryFacts: l.inventoryFacts, rentalContents: l.rentalContents,
+      automaticEligible: automaticRecommendation(l, o.selected ?? [], o.compatibilityKits),
       qty: titleQty(l.title),
       demandScore: l.demandScore ?? 0,
       specs: l.specs ?? {},
@@ -184,8 +193,16 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const start: string = b.start, end: string = b.end;
   if (!start || !end) return NextResponse.json({ error: "dates required" }, { status: 400 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end)) || end < start)
+    return NextResponse.json({ error: "Choose a valid rental date range.", stages: [] }, { status: 400 });
+  const { pickupTime, returnTime } = b;
+  if (!PICKUP_SLOTS.includes(pickupTime) || !PICKUP_SLOTS.includes(returnTime))
+    return NextResponse.json({ error: "Choose pickup and return times before checking kit availability.", stages: [] }, { status: 400 });
+  if (start === end && returnTime <= pickupTime)
+    return NextResponse.json({ error: "Return time must be after pickup time.", stages: [] }, { status: 400 });
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
+  const compatibilityKits = await c.query(api.catalog.compatibilityKits, {}).catch(() => []);
   let design: any = null;
   try {
     const { object } = await generateObject({
@@ -228,42 +245,52 @@ export async function POST(req: NextRequest) {
   let camCoverage: string | null = null;
   let camBattery: string | null = null;
   let includedFocal: string | null = null;
-  let recCamTitle = "";
-  const includedTypes = new Set<string>(); // secondary gear the chosen camera bundle already contains
+  const selected: RecommendationItem[] = [];
+  const includedTypes = new Set<string>(); // contents of every recommended item, including lens/rig kits
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
-    const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small });
+    const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small, selected, pickupTime, returnTime, compatibilityKits });
     if (!options.length) continue;
     // ONE recommended id per stage — camera uses the LLM hint / top body; everything else leads
     // with the top COMPATIBLE option. (Camera's recCam below must match this so the note agrees.)
     const recId: string = k === "camera"
       ? (pickRecommended(options, meta?.recommend) ?? options[0].listingId)
-      : (options.find((o: any) => o.compat !== "incompatible") ?? options[0]).listingId;
+      : (options.find((o: any) => o.compat !== "incompatible" && o.automaticEligible)?.listingId ?? "");
     if (k === "camera") {
       const recCam = options.find((o: any) => o.listingId === recId) ?? options[0];
       camMounts = parseMounts(recCam?.mount);
       camCoverage = recCam?.specs?.coverage ?? null;
       camBattery = recCam?.specs?.batteryType ?? null;
       includedFocal = recCam?.specs?.includesLens ? (recCam?.specs?.lensFocal ?? null) : null;
-      recCamTitle = recCam?.title ?? "";
-      for (const it of bundleIncludes(recCamTitle)) includedTypes.add(it);
+      selected.push(recCam);
+      includedFocal = includedLensFocals(recCam).join(", ") || null;
+      for (const it of documentedIncludedTypes(recCam)) includedTypes.add(it);
     }
     // a non-lens item the chosen set ALREADY includes → don't pre-recommend it (its unit is
     // already booked inside the bundle); the customer can still add a spare if they want.
     const stype = STAGE_ITEMTYPE[k];
     const includedInKit = k !== "camera" && !!stype && stype !== "lens" && includedTypes.has(stype);
-    let note = meta?.note || "";
+    // Model prose cannot attest contents or describe the engine's actual pick.
+    // Keep equipment claims grounded in the selected catalogue records.
+    let note = "Compare the available options for your selected dates and times.";
     if (includedInKit)
-      note = `Your set already includes a ${(meta?.label || k).toLowerCase()} — only add one if you need a spare (the set's unit is already booked).` + (note ? " " + note : "");
+      note = `An earlier kit choice already includes this equipment. Only add another if you need a spare.`;
     if (k === "lens") {
-      if (includedFocal) note = `Your ${recCamTitle.slice(0, 30)} already includes a ${includedFocal}mm — these ADD to it (different focal lengths).` + (note ? " " + note : "");
+      note = "Choose the focal coverage you need. Equipment already supplied by your selected kit is not recommended again.";
       note += (note ? " " : "") + (lensPref === "cine"
         ? "Cinema glass first for a larger crew (manual focus, focus puller recommended)."
         : "Autofocus glass first for fast, small-crew shooting.");
     }
+    if (k !== "camera" && !includedInKit && recId) {
+      const recommended = options.find((option: any) => option.listingId === recId);
+      if (recommended) {
+        selected.push(recommended);
+        for (const type of documentedIncludedTypes(recommended)) includedTypes.add(type);
+      }
+    }
     stages.push({
       key: k,
-      label: meta?.label || DEFAULT_LABEL[k] || k,
+      label: DEFAULT_LABEL[k] || k,
       note,
       multi: MULTI.has(k),
       upsell: !!meta?.upsell,
@@ -274,10 +301,11 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({
-    reply: design?.reply || `Let's build your ${b.shootType || "shoot"} kit step by step.`,
+    reply: "Let's build your kit step by step. The options use your rental dates and times; recommendations update as you choose equipment.",
     // compatibility checklist is computed by the shared engine on the client (kitWarnings over the
     // SELECTED kit) — never the LLM, which hallucinated items/brands that don't exist.
     compatibility: [],
     stages,
+    compatibilityKits,
   });
 }
