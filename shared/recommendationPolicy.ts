@@ -53,8 +53,8 @@ function id(item: RecommendationItem) { return item._id ?? item.listingId; }
 export function alreadySupplied(candidate: RecommendationItem, selected: RecommendationItem[]): boolean {
   if (selected.some(item => id(candidate) && id(candidate) === id(item))) return true;
   const components = candidate.components ?? [];
-  if (components.length && selected.some(item => components.every(c =>
-    (item.components ?? []).some(i => i.inventoryUnitId === c.inventoryUnitId && i.qty >= c.qty)))) return true;
+  if (components.length && components.every(c => selected.reduce((quantity,item)=>quantity+
+    (item.components??[]).filter(i=>i.inventoryUnitId===c.inventoryUnitId).reduce((sum,i)=>sum+i.qty,0),0)>=c.qty)) return true;
   if (candidate.itemType !== "lens") return false;
   const focals = lensFocals(candidate);
   if (!focals.length) return false;

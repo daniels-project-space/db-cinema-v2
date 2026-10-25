@@ -1,0 +1,48 @@
+/** Native browser; actual React consumers and registered query with controlled
+ * local transport/records. Never changes production or staging inventory. */
+const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict'),os=require('node:os');
+const root=path.resolve(__dirname,'..'),source=fs.readFileSync(root+'/scripts/test-membership-browser.cjs','utf8');
+const connect=new Function('require',source.slice(0,source.indexOf('const { ConvexHttpClient }'))+';return connect;')(require);
+module.exports=async function(){
+ const esbuild=require('esbuild'),entry=root+'/scripts/fixtures/live-recommendations.tsx',dir=fs.mkdtempSync(os.tmpdir()+'/dbc-live-react-');
+ const provider=`import React from 'react';import {useFixtureQuery,useFixtureCart} from ${JSON.stringify(entry)};export const useQuery=useFixtureQuery,useCart=useFixtureCart;export const useMutation=()=>async()=>null,useAction=()=>async()=>null;export const useAccount=()=>({me:null,token:null});export const useGafferSession=()=>({state:'idle',speaking:false,secs:0,dockOpen:false,setDockOpen:()=>{}});export const useRouter=()=>({push:()=>{}}),usePathname=()=>'/';export function GafferCall(){return null}export function SiteHeader(){return null}export function GearLoopBanner(){return null}export function SmartImage({src,alt,...props}){return <img src={src} alt={alt}/>};export default function Link({href,children,...props}){return <a href={href} {...props}>{children}</a>}`;
+ const mockAPI=`const refs=new Proxy({},{get:(_,group)=>new Proxy({},{get:(_,method)=>String(group)+'.'+String(method)})});export const api=refs,internal=refs;`;
+ await esbuild.build({entryPoints:[entry],outfile:dir+'/fixture.js',bundle:true,platform:'browser',format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"production"','process.env':'{}'},logLevel:'silent',plugins:[{name:'controlled-transport',setup(build){
+  build.onResolve({filter:/(_generated\/server|_generated\/api|convex\/react|next\/navigation|next\/link|components\/(cart\/CartProvider|account\/AccountProvider|gaffer\/GafferSession|GafferCall|SiteHeader|GearLoopBanner|SmartImage))$/},args=>({path:args.path,namespace:'fixture'}));
+  build.onLoad({filter:/.*/,namespace:'fixture'},args=>({contents:args.path.endsWith('_generated/api')?mockAPI:args.path.endsWith('_generated/server')?'export const query=x=>x,mutation=x=>x,internalQuery=x=>x,internalMutation=x=>x,action=x=>x,internalAction=x=>x;':provider,loader:'tsx',resolveDir:root}));
+ }}]});
+ const cssDir=root+'/.next/static/chunks',css=fs.existsSync(cssDir)?fs.readdirSync(cssDir).filter(f=>f.endsWith('.css')).map(f=>fs.readFileSync(cssDir+'/'+f,'utf8')).join('\n'):'';
+ const server=http.createServer((req,res)=>{if(req.url==='/fixture.js'){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(dir+'/fixture.js'));}else if(req.url==='/fixture.css'){res.setHeader('Content-Type','text/css');res.end(css);}else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"></head><body><main id="root"></main><script src="/fixture.js"></script></body></html>');}});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+server.address().port;
+ let c;const errors=[],wait=ms=>new Promise(r=>setTimeout(r,ms));
+ try{
+  c=await connect('about:blank');await c.cmd('Page.enable');await c.cmd('Runtime.enable');await c.cmd('Page.bringToFront');c.on(m=>{if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text);});
+  await c.cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await c.cmd('Page.navigate',{url:origin});
+  async function until(expr,label){for(let i=0;i<150;i++){if(await c.evaluate(expr))return;await wait(100);}throw Error(label+': '+await c.evaluate('document.body?.innerText?.slice(-1500)')+' ERRORS '+JSON.stringify(errors));}
+  const has=text=>`document.body?.innerText?.includes(${JSON.stringify(text)})??false`;
+  async function click(expr){await until(`!!(${expr})`,'Button exists');await c.evaluate(`(${expr}).scrollIntoView({block:'center',behavior:'instant'});(${expr}).click()`);await wait(30);}
+  const exact=text=>`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)})`;
+  const card=text=>`[...document.querySelectorAll('section button')].find(b=>b.textContent.includes(${JSON.stringify(text)}))`;
+  await until(has('Canon EF 50mm prime'),'Native EF lens recommendation');assert(!await c.evaluate(has('Sony FE 90mm')));
+  await c.evaluate(`fixture.patch('key-light',{pricing:{daily:55}})`);await until(`(${card('Nanlite key light')})?.textContent.includes('£55')`,'Current price replaces original');
+  await c.evaluate(`fixture.hold('key-light',1800)`);await until(`!(${card('Nanlite key light')})`,'Hold removes unavailable recommendation');await until(`!!(${card('Nanlite key light')})`,'Hold expires automatically without another database write');
+  await c.evaluate(`fixture.spawnLight()`);await until(has('New rental light'),'New inventory enters recommendations');
+  await c.evaluate(`fixture.basket('e-body')`);await until(has('Sony FE 90mm'),'Basket camera changes native lens ranking');assert(!await c.evaluate(has('Canon EF 50mm prime')));
+  console.log('Live recommendations: price, new inventory, hold expiry and EF/E basket changes passed');await c.evaluate(`fixture.reset();fixture.setMode('chat')`);await click(`document.querySelector('button[aria-label="Chat with Gaffer, the kit assistant"]')`);await c.evaluate(`document.querySelector('[aria-label="Message Gaffer"]').focus()`);await c.cmd('Input.insertText',{text:'Recommend a kit'});await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await until(`!!document.querySelector('a[href="/gear/key-light"]')`,'Chat cards render');await c.evaluate(`fixture.hold('key-light',60000);fixture.patch('spare-light',{pricing:{daily:77}})`);
+  await until(`document.querySelector('a[href="/gear/key-light"]')?.closest('.spot')?.innerText.includes('Choose a matching alternative')`,'Stale chat choice loses its add action');
+  await until(`document.querySelector('a[href="/gear/spare-light"]')?.closest('.spot')?.innerText.includes('£154')`,'Chat alternative price refreshes');
+  await c.evaluate(`fixture.basket('e-body')`);await until(`!!document.querySelector('a[href="/gear/e-prime"]')`,'Chat offers native E replacement after basket change');
+  await click(`document.querySelector('a[href="/gear/e-prime"]').closest('.spot').querySelector('button')`);await until(`fixture.getBasket().some(i=>i.listingId==='e-prime')`,'Alternative click adds the exact updated item');assert(!await c.evaluate(`fixture.getBasket().some(i=>i.listingId==='ef-prime')`));
+  assert.equal(await c.evaluate('fixture.counts.model'),1,'Inventory/basket changes do not start paid model requests');
+  console.log('Live Gaffer: stale stock, alternative price, EF/E basket change and explicit alternative click passed');await c.evaluate(`fixture.reset();fixture.clearBasket();fixture.setMode('assembly')`);await click(exact('Interview'));await click(exact('Small crew'));await click(`document.querySelector('button[aria-label="Next month"]')`);await click(exact('20'));await click(exact('21'));
+  await click(`document.querySelectorAll('[role="combobox"]')[0]`);await click(`[...document.querySelectorAll('[role=option]')].find(o=>o.textContent==='10:00')`);await click(`document.querySelectorAll('[role="combobox"]')[1]`);await click(`[...document.querySelectorAll('[role=option]')].find(o=>o.textContent==='17:00')`);await click(`[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Continue'))`);await click(exact('Build my kit'));
+  await until(has('Blackmagic Pocket 6K'),'Assembly choices loaded');await click(card('Blackmagic Pocket 6K'));await click(exact('Next'));await until(`(${card('Canon EF 50mm prime')})?.textContent.includes('Pick')`,'EF assembly lens pick');
+  await click(card('Canon EF 50mm prime'));await click(exact('Next'));await click(card('Nanlite key light'));await click(`[...document.querySelectorAll('button')].find(b=>/Review kit|Next/.test(b.textContent)&&!b.disabled)`);
+  await until(`[...document.querySelectorAll('button')].some(b=>/Add 3 to kit/.test(b.textContent)&&!b.disabled)`,'Complete valid assembly can be added');
+  await c.evaluate(`fixture.patch('key-light',{pricing:{daily:91}})`);await until(has('£182'),'Selected assembly price refreshes');await c.evaluate(`fixture.hold('key-light',60000)`);await until(`[...document.querySelectorAll('button')].some(b=>/Add 3 to kit/.test(b.textContent)&&b.disabled)`,'Changed stock blocks stale whole-kit add');
+  assert.equal(await c.evaluate('fixture.counts.model'),2,'Assembly stays deterministic after its initial model request');
+  assert.deepEqual(errors,[]);console.log('PASS native actual React/query integration: new inventory, price changes, expiring holds, EF/E basket edits, stale Gaffer actions and explicit alternatives, and whole-assembly stock fencing; no model reruns or provider writes.');
+ }finally{if(c){c.close();await fetch(process.env.DBC_CDP_URL+'/json/close/'+c.tabId).catch(()=>{});}await new Promise(r=>server.close(r));fs.rmSync(dir,{recursive:true,force:true});}
+};
+if(require.main===module)module.exports().catch(e=>{console.error(e);process.exitCode=1});

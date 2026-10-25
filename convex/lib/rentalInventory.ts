@@ -4,7 +4,7 @@ import { rentalUnavailable } from "./marketingInventory";
 import { reservationOccupancy } from "./reservationOccupancy";
 import { inventoryCapacity } from "./inventoryCapacity";
 /** Query-local cache only: all checks still use the same live database snapshot. */
-export type RentalInventoryCache = { records: Map<string, any>; reservations: Map<string, any[]> };
+export type RentalInventoryCache = { records: Map<string, any>; reservations: Map<string, any[]>; precision?:Promise<boolean>; occupancy?:Map<string,Promise<any>> };
 /** Check the whole proposed order together, including overlapping bundles and quantities. */
 export async function assertRentalInventory(
   ctx: any,
@@ -19,7 +19,7 @@ export async function assertRentalInventory(
     cache?.records.set(key, record);
     return record;
   }
-  const precision=await stockTimePrecision(ctx);
+  const precision=cache?await(cache.precision??=stockTimePrecision(ctx)):await stockTimePrecision(ctx);
   const byUnit = new Map<string, { id: any; intervals: any[] }>();
   for (const line of lines) {
     if (
@@ -68,8 +68,13 @@ export async function assertRentalInventory(
       .collect();
       cache?.reservations.set(String(row.id), reservations!);
     }
+    if(cache&&!cache.occupancy)cache.occupancy=new Map();
     const occupied = await Promise.all(reservations!.filter((r: any) => !excludeBookingId || r.bookingId !== excludeBookingId)
-      .map((r: any) => reservationOccupancy(ctx, r)));
+      .map((r: any) => {
+        if(!cache||!r._id)return reservationOccupancy(ctx,r);
+        const key=String(r._id);if(!cache.occupancy!.has(key))cache.occupancy!.set(key,reservationOccupancy(ctx,r));
+        return cache.occupancy!.get(key)!;
+      }));
     const existing = occupied.filter((row): row is NonNullable<typeof row> => row !== null);
     const over = row.intervals.some((window) => {
       const overlapping = overlappingIntervals([...existing, ...row.intervals],window.start,window.end,true);

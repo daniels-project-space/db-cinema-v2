@@ -1,9 +1,11 @@
 "use client";
+import { useLiveRecommendations } from "@/components/useLiveRecommendations";
 
 import { pickRentalDates } from "@/lib/dateSelection";
 import { SmartImage } from "@/components/SmartImage";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import { liveWindow, stockLines } from "@/lib/liveRecommendations";
 import { IconSliders, IconBolt, IconCheck, IconX, IconChevronLeft, IconArrowRight } from "@/components/icons";
 import { BotAvatarBadge, type BotMood } from "@/components/chat/BotAvatar";
 import { Stream, TypingIndicator } from "@/components/chat/ChatKit";
@@ -30,11 +32,12 @@ const STAGE_TYPE: Record<string, string> = {
   light: "light", "key-light": "light", "tube-light": "light", "nd-filter": "nd-filter",
   battery: "battery", tripod: "tripod", "lav-mic": "wireless-mic", "wireless-mic": "wireless-mic",
   "shotgun-mic": "boom-mic", slider: "slider", drone: "drone", speaker: "speaker",
+  recorder:"recorder","dj-deck":"dj-deck",mixer:"mixer",headphones:"headphones",projector:"projector",accessory:"accessory",
 };
 
 const SHOOTS = ["Interview", "Music video", "Documentary", "Event", "Product", "Wedding", "Other"];
 const SIZES = ["Solo", "Small crew", "Large production"];
-const CATEGORIES = ["Lenses", "Lighting", "Audio", "Stabilisation", "Support", "Monitoring"];
+const CATEGORIES = ["Lenses", "Lighting", "Audio", "Stabilisation", "Support", "Monitoring", "DJ & sound", "Recording", "Projection", "Drones", "Accessories"];
 
 // roleToType: assemble options carry a coarse `role`; map to the engine's itemType
 // (the API also sends `itemType` directly — prefer it, fall back to role).
@@ -73,16 +76,22 @@ export default function AssemblePage() {
   const [sel, setSel] = useState<Record<string, any>>({});
   const [err, setErr] = useState<string | null>(null);
 
-  const selList = Object.values(sel) as any[];
-  const cams = selList.filter((x) => x.role === "camera");
+  const rawSelection = Object.values(sel) as any[];
+  const live:any = useLiveRecommendations(data ? {
+    groups:data.stages.map((s:any)=>({key:s.key,types:[STAGE_TYPE[s.key]??s.key],listingId:rawSelection.find(i=>i.stageKey===s.key)?.listingId,...liveWindow({start,end,pickupTime,returnTime})})),
+    basket:stockLines(cart.items),selectedIds:rawSelection.map(i=>i.listingId),
+  } : null);
+  const selList = rawSelection.map(item=>({...item,...live?.groups[item.stageKey]?.selection?.find((current:any)=>current.listingId===item.listingId)}));
+  const contextList = [...selList,...(live?.basket??[])];
+  const cams = contextList.filter((x) => x.role === "camera");
   const camMounts = cams.flatMap((c) => parseMounts(c.mount));
   const actionOnly = camMounts.length > 0 && camMounts.every((m) => m === "fixed");
   const camBatts = cams.map((c) => c.specs?.batteryType).filter(Boolean);
   const camIncludesLens = cams.some((c) => includedLensFocals(c).length > 0);
   const cinemaRig = cams.some((c) => /cine|cinema|fx ?6|fx ?9|c ?70|c ?100|c ?200|c ?300|c ?500|c ?400|alexa|amira|ursa|komodo|raptor|venice|burano|bmpcc|pocket cinema|\bred\b/i.test(c.title || ""));
   // secondary gear the chosen camera SET already contains — never re-recommend it (its unit is booked in the bundle)
-  const includedTypes = new Set<string>(selList.flatMap((c: any) => documentedIncludedTypes(c)));
-  const lensThreads = selList.flatMap(filterThreadsFor);
+  const includedTypes = new Set<string>(contextList.flatMap((c: any) => documentedIncludedTypes(c)));
+  const lensThreads = contextList.flatMap(filterThreadsFor);
 
   // ── DYNAMIC TREE: downstream stages re-rank around what's ACTUALLY selected ──────────────
   // (pick a Blackmagic EF body → Canon glass tops; pick Sony → Sony battery; add a gimbal →
@@ -97,13 +106,14 @@ export default function AssemblePage() {
     scoreOption(o, { key, camMounts, camCoverage: camCov, camBatts, cinemaRig, hasGimbal, includedFocal: inclFocal, small: smallShoot, lensPref });
   // the recommended ("Pick") id for a stage, re-derived from the current selection
   const dynRec = (s: any): string => {
-    if (!s) return "";
+    if (!s || !live) return "";
     const stype = STAGE_TYPE[s.key];
     if (stype && stype !== "lens" && includedTypes.has(stype)) return ""; // already in the chosen set — don't pre-pick
-    if (s.key === "camera") return s.recommendedId;
-    const v = visibleFor(s).filter((o: any) => !incompatOf(o, s) &&
-      !alreadySupplied(o, selList.filter(i => i.listingId !== o.listingId)) &&
-      automaticRecommendation(o, selList.filter(i => i.listingId !== o.listingId), data?.compatibilityKits));
+    const context=contextList.filter(i=>i.stageKey!==s.key||["lens","light","nd-filter","battery","lav-mic"].includes(s.key));
+    const v = visibleFor(s).filter((o: any) => o.available===true && !incompatOf(o, s) &&
+      !alreadySupplied(o, context.filter(i => i.listingId !== o.listingId)) &&
+      automaticRecommendation(o, context.filter(i => i.listingId !== o.listingId), live.compatibilityKits));
+    if(s.key==="camera"&&v.some((o:any)=>o.listingId===s.recommendedId))return s.recommendedId;
     return v.length ? [...v].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key))[0].listingId : "";
   };
 
@@ -183,6 +193,7 @@ export default function AssemblePage() {
   }
 
   function addAll() {
+    if(!live || live.selectionOk!==true)return;
     for (const c of selList)
       cart.add({
         listingId: c.listingId, slug: c.slug, title: c.title, heroImage: c.image ?? null,
@@ -209,7 +220,7 @@ export default function AssemblePage() {
 
   // We no longer HIDE incompatible gear — we SHOW it greyed with a reason (the engine already
   // sorted compatible-first), so the customer can see e.g. "this V-mount won't power your FX3".
-  const visibleFor = (s: any): any[] => s?.options ?? [];
+  const visibleFor = (s: any): any[] => live?.groups[s?.key]?.options ?? [];
   const skipped = (s: any) => s?.key === "lens" && actionOnly;
   // Why an option is incompatible with the chosen kit (null = fine). Uses the route's per-option
   // verdict for lens/battery, and a client thread check for ND filters.
@@ -227,11 +238,11 @@ export default function AssemblePage() {
   // page can never disagree with /api/compat about what fits.
   const warnings = useMemo(() => {
     const w: { level: string; text: string }[] = [];
-    if (cams.length === 0) w.push({ level: "info", text: "No camera selected yet — add one to anchor your kit." });
+    if (cams.length === 0 && data?.stages?.some((s:any)=>s.key==="camera"||s.key==="lens")) w.push({ level: "info", text: "No camera selected yet — add one to anchor your kit." });
     const kit = selList.map((x) => ({ ...x, itemType: typeOf(x) }));
-    for (const k of kitWarnings(kit, data?.compatibilityKits)) w.push({ level: k.level, text: k.text });
+    for (const k of kitWarnings(kit, live?.compatibilityKits)) w.push({ level: k.level, text: k.text });
     return w;
-  }, [selList, cams, data?.compatibilityKits]);
+  }, [selList, cams, live?.compatibilityKits]);
 
   return (
     <>
@@ -365,6 +376,7 @@ export default function AssemblePage() {
             </div>
 
             <Ai mood="talking"><Stream text={data.reply || "Let's build your kit."} /></Ai>
+            {!live&&<p role="status" className="pl-12 text-sm text-white/60">Refreshing choices for your basket and current inventory…</p>}
 
             {flowStages.slice(0, onReview ? flowStages.length : stageIdx + 1).map((s: any, si: number) => {
               const recId = dynRec(s); // dynamic Pick, re-ranked from the current selection
@@ -400,10 +412,10 @@ export default function AssemblePage() {
                         const adapter = fit === "adapter";
                         const check = fit === "unknown" ? "Confirm the exact mount and sensor coverage before adding."
                           : fit === "crop" ? "Smaller image circle: expect crop mode or vignetting."
-                          : s.key === "gimbal" && !automaticRecommendation(o, selList.filter(i => i.listingId !== o.listingId), data?.compatibilityKits)
+                          : s.key === "gimbal" && !automaticRecommendation(o, contextList.filter(i => i.listingId !== o.listingId), live?.compatibilityKits)
                             ? "Confirm payload, mounting and balance for your selected camera and lenses." : null;
                         return (
-                          <button key={o.listingId} onClick={() => toggle(o, s)} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
+                          <button key={o.listingId} onClick={() => toggle(o, s)} disabled={!live||o.available!==true||!!bad} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all disabled:opacity-40 ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
                             {rec && !on && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">Pick</span>}
                             {bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Won't fit</span>}
                             {adapter && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Adapter</span>}
@@ -517,7 +529,8 @@ export default function AssemblePage() {
                   />
                 </div>
               </div>
-              <button onClick={addAll} disabled={selList.length === 0} className="btn-primary shrink-0 px-6 py-3">
+              {live?.selectionOk===false&&<p role="alert" className="text-sm text-amber-200">Your kit or basket changed and no longer fits the current stock. Review the selected items before adding them.</p>}
+              <button onClick={addAll} disabled={selList.length === 0||!live||live.selectionOk!==true} className="btn-primary shrink-0 px-6 py-3">
                 Add {selList.length || ""} to kit
               </button>
             </div>
