@@ -91,11 +91,15 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  setMock('@/lib/dates',load('src/lib/dates.ts'));
  setMock('@/lib/site',load('src/lib/site.ts'));
  setMock('@/lib/ai',{botModel:()=>({})});
- setMock('ai',{generateObject:async()=>({object:{reply:'Build a kit',stages:[{key:'camera',recommend:'FX3'},{key:'lens',recommend:'24-70 GM'}]}})});
+ let plannedStages=[{key:'camera',recommend:'FX3'},{key:'lens',recommend:'24-70 GM'}];
+ setMock('ai',{generateObject:async()=>({object:{reply:'Unverified camera and lens claims',stages:plannedStages}})});
  let selectedCamera=fx3;
+ let lensOptions=[lens,wide];
+ const nd={_id:'nd82',itemType:'nd-filter',title:'82mm variable ND',specs:{filterThreadMm:82},pricing:{daily:10}};
+ const monitor={_id:'monitor',itemType:'monitor',title:'External monitor',pricing:{daily:15}};
  setMock('convex/browser',{ConvexHttpClient:class {async query(name,args){
    if(name==='catalog.compatibilityKits')return [];
-   if(name==='catalog.byItemType')return args.types.includes('camera-body')?[{...selectedCamera,pricing:{daily:100}}]:[lens,wide];
+   if(name==='catalog.byItemType')return args.types.includes('camera-body')?[{...selectedCamera,pricing:{daily:100}}]:args.types.includes('nd-filter')?[nd]:args.types.includes('monitor')?[monitor]:lensOptions;
    if(name==='availability.forListing')return {available:1};throw Error(name);
  }}});
  process.env.OPENROUTER_API_KEY='isolated-fixture-no-provider-call';
@@ -110,6 +114,15 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  selectedCamera=body;
  assembled=await assembleKit();
  assert(assembled.stages.find(s=>s.key==='lens').recommendedId,'body without lens can get a native lens recommendation');
+ assert(!assembled.reply.includes('Unverified'),'model prose cannot claim contents the selected kit does not have');
+ plannedStages=[{key:'camera',recommend:'FX3'},{key:'lens',label:'Fast prime',note:'Unverified bundled claim'},{key:'monitor'},{key:'nd-filter'}];
+ lensOptions=[{...wide,inventoryFacts:{contents:['Sony FE 16–35mm f/2.8 GM (original)','External monitor']}}];
+ assembled=await assembleKit();
+ assert.equal(assembled.stages.find(s=>s.key==='lens').label,'Lens','model cannot call a real zoom a prime');
+ assert(!assembled.stages.find(s=>s.key==='lens').note.includes('Unverified'));
+ assert.equal(assembled.stages.find(s=>s.key==='nd-filter').recommendedId,nd._id,'later ND stage uses actual recommended lens thread');
+ assert.equal(assembled.stages.find(s=>s.key==='monitor').recommendedId,'','non-camera bundle contents suppress redundant downstream picks');
+ assert.equal(assembled.stages.find(s=>s.key==='monitor').includedInKit,true);
  assert.deepEqual(p.documentedIncludedTypes({...body,inventoryFacts:{contents:['Sony 24–70mm GM lens','DJI RS3 Pro gimbal'],optionalContents:['monitor']}}).sort(),['gimbal','lens']);
  // Real registered complementary query: aliases in different offers must not
  // fill the list with the same physical lens, even with strong demand scores.

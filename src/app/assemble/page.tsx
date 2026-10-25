@@ -13,14 +13,14 @@ import { GearLoopBanner } from "@/components/GearLoopBanner";
 import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { tierByKey } from "@/lib/membership";
-import { lensFits, bestCompat, parseMounts } from "@/lib/mount";
-import { kitWarnings } from "@/lib/compat";
+import { lensFits, parseMounts } from "@/lib/mount";
+import { kitWarnings, battOk } from "@/lib/compat";
 import { GlowSlider } from "@/components/GlowSlider";
 import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
 import { filterThreadsFor } from "../../../shared/opticalFacts";
 import { scoreOption } from "@/lib/kitRank";
-import { alreadySupplied, automaticRecommendation, documentedIncludedTypes } from "../../../shared/recommendationPolicy";
+import { alreadySupplied, automaticRecommendation, documentedIncludedTypes, includedLensFocals, lensFit } from "../../../shared/recommendationPolicy";
 
 const EMPTY_DATES = new Set<string>();
 
@@ -78,10 +78,10 @@ export default function AssemblePage() {
   const camMounts = cams.flatMap((c) => parseMounts(c.mount));
   const actionOnly = camMounts.length > 0 && camMounts.every((m) => m === "fixed");
   const camBatts = cams.map((c) => c.specs?.batteryType).filter(Boolean);
-  const camIncludesLens = cams.some((c) => c.specs?.includesLens);
+  const camIncludesLens = cams.some((c) => includedLensFocals(c).length > 0);
   const cinemaRig = cams.some((c) => /cine|cinema|fx ?6|fx ?9|c ?70|c ?100|c ?200|c ?300|c ?500|c ?400|alexa|amira|ursa|komodo|raptor|venice|burano|bmpcc|pocket cinema|\bred\b/i.test(c.title || ""));
   // secondary gear the chosen camera SET already contains — never re-recommend it (its unit is booked in the bundle)
-  const includedTypes = new Set<string>(cams.flatMap((c: any) => documentedIncludedTypes(c)));
+  const includedTypes = new Set<string>(selList.flatMap((c: any) => documentedIncludedTypes(c)));
   const lensThreads = selList.flatMap(filterThreadsFor);
 
   // ── DYNAMIC TREE: downstream stages re-rank around what's ACTUALLY selected ──────────────
@@ -214,7 +214,9 @@ export default function AssemblePage() {
   // Why an option is incompatible with the chosen kit (null = fine). Uses the route's per-option
   // verdict for lens/battery, and a client thread check for ND filters.
   const incompatOf = (o: any, s: any): string | null => {
-    if (o.compat === "incompatible") return o.compatReason || "incompatible with your camera";
+    if (s.key === "lens" && lensFit(o, cams) === "incompatible") return "This lens mount does not fit your selected camera.";
+    if (s.key === "battery" && o.specs?.batteryType && camBatts.length && !camBatts.some(b => battOk(b, o.specs.batteryType)))
+      return "This battery family does not match your selected camera.";
     if (s.key === "nd-filter" && lensThreads.length && o.specs?.filterThreadMm && lensThreads.every((t: number) => o.specs.filterThreadMm < t))
       return `Ø${o.specs.filterThreadMm}mm — smaller than your lens (needs a step-up ring)`;
     return null;
@@ -379,7 +381,7 @@ export default function AssemblePage() {
                         {s.upsell && <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[11px] text-amber-300"><IconBolt className="h-3 w-3" />upgrade</span>}
                       </div>
                       {s.note && <p className="mt-1 text-sm leading-relaxed text-white/60"><Stream text={s.note} /></p>}
-                      {s.key === "lens" && camIncludesLens && !isSkip && <p className="mt-1 text-xs text-amber-300">Your camera already includes a lens — these are optional extras/upgrades.</p>}
+                      {s.key === "lens" && camIncludesLens && !isSkip && <p className="mt-1 text-xs text-amber-300">Your camera already includes a lens — these are optional additional lenses.</p>}
                       {STAGE_TYPE[s.key] && STAGE_TYPE[s.key] !== "lens" && includedTypes.has(STAGE_TYPE[s.key]) && !isSkip && (
                         <p className="mt-1 text-xs text-amber-300">Your set already includes a {s.label.toLowerCase()} — only add one if you need a spare; the set&apos;s unit is already booked.</p>
                       )}
@@ -393,8 +395,13 @@ export default function AssemblePage() {
                       {[...opts].sort((a: any, b: any) => (a.listingId === recId ? -1 : 0) - (b.listingId === recId ? -1 : 0)).map((o: any, i: number) => {
                         const on = !!sel[o.listingId];
                         const rec = o.listingId === recId;
-                        const bad = s.key === "lens" && camMounts.length ? (bestCompat(parseMounts(o.mount), camMounts) === "incompatible" ? `won't mount on your ${camMounts[0]} camera` : incompatOf(o, s)) : incompatOf(o, s);
-                        const adapter = s.key === "lens" && camMounts.length ? bestCompat(parseMounts(o.mount), camMounts) === "adapter" : o.compat === "adapter";
+                        const bad = incompatOf(o, s);
+                        const fit = s.key === "lens" ? lensFit(o, cams) : null;
+                        const adapter = fit === "adapter";
+                        const check = fit === "unknown" ? "Confirm the exact mount and sensor coverage before adding."
+                          : fit === "crop" ? "Smaller image circle: expect crop mode or vignetting."
+                          : s.key === "gimbal" && !automaticRecommendation(o, selList.filter(i => i.listingId !== o.listingId), data?.compatibilityKits)
+                            ? "Confirm payload, mounting and balance for your selected camera and lenses." : null;
                         return (
                           <button key={o.listingId} onClick={() => toggle(o, s)} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
                             {rec && !on && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">Pick</span>}
@@ -417,6 +424,7 @@ export default function AssemblePage() {
                               </div>
                               {bad ? <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-red-300/80">{bad}</div>
                                 : adapter ? <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-sky-300/70">{camMounts.length ? `needs a ${o.mount}→${camMounts[0]} adapter` : o.compatReason || "adapter needed"}</div>
+                                : check ? <div className="mt-1 text-[10px] leading-snug text-amber-200/80">{check}</div>
                                 : o.tip ? <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-white/35">{o.tip}</div> : null}
                             </div>
                           </button>

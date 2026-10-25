@@ -69,6 +69,13 @@ const backend=process.env.DBC_CONVEX_URL||'https://deafening-stoat-340.convex.cl
   }
   const persisted=await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0]`);assert.equal(persisted.pickupTime,'21:00');assert.equal(persisted.returnTime,'09:00');assert.equal(persisted.end,endString);
   const full=await client.query(api.availability.forCart,{items:[{listingId:listing._id,start:date,end,pickupTime:'21:00',returnTime:'09:00'}]});assert.equal(full[listing._id].ok,true,'Complete period passes the authoritative basket check');
+  const untimed={...periodItem};delete untimed.pickupTime;delete untimed.returnTime;
+  await c.cmd('Page.addScriptToEvaluateOnNewDocument',{source:`if(!sessionStorage.getItem('untimed-proof-seeded')){localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([untimed]))});sessionStorage.setItem('untimed-proof-seeded','1')}`});
+  await reload();await ready();
+  assert(await c.evaluate(`document.querySelector('main').innerText.includes('Choose pickup and return times to check availability')`),'Untimed checkout asks for both clocks without locking the controls');
+  assert.equal(await c.evaluate(`document.querySelector('main').innerText.includes('Some gear is unavailable')`),false,'Incomplete selection is not a stock verdict');
+  await select(0,'10:00');await select(1,'17:00');
+  await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].pickupTime==='10:00'&&JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].returnTime==='17:00'`,'Missing clocks can be completed in checkout');
   const receipt={result:'PASS',checkedAt:new Date().toISOString(),base,backend,listingId:listing._id,date:dateString,independentBoundarySlots:true,multiDayFullPeriodVerified:true,automaticReturnAdjustmentVisible:true,orderErrorSeparate:true,lastPickupSelectable:true,persistedAfterReload:true,desktopMobileNoOverflow:true,paymentSubmitted:false,accountOrCustomerCreated:false,screenshots};fs.writeFileSync(art+'/boundary-times-receipt.json',JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));
  }catch(error){console.error(error);throw error;}finally{c?.close();try{await browser('Target.disposeBrowserContext',{browserContextId:context.browserContextId});}finally{ws.close()}}
 })().catch(e=>{console.error(e);process.exitCode=1});

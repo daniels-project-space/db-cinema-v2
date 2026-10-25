@@ -11,7 +11,7 @@ import { coverageCompat, battOk, isRigPower } from "@/lib/compat";
 import { PICKUP_SLOTS } from "@/lib/site";
 import { rateLimit } from "@/lib/ratelimit";
 import { compareOptions, isCameraSet } from "@/lib/kitRank";
-import { automaticRecommendation, documentedIncludedTypes, includedLensFocals, type RecommendationItem } from "../../../../shared/recommendationPolicy";
+import { automaticRecommendation, documentedIncludedTypes, includedLensFocals, rentableCandidate, type RecommendationItem } from "../../../../shared/recommendationPolicy";
 
 export const maxDuration = 60;
 
@@ -118,6 +118,7 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
   const def = STAGE[key];
   if (!def) return [];
   let items: any[] = await c.query(api.catalog.byItemType, { types: def.types });
+  items = items.filter(rentableCandidate);
   if (def.must) items = items.filter((l) => def.must!.test(l.title));
   // mic stages: drop camera BUNDLES that merely contain mics (a "GoPro interview set" is not a lav-mic)
   if (key === "lav-mic" || key === "wireless-mic" || key === "shotgun-mic") items = items.filter((l) => !CAM_BUNDLE.test(l.title));
@@ -244,9 +245,8 @@ export async function POST(req: NextRequest) {
   let camCoverage: string | null = null;
   let camBattery: string | null = null;
   let includedFocal: string | null = null;
-  let recCamTitle = "";
   const selected: RecommendationItem[] = [];
-  const includedTypes = new Set<string>(); // secondary gear the chosen camera bundle already contains
+  const includedTypes = new Set<string>(); // contents of every recommended item, including lens/rig kits
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
     const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small, selected, pickupTime, returnTime, compatibilityKits });
@@ -262,7 +262,6 @@ export async function POST(req: NextRequest) {
       camCoverage = recCam?.specs?.coverage ?? null;
       camBattery = recCam?.specs?.batteryType ?? null;
       includedFocal = recCam?.specs?.includesLens ? (recCam?.specs?.lensFocal ?? null) : null;
-      recCamTitle = recCam?.title ?? "";
       selected.push(recCam);
       includedFocal = includedLensFocals(recCam).join(", ") || null;
       for (const it of documentedIncludedTypes(recCam)) includedTypes.add(it);
@@ -271,18 +270,27 @@ export async function POST(req: NextRequest) {
     // already booked inside the bundle); the customer can still add a spare if they want.
     const stype = STAGE_ITEMTYPE[k];
     const includedInKit = k !== "camera" && !!stype && stype !== "lens" && includedTypes.has(stype);
-    let note = meta?.note || "";
+    // Model prose cannot attest contents or describe the engine's actual pick.
+    // Keep equipment claims grounded in the selected catalogue records.
+    let note = "Compare the available options for your selected dates and times.";
     if (includedInKit)
-      note = `Your set already includes a ${(meta?.label || k).toLowerCase()} — only add one if you need a spare (the set's unit is already booked).` + (note ? " " + note : "");
+      note = `An earlier kit choice already includes this equipment. Only add another if you need a spare.`;
     if (k === "lens") {
-      if (includedFocal) note = `Your ${recCamTitle.slice(0, 30)} already includes a ${includedFocal}mm — these are optional additional lenses.` + (note ? " " + note : "");
+      note = "Choose the focal coverage you need. Equipment already supplied by your selected kit is not recommended again.";
       note += (note ? " " : "") + (lensPref === "cine"
         ? "Cinema glass first for a larger crew (manual focus, focus puller recommended)."
         : "Autofocus glass first for fast, small-crew shooting.");
     }
+    if (k !== "camera" && !includedInKit && recId) {
+      const recommended = options.find((option: any) => option.listingId === recId);
+      if (recommended) {
+        selected.push(recommended);
+        for (const type of documentedIncludedTypes(recommended)) includedTypes.add(type);
+      }
+    }
     stages.push({
       key: k,
-      label: meta?.label || DEFAULT_LABEL[k] || k,
+      label: DEFAULT_LABEL[k] || k,
       note,
       multi: MULTI.has(k),
       upsell: !!meta?.upsell,
@@ -293,7 +301,7 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({
-    reply: design?.reply || `Let's build your ${b.shootType || "shoot"} kit step by step.`,
+    reply: "Let's build your kit step by step. The options use your rental dates and times; recommendations update as you choose equipment.",
     // compatibility checklist is computed by the shared engine on the client (kitWarnings over the
     // SELECTED kit) — never the LLM, which hallucinated items/brands that don't exist.
     compatibility: [],
