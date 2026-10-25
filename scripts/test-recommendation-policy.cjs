@@ -19,6 +19,10 @@ assert(p.alreadySupplied({...lens,components:[]},[fx3]),'documented bundled foca
 assert.equal(p.lensUpgrade(lens,[fx3]),null,'bundled premium lens cannot be an upgrade');
 assert(!p.automaticLens(lens,[fx3]));
 const wide = {...lens,_id:'wide',title:'Sony 16–35mm GM',specs:{...lens.specs,lensFocal:'16-35'},components:[{inventoryUnitId:'wide',qty:1}]};
+const containedZoom = {...lens,_id:'contained',title:'Sony FE 28–70mm f/3.5–5.6 OSS',components:[],specs:{...lens.specs,lensFocal:'28-70',tier:'standard'}};
+assert(!p.automaticLens(containedZoom,[fx3]),'narrower standard zoom adds no coverage to the bundled premium zoom');
+assert(!p.automaticRecommendation(fx3,[containedZoom]),'camera bundle cannot automatically duplicate an already selected narrower zoom');
+assert(p.automaticLens({...lens,_id:'prime',title:'Sony 50mm prime',components:[],specs:{...lens.specs,lensFocal:'50'}},[fx3]),'a prime is a distinct creative choice from an overlapping zoom');
 assert(p.automaticLens(wide,[fx3]),'different focal can add useful coverage');
 assert(!p.automaticLens({...wide,title:'Sony 16-35,24-70,70-200mm set'},[fx3]),'a partial-overlap set is not a useful automatic addition');
 assert(!p.automaticRecommendation({itemType:'battery',specs:{batteryType:'NP-F'}},[fx3]));
@@ -94,7 +98,7 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  let plannedStages=[{key:'camera',recommend:'FX3'},{key:'lens',recommend:'24-70 GM'}];
  setMock('ai',{generateObject:async()=>({object:{reply:'Unverified camera and lens claims',stages:plannedStages}})});
  let selectedCamera=fx3;
- let lensOptions=[lens,wide];
+ let lensOptions=[{...containedZoom,demandScore:9999},lens,wide];
  const nd={_id:'nd82',itemType:'nd-filter',title:'82mm variable ND',specs:{filterThreadMm:82},pricing:{daily:10}};
  const monitor={_id:'monitor',itemType:'monitor',title:'External monitor',pricing:{daily:15}};
  setMock('convex/browser',{ConvexHttpClient:class {async query(name,args){
@@ -129,6 +133,7 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  const listing = data => {const {_id,...fields}=data;return put('listings',{active:true,pricing:{daily:20},r2Images:['https://example.invalid/gear.jpg'],category:'Cameras',...fields});};
  const selected=listing({...fx3,slug:'fx3-proof'});
  listing({...lens,demandScore:999});
+ listing({...containedZoom,demandScore:9999});
  const firstWide=listing({...wide,demandScore:500});
  const duplicateWide=listing({...wide,demandScore:499});
  listing({...wide,specs:{...wide.specs,mount:'RF'},demandScore:1000});
@@ -141,6 +146,7 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  assert(p.verifiedGimbalPair(gimbal,[body,lens],ownerEvidence));
  const recs=await load('convex/recommendations.ts').forContext.handler({db},{slug:selected.slug,limit:8});
  assert(!recs.some(i=>i.title===lens.title),'included GM must not be recommended again');
+ assert(!recs.some(i=>i.title===containedZoom.title),'live complementary handler rejects a wholly covered zoom despite high demand');
  assert.equal(recs.filter(i=>i._id===firstWide._id||i._id===duplicateWide._id).length,1,'physical aliases deduplicate within returned list');
  assert(!recs.some(i=>i.title==='Gimbal battery'),'a gimbal battery is not a camera spare');
  console.log('PASS evidence-based policy and registered basket upgrade, AI assembly and complementary recommendation handlers');
