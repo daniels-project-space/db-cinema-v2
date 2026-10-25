@@ -11,7 +11,7 @@ import { lensPriority, isCameraSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType } from "../../convex/lib/taxonomy";
 import { contentsText } from "../../shared/rentalContents";
 import { CONTACT_EMAIL } from "@/lib/site";
-import { alreadySupplied, automaticLens, type RecommendationItem } from "../../shared/recommendationPolicy";
+import { alreadySupplied, automaticLens, automaticRecommendation, type RecommendationItem } from "../../shared/recommendationPolicy";
 
 /**
  * Gaffer v2 — "engine decides, LLM narrates".
@@ -463,6 +463,7 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
   const cam = ctx.camMounts;
   const cands = (r || [])
     .filter(x => !alreadySupplied(x, ctx.cartEvidence ?? []))
+    .filter(x => !["battery", "nd-filter"].includes(x.itemType ?? "") || automaticRecommendation(x, ctx.cartEvidence ?? []))
     .filter(x => x.itemType !== "lens" || !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
     .filter((x) => !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && itemTypeMatches(itemType, x.itemType))
     .map((x) => {
