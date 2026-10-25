@@ -1,9 +1,11 @@
 "use client";
+import { useLiveRecommendations } from "@/components/useLiveRecommendations";
 import { SmartImage } from "@/components/SmartImage";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
+import { liveWindow, stockLines, liveChatChoices } from "@/lib/liveRecommendations";
 import {
   IconSliders,
   IconX,
@@ -175,7 +177,12 @@ export function BotBubble() {
           {
             role: "assistant",
             content: d.reply || "…",
-            cards: d.cards || [],
+            cards: (d.cards || []).map((card:any)=>{
+              const item=card.kind==="swap"?card.added:card.item;
+              const first=cart.items[0];
+              const followBasketWindow=!first||cart.items.every(i=>i.start===item?.start&&i.end===item?.end&&i.pickupTime===item?.pickupTime&&i.returnTime===item?.returnTime);
+              return card.kind==="swap"?{...card,added:{...item,followBasketWindow}}:{...card,item:{...item,followBasketWindow}};
+            }),
             suggestions: d.suggestions || [],
           },
         ];
@@ -233,6 +240,11 @@ export function BotBubble() {
     }
     return -1;
   })();
+  const activeCards=(msgs[liveCardsIdx]?.cards??[]).slice(0,12);
+  const liveCards:any=useLiveRecommendations(open&&!busy&&activeCards.length?{
+    groups:activeCards.map((card:any,index:number)=>{const item=card.kind==="swap"?card.added:card.item;return {key:String(index),listingId:item.listingId,types:item.itemType?[item.itemType]:undefined,...liveWindow(item,cart.items),replaceListingId:card.kind==="swap"?card.removed?.listingId:undefined};}),
+    basket:stockLines(cart.items),selectedIds:[...new Set(activeCards.filter((_,index)=>done[`${liveCardsIdx}:${index}`]!=="declined").map((card:any)=>(card.kind==="swap"?card.added:card.item)?.listingId).filter((id:any)=>id&&!cart.items.some(i=>i.listingId===id)))],
+  }:null);
 
   if ((pathname === "/account" || pathname === "/admin") && !onCall)
     return null;
@@ -503,38 +515,46 @@ export function BotBubble() {
                               </div>
                             );
                           }
-                          return (
+                          return liveChatChoices(card,liveCards?.groups[String(ci)],liveCards).map((shown:any,choice:number)=>{
+                            const item=shown.kind==="swap"?shown.added:shown.item;
+                            const choiceId=choice===0?id:`${id}:${item.listingId}`;
+                            const state=shown.alreadyIncluded?"added":done[choiceId]==="added"&&!cart.items.some(i=>i.listingId===item.listingId)?undefined:done[choiceId];
+                            return (
                             <CardView
-                              key={ci}
-                              card={card}
-                              state={done[id]}
+                              key={choiceId}
+                              card={shown}
+                              state={state}
                               delay={ci * 90}
                               onAdd={() => {
-                                if (card.kind === "swap") {
-                                  if (card.removed)
-                                    removeByListing(card.removed.listingId);
-                                  addItem(card.added);
-                                } else addItem(card.item);
+                                if(shown.refreshing||item.available!==true||item.needsTimes)return;
+                                if (shown.kind === "swap") {
+                                  if (shown.removed)
+                                    removeByListing(shown.removed.listingId);
+                                  addItem(shown.added);
+                                } else addItem(shown.item);
+                                // The transcript receipt keeps the exact item
+                                // explicitly chosen, including an alternative.
+                                setMsgs(previous=>previous.map((message,index)=>index===mi?{...message,cards:message.cards?.map((old,index)=>index===ci?shown:old)}:message));
                                 setDone((d) => ({ ...d, [id]: "added" }));
                               }}
                               onDecline={() =>
-                                setDone((d) => ({ ...d, [id]: "declined" }))
+                                setDone((d) => ({ ...d, [choiceId]: "declined" }))
                               }
                               onAddBooking={() =>
                                 addToBooking(
-                                  card.kind === "swap" ? card.added : card.item,
+                                  shown.kind === "swap" ? shown.added : shown.item,
                                 )
                               }
                               addonBusy={addonBusy}
                               onAlt={() => {
                                 const t =
-                                  card.kind === "swap"
-                                    ? card.added?.title
-                                    : card.item?.title;
+                                  shown.kind === "swap"
+                                    ? shown.added?.title
+                                    : shown.item?.title;
                                 send(`Can you suggest an alternative to ${t}?`);
                               }}
                             />
-                          );
+                          );});
                         })}
                       </div>
                     );
@@ -661,7 +681,7 @@ function CardView({
               {card.item.title}
             </Link>
             <div className="font-mono text-[11px] text-white/45">
-              {card.item.estimated ? (
+              {card.refreshing ? <>Refreshing price and stock…</> : card.item.estimated ? (
                 <>£{card.item.perDay}/day · </>
               ) : (
                 <>
@@ -694,7 +714,7 @@ function CardView({
       <div className="mt-3 flex flex-wrap gap-2">
         {addonItem?.needsTimes ? <Link href={`/gear/${addonItem.slug}`} className="btn-primary rounded-full px-3 py-1.5 text-[11px]">Choose dates and times</Link> : <button
           onClick={onAdd}
-          disabled={added || addonItem?.available === false}
+          disabled={added || card.refreshing || addonItem?.available !== true}
           className={`press inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors ${
             added
               ? "cursor-default bg-emerald-500/20 text-emerald-300"
@@ -702,12 +722,12 @@ function CardView({
           }`}
         >
           {added && <IconCheck className="h-3 w-3" />}
-          {added ? "Added to kit" : addonItem?.available === false ? "Unavailable for these times" : swap ? "Accept swap" : "Add to kit"}
+          {added ? card.alreadyIncluded?"Already in your kit":"Added to kit" : card.refreshing ? "Refreshing choices…" : addonItem?.available !== true ? "Choose a matching alternative" : swap ? "Accept swap" : "Add to kit"}
         </button>}
         {!added && canAddBooking && (
           <button
             onClick={onAddBooking}
-            disabled={addonBusy === addonItem.listingId}
+            disabled={card.refreshing||addonItem.available!==true||addonBusy === addonItem.listingId}
             className="press rounded-full bg-emerald-500 px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-emerald-600 disabled:opacity-50"
           >
             {addonBusy === addonItem.listingId

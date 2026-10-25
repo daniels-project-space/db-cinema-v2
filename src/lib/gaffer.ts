@@ -8,7 +8,7 @@ import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { coverageCompat, kitWarnings } from "@/lib/compat";
 import { lensPriority, isCameraSet } from "@/lib/kitRank";
-import { mountOf, coverageOf, deriveItemType } from "../../convex/lib/taxonomy";
+import { mountOf, coverageOf, deriveItemType, CATEGORY_OF } from "../../convex/lib/taxonomy";
 import { contentsText } from "../../shared/rentalContents";
 import { PICKUP_SLOTS, CONTACT_EMAIL } from "@/lib/site";
 import { alreadySupplied, automaticLens, automaticRecommendation, rentableCandidate, type RecommendationItem } from "../../shared/recommendationPolicy";
@@ -198,19 +198,21 @@ const TERM: Record<string, string> = {
   gimbal: "gimbal", light: "light", lighting: "light", "nd-filter": "filter",
   filter: "filter", battery: "battery", monitor: "monitor", "wireless-mic": "mic",
   mic: "mic", audio: "mic", tripod: "tripod", drone: "drone", speaker: "speaker",
+  "boom-mic":"mic",slider:"slider",recorder:"recorder","dj-deck":"DJ",mixer:"mixer",headphones:"headphones",projector:"projector",accessory:"accessory",
 };
 const EXPECTED_ITEMTYPES: Record<string, string[]> = {
+  ...Object.fromEntries(Object.keys(CATEGORY_OF).map(type=>[type,[type]])),
   camera: ["camera-body"], "camera-body": ["camera-body"],
   lens: ["lens"], lenses: ["lens"],
   gimbal: ["gimbal"], light: ["light"], lighting: ["light"],
   "nd-filter": ["nd-filter"], filter: ["nd-filter"],
   battery: ["battery"], monitor: ["monitor"],
-  "wireless-mic": ["wireless-mic", "boom-mic"], mic: ["wireless-mic", "boom-mic"], audio: ["wireless-mic", "boom-mic"],
+  "wireless-mic": ["wireless-mic"], mic: ["wireless-mic", "boom-mic"], audio: ["wireless-mic", "boom-mic", "recorder"],
   tripod: ["tripod"], drone: ["drone"], speaker: ["speaker"],
 };
 function itemTypeMatches(slot: string, itemType: string | null | undefined): boolean {
   const expected = EXPECTED_ITEMTYPES[slot];
-  if (!expected) return true;
+  if (!expected) return false;
   return !!itemType && expected.includes(itemType);
 }
 /** Plural human label for a gear type, for facts that ASSERT we stock a category. */
@@ -218,7 +220,16 @@ const CATEGORY_PLURAL: Record<string, string> = {
   camera: "camera bodies", lens: "lenses", light: "lights", gimbal: "gimbals",
   filter: "ND filters", battery: "batteries", monitor: "monitors", mic: "microphones",
   tripod: "tripods", drone: "drones", speaker: "speakers",
+  slider:"sliders",recorder:"recorders",DJ:"DJ decks",mixer:"mixers",headphones:"headphones",projector:"projectors",accessory:"accessories",
 };
+async function candidatesForType(c:ConvexHttpClient,type:string):Promise<any[]>{
+  const types=EXPECTED_ITEMTYPES[type];
+  return types?c.query(api.catalog.byItemType,{types}):[];
+}
+async function availabilityForContext(c:ConvexHttpClient,listingId:any,start:string,end:string,ctx:Ctx):Promise<any>{
+  const request={listingId,start:dayMs(start),end:dayMs(end),pickupTime:ctx.pickupTime,returnTime:ctx.returnTime};
+  return ctx.cartStock?.length?c.query(api.availability.forTimeSlots,{...request,items:ctx.cartStock}):c.query(api.availability.forListing,request);
+}
 const categoryLabel = (t: string) => CATEGORY_PLURAL[TERM[t] || t] || "gear of that kind";
 /**
  * Genuine compatibility phrasing. The classifier drifts into `compatibility` on any
@@ -336,7 +347,7 @@ async function buildCard(
   // only check availability against REAL dates — a placeholder/estimated window must
   // not surface a misleading "not free" on gear the customer hasn't actually scheduled.
   if (checkAvail && ctx.availabilityReady) {
-    const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: dayMs(start), end: dayMs(end), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime });
+    const av: any = await availabilityForContext(c,l._id,start,end,ctx);
     available = (av?.available ?? 0) > 0;
   }
   const q: any = quote(l.pricing, days);
@@ -404,8 +415,7 @@ async function findAlternatives(
   excludeId?: string,
   mountHint: string[] = [],
 ): Promise<any[]> {
-  const term = TERM[itemType] || itemType || "lens";
-  const r: any[] = await c.query(api.catalog.listListings, { search: term });
+  const r: any[] = await candidatesForType(c,itemType||"lens");
   const wantSpecs = specTokens(subjectText);
   const cam = ctx.camMounts;
   const scored = (r || [])
@@ -447,7 +457,7 @@ async function findAlternatives(
     for (const { x } of pool.slice(0, 24)) {
       if (free.length >= n) break;
       try {
-        const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime });
+        const av: any = await availabilityForContext(c,x._id,ctx.start,ctx.end,ctx);
         if ((av?.available ?? 0) > 0) free.push(x);
       } catch {}
     }
@@ -458,8 +468,7 @@ async function findAlternatives(
 
 /** Best in-stock pick for a single slot (recommend / kit-fill), favourites-boosted. */
 async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen: Set<string>): Promise<any | null> {
-  const term = TERM[itemType] || itemType;
-  const r: any[] = await c.query(api.catalog.listListings, { search: term });
+  const r: any[] = await candidatesForType(c,itemType);
   const cam = ctx.camMounts;
   const cands = (r || [])
     .filter(x => rentableCandidate(x) && !alreadySupplied(x, ctx.cartEvidence ?? []))
@@ -490,7 +499,7 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
   if (ctx.availabilityReady && ctx.start && ctx.end) {
     for (const { x } of pool.slice(0, 10)) {
       try {
-        const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime });
+        const av: any = await availabilityForContext(c,x._id,ctx.start,ctx.end,ctx);
         if ((av?.available ?? 0) > 0) return x;
       } catch {}
     }
@@ -545,7 +554,7 @@ async function recommendLensSpread(c: ConvexHttpClient, ctx: Ctx, seen: Set<stri
   if (ctx.availabilityReady && ctx.start && ctx.end) {
     const free: any[] = [];
     for (const x of ordered) {
-      try { const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime }); if ((av?.available ?? 0) > 0) free.push(x); } catch {}
+      try { const av: any = await availabilityForContext(c,x._id,ctx.start,ctx.end,ctx); if ((av?.available ?? 0) > 0) free.push(x); } catch {}
     }
     return free.slice(0, max);
   }
@@ -567,6 +576,8 @@ type Ctx = {
   pastTitles: string[];
   cartTitles: string[];
   cartIds: string[];
+  cartStock?:any[];
+  basketDatesMissing?:boolean;
   pickupTime?: string;
   returnTime?: string;
   availabilityReady?: boolean;
@@ -661,6 +672,9 @@ async function loadContext(body: any): Promise<Ctx> {
   }
   // cart: contents (so Gaffer knows what's already in their kit) + camera mounts
   if (Array.isArray(body?.cart) && body.cart.length) {
+    const valid=body.cart.filter((item:any)=>typeof item.start==="string"&&typeof item.end==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(item.start)&&/^\d{4}-\d{2}-\d{2}$/.test(item.end));
+    ctx.basketDatesMissing=valid.length!==body.cart.length||body.cart.length>100;
+    ctx.cartStock=valid.slice(0,100).map((item:any)=>({listingId:item.listingId,start:dayMs(item.start),end:dayMs(item.end),pickupTime:item.pickupTime,returnTime:item.returnTime}));
     try {
       const window = body.cart[0];
       if (window?.pickupTime && window?.returnTime && body.cart.every((item: any) => item.start === window.start && item.end === window.end && item.pickupTime === window.pickupTime && item.returnTime === window.returnTime))
@@ -690,7 +704,7 @@ const IntentSchema = z.object({
   intent: z.enum(["availability", "alternative", "recommend", "build_kit", "spec", "price", "compatibility", "support", "partner", "other"])
     .describe("availability=do you have X; alternative=suggest a substitute for X; recommend=suggest gear of a type; build_kit=assemble a full kit; spec=specs/limits/what is included/accessories/contents of X; price=cost of X; compatibility=will/can X work with/fit/mount on Y; support=complaint/damage/refund/cancellation/dispute; partner=they ask about FORM / SEVEN, about having an advert or promo made FOR them rather than hiring kit to shoot it themselves, or about the free sample ad; other=greeting/policy/chitchat"),
   subject: z.string().describe("the SPECIFIC item the customer named (the LENS/gear for a compatibility question), verbatim-ish, or empty string"),
-  itemTypes: z.array(z.string()).describe("gear types from [camera,lens,light,gimbal,mic,monitor,tripod,nd-filter,battery,drone,speaker]"),
+  itemTypes: z.array(z.string()).describe(`gear types from [${Object.keys(EXPECTED_ITEMTYPES).join(",")}]`),
   cameraModel: z.string().describe("the camera model OR mount in play (e.g. 'FX3', 'Sony E mount') — for a compatibility question this is the BODY they want to fit the subject onto; else empty"),
   pricePref: z.enum(["cheaper", "premium", "any"]).describe("cheaper=they want budget/cheaper/affordable; premium=best/top-end; any=no preference"),
   start: z.string().optional().describe("rental start YYYY-MM-DD if stated/derivable, else omit"),
@@ -735,7 +749,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
   const savedWindow = ctx.cartWindow?.start === start && ctx.cartWindow.end === end ? ctx.cartWindow : undefined;
   ctx.pickupTime = intent.pickupTime || savedWindow?.pickupTime;
   ctx.returnTime = intent.returnTime || savedWindow?.returnTime;
-  ctx.availabilityReady = !estimated && !!ctx.pickupTime && !!ctx.returnTime && PICKUP_SLOTS.includes(ctx.pickupTime) && PICKUP_SLOTS.includes(ctx.returnTime) && (start !== end || ctx.returnTime > ctx.pickupTime);
+  ctx.availabilityReady = !ctx.basketDatesMissing && !estimated && !!ctx.pickupTime && !!ctx.returnTime && PICKUP_SLOTS.includes(ctx.pickupTime) && PICKUP_SLOTS.includes(ctx.returnTime) && (start !== end || ctx.returnTime > ctx.pickupTime);
   const facts: string[] = [];
   const cards: any[] = [];
   const primaryType = intent.itemTypes?.[0] || "";
@@ -865,7 +879,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
       const types = [...(intent.itemTypes?.length ? intent.itemTypes : ["camera", "lens", "light", "mic"])];
       types.sort((a, b) => Number(!["camera", "camera-body"].includes(a)) - Number(!["camera", "camera-body"].includes(b)));
       const seen = new Set<string>(ctx.cartIds);
-      const planning: Ctx = { ...ctx, cartEvidence: [...(ctx.cartEvidence ?? [])], cartIds: [...ctx.cartIds] };
+      const planning: Ctx = { ...ctx, cartEvidence: [...(ctx.cartEvidence ?? [])], cartIds: [...ctx.cartIds],cartStock:[...(ctx.cartStock??[])] };
       for (const t of types) {
         if (cards.length >= 6) break;
         const best = await bestForType(c, t, planning, seen);
@@ -874,6 +888,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
         await pushCard(best, `Kit ${t}`);
         planning.cartEvidence!.push(best);
         planning.cartIds.push(String(best._id));
+        planning.cartStock!.push({listingId:best._id,start:dayMs(ctx.start),end:dayMs(ctx.end),pickupTime:ctx.pickupTime,returnTime:ctx.returnTime});
         const selectedCameras = planning.cartEvidence!.filter(item => item.itemType === "camera-body");
         if (selectedCameras.length) {
           planning.camMounts = [...new Set(selectedCameras.flatMap(item => parseMounts(item.specs?.mount)))];

@@ -101,9 +101,10 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  let lensOptions=[{...containedZoom,demandScore:9999},lens,wide];
  const nd={_id:'nd82',itemType:'nd-filter',title:'82mm variable ND',specs:{filterThreadMm:82},pricing:{daily:10}};
  const monitor={_id:'monitor',itemType:'monitor',title:'External monitor',pricing:{daily:15}};
+ const extraTypes=['recorder','dj-deck','mixer','headphones','projector','accessory'];
  setMock('convex/browser',{ConvexHttpClient:class {async query(name,args){
    if(name==='catalog.compatibilityKits')return [];
-   if(name==='catalog.byItemType')return args.types.includes('camera-body')?[{...selectedCamera,pricing:{daily:100}}]:args.types.includes('nd-filter')?[nd]:args.types.includes('monitor')?[monitor]:lensOptions;
+   if(name==='catalog.byItemType')return extraTypes.includes(args.types[0])?[{_id:args.types[0],itemType:args.types[0],title:'Owned '+args.types[0],pricing:{daily:5}}]:args.types.includes('camera-body')?[{...selectedCamera,pricing:{daily:100}}]:args.types.includes('nd-filter')?[nd]:args.types.includes('monitor')?[monitor]:lensOptions;
    if(name==='availability.forListing')return {available:1};throw Error(name);
  }}});
  process.env.OPENROUTER_API_KEY='isolated-fixture-no-provider-call';
@@ -127,6 +128,7 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  assert.equal(assembled.stages.find(s=>s.key==='nd-filter').recommendedId,nd._id,'later ND stage uses actual recommended lens thread');
  assert.equal(assembled.stages.find(s=>s.key==='monitor').recommendedId,'','non-camera bundle contents suppress redundant downstream picks');
  assert.equal(assembled.stages.find(s=>s.key==='monitor').includedInKit,true);
+ for(const type of extraTypes){plannedStages=[{key:type,recommend:type}];assembled=await assembleKit();assert.equal(assembled.stages[0].key,type,'assembler supports catalogue type '+type);assert.equal(assembled.stages[0].recommendedId,type,'assembler recommendation is the actual requested type');}
  assert.deepEqual(p.documentedIncludedTypes({...body,inventoryFacts:{contents:['Sony 24–70mm GM lens','DJI RS3 Pro gimbal'],optionalContents:['monitor']}}).sort(),['gimbal','lens']);
  // Real registered complementary query: aliases in different offers must not
  // fill the list with the same physical lens, even with strong demand scores.

@@ -1,7 +1,10 @@
 "use client";
+import { useLiveRecommendations } from "@/components/useLiveRecommendations";
 import { SmartImage } from "@/components/SmartImage";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { liveWindow, stockLines } from "@/lib/liveRecommendations";
+import { automaticRecommendation } from "../../shared/recommendationPolicy";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { quote as computeQuote } from "@/lib/pricing";
@@ -23,13 +26,29 @@ export function Recommendations({
 }) {
   const cart = useCart();
   const cartIds = cart.items.map((i) => i.listingId as any);
-  const recs =
+  const seeds =
     useQuery(api.recommendations.forContext, {
       slug,
       cartListingIds: cartIds,
       limit: 8,
     }) ?? [];
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const listing=useQuery(api.catalog.getListingBySlug,slug?{slug}:"skip");
+  const reference=cart.items.find(item=>(!slug||item.slug===slug)&&item.start===start&&item.end===end&&item.pickupTime&&item.returnTime);
+  const types=[...new Set(seeds.map(r=>r.itemType??"accessory"))];
+  const live:any=useLiveRecommendations(types.length?{groups:types.map(type=>({key:type,types:[type],...liveWindow({start,end,pickupTime:reference?.pickupTime,returnTime:reference?.returnTime})})),basket:stockLines(cart.items),selectedIds:listing&&!cartIds.includes(listing._id)?[listing._id]:[]}:null);
+  const recs:any[]=[];
+  if(live){
+    const groups=types.map(type=>live.groups[type]?.options??[]);
+    const context=[...live.basket,...live.selected];
+    for(let round=0;round<36&&recs.length<8;round++)for(const group of groups){
+      const option=group[round];
+      if(option&&option.available!==false&&option.automaticEligible&&automaticRecommendation(option,[...context,...recs],live.compatibilityKits))recs.push(option);
+      if(recs.length===8)break;
+    }
+  }
+  const recKey=recs.map(r=>r._id).join(",");
+  useEffect(()=>{setSelected(previous=>{const next=new Set([...previous].filter(id=>recs.some(r=>r._id===id)));return next.size===previous.size?previous:next;});},[recKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (recs.length === 0) return null;
   const haveDates = !!(start && end && days > 0);
@@ -43,7 +62,6 @@ export function Recommendations({
 
   function addSelected() {
     if (!haveDates) return;
-    const reference = cart.items.find(item => item.slug === slug && item.start === start && item.end === end && item.pickupTime && item.returnTime);
     for (const r of recs) {
       if (!selected.has(r._id)) continue;
       const q = computeQuote(r.pricing, days);

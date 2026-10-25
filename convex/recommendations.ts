@@ -43,7 +43,7 @@ export const forContext = query({
         .withIndex("by_slug", (q) => q.eq("slug", slug))
         .first();
       if (l) {
-        selected.push(l);
+        if(!cartListingIds?.includes(l._id))selected.push(l);
         exclude.add(l._id);
         seedTypes.push((l.itemType ?? "accessory") as ItemType);
         if (l.itemType === "camera-body") for (const m of parseMounts(l.specs?.mount)) camMounts.add(m);

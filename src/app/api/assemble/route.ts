@@ -31,14 +31,17 @@ const STAGE: Record<string, { types: string[]; must?: RegExp; prefer?: RegExp }>
   slider: { types: ["slider"] },
   drone: { types: ["drone"] },
   speaker: { types: ["speaker"] },
+  recorder: { types: ["recorder"] }, "dj-deck": { types: ["dj-deck"] }, mixer: { types: ["mixer"] },
+  headphones: { types: ["headphones"] }, projector: { types: ["projector"] }, accessory: { types: ["accessory"] },
 };
-const ORDER = ["camera", "lens", "gimbal", "monitor", "light", "lav-mic", "shotgun-mic", "wireless-mic", "nd-filter", "battery", "tripod", "slider", "drone", "speaker"];
+const ORDER = Object.keys(STAGE);
 // stage key → the itemType it represents (for "already in the chosen bundle" suppression)
 const STAGE_ITEMTYPE: Record<string, string> = {
   camera: "camera-body", lens: "lens", gimbal: "gimbal", monitor: "monitor",
   light: "light", "nd-filter": "nd-filter",
   battery: "battery", tripod: "tripod", "lav-mic": "wireless-mic", "wireless-mic": "wireless-mic",
   "shotgun-mic": "boom-mic", slider: "slider", drone: "drone", speaker: "speaker",
+  recorder:"recorder","dj-deck":"dj-deck",mixer:"mixer",headphones:"headphones",projector:"projector",accessory:"accessory",
 };
 const MULTI = new Set(["lens", "light", "nd-filter", "battery", "lav-mic"]);
 
@@ -46,6 +49,7 @@ const DEFAULT_LABEL: Record<string, string> = {
   camera: "Camera", lens: "Lens", gimbal: "Gimbal", monitor: "Monitor", light: "Lighting",
   "lav-mic": "Lav mic", "shotgun-mic": "Shotgun mic", "wireless-mic": "Wireless mic",
   "nd-filter": "ND filter", battery: "Battery", tripod: "Tripod", slider: "Slider", drone: "Drone", speaker: "Speaker",
+  recorder:"Recorder","dj-deck":"DJ deck",mixer:"Mixer",headphones:"Headphones",projector:"Projector",accessory:"Accessories",
 };
 
 const FALLBACK: Record<string, string[]> = {
@@ -208,7 +212,7 @@ export async function POST(req: NextRequest) {
     const { object } = await generateObject({
       model: botModel() as any,
       schema: SCHEMA,
-      prompt: `You are a senior kit designer at Db Cinema Rentals (London cinema hire). Plan a STAGE-BY-STAGE kit build. Output ordered "stages" using ONLY these keys: camera, lens, gimbal, monitor, light, lav-mic, shotgun-mic, wireless-mic, nd-filter, battery, tripod, slider, drone, speaker. ALWAYS camera first, lens second. Each stage: friendly label, one-line note, and a "recommend" = the IDEAL item for this shoot as a short search phrase (e.g. for wedding lens "70-200mm telephoto", for interview light "Nanlite Forza key light", for music video "anamorphic"). Mark 1-3 stages upsell:true. Add 3-5 short "compatibility" notes. Tailor to budget, crew size, camera count.\n\nSHOOT: ${b.shootType || "general"}. Dates ${start} to ${end}. Budget ~£${b.budget ?? "flexible"}. Cameras: ${b.cameras ?? 1}. Crew: ${b.size || "small"}. Mainly needs: ${(b.categories || []).join(", ") || "a full kit"}. Notes: ${b.note || "none"}. Build out the "mainly needs" categories fully and draw your upsell stages from them.`,
+      prompt: `You are a senior kit designer at Db Cinema Rentals (London cinema hire). Plan a STAGE-BY-STAGE kit build. Output ordered "stages" using ONLY these keys: ${Object.keys(STAGE).join(", ")}. Put camera before lens when either is needed; audio, DJ and projection builds do not require a camera. Each stage: friendly label, one-line note, and a "recommend" = the IDEAL item for this shoot as a short search phrase (e.g. for wedding lens "70-200mm telephoto", for interview light "Nanlite Forza key light", for music video "anamorphic"). Mark 1-3 stages upsell:true. Add 3-5 short "compatibility" notes. Tailor to budget, crew size, camera count.\n\nSHOOT: ${b.shootType || "general"}. Dates ${start} to ${end}. Budget ~£${b.budget ?? "flexible"}. Cameras: ${b.cameras ?? 1}. Crew: ${b.size || "small"}. Mainly needs: ${(b.categories || []).join(", ") || "a full kit"}. Notes: ${b.note || "none"}. Build out the "mainly needs" categories fully and draw your upsell stages from them.`,
     });
     design = object;
   } catch {
@@ -224,7 +228,8 @@ export async function POST(req: NextRequest) {
   // onboarding: emphasize the categories the customer said they mainly need (right after camera + lens)
   const CAT_MAP: Record<string, string[]> = {
     Lenses: ["lens"], Lighting: ["light"], Audio: ["lav-mic", "shotgun-mic", "wireless-mic"],
-    Stabilisation: ["gimbal", "slider"], Support: ["tripod"], Monitoring: ["monitor"],
+    Stabilisation: ["gimbal", "slider"], Support: ["tripod", "slider"], Monitoring: ["monitor"],
+    "DJ & sound":["dj-deck","mixer","speaker","headphones"],Recording:["recorder"],Projection:["projector"],Drones:["drone"],Accessories:["accessory"],
   };
   const wanted = new Set<string>();
   for (const cat of (b.categories || []) as string[]) for (const k of CAT_MAP[cat] || []) if (STAGE[k]) wanted.add(k);

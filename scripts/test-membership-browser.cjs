@@ -767,6 +767,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.equal(await c.evaluate(`localStorage.getItem('dbc_promo_v1')`),null);
   await reload();
   await until(`document.querySelector('main')?.innerText.includes('Your kit is empty.')`);
+  await require("./test-live-recommendations-browser.cjs")();
   console.log({
     root,
     individualDatesPersistAndReprice:true,
