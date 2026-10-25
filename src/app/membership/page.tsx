@@ -58,12 +58,13 @@ export default function MembershipPage() {
           <h2 className="font-display text-lg text-white">Membership, in three steps</h2>
           <ol className="mt-4 space-y-3 text-sm leading-6 text-white/65">
             <li><strong className="text-white/90">1. Pay monthly, receive rental credit.</strong> Each paid month adds your plan’s credit, including its bonus. Unused credit stacks and expires one year after it is issued.</li>
-            <li><strong className="text-white/90">2. Get the best price for each rental.</strong> Checkout compares your eligible credit with available offers and applies the better saving. They do not stack. A qualifying one-time joining credit is added separately.</li>
+            <li><strong className="text-white/90">2. Choose your rental saving.</strong> Use membership credit or an eligible offer. Checkout shows the saving; these do not stack. A qualifying one-time joining credit is added separately.</li>
             <li><strong className="text-white/90">3. See everything before you pay.</strong> Checkout lists the membership fee, rental saving, remaining credit and refundable deposit separately. Verification and saved-card consent still apply.</li>
           </ol>
           <details className="mt-4 border-t border-white/10 pt-3 text-xs leading-6 text-white/55">
             <summary className="cursor-pointer text-white/80">Joining with a rental: thresholds and first-booking details</summary>
             <p className="mt-2">Starter is available from £100 of rental and delivery charges before VAT; Pro from £200; Studio from £300. Security payments do not count towards these thresholds. A paid plan added in rental checkout includes a one-time joining credit: £5 for Starter or £10 for Pro and Studio.</p>
+            <p className="mt-2">Refund credit is separate: it can pay remaining eligible rental and delivery charges after a saving. It cannot pay membership fees or refundable deposits.</p>
             <p className="mt-2">Your first paid month’s credit can be used on that rental when it gives the better saving. Under the current assessment policy, eligible active members and a membership bought with the rental are exempt from the refundable deposit. Other member perks begin after that combined booking is confirmed. A separately purchased membership follows its activation status.</p>
           </details>
         </section>
