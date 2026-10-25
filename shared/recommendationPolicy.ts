@@ -106,9 +106,20 @@ export function rentableCandidate(item: RecommendationItem): boolean {
   return !item.marketingOnly && !item.displayOnly && item.inventoryFacts?.owned !== false;
 }
 
+/** A narrower zoom adds no focal coverage to an already supplied zoom.
+ * Primes remain distinct creative choices; this is not a blanket overlap ban. */
+function focalAlreadyCovered(focal: string, supplied: string[]): boolean {
+  if (supplied.includes(focal)) return true;
+  const range = focal.split("-").map(Number);
+  return range.length === 2 && supplied.some(value => {
+    const existing = value.split("-").map(Number);
+    return existing.length === 2 && range[0] >= existing[0] && range[1] <= existing[1];
+  });
+}
+
 export function automaticLens(candidate: RecommendationItem, selected: RecommendationItem[]): boolean {
   const supplied = new Set(selected.flatMap(includedLensFocals));
-  return rentableCandidate(candidate) && !alreadySupplied(candidate, selected) && !lensFocals(candidate).some(f => supplied.has(f)) && lensFit(candidate, selected) === "native";
+  return rentableCandidate(candidate) && !alreadySupplied(candidate, selected) && !lensFocals(candidate).some(f => focalAlreadyCovered(f, [...supplied])) && lensFit(candidate, selected) === "native";
 }
 
 /** A kit sold and owner-confirmed with these exact physical components is
@@ -132,7 +143,7 @@ export function automaticRecommendation(candidate: RecommendationItem, selected:
   if (candidate.itemType === "camera-body") {
     const lenses = selected.filter(i => i.itemType === "lens");
     const bundled = new Set(includedLensFocals(candidate));
-    return lenses.every(lens => lensFit(lens, [candidate]) === "native" && !lensFocals(lens).some(f => bundled.has(f)));
+    return lenses.every(lens => lensFit(lens, [candidate]) === "native" && !lensFocals(lens).some(f => focalAlreadyCovered(f, [...bundled])));
   }
   if (candidate.itemType === "battery") {
     const families = (value?: string | null) => String(value ?? "").toLowerCase().split(/[\/,]/).map(s => s.replace(/[^a-z0-9]/g, "")).filter(Boolean);
