@@ -1,11 +1,12 @@
 import { alreadySupplied } from "../../shared/recommendationPolicy";
+import { rentalDateLabel } from "../../shared/rentalDateLabel";
 
-export function stockLines(items:any[]){return items.map(i=>({listingId:i.listingId,start:Date.parse(i.start+"T00:00:00Z"),end:Date.parse(i.end+"T00:00:00Z"),pickupTime:i.pickupTime||undefined,returnTime:i.returnTime||undefined,qty:1}));}
+export function stockLines(items:any[]){return items.map(i=>({listingId:i.listingId,start:Date.parse(rentalDateLabel(i.start)+"T00:00:00Z"),end:Date.parse(rentalDateLabel(i.end)+"T00:00:00Z"),pickupTime:i.pickupTime||undefined,returnTime:i.returnTime||undefined,qty:1}));}
 export function liveWindow(item:any,basket:any[]=[]){
   const first=basket[0];
   const same=first&&basket.every(i=>i.start===first.start&&i.end===first.end&&i.pickupTime===first.pickupTime&&i.returnTime===first.returnTime);
   const source=item.followBasketWindow&&same?first:item;
-  const start=Date.parse(source?.start+"T00:00:00Z"),end=Date.parse(source?.end+"T00:00:00Z");
+  const start=Date.parse(rentalDateLabel(source?.start)+"T00:00:00Z"),end=Date.parse(rentalDateLabel(source?.end)+"T00:00:00Z");
   return {start:Number.isFinite(start)?start:undefined,end:Number.isFinite(end)?end:undefined,pickupTime:source?.pickupTime||undefined,returnTime:source?.returnTime||undefined};
 }
 
