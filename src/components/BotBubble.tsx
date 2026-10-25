@@ -198,7 +198,7 @@ export function BotBubble() {
   }
 
   function addItem(it: any) {
-    if (it.needsTimes || it.available === false) return;
+    if (it.needsTimes || (it.available !== true && !it.requestable)) return;
     cart.add({
       listingId: it.listingId,
       slug: it.slug,
@@ -526,7 +526,7 @@ export function BotBubble() {
                               state={state}
                               delay={ci * 90}
                               onAdd={() => {
-                                if(shown.refreshing||item.available!==true||item.needsTimes)return;
+                                if(shown.refreshing||(item.available!==true&&!item.requestable)||item.needsTimes)return;
                                 if (shown.kind === "swap") {
                                   if (shown.removed)
                                     removeByListing(shown.removed.listingId);
@@ -647,6 +647,7 @@ function CardView({
   const swap = card.kind === "swap";
   const addonItem = swap ? card.added : card.item;
   const canAddBooking = !!addonItem?.addonBookingId;
+  const includedPreview=[...(addonItem?.verifiedComponentContents??[]),...(addonItem?.rentalContents?.included??[])].slice(0,2);
   return (
     <div
       className="spot gradient-border rounded-2xl p-3"
@@ -708,13 +709,14 @@ function CardView({
             <div className="mt-0.5 text-[11px] leading-relaxed text-white/40">
               {card.reason}
             </div>
+            {includedPreview.length>0&&<div className="mt-1 line-clamp-2 text-[10px] leading-4 text-white/35">Includes: {includedPreview.join(" · ")}</div>}
           </div>
         </div>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
         {addonItem?.needsTimes ? <Link href={`/gear/${addonItem.slug}`} className="btn-primary rounded-full px-3 py-1.5 text-[11px]">Choose dates and times</Link> : <button
           onClick={onAdd}
-          disabled={added || card.refreshing || addonItem?.available !== true}
+          disabled={added || card.refreshing || (addonItem?.available !== true && !addonItem?.requestable)}
           className={`press inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors ${
             added
               ? "cursor-default bg-emerald-500/20 text-emerald-300"
@@ -722,7 +724,7 @@ function CardView({
           }`}
         >
           {added && <IconCheck className="h-3 w-3" />}
-          {added ? card.alreadyIncluded?"Already in your kit":"Added to kit" : card.refreshing ? "Refreshing choices…" : addonItem?.available !== true ? "Choose a matching alternative" : swap ? "Accept swap" : "Add to kit"}
+          {added ? card.alreadyIncluded?"Already in your kit":"Added to kit" : card.refreshing ? "Refreshing choices…" : addonItem?.requestable ? "Add request" : addonItem?.available !== true ? "Choose a matching alternative" : swap ? "Accept swap" : "Add to kit"}
         </button>}
         {!added && canAddBooking && (
           <button

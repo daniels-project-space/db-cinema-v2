@@ -136,8 +136,8 @@ export function verifiedGimbalPair(candidate: RecommendationItem, selected: Reco
 
 /** Automatic additions require affirmative evidence in the relevant dimension.
  * Unknown fit remains a browsable choice, rather than a promised match. */
-export function automaticRecommendation(candidate: RecommendationItem, selected: RecommendationItem[], evidence: RecommendationItem[] = []): boolean {
-  if (!rentableCandidate(candidate) || alreadySupplied(candidate, selected)) return false;
+export function recommendationCompatible(candidate: RecommendationItem, selected: RecommendationItem[], evidence: RecommendationItem[] = []): boolean {
+  if (alreadySupplied(candidate, selected)) return false;
   if (candidate.itemType === "gimbal") return verifiedGimbalPair(candidate, selected, evidence);
   if (candidate.itemType === "lens") return automaticLens(candidate, selected);
   if (candidate.itemType === "camera-body") {
@@ -155,6 +155,10 @@ export function automaticRecommendation(candidate: RecommendationItem, selected:
     return !!thread && selected.some(i => filterThreadsFor(i).includes(thread));
   }
   return true;
+}
+
+export function automaticRecommendation(candidate: RecommendationItem, selected: RecommendationItem[], evidence: RecommendationItem[] = []): boolean {
+  return rentableCandidate(candidate) && recommendationCompatible(candidate, selected, evidence);
 }
 
 /** Only a separately priced, standard lens can be swapped. A bundled lens

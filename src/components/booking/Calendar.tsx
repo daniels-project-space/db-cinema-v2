@@ -21,10 +21,11 @@ type Props = {
   unavailable: Set<string>;
   partial?:Set<string>;
   disabled?: boolean;
+  allowUnavailable?: boolean;
   onPick: (isoDate: string) => void;
 };
 
-export function Calendar({ month, onMonthChange, start, end, unavailable, onPick, disabled: checking=false,partial=new Set<string>() }: Props) {
+export function Calendar({ month, onMonthChange, start, end, unavailable, onPick, disabled: checking=false,allowUnavailable=false,partial=new Set<string>() }: Props) {
   const y = month.getFullYear();
   const m = month.getMonth();
   const startWeekday = (new Date(y, m, 1).getDay() + 6) % 7; // Mon=0
@@ -77,18 +78,19 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
           const inRange = !!start && !!end && dayIso > start && dayIso < end;
           const rangeBlocked = (inRange || isStart || isEnd) && isBlocked;
           const crossesBlocked = crossesUnavailableDate(start, end, dayIso, unavailable);
-          const disabled = checking || isPast || isBlocked || crossesBlocked;
+          const disabled = isPast || (!allowUnavailable && (checking || isBlocked || crossesBlocked));
 
           let cls =
             "relative h-9 rounded-lg text-sm transition-all duration-200 flex items-center justify-center tabular-nums ";
           if (isStart || isEnd)
             cls += "accent-glow bg-accent-500 text-white font-semibold scale-[1.04] ";
-          else if (rangeBlocked) cls += "bg-rec-500/25 text-red-200 ";
+          else if (rangeBlocked || (allowUnavailable && (isBlocked || crossesBlocked))) cls += "bg-rec-500/20 text-amber-200 hover:bg-rec-500/30 cursor-pointer ";
           else if (inRange) cls += "bg-accent-500/20 text-accent-200 ";
-          else if (checking) cls += "text-white/35 cursor-wait ";
+          else if (checking && !allowUnavailable) cls += "text-white/35 cursor-wait ";
           else if (disabled) cls += "text-white/15 line-through cursor-not-allowed ";
           else cls += "text-white/70 hover:bg-white/10 hover:scale-[1.06] cursor-pointer ";
           if (isToday && !isStart && !isEnd) cls += "ring-1 ring-inset ring-accent-400/40 ";
+          if (allowUnavailable && (isBlocked || crossesBlocked)) cls += "ring-1 ring-inset ring-amber-400/30 ";
 
           return (
             <button
@@ -96,7 +98,7 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
               disabled={disabled}
               onClick={() => onPick(dayIso)}
               className={cls}
-              title={checking ? "Checking availability" : isBlocked ? "Unavailable" : crossesBlocked ? "This range includes an unavailable day" : partial.has(dayIso)?"Available at selected times only — choose pickup and return times":undefined}
+              title={allowUnavailable && (isBlocked || crossesBlocked) ? "Unavailable at the moment — select to add this as a request" : checking ? "Checking availability" : isBlocked ? "Unavailable" : crossesBlocked ? "This range includes an unavailable day" : partial.has(dayIso)?"Available at selected times only — choose pickup and return times":undefined}
             >
               {d}
               {partial.has(dayIso)&&!disabled&&<span aria-hidden="true" className="absolute bottom-1 h-1 w-1 rounded-full bg-amber-300"/>}
@@ -105,7 +107,8 @@ export function Calendar({ month, onMonthChange, start, end, unavailable, onPick
         })}
       </div>
 
-      {partial.size>0&&<p className="mt-2 text-center text-[11px] text-amber-200/80">Marked dates have limited times. Choose an available pickup and return.</p>}
+      {partial.size>0&&<p className="mt-2 text-center text-[11px] text-amber-200/80">{allowUnavailable?"Some dates have limited stock. You can still add a request; availability is checked again in your kit.":"Marked dates have limited times. Choose an available pickup and return."}</p>}
+      {allowUnavailable&&<p className="mt-2 text-center text-[11px] text-white/40">Unavailable dates can still be added as requests; your kit and checkout will recheck stock.</p>}
       <div className="mt-3 text-center font-mono text-[11px] text-white/35">
         {!start
           ? "Tap your start date"

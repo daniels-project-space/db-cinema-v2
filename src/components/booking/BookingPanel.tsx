@@ -74,6 +74,7 @@ type Listing = {
   depositAmount: number;
   minimumRentalDays: number;
   marketingOnly?: boolean;
+  bookable?: boolean;
 };
 
 export function BookingPanel({
@@ -128,7 +129,8 @@ export function BookingPanel({
   // offers replacements before checkout rather than blocking demand collection.
   const haveTimes = !!(pickupTime && returnTime);
   const timesAllowed = !!(slots?.pickupSlots.includes(pickupTime) && slots?.returnSlots.includes(returnTime));
-  const canAdd = !!(start && end && q && (listing.marketingOnly || haveTimes && validOrder && calendarStock.ready && timesAllowed && cand?.ok));
+  const needsRequestReview = !!(listing.marketingOnly || listing.bookable === false || (fit !== undefined && !cand?.ok) || (slots !== undefined && slots.available === 0));
+  const canAdd = !!(start && end && q && haveTimes && validOrder);
 
   function addToKit() {
     if (!canAdd || !q || !start || !end) return;
@@ -154,18 +156,19 @@ export function BookingPanel({
         onMonthChange={onMonthChange}
         start={start}
         end={end}
-        unavailable={listing.marketingOnly ? new Set<string>() : blockedDays}
+        unavailable={blockedDays}
         partial={calendarStock.partial}
-        disabled={!calendarStock.ready}
+        allowUnavailable
         onPick={onPick}
       />
 
       {!calendarStock.ready && <div role="status" className="text-sm text-white/70">{calendarStock.error ? <>Couldn’t check these dates. <button type="button" className="underline text-accent-300" onClick={()=>void calendarStock.retry()}>Retry availability</button></> : "Checking available dates…"}</div>}
 
-      {start&&end&&!listing.marketingOnly&&<div className="grid grid-cols-2 gap-3">
-        <TimeSlotPicker id={`gear-${listing._id}-pickup`} label="Pickup time" value={pickupTime} onChange={setPickupTime} disabled={!calendarStock.ready||!slots} allowedSlots={slots?.pickupSlots}/>
-        <TimeSlotPicker id={`gear-${listing._id}-return`} label="Return time" value={returnTime} onChange={setReturnTime} disabled={!calendarStock.ready||!slots} allowedSlots={slots?.returnSlots}/>
+      {start&&end&&<div className="grid grid-cols-2 gap-3">
+        <TimeSlotPicker id={`gear-${listing._id}-pickup`} label="Pickup time" value={pickupTime} onChange={setPickupTime} allowedSlots={slots?.available ? slots.pickupSlots : undefined}/>
+        <TimeSlotPicker id={`gear-${listing._id}-return`} label="Return time" value={returnTime} onChange={setReturnTime} allowedSlots={slots?.available ? slots.returnSlots : undefined}/>
       </div>}
+      {start&&end&&needsRequestReview&&<p role="status" className="rounded-xl border border-amber-300/20 bg-amber-300/[.05] p-3 text-xs leading-5 text-amber-100/80">This item is not confirmed available for these dates. Add it as a request to see matching alternatives in your kit; payment stays blocked until the full kit passes the stock check.</p>}
       <div className="spot gradient-border rounded-2xl p-5">
         {/* base rate row */}
         <div className="flex items-baseline justify-between">
@@ -227,8 +230,10 @@ export function BookingPanel({
               <span className="text-amber-200">Return time must be later than pickup on the same day.</span>
             ) : fit === undefined || !calendarStock.ready || slots === undefined ? (
               <span className="text-white/30">Checking availability…</span>
-            ) : !timesAllowed ? (
+            ) : !timesAllowed && slots.available > 0 ? (
               <span className="text-amber-200">Choose available pickup and return times for these dates.</span>
+            ) : !timesAllowed ? (
+              <span className="text-amber-200">No stock currently matches these dates and times. You can still add a request to see alternatives.</span>
             ) : cand?.ok ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-300">
                 <IconCheck className="h-3 w-3" /> Available for these dates and times
@@ -254,7 +259,7 @@ export function BookingPanel({
           disabled={!canAdd}
           className="btn-primary mt-5 w-full py-3"
         >
-          {!start || !end ? "Choose rental dates" : !haveTimes && !listing.marketingOnly ? "Choose pickup and return times" : cand && !cand.ok && cand.available > 0 ? "Max in kit" : "Add to kit"}
+          {!start || !end ? "Choose rental dates" : !haveTimes ? "Choose pickup and return times" : needsRequestReview ? "Add request to kit" : "Add to kit"}
         </button>
 
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-white/40">

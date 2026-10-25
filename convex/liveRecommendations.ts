@@ -7,8 +7,10 @@ import { listingImages } from "./lib/catalogImages";
 import { quote } from "./lib/pricing";
 import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
 import { effectiveLensSpecs } from "../shared/opticalFacts";
-import { automaticRecommendation, rentableCandidate } from "../shared/recommendationPolicy";
+import { recommendationCompatible, rentableCandidate } from "../shared/recommendationPolicy";
+import { bundleContentSimilarity } from "../shared/verifiedRentalCopy";
 import { RENTAL_TIME_SLOTS } from "../shared/rentalWindow";
+import { createPublicListingCopy } from "./lib/publicListingCopy";
 
 const group = v.object({ key: v.string(), types: v.optional(v.array(v.string())), listingId: v.optional(v.id("listings")),
   start: v.optional(v.number()), end: v.optional(v.number()), pickupTime: v.optional(v.string()), returnTime: v.optional(v.string()),
@@ -17,7 +19,7 @@ const MULTI = new Set(["lens", "light", "nd-filter", "battery", "wireless-mic"])
 const DAY = 86400000;
 const describe = (l: any) => ({ _id:l._id, listingId:l._id, slug:l.slug, title:l.title, itemType:l.itemType??"accessory", category:l.category,
   specs:effectiveLensSpecs(l), mount:effectiveLensSpecs(l)?.mount??null, components:l.components??[], inventoryFacts:l.inventoryFacts??null,
-  rentalContents:l.rentalContents?{included:l.rentalContents.included}:null, pricing:l.pricing, depositAmount:l.depositAmount,
+  rentalContents:l.rentalContents?{...l.rentalContents}:null, verifiedComponentContents:l.verifiedComponentContents??[], pricing:l.pricing, depositAmount:l.depositAmount,
   heroImage:listingImages(l)[0]??null, image:listingImages(l)[0]??null, imageSources:listingImages(l),
   role:l.itemType==="camera-body"?"camera":l.itemType==="lens"?"lens":"other", demandScore:l.demandScore??0,
   bookable:!rentalUnavailable(l)&&rentableCandidate(l), marketingOnly:!!l.marketingOnly, displayOnly:!!l.suppressed, quietDeal:l.quietDeal??null });
@@ -32,6 +34,9 @@ export const options = query({
     if(groups.length>16||basket.length+selectedIds.length>100||new Set(groups.map(g=>g.key)).size!==groups.length)throw Error("Too many recommendation choices");
     const records=new Map<string,any>();
     for(const id of new Set([...basket.map(i=>String(i.listingId)),...selectedIds.map(String),...groups.flatMap(g=>g.listingId?[String(g.listingId)]:[])]))records.set(id,await ctx.db.get(id as any));
+    const decoratePublic=createPublicListingCopy(ctx),displayById=new Map<string,any>();
+    const displayedRecords=await decoratePublic([...records.values()].filter(Boolean));
+    for(const listing of displayedRecords)displayById.set(String(listing._id),listing);
     const typeCache=new Map<string,any[]>();
     const evidence=await verifiedKitEvidence(ctx);
     const cache:RentalInventoryCache={records:new Map(records),reservations:new Map<string,any[]>()};
@@ -52,12 +57,17 @@ export const options = query({
       }
       if(preferred)candidates.set(String(preferred._id),preferred);
       for(const l of selection)if(types.includes(l.itemType??"accessory"))candidates.set(String(l._id),l);
+      const displayedCandidates=await decoratePublic([...candidates.values()]);
+      for(const listing of displayedCandidates)displayById.set(String(listing._id),listing);
+      const preferredDisplay=preferred?displayById.get(String(preferred._id))??preferred:null;
+      const candidateDisplays=new Map(displayedCandidates.map((listing:any)=>[String(listing._id),listing]));
       const ready=validWindow(g),days=Number.isSafeInteger(g.start)&&Number.isSafeInteger(g.end)&&g.end!>=g.start!?Math.round((g.end!-g.start!)/DAY)+1:1;
       const selectedFor=(candidate:any)=>selection.filter(l=>l._id!==candidate._id&&(MULTI.has(candidate.itemType)||l.itemType!==candidate.itemType));
       const retainedBasket=basket.filter(line=>line.listingId!==g.replaceListingId);
       const contextBasket=basketRecords.filter(l=>l._id!==g.replaceListingId);
       const options=[];
       for(const l of candidates.values()){
+        const publicListing=candidateDisplays.get(String(l._id))??l;
         cache.records.set(String(l._id),l);
         const chosen=selectedFor(l),context=[...contextBasket,...chosen];
         let available:boolean|null=null;
@@ -69,11 +79,12 @@ export const options = query({
           try{await assertRentalInventory(ctx,[...retained.map(line=>({...line,qty:line.qty??1})),...other,{listingId:l._id,start:g.start!,end:g.end!,pickupTime:g.pickupTime,returnTime:g.returnTime,qty:1}],undefined,cache);available=days>=(l.minimumRentalDays??1);}catch{available=false;}
         }
         const price=quote(l.pricing,days),total=l.quietDeal?Math.round(price.total*(1-l.quietDeal/100)):price.total;
-        options.push({...describe(l),available,needsTimes:!ready,automaticEligible:!rentalUnavailable(l)&&automaticRecommendation(l,context,evidence),
+        const requestCompatible=recommendationCompatible(l,context,evidence);
+        options.push({...describe(publicListing),available,needsTimes:!ready,requestCompatible,automaticEligible:!rentalUnavailable(l)&&rentableCandidate(l)&&requestCompatible,
           start:g.start===undefined?null:new Date(g.start).toISOString().slice(0,10),end:g.end===undefined?null:new Date(g.end).toISOString().slice(0,10),
           pickupTime:g.pickupTime??null,returnTime:g.returnTime??null,days,perDay:Math.round(total/days*100)/100,total,deposit:l.depositAmount??0});
       }
-      options.sort((a,b)=>Number(b.available===true&&b.automaticEligible)-Number(a.available===true&&a.automaticEligible)||Number(b.automaticEligible)-Number(a.automaticEligible)||b.demandScore-a.demandScore||a.total-b.total||String(a._id).localeCompare(String(b._id)));
+      options.sort((a,b)=>Number(b.available===true&&b.automaticEligible)-Number(a.available===true&&a.automaticEligible)||Number(b.automaticEligible)-Number(a.automaticEligible)||bundleContentSimilarity(preferredDisplay,b)-bundleContentSimilarity(preferredDisplay,a)||b.demandScore-a.demandScore||a.total-b.total||String(a._id).localeCompare(String(b._id)));
       result[g.key]={options:options.slice(0,36),selection:options.filter(o=>selectedIds.includes(o._id)),preferred:options.find(o=>o._id===g.listingId)??null,ready};
     }
     let selectionOk:boolean|null=selection.length===0?true:null;
@@ -85,6 +96,6 @@ export const options = query({
     for(const rows of cache.reservations.values())for(const row of rows)if(row.status==="hold"&&row.holdExpiresAt>Date.now())nextRefreshAt=Math.min(nextRefreshAt,row.holdExpiresAt+50);
     const stockState=await ctx.db.query("rmv2_sync_state").withIndex("by_key",q=>q.eq("key","shared-stock-v1")).first();
     try{const checkedAt=JSON.parse(stockState?.cursor??"null")?.checkedAt,precise=cache.precision?await cache.precision:false;if(Number.isSafeInteger(checkedAt)&&(checkedAt+5*60000>Date.now()||precise))nextRefreshAt=Math.min(nextRefreshAt,checkedAt+5*60000+50);}catch{}
-    return {groups:result,basket:basketRecords.map(describe),selected:selection.map(describe),compatibilityKits:evidence,selectionOk,nextRefreshAt};
+    return {groups:result,basket:basketRecords.map(l=>describe(displayById.get(String(l._id))??l)),selected:selection.map(l=>describe(displayById.get(String(l._id))??l)),compatibilityKits:evidence,selectionOk,nextRefreshAt};
   },
 });
