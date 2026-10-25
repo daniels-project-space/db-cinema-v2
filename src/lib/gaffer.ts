@@ -6,6 +6,7 @@ import { quote } from "@/lib/pricing";
 import { tierByKey } from "@/lib/membership";
 import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
+import { rentalDateLabel } from "../../shared/rentalDateLabel";
 import { coverageCompat, kitWarnings } from "@/lib/compat";
 import { lensPriority, isCameraSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType, CATEGORY_OF } from "../../convex/lib/taxonomy";
@@ -307,11 +308,12 @@ const DAY = 86400000;
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 function safeDates(start: string | undefined, end: string | undefined, today: string): { start: string; end: string; estimated: boolean } {
   const todayMs = dayMs(today);
-  let s = start && dayMs(start) >= todayMs ? start : undefined;
-  let e = end && dayMs(end) >= todayMs ? end : undefined;
+  const first = rentalDateLabel(start), last = rentalDateLabel(end);
+  let s = first && dayMs(first) >= todayMs ? first : undefined;
+  let e = last && dayMs(last) >= todayMs ? last : undefined;
   if (s && !e) e = s;
   if (e && !s) s = e;
-  if (s && e) return { start: s, end: e, estimated: false };
+  if (s && e && e >= s) return { start: s, end: e, estimated: false };
   // no usable dates → a clearly-future placeholder, flagged estimated (never the past)
   return { start: iso(todayMs + 3 * DAY), end: iso(todayMs + 5 * DAY), estimated: true };
 }
