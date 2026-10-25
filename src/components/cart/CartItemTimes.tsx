@@ -28,8 +28,8 @@ export function CartItemTimes({item,defaultPickupTime,defaultReturnTime,delivery
   <p className="text-sm font-medium text-white/90">{item.title}</p>
   <p className="mt-1 text-xs text-white/50">{item.start} → {item.end}</p>
   <div className="mt-3 grid grid-cols-2 gap-3">
-   <TimeSlotPicker id={`${id}-pickup`} label={`${delivery?"Delivery":"Pickup"} · ${dateLabel(item.start)}`} value={pickupTime} onChange={choosePickup} allowedSlots={slots?.available?slots.pickupBoundarySlots??slots.pickupSlots:undefined}/>
-   <TimeSlotPicker id={`${id}-return`} label={`${delivery?"Collection":"Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time=>choose(pickupTime,time)} allowedSlots={slots?.available?slots.returnBoundarySlots??slots.returnSlots:undefined}/>
+   <TimeSlotPicker id={`${id}-pickup`} label={`${delivery?"Delivery":"Pickup"} · ${dateLabel(item.start)}`} value={pickupTime} onChange={choosePickup} disabled={!slots} allowedSlots={slots?.available?slots.pickupBoundarySlots??slots.pickupSlots:undefined}/>
+   <TimeSlotPicker id={`${id}-return`} label={`${delivery?"Collection":"Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time=>choose(pickupTime,time)} disabled={!slots} allowedSlots={slots?.available?slots.returnBoundarySlots??slots.returnSlots:undefined}/>
   </div>
   {invalidOrder&&<p role="alert" className="mt-2 text-xs text-amber-200">Return must be later than pickup on the same day. Choose a later return time or change the return date in your basket.</p>}
   {(!pickupTime||!returnTime)&&<p className="mt-2 text-xs text-white/55">Choose pickup and return times to check availability.</p>}
