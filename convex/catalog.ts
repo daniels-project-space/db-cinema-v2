@@ -5,6 +5,7 @@ import { quote } from "./lib/pricing";
 import { weekendDays } from "../shared/membership";
 import { listingImages } from "./lib/catalogImages";
 import { isMarketingOnly, rentalUnavailable } from "./lib/marketingInventory";
+import { alreadySupplied, automaticRecommendation } from "../shared/recommendationPolicy";
 import { assertAdmin } from "./adminAuth";
 
 /**
@@ -56,6 +57,8 @@ const card = (l: any) => ({
   itemType: l.itemType ?? null,
   specs: l.specs ?? null,
   inventoryFacts: l.inventoryFacts ?? null,
+  rentalContents: l.rentalContents ? { included: l.rentalContents.included } : null,
+  components: l.components ?? [],
   tip: l.knowledge?.summary ?? null,
   heroImage: images(l)[0] ?? null,
   imageSources: images(l),
@@ -283,6 +286,7 @@ export const getListingBySlug = query({
       description:l.description??null,
       rentalContents: l.rentalContents ?? null,
       inventoryFacts: l.inventoryFacts ?? null,
+      components: l.components ?? [],
       heroImage: images(l)[0] ?? null,
       gallery: images(l),
       pricing: l.pricing,
@@ -343,7 +347,8 @@ export const recommendations = query({
         .withIndex("by_category", (q) => q.eq("category", cat))
         .collect();
       const picks = rows
-        .filter((r) => r.active && r.slug !== slug && images(r).length > 0)
+        .filter((r) => !rentalUnavailable(r) && r.slug !== slug && images(r).length > 0 && !alreadySupplied(r, [base]))
+        .filter((r) => automaticRecommendation(r, [base]))
         .sort((a, b) => (b.pricing?.daily ?? 0) - (a.pricing?.daily ?? 0))
         .slice(0, perCat);
       out.push(...picks);

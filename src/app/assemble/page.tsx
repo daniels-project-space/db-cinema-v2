@@ -15,10 +15,11 @@ import { useAccount } from "@/components/account/AccountProvider";
 import { tierByKey } from "@/lib/membership";
 import { lensFits, bestCompat, parseMounts } from "@/lib/mount";
 import { kitWarnings, FOCAL_THREAD } from "@/lib/compat";
-import { bundleIncludes } from "@cvx/lib/taxonomy";
 import { GlowSlider } from "@/components/GlowSlider";
+import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
 import { scoreOption } from "@/lib/kitRank";
+import { alreadySupplied, automaticRecommendation, documentedIncludedTypes } from "../../../shared/recommendationPolicy";
 
 const EMPTY_DATES = new Set<string>();
 
@@ -49,6 +50,8 @@ export default function AssemblePage() {
   const [shootType, setShootType] = useState("Interview");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [pickupTime, setPickupTime] = useState("");
+  const [returnTime, setReturnTime] = useState("");
   const [month, setMonth] = useState(() => new Date());
   function pickDate(d: string) {
     const next = pickRentalDates(start, end, d);
@@ -71,13 +74,13 @@ export default function AssemblePage() {
 
   const selList = Object.values(sel) as any[];
   const cams = selList.filter((x) => x.role === "camera");
-  const camMounts = cams.map((c) => c.mount);
+  const camMounts = cams.flatMap((c) => parseMounts(c.mount));
   const actionOnly = camMounts.length > 0 && camMounts.every((m) => m === "fixed");
   const camBatts = cams.map((c) => c.specs?.batteryType).filter(Boolean);
   const camIncludesLens = cams.some((c) => c.specs?.includesLens);
   const cinemaRig = cams.some((c) => /cine|cinema|fx ?6|fx ?9|c ?70|c ?100|c ?200|c ?300|c ?500|c ?400|alexa|amira|ursa|komodo|raptor|venice|burano|bmpcc|pocket cinema|\bred\b/i.test(c.title || ""));
   // secondary gear the chosen camera SET already contains — never re-recommend it (its unit is booked in the bundle)
-  const includedTypes = new Set<string>(cams.flatMap((c: any) => bundleIncludes(c.title || "")));
+  const includedTypes = new Set<string>(cams.flatMap((c: any) => documentedIncludedTypes(c)));
   const lensThreads = [
     ...selList.filter((x) => x.role === "lens").map((x) => x.specs?.filterThreadMm).filter(Boolean),
     ...cams.filter((c) => c.specs?.includesLens && c.specs?.lensFocal && FOCAL_THREAD[c.specs.lensFocal]).map((c) => FOCAL_THREAD[c.specs.lensFocal]),
@@ -99,11 +102,11 @@ export default function AssemblePage() {
     if (!s) return "";
     const stype = STAGE_TYPE[s.key];
     if (stype && stype !== "lens" && includedTypes.has(stype)) return ""; // already in the chosen set — don't pre-pick
-    if (s.key === "lens" || s.key === "battery") {
-      const v = visibleFor(s).filter((o: any) => !incompatOf(o, s));
-      if (v.length) return [...v].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key))[0].listingId;
-    }
-    return s.recommendedId;
+    if (s.key === "camera") return s.recommendedId;
+    const v = visibleFor(s).filter((o: any) => !incompatOf(o, s) &&
+      !alreadySupplied(o, selList.filter(i => i.listingId !== o.listingId)) &&
+      automaticRecommendation(o, selList.filter(i => i.listingId !== o.listingId)));
+    return v.length ? [...v].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key))[0].listingId : "";
   };
 
   const subtotal = selList.reduce((n, c) => n + (c.total || 0), 0);
@@ -140,8 +143,8 @@ export default function AssemblePage() {
   }, [intake, stageIdx, data]);
 
   async function build() {
-    if (!start || !end) {
-      setErr("Pick your rental dates first.");
+    if (!start || !end || !pickupTime || !returnTime) {
+      setErr("Choose your rental dates, pickup time and return time first.");
       return;
     }
     setErr(null);
@@ -150,13 +153,14 @@ export default function AssemblePage() {
       const r = await fetch("/api/assemble", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ shootType, start, end, budget, cameras, size, note, categories: gearCats }),
+        body: JSON.stringify({ shootType, start, end, pickupTime, returnTime, budget, cameras, size, note, categories: gearCats }),
       });
       const d = await r.json();
+      if (!r.ok) throw Error(d.error || "Could not build a kit for those dates and times.");
       setData(d);
       setStageIdx(0);
-    } catch {
-      setErr("Something went wrong — try again.");
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : "Something went wrong — try again.");
     } finally {
       setLoading(false);
     }
@@ -184,7 +188,7 @@ export default function AssemblePage() {
     for (const c of selList)
       cart.add({
         listingId: c.listingId, slug: c.slug, title: c.title, heroImage: c.image ?? null,
-        start: c.start, end: c.end, days: c.days, perDay: c.perDay, total: c.total, deposit: c.deposit ?? 0,
+        start: c.start, end: c.end, pickupTime: c.pickupTime, returnTime: c.returnTime, days: c.days, perDay: c.perDay, total: c.total, deposit: c.deposit ?? 0,
       });
     router.push("/cart");
   }
@@ -277,19 +281,23 @@ export default function AssemblePage() {
                     unavailable={EMPTY_DATES}
                     onPick={pickDate}
                   />
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <TimeSlotPicker id="assemble-pickup" label="Pickup time" value={pickupTime} onChange={setPickupTime} disabled={!start || !end} />
+                    <TimeSlotPicker id="assemble-return" label="Return time" value={returnTime} onChange={setReturnTime} disabled={!start || !end} />
+                  </div>
                   <button
-                    onClick={() => start && end && setIntake(3)}
-                    disabled={!start || !end}
+                    onClick={() => start && end && pickupTime && returnTime && setIntake(3)}
+                    disabled={!start || !end || !pickupTime || !returnTime}
                     className="btn-primary mt-3 w-full py-2.5 text-sm disabled:opacity-40"
                   >
                     {start && end
                       ? `Continue · ${daysInclusive(start, end)} day${daysInclusive(start, end) > 1 ? "s" : ""} →`
-                      : "Pick your rental dates"}
+                      : "Pick your rental dates and times"}
                   </button>
                 </div>
               </Controls>
             ) : intake > 2 ? (
-              <UserMsg>{start} → {end}</UserMsg>
+              <UserMsg>{start} {pickupTime} → {end} {returnTime}</UserMsg>
             ) : null}
 
             {intake >= 3 && <Ai>Last bit — your budget, how many cameras, and anything else I should know?</Ai>}

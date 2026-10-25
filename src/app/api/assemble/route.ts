@@ -8,9 +8,10 @@ import { quote } from "@/lib/pricing";
 import { dayMs as msOf } from "@/lib/dates";
 import { parseMounts, mountCompat } from "@/lib/mount";
 import { coverageCompat, battOk, isRigPower } from "@/lib/compat";
-import { bundleIncludes } from "@cvx/lib/taxonomy";
+import { PICKUP_SLOTS } from "@/lib/site";
 import { rateLimit } from "@/lib/ratelimit";
 import { compareOptions, isCameraSet } from "@/lib/kitRank";
+import { automaticRecommendation, documentedIncludedTypes, includedLensFocals, type RecommendationItem } from "../../../../shared/recommendationPolicy";
 
 export const maxDuration = 60;
 
@@ -110,7 +111,7 @@ function batteryCompat(optBatt: string | null | undefined, camBatt: string | nul
   return battOk(camBatt, optBatt) ? "native" : "incompatible";
 }
 
-type StageOpts = { lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean };
+type StageOpts = { pickupTime?: string; returnTime?: string; selected?: RecommendationItem[]; lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean };
 
 async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, o: StageOpts = {}) {
   const { lensPref, camMounts = [], camCoverage = null, camBattery = null, includedFocal = null, small = false } = o;
@@ -127,7 +128,8 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
   const days = Math.max(1, Math.round((msOf(end) - msOf(start)) / 86400000) + 1);
   const out: any[] = [];
   for (const l of items.slice(0, 36)) {
-    const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: msOf(start), end: msOf(end) });
+
+    const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: msOf(start), end: msOf(end), pickupTime: o.pickupTime, returnTime: o.returnTime });
     if ((av?.available ?? 0) <= 0) continue;
     const q: any = quote(l.pricing, days);
     const role = l.itemType === "camera-body" ? "camera" : l.itemType === "lens" ? "lens" : "other";
@@ -146,9 +148,11 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
     }
     out.push({
       listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, imageSources: l.imageSources, category: l.category,
-      start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
+      start, end, pickupTime: o.pickupTime, returnTime: o.returnTime, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
       role, mount, itemType: l.itemType ?? null,
       compat, compatReason,
+      components: l.components, inventoryFacts: l.inventoryFacts, rentalContents: l.rentalContents,
+      automaticEligible: automaticRecommendation(l, o.selected ?? []),
       qty: titleQty(l.title),
       demandScore: l.demandScore ?? 0,
       specs: l.specs ?? {},
@@ -184,6 +188,13 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const start: string = b.start, end: string = b.end;
   if (!start || !end) return NextResponse.json({ error: "dates required" }, { status: 400 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end)) || end < start)
+    return NextResponse.json({ error: "Choose a valid rental date range.", stages: [] }, { status: 400 });
+  const { pickupTime, returnTime } = b;
+  if (!PICKUP_SLOTS.includes(pickupTime) || !PICKUP_SLOTS.includes(returnTime))
+    return NextResponse.json({ error: "Choose pickup and return times before checking kit availability.", stages: [] }, { status: 400 });
+  if (start === end && returnTime <= pickupTime)
+    return NextResponse.json({ error: "Return time must be after pickup time.", stages: [] }, { status: 400 });
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
   let design: any = null;
@@ -229,16 +240,17 @@ export async function POST(req: NextRequest) {
   let camBattery: string | null = null;
   let includedFocal: string | null = null;
   let recCamTitle = "";
+  const selected: RecommendationItem[] = [];
   const includedTypes = new Set<string>(); // secondary gear the chosen camera bundle already contains
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
-    const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small });
+    const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small, selected, pickupTime, returnTime });
     if (!options.length) continue;
     // ONE recommended id per stage — camera uses the LLM hint / top body; everything else leads
     // with the top COMPATIBLE option. (Camera's recCam below must match this so the note agrees.)
     const recId: string = k === "camera"
       ? (pickRecommended(options, meta?.recommend) ?? options[0].listingId)
-      : (options.find((o: any) => o.compat !== "incompatible") ?? options[0]).listingId;
+      : (options.find((o: any) => o.compat !== "incompatible" && o.automaticEligible)?.listingId ?? "");
     if (k === "camera") {
       const recCam = options.find((o: any) => o.listingId === recId) ?? options[0];
       camMounts = parseMounts(recCam?.mount);
@@ -246,7 +258,9 @@ export async function POST(req: NextRequest) {
       camBattery = recCam?.specs?.batteryType ?? null;
       includedFocal = recCam?.specs?.includesLens ? (recCam?.specs?.lensFocal ?? null) : null;
       recCamTitle = recCam?.title ?? "";
-      for (const it of bundleIncludes(recCamTitle)) includedTypes.add(it);
+      selected.push(recCam);
+      includedFocal = includedLensFocals(recCam).join(", ") || null;
+      for (const it of documentedIncludedTypes(recCam)) includedTypes.add(it);
     }
     // a non-lens item the chosen set ALREADY includes → don't pre-recommend it (its unit is
     // already booked inside the bundle); the customer can still add a spare if they want.
@@ -256,7 +270,7 @@ export async function POST(req: NextRequest) {
     if (includedInKit)
       note = `Your set already includes a ${(meta?.label || k).toLowerCase()} — only add one if you need a spare (the set's unit is already booked).` + (note ? " " + note : "");
     if (k === "lens") {
-      if (includedFocal) note = `Your ${recCamTitle.slice(0, 30)} already includes a ${includedFocal}mm — these ADD to it (different focal lengths).` + (note ? " " + note : "");
+      if (includedFocal) note = `Your ${recCamTitle.slice(0, 30)} already includes a ${includedFocal}mm — these are optional additional lenses.` + (note ? " " + note : "");
       note += (note ? " " : "") + (lensPref === "cine"
         ? "Cinema glass first for a larger crew (manual focus, focus puller recommended)."
         : "Autofocus glass first for fast, small-crew shooting.");

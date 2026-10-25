@@ -11,6 +11,7 @@ import { lensPriority, isCameraSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType } from "../../convex/lib/taxonomy";
 import { contentsText } from "../../shared/rentalContents";
 import { CONTACT_EMAIL } from "@/lib/site";
+import { alreadySupplied, automaticLens, type RecommendationItem } from "../../shared/recommendationPolicy";
 
 /**
  * Gaffer v2 — "engine decides, LLM narrates".
@@ -408,6 +409,7 @@ async function findAlternatives(
   const wantSpecs = specTokens(subjectText);
   const cam = ctx.camMounts;
   const scored = (r || [])
+    .filter(x => !alreadySupplied(x, ctx.cartEvidence ?? []))
     .filter((x) => itemTypeMatches(itemType, x.itemType) && String(x._id) !== excludeId && !ctx.cartIds.includes(String(x._id)))
     .map((x) => {
       let score = 0;
@@ -460,6 +462,8 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
   const r: any[] = await c.query(api.catalog.listListings, { search: term });
   const cam = ctx.camMounts;
   const cands = (r || [])
+    .filter(x => !alreadySupplied(x, ctx.cartEvidence ?? []))
+    .filter(x => x.itemType !== "lens" || !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
     .filter((x) => !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && itemTypeMatches(itemType, x.itemType))
     .map((x) => {
       let score: number;
@@ -512,6 +516,8 @@ async function recommendLensSpread(c: ConvexHttpClient, ctx: Ctx, seen: Set<stri
   const cam = ctx.camMounts;
   const isMultiSet = (t: string) => /\bultimate\b/i.test(t) || (String(t).match(/\d{2,3}\s*-\s*\d{2,3}/g) || []).length >= 2;
   let cands = (r || [])
+    .filter(x => !alreadySupplied(x, ctx.cartEvidence ?? []))
+    .filter(x => !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
     .filter((x) => itemTypeMatches("lens", x.itemType) && !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)))
     .filter((x) => !isMultiSet(x.title)) // the spread is INDIVIDUAL lenses, not a 3-lens "ultimate set"
     .map((x) => {
@@ -559,6 +565,7 @@ type Ctx = {
   pastTitles: string[];
   cartTitles: string[];
   cartIds: string[];
+  cartEvidence?: RecommendationItem[];
   today: string;
   estimated: boolean;
   start: string;
@@ -651,6 +658,7 @@ async function loadContext(body: any): Promise<Ctx> {
       const ids = body.cart.map((x: any) => x.listingId).filter(Boolean);
       if (ids.length) {
         const cds: any[] = await c.query(api.catalog.listingsByIds, { ids });
+        ctx.cartEvidence = cds;
         ctx.cartIds = cds.map((cd) => String(cd._id));
         ctx.cartTitles = cds.map((cd) => cd.title);
         for (const cd of cds) if (cd.itemType === "camera-body") {

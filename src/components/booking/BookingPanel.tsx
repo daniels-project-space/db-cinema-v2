@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { useAccount } from "@/components/account/AccountProvider";
 import { api } from "@cvx/_generated/api";
-import { quote as computeQuote, depositChargeFor, depositFor, type Pricing } from "@/lib/pricing";
+import { quote as computeQuote, type Pricing } from "@/lib/pricing";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
 import { useCalendarStock } from "./useCalendarStock";
 import { dayMs } from "@/lib/dates";
@@ -96,6 +96,7 @@ export function BookingPanel({
   demand?: number;
 }) {
   const cart = useCart();
+  const policy = useQuery(api.settings.get, {});
   const [pickupTime,setPickupTime]=useState(""),[returnTime,setReturnTime]=useState("");
   const calendarStock=useCalendarStock(listing._id,month,cart.items,!!listing.marketingOnly,start&&!end?start:null);
   const blockedDays=new Set([...unavailable,...calendarStock.unavailable]);
@@ -118,13 +119,15 @@ export function BookingPanel({
       : [];
   const fit = useQuery(
     api.availability.forCart,
-    start && end && !listing.marketingOnly ? { items: prospective } : "skip",
+    start && end && pickupTime && returnTime && !listing.marketingOnly ? { items: prospective } : "skip",
   );
   const slots=useQuery(api.availability.forTimeSlots,start&&end&&!listing.marketingOnly?{listingId:listing._id as any,start:startMs,end:endMs,pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,items:prospective.slice(0,-1)}:"skip");
   const cand: any = fit ? (fit as any)[listing._id] : undefined;
   // Marketing requests are recorded by cart.add; the basket checks stock and
   // offers replacements before checkout rather than blocking demand collection.
-  const canAdd = !!(start && end && q && (listing.marketingOnly || calendarStock.ready && cand?.ok));
+  const haveTimes = !!(pickupTime && returnTime);
+  const timesAllowed = !!(slots?.pickupSlots.includes(pickupTime) && slots?.returnSlots.includes(returnTime));
+  const canAdd = !!(start && end && q && (listing.marketingOnly || haveTimes && calendarStock.ready && timesAllowed && cand?.ok));
 
   function addToKit() {
     if (!canAdd || !q || !start || !end) return;
@@ -198,15 +201,15 @@ export function BookingPanel({
                 multi-day discount applied — save £{q.saved} ({q.savedPct}%)
               </div>
             )}
-            {/* Security uses replacement value rather than the rental price.
-                The whole-kit quote and any waiver are confirmed at checkout. */}
-            <div className="mt-2 flex justify-between font-mono text-xs text-white/35">
-              <span>Refundable deposit from</span>
-              <span>£{depositChargeFor("verify", listing.depositAmount)}</span>
+            <div className="mt-3 rounded-xl bg-white/[0.03] p-3 text-xs text-white/55">
+              <p className="font-medium text-white/75">Refundable deposit shown at checkout</p>
+              <p className="mt-1">{policy === undefined ? "Checking deposit policy…" : policy.assessmentSecurityEnabled
+                ? "£20, £50 or £100 per booking, based on the whole kit’s replacement value. Eligible members and Encore renters pay £0. No separate card hold."
+                : policy.refundableDepositEnabled
+                  ? "£0, £50 or £100 per booking, based on the whole kit’s replacement value. No separate card hold."
+                  : "No upfront deposit or card hold. Saved-card permission applies under your rental terms."}</p>
+              <p className="mt-1">Your deposit is separate from the rental price. Any unused deposit is refunded to your original card after the return assessment. Checkout confirms your exact amount and eligibility.</p>
             </div>
-            <p className="mt-1 text-right text-[11px] text-white/25">
-              {depositFor("verify", listing.depositAmount) > 0 ? `+ £${depositFor("verify", listing.depositAmount)} separate hold · final security uses whole-kit value` : "10% whole-kit card authorisation · confirmed at checkout"}
-            </p>
           </div>
         ) : (
           <div className="mt-4 rounded-lg bg-white/[0.03] px-3 py-2.5 text-center text-xs text-white/40">
@@ -217,15 +220,19 @@ export function BookingPanel({
         {/* availability (unit-aware, whole-cart) */}
         {start && end && !listing.marketingOnly && (
           <div className="mt-3 flex justify-center text-xs">
-            {fit === undefined ? (
+            {!haveTimes ? (
+              <span className="text-amber-200">Choose pickup and return times to check availability.</span>
+            ) : fit === undefined || !calendarStock.ready || slots === undefined ? (
               <span className="text-white/30">Checking availability…</span>
+            ) : !timesAllowed ? (
+              <span className="text-amber-200">Choose available pickup and return times for these dates.</span>
             ) : cand?.ok ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-300">
-                <IconCheck className="h-3 w-3" /> Available for these dates
+                <IconCheck className="h-3 w-3" /> Available for these dates and times
               </span>
             ) : cand && cand.available === 0 ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-rec-500/10 px-3 py-1 text-red-300">
-                <IconX className="h-3 w-3" /> Not available for these dates
+                <IconX className="h-3 w-3" /> Not available for these dates and times
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-amber-300">
@@ -235,7 +242,7 @@ export function BookingPanel({
           </div>
         )}
 
-        {start && end && !listing.marketingOnly && cand && cand.available === 0 && (
+        {start && end && haveTimes && !listing.marketingOnly && cand && cand.available === 0 && (
           <WaitlistForm listingId={listing._id} start={startMs} end={endMs} />
         )}
 
@@ -244,7 +251,7 @@ export function BookingPanel({
           disabled={!canAdd}
           className="btn-primary mt-5 w-full py-3"
         >
-          {start && end && cand && !cand.ok && cand.available > 0 ? "Max in kit" : "Add to kit"}
+          {!start || !end ? "Choose rental dates" : !haveTimes && !listing.marketingOnly ? "Choose pickup and return times" : cand && !cand.ok && cand.available > 0 ? "Max in kit" : "Add to kit"}
         </button>
 
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-white/40">

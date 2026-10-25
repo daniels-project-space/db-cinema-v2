@@ -1,0 +1,104 @@
+const assert = require('node:assert/strict');
+const {load, setMock, put, db} = require('./lib/rentalTestHarness.cjs');
+const p = load('shared/recommendationPolicy.ts');
+const fx3 = {_id:'fx3',itemType:'camera-body',title:'Sony FX3 + Sony 24–70mm GM',specs:{mount:'E',coverage:'ff',includesLens:true,lensFocal:'24-70'},components:[{inventoryUnitId:'body',qty:1},{inventoryUnitId:'gm',qty:1}],inventoryFacts:{contents:['Sony 24–70mm GM lens']}};
+const lens = {_id:'gm-lens',itemType:'lens',title:'Sony 24-70mm GM',specs:{mount:'E',coverage:'ff',tier:'premium',lensClass:'af',lensFocal:'24-70'},components:[{inventoryUnitId:'gm',qty:1}],pricing:{daily:30}};
+assert.deepEqual(p.focalRanges('Sony 24–70mm / 70—200mm / 35mm'),['24-70','70-200','35']);
+assert(p.alreadySupplied(lens,[fx3]),'physical kit lens must not be resold');
+assert(p.alreadySupplied({...lens,components:[]},[fx3]),'documented bundled focal also suppresses alias');
+assert.equal(p.lensUpgrade(lens,[fx3]),null,'bundled premium lens cannot be an upgrade');
+assert(!p.automaticLens(lens,[fx3]));
+const wide = {...lens,_id:'wide',title:'Sony 16–35mm GM',specs:{...lens.specs,lensFocal:'16-35'},components:[{inventoryUnitId:'wide',qty:1}]};
+assert(p.automaticLens(wide,[fx3]),'different focal can add useful coverage');
+assert(!p.automaticLens({...wide,title:'Sony 16-35,24-70,70-200mm set'},[fx3]),'a partial-overlap set is not a useful automatic addition');
+assert(!p.automaticRecommendation({itemType:'battery',specs:{batteryType:'NP-F'}},[fx3]));
+assert(p.automaticRecommendation({itemType:'battery',specs:{batteryType:'NP-FZ100'}},[{...fx3,specs:{...fx3.specs,batteryType:'NP-FZ100'}}]));
+assert(!p.automaticLens({...wide,specs:{...wide.specs,mount:'RF'}},[fx3]));
+assert.equal(p.lensFit({...wide,specs:{...wide.specs,mount:'EF'}},[fx3]),'adapter');
+assert(!p.automaticLens({...wide,specs:{...wide.specs,mount:'EF'}},[fx3]),'an unprovided adapter is not automatically compatible');
+assert.equal(p.lensFit({...wide,specs:{...wide.specs,coverage:'s35'}},[fx3]),'crop');
+assert(!p.automaticLens({...wide,specs:{...wide.specs,coverage:null}},[fx3]));
+assert.equal(p.lensFit({...wide,specs:{...wide.specs,mount:'any'}},[fx3]),'unknown');
+assert(!p.automaticLens({...wide,specs:{...wide.specs,mount:'any'}},[fx3]));
+const standard = {...lens,_id:'standard',listingId:'standard',title:'Sony 24-70 standard lens',components:[],specs:{...lens.specs,tier:'standard'}};
+const body = {...fx3,_id:'body',title:'FX3 body',components:[{inventoryUnitId:'body',qty:1}],inventoryFacts:{contents:[]},specs:{mount:'E',coverage:'ff'}};
+assert.equal(p.lensUpgrade(lens,[body,standard]),standard);
+assert.equal(p.lensUpgrade(wide,[body,standard]),null,'a different focal is an addition, not an upgrade');
+assert.equal(p.lensUpgrade({...lens,specs:{...lens.specs,lensClass:'cine'}},[body,standard]),null,'AF and manual cine are choices, not tiers');
+assert.equal(p.lensUpgrade({...lens,title:'2 lenses 24-70mm + 70-200mm'},[body,standard]),null);
+assert.equal(p.lensUpgrade({...lens,title:'2x Sony 24-70mm GM'},[body,standard]),null);
+assert.equal(p.lensUpgrade({...lens,components:[{inventoryUnitId:'gm',qty:2}]},[body,standard]),null);
+assert(p.alreadySupplied({...wide,itemType:'monitor',components:[{inventoryUnitId:'monitor',qty:1}]},[{components:[{inventoryUnitId:'monitor',qty:1},{inventoryUnitId:'body',qty:1}]}]));
+assert(!p.alreadySupplied({...wide,itemType:'monitor',components:[{inventoryUnitId:'monitor',qty:2}]},[{components:[{inventoryUnitId:'monitor',qty:1}]}]),'two-unit offer is not identical to one included unit');
+const optional = {...body,rentalContents:{included:[]},inventoryFacts:{contents:[]}};
+assert.deepEqual(p.includedLensFocals(optional),[],'optional extras do not count as supplied');
+
+let cards=[fx3], candidates=[lens], queries=[];
+setMock('convex/browser',{ConvexHttpClient:class {async query(name,args){queries.push({name,args}); if(name==='catalog.listingsByIds')return cards;if(name==='catalog.byItemType')return candidates;if(name==='availability.forTimeSlots'||name==='availability.forListing')return {available:1,pickupSlots:['10:00'],returnSlots:['17:00']};throw Error(name);}}});
+setMock('@/lib/pricing',load('convex/lib/pricing.ts'));
+setMock('@/lib/compat',{kitWarnings:()=>[]});
+setMock('@/lib/ratelimit',{rateLimit:async()=>({allowed:true})});
+const {POST}=load('src/app/api/compat/route.ts');
+async function request(items){queries=[];return (await POST({json:async()=>({items})})).json();}
+const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:'17:00'};
+(async()=>{
+ let result=await request([{listingId:'fx3',...window,total:1}]);
+ assert.deepEqual(result.upgrades,[],'FX3 kit returns no false GM upgrade');
+ assert.equal(queries.length,1,'no needless lens/availability reads for an already-equipped kit');
+ cards=[body,{...standard,pricing:{daily:10}}];
+ result=await request([{listingId:'body',...window},{listingId:'standard',...window,total:99999}]);
+ assert.equal(result.upgrades.length,1);
+ assert.equal(result.upgrades[0].replaceListingId,'standard');
+ assert.equal(result.upgrades[0].diffPerDay,20,'difference uses authoritative catalogue price');
+ const availability=queries.find(q=>q.name==='availability.forTimeSlots').args;
+ assert.equal(availability.pickupTime,'10:00');
+ assert.equal(availability.returnTime,'17:00');
+ assert.equal(availability.items.length,1);
+ assert.equal(availability.items[0].listingId,'body','remaining basket reserves shared units');
+ result=await request([{listingId:'body',...window},{listingId:'standard',...window},{listingId:'standard',...window}]);
+ assert.equal(result.upgrades.length,0,'ambiguous quantity cannot silently swap one line');
+ result=await request([{listingId:'body',...window},{listingId:'standard',...window,end:'2026-11-22'}]);
+ assert.equal(result.upgrades.length,0,'different rental windows cannot share a guessed quote');
+ // Exercise the real assembler handler: the model chooses stages, while the
+ // catalogue policy controls the actual recommended lens.
+ setMock('@/lib/mount',load('convex/lib/mount.ts'));
+ setMock('@/lib/compat',load('src/lib/compat.ts'));
+ setMock('@/lib/kitRank',load('src/lib/kitRank.ts'));
+ setMock('@/lib/dates',load('src/lib/dates.ts'));
+ setMock('@/lib/site',load('src/lib/site.ts'));
+ setMock('@/lib/ai',{botModel:()=>({})});
+ setMock('ai',{generateObject:async()=>({object:{reply:'Build a kit',stages:[{key:'camera',recommend:'FX3'},{key:'lens',recommend:'24-70 GM'}]}})});
+ let selectedCamera=fx3;
+ setMock('convex/browser',{ConvexHttpClient:class {async query(name,args){
+   if(name==='catalog.byItemType')return args.types.includes('camera-body')?[{...selectedCamera,pricing:{daily:100}}]:[lens,wide];
+   if(name==='availability.forListing')return {available:1};throw Error(name);
+ }}});
+ process.env.OPENROUTER_API_KEY='isolated-fixture-no-provider-call';
+ const assemble=load('src/app/api/assemble/route.ts');
+ async function assembleKit(){return (await assemble.POST({json:async()=>({...window,size:'Small crew'})})).json();}
+ let incomplete=await assemble.POST({json:async()=>({start:window.start,end:window.end})});
+ assert.equal(incomplete.status,400,'availability must not be claimed before times are provided');
+ let assembled=await assembleKit();
+ let lensStage=assembled.stages.find(s=>s.key==='lens');
+ assert.equal(lensStage.recommendedId,wide._id,'model hint must not override documented bundled glass');
+ assert.equal(lensStage.options.find(o=>o.listingId===lens._id).automaticEligible,false);
+ selectedCamera=body;
+ assembled=await assembleKit();
+ assert(assembled.stages.find(s=>s.key==='lens').recommendedId,'body without lens can get a native lens recommendation');
+ assert.deepEqual(p.documentedIncludedTypes({...body,inventoryFacts:{contents:['Sony 24–70mm GM lens','DJI RS3 Pro gimbal'],optionalContents:['monitor']}}).sort(),['gimbal','lens']);
+ // Real registered complementary query: aliases in different offers must not
+ // fill the list with the same physical lens, even with strong demand scores.
+ const listing = data => {const {_id,...fields}=data;return put('listings',{active:true,pricing:{daily:20},r2Images:['https://example.invalid/gear.jpg'],category:'Cameras',...fields});};
+ const selected=listing({...fx3,slug:'fx3-proof'});
+ listing({...lens,demandScore:999});
+ const firstWide=listing({...wide,demandScore:500});
+ const duplicateWide=listing({...wide,demandScore:499});
+ listing({...wide,specs:{...wide.specs,mount:'RF'},demandScore:1000});
+ listing({...wide,specs:{...wide.specs,coverage:null},demandScore:1000});
+ listing({itemType:'battery',title:'Gimbal battery',specs:{batteryType:'gimbal'},demandScore:1000});
+ const recs=await load('convex/recommendations.ts').forContext.handler({db},{slug:selected.slug,limit:8});
+ assert(!recs.some(i=>i.title===lens.title),'included GM must not be recommended again');
+ assert.equal(recs.filter(i=>i._id===firstWide._id||i._id===duplicateWide._id).length,1,'physical aliases deduplicate within returned list');
+ assert(!recs.some(i=>i.title==='Gimbal battery'),'a gimbal battery is not a camera spare');
+ console.log('PASS evidence-based policy and registered basket upgrade, AI assembly and complementary recommendation handlers');
+})().catch(e=>{console.error(e);process.exitCode=1;});

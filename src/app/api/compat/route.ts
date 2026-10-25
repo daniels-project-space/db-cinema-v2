@@ -2,72 +2,78 @@ import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { quote } from "@/lib/pricing";
-import { bestCompat, parseMounts } from "@/lib/mount";
+import { lensUpgrade } from "../../../../shared/recommendationPolicy";
 import { kitWarnings } from "@/lib/compat";
 import { rateLimit } from "@/lib/ratelimit";
 
 export const maxDuration = 60;
 const msOf = (d: string) => { const t = Date.parse(/T/.test(d) ? d : d + "T00:00:00Z"); return Number.isNaN(t) ? 0 : t; };
 
+function currentQuote(listing: any, days: number) {
+  const q = quote(listing.pricing, days);
+  const total = listing.quietDeal ? Math.round(q.total * (1 - listing.quietDeal / 100)) : q.total;
+  return { ...q, total, perDay: Math.round(total / days * 100) / 100 };
+}
+
 export async function POST(req: NextRequest) {
   const rl = await rateLimit(req, "compat", 60, 60_000);
   if (!rl.allowed) return NextResponse.json({ warnings: [], upgrades: [] }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   const b: any = await req.json().catch(() => ({}));
-  const items: any[] = b.items || [];
+  if (!Array.isArray(b.items) || b.items.length > 100 || b.items.some((item: any) => !item || typeof item.listingId !== "string"))
+    return NextResponse.json({ warnings: [], upgrades: [], error: "Invalid basket." }, { status: 400 });
+  const items: any[] = b.items;
   if (items.length === 0) return NextResponse.json({ warnings: [], upgrades: [] });
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
   const ids = items.map((i) => i.listingId).filter(Boolean);
   let cards: any[] = [];
-  try { cards = await c.query(api.catalog.listingsByIds, { ids: ids as any }); } catch {}
+  try { cards = await c.query(api.catalog.listingsByIds, { ids: ids as any }); }
+  catch { return NextResponse.json({ warnings: [], upgrades: [], error: "Could not check the current catalogue." }, { status: 503 }); }
   const specOf = new Map(cards.map((cd) => [cd._id, cd]));
+  if (ids.some(id => !specOf.has(id))) return NextResponse.json({ warnings: [], upgrades: [], error: "Your basket needs to be refreshed." }, { status: 409 });
   const days = items[0]?.start && items[0]?.end ? Math.max(1, Math.round((msOf(items[0].end) - msOf(items[0].start)) / 86400000) + 1) : 1;
 
   // enrich cart items with itemType + specs + perDay
   const kit = items.map((i) => {
     const cd: any = specOf.get(i.listingId) || {};
-    return { ...i, itemType: cd.itemType ?? null, specs: cd.specs ?? {}, perDay: i.total ? Math.round(i.total / days) : null };
+    return { ...cd, listingId: i.listingId, perDay: cd.pricing ? currentQuote(cd, days).perDay : null };
   });
-  const cameras = kit.filter((x) => x.itemType === "camera-body");
-  const lenses = kit.filter((x) => x.itemType === "lens");
-
-  // ALL pairwise compatibility (mount / coverage / filter / battery / redundant / fixed-lens)
-  // is decided by the one shared engine — src/lib/compat.ts — so the cart can never diverge
-  // from what the bot and assembler reason about.
   const warnings = kitWarnings(kit);
-  const camMounts = cameras.map((c) => c.specs.mount).filter(Boolean);
-  const camM = [...new Set(camMounts.flatMap((m: string) => parseMounts(m)))];
-
-  // ── upgrades: swap a standard lens (or kit lens) for a premium (GM), priced as the difference ──
   const upgrades: any[] = [];
-  const wantsUpgrade = lenses.some((l) => l.specs.tier !== "premium") || cameras.some((c) => c.specs.includesLens);
-  if (wantsUpgrade && items[0]?.start && items[0]?.end) {
-    const replaced = lenses.find((l) => l.specs.tier !== "premium") || null;
-    const allLenses: any[] = await c.query(api.catalog.byItemType, { types: ["lens"] });
-    const candidates = allLenses
-      .filter((l) => l.specs?.tier === "premium" && !ids.includes(l._id))
-      .filter((l) => camM.length === 0 || !l.specs?.mount || bestCompat(parseMounts(l.specs.mount), camM) !== "incompatible");
-    // prefer a GM zoom matching the kit focal
-    const kitFocal = replaced?.specs?.lensFocal || cameras.find((c) => c.specs.includesLens)?.specs?.lensFocal;
-    candidates.sort((a, z) => {
-      const am = kitFocal && a.title.includes(kitFocal) ? 0 : 1;
-      const zm = kitFocal && z.title.includes(kitFocal) ? 0 : 1;
-      const ag = /gm|g master/i.test(a.title) ? 0 : 1;
-      const zg = /gm|g master/i.test(z.title) ? 0 : 1;
-      return am - zm || ag - zg;
-    });
-    for (const cand of candidates.slice(0, 2)) {
-      const av: any = await c.query(api.availability.forListing, { listingId: cand._id, start: msOf(items[0].start), end: msOf(items[0].end) });
-      if ((av?.available ?? 0) <= 0) continue;
-      const q: any = quote(cand.pricing, days);
-      const diffPerDay = replaced?.perDay ? Math.max(0, q.perDay - replaced.perDay) : q.perDay;
+  // A swap needs one exact, separately priced source. Bundled glass cannot be
+  // removed independently; never sell another same-focal lens as its upgrade.
+  const window = items[0];
+  const sameWindow = window?.start && window?.end && window.pickupTime && window.returnTime && items.every(i =>
+    i.start === window.start && i.end === window.end &&
+    i.pickupTime === window.pickupTime && i.returnTime === window.returnTime);
+  if (sameWindow && kit.some(i => i.itemType === "lens" && i.specs?.tier === "standard")) {
+    const lenses: any[] = await c.query(api.catalog.byItemType, { types: ["lens"] });
+    const candidates = lenses.filter(candidate => lensUpgrade(candidate, kit))
+      .sort((a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0));
+    for (const cand of candidates.slice(0, 12)) {
+      const replaced: any = lensUpgrade(cand, kit);
+      if (!replaced) continue;
+      // Two identical source lines are ambiguous: a single click must not
+      // silently remove just one of several rented lenses.
+      if (items.filter(i => i.listingId === replaced.listingId).length !== 1) continue;
+      const av: any = await c.query(api.availability.forTimeSlots, {
+        listingId: cand._id, start: msOf(window.start), end: msOf(window.end),
+        pickupTime: window.pickupTime, returnTime: window.returnTime,
+        items: items.filter(i => i.listingId !== replaced.listingId).map(i => ({
+          listingId: i.listingId, start: msOf(i.start), end: msOf(i.end),
+          pickupTime: i.pickupTime, returnTime: i.returnTime,
+        })),
+      });
+      if ((av?.available ?? 0) <= 0 || !av.pickupSlots?.includes(window.pickupTime) || !av.returnSlots?.includes(window.returnTime)) continue;
+      const q = currentQuote(cand, days);
       upgrades.push({
-        listingId: cand._id, slug: cand.slug, title: cand.title, image: cand.heroImage ?? null, imageSources: cand.imageSources,
-        start: items[0].start, end: items[0].end, days, perDay: q.perDay, total: q.total, deposit: cand.depositAmount ?? 0,
-        replaceListingId: replaced?.listingId ?? null,
-        replaceTitle: replaced?.title ?? null,
-        diffPerDay,
-        reason: replaced ? `Upgrade from ${String(replaced.title ?? "your lens").slice(0, 24)} to pro GM glass` : "Premium GM upgrade over your kit lens",
+        listingId: cand._id, slug: cand.slug, title: cand.title,
+        image: cand.heroImage ?? null, imageSources: cand.imageSources,
+        start: window.start, end: window.end, pickupTime: window.pickupTime, returnTime: window.returnTime,
+        days, perDay: q.perDay, total: q.total, deposit: cand.depositAmount ?? 0,
+        replaceListingId: replaced.listingId, replaceTitle: replaced.title,
+        diffPerDay: Math.round((q.perDay - replaced.perDay) * 100) / 100,
+        reason: `Replace ${replaced.title} with premium glass at the same focal length; native mount and sensor coverage checked.`,
       });
       break;
     }
