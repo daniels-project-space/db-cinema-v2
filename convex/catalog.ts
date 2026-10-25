@@ -1,3 +1,5 @@
+import { effectiveLensSpecs } from "../shared/opticalFacts";
+import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
@@ -55,7 +57,7 @@ const card = (l: any) => ({
   title: l.title,
   category: l.category,
   itemType: l.itemType ?? null,
-  specs: l.specs ?? null,
+  specs: effectiveLensSpecs(l),
   inventoryFacts: l.inventoryFacts ?? null,
   rentalContents: l.rentalContents ? { included: l.rentalContents.included } : null,
   components: l.components ?? [],
@@ -281,7 +283,7 @@ export const getListingBySlug = query({
       title: l.title,
       category: l.category,
       itemType: l.itemType ?? null,
-      specs: l.specs ?? null,
+      specs: effectiveLensSpecs(l),
       knowledge: l.knowledge ?? null,
       description:l.description??null,
       rentalContents: l.rentalContents ?? null,
@@ -338,6 +340,7 @@ export const recommendations = query({
       .withIndex("by_slug", (q) => q.eq("slug", slug))
       .first();
     if (!base) return [];
+    const evidence = base.itemType === "camera-body" ? await verifiedKitEvidence(ctx) : [];
     const wanted = COMPLEMENTS[base.category] ?? ["Cameras", "Lenses"];
     const out: any[] = [];
     const perCat = Math.max(2, Math.ceil((limit ?? 6) / wanted.length));
@@ -348,7 +351,7 @@ export const recommendations = query({
         .collect();
       const picks = rows
         .filter((r) => !rentalUnavailable(r) && r.slug !== slug && images(r).length > 0 && !alreadySupplied(r, [base]))
-        .filter((r) => automaticRecommendation(r, [base]))
+        .filter((r) => automaticRecommendation(r, [base], evidence))
         .sort((a, b) => (b.pricing?.daily ?? 0) - (a.pricing?.daily ?? 0))
         .slice(0, perCat);
       out.push(...picks);
@@ -425,3 +428,6 @@ export const discovery = query({
     }))};
   },
 });
+
+/** Public physical pairing evidence; no customer or private inventory fields. */
+export const compatibilityKits = query({ args: {}, handler: verifiedKitEvidence });

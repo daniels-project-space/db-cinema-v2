@@ -558,7 +558,7 @@ export default function CheckoutPage() {
             </div>
             {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
             {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
-            {!!items.length&&<div className="mt-4"><CartStockNotice checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
+            {!!items.length&&<div className="mt-4"><CartStockNotice needsTimes={stock.needsTimes} checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
             {invalidTimeOrder&&<p role="status" className="mt-4 text-sm text-amber-200">Choose a return time later than pickup, or a later return date in your basket.</p>}
             {availabilityBlocked&&!invalidTimeOrder&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
             {canRecover&&<p role="status" className="mt-3 text-sm text-white/65">This checkout has reserved your kit. Resume the same payment session.</p>}

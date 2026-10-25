@@ -1,3 +1,4 @@
+import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
 import { listingImages as images } from "./lib/catalogImages";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
@@ -77,6 +78,7 @@ export const forContext = query({
     // Every active listing has a materialized itemType (catalog sync defaults
     // missing source types to "accessory"), so the composite index preserves
     // the old in-memory fallback semantics without scanning unrelated listings.
+    const evidence = wanted.includes("gimbal") ? await verifiedKitEvidence(ctx) : [];
     const candidatesByType = await Promise.all(
       wanted.map((type) => ctx.db
         .query("listings")
@@ -91,7 +93,7 @@ export const forContext = query({
     for (const l of candidatesByType.flat()) {
       if (rentalUnavailable(l)) continue;
       if (exclude.has(l._id) || alreadySupplied(l, selected)) continue;
-      if (!automaticRecommendation(l, selected)) continue;
+      if (!automaticRecommendation(l, selected, evidence)) continue;
       if (images(l).length === 0) continue;
       const t = l.itemType ?? "accessory";
       if (!wanted.includes(t as ItemType)) continue;
@@ -120,7 +122,7 @@ export const forContext = query({
     for (let round = 0; round < rounds && out.length < lim; round++) {
       for (const t of wanted) {
         const candidate = byType.get(t)?.[round];
-        if (!candidate || !automaticRecommendation(candidate, [...selected, ...chosen])) continue;
+        if (!candidate || !automaticRecommendation(candidate, [...selected, ...chosen], evidence)) continue;
         chosen.push(candidate);
         out.push(card(candidate));
         if (out.length >= lim) break;

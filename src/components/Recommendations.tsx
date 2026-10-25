@@ -43,6 +43,7 @@ export function Recommendations({
 
   function addSelected() {
     if (!haveDates) return;
+    const reference = cart.items.find(item => item.slug === slug && item.start === start && item.end === end && item.pickupTime && item.returnTime);
     for (const r of recs) {
       if (!selected.has(r._id)) continue;
       const q = computeQuote(r.pricing, days);
@@ -53,6 +54,7 @@ export function Recommendations({
         heroImage: r.heroImage,
         start: start!,
         end: end!,
+        pickupTime: reference?.pickupTime, returnTime: reference?.returnTime,
         days,
         perDay: q.perDay,
         total: q.total,

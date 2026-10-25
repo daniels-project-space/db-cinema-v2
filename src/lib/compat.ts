@@ -9,7 +9,7 @@
  *   1. mount        lens ↔ camera        (delegates to mount.ts — the matrix)
  *   2. coverage     lens ↔ camera        Super-35 glass vignettes on a FF body
  *   3. filterThread ND   ↔ lens          82mm VND won't sit on a 67mm lens
- *   4. battery      battery ↔ camera     V-mount won't power an NP-FZ100 body
+ *   4. battery      battery ↔ camera     native family vs regulated external rig power
  *   5. redundant    lens ↔ kit-camera    body already ships a lens
  *   6. fixed-lens   lens ↔ action cam    nothing attaches to a GoPro
  *
@@ -17,8 +17,9 @@
  * "what works with what" rule can never fork into divergent hand-rolled tables
  * again (which is exactly how the old mount bug crept in).
  */
+import { effectiveLensSpecs, filterThreadsFor } from "../../shared/opticalFacts";
 import { bestCompat, parseMounts, type BestCompat } from "./mount";
-import { bundleIncludes } from "../../convex/lib/taxonomy";
+import { documentedIncludedTypes, includedLensFocals, lensFocals, lensFit, verifiedGimbalPair, type RecommendationItem } from "../../shared/recommendationPolicy";
 
 export type WarnLevel = "info" | "warn" | "error";
 export type Warning = { level: WarnLevel; dimension: string; text: string };
@@ -33,15 +34,10 @@ export type KitSpecs = {
   tier?: string | null;
   coverage?: string | null; // "ff" | "s35" | "mft"
 };
-export type KitItem = {
+export type KitItem = RecommendationItem & {
   itemType?: string | null;
   title?: string | null;
   specs?: KitSpecs | null;
-};
-
-/** Kit-lens focal → front filter thread (mm), for bodies sold WITH a lens. */
-export const FOCAL_THREAD: Record<string, number> = {
-  "28-70": 67, "24-70": 82, "16-35": 72, "24-105": 77, "70-200": 77, "24-240": 67, "18-105": 72, "18-135": 67,
 };
 
 // Sensor / image-circle size ordered small→large. A lens whose circle ≥ the
@@ -88,22 +84,22 @@ const cut = (s: unknown, n: number) => String(s ?? "").slice(0, n);
  * Full pairwise compatibility scan of a kit. Pure — no IO. Returns ordered
  * warnings (errors first). `kit` items carry itemType + derived specs.
  */
-export function kitWarnings(kit: KitItem[]): Warning[] {
+export function kitWarnings(kit: KitItem[], evidence: RecommendationItem[] = []): Warning[] {
   const cameras = kit.filter((x) => x.itemType === "camera-body");
   const lenses = kit.filter((x) => x.itemType === "lens");
   const nds = kit.filter((x) => x.itemType === "nd-filter");
   const batteries = kit.filter((x) => x.itemType === "battery");
   const out: Warning[] = [];
 
-  const sp = (x: KitItem): KitSpecs => x.specs ?? {};
+  const sp = (x: KitItem): KitSpecs => effectiveLensSpecs(x) ?? {};
 
-  // 1) redundant lens — camera bundle already includes a lens
-  for (const cam of cameras)
-    if (sp(cam).includesLens && lenses.length)
-      out.push({
-        level: "info", dimension: "redundant",
-        text: `Your ${cut(cam.title, 34)} already includes a ${sp(cam).lensFocal || "kit"}mm lens — the ${cut(lenses[0].title, 28)} would be a second lens.`,
-      });
+  // A different focal length is a useful addition, not a duplicate upgrade.
+  for (const cam of cameras) {
+    const supplied = includedLensFocals(cam);
+    for (const lens of lenses) if (lensFocals(lens).some(f => supplied.includes(f)))
+      out.push({ level: "info", dimension: "redundant",
+        text: `Your ${cut(cam.title, 34)} already includes glass covering ${supplied.join(" / ")}mm — ${cut(lens.title, 28)} overlaps it and would be an extra lens, not a replacement.` });
+  }
 
   // 1b) redundant secondary gear — the chosen set already bundles this item type, so a
   // separately-added one is a spare/second (and its scarce unit is already booked in the set).
@@ -112,7 +108,7 @@ export function kitWarnings(kit: KitItem[]): Warning[] {
     "nd-filter": "ND filter", slider: "slider", light: "light", "wireless-mic": "wireless mic", recorder: "recorder",
   };
   for (const cam of cameras) {
-    const inc = new Set(bundleIncludes(cam.title || ""));
+    const inc = new Set(documentedIncludedTypes(cam));
     for (const x of kit) {
       if (x === cam || x.itemType === "camera-body" || !x.itemType || x.itemType === "lens") continue; // lens handled above
       if (inc.has(x.itemType as never) && TYPE_LABEL[x.itemType])
@@ -142,57 +138,52 @@ export function kitWarnings(kit: KitItem[]): Warning[] {
       out.push({ level: "error", dimension: "mount", text: `${cut(l.title, 30)} (${lm} mount) doesn't fit your ${camMounts[0]}-mount camera.` });
   }
 
-  // 4) sensor coverage vs camera — a Super-35 lens vignettes on a full-frame body.
-  // Only when the lens DOES mount (native/adapter), else the mount warning already covers it.
-  const camCovs = [...new Set(cameras.map((c) => sp(c).coverage).filter(Boolean) as string[])];
-  if (camCovs.length) {
-    const biggestCam = camCovs.reduce((a, b) => (COVERAGE_RANK[b] > COVERAGE_RANK[a] ? b : a));
-    for (const l of lenses) {
-      const lm = sp(l).mount;
-      const mounts = !lm || camMounts.length === 0 || bestCompat(parseMounts(lm), camMounts) !== "incompatible";
-      if (!mounts) continue; // mount warning owns this pair
-      if (coverageCompat(sp(l).coverage, biggestCam) === "vignette")
-        out.push({
-          level: "warn", dimension: "coverage",
-          text: `${cut(l.title, 30)} is a ${sp(l).coverage!.toUpperCase()} lens — it will vignette / crop on your full-frame camera.`,
-        });
-    }
+  // Coverage belongs to a camera/lens pair. The largest sensor elsewhere
+  // in a mixed-mount kit must not create a false crop warning for this pair.
+  for (const lens of lenses) for (const camera of cameras) {
+    const lm = parseMounts(sp(lens).mount), cm = parseMounts(sp(camera).mount);
+    if (!lm.length || !cm.length || bestCompat(lm, cm) === "incompatible") continue;
+    if (coverageCompat(sp(lens).coverage, sp(camera).coverage) === "vignette")
+      out.push({ level: "warn", dimension: "coverage",
+        text: `${cut(lens.title, 30)} has ${String(sp(lens).coverage).toUpperCase()} coverage — expect crop/vignetting on ${cut(camera.title, 30)}.` });
   }
 
+  for (const lens of lenses) if (cameras.length && lensFit(lens, cameras) === "unknown")
+    out.push({ level: "warn", dimension: "unknown", text: `Exact mount or sensor coverage is unconfirmed for ${cut(lens.title, 30)}. Confirm the lens and body pairing before booking.` });
+
   // 5) ND thread vs lens / kit-lens thread
-  const lensThreads = lenses.map((l) => sp(l).filterThreadMm).filter(Boolean) as number[];
-  for (const cam of cameras) {
-    const f = sp(cam).lensFocal;
-    if (sp(cam).includesLens && f && FOCAL_THREAD[f]) lensThreads.push(FOCAL_THREAD[f]);
-  }
+  const lensThreads = [...lenses, ...cameras].flatMap(filterThreadsFor);
   for (const nd of nds) {
-    const ndT = sp(nd).filterThreadMm;
-    // a bigger ND (with a step-DOWN ring) fits a smaller lens, but never the reverse;
-    // warn only when the ND is SMALLER than every known lens thread (genuinely won't seat).
-    if (ndT && lensThreads.length && lensThreads.every((lt) => ndT < lt))
-      out.push({
-        level: "warn", dimension: "filter",
-        text: `The ${ndT}mm ${cut(nd.title, 20)} is smaller than your lens (Ø${[...new Set(lensThreads)].join("/")}mm) — needs a step-up ring.`,
-      });
+    const thread = sp(nd).filterThreadMm;
+    if (!thread || !lensThreads.length) {
+      if (cameras.length || lenses.length) out.push({ level: "warn", dimension: "filter",
+        text: `Confirm the front filter diameter for ${cut(nd.title, 26)} and your exact lens before adding it.` });
+      continue;
+    }
+    const otherThreads = [...new Set(lensThreads.filter(t => t !== thread))];
+    if (otherThreads.length) out.push({ level: "warn", dimension: "filter",
+      text: `The Ø${thread}mm ${cut(nd.title, 20)} needs a suitable step ring for your Ø${otherThreads.join("/Ø")}mm lens. Confirm the ring and check for vignetting.` });
   }
 
   // 6) battery vs camera. V-mount / broadcast power is "rig power" — it runs cinema
   // bodies (and monitors, wireless video, lights) through a plate + D-tap, so it is
   // never "incompatible"; it's surfaced as the supplementary rig power source.
   const camBatts = cameras.map((c) => sp(c).batteryType).filter(Boolean) as string[];
-  const powerHungry = kit.filter((x) => x.itemType === "light" || x.itemType === "monitor");
   for (const bat of batteries) {
     const bt = sp(bat).batteryType;
     if (!bt) continue;
     if (isRigPower(bt)) {
-      // V-mount / broadcast power runs ANY camera (incl. an FX3) via a plate + D-tap — always
-      // compatible. Only note it when there are lights/monitors it can also power off D-tap.
-      if (powerHungry.length)
-        out.push({ level: "info", dimension: "battery", text: `${cut(bat.title, 26)} (${bt}) also powers your monitor/lights via a V-mount plate + D-tap.` });
+      if (camBatts.length && !camBatts.some(cb => battOk(cb, bt)))
+        out.push({ level: "warn", dimension: "battery", text: `${cut(bat.title, 26)} (${bt}) is external rig power. Confirm a suitable plate, regulated cable and camera input voltage; it is not a native camera battery.` });
       continue;
     }
     if (camBatts.length && !camBatts.some((cb) => battOk(cb, bt)))
       out.push({ level: "error", dimension: "battery", text: `The ${cut(bat.title, 26)} (${bt}) won't power your camera (needs ${camBatts[0]}).` });
+  }
+
+  for (const gimbal of kit.filter(item => item.itemType === "gimbal")) {
+    if (cameras.length && !verifiedGimbalPair(gimbal, kit.filter(item => item !== gimbal), evidence))
+      out.push({ level: "warn", dimension: "gimbal", text: `Confirm payload, lens clearance, mounting and balance for ${cut(gimbal.title, 30)} with your selected camera rig. This exact combination is not documented in our verified kits.` });
   }
 
   // errors first, then warns, then info

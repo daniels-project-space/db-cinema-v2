@@ -30,7 +30,8 @@ export function CartItemTimes({item,defaultPickupTime,defaultReturnTime,ready,de
    <TimeSlotPicker id={`${id}-return`} label={`${delivery?"Collection":"Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time=>choose(pickupTime,time)} disabled={!ready||!slots} allowedSlots={slots?.returnBoundarySlots??slots?.returnSlots}/>
   </div>
   {invalidOrder&&<p role="alert" className="mt-2 text-xs text-amber-200">Return must be later than pickup on the same day. Choose a later return time or change the return date in your basket.</p>}
-  {slots&&!slots.available&&!invalidOrder&&<p className="mt-2 text-xs text-amber-200">The equipment is unavailable for this full rental period. Adjust the pickup or return time, or choose different dates or a replacement in your basket.</p>}
+  {(!pickupTime||!returnTime)&&<p className="mt-2 text-xs text-white/55">Choose pickup and return times to check availability.</p>}
+  {pickupTime&&returnTime&&slots&&!slots.available&&!invalidOrder&&<p className="mt-2 text-xs text-amber-200">The equipment is unavailable for this full rental period. Adjust the pickup or return time, or choose different dates or a replacement in your basket.</p>}
   {error&&<p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
  </div>;
 }

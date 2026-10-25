@@ -1,0 +1,68 @@
+const assert=require('node:assert/strict');
+const {load,setMock,put,db}=require('./lib/rentalTestHarness.cjs');
+for(const [name,file] of Object.entries({'@/lib/pricing':'src/lib/pricing.ts','@/lib/dates':'src/lib/dates.ts','@/lib/voiceDates':'src/lib/voiceDates.ts'}))setMock(name,load(file));
+const listing=data=>put('listings',{active:true,category:'Lenses',stockMappingStatus:'complete',pricing:{daily:20},r2Images:['https://example.invalid/item.jpg'],...data});
+const camera=listing({slug:'fx3',title:'Sony FX3 and 24–70mm GM lens',category:'Cameras',itemType:'camera-body',specs:{mount:'E',coverage:'ff',includesLens:true,lensFocal:'24-70'},components:[{inventoryUnitId:'body',qty:1},{inventoryUnitId:'gm',qty:1}]});
+const gm=listing({slug:'gm',title:'Sony 24-70mm GM lens',itemType:'lens',demandScore:999,specs:{mount:'E',coverage:'ff',lensFocal:'24-70',tier:'premium',lensClass:'af'},components:[{inventoryUnitId:'gm',qty:1}]});
+const wide=listing({slug:'wide',title:'Sony 16-35mm GM lens',itemType:'lens',demandScore:100,specs:{mount:'E',coverage:'ff',lensFocal:'16-35',tier:'premium',lensClass:'af'},components:[{inventoryUnitId:'wide',qty:1}]});
+listing({...wide,_id:'wide-alias',components:wide.components});
+listing({slug:'wrong',title:'Sony 16-35mm RF lens',itemType:'lens',demandScore:1000,specs:{mount:'RF',coverage:'ff'},components:[{inventoryUnitId:'wrong',qty:1}]});
+const recommend=load('convex/voiceCatalog.ts').recommend;
+const cart={items:[{key:'fx3-line',listingId:camera._id,title:camera.title,start:'2026-11-20',end:'2026-11-21'}],count:1,subtotal:20,depositTotal:100,close(){},open(){},has(id){return this.items.some(i=>i.listingId===id)}};
+let stockCalls=[],recommendArgs;
+const convex={query:async(name,args)=>{
+ if(name==='voiceCatalog.search')return{matches:[{id:camera._id,slug:camera.slug,title:camera.title,daily:20,minDays:1}]};
+ if(name==='voiceCatalog.recommend'){recommendArgs=args;return recommend.handler({db},args)}
+ if(name==='availability.forListing'){stockCalls.push(args);return{available:1}}
+ if(name==='availability.forCart')return{[camera._id]:{ok:true}};
+ if(name==='cartReplacements.forCart')return{};
+ throw Error('Unexpected query '+name);
+}};
+setMock('@cvx/lib/gafferDiscount',load('convex/lib/gafferDiscount.ts'));
+setMock('react',{useRef:current=>({current}),useCallback:fn=>fn,useMemo:fn=>fn(),useEffect:()=>{}});
+setMock('next/navigation',{useRouter:()=>({push(){}})});
+setMock('convex/react',{useConvex:()=>convex,useQuery:(name)=>name==='settings.get'?{assessmentSecurityEnabled:true}:name==='catalog.listListings'?[camera,gm,wide]:{}});
+setMock('@/components/cart/CartProvider',{useCart:()=>cart});
+setMock('@/components/account/AccountProvider',{useAccount:()=>({})});
+setMock('@/components/account/useCreditBalance',{useCreditBalance:()=>undefined});
+setMock('@/components/gaffer/GafferFocus',{useGafferFocus:()=>({focus(){},suggest:async()=>false,suggestedIds:[],focusedId:null}),scrollToId:async()=>false});
+const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts');
+(async()=>{
+ let tools=useGafferTools();
+ const unconfirmed=await tools.clientTools.find_gear({item:'FX3',start:'2026-11-20',end:'2026-11-21'});
+ assert.match(unconfirmed,/choose pickup and return dates and times/);assert(!unconfirmed.includes('1 free'));assert.equal(stockCalls.length,0);
+ assert.match(await tools.clientTools.check_basket(),/Choose pickup and return times/);
+ assert.match(tools.dynamicVariables.basket_availability,/availability unconfirmed/);
+ assert.match(await tools.clientTools.go_to_checkout(),/Choose pickup and return times/);
+ const selected=await recommend.handler({db},{q:'Sony lens',category:'Lenses',cartListingIds:[camera._id],limit:6});
+ const choices=[...selected.standalone,...selected.bundles];
+ assert.equal(choices.length,1);assert.equal(choices[0].id,wide._id,'voice recommendations exclude bundled GM, aliases and incompatible mounts');
+ await tools.clientTools.recommend_gear({item:'Sony lens',category:'Lenses'});
+ assert.deepEqual(recommendArgs.cartListingIds,[camera._id],'real voice hook sends its actual basket context');
+ cart.items[0].pickupTime='10:00';cart.items[0].returnTime='17:00';
+ tools=useGafferTools();
+ assert.match(await tools.clientTools.find_gear({item:'FX3',start:'2026-11-20',end:'2026-11-21'}),/1 free/);
+ assert.equal(stockCalls.length,1);assert.equal(stockCalls[0].pickupTime,'10:00');assert.equal(stockCalls[0].returnTime,'17:00');
+ assert.match(await tools.clientTools.check_basket(),/available/);
+ setMock('@/lib/site',load('src/lib/site.ts'));
+ setMock('@/lib/ratelimit',{rateLimit:async()=>({allowed:true})});
+ let providerFailure=false;
+ setMock('convex/browser',{ConvexHttpClient:class{async query(name,args){
+   if(name==='voiceCatalog.search')return{matches:[{id:camera._id,title:camera.title,daily:20,minDays:1}]};
+   if(name==='availability.forListing'){if(providerFailure)throw Error('controlled outage');stockCalls.push(args);return{available:1}};
+   throw Error(name);
+ }}});
+ process.env.VOICE_WEBHOOK_SECRET='isolated-voice-fixture';
+ const voice=load('src/app/api/voice/route.ts');
+ const webhook=async(args)=>(await voice.POST({url:'https://fixture.invalid/api/voice',headers:new Headers({'x-voice-secret':process.env.VOICE_WEBHOOK_SECRET}),json:async()=>({name:'check_availability',args})})).json();
+ const before=stockCalls.length;
+ let spoken=await webhook({item:'FX3',start:'2026-11-20',end:'2026-11-21'});
+ assert.equal(spoken.needs,'times');assert.equal(stockCalls.length,before);
+ spoken=await webhook({item:'FX3',start:'2026-11-20',end:'2026-11-21',pickup_time:'10:00',return_time:'17:00'});
+ assert(spoken.result.includes('is free'));
+ assert.equal(stockCalls.at(-1).pickupTime,'10:00');assert.equal(stockCalls.at(-1).returnTime,'17:00');
+ providerFailure=true;
+ spoken=await webhook({item:'FX3',start:'2026-11-20',end:'2026-11-21',pickup_time:'10:00',return_time:'17:00'});
+ assert.equal(spoken.needs,'availability');assert(!spoken.result.includes('already booked'));
+ console.log('PASS actual voice hook + registered recommendation handler: basket/BOM context, alias deduplication, mount fit, incomplete-time gate and exact clock forwarding. Controlled browser/catalogue transport; no call, messages or financial execution.');
+})().catch(error=>{console.error(error);process.exitCode=1});

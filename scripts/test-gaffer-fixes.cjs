@@ -223,8 +223,10 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   assert.match(delayedBrowse,/not finished loading on screen/);assert.doesNotMatch(delayedBrowse,/On screen now/);
 
   cart.items=[{key:'source',listingId:'unavailable',title:'Unavailable Camera',slug:'unavailable',start:'2026-12-07',end:'2026-12-09',days:3,total:300}];cart.count=1;
+  assert.match(await priceTool.clientTools.check_basket(),/Choose pickup and return times/);
+  Object.assign(cart.items[0],{pickupTime:"10:00",returnTime:"18:00"});
   assert.match(await priceTool.clientTools.check_basket(),/Sony FX3.*Show more replacements/);
-  assert.match(await priceTool.clientTools.switch_unavailable({item:'Unavailable Camera',replacement:'Sony FX3'}),/keeping 2026-12-07 to 2026-12-09/);assert.equal(cart.items[0].start,'2026-12-07');assert.equal(cart.items[0].end,'2026-12-09');
+  assert.match(await priceTool.clientTools.switch_unavailable({item:'Unavailable Camera',replacement:'Sony FX3'}),/keeping 2026-12-07 to 2026-12-09/);assert.equal(cart.items[0].start,'2026-12-07');assert.equal(cart.items[0].end,'2026-12-09');assert.equal(cart.items[0].pickupTime,'10:00');assert.equal(cart.items[0].returnTime,'18:00');
   assert.match(await priceTool.clientTools.email_checkout_cart({email:'person@example.invalid'}),/was emailed/);assert.equal(toolActions.at(-1).ref,'checkoutCarts:email');assert.equal(toolActions.at(-1).args.lines[0].listingId,'fx3');
   assert.match(await priceTool.clientTools.setup_account({email:'person@example.invalid',name:'Person',phone:'07700123456'}),/Never ask.*code or password/);assert.equal(toolActions.at(-1).args.cartKey,'opaque');assert(toolRoutes.at(-1).startsWith('/account/setup?challenge='));
   assert.match(await priceTool.clientTools.reset_password({email:'person@example.invalid'}),/choose a new password/);assert.equal(toolActions.at(-1).args.purpose,'reset');

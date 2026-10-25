@@ -6,12 +6,12 @@ import { quote } from "@/lib/pricing";
 import { tierByKey } from "@/lib/membership";
 import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
-import { coverageCompat } from "@/lib/compat";
+import { coverageCompat, kitWarnings } from "@/lib/compat";
 import { lensPriority, isCameraSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType } from "../../convex/lib/taxonomy";
 import { contentsText } from "../../shared/rentalContents";
-import { CONTACT_EMAIL } from "@/lib/site";
-import { alreadySupplied, automaticLens, automaticRecommendation, type RecommendationItem } from "../../shared/recommendationPolicy";
+import { PICKUP_SLOTS, CONTACT_EMAIL } from "@/lib/site";
+import { alreadySupplied, automaticLens, automaticRecommendation, rentableCandidate, type RecommendationItem } from "../../shared/recommendationPolicy";
 
 /**
  * Gaffer v2 — "engine decides, LLM narrates".
@@ -332,17 +332,17 @@ async function buildCard(
   checkAvail = true,
 ) {
   const days = quoteDays(start, end);
-  let available = true;
+  let available: boolean | null = null;
   // only check availability against REAL dates — a placeholder/estimated window must
   // not surface a misleading "not free" on gear the customer hasn't actually scheduled.
-  if (checkAvail && !ctx.estimated) {
-    const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: dayMs(start), end: dayMs(end) });
+  if (checkAvail && ctx.availabilityReady) {
+    const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: dayMs(start), end: dayMs(end), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime });
     available = (av?.available ?? 0) > 0;
   }
   const q: any = quote(l.pricing, days);
   const item: any = {
     listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, imageSources: l.imageSources ?? l.gallery ?? [],
-    start, end, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0, available,
+    start, end, pickupTime: ctx.pickupTime, returnTime: ctx.returnTime, needsTimes: !ctx.availabilityReady, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0, available,
     itemType: l.itemType ?? null, mount: l.specs?.mount ?? null, lensClass: l.specs?.lensClass ?? null,
     tier: l.specs?.tier ?? null, pricing: l.pricing,
   };
@@ -409,7 +409,7 @@ async function findAlternatives(
   const wantSpecs = specTokens(subjectText);
   const cam = ctx.camMounts;
   const scored = (r || [])
-    .filter(x => !alreadySupplied(x, ctx.cartEvidence ?? []))
+    .filter(x => rentableCandidate(x) && !alreadySupplied(x, ctx.cartEvidence ?? []))
     .filter((x) => itemTypeMatches(itemType, x.itemType) && String(x._id) !== excludeId && !ctx.cartIds.includes(String(x._id)))
     .map((x) => {
       let score = 0;
@@ -447,11 +447,11 @@ async function findAlternatives(
     for (const { x } of pool.slice(0, 24)) {
       if (free.length >= n) break;
       try {
-        const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end) });
+        const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime });
         if ((av?.available ?? 0) > 0) free.push(x);
       } catch {}
     }
-    if (free.length) return free;
+    return free;
   }
   return pool.slice(0, n).map((s) => s.x);
 }
@@ -462,8 +462,8 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
   const r: any[] = await c.query(api.catalog.listListings, { search: term });
   const cam = ctx.camMounts;
   const cands = (r || [])
-    .filter(x => !alreadySupplied(x, ctx.cartEvidence ?? []))
-    .filter(x => !["battery", "nd-filter"].includes(x.itemType ?? "") || automaticRecommendation(x, ctx.cartEvidence ?? []))
+    .filter(x => rentableCandidate(x) && !alreadySupplied(x, ctx.cartEvidence ?? []))
+    .filter(x => !["battery", "nd-filter", "gimbal"].includes(x.itemType ?? "") || automaticRecommendation(x, ctx.cartEvidence ?? [], ctx.compatibilityKits))
     .filter(x => x.itemType !== "lens" || !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
     .filter((x) => !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && itemTypeMatches(itemType, x.itemType))
     .map((x) => {
@@ -487,13 +487,14 @@ async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen
   if (!pool.length) return null;
   // CALENDAR-AWARE: when the dates are real, return the highest-ranked item that's actually
   // FREE for them (not booked out); fall back to the top pick if none of the top set is free.
-  if (!ctx.estimated && ctx.start && ctx.end) {
+  if (ctx.availabilityReady && ctx.start && ctx.end) {
     for (const { x } of pool.slice(0, 10)) {
       try {
-        const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end) });
+        const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime });
         if ((av?.available ?? 0) > 0) return x;
       } catch {}
     }
+    return null;
   }
   return pool[0].x;
 }
@@ -517,7 +518,7 @@ async function recommendLensSpread(c: ConvexHttpClient, ctx: Ctx, seen: Set<stri
   const cam = ctx.camMounts;
   const isMultiSet = (t: string) => /\bultimate\b/i.test(t) || (String(t).match(/\d{2,3}\s*-\s*\d{2,3}/g) || []).length >= 2;
   let cands = (r || [])
-    .filter(x => !alreadySupplied(x, ctx.cartEvidence ?? []))
+    .filter(x => rentableCandidate(x) && !alreadySupplied(x, ctx.cartEvidence ?? []))
     .filter(x => !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
     .filter((x) => itemTypeMatches("lens", x.itemType) && !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)))
     .filter((x) => !isMultiSet(x.title)) // the spread is INDIVIDUAL lenses, not a 3-lens "ultimate set"
@@ -541,12 +542,12 @@ async function recommendLensSpread(c: ConvexHttpClient, ctx: Ctx, seen: Set<stri
   // if too few distinct categories matched, top up with the next best individual lenses
   if (ordered.length < 3) for (const { x } of cands) { if (!ordered.includes(x)) ordered.push(x); if (ordered.length >= max) break; }
   // availability-aware for real dates
-  if (!ctx.estimated && ctx.start && ctx.end) {
+  if (ctx.availabilityReady && ctx.start && ctx.end) {
     const free: any[] = [];
     for (const x of ordered) {
-      try { const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end) }); if ((av?.available ?? 0) > 0) free.push(x); } catch {}
+      try { const av: any = await c.query(api.availability.forListing, { listingId: x._id, start: dayMs(ctx.start), end: dayMs(ctx.end), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime }); if ((av?.available ?? 0) > 0) free.push(x); } catch {}
     }
-    if (free.length) return free.slice(0, max);
+    return free.slice(0, max);
   }
   return ordered.slice(0, max);
 }
@@ -566,7 +567,12 @@ type Ctx = {
   pastTitles: string[];
   cartTitles: string[];
   cartIds: string[];
+  pickupTime?: string;
+  returnTime?: string;
+  availabilityReady?: boolean;
+  cartWindow?: { start: string; end: string; pickupTime: string; returnTime: string };
   cartEvidence?: RecommendationItem[];
+  compatibilityKits?: RecommendationItem[];
   today: string;
   estimated: boolean;
   start: string;
@@ -656,10 +662,16 @@ async function loadContext(body: any): Promise<Ctx> {
   // cart: contents (so Gaffer knows what's already in their kit) + camera mounts
   if (Array.isArray(body?.cart) && body.cart.length) {
     try {
+      const window = body.cart[0];
+      if (window?.pickupTime && window?.returnTime && body.cart.every((item: any) => item.start === window.start && item.end === window.end && item.pickupTime === window.pickupTime && item.returnTime === window.returnTime))
+        ctx.cartWindow = { start: window.start, end: window.end, pickupTime: window.pickupTime, returnTime: window.returnTime };
       const ids = body.cart.map((x: any) => x.listingId).filter(Boolean);
       if (ids.length) {
         const cds: any[] = await c.query(api.catalog.listingsByIds, { ids });
         ctx.cartEvidence = cds;
+        if (cds.some(cd => cd.itemType === "camera-body")) {
+          try { ctx.compatibilityKits = await c.query(api.catalog.compatibilityKits, {}); } catch { ctx.compatibilityKits = []; }
+        }
         ctx.cartIds = cds.map((cd) => String(cd._id));
         ctx.cartTitles = cds.map((cd) => cd.title);
         for (const cd of cds) if (cd.itemType === "camera-body") {
@@ -683,6 +695,8 @@ const IntentSchema = z.object({
   pricePref: z.enum(["cheaper", "premium", "any"]).describe("cheaper=they want budget/cheaper/affordable; premium=best/top-end; any=no preference"),
   start: z.string().optional().describe("rental start YYYY-MM-DD if stated/derivable, else omit"),
   end: z.string().optional().describe("rental end YYYY-MM-DD if stated/derivable, else omit"),
+  pickupTime: z.string().optional().describe("Explicit pickup time in London HH:mm; omit if missing or ambiguous. Never assume a default."),
+  returnTime: z.string().optional().describe("Explicit return time in London HH:mm; omit if missing or ambiguous. Never assume a default."),
 });
 
 async function understand(history: any[], today: string): Promise<z.infer<typeof IntentSchema>> {
@@ -700,7 +714,7 @@ async function understand(history: any[], today: string): Promise<z.infer<typeof
 }
 
 // ── stage 2: execute (deterministic — the source of truth) ──────────────────────
-type ExecResult = { cards: any[]; facts: string[]; askDates: boolean };
+type ExecResult = { cards: any[]; facts: string[]; askDates: boolean; askTimes?: boolean };
 
 async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<ExecResult> {
   const c = ctx.c;
@@ -718,6 +732,10 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
   ctx.estimated = estimated;
   ctx.start = start;
   ctx.end = end;
+  const savedWindow = ctx.cartWindow?.start === start && ctx.cartWindow.end === end ? ctx.cartWindow : undefined;
+  ctx.pickupTime = intent.pickupTime || savedWindow?.pickupTime;
+  ctx.returnTime = intent.returnTime || savedWindow?.returnTime;
+  ctx.availabilityReady = !estimated && !!ctx.pickupTime && !!ctx.returnTime && PICKUP_SLOTS.includes(ctx.pickupTime) && PICKUP_SLOTS.includes(ctx.returnTime) && (start !== end || ctx.returnTime > ctx.pickupTime);
   const facts: string[] = [];
   const cards: any[] = [];
   const primaryType = intent.itemTypes?.[0] || "";
@@ -736,8 +754,10 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
   };
   if (ctx.cartTitles.length) facts.push(`Already in the customer's cart (don't re-recommend these): ${ctx.cartTitles.join("; ")}.`);
 
+  const emitted: RecommendationItem[] = [];
   const pushCard = async (l: any, reason: string, checkAvail = true) => {
-    if (cards.some((cd) => cd.item?.listingId === l._id)) return;
+    if (alreadySupplied(l, emitted)) return;
+    emitted.push(l);
     const full: any = await c.query(api.catalog.getListingBySlug, {slug:l.slug});
     facts.push(`RENTAL CONTENTS for "${l.title}": ${contentsText(full)} Only apply these to this exact listing.`);
     cards.push(await buildCard(c, l, start, end, ctx, reason, checkAvail));
@@ -748,13 +768,13 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
     case "availability": {
       const lst = await resolveSubjectListing(c, intent.subject, { camMounts: ctx.camMounts, itemType: primaryType || undefined });
       if (lst) {
-        await pushCard(lst, "In stock for your dates");
+        await pushCard(lst, ctx.availabilityReady ? "Checked for your dates and times" : "Choose dates and times to check availability");
         const card = cards[cards.length - 1];
-        const availTxt = estimated
+        const availTxt = !ctx.availabilityReady && !estimated ? "Choose pickup and return times before confirming availability." : estimated
           ? `Tell me your dates and I'll confirm.`
           : card?.item?.available ? `Available ${start} to ${end}.` : `Not free ${start} to ${end} — I can suggest a close alternative.`;
-        facts.push(`IN STOCK: we DO carry ${titlePrice(lst)}. ${availTxt}`);
-        if (!estimated && card && !card.item.available) {
+        facts.push(`${rentableCandidate(lst) ? "CATALOGUE: we carry" : "CATALOGUE ONLY, NOT VERIFIED RENTABLE STOCK:"} ${titlePrice(lst)}. ${availTxt}`);
+        if (ctx.availabilityReady && card && card.item.available === false) {
           const alts = await findAlternatives(c, intent.subject, lst.itemType || primaryType || "lens", ctx, 2, String(lst._id), subjectMounts(intent.subject, lst));
           for (const a of alts) await pushCard(a, "Available alternative");
           if (alts.length) facts.push(`Free for those dates instead: ${alts.map(titlePrice).join("; ")}.`);
@@ -837,20 +857,34 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
         }
       }
       const names = cards.map((cd) => titlePrice(cd.item)).join("; ");
-      if (names) facts.push(`RECOMMENDED (in stock${ctx.camMounts.length ? `, compatible with ${ctx.camMounts.join("/")} mount` : ""}): ${names}.`);
+      if (names) facts.push(`CATALOGUE OPTIONS: ${names}. State only documented compatibility. ${ctx.availabilityReady ? "Date/time availability has been checked for the returned cards." : "Availability is not confirmed until pickup and return dates and times are complete."}`);
       else facts.push(`Nothing suitable came back for ${types.join(", ")} on this search — ask them for a model or their dates so you can look properly. This is a search that returned nothing, NOT evidence we lack the category; do not tell them we don't stock it.`);
       break;
     }
     case "build_kit": {
-      const types = intent.itemTypes?.length ? intent.itemTypes : ["camera", "lens", "light", "mic"];
+      const types = [...(intent.itemTypes?.length ? intent.itemTypes : ["camera", "lens", "light", "mic"])];
+      types.sort((a, b) => Number(!["camera", "camera-body"].includes(a)) - Number(!["camera", "camera-body"].includes(b)));
       const seen = new Set<string>(ctx.cartIds);
+      const planning: Ctx = { ...ctx, cartEvidence: [...(ctx.cartEvidence ?? [])], cartIds: [...ctx.cartIds] };
       for (const t of types) {
         if (cards.length >= 6) break;
-        const best = await bestForType(c, t, ctx, seen);
-        if (best) { seen.add(String(best._id)); await pushCard(best, `Kit ${t}`); }
+        const best = await bestForType(c, t, planning, seen);
+        if (!best) continue;
+        seen.add(String(best._id));
+        await pushCard(best, `Kit ${t}`);
+        planning.cartEvidence!.push(best);
+        planning.cartIds.push(String(best._id));
+        const selectedCameras = planning.cartEvidence!.filter(item => item.itemType === "camera-body");
+        if (selectedCameras.length) {
+          planning.camMounts = [...new Set(selectedCameras.flatMap(item => parseMounts(item.specs?.mount)))];
+          planning.camCoverage = selectedCameras.reduce<string | null>((value, item) => biggerCoverage(value, item.specs?.coverage ?? null), null);
+          if (!planning.compatibilityKits) {
+            try { planning.compatibilityKits = await c.query(api.catalog.compatibilityKits, {}); } catch { planning.compatibilityKits = []; }
+          }
+        }
       }
       const names = cards.map((cd) => titlePrice(cd.item)).join("; ");
-      facts.push(names ? `KIT (in stock): ${names}.` : `Could not assemble a kit from stock.`);
+      facts.push(names ? `KIT CONFIGURATION: ${names}. ${ctx.availabilityReady ? "The returned picks passed their date/time stock checks." : "These are catalogue choices; ask for complete dates and times before confirming availability."}` : `Could not assemble a kit from stock.`);
       break;
     }
     case "compatibility": {
@@ -867,7 +901,9 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
       // customer's own itemTypes say otherwise.
       const compatType = primaryType && primaryType !== "camera" && primaryType !== "camera-body" ? primaryType : "lens";
       if (subj && subj.itemType === "lens") {
-        const verdict = cam.length ? bestCompat(parseMounts(subj.specs?.mount), cam) : "unknown";
+        const mounts = parseMounts(subj.specs?.mount).filter(m => m !== "any");
+        const knownCameras = cam.filter(m => m !== "any");
+        const verdict = mounts.length && knownCameras.length ? bestCompat(mounts, knownCameras) : "unknown";
         if (verdict === "incompatible") {
           facts.push(`COMPATIBILITY: ${titlePrice(subj)} is ${subj.specs?.mount} mount and will NOT fit a ${cam.join("/")}-mount body, even with an adapter.`);
           const alts = await findAlternatives(c, intent.subject, "lens", ctx, 3, String(subj._id));
@@ -875,13 +911,20 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
           if (alts.length) facts.push(`Compatible instead: ${alts.map(titlePrice).join("; ")}.`);
         } else if (verdict === "adapter") {
           await pushCard(subj, "Fits via adapter");
-          const adapter = await resolveSubjectListing(c, `${subj.specs?.mount} to ${cam[0]} adapter`, {});
+          const possibleAdapter = await resolveSubjectListing(c, `${subj.specs?.mount} to ${cam[0]} adapter`, {});
+          const adapter = possibleAdapter?.itemType === "accessory" && /adapt(?:er|or)/i.test(possibleAdapter.title) &&
+            String(possibleAdapter.title).toUpperCase().includes(`${subj.specs?.mount} TO ${cam[0]}`) ? possibleAdapter : null;
           if (adapter) await pushCard(adapter, "The adapter you'd need");
           facts.push(`COMPATIBILITY: ${titlePrice(subj)} (${subj.specs?.mount}) fits a ${cam.join("/")}-mount body VIA AN ADAPTER${adapter ? ` — we stock the ${adapter.title} (£${adapter.pricing?.daily}/day)` : ` (a ${subj.specs?.mount}→${cam[0]} adapter is required)`}; autofocus/electronics may be limited.`);
+        } else if (verdict === "native") {
+          const coverage = coverageCompat(subj.specs?.coverage, ctx.camCoverage);
+          await pushCard(subj, coverage === "full" ? "Native mount" : "Native mount · check sensor coverage");
+          facts.push(`COMPATIBILITY: ${titlePrice(subj)} has a native ${cam.join("/")} mount. ${coverage === "vignette" ? "Its image circle needs a crop or may vignette on the selected camera." : coverage === "unknown" ? "Sensor coverage is unconfirmed; do not claim full compatibility without checking the exact lens and body." : "Its documented image circle covers the selected sensor."}`);
         } else {
-          await pushCard(subj, "Compatible with your camera");
-          facts.push(`COMPATIBILITY: ${titlePrice(subj)} ${cam.length ? `is NATIVE ${cam.join("/")} mount — fits directly, no adapter needed` : "is in stock"}.`);
+          await pushCard(subj, "Fit needs confirmation");
+          facts.push(`COMPATIBILITY UNCONFIRMED: ${titlePrice(subj)} is stocked, but the exact mount/coverage pairing is not documented. Ask for the exact lens mount and camera model; do not call it native or compatible.`);
         }
+        for (const warning of kitWarnings([...(ctx.cartEvidence ?? []), subj], ctx.compatibilityKits)) facts.push(`KIT CHECK: ${warning.text}`);
       } else if (subj) {
         // resolved, but it isn't glass (a monitor, an adapter, a cage) — there's no mount
         // verdict to give, but it IS on the shelf, which is the opposite of a denial.
@@ -889,7 +932,13 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
         facts.push(`IN STOCK: we DO carry ${titlePrice(subj)}. State only what you know about fitting it — do not invent a compatibility verdict.`);
       } else {
         if (specificSubject) notStocked(compatType); else askWhichOne(compatType);
-        if (cam.length) facts.push(`Mount rule for a ${cam.join("/")}-mount body: native ${cam[0]} glass fits directly; EF/PL glass needs an adapter; RF/MFT won't fit. Answer the can-it-be-used question with this rule.`);
+        if (cam.length) {
+          const mounts = ["E", "EF", "RF", "PL", "MFT", "L", "X"];
+          const native = mounts.filter(mount => bestCompat([mount], cam) === "native");
+          const adapter = mounts.filter(mount => bestCompat([mount], cam) === "adapter");
+          const incompatible = mounts.filter(mount => bestCompat([mount], cam) === "incompatible");
+          facts.push(`Mount rules for ${cam.join("/")}: native ${native.join("/") || "none documented"}; needs a suitable adapter ${adapter.join("/") || "none documented"}; incompatible ${incompatible.join("/") || "none documented"}. These are mount rules only; coverage, clearance, adapter availability and electronics need their own evidence.`);
+        }
         const alts = await findAlternatives(c, intent.subject, compatType, ctx, 3);
         for (const a of alts) await pushCard(a, "Compatible option we stock");
         if (alts.length) facts.push(`Compatible options we stock: ${alts.map(titlePrice).join("; ")}.`);
@@ -930,9 +979,9 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
   if (intent.itemTypes?.length === 1 && intent.intent !== "build_kit") {
     const want = intent.itemTypes[0];
     const filtered = cards.filter((cd) => itemTypeMatches(want, cd.item?.itemType));
-    if (filtered.length) return { cards: filtered, facts, askDates: estimated };
+    if (filtered.length) return { cards: filtered, facts, askDates: estimated, askTimes: !estimated && !ctx.availabilityReady };
   }
-  return { cards, facts, askDates: estimated };
+  return { cards, facts, askDates: estimated, askTimes: !estimated && !ctx.availabilityReady };
 }
 
 // ── stage 3: narrate (grounded — only states facts, only names the chosen cards) ──
@@ -942,7 +991,7 @@ const NarrateSchema = z.object({
 });
 
 async function narrate(history: any[], result: ExecResult, ctx: Ctx): Promise<{ reply: string; suggestions: string[] }> {
-  const cardLines = result.cards.map((cd) => `- ${cd.item.title} — £${cd.item.perDay}/day${cd.item.favorite ? " (their saved favourite)" : ""}${cd.item.available === false ? " (NOT free for the requested dates)" : ""}`).join("\n") || "(no cards)";
+  const cardLines = result.cards.map((cd) => `- ${cd.item.title} — £${cd.item.perDay}/day${cd.item.favorite ? " (their saved favourite)" : ""}${cd.item.needsTimes ? " (availability unconfirmed: dates/times needed)" : cd.item.available === false ? " (NOT free for the requested dates and times)" : ""}`).join("\n") || "(no cards)";
   const who = `Customer: ${ctx.customerName}.${ctx.memberName ? ` ${ctx.memberName} member — apply their ${ctx.memberPct}% discount and mention the saving.` : ""}${ctx.favTitles.length ? ` Saved favourites: ${ctx.favTitles.join(", ")}.` : ""}${ctx.cartTitles.length ? ` Currently in their cart: ${ctx.cartTitles.join(", ")}.` : ""}${ctx.pastTitles.length ? ` Previously rented: ${ctx.pastTitles.join(", ")}.` : ""}`;
   const convo = history.slice(-6).map((m: any) => `${m.role === "user" ? "CUSTOMER" : "GAFFER"}: ${String(m.content || "")}`).join("\n");
   const object = await generateBotObject({
@@ -966,7 +1015,8 @@ ABSOLUTE GROUNDING RULES (never break):
 - If the CARDS are a different kind of gear from what the customer asked for, just present them as your suggestion — or ask what they're after. Do NOT explain the mismatch by claiming we don't carry what they asked for. An unhelpful card is a bad suggestion; it is never proof of an empty shelf.
 - Never invent specs, prices, availability, or model names. Never say "let me check" or promise a later message — everything is already decided here.
 - LINKS: when a FACT gives you a link as [label](url), paste it EXACTLY as written — the chat renders it as a real clickable link. Never invent, shorten or alter a URL, and never link to anything that isn't in FACTS.
-- If ${result.askDates ? "TRUE" : "FALSE"} is TRUE, ask for their shoot dates in ONE short question (the card prices shown are for example dates).
+- If ${result.askDates ? "TRUE" : "FALSE"} is TRUE, ask for pickup and return dates AND times in ONE short question (prices shown are for example dates).
+- If ${result.askTimes ? "TRUE" : "FALSE"} is TRUE, dates are known but pickup/return times are incomplete: ask for those times, and do not call equipment available or unavailable.
 ${ctx.favTitles.length ? "- If relevant, acknowledge their saved favourites naturally." : ""}
 
 ${who}

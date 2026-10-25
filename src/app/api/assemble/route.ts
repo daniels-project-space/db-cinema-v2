@@ -111,7 +111,7 @@ function batteryCompat(optBatt: string | null | undefined, camBatt: string | nul
   return battOk(camBatt, optBatt) ? "native" : "incompatible";
 }
 
-type StageOpts = { pickupTime?: string; returnTime?: string; selected?: RecommendationItem[]; lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean };
+type StageOpts = { compatibilityKits?: RecommendationItem[]; pickupTime?: string; returnTime?: string; selected?: RecommendationItem[]; lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean };
 
 async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, o: StageOpts = {}) {
   const { lensPref, camMounts = [], camCoverage = null, camBattery = null, includedFocal = null, small = false } = o;
@@ -146,13 +146,17 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
       compat = batteryCompat(l.specs?.batteryType, camBattery);
       if (compat === "incompatible") compatReason = `${l.specs?.batteryType} won't power your ${camBattery} camera`;
     }
+    if (key === "lens" && !automaticRecommendation(l, o.selected ?? [], o.compatibilityKits) && !compatReason)
+      compatReason = "Check the exact mount, sensor coverage and included glass before adding this lens.";
+    if (key === "gimbal" && !automaticRecommendation(l, o.selected ?? [], o.compatibilityKits))
+      compatReason = "Confirm the camera/lens payload, mounting and balance before adding this combination.";
     out.push({
       listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, imageSources: l.imageSources, category: l.category,
       start, end, pickupTime: o.pickupTime, returnTime: o.returnTime, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0,
       role, mount, itemType: l.itemType ?? null,
       compat, compatReason,
       components: l.components, inventoryFacts: l.inventoryFacts, rentalContents: l.rentalContents,
-      automaticEligible: automaticRecommendation(l, o.selected ?? []),
+      automaticEligible: automaticRecommendation(l, o.selected ?? [], o.compatibilityKits),
       qty: titleQty(l.title),
       demandScore: l.demandScore ?? 0,
       specs: l.specs ?? {},
@@ -197,6 +201,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Return time must be after pickup time.", stages: [] }, { status: 400 });
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
+  const compatibilityKits = await c.query(api.catalog.compatibilityKits, {}).catch(() => []);
   let design: any = null;
   try {
     const { object } = await generateObject({
@@ -244,7 +249,7 @@ export async function POST(req: NextRequest) {
   const includedTypes = new Set<string>(); // secondary gear the chosen camera bundle already contains
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
-    const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small, selected, pickupTime, returnTime });
+    const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small, selected, pickupTime, returnTime, compatibilityKits });
     if (!options.length) continue;
     // ONE recommended id per stage — camera uses the LLM hint / top body; everything else leads
     // with the top COMPATIBLE option. (Camera's recCam below must match this so the note agrees.)
@@ -293,5 +298,6 @@ export async function POST(req: NextRequest) {
     // SELECTED kit) — never the LLM, which hallucinated items/brands that don't exist.
     compatibility: [],
     stages,
+    compatibilityKits,
   });
 }

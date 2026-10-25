@@ -38,9 +38,10 @@ export default function CartPage() {
   const checkout = useCheckoutStatus();
 
   const stock=useCartStockCheck(items),avail=stock.availability,router=useRouter();
-  const blocked = !!items.length && (!stock.ready || !avail || items.some(i => !avail[i.listingId]?.ok));
+  const blocked = !!items.length && !stock.needsTimes && (!stock.ready || !avail || items.some(i => !avail[i.listingId]?.ok));
   async function continueCheckout(){
     if (!checkout.enabled) return;
+    if (stock.needsTimes) { router.push("/checkout"); return; }
     const receipt=await stock.recheck();
     if(receipt&&items.every(i=>receipt.availability[i.listingId]?.ok))router.push("/checkout");
   }
@@ -68,7 +69,7 @@ export default function CartPage() {
           </div>
         ) : (
           <>
-            <CartStockNotice checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/>
+            <CartStockNotice needsTimes={stock.needsTimes} checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/>
             <CheckoutMembership
               compact
               loading={loading}

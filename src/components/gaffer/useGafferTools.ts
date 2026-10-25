@@ -89,6 +89,7 @@ export function useGafferTools() {
   const emailedCart = useRef<{email:string;shareKey:string;signature:string}|null>(null);
   const cartAlternatives = useQuery(api.cartReplacements.forCart, cart.items.length ? {items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:6} : "skip");
   const replacementBrief = useCallback(async()=>{
+    if (cart.items.some(item => !item.pickupTime || !item.returnTime)) return "Choose pickup and return times before checking availability or replacements.";
     const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:6});
     return cart.items.filter(i=>Object.prototype.hasOwnProperty.call(rows,i.key)).map(i=>`${i.title} is unavailable for ${i.start} to ${i.end}. Available replacements for those same dates: ${(rows[i.key]??[]).map(c=>`${c.title} (£${c.total})`).join("; ")||"none found"}. The cart shows two initially; Show more replacements reveals more. Ask before changing their selection.`).join(" ");
   },[cart.items,convex]);
@@ -154,18 +155,23 @@ export function useGafferTools() {
    */
   const availabilityFor = useCallback(
     async (listingId: string, startIso: string, endIso: string) => {
+      const lines = cart.items.filter(item => item.start === startIso && item.end === endIso);
+      const window = lines[0];
+      if (!window?.pickupTime || !window?.returnTime || lines.some(item => item.pickupTime !== window.pickupTime || item.returnTime !== window.returnTime))
+        return { available: 0, blocked: false, unknown: true, needsTimes: true, pickupTime: undefined, returnTime: undefined };
       try {
         const r: any = await convex.query(api.availability.forListing, {
           listingId: listingId as any,
           start: dayMs(startIso),
           end: dayMs(endIso),
+          pickupTime: window.pickupTime, returnTime: window.returnTime,
         });
-        return { available: Number(r?.available ?? 0), blocked: !!r?.blocked, unknown: false };
+        return { available: Number(r?.available ?? 0), blocked: !!r?.blocked, unknown: false, needsTimes: false, pickupTime: window.pickupTime, returnTime: window.returnTime };
       } catch {
-        return { available: 0, blocked: false, unknown: true };
+        return { available: 0, blocked: false, unknown: true, needsTimes: false, pickupTime: window.pickupTime, returnTime: window.returnTime };
       }
     },
-    [convex],
+    [convex, cart.items],
   );
 
   /** Spoken dates → a concrete window, honouring the listing's minimum hire. */
@@ -249,7 +255,7 @@ export function useGafferTools() {
 
   /** Availability across every basket line, unit-aware (shared inventory included). */
   const basketProblems = useCallback(async () => {
-    if (!cart.items.length) return [];
+    if (!cart.items.length || cart.items.some(item => !item.pickupTime || !item.returnTime)) return [];
     try {
       const res: any = await convex.query(api.availability.forCart, {
         items: cart.items.map((i) => ({ listingId: i.listingId as any, start: dayMs(i.start), end: dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime })),
@@ -276,7 +282,7 @@ export function useGafferTools() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          items: cart.items.map((i) => ({ listingId: i.listingId, title: i.title, total: i.total, start: i.start, end: i.end })),
+          items: cart.items.map((i) => ({ listingId: i.listingId, title: i.title, total: i.total, start: i.start, end: i.end, pickupTime: i.pickupTime, returnTime: i.returnTime })),
         }),
       });
       return await r.json();
@@ -379,11 +385,13 @@ export function useGafferTools() {
 
         const w = resolveWindow(start, end);
         const free: string[] = [];
+        const unconfirmed: string[] = [];
         const taken: string[] = [];
         for (const h of hits) {
           const a = await availabilityFor(h.id, w.startIso, w.endIso);
-          (a.available >= 1 || a.unknown ? free : taken).push(`${h.title} at £${h.daily} a day. ${contentsText(h)}`);
+          (a.unknown ? unconfirmed : a.available >= 1 ? free : taken).push(`${h.title} at £${h.daily} a day. ${contentsText(h)}`);
         }
+        if (unconfirmed.length) return `${shown ? "On screen now." : "Found options, but the catalogue has not finished loading on screen."} Catalogue options: ${unconfirmed.join("; ")}. Availability is unconfirmed. Choose pickup and return dates and times in the basket before checking stock.`;
         if (!free.length) return `Nothing matching ${q} is free ${w.startIso} to ${w.endIso}. Booked: ${taken.join("; ")}.`;
         return (
           `${shown ? "On screen now." : "Found these options, but the catalogue has not finished loading on screen."} Free ${w.startIso} to ${w.endIso}: ${free.join("; ")}.` +
@@ -401,7 +409,7 @@ export function useGafferTools() {
           const a = await availabilityFor(h.id, w.startIso, w.endIso);
           lines.push(
             a.unknown
-              ? `${h.title}, £${h.daily} a day (couldn't confirm stock just now)`
+              ? `${h.title}, £${h.daily} a day (${a.needsTimes ? "choose pickup and return dates and times in the basket before checking availability" : "could not confirm stock just now"})`
               : a.available >= 1
                 ? `${h.title}, £${h.daily} a day — ${a.available} free`
                 : `${h.title} — booked out for those dates`,
@@ -433,6 +441,7 @@ export function useGafferTools() {
           res = await convex.query(api.voiceCatalog.recommend, {
             q: q || undefined,
             category: cat,
+            cartListingIds: cart.items.map(item => item.listingId as any),
             limit: 6,
           });
         } catch {
@@ -454,7 +463,7 @@ export function useGafferTools() {
         router.push(route, { scroll: false });
         const shown = await suggest(picks.map((p: any) => p.id), route);
 
-        const line = (p: any) => `${p.title} at £${p.daily} a day. ${contentsText(p)}`;
+        const line = (p: any) => `${p.title} at £${p.daily} a day. ${p.fitNeedsConfirmation ? "Exact camera/rig fit still needs checking. " : ""}${contentsText(p)}`;
 
         const parts: string[] = [];
         if (res.standalone?.length)
@@ -542,6 +551,7 @@ export function useGafferTools() {
           heroImage: hit.heroImage ?? null,
           start: startIso,
           end: endIso,
+          pickupTime: stock.pickupTime, returnTime: stock.returnTime,
           days,
           perDay: q.perDay,
           total: q.total,
@@ -563,7 +573,7 @@ export function useGafferTools() {
           `Basket is now ${cart.count + 1} item${cart.count ? "s" : ""}. ` +
           // Say the dates back. A misheard date is the single most expensive
           // thing to get wrong here and the least likely to be noticed.
-          `Read the dates back to them to confirm.` +
+          `Read the dates back to them to confirm. ${stock.unknown ? "This is a draft basket; availability is not confirmed. Choose pickup and return times in the basket." : ""}` +
           (pencilled
             ? ` NOTE: I could not understand the date you passed, so this is pencilled in for ` +
               `${startIso}. Ask them for the dates and add it again with them.`
@@ -574,6 +584,7 @@ export function useGafferTools() {
       /** Same-category substitutes that are genuinely free for those dates. */
       suggest_alternatives: async ({ item, start, end }: { item: string; start?: string; end?: string }) => {
         const basketItem=cart.items.find(i=>i.title.toLowerCase()===String(item).trim().toLowerCase());
+        if (basketItem && (!basketItem.pickupTime || !basketItem.returnTime)) return "Choose this item’s pickup and return times before checking alternatives.";
         if(basketItem){const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:10});const alts=rows[basketItem.key];return alts?`${basketItem.title} is unavailable for ${basketItem.start} to ${basketItem.end}. Available alternatives: ${alts.map(c=>`${c.title} (£${c.total})`).join("; ")||"none"}. Use Show more replacements on the cart or ask which they prefer before switching.`:"This basket item is currently available. Ask before changing it.";}
         const hit = await findOne(item);
         if (!hit) return `Couldn't find ${item} to match against.`;
@@ -745,6 +756,7 @@ export function useGafferTools() {
           `Basket breakdown is on screen: ${cart.items.length} line${cart.items.length > 1 ? "s" : ""}, ` +
           `${await rentalSummary()}. ${securitySummary()}` +
           speakCompat(compat.warnings ?? []);
+        if (cart.items.some(item => !item.pickupTime || !item.returnTime)) return `${summary} Choose pickup and return times for every line before confirming availability.`;
         return bad.length
           ? `${summary} ${await replacementBrief()}`
           : `${summary} Happy to go through to checkout?`;
@@ -753,6 +765,7 @@ export function useGafferTools() {
       /** "Is everything in there actually available?" — unit-aware, shared stock included. */
       check_basket: async () => {
         if (!cart.count) return "Basket is empty.";
+        if (cart.items.some(item => !item.pickupTime || !item.returnTime)) return "Choose pickup and return times for every basket line before confirming availability.";
         const bad = await basketProblems();
         if (!bad.length) return `All ${cart.items.length} line${cart.items.length > 1 ? "s are" : " is"} available. Good to check out.`;
         return (
@@ -837,12 +850,13 @@ export function useGafferTools() {
         const left = cart.items.length - bad.length;
         return (
           `Took ${bad.map((b) => b.title).join(" and ")} off. ` +
-          (left > 0 ? `${left} line${left > 1 ? "s" : ""} left, all available.` : "That empties the basket.")
+          (left > 0 ? `${left} line${left > 1 ? "s" : ""} left. Check the selected dates and times in your basket.` : "That empties the basket.")
         );
       },
 
       go_to_checkout: async () => {
         if (!cart.count) return "Basket is empty — nothing to check out yet.";
+        if (cart.items.some(item => !item.pickupTime || !item.returnTime)) { router.push("/cart"); return "Your basket is on screen. Choose pickup and return times for every line before checking availability and continuing to payment."; }
         // Don't walk them into a checkout that will reject the basket: the page
         // gates on this same data, so catch it here where Gaffer can still help.
         const bad = await basketProblems();
@@ -906,7 +920,7 @@ export function useGafferTools() {
       membership_tier: me?.membershipActive ? (me?.membershipTier ?? "") : "",
       basket_count: String(cart.count),
       basket_items: cart.items.map((i) => `${i.title} (${i.days}d, £${i.total})`).join("; "),
-      basket_availability: cartAlternatives===undefined&&cart.count ? "checking" : cart.items.map(i=>cartAlternatives&&Object.prototype.hasOwnProperty.call(cartAlternatives,i.key)?`${i.title}: unavailable; same-date alternatives: ${cartAlternatives[i.key].map(c=>`${c.title} £${c.total}`).join(", ")||"none"}`:`${i.title}: available`).join("; "),
+      basket_availability: cartAlternatives===undefined&&cart.count ? "checking" : cart.items.map(i=>!i.pickupTime||!i.returnTime?`${i.title}: times needed; availability unconfirmed`:cartAlternatives&&Object.prototype.hasOwnProperty.call(cartAlternatives,i.key)?`${i.title}: unavailable; same-date alternatives: ${cartAlternatives[i.key].map(c=>`${c.title} £${c.total}`).join(", ")||"none"}`:`${i.title}: available`).join("; "),
       basket_subtotal: String(cart.subtotal),
       current_page: typeof window !== "undefined" ? window.location.pathname : "",
     };

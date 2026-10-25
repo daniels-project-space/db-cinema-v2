@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
     const cd: any = specOf.get(i.listingId) || {};
     return { ...cd, listingId: i.listingId, perDay: cd.pricing ? currentQuote(cd, days).perDay : null };
   });
-  const warnings = kitWarnings(kit);
+  const evidence = kit.some(item => item.itemType === "gimbal") ? await c.query(api.catalog.compatibilityKits, {}).catch(() => []) : [];
+  const warnings = kitWarnings(kit, evidence);
   const upgrades: any[] = [];
   // A swap needs one exact, separately priced source. Bundled glass cannot be
   // removed independently; never sell another same-focal lens as its upgrade.

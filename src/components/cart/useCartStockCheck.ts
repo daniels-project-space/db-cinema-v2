@@ -11,15 +11,16 @@ type Receipt={checkedAt:number;availability:Availability};
 type State={key:string;phase:"checking"|"ready"|"error";receipt:Receipt|null};
 export function useCartStockCheck(items:Array<Pick<CartItem,"listingId"|"start"|"end"|"pickupTime"|"returnTime"> & {title?:string}>) {
   const key=JSON.stringify(items.map(i=>({listingId:i.listingId,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})));
+  const needsTimes=items.some(item=>!item.pickupTime||!item.returnTime||(item.start===item.end&&item.returnTime<=item.pickupTime));
   const track=useMutation(api.analytics.track);
   const refresh=useAction(api.sync.refreshCartStock);
-  const live=useQuery(api.availability.forCart,items.length?{items:JSON.parse(key)}:"skip");
+  const live=useQuery(api.availability.forCart,items.length&&!needsTimes?{items:JSON.parse(key)}:"skip");
   const [state,setState]=useState<State|null>(null);
   const scope=useRef({key,request:0});
   const flight=useRef<{key:string;request:number;promise:Promise<Receipt|null>}|null>(null);
   if(scope.current.key!==key){scope.current={key,request:scope.current.request+1};flight.current=null;}
   const recheck=useCallback(async():Promise<Receipt|null>=>{
-    if(key==="[]")return null;
+    if(key==="[]"||needsTimes)return null;
     if(flight.current?.key===key&&flight.current.request===scope.current.request)return flight.current.promise;
     const request=++scope.current.request;
     const current=()=>scope.current.key===key&&scope.current.request===request;
@@ -35,9 +36,9 @@ export function useCartStockCheck(items:Array<Pick<CartItem,"listingId"|"start"|
       } finally {if(current())flight.current=null;}
     })();
     flight.current={key,request,promise};return promise;
-  },[key,refresh]);
+  },[key,refresh,needsTimes]);
   useEffect(()=>{
-    if(key==="[]")return;
+    if(key==="[]"||needsTimes)return;
     const check=()=>{if(!document.hidden)void recheck();};
     // Keep cart availability reasonably fresh without pulling the shared
     // Rental Manager stock snapshot every minute. Checkout still forces a
@@ -45,14 +46,14 @@ export function useCartStockCheck(items:Array<Pick<CartItem,"listingId"|"start"|
     check();const timer=setInterval(check,5*60*1000);
     window.addEventListener("focus",check);document.addEventListener("visibilitychange",check);
     return()=>{clearInterval(timer);window.removeEventListener("focus",check);document.removeEventListener("visibilitychange",check);scope.current.request++;flight.current=null;};
-  },[key,recheck]);
+  },[key,recheck,needsTimes]);
   const current=state?.key===key?state:null;
-  const availability:Availability|undefined=current?.receipt&&live?Object.fromEntries(Object.entries(current.receipt.availability).map(([id,value])=>[id,{...value,available:Math.min(value.available,live[id]?.available??0),ok:value.ok&&live[id]?.ok===true}])):undefined;
+  const availability:Availability|undefined=!needsTimes&&current?.receipt&&live?Object.fromEntries(Object.entries(current.receipt.availability).map(([id,value])=>[id,{...value,available:Math.min(value.available,live[id]?.available??0),ok:value.ok&&live[id]?.ok===true}])):undefined;
   useEffect(()=>{
     if(current?.phase!=="ready" || !availability || document.hidden)return;
     const grouped=new Map<string,{item:typeof items[number];qty:number}>();
     for(const item of items)if(availability[item.listingId]?.ok===false){const k=JSON.stringify([item.listingId,item.start,item.end,item.pickupTime,item.returnTime]),prev=grouped.get(k);grouped.set(k,{item,qty:(prev?.qty??0)+1});}
     for(const {item,qty} of grouped.values())void recordUnavailableDemand(track,item,qty).catch(()=>{});
   },[current?.phase,availability,items,track]);
-  return {availability,recheck,ready:!items.length||(current?.phase==="ready"&&!!availability),checking:!!items.length&&(!current||current.phase==="checking"),error:current?.phase==="error"};
+  return {availability,recheck,needsTimes,ready:!items.length||!needsTimes&&(current?.phase==="ready"&&!!availability),checking:!!items.length&&!needsTimes&&(!current||current.phase==="checking"),error:!needsTimes&&current?.phase==="error"};
 }

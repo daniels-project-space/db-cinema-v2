@@ -1,3 +1,6 @@
+import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
+import { alreadySupplied, automaticRecommendation, rentableCandidate } from "../shared/recommendationPolicy";
+import { rentalUnavailable } from "./lib/marketingInventory";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { contentsFor } from "../shared/rentalContents";
@@ -388,17 +391,23 @@ function inclusions(r: Doc<"listings">) { return contentsFor(r); }
  */
 export const recommend = query({
   args: {
+    cartListingIds: v.optional(v.array(v.id("listings"))),
     q: v.optional(v.string()),
     category: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { q, category, limit }) => {
+  handler: async (ctx, { q, category, limit, cartListingIds }) => {
     const tokens = tokenize(q ?? "");
     const guess = detect(tokens);
     const cat = category && category !== "All" ? category : guess.category;
     const brand = guess.brand;
 
-    let rows = bookable(await ctx.db.query("listings").collect());
+    if ((cartListingIds?.length ?? 0) > 100) throw Error("Basket is too large.");
+    const selected = (await Promise.all((cartListingIds ?? []).map(id => ctx.db.get(id)))).filter((item): item is Doc<"listings"> => !!item);
+    const evidence = await verifiedKitEvidence(ctx);
+    let rows = bookable(await ctx.db.query("listings").withIndex("by_active", q => q.eq("active", true)).collect())
+      .filter(item => !rentalUnavailable(item) && rentableCandidate(item) && !alreadySupplied(item, selected))
+      .filter(item => !selected.length || automaticRecommendation(item, selected, evidence));
     if (cat) rows = rows.filter((r) => r.category === cat);
     if (brand) rows = rows.filter((r) => r.title.toLowerCase().includes(brand));
 
@@ -414,11 +423,15 @@ export const recommend = query({
 
     const byDemand = (a: Doc<"listings">, b: Doc<"listings">) =>
       ((b as any).demandScore ?? 0) - ((a as any).demandScore ?? 0);
-    const n = limit ?? 6;
-    const single = rows.filter((r) => !isSet(r)).sort(byDemand).slice(0, n);
-    const sets = rows.filter(isSet).sort(byDemand).slice(0, n);
+    const n = Math.min(12, Math.max(1, Math.floor(limit ?? 6)));
+    const chosen: Doc<"listings">[] = [];
+    const unique = (row: Doc<"listings">) => { if (alreadySupplied(row, chosen)) return false; chosen.push(row); return true; };
+    const single = rows.filter((r) => !isSet(r)).sort(byDemand).filter(unique).slice(0, n);
+    const sets = rows.filter(isSet).sort(byDemand).filter(unique).slice(0, n);
 
-    const withInfo = (r: Doc<"listings">) => ({ ...shape(r), ...inclusions(r) });
+    const withInfo = (r: Doc<"listings">) => ({ ...shape(r), ...inclusions(r),
+      fitNeedsConfirmation: ["lens", "gimbal", "battery", "nd-filter"].includes(r.itemType ?? "") && !automaticRecommendation(r, selected, evidence),
+    });
     return {
       category: cat ?? null,
       brand,

@@ -99,6 +99,7 @@ export function BookingPanel({
   const policy = useQuery(api.settings.get, {});
   const [pickupTime,setPickupTime]=useState(""),[returnTime,setReturnTime]=useState("");
   const calendarStock=useCalendarStock(listing._id,month,cart.items,!!listing.marketingOnly,start&&!end?start:null);
+  const validOrder = start !== end || !pickupTime || !returnTime || returnTime > pickupTime;
   const blockedDays=new Set([...unavailable,...calendarStock.unavailable]);
   const days = start && end ? daysInclusive(start, end) : 0;
   const q = useMemo(
@@ -119,7 +120,7 @@ export function BookingPanel({
       : [];
   const fit = useQuery(
     api.availability.forCart,
-    start && end && pickupTime && returnTime && !listing.marketingOnly ? { items: prospective } : "skip",
+    start && end && pickupTime && returnTime && validOrder && !listing.marketingOnly ? { items: prospective } : "skip",
   );
   const slots=useQuery(api.availability.forTimeSlots,start&&end&&!listing.marketingOnly?{listingId:listing._id as any,start:startMs,end:endMs,pickupTime:pickupTime||undefined,returnTime:returnTime||undefined,items:prospective.slice(0,-1)}:"skip");
   const cand: any = fit ? (fit as any)[listing._id] : undefined;
@@ -127,7 +128,7 @@ export function BookingPanel({
   // offers replacements before checkout rather than blocking demand collection.
   const haveTimes = !!(pickupTime && returnTime);
   const timesAllowed = !!(slots?.pickupSlots.includes(pickupTime) && slots?.returnSlots.includes(returnTime));
-  const canAdd = !!(start && end && q && (listing.marketingOnly || haveTimes && calendarStock.ready && timesAllowed && cand?.ok));
+  const canAdd = !!(start && end && q && (listing.marketingOnly || haveTimes && validOrder && calendarStock.ready && timesAllowed && cand?.ok));
 
   function addToKit() {
     if (!canAdd || !q || !start || !end) return;
@@ -222,6 +223,8 @@ export function BookingPanel({
           <div className="mt-3 flex justify-center text-xs">
             {!haveTimes ? (
               <span className="text-amber-200">Choose pickup and return times to check availability.</span>
+            ) : !validOrder ? (
+              <span className="text-amber-200">Return time must be later than pickup on the same day.</span>
             ) : fit === undefined || !calendarStock.ready || slots === undefined ? (
               <span className="text-white/30">Checking availability…</span>
             ) : !timesAllowed ? (

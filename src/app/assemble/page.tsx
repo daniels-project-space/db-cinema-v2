@@ -14,10 +14,11 @@ import { useCart } from "@/components/cart/CartProvider";
 import { useAccount } from "@/components/account/AccountProvider";
 import { tierByKey } from "@/lib/membership";
 import { lensFits, bestCompat, parseMounts } from "@/lib/mount";
-import { kitWarnings, FOCAL_THREAD } from "@/lib/compat";
+import { kitWarnings } from "@/lib/compat";
 import { GlowSlider } from "@/components/GlowSlider";
 import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
+import { filterThreadsFor } from "../../../shared/opticalFacts";
 import { scoreOption } from "@/lib/kitRank";
 import { alreadySupplied, automaticRecommendation, documentedIncludedTypes } from "../../../shared/recommendationPolicy";
 
@@ -81,10 +82,7 @@ export default function AssemblePage() {
   const cinemaRig = cams.some((c) => /cine|cinema|fx ?6|fx ?9|c ?70|c ?100|c ?200|c ?300|c ?500|c ?400|alexa|amira|ursa|komodo|raptor|venice|burano|bmpcc|pocket cinema|\bred\b/i.test(c.title || ""));
   // secondary gear the chosen camera SET already contains — never re-recommend it (its unit is booked in the bundle)
   const includedTypes = new Set<string>(cams.flatMap((c: any) => documentedIncludedTypes(c)));
-  const lensThreads = [
-    ...selList.filter((x) => x.role === "lens").map((x) => x.specs?.filterThreadMm).filter(Boolean),
-    ...cams.filter((c) => c.specs?.includesLens && c.specs?.lensFocal && FOCAL_THREAD[c.specs.lensFocal]).map((c) => FOCAL_THREAD[c.specs.lensFocal]),
-  ];
+  const lensThreads = selList.flatMap(filterThreadsFor);
 
   // ── DYNAMIC TREE: downstream stages re-rank around what's ACTUALLY selected ──────────────
   // (pick a Blackmagic EF body → Canon glass tops; pick Sony → Sony battery; add a gimbal →
@@ -105,7 +103,7 @@ export default function AssemblePage() {
     if (s.key === "camera") return s.recommendedId;
     const v = visibleFor(s).filter((o: any) => !incompatOf(o, s) &&
       !alreadySupplied(o, selList.filter(i => i.listingId !== o.listingId)) &&
-      automaticRecommendation(o, selList.filter(i => i.listingId !== o.listingId)));
+      automaticRecommendation(o, selList.filter(i => i.listingId !== o.listingId), data?.compatibilityKits));
     return v.length ? [...v].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key))[0].listingId : "";
   };
 
@@ -228,10 +226,10 @@ export default function AssemblePage() {
   const warnings = useMemo(() => {
     const w: { level: string; text: string }[] = [];
     if (cams.length === 0) w.push({ level: "info", text: "No camera selected yet — add one to anchor your kit." });
-    const kit = selList.map((x) => ({ itemType: typeOf(x), title: x.title, specs: x.specs ?? {} }));
-    for (const k of kitWarnings(kit)) w.push({ level: k.level, text: k.text });
+    const kit = selList.map((x) => ({ ...x, itemType: typeOf(x) }));
+    for (const k of kitWarnings(kit, data?.compatibilityKits)) w.push({ level: k.level, text: k.text });
     return w;
-  }, [selList, cams]);
+  }, [selList, cams, data?.compatibilityKits]);
 
   return (
     <>
