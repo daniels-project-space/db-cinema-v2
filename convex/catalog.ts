@@ -9,6 +9,7 @@ import { listingImages } from "./lib/catalogImages";
 import { isMarketingOnly, rentalUnavailable } from "./lib/marketingInventory";
 import { alreadySupplied, automaticRecommendation } from "../shared/recommendationPolicy";
 import { assertAdmin } from "./adminAuth";
+import { createPublicListingCopy } from "./lib/publicListingCopy";
 
 /**
  * SERVER-AUTHORITATIVE line pricing for checkout (anti-tamper). Recomputes each line's
@@ -59,7 +60,8 @@ const card = (l: any) => ({
   itemType: l.itemType ?? null,
   specs: effectiveLensSpecs(l),
   inventoryFacts: l.inventoryFacts ?? null,
-  rentalContents: l.rentalContents ? { included: l.rentalContents.included } : null,
+  rentalContents: l.rentalContents ? { ...l.rentalContents } : null,
+  verifiedComponentContents: l.verifiedComponentContents ?? [],
   components: l.components ?? [],
   tip: l.knowledge?.summary ?? null,
   heroImage: images(l)[0] ?? null,
@@ -72,6 +74,11 @@ const card = (l: any) => ({
   quietDeal: l.quietDeal ?? null,
   displayOnly: !!l.suppressed && !isMarketingOnly(l),
 });
+
+const toPublicCards = async (ctx: any, rows: any[]) => {
+  const decorate = createPublicListingCopy(ctx);
+  return (await decorate(rows)).map(card);
+};
 
 export const allBasic = query({
   args: {},
@@ -109,7 +116,7 @@ export const bestSellers = query({
       return { l, score };
     });
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, n).map((x) => card(x.l));
+    return await toPublicCards(ctx, scored.slice(0, n).map((x) => x.l));
   },
 });
 
@@ -121,7 +128,7 @@ export const byItemType = query({
       .query("listings")
       .withIndex("by_active", (q) => q.eq("active", true))
       .collect();
-    return ls.filter((l) => set.has((l as any).itemType ?? "")).map(card);
+    return await toPublicCards(ctx, ls.filter((l) => set.has((l as any).itemType ?? "")));
   },
 });
 
@@ -154,7 +161,7 @@ export const listListings = query({
         ((b as any).demandScore ?? 0) - ((a as any).demandScore ?? 0) || // then by REAL rental demand (was alphabetical, which buried popular gear)
         a.title.localeCompare(b.title),
     );
-    return rows.slice(0, limit ?? 500).map(card);
+    return await toPublicCards(ctx, rows.slice(0, limit ?? 500));
   },
 });
 
@@ -262,9 +269,9 @@ export const listingsByIds = query({
     const out: any[] = [];
     for (const id of new Set(ids)) {
       const l = await ctx.db.get(id);
-      if (l && l.active) out.push(card(l));
+      if (l && l.active) out.push(l);
     }
-    return out;
+    return await toPublicCards(ctx, out);
   },
 });
 
@@ -277,28 +284,30 @@ export const getListingBySlug = query({
       .first();
     // bookable items + display-only (marketing) items; truly-dead rows 404
     if (!l || (!l.active && !l.suppressed)) return null;
+    const [publicListing] = await createPublicListingCopy(ctx)([l]);
     return {
-      _id: l._id,
-      slug: l.slug,
-      title: l.title,
-      category: l.category,
-      itemType: l.itemType ?? null,
-      specs: effectiveLensSpecs(l),
-      knowledge: l.knowledge ?? null,
-      description:l.description??null,
-      rentalContents: l.rentalContents ?? null,
-      inventoryFacts: l.inventoryFacts ?? null,
-      components: l.components ?? [],
-      heroImage: images(l)[0] ?? null,
-      gallery: images(l),
-      pricing: l.pricing,
-      depositAmount: l.depositAmount,
-      minimumRentalDays: l.minimumRentalDays ?? 1,
-      unavailableDates: l.unavailableDates ?? [],
-      marketingOnly: isMarketingOnly(l),
-      displayOnly: !!l.suppressed && !isMarketingOnly(l),
-      bookable: !rentalUnavailable(l),
-      demandScore: l.demandScore ?? 0,
+      _id: publicListing._id,
+      slug: publicListing.slug,
+      title: publicListing.title,
+      category: publicListing.category,
+      itemType: publicListing.itemType ?? null,
+      specs: effectiveLensSpecs(publicListing),
+      knowledge: publicListing.knowledge ?? null,
+      description: publicListing.description ?? null,
+      rentalContents: publicListing.rentalContents ?? null,
+      verifiedComponentContents: publicListing.verifiedComponentContents ?? [],
+      inventoryFacts: publicListing.inventoryFacts ?? null,
+      components: publicListing.components ?? [],
+      heroImage: images(publicListing)[0] ?? null,
+      gallery: images(publicListing),
+      pricing: publicListing.pricing,
+      depositAmount: publicListing.depositAmount,
+      minimumRentalDays: publicListing.minimumRentalDays ?? 1,
+      unavailableDates: publicListing.unavailableDates ?? [],
+      marketingOnly: isMarketingOnly(publicListing),
+      displayOnly: !!publicListing.suppressed && !isMarketingOnly(publicListing),
+      bookable: !rentalUnavailable(publicListing),
+      demandScore: publicListing.demandScore ?? 0,
     };
   },
 });
@@ -356,7 +365,7 @@ export const recommendations = query({
         .slice(0, perCat);
       out.push(...picks);
     }
-    return out.slice(0, limit ?? 6).map(card);
+    return await toPublicCards(ctx, out.slice(0, limit ?? 6));
   },
 });
 
@@ -412,7 +421,7 @@ export const featured = query({
       .take(300);
     const withImg = rows.filter((r) => images(r).length > 0);
     withImg.sort((a, b) => (b.pricing?.daily ?? 0) - (a.pricing?.daily ?? 0));
-    return withImg.slice(0, limit ?? 12).map(card);
+    return await toPublicCards(ctx, withImg.slice(0, limit ?? 12));
   },
 });
 

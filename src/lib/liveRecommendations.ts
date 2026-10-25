@@ -18,9 +18,12 @@ export function liveChatChoices(card:any,group:any,snapshot:any){
   if(!original)return [];
   if(!group)return [{...card,refreshing:true,item:{...original,available:false},added:card.kind==="swap"?{...original,available:false}:undefined}];
   const preferred=group.preferred;
-  const current={...original,...preferred,estimated:group.ready?false:original.estimated,memberTotal:undefined,memberPct:undefined,available:preferred?.available===true&&preferred?.automaticEligible===true,needsTimes:!group.ready};
+  const eligible=preferred?.automaticEligible===true;
+  const requestCompatible=preferred?.requestCompatible===true;
+  const actuallyAvailable=preferred?.available===true;
+  const current={...original,...preferred,estimated:group.ready?false:original.estimated,memberTotal:undefined,memberPct:undefined,available:actuallyAvailable&&eligible,requestable:group.ready&&requestCompatible&&!actuallyAvailable,needsTimes:!group.ready};
   const already=preferred&&alreadySupplied(preferred,snapshot.basket??[]);
-  const reason=already?"Already supplied by your basket.":!group.ready?"Choose dates, pickup and return times to check this choice.":!preferred?.automaticEligible?"Your basket changed. Check this combination or choose a matching alternative below.":preferred.available!==true?"This item is no longer available for the current rental period.":"Stock, price and supplied kit contents rechecked.";
+  const reason=already?"Already supplied by your basket.":!group.ready?"Choose dates, pickup and return times to check this choice.":!requestCompatible?"Your basket changed. Check this combination or choose a matching alternative below.":!actuallyAvailable?"Unavailable for this rental window. Add it as a request or choose an available alternative.":!eligible?"This choice needs another stock or fit check.":"Stock, price and supplied kit contents rechecked.";
   const first=card.kind==="swap"?{...card,added:current,reason}:{...card,item:current,reason};
   if(already)return [{...first,alreadyIncluded:true}];
   const used:any[]=preferred?.available===true&&preferred?.automaticEligible?[preferred]:[];

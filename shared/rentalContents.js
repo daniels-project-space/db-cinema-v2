@@ -1,3 +1,5 @@
+const { sanitizeCustomerCopy } = require('./verifiedRentalCopy');
+
 /** Only seller-authored contents lists are facts. Specs and BOMs describe
  * compatibility/availability; neither proves what travels in a rental case. */
 function extractContents(description) {
@@ -41,13 +43,16 @@ function extractContents(description) {
 function contentsFor(listing) {
   const f=listing?.inventoryFacts;
   const inventoryFacts=f?.version===1&&Array.isArray(f.contents)&&Array.isArray(f.optionalContents)?f:null;
+  const strings=x=>Array.isArray(x)?x.filter(v=>typeof v==='string'&&v.trim()).map(sanitizeCustomerCopy).filter(Boolean):[];
+  const key=v=>v.replace(/^\s*\d+(?:[.,]\d+)?\s*(?:x|×)\s*/i,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const unique=x=>[...new Map(x.map(v=>[key(v),v])).values()];
+  const verified=strings(listing?.verifiedComponentContents);
   const c=listing?.rentalContents ?? (listing?.contentsSources ? {
     included:listing.includes,optional:listing.optional,excluded:listing.excludes,
     notes:listing.notes,status:listing.contentsStatus,sources:listing.contentsSources,
   } : null);
-  if (!c || !Array.isArray(c.sources) || !c.sources.length) return {includes:inventoryFacts?.contents??[],optional:inventoryFacts?.optionalContents??[],excludes:[],notes:[],contentsStatus:inventoryFacts?.contents.length?'documented':'unknown',contentsSources:[],...(inventoryFacts?{inventoryFacts}:{})};
-  const strings=x=>Array.isArray(x)?x.filter(v=>typeof v==='string'&&v.trim()):[];
-  return {includes:strings(c.included),optional:[...new Set([...strings(c.optional),...strings(inventoryFacts?.optionalContents)])],excludes:strings(c.excluded),notes:strings(c.notes),contentsStatus:c.status==='documented'?'documented':'unknown',contentsSources:c.sources.map(s=>({account:s.account,productId:s.productId,url:s.url,checkedAt:s.checkedAt})),...(inventoryFacts?{inventoryFacts}:{})};
+  if (!c || !Array.isArray(c.sources) || !c.sources.length) return {includes:unique([...strings(inventoryFacts?.contents),...verified]),optional:unique(strings(inventoryFacts?.optionalContents)),excludes:[],notes:[],contentsStatus:inventoryFacts?.contents.length||verified.length?'documented':'unknown',contentsSources:[],...(inventoryFacts?{inventoryFacts}:{})};
+  return {includes:unique([...strings(c.included),...verified]),optional:unique([...strings(c.optional),...strings(inventoryFacts?.optionalContents)]),excludes:strings(c.excluded),notes:strings(c.notes),contentsStatus:c.status==='documented'||verified.length?'documented':'unknown',contentsSources:c.sources.map(s=>({account:s.account,productId:s.productId,url:s.url,checkedAt:s.checkedAt})),...(inventoryFacts?{inventoryFacts}:{})};
 }
 function contentsText(listing) {
   const c=contentsFor(listing);

@@ -193,7 +193,7 @@ export default function AssemblePage() {
   }
 
   function addAll() {
-    if(!live || live.selectionOk!==true)return;
+    if(!canAddSelection)return;
     for (const c of selList)
       cart.add({
         listingId: c.listingId, slug: c.slug, title: c.title, heroImage: c.image ?? null,
@@ -232,6 +232,11 @@ export default function AssemblePage() {
       return `Ø${o.specs.filterThreadMm}mm — smaller than your lens (needs a step-up ring)`;
     return null;
   };
+  const requestReady = selList.length > 0 && selList.every((item:any) => {
+    const stage=data?.stages?.find((candidate:any)=>candidate.key===item.stageKey);
+    return !!stage && live?.groups?.[stage.key]?.ready === true && item.requestCompatible === true && !incompatOf(item,stage);
+  });
+  const canAddSelection = !!live && (live.selectionOk === true || requestReady);
 
   // compatibility warnings for the review — the SAME shared engine the cart + bot use
   // (mount / sensor-coverage / filter-thread / battery / redundant / fixed-lens), so the
@@ -415,7 +420,7 @@ export default function AssemblePage() {
                           : s.key === "gimbal" && !automaticRecommendation(o, contextList.filter(i => i.listingId !== o.listingId), live?.compatibilityKits)
                             ? "Confirm payload, mounting and balance for your selected camera and lenses." : null;
                         return (
-                          <button key={o.listingId} onClick={() => toggle(o, s)} disabled={!live||o.available!==true||!!bad} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all disabled:opacity-40 ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
+                          <button key={o.listingId} onClick={() => toggle(o, s)} disabled={!live||o.needsTimes||!!bad} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all disabled:opacity-40 ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
                             {rec && !on && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">Pick</span>}
                             {bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Won't fit</span>}
                             {adapter && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Adapter</span>}
@@ -427,6 +432,7 @@ export default function AssemblePage() {
                               <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
                               <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-white/45">
                                 <span>£{o.total} · {o.days}d</span>
+                                {!o.needsTimes&&o.available===false&&<span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-amber-200">Unavailable · request only</span>}
                                 {o.mount && o.mount !== "any" && o.mount !== "fixed" && (
                                   // non-E camera systems (Blackmagic EF/MFT, Canon RF…) get a blue "other-mount" tag
                                   s.key === "camera" && o.mount !== "E"
@@ -529,9 +535,9 @@ export default function AssemblePage() {
                   />
                 </div>
               </div>
-              {live?.selectionOk===false&&<p role="alert" className="text-sm text-amber-200">Your kit or basket changed and no longer fits the current stock. Review the selected items before adding them.</p>}
-              <button onClick={addAll} disabled={selList.length === 0||!live||live.selectionOk!==true} className="btn-primary shrink-0 px-6 py-3">
-                Add {selList.length || ""} to kit
+              {live?.selectionOk===false&&<p role="status" className="text-sm text-amber-200">Some selected gear is unavailable for this window. You can add it as a request; checkout will show alternatives and keep payment blocked until the full kit passes the stock check.</p>}
+              <button onClick={addAll} disabled={selList.length === 0||!canAddSelection} className="btn-primary shrink-0 px-6 py-3">
+                {live?.selectionOk===true?`Add ${selList.length || ""} to kit`:"Add request to kit"}
               </button>
             </div>
           </div>

@@ -7,6 +7,8 @@ import { quote } from "./lib/pricing";
 import { listingImages } from "./lib/catalogImages";
 import { deriveItemType } from "./lib/taxonomy";
 import { bestCompat, parseMounts } from "./lib/mount";
+import { bundleContentSimilarity } from "../shared/verifiedRentalCopy";
+import { createPublicListingCopy } from "./lib/publicListingCopy";
 
 /** Listing packs such as "3x Sony FX3" represent three requested bodies. */
 const packSize = (title: string) => Math.min(100, Math.max(1, Number(title.match(/(?:^|[\s(])([1-9]\d*)\s*[x×](?=\s|[A-Za-z)]|$)/i)?.[1] ?? 1)));
@@ -22,6 +24,8 @@ export const sets = query({
     if (!source || !Number.isSafeInteger(source.start) || !Number.isSafeInteger(source.end) || source.end < source.start || source.end - source.start > 365 * 86400000) return null;
     const original = await ctx.db.get(source.listingId);
     if (!original) return null;
+    const decoratePublic=createPublicListingCopy(ctx);
+    const [displayOriginal]=await decoratePublic([original]);
     const group = items.filter(i => i.listingId === source.listingId && i.start === source.start && i.end === source.end && i.pickupTime===source.pickupTime && i.returnTime===source.returnTime);
     const keys = group.map(i => i.key), requested = group.reduce((sum,line)=>sum+(line.qty??1),0) * packSize(original.title);
     const cache = { records: new Map<string, any>(), reservations: new Map<string, any[]>() };
@@ -30,7 +34,9 @@ export const sets = query({
     const retained = await Promise.all(items.filter(i => !keys.includes(i.key)).map(async line => ({ line, listing: await ctx.db.get(line.listingId) })));
     const type = original.itemType ?? deriveItemType(original.title);
     const redirect = marketingRedirect(original);
-    const candidates = (await ctx.db.query("listings").withIndex("by_category", q => q.eq("category", original.category)).collect())
+    const categoryRows=await ctx.db.query("listings").withIndex("by_category", q => q.eq("category", original.category)).take(257);
+    const candidateSearchLimited=categoryRows.length>256;
+    const rawCandidates=categoryRows.slice(0,256)
       .filter(l => !rentalUnavailable(l) && powerCompatible(original,l) && (l.itemType ?? deriveItemType(l.title)) === type && days >= (l.minimumRentalDays ?? 1))
       .filter(candidate => !retained.some(r => {
         if (!r.listing || rentalUnavailable(r.listing)) return false;
@@ -38,15 +44,19 @@ export const sets = query({
         const lens = type === "lens" && other === "camera-body" ? candidate : other === "lens" && type === "camera-body" ? r.listing : null;
         const body = lens === candidate ? r.listing : candidate;
         return lens && bestCompat(parseMounts(lens.specs?.mount), parseMounts(body.specs?.mount)) === "incompatible";
-      })).sort((a, b) => {
-        const score = (l: any) => (redirect?.alternative.test(l.title) ? 100 : 0) + (l.specs?.mount && l.specs.mount === original.specs?.mount ? 20 : 0) - Math.abs(l.pricing.daily - original.pricing.daily) / Math.max(1, original.pricing.daily);
+      }));
+    const displayCandidates=await decoratePublic(rawCandidates);
+    const displayById=new Map(displayCandidates.map((listing:any)=>[String(listing._id),listing]));
+    const candidates=rawCandidates.sort((a, b) => {
+        const score = (l: any) => (redirect?.alternative.test(l.title) ? 100 : 0) + bundleContentSimilarity(displayOriginal,displayById.get(String(l._id))??l)*50 + (l.specs?.mount && l.specs.mount === original.specs?.mount ? 20 : 0) - Math.abs(l.pricing.daily - original.pricing.daily) / Math.max(1, original.pricing.daily);
         return score(b) - score(a) || String(a._id).localeCompare(String(b._id));
       });
-    const options: { id: string; total: number; items: { listingId: string; slug: string; title: string; heroImage: string | null; imageSources: string[]; days: number; perDay: number; total: number; deposit: number }[] }[] = [];
-    const describe = (l: typeof original) => {
+    const options: { id: string; total: number; items: { listingId: string; slug: string; title: string; included:string[];verifiedComponentContents:string[];heroImage: string | null; imageSources: string[]; days: number; perDay: number; total: number; deposit: number }[] }[] = [];
+    const describe = (sourceListing: typeof original) => {
+      const l=displayById.get(String(sourceListing._id))??sourceListing;
       const price = quote(l.pricing, days);
       const total = l.quietDeal ? Math.round(price.total * (1 - l.quietDeal / 100)) : price.total;
-      return { listingId: String(l._id), slug: l.slug, title: l.title, heroImage: listingImages(l)[0] ?? null, imageSources: listingImages(l), days, perDay: Math.round(total / days * 100) / 100, total, deposit: l.depositAmount };
+      return { listingId: String(l._id), slug: l.slug, title: l.title, included:l.rentalContents?.included??[],verifiedComponentContents:l.verifiedComponentContents??[],heroImage: listingImages(l)[0] ?? null, imageSources: listingImages(l), days, perDay: Math.round(total / days * 100) / 100, total, deposit: l.depositAmount };
     };
     const availability = new Map<string, boolean>();
     async function available(trial: typeof candidates) {
@@ -86,7 +96,7 @@ export const sets = query({
       }
     }
     await search([], 0, 0);
-    return { keys, requested, options, singles, searchLimited };
+    return { keys, requested, options, singles, searchLimited:searchLimited||candidateSearchLimited };
   },
 });
 
@@ -101,7 +111,9 @@ export const forCart = query({
     limit = Math.max(2, Math.min(100, Math.floor(limit)));
     if (items.length > 100) throw Error("Basket is too large");
     const originals = await Promise.all(items.map(i => ctx.db.get(i.listingId)));
-    const result: Record<string, { listingId: string; slug: string; title: string; heroImage: string | null; imageSources: string[]; days: number; perDay: number; total: number; deposit: number }[]> = {};
+    const decoratePublic=createPublicListingCopy(ctx),displayById=new Map<string,any>();
+    for(const listing of await decoratePublic(originals.filter(Boolean)))displayById.set(String(listing._id),listing);
+    const result: Record<string, { listingId: string; slug: string; title: string; included:string[];verifiedComponentContents:string[];heroImage: string | null; imageSources: string[]; days: number; perDay: number; total: number; deposit: number }[]> = {};
     const categories = new Map<string, any[]>();
     for (let index = 0; index < items.length; index++) {
       const source = originals[index], line = items[index];
@@ -113,10 +125,14 @@ export const forCart = query({
         continue; // available source: no substitution needed
       } catch { /* unavailable source */ }
       const days = Math.round((line.end - line.start) / 86400000) + 1;
-      if (!categories.has(source.category)) categories.set(source.category, await ctx.db.query("listings").withIndex("by_category", q => q.eq("category", source.category)).collect());
+      if (!categories.has(source.category)) categories.set(source.category, await ctx.db.query("listings").withIndex("by_category", q => q.eq("category", source.category)).take(512));
       const type = source.itemType ?? deriveItemType(source.title), redirect = marketingRedirect(source);
+      const displaySource=displayById.get(String(source._id))??source;
+      const candidateRows=categories.get(source.category)!.filter(l => l._id !== source._id && !rentalUnavailable(l) && powerCompatible(source,l) && packSize(l.title)>=packSize(source.title) && (l.itemType ?? deriveItemType(l.title)) === type && days >= (l.minimumRentalDays ?? 1));
+      for(const listing of await decoratePublic(candidateRows))displayById.set(String(listing._id),listing);
       const score = (l: any) => {
         let score = redirect?.alternative.test(l.title) ? 100 : 0;
+        score += bundleContentSimilarity(displaySource,displayById.get(String(l._id))??l)*50;
         if (l.specs?.mount && l.specs.mount === source.specs?.mount) score += 20;
         if (l.specs?.lensFocal && l.specs.lensFocal === source.specs?.lensFocal) score += 20;
         if (l.specs?.lensClass && l.specs.lensClass === source.specs?.lensClass) score += 10;
@@ -125,7 +141,7 @@ export const forCart = query({
         score -= Math.abs(l.pricing.daily - source.pricing.daily) / Math.max(1, source.pricing.daily);
         return score;
       };
-      const candidates = categories.get(source.category)!.filter(l => l._id !== source._id && !rentalUnavailable(l) && powerCompatible(source,l) && packSize(l.title)>=packSize(source.title) && (l.itemType ?? deriveItemType(l.title)) === type && days >= (l.minimumRentalDays ?? 1)).sort((a,b) => score(b)-score(a) || String(a._id).localeCompare(String(b._id)));
+      const candidates = candidateRows.sort((a,b) => score(b)-score(a) || String(a._id).localeCompare(String(b._id)));
       const seen = new Set<string>();
       result[line.key] = [];
       for (const candidate of candidates) {
@@ -145,7 +161,8 @@ export const forCart = query({
         } catch { continue; }
         const price = quote(candidate.pricing, days);
         const total = candidate.quietDeal ? Math.round(price.total * (1-candidate.quietDeal/100)) : price.total;
-        result[line.key].push({ listingId: candidate._id, slug: candidate.slug, title: candidate.title, heroImage: listingImages(candidate)[0] ?? null, imageSources: listingImages(candidate), days, perDay: Math.round(total/days*100)/100, total, deposit: candidate.depositAmount });
+        const publicCandidate=displayById.get(String(candidate._id))??candidate;
+        result[line.key].push({ listingId: candidate._id, slug: candidate.slug, title: publicCandidate.title, included:publicCandidate.rentalContents?.included??[],verifiedComponentContents:publicCandidate.verifiedComponentContents??[],heroImage: listingImages(candidate)[0] ?? null, imageSources: listingImages(candidate), days, perDay: Math.round(total/days*100)/100, total, deposit: candidate.depositAmount });
         seen.add(signature);
         if (result[line.key].length >= limit) break;
       }

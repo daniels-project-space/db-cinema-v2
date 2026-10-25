@@ -41,6 +41,7 @@ export function ReplacementSets({ item }: { item: CartItem }) {
       <div className="flex gap-3 overflow-x-auto pb-2">{option.items.map((choice, index) => <article key={`${choice.listingId}-${index}`} className="w-40 shrink-0 rounded-xl border border-white/10 bg-charcoal-900 p-2">
         <SmartImage fit="contain" src={choice.heroImage} fallbackSources={choice.imageSources} alt={choice.title} className="aspect-[4/3] w-full rounded-lg" />
         <p className="mt-2 line-clamp-2 text-xs leading-5 text-white/85">{choice.title}</p>
+        {[...new Set([...(choice.included??[]),...(choice.verifiedComponentContents??[])])].length>0&&<p className="mt-1 line-clamp-3 text-[10px] leading-4 text-white/45">Includes: {[...new Set([...(choice.included??[]),...(choice.verifiedComponentContents??[])])].slice(0,4).join(" · ")}</p>}
         <p className="mt-1 text-xs text-white/60">{formatGbp(choice.total)}</p>
         <button disabled={busy} onClick={() => void apply(option.id, index)} className="mt-3 w-full rounded-lg border border-white/15 px-2 py-2 text-xs text-white disabled:opacity-40">Add separately</button>
       </article>)}</div>
