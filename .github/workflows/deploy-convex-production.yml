@@ -1,0 +1,162 @@
+name: Deploy DB Cinema Convex production
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      confirm_production_deploy:
+        description: Deploy the current main branch to the configured production Convex deployment
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: db-cinema-convex-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Publish Convex functions after CI
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main' &&
+       inputs.confirm_production_deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: production
+    steps:
+      - name: Check out the CI-tested main commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Select backend changes and require the protected deploy key
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CI_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.DBCINEMA_CONVEX_DEPLOY_KEY }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            deploy=true
+            tested_run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${CI_SHA}&branch=main&per_page=100" --jq '[.workflow_runs[] | select(.name == "CI" and .event == "push" and .conclusion == "success")] | length')"
+            if [ "$tested_run" -eq 0 ]; then
+              echo "::error title=Main commit has no successful CI::Run the CI workflow successfully on this main commit before dispatching a production deploy."
+              exit 1
+            fi
+          else
+            deployed_ref="$(git ls-remote origin refs/tags/convex-production-deployed)" || {
+              echo "::error title=Could not read Convex production deploy marker::The last successful backend publish could not be checked."
+              exit 1
+            }
+            deployed_sha="${deployed_ref%%$'\t'*}"
+            if [ -z "$deployed_sha" ]; then
+              changed_files="$(git diff --name-only "${CI_SHA}^" "$CI_SHA")"
+            else
+              comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${deployed_sha}...${CI_SHA}")"
+              comparison_status="$(jq -r '.status' <<< "$comparison")"
+              case "$comparison_status" in
+                behind|identical)
+                  echo "::notice::This CI-tested commit is already covered by the production Convex deploy marker."
+                  echo "deploy=false" >> "$GITHUB_OUTPUT"
+                  exit 0
+                  ;;
+                diverged)
+                  echo "::error title=Main history diverged from deployed Convex source::Inspect the production deploy marker before publishing."
+                  exit 1
+                  ;;
+                ahead)
+                  ahead_by="$(jq -r '.ahead_by' <<< "$comparison")"
+                  files_count="$(jq '.files | length' <<< "$comparison")"
+                  if [ "$ahead_by" -gt 250 ] || [ "$files_count" -ge 300 ]; then
+                    changed_files="convex/large-history-reconciliation-required"
+                  else
+                    changed_files="$(jq -r '.files[]?.filename' <<< "$comparison")"
+                  fi
+                  ;;
+                *)
+                  echo "::error title=Could not compare Convex production source::The deploy source history could not be compared safely."
+                  exit 1
+                  ;;
+            fi
+
+            if ! grep -Eq '^(convex/|shared/|convex\.json$|package\.json$|package-lock\.json$|tsconfig\.json$)' <<< "$changed_files"; then
+              echo "::notice::No Convex runtime inputs changed since the last production backend publish."
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            current_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+            if [ -z "$current_main" ]; then
+              echo "::error title=Could not verify main branch::The current main commit could not be read."
+              exit 1
+            fi
+            if [ "$CI_SHA" != "$current_main" ]; then
+              later="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${CI_SHA}...${current_main}")"
+              later_status="$(jq -r '.status' <<< "$later")"
+              if [ "$later_status" = "ahead" ]; then
+                later_ahead="$(jq -r '.ahead_by' <<< "$later")"
+                later_files="$(jq '.files | length' <<< "$later")"
+                if [ "$later_ahead" -gt 250 ] || [ "$later_files" -ge 300 ] || jq -r '.files[]?.filename' <<< "$later" | grep -Eq '^(convex/|shared/|convex\.json$|package\.json$|package-lock\.json$|tsconfig\.json$)'; then
+                  echo "::notice::A newer main commit changed Convex inputs; its successful CI run will publish the latest backend."
+                  echo "deploy=false" >> "$GITHUB_OUTPUT"
+                  exit 0
+                fi
+              elif [ "$later_status" != "identical" ]; then
+                echo "::error title=Could not verify the latest main Convex source::The main branch moved or diverged while CI was running."
+                exit 1
+              fi
+            fi
+
+            if grep -Eq '^(convex/|shared/|convex\.json$|package\.json$|package-lock\.json$|tsconfig\.json$)' <<< "$changed_files"; then
+              deploy=true
+            else
+              deploy=false
+            fi
+          fi
+
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+          if [ "$deploy" = "true" ] && [ -z "$CONVEX_DEPLOY_KEY" ]; then
+            echo "::error title=Missing production Convex deploy key::Add DBCINEMA_CONVEX_DEPLOY_KEY to the protected production GitHub environment. Use a key targeting DB Cinema production, not another app's deployment."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.deploy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install locked dependencies
+        if: steps.changes.outputs.deploy == 'true'
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck and deploy the production Convex backend
+        if: steps.changes.outputs.deploy == 'true'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.DBCINEMA_CONVEX_DEPLOY_KEY }}
+          DEPLOYED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: npx convex deploy --typecheck enable --message "GitHub main ${DEPLOYED_SHA}"
+
+      - name: Record the successfully deployed source commit
+        if: steps.changes.outputs.deploy == 'true'
+        env:
+          DEPLOYED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          git tag -f convex-production-deployed "$DEPLOYED_SHA"
+          git push --force origin refs/tags/convex-production-deployed
