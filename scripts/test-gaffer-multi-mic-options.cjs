@@ -49,10 +49,15 @@ setMock("@/lib/ai", {
 });
 process.env.OPENROUTER_API_KEY = "isolated-fixture-no-provider-call";
 
-const { handleChat, shouldOfferMoreMicOptions } = load("src/lib/gaffer.ts");
+const { handleChat, requestedMicKitCount, shouldOfferMoreMicOptions } = load("src/lib/gaffer.ts");
+const { formatGafferEmailReply } = load("src/lib/inboundEmail.ts");
 assert(shouldOfferMoreMicOptions("4x mic kits for a weekend shoot", "wireless microphones", []), "the exact four-kit phrasing must enable the full mic-options path");
+assert.equal(requestedMicKitCount("4x mic kits for a weekend shoot"), 4);
+assert.equal(requestedMicKitCount("four DJI Mic 1 sets"), 4);
+assert.equal(requestedMicKitCount("4 mics total"), null, "microphone count must not be mistaken for a rental-kit count");
+assert.equal(requestedMicKitCount("2 x Rode Mic Pro kits plus 1 x DJI Mic 2 set"), null, "separate product quantities must not be misreported as one model's requested quantity");
 const request = "2 x Rode Mic Pro kits (4 mics total) plus 1 x DJI Mic 2 set for 20 November, pickup 10:00 and return 17:00";
-async function run(availabilityById = new Map(listings.map((item) => [item._id, 1]))) {
+async function run(availabilityById = new Map(listings.map((item) => [item._id, 1])), requestText = request, channel = "chat") {
   availability = availabilityById;
   availabilityChecks = [];
   narration = "";
@@ -67,7 +72,7 @@ async function run(availabilityById = new Map(listings.map((item) => [item._id, 
     pickupTime: "10:00",
     returnTime: "17:00",
   };
-  return handleChat({ messages: [{ role: "user", content: request }] });
+  return handleChat({ messages: [{ role: "user", content: requestText }], channel });
 }
 
 (async () => {
@@ -80,12 +85,27 @@ async function run(availabilityById = new Map(listings.map((item) => [item._id, 
   assert(narration.includes("REQUESTED MICROPHONE MODELS AVAILABLE"));
   assert(narration.includes("MICROPHONE OPTIONS VERIFIED AVAILABLE"));
   assert(narration.includes("DJI Mic 1 Set"));
+  assert(narration.includes("available for selected dates/times"));
 
   const unavailable = new Map([["rode-pro", 1], ["dji-mic-2", 0], ["dji-mic-1", 1]]);
   result = await run(unavailable);
   assert(!result.cards.some((card) => card.item.listingId === "dji-mic-2"), "a named set with no available units must not be presented as an available choice");
   assert(result.cards.some((card) => card.item.listingId === "dji-mic-1"), "another available mic option remains visible");
   assert(narration.includes("REQUESTED MICROPHONE MODELS NOT FREE"));
+
+  const fourKitAvailability = new Map([["rode-pro", 0], ["dji-mic-2", 0], ["dji-mic-1", 2]]);
+  result = await run(fourKitAvailability, "4x mic kits for 20 November, pickup 10:00 and return 17:00", "email");
+  const djiOne = result.cards.find((card) => card.item.listingId === "dji-mic-1");
+  assert(djiOne, "an available compatible kit must remain visible when the requested quantity exceeds one listing's stock");
+  assert.equal(djiOne.item.availableUnits, 2, "the card must preserve the exact listing-unit availability count");
+  assert.equal(djiOne.item.requestedMicKitCount, 4);
+  assert(narration.includes("EXPLICIT MIC-KIT REQUEST: 4 complete microphone kits"));
+  assert(narration.includes("short by 2"));
+  const emailReply = formatGafferEmailReply("I found a possible option.", result.cards);
+  assert(emailReply.includes("DJI Mic 1 Set"), "email must include product options that otherwise exist only as Gaffer cards");
+  assert(emailReply.includes("2 available; 4 kits requested, so this listing is short by 2"));
+  assert(narration.includes("EMAIL RESPONSE:"), "email narration must account for the deterministic inventory section");
+  assert.equal(availabilityChecks.filter((id) => id === "dji-mic-1").length, 1, "rank and card rendering must reuse the same availability read");
 
   process.stdout.write("Gaffer multi-mic request, named model, and date/time availability checks passed.\n");
 })().catch((error) => {

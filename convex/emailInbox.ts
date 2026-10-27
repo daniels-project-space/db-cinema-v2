@@ -94,8 +94,13 @@ export const ingest = mutation({
         .withIndex("by_message_id", (q) => q.eq("messageId", messageId))
         .first();
       if (prior) {
-        thread = await ctx.db.get(prior.threadId);
-        if (thread) break;
+        const candidate = await ctx.db.get(prior.threadId);
+        // RFC Message-ID headers are supplied by the sender and are not identity proof.
+        // Only correlate a reply to the exact normalized sender address for this thread.
+        if (candidate && candidate.email?.trim().toLowerCase() === email) {
+          thread = candidate;
+          break;
+        }
       }
     }
     if (!thread) {
