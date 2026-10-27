@@ -3,13 +3,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { handleChat } from "@/lib/gaffer";
-import { newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
+import { isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const OWNER_EMAIL = "dbcinemarentals@gmail.com";
-const HUMAN_REQUEST = /\b(?:human|real person|person to speak|speak to (?:a )?(?:person|human|someone|team)|talk to (?:a )?(?:person|human|someone|team)|speak with|talk with|team member|call me|please call|owner)\b/i;
 
 function verifyResendSignature(req: NextRequest, raw: string): boolean {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
@@ -129,7 +128,7 @@ async function processResendEmail(req: NextRequest, raw: string) {
       subject,
       text: body,
     });
-    const humanRequested = HUMAN_REQUEST.test(body);
+    const humanRequested = isHumanHandoffRequested(subject, body);
     const claim: any = await client.mutation(api.emailInbox.claimInbound, {
       secret: process.env.INBOUND_EMAIL_SECRET,
       inboundId: stored.inboundId,

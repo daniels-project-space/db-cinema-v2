@@ -49,7 +49,8 @@ setMock("@/lib/ai", {
 });
 process.env.OPENROUTER_API_KEY = "isolated-fixture-no-provider-call";
 
-const { handleChat } = load("src/lib/gaffer.ts");
+const { handleChat, shouldOfferMoreMicOptions } = load("src/lib/gaffer.ts");
+assert(shouldOfferMoreMicOptions("4x mic kits for a weekend shoot", "wireless microphones", []), "the exact four-kit phrasing must enable the full mic-options path");
 const request = "2 x Rode Mic Pro kits (4 mics total) plus 1 x DJI Mic 2 set for 20 November, pickup 10:00 and return 17:00";
 async function run(availabilityById = new Map(listings.map((item) => [item._id, 1]))) {
   availability = availabilityById;
