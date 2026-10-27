@@ -149,9 +149,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           if (!start || !end || end < start) return item;
           try {
             const days = rentalPricingDays(start, end, item.pickupTime, item.returnTime);
-            const suffix = typeof item.key === "string" ? item.key.split("|").slice(6).filter(Boolean) : [];
-            const key = [item.listingId, item.start, days, item.offerType ?? "", item.pickupTime ?? "", item.returnTime ?? "", ...suffix].join("|");
-            return { ...item, days, key, perDay: Math.round(item.total / days * 100) / 100 };
+            return { ...item, days, perDay: Math.round(item.total / days * 100) / 100 };
           } catch { return item; }
         }));
       }
@@ -207,7 +205,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     (item: Omit<CartItem, "key">) => {
       const key = `${item.listingId}|${item.start}|${item.days}|${item.offerType ?? ""}|${item.pickupTime??""}|${item.returnTime??""}`;
       setItems((prev) =>
-        prev.some((p) => p.key === key) ? prev : [...prev, { ...item, key }],
+        prev.some((p) => p.listingId === item.listingId && p.start === item.start && p.end === item.end && p.pickupTime === item.pickupTime && p.returnTime === item.returnTime && p.offerType === item.offerType)
+          ? prev
+          : [...prev, { ...item, key }],
       );
       setToast(`${item.title.slice(0, 40)} added to your kit`);
       track({
