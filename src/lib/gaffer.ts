@@ -232,6 +232,39 @@ async function availabilityForContext(c:ConvexHttpClient,listingId:any,start:str
   return ctx.cartStock?.length?c.query(api.availability.forTimeSlots,{...request,items:ctx.cartStock}):c.query(api.availability.forListing,request);
 }
 const categoryLabel = (t: string) => CATEGORY_PLURAL[TERM[t] || t] || "gear of that kind";
+
+function hasMultipleMics(text: string): boolean {
+  return /\b(?:[2-9]|\d{2,}|two|three|four|five|six|seven|eight|nine|ten)\s*(?:x|×)\s*(?:[\w-]+\s+){0,6}(?:mics?|microphones?|lavs?|transmitters?|kits?|sets?)\b/i.test(text) ||
+    /\b(?:[2-9]|\d{2,}|two|three|four|five|six|seven|eight|nine|ten)\s+(?:(?:[\w-]+)\s+){0,3}(?:mics?|microphones?|lavs?|transmitters?)\b/i.test(text) ||
+    /\b(?:[2-9]|\d{2,}|two|three|four|five|six|seven|eight|nine|ten)\s+(?:kits?|sets?)\s+(?:of\s+)?(?:mics?|microphones?|lavs?|transmitters?)\b/i.test(text);
+}
+
+function djiMicGeneration(text: string): number | null {
+  const match = String(text ?? "").match(/\bdji\s+(?:wireless\s+)?mic(?:rophone)?\s*(?:\(?\s*)?(one|two|three|1(?:st)?|2(?:nd)?|3(?:rd)?)(?:\b|\s*\))/i);
+  if (!match) return null;
+  const generation = match[1].toLowerCase();
+  if (generation === "one" || generation.startsWith("1")) return 1;
+  if (generation === "two" || generation.startsWith("2")) return 2;
+  return 3;
+}
+
+function listingNamedInRequest(title: string, requestText: string): boolean {
+  const requested = String(requestText ?? "");
+  const titleLower = String(title ?? "").toLowerCase();
+  const titleDjiGeneration = djiMicGeneration(titleLower);
+  if (titleDjiGeneration !== null) return djiMicGeneration(requested) === titleDjiGeneration;
+  const coreWords = titleLower.match(/[a-z0-9]+/g)?.filter((word) =>
+    !["wireless", "microphone", "microphones", "mic", "mics", "kit", "kits", "set", "sets", "system", "systems", "audio", "rental"].includes(word),
+  ) ?? [];
+  return coreWords.length > 0 && coreWords.every((word) => new RegExp(`\\b${word}\\b`, "i").test(requested));
+}
+
+export function shouldOfferMoreMicOptions(requestText: string, subject: string, itemTypes: string[]): boolean {
+  const text = `${requestText ?? ""} ${subject ?? ""}`;
+  const asksForMics = /\b(?:mic|mics|microphone|microphones|lav|lavs|transmitter|transmitters)\b/i.test(text) ||
+    itemTypes.some((type) => ["wireless-mic", "boom-mic", "mic", "audio"].includes(type));
+  return asksForMics && hasMultipleMics(text);
+}
 /**
  * Genuine compatibility phrasing. The classifier drifts into `compatibility` on any
  * message that pairs gear with a purpose — "i need a camera for a product shoot for my
@@ -416,13 +449,15 @@ async function findAlternatives(
   n: number,
   excludeId?: string,
   mountHint: string[] = [],
+  excludeIds: string[] = [],
+  requestText = "",
 ): Promise<any[]> {
   const r: any[] = await candidatesForType(c,itemType||"lens");
   const wantSpecs = specTokens(subjectText);
   const cam = ctx.camMounts;
   const scored = (r || [])
     .filter(x => rentableCandidate(x) && !alreadySupplied(x, ctx.cartEvidence ?? []))
-    .filter((x) => itemTypeMatches(itemType, x.itemType) && String(x._id) !== excludeId && !ctx.cartIds.includes(String(x._id)))
+    .filter((x) => itemTypeMatches(itemType, x.itemType) && String(x._id) !== excludeId && !excludeIds.includes(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && !listingNamedInRequest(x.title, requestText))
     .map((x) => {
       let score = 0;
       if (itemType === "lens" || itemType === "lenses") {
@@ -466,6 +501,35 @@ async function findAlternatives(
     return free;
   }
   return pool.slice(0, n).map((s) => s.x);
+}
+
+/** Resolve microphone models explicitly named in a multi-mic request. The primary
+ * intent parser returns only one subject, so a second named model would otherwise be
+ * invisible to the availability check and the customer-facing cards. */
+async function findNamedMicOptions(
+  c: ConvexHttpClient,
+  requestText: string,
+  ctx: Ctx,
+): Promise<{ available: any[]; unavailable: any[]; unverified: any[] }> {
+  const rows: any[] = await candidatesForType(c, "wireless-mic");
+  const named = (rows || [])
+    .filter((item) => rentableCandidate(item) && itemTypeMatches("wireless-mic", item.itemType))
+    .filter((item) => listingNamedInRequest(item.title, requestText))
+    .slice(0, 12);
+  if (!ctx.availabilityReady) return { available: [], unavailable: [], unverified: named };
+
+  const available: any[] = [];
+  const unavailable: any[] = [];
+  for (const item of named) {
+    try {
+      const av: any = await availabilityForContext(c, item._id, ctx.start, ctx.end, ctx);
+      if ((av?.available ?? 0) > 0) available.push(item);
+      else unavailable.push(item);
+    } catch {
+      // A failed stock lookup is unknown, never evidence that an item is available.
+    }
+  }
+  return { available, unavailable, unverified: [] };
 }
 
 /** Best in-stock pick for a single slot (recommend / kit-fill), favourites-boosted. */
@@ -732,7 +796,7 @@ async function understand(history: any[], today: string): Promise<z.infer<typeof
 // ── stage 2: execute (deterministic — the source of truth) ──────────────────────
 type ExecResult = { cards: any[]; facts: string[]; askDates: boolean; askTimes?: boolean };
 
-async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<ExecResult> {
+async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestText = ""): Promise<ExecResult> {
   const c = ctx.c;
   // camera mounts: cart + the model's cameraModel + the subject text
   const camSet = new Set<string>(ctx.camMounts);
@@ -980,6 +1044,64 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<
     }
   }
 
+  // Multi-mic enquiries commonly ask for a quantity or several kits. Returning only the
+  // exact named products hides other usable systems (for example, DJI Mic 1 when a newer
+  // set is also requested). Search the same live, date-aware inventory even when the exact
+  // products are available. These are additional options; do not claim one set covers the
+  // customer's entire requested quantity.
+  if (shouldOfferMoreMicOptions(requestText, intent.subject, intent.itemTypes ?? [])) {
+    const alreadyShown = cards.flatMap((card) => card?.item?.listingId ? [String(card.item.listingId)] : []);
+    const requested = await findNamedMicOptions(c, requestText, ctx);
+    for (const item of requested.available) {
+      if (!alreadyShown.includes(String(item._id))) await pushCard(item, "Requested mic model checked for your dates and times");
+      alreadyShown.push(String(item._id));
+    }
+    for (const item of requested.unverified) {
+      if (!alreadyShown.includes(String(item._id))) await pushCard(item, "Requested mic model; dates and times needed to confirm");
+      alreadyShown.push(String(item._id));
+    }
+    if (requested.available.length) {
+      facts.push(`REQUESTED MICROPHONE MODELS AVAILABLE ${start}→${end}: ${requested.available.map((item) => item.title).join("; ")}.`);
+    }
+    if (requested.unavailable.length) {
+      facts.push(`REQUESTED MICROPHONE MODELS NOT FREE FOR ${start}→${end}: ${requested.unavailable.map((item) => item.title).join("; ")}. Do not describe these as available.`);
+    }
+    const options = await findAlternatives(
+      c,
+      requestText || intent.subject,
+      "wireless-mic",
+      ctx,
+      8,
+      undefined,
+      [],
+      alreadyShown,
+      requestText,
+    );
+    for (const option of options) await pushCard(option, ctx.availabilityReady ? "Another mic option checked for your dates and times" : "Another mic option; dates and times needed to confirm");
+    if (options.length) {
+      facts.push(
+        `ADDITIONAL MICROPHONE OPTIONS: ${options.map(titlePrice).join("; ")}. ` +
+        `${ctx.availabilityReady ? "Each returned listing has at least one unit available for the selected dates and times." : "These are catalogue options only; ask for complete dates and pickup/return times before confirming availability."} ` +
+        `Do not imply any one set satisfies the full number of microphones requested unless its quantity is separately confirmed.`,
+      );
+    }
+    const verifiedMicOptions = cards
+      .filter((card) => card?.item?.itemType === "wireless-mic" && card.item.available === true)
+      .map((card) => card.item.title);
+    if (ctx.availabilityReady && verifiedMicOptions.length) {
+      facts.push(
+        `MICROPHONE OPTIONS VERIFIED AVAILABLE ${start}→${end}: ${[...new Set(verifiedMicOptions)].join("; ")}. ` +
+        `Each listing has at least one available unit; do not promise it covers the full requested quantity without a separate quantity check.`,
+      );
+    }
+    if (requested.unverified.length) {
+      facts.push(
+        `NAMED MICROPHONE LISTINGS: ${requested.unverified.map((item) => titlePrice(item)).join("; ")}. ` +
+        `These catalogue listings were named in the request; availability still needs complete rental dates and pickup/return times.`,
+      );
+    }
+  }
+
   // ONE soft mention of the collaboration when the shoot is clearly commercial — that
   // customer is exactly who FORM / SEVEN exists for. Gated on the conversation actually
   // being commercial and on never having mentioned it before, so it stays an offer and
@@ -1094,7 +1216,7 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
     const rel = resolveRelativeDates(lastUser, ctx.today);
     if (rel.start) { intent.start = intent.start || rel.start; intent.end = intent.end || rel.end; }
   }
-  const result = await execute(intent, ctx);
+  const result = await execute(intent, ctx, lastUser);
   const { reply, suggestions } = await narrate(history, result, ctx);
   return { reply, cards: result.cards, suggestions, booking: ctx.activeBooking };
 }

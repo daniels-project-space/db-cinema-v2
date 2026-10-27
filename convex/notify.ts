@@ -232,6 +232,20 @@ export const followUpReplyAlert = internalAction({
   },
 });
 
+/** High-priority owner alert, sent only when an email customer explicitly asks for a human. */
+export const emailHumanRequestAlert = internalAction({
+  args: { email: v.string(), subject: v.string(), body: v.string() },
+  handler: async (ctx, a) => {
+    const subject = `URGENT: Human requested — ${a.subject.slice(0, 160)}`;
+    await telegram(`🚨 <b>URGENT — customer requested a human</b>\nFrom: ${a.email}\nSubject: ${a.subject}\n\n${a.body.slice(0, 800)}`);
+    await email(
+      "dbcinemarentals@gmail.com",
+      subject,
+      `<p><b>A customer requested a human reply.</b></p><p>From: ${esc(a.email)}<br/>Subject: ${esc(a.subject)}</p><blockquote>${esc(a.body).replace(/\n/g, "<br/>")}</blockquote>`,
+    );
+  },
+});
+
 /** A lead from the Gaffer voice agent — emailed to the owner + Telegram. */
 export const ownerLead = internalAction({
   args: {
