@@ -10,6 +10,7 @@ import { isMarketingOnly, rentalUnavailable } from "./lib/marketingInventory";
 import { alreadySupplied, automaticRecommendation } from "../shared/recommendationPolicy";
 import { assertAdmin } from "./adminAuth";
 import { createPublicListingCopy } from "./lib/publicListingCopy";
+import { rentalPricingDays } from "../shared/rentalDuration";
 
 /**
  * SERVER-AUTHORITATIVE line pricing for checkout (anti-tamper). Recomputes each line's
@@ -26,6 +27,8 @@ export const repriceLines = internalQuery({
         listingId: v.id("listings"),
         start: v.number(),
         end: v.number(),
+        pickupTime: v.optional(v.string()),
+        returnTime: v.optional(v.string()),
         offerType: v.optional(v.string()),
       }),
     ),
@@ -37,7 +40,7 @@ export const repriceLines = internalQuery({
     items.forEach((it, idx) => {
       const l: any = listings[idx];
       if (!l || !l.active) { out.push(null); return; }
-      const days = Math.max(1, Math.round((it.end - it.start) / 86400000) + 1);
+      const days = rentalPricingDays(it.start, it.end, it.pickupTime, it.returnTime);
       const q: any = quote(l.pricing, days);
       // automatic quiet-item discount (idle gear) — applied server-side so the charged price matches the badge
       const offerTotal=q.total,quietTotal=l.quietDeal?Math.round(q.total*(1-l.quietDeal/100)):q.total;

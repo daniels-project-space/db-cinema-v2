@@ -20,6 +20,8 @@ export type RentalPriceInput = {
     title: string;
     start: number;
     end: number;
+    pickupTime?: string;
+    returnTime?: string;
     qty: number;
     total: number;
     deposit: number;
@@ -104,7 +106,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   // A membership added here earns credit now; recurring perks start after this booking.
   const member = !selected && membershipActiveNow(acct) ? tierByKey(membershipTierFor(acct)) : null;
   const raw: any[] = await ctx.runQuery(internal.catalog.repriceLines, {
-    items: a.items.map(i => ({ listingId: i.listingId, start: i.start, end: i.end, offerType: i.offerType })), undiscounted: true,
+    items: a.items.map(i => ({ listingId: i.listingId, start: i.start, end: i.end, pickupTime: i.pickupTime, returnTime: i.returnTime, offerType: i.offerType })), undiscounted: true,
   });
   const weekendCandidate = member?.weekend ? Math.min(100,raw.reduce((n,r)=>n+(r?.weekendSaving??0),0)) : 0;
   const items: PricedItem[] = a.items.map((it,idx)=>{const r=raw[idx];if(!r)throw Error(`"${it.title}" is no longer available.`);return {...it,title:r.title,total:r.total,deposit:r.deposit,dailyRate:r.dailyRate};});

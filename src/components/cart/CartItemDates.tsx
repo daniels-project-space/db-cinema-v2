@@ -3,7 +3,8 @@
 import { useId, useState } from "react";
 import { useAction, useConvex, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
-import { dayMs, daysInclusive } from "@/lib/dates";
+import { dayMs } from "@/lib/dates";
+import { rentalPricingDays } from "../../../shared/rentalDuration";
 import { type CartItem, useCart } from "./CartProvider";
 
 import {TimeSlotPicker} from "../checkout/TimeSlotPicker";
@@ -29,7 +30,7 @@ export function CartItemDates({ item }: { item: CartItem }) {
     try {
       const checked = await convex.query(api.availability.forCart, { items: prospective });
       if (!checked[item.listingId]?.ok) throw Error("This item isn't available with your kit on those dates. Try another date range.");
-      const quote = await priceQuote({ items: [{ listingId: item.listingId as any, title: item.title, start: dayMs(start), end: dayMs(end), qty: 1, total: item.total, deposit: item.deposit, offerType: item.offerType }], customerEmail: "", fulfilment: "pickup", protection: "verify" });
+      const quote = await priceQuote({ items: [{ listingId: item.listingId as any, title: item.title, start: dayMs(start), end: dayMs(end), pickupTime, returnTime, qty: 1, total: item.total, deposit: item.deposit, offerType: item.offerType }], customerEmail: "", fulfilment: "pickup", protection: "verify" });
       cart.updateDates(item.key, start, end, quote.items[0].total,pickupTime||undefined,returnTime||undefined);
       setOpen(false);
     } catch (e) { setError(e instanceof Error ? e.message : "Couldn't update dates. Please try again."); }
@@ -50,7 +51,7 @@ export function CartItemDates({ item }: { item: CartItem }) {
         <TimeSlotPicker id={`${id}-pickup`} label="Pickup time" value={pickupTime} onChange={setPickupTime} disabled={busy||!slots} allowedSlots={slots?.pickupSlots}/>
         <TimeSlotPicker id={`${id}-return`} label="Return time" value={returnTime} onChange={setReturnTime} disabled={busy||!slots} allowedSlots={slots?.returnSlots}/>
       </div>
-      <p className="mt-2 text-[10px] leading-4 text-white/45" aria-live="polite">{!valid ? "Choose a valid date range from today onwards." : !haveTimes ? "Choose pickup and return times to check availability." : !validOrder ? "Return time must be later than pickup." : fit === undefined ? "Checking availability for your kit…" : !available ? "Unavailable with your kit. Try different dates." : `${daysInclusive(start, end)} rental day${daysInclusive(start, end) === 1 ? "" : "s"} · available with your kit. Price updates when saved.`}</p>
+      <p className="mt-2 text-[10px] leading-4 text-white/45" aria-live="polite">{!valid ? "Choose a valid date range from today onwards." : !haveTimes ? "Choose pickup and return times to check availability." : !validOrder ? "Return time must be later than pickup." : fit === undefined ? "Checking availability for your kit…" : !available ? "Unavailable with your kit. Try different dates." : `${rentalPricingDays(dayMs(start), dayMs(end), pickupTime, returnTime)} rental day${rentalPricingDays(dayMs(start), dayMs(end), pickupTime, returnTime) === 1 ? "" : "s"} · available with your kit. Price updates when saved.`}</p>
       {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
       <button type="button" data-cart-date-save onClick={save} disabled={!valid || !haveTimes || !validOrder || !available || busy} className="btn-ghost mt-3 min-h-9 w-full !px-3 !py-2 text-xs">{busy ? "Updating…" : "Save dates"}</button>
     </div>}
