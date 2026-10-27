@@ -949,6 +949,7 @@ export default defineSchema({
     name: v.optional(v.string()),
     subject: v.string(),
     accountId: v.optional(v.id("accounts")),
+    verifiedRenterEmail: v.optional(v.string()),
     status: v.union(v.literal("open"), v.literal("human_requested"), v.literal("closed")),
     createdAt: v.number(),
     updatedAt: v.number(),
