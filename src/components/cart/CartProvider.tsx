@@ -49,6 +49,7 @@ type CartCtx = {
   addReplacement: (expected: string, sourceKey: string, replacement: Omit<CartItem, "key">) => void;
   duplicateItem: (key: string) => void;
   updateDates: (key: string, start: string, end: string, total: number, pickupTime?: string, returnTime?: string, notice?: string) => void;
+  shiftItemDates: (key: string, expectedBasketKeys: string[], expected: { start: string; end: string; pickupTime?: string; returnTime?: string }, start: string, end: string, total: number, pickupTime: string, returnTime: string, notice: string) => void;
   recoveryError: string | null;
   remove: (key: string) => void;
   clear: () => void;
@@ -258,6 +259,26 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if(start!==item.start||end!==item.end)setMembership(null);
     setToast(notice ?? (start===item.start&&end===item.end?"Collection times saved":"Rental dates and price updated"));
   }, [items]);
+  const shiftItemDates = useCallback((key: string, expectedBasketKeys: string[], expected: { start: string; end: string; pickupTime?: string; returnTime?: string }, start: string, end: string, total: number, pickupTime: string, returnTime: string, notice: string) => {
+    const current = latestItems.current;
+    if (current.length !== expectedBasketKeys.length || current.some((item, index) => item.key !== expectedBasketKeys[index]))
+      throw Error("Your basket changed while checking this time. Review the refreshed availability and try again.");
+    const item = current.find((candidate) => candidate.key === key);
+    if (!item || item.start !== expected.start || item.end !== expected.end || item.pickupTime !== expected.pickupTime || item.returnTime !== expected.returnTime)
+      throw Error("This item changed while checking availability. Review the refreshed option and try again.");
+    if (!dayMs(start) || !dayMs(end) || end < start || !Number.isFinite(total) || total < 0 || !pickupTime || !returnTime)
+      throw Error("Invalid rental dates or collection times.");
+    const days = daysInclusive(start, end);
+    const baseKey = `${item.listingId}|${start}|${days}|${item.offerType ?? ""}|${pickupTime}|${returnTime}`;
+    const isDuplicateRental = current.some((candidate) => candidate.key !== key && candidate.listingId === item.listingId && candidate.start === start && candidate.end === end && candidate.pickupTime === pickupTime && candidate.returnTime === returnTime && candidate.offerType === item.offerType);
+    const shifted = { ...item, key: isDuplicateRental ? `${baseKey}|${crypto.randomUUID()}` : baseKey, start, end, pickupTime, returnTime, days, total, perDay: Math.round(total / days * 100) / 100 };
+    const next = current.map((candidate) => candidate.key === key ? shifted : candidate);
+    latestItems.current = next;
+    setItems(next);
+    if (start !== item.start || end !== item.end) setMembership(null);
+    setToast(notice);
+  }, []);
+
   const clear = useCallback(() => {
     setItems([]);
     setMembership(null);
@@ -281,6 +302,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         add,
         replace,
         updateDates,
+        shiftItemDates,
         switchItem,
         switchSet,
         addReplacement,

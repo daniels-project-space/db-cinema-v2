@@ -1,6 +1,6 @@
 import { stockRequest, stockRequestFields } from "./lib/stockRequest";
 import { stockTimePrecision, stockWindow, capacityBands, intersectCapacity, windowCapacity, rentalSlots, type CapacityBand } from "./lib/stockWindows";
-import { rentalWindow, RENTAL_TIME_SLOTS } from "../shared/rentalWindow";
+import { rentalWindow, RENTAL_TIME_SLOTS, londonRentalInstant } from "../shared/rentalWindow";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { rentalUnavailable } from "./lib/marketingInventory";
@@ -266,6 +266,188 @@ export const forCart = query({
       result[listingId] = { available, demanded: g.length, ok };
     }
     return result;
+  },
+});
+
+const NEXT_AVAILABLE_DAYS = 90;
+const MAX_RENTAL_DAYS = 365;
+
+type NextAvailabilityLine = {
+  request: any;
+  index: number;
+  listing: any;
+  requirements: Map<string, number>;
+  window: Iv;
+  invalidTimeOrder: boolean;
+  blockedNow: boolean;
+  blockedDates: Set<string>;
+  inventoryValid: boolean;
+};
+
+function firstAvailableRentalPair(bands: CapacityBand[], start: number, end: number, now: number, preferredReturn?: string | null) {
+  const starts = RENTAL_TIME_SLOTS.map((time) => ({ time, at: londonRentalInstant(start, time) })).filter((slot) => slot.at > now);
+  const ends = RENTAL_TIME_SLOTS.map((time) => ({ time, at: londonRentalInstant(end, time) }));
+  for (const first of starts) {
+    const returns = ends.filter((last) => last.at > first.at).sort((a, b) => {
+      const aPenalty = preferredReturn && a.time !== preferredReturn ? 1 : 0;
+      const bPenalty = preferredReturn && b.time !== preferredReturn ? 1 : 0;
+      return aPenalty - bPenalty || a.time.localeCompare(b.time);
+    });
+    for (const last of returns) {
+      if (windowCapacity(bands, first.at, last.at + 3600000) > 0) return { pickupTime: first.time, returnTime: last.time };
+    }
+  }
+  return null;
+}
+
+/**
+ * Find one later rental window for selected basket lines. Each suggestion is
+ * checked against the rest of the unchanged basket and the same physical-unit
+ * reservation pools used by forCart. Reads are bounded to the 90-day search
+ * horizon plus the longest supported 365-day rental lookback.
+ */
+export const nextAvailableForCart = query({
+  args: {
+    items: v.array(stockRequest),
+    lineIndices: v.array(v.number()),
+  },
+  handler: async (ctx, { items, lineIndices }) => {
+    if (items.length > 100 || lineIndices.length > items.length || lineIndices.some((index) =>
+      !Number.isSafeInteger(index) || index < 0 || index >= items.length
+    ) || new Set(lineIndices).size !== lineIndices.length) throw Error("Invalid next availability request");
+    if (!lineIndices.length) return [];
+
+    const now = Date.now();
+    const today = new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date(now)) + "T00:00:00.000Z").getTime();
+    const precision = await stockTimePrecision(ctx);
+    const listingRecords = new Map<string, any>();
+    for (const item of items) {
+      if (!Number.isSafeInteger(item.start) || !Number.isSafeInteger(item.end) || item.start % DAY !== 0 || item.end % DAY !== 0 ||
+          item.end < item.start || item.end - item.start > MAX_RENTAL_DAYS * DAY ||
+          !Number.isSafeInteger(item.qty ?? 1) || (item.qty ?? 1) < 1 || (item.qty ?? 1) > 100) throw Error("Invalid next availability rental dates or quantity");
+      const id = String(item.listingId);
+      if (!listingRecords.has(id)) listingRecords.set(id, await ctx.db.get(item.listingId));
+    }
+
+    const lines: NextAvailabilityLine[] = items.map((request, index) => {
+      const listing = listingRecords.get(String(request.listingId));
+      const requirements = new Map<string, number>();
+      const components = listing?.components;
+      const inventoryValid = !!listing && !rentalUnavailable(listing) && Array.isArray(components) && components.length > 0 &&
+        components.every((component: any) => Number.isSafeInteger(component.qty) && component.qty > 0);
+      if (inventoryValid) for (const component of components) {
+        const unitId = String(component.inventoryUnitId);
+        requirements.set(unitId, (requirements.get(unitId) ?? 0) + component.qty);
+      }
+      let window: Iv;
+      let invalidTimeOrder = false;
+      try {
+        window = { ...stockWindow(request, precision), qty: 1 };
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "Return must be after pickup") throw error;
+        invalidTimeOrder = true;
+        window = { ...stockWindow({ start: request.start, end: request.end }, false), qty: 1 };
+      }
+      const blockedDates = blockedSet(listing?.unavailableDates ?? []);
+      const blockedNow = inventoryValid && dayRange(request.start, request.end).some((day) => blockedDates.has(day));
+      return { request, index, listing, requirements, window, invalidTimeOrder, blockedNow, blockedDates, inventoryValid };
+    });
+
+    const plans = new Map<number, { firstStart: number; lastStart: number; from: number; until: number }>();
+    for (const index of lineIndices) {
+      const line = lines[index];
+      if (!line.inventoryValid) continue;
+      const firstStart = Math.max(line.request.start, today);
+      const lastStart = firstStart + (NEXT_AVAILABLE_DAYS - 1) * DAY;
+      const duration = line.request.end - line.request.start;
+      const candidateBounds = stockWindow({ start: firstStart, end: lastStart + duration, pickupTime: "09:00", returnTime: "22:00" }, true);
+      const includeCurrent = line.request.start >= today;
+      plans.set(index, {
+        firstStart,
+        lastStart,
+        from: includeCurrent ? Math.min(candidateBounds.start, line.window.start) : candidateBounds.start,
+        until: includeCurrent ? Math.max(candidateBounds.end, line.window.end) : candidateBounds.end,
+      });
+    }
+
+    if (!plans.size) return lineIndices.map((lineIndex) => ({ lineIndex, currentlyAvailable: false, suggestion: null, searchedDays: NEXT_AVAILABLE_DAYS }));
+    const from = Math.min(...[...plans.values()].map((plan) => plan.from));
+    const until = Math.max(...[...plans.values()].map((plan) => plan.until));
+    const reservationStart = Math.max(0, from - (MAX_RENTAL_DAYS + 1) * DAY);
+    // One day of end padding covers legacy UTC-midnight reservation labels
+    // whose London occupancy begins before their stored start timestamp.
+    const reservationEnd = until + DAY;
+
+    const targetUnits = new Set<string>();
+    for (const index of lineIndices) for (const unitId of lines[index].requirements.keys()) targetUnits.add(unitId);
+    const owned: Record<string, number> = {};
+    const reservations: Record<string, Iv[]> = {};
+    for (const unitId of targetUnits) {
+      owned[unitId] = inventoryCapacity(await ctx.db.get(unitId as any) as any) ?? 0;
+      const rows = await ctx.db.query("reservations").withIndex("by_unit_and_start", (q: any) =>
+        q.eq("inventoryUnitId", unitId).gte("start", reservationStart).lte("start", reservationEnd),
+      ).collect();
+      const intervals = await Promise.all(rows.map((row: any) => reservationOccupancy(ctx, row)));
+      const occupied: Iv[] = [];
+      for (const interval of intervals) if (interval) occupied.push(interval as Iv);
+      reservations[unitId] = overlappingIntervals(occupied, from, until, true);
+    }
+
+    const cartByUnit: Record<string, Array<Iv & { lineIndex: number }>> = {};
+    for (const line of lines) {
+      if (!line.inventoryValid || line.blockedNow) continue;
+      for (const [unitId, componentQty] of line.requirements) {
+        if (!targetUnits.has(unitId)) continue;
+        (cartByUnit[unitId] ??= []).push({ ...line.window, qty: componentQty * (line.request.qty ?? 1), lineIndex: line.index });
+      }
+    }
+
+    const result = new Map<number, { lineIndex: number; currentlyAvailable: boolean; suggestion: { start: number; end: number; pickupTime: string; returnTime: string } | null; searchedDays: number }>();
+    for (const lineIndex of lineIndices) {
+      const line = lines[lineIndex];
+      const plan = plans.get(lineIndex);
+      if (!line.inventoryValid || !plan) {
+        result.set(lineIndex, { lineIndex, currentlyAvailable: false, suggestion: null, searchedDays: NEXT_AVAILABLE_DAYS });
+        continue;
+      }
+
+      let bands: CapacityBand[] | null = null;
+      for (const [unitId, componentQty] of line.requirements) {
+        const otherBasket = (cartByUnit[unitId] ?? []).filter((entry) => entry.lineIndex !== lineIndex);
+        const capacity = capacityBands(
+          [...(reservations[unitId] ?? []), ...otherBasket],
+          owned[unitId] ?? 0,
+          componentQty * (line.request.qty ?? 1),
+          plan.from,
+          plan.until,
+        );
+        bands = bands === null ? capacity : intersectCapacity(bands, capacity);
+      }
+
+      const currentWindowAvailable = line.request.start >= today && !line.blockedNow && !line.invalidTimeOrder &&
+        windowCapacity(bands ?? [], line.window.start, line.window.end) > 0;
+      if (currentWindowAvailable) {
+        result.set(lineIndex, { lineIndex, currentlyAvailable: true, suggestion: null, searchedDays: NEXT_AVAILABLE_DAYS });
+        continue;
+      }
+
+      const blocks = line.blockedDates;
+      const duration = line.request.end - line.request.start;
+      const durationDays = duration / DAY;
+      const blockedDays = dayRange(plan.firstStart, plan.lastStart + duration);
+      const blockedPrefix = [0];
+      for (const day of blockedDays) blockedPrefix.push(blockedPrefix[blockedPrefix.length - 1] + Number(blocks.has(day)));
+      let suggestion: { start: number; end: number; pickupTime: string; returnTime: string } | null = null;
+      for (let offset = 0; offset < NEXT_AVAILABLE_DAYS && !suggestion; offset++) {
+        const start = plan.firstStart + offset * DAY;
+        const end = start + duration;
+        if (blockedPrefix[offset + durationDays + 1] - blockedPrefix[offset]) continue;
+        const pair = firstAvailableRentalPair(bands ?? [], start, end, now, line.request.returnTime);
+        if (pair) suggestion = { start, end, pickupTime: pair.pickupTime, returnTime: pair.returnTime };
+      }
+      result.set(lineIndex, { lineIndex, currentlyAvailable: false, suggestion, searchedDays: NEXT_AVAILABLE_DAYS });
+    }
+    return lineIndices.map((lineIndex) => result.get(lineIndex)!);
   },
 });
 

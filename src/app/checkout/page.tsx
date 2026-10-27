@@ -25,6 +25,7 @@ import { DELIVERY_TERMS_VERSION, DELIVERY_ACCEPTANCE_TEXT } from "../../../share
 import { depositFor, depositChargeFor, smallDamageHold, formatGbp, type Protection } from "@/lib/pricing";
 import { browserCheckoutStorage, readCheckoutDraft, saveCheckoutDraft } from "@/lib/checkoutDraft";
 import { CartItemTimes } from "@/components/cart/CartItemTimes";
+import { NextAvailableRentalOptions } from "@/components/checkout/NextAvailableRentalOptions";
 import { ReplacementSets } from "@/components/cart/ReplacementSets";
 import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 
@@ -117,6 +118,7 @@ export default function CheckoutPage() {
   const invalidTimeOrder = items.some(i => i.start===i.end && !!(i.pickupTime||pickupTime) && !!(i.returnTime||returnTime) && (i.returnTime||returnTime)<=(i.pickupTime||pickupTime));
   const availabilityBlocked = !!items.length && (!stock.ready || !availability || items.some(i => !availability[i.listingId]?.ok));
   const unavailableItems = items.filter(item => availability?.[item.listingId]?.ok === false);
+  const unavailableLineIndices = items.flatMap((item, index) => availability?.[item.listingId]?.ok === false ? [index] : []);
   const [deliveryAgreed, setDeliveryAgreed] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState("");
@@ -565,8 +567,8 @@ export default function CheckoutPage() {
             {availabilityBlocked&&!stock.needsTimes&&!invalidTimeOrder&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
             {unavailableItems.length>0&&!canRecover&&<section className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/[.04] p-4" aria-label="Unavailable items and replacement sets">
               <h3 className="text-sm font-semibold text-amber-100">Unavailable for these rental dates</h3>
-              <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-white/65">{unavailableItems.map(item=><li key={item.key}>{item.title}</li>)}</ul>
-              <p className="mt-2 text-xs leading-5 text-white/55">Choose a checked replacement set below. Your original request stays in the basket until you apply a set.</p>
+              <NextAvailableRentalOptions lineIndices={unavailableLineIndices} defaultPickupTime={pickupTime} defaultReturnTime={returnTime} />
+              <p className="mt-2 text-xs leading-5 text-white/55">You can shift one item to its next checked time above, or choose a checked replacement set below. The rest of your basket stays in place.</p>
               <div className="mt-3"><ReplacementSets item={unavailableItems[0]} /></div>
             </section>}
             {canRecover&&<p role="status" className="mt-3 text-sm text-white/65">This checkout has reserved your kit. Resume the same payment session.</p>}
