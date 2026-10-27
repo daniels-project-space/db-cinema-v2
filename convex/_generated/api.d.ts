@@ -41,6 +41,7 @@ import type * as didit from "../didit.js";
 import type * as droneArchive from "../droneArchive.js";
 import type * as droneLicences from "../droneLicences.js";
 import type * as emailInbox from "../emailInbox.js";
+import type * as emailMailer from "../emailMailer.js";
 import type * as filmFund from "../filmFund.js";
 import type * as filmFundAnnouncements from "../filmFundAnnouncements.js";
 import type * as filmFundEntries from "../filmFundEntries.js";
@@ -222,6 +223,7 @@ declare const fullApi: ApiFromModules<{
   droneArchive: typeof droneArchive;
   droneLicences: typeof droneLicences;
   emailInbox: typeof emailInbox;
+  emailMailer: typeof emailMailer;
   filmFund: typeof filmFund;
   filmFundAnnouncements: typeof filmFundAnnouncements;
   filmFundEntries: typeof filmFundEntries;
