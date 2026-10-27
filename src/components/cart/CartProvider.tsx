@@ -73,6 +73,13 @@ const KEY = "dbc_cart_v1";
 const PKEY = "dbc_promo_v1";
 const MKEY = "dbc_membership_selection_v1";
 
+function daysForCartSelection(start: string, end: string, pickupTime?: string, returnTime?: string) {
+  // Keep invalid same-day choices editable and reload-safe; checkout still
+  // blocks payment until the customer chooses a later return time.
+  if (start === end && pickupTime && returnTime && returnTime <= pickupTime) return daysInclusive(start, end);
+  return rentalPricingDays(dayMs(start), dayMs(end), pickupTime, returnTime);
+}
+
 export function CartProvider({ children }: { children: ReactNode }) {
   const [membership, setMembership] = useState<MembershipSelection | null>(
     null,
@@ -148,7 +155,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           const start = dayMs(item.start), end = dayMs(item.end);
           if (!start || !end || end < start) return item;
           try {
-            const days = rentalPricingDays(start, end, item.pickupTime, item.returnTime);
+            const days = daysForCartSelection(item.start, item.end, item.pickupTime, item.returnTime);
             return { ...item, days, perDay: Math.round(item.total / days * 100) / 100 };
           } catch { return item; }
         }));
@@ -267,10 +274,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (!item) throw Error("This item is no longer in your kit.");
     if (!dayMs(start) || !dayMs(end) || end < start || !Number.isFinite(total) || total < 0) throw Error("Invalid rental dates or price.");
     if (items.some(i => i.key !== key && i.listingId === item.listingId && i.start === start && i.end === end && i.pickupTime===pickupTime && i.returnTime===returnTime && i.offerType === item.offerType)) throw Error("This item is already in your kit for those dates.");
-    const invalidSameDayOrder = start === end && !!pickupTime && !!returnTime && returnTime <= pickupTime;
-    const days = invalidSameDayOrder
-      ? daysInclusive(start, end)
-      : rentalPricingDays(dayMs(start), dayMs(end), pickupTime, returnTime);
+    const days = daysForCartSelection(start, end, pickupTime, returnTime);
     setItems(prev => prev.map(i => i.key === key ? { ...i, key: `${i.listingId}|${start}|${days}|${i.offerType ?? ""}|${pickupTime??""}|${returnTime??""}`, start, end, pickupTime, returnTime, days, total, perDay: Math.round(total / days * 100) / 100 } : i));
     if(start!==item.start||end!==item.end)setMembership(null);
     setToast(notice ?? (start===item.start&&end===item.end?"Collection times saved":"Rental dates and price updated"));
