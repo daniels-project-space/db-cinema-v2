@@ -5,9 +5,10 @@ import { useQuery, useMutation } from "convex/react";
 import { useAccount } from "@/components/account/AccountProvider";
 import { api } from "@cvx/_generated/api";
 import { quote as computeQuote, type Pricing } from "@/lib/pricing";
-import { Calendar, daysInclusive } from "@/components/booking/Calendar";
+import { Calendar } from "@/components/booking/Calendar";
 import { useCalendarStock } from "./useCalendarStock";
 import { dayMs } from "@/lib/dates";
+import { rentalPricingDays } from "../../../shared/rentalDuration";
 import { useCart } from "@/components/cart/CartProvider";
 import { IconCheck, IconX } from "@/components/icons";
 
@@ -102,7 +103,7 @@ export function BookingPanel({
   const calendarStock=useCalendarStock(listing._id,month,cart.items,!!listing.marketingOnly,start&&!end?start:null);
   const validOrder = start !== end || !pickupTime || !returnTime || returnTime > pickupTime;
   const blockedDays=new Set([...unavailable,...calendarStock.unavailable]);
-  const days = start && end ? daysInclusive(start, end) : 0;
+  const days = start && end && validOrder ? rentalPricingDays(dayMs(start), dayMs(end), pickupTime, returnTime) : 0;
   const q = useMemo(
     () => (days ? computeQuote(listing.pricing, days) : null),
     [listing.pricing, days],

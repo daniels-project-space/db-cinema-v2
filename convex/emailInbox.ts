@@ -3,7 +3,6 @@ import { action, internalMutation, internalQuery, mutation, query } from "./_gen
 import { internal } from "./_generated/api";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { postRentalMessage } from "./lib/rentalChat";
-import { deliveryMessageId, sendBusinessMail } from "./lib/mailer";
 
 const OWNER_EMAIL = "dbcinemarentals@gmail.com";
 const LEASE_MS = 2 * 60_000;
@@ -359,8 +358,7 @@ export const sendAssistantReply = action({
     if (claim.state === "busy") return { ok: false, busy: true };
     const { thread, inbound, outboundId, deliveryKey } = claim;
     const references = [...new Set([...(inbound.references ?? []), inbound.messageId].filter((value): value is string => typeof value === "string" && value.length > 0))].slice(-20);
-    const messageId = deliveryMessageId(deliveryKey);
-    const sent = await sendBusinessMail({
+    const delivery = await ctx.runAction(internal.emailMailer.sendBusinessReply, {
       to: thread.email,
       subject: replySubject(thread.subject),
       html: safeHtml(text),
@@ -369,7 +367,7 @@ export const sendAssistantReply = action({
       inReplyTo: inbound.messageId,
       references,
     });
-    if (!sent) {
+    if (!delivery.sent) {
       await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId, inboundId: args.inboundId, error: "business Gmail SMTP rejected the reply" });
       throw new Error("business email reply could not be sent");
     }
@@ -378,7 +376,7 @@ export const sendAssistantReply = action({
       inboundId: args.inboundId,
       outboundId,
       text,
-      messageId,
+      messageId: delivery.messageId,
       humanRequested: args.humanRequested,
     });
     return { ok: true };
@@ -478,13 +476,20 @@ export const sendOwnerReply = action({
     const claim = await ctx.runMutation(internal.emailInbox.reserveOwnerReply, { threadId: args.threadId, text, deliveryKey, inReplyTo, references });
     if (claim.state === "sent") return { ok: true, duplicate: true };
     if (claim.state === "busy") return { ok: false, busy: true };
-    const messageId = deliveryMessageId(deliveryKey);
-    const sent = await sendBusinessMail({ to: data.thread.email, subject: replySubject(data.thread.subject), html: safeHtml(text), replyTo: OWNER_EMAIL, deliveryKey, inReplyTo, references });
-    if (!sent) {
+    const delivery = await ctx.runAction(internal.emailMailer.sendBusinessReply, {
+      to: data.thread.email,
+      subject: replySubject(data.thread.subject),
+      html: safeHtml(text),
+      replyTo: OWNER_EMAIL,
+      deliveryKey,
+      inReplyTo,
+      references,
+    });
+    if (!delivery.sent) {
       await ctx.runMutation(internal.emailInbox.markSendFailed, { outboundId: claim.outboundId, error: "business Gmail SMTP rejected the reply" });
       throw new Error("business email reply could not be sent");
     }
-    await ctx.runMutation(internal.emailInbox.finishOwnerReply, { threadId: args.threadId, outboundId: claim.outboundId, text, messageId, inReplyTo, references });
+    await ctx.runMutation(internal.emailInbox.finishOwnerReply, { threadId: args.threadId, outboundId: claim.outboundId, text, messageId: delivery.messageId, inReplyTo, references });
     return { ok: true };
   },
 });

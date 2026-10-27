@@ -210,7 +210,7 @@ export default function CheckoutPage() {
   const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
   // Delivery details are not needed to quote the rental-only joining saving.
   // This preview never becomes the billing quote or enables payment.
-  const rentalPreview = useBasketPrice(true, false);
+  const rentalPreview = useBasketPrice(true, false, effectivePickupTime, effectiveReturnTime);
   const membershipDisplayQuote = currentQuote ?? rentalPreview.quote;
   const membershipRecommendations = membershipRecommendationPreview(quoted ? {
     offerContext: quoted.offerContext, recommendations: quoted.value.recommendations,

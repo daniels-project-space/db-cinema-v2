@@ -13,6 +13,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
 import { dayMs, daysInclusive } from "@/lib/dates";
+import { rentalPricingDays } from "../../../shared/rentalDuration";
 import {
   restoreMembershipSelection,
   type MembershipSelection,
@@ -71,6 +72,13 @@ const Ctx = createContext<CartCtx | null>(null);
 const KEY = "dbc_cart_v1";
 const PKEY = "dbc_promo_v1";
 const MKEY = "dbc_membership_selection_v1";
+
+function daysForCartSelection(start: string, end: string, pickupTime?: string, returnTime?: string) {
+  // Keep invalid same-day choices editable and reload-safe; checkout still
+  // blocks payment until the customer chooses a later return time.
+  if (start === end && pickupTime && returnTime && returnTime <= pickupTime) return daysInclusive(start, end);
+  return rentalPricingDays(dayMs(start), dayMs(end), pickupTime, returnTime);
+}
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [membership, setMembership] = useState<MembershipSelection | null>(
@@ -141,7 +149,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) setItems(JSON.parse(raw));
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (Array.isArray(saved)) setItems(saved.map((item: CartItem) => {
+          const start = dayMs(item.start), end = dayMs(item.end);
+          if (!start || !end || end < start) return item;
+          try {
+            const days = daysForCartSelection(item.start, item.end, item.pickupTime, item.returnTime);
+            return { ...item, days, perDay: Math.round(item.total / days * 100) / 100 };
+          } catch { return item; }
+        }));
+      }
       const referral=new URLSearchParams(window.location.search).get("ref");
       setPromoState(referral&&/^DBC-[A-Z0-9]{14}$/i.test(referral)?referral.toUpperCase():localStorage.getItem(PKEY));
       setMembership(
@@ -194,7 +212,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     (item: Omit<CartItem, "key">) => {
       const key = `${item.listingId}|${item.start}|${item.days}|${item.offerType ?? ""}|${item.pickupTime??""}|${item.returnTime??""}`;
       setItems((prev) =>
-        prev.some((p) => p.key === key) ? prev : [...prev, { ...item, key }],
+        prev.some((p) => p.listingId === item.listingId && p.start === item.start && p.end === item.end && p.pickupTime === item.pickupTime && p.returnTime === item.returnTime && p.offerType === item.offerType)
+          ? prev
+          : [...prev, { ...item, key }],
       );
       setToast(`${item.title.slice(0, 40)} added to your kit`);
       track({
@@ -254,7 +274,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (!item) throw Error("This item is no longer in your kit.");
     if (!dayMs(start) || !dayMs(end) || end < start || !Number.isFinite(total) || total < 0) throw Error("Invalid rental dates or price.");
     if (items.some(i => i.key !== key && i.listingId === item.listingId && i.start === start && i.end === end && i.pickupTime===pickupTime && i.returnTime===returnTime && i.offerType === item.offerType)) throw Error("This item is already in your kit for those dates.");
-    const days = daysInclusive(start, end);
+    const days = daysForCartSelection(start, end, pickupTime, returnTime);
     setItems(prev => prev.map(i => i.key === key ? { ...i, key: `${i.listingId}|${start}|${days}|${i.offerType ?? ""}|${pickupTime??""}|${returnTime??""}`, start, end, pickupTime, returnTime, days, total, perDay: Math.round(total / days * 100) / 100 } : i));
     if(start!==item.start||end!==item.end)setMembership(null);
     setToast(notice ?? (start===item.start&&end===item.end?"Collection times saved":"Rental dates and price updated"));
@@ -268,7 +288,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       throw Error("This item changed while checking availability. Review the refreshed option and try again.");
     if (!dayMs(start) || !dayMs(end) || end < start || !Number.isFinite(total) || total < 0 || !pickupTime || !returnTime)
       throw Error("Invalid rental dates or collection times.");
-    const days = daysInclusive(start, end);
+    const days = rentalPricingDays(dayMs(start), dayMs(end), pickupTime, returnTime);
     const baseKey = `${item.listingId}|${start}|${days}|${item.offerType ?? ""}|${pickupTime}|${returnTime}`;
     const isDuplicateRental = current.some((candidate) => candidate.key !== key && candidate.listingId === item.listingId && candidate.start === start && candidate.end === end && candidate.pickupTime === pickupTime && candidate.returnTime === returnTime && candidate.offerType === item.offerType);
     const shifted = { ...item, key: isDuplicateRental ? `${baseKey}|${crypto.randomUUID()}` : baseKey, start, end, pickupTime, returnTime, days, total, perDay: Math.round(total / days * 100) / 100 };

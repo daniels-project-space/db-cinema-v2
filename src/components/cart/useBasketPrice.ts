@@ -6,7 +6,7 @@ import { dayMs } from "@/lib/dates";
 import { useCart } from "./CartProvider";
 import { useAccount } from "../account/AccountProvider";
 import { accountPricingContext, shouldResetMembershipPreference, membershipOfferContext, membershipRecommendationPreview } from "../../../shared/membershipSelection";
-export function useBasketPrice(enabled = true, resetPreference = true) {
+export function useBasketPrice(enabled = true, resetPreference = true, pickupTime = "", returnTime = "") {
   const cart = useCart(),
     account = useAccount(),
     priceQuote = useAction(api.checkout.priceQuote);
@@ -22,6 +22,8 @@ export function useBasketPrice(enabled = true, resetPreference = true) {
       title: i.title,
       start: dayMs(i.start),
       end: dayMs(i.end),
+      pickupTime: i.pickupTime || pickupTime || undefined,
+      returnTime: i.returnTime || returnTime || undefined,
       qty: 1,
       total: i.total,
       deposit: i.deposit,
