@@ -91,6 +91,7 @@ jobs:
                   echo "::error title=Could not compare Convex production source::The deploy source history could not be compared safely."
                   exit 1
                   ;;
+              esac
             fi
 
             if ! grep -Eq '^(convex/|shared/|convex\.json$|package\.json$|package-lock\.json$|tsconfig\.json$)' <<< "$changed_files"; then
