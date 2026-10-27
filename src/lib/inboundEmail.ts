@@ -66,6 +66,50 @@ export function isHumanHandoffRequested(subject: string, body: string): boolean 
   });
 }
 
+/** Preserve Gaffer's exact catalogue cards in email, where there is no separate card UI. */
+export function formatGafferEmailReply(reply: string, cards: unknown): string {
+  const rows = Array.isArray(cards) ? cards : [];
+  const seen = new Set<string>();
+  const options: string[] = [];
+  for (const card of rows as any[]) {
+    const item = card?.item;
+    const title = typeof item?.title === "string" ? item.title.replace(/\s+/g, " ").trim() : "";
+    if (!title) continue;
+    const key = String(item.listingId ?? title).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const price = Number.isFinite(item.perDay) ? `£${item.perDay}/day` : null;
+    const requested = item.itemType === "wireless-mic" && Number.isSafeInteger(item.requestedMicKitCount)
+      ? item.requestedMicKitCount as number
+      : null;
+    let stock: string;
+    if (item.needsTimes) {
+      stock = "pickup and return dates/times needed to confirm availability";
+    } else if (Number.isSafeInteger(item.availableUnits) && item.availableUnits >= 0) {
+      const available = item.availableUnits as number;
+      if (requested !== null) {
+        stock = available >= requested
+          ? `${available} available; enough to cover the ${requested} requested kits`
+          : `${available} available; ${requested} kits requested, so this listing is short by ${requested - available}`;
+      } else {
+        stock = available > 0 ? `${available} available for the selected dates/times` : "none available for the selected dates/times";
+      }
+    } else if (item.available === false) {
+      stock = "not available for the selected dates/times";
+    } else {
+      stock = "availability could not be confirmed";
+    }
+    const window = item.start && item.end
+      ? ` (${item.start}${item.end === item.start ? "" : ` to ${item.end}`}${item.pickupTime && item.returnTime ? `, ${item.pickupTime} pickup / ${item.returnTime} return` : ""})`
+      : "";
+    options.push(`- ${title}${price ? ` — ${price}` : ""} — ${stock}${window}.`);
+  }
+  const body = String(reply ?? "").trim();
+  if (!options.length) return body;
+  return `${body}${body ? "\n\n" : ""}Equipment options and stock checked by Gaffer:\n${options.join("\n")}`;
+}
+
 /** Every place a provider might put the recipient address. */
 export function recipientCandidates(msg: any): unknown[] {
   return [

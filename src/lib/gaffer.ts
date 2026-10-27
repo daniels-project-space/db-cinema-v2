@@ -228,8 +228,24 @@ async function candidatesForType(c:ConvexHttpClient,type:string):Promise<any[]>{
   return types?c.query(api.catalog.byItemType,{types}):[];
 }
 async function availabilityForContext(c:ConvexHttpClient,listingId:any,start:string,end:string,ctx:Ctx):Promise<any>{
+  // An inventory result is reused by recommendation ranking, card construction and
+  // narration for this one immutable rental window. Avoid issuing a second stock read
+  // for the same listing (and keep the count shown in the email/card tied to the rank).
+  const cache = ctx.availabilityCache ?? (ctx.availabilityCache = new Map<string, Promise<any>>());
+  const key = `${String(listingId)}|${start}|${end}|${ctx.pickupTime ?? ""}|${ctx.returnTime ?? ""}|${ctx.cartStock?.length ? "cart" : "listing"}`;
+  const existing = cache.get(key);
+  if (existing) return existing;
   const request={listingId,start:dayMs(start),end:dayMs(end),pickupTime:ctx.pickupTime,returnTime:ctx.returnTime};
-  return ctx.cartStock?.length?c.query(api.availability.forTimeSlots,{...request,items:ctx.cartStock}):c.query(api.availability.forListing,request);
+  const pending = ctx.cartStock?.length
+    ? c.query(api.availability.forTimeSlots,{...request,items:ctx.cartStock})
+    : c.query(api.availability.forListing,request);
+  cache.set(key, pending);
+  try {
+    return await pending;
+  } catch (error) {
+    cache.delete(key);
+    throw error;
+  }
 }
 const categoryLabel = (t: string) => CATEGORY_PLURAL[TERM[t] || t] || "gear of that kind";
 
@@ -237,6 +253,36 @@ function hasMultipleMics(text: string): boolean {
   return /\b(?:[2-9]|\d{2,}|two|three|four|five|six|seven|eight|nine|ten)\s*(?:x|×)\s*(?:[\w-]+\s+){0,6}(?:mics?|microphones?|lavs?|transmitters?|kits?|sets?)\b/i.test(text) ||
     /\b(?:[2-9]|\d{2,}|two|three|four|five|six|seven|eight|nine|ten)\s+(?:(?:[\w-]+)\s+){0,3}(?:mics?|microphones?|lavs?|transmitters?)\b/i.test(text) ||
     /\b(?:[2-9]|\d{2,}|two|three|four|five|six|seven|eight|nine|ten)\s+(?:kits?|sets?)\s+(?:of\s+)?(?:mics?|microphones?|lavs?|transmitters?)\b/i.test(text);
+}
+
+const MIC_KIT_COUNT_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+  eighteen: 18, nineteen: 19, twenty: 20,
+};
+
+function countValue(value: string): number | null {
+  const normalized = value.toLowerCase();
+  const parsed = /^\d{1,2}$/.test(normalized) ? Number(normalized) : MIC_KIT_COUNT_WORDS[normalized];
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 20 ? parsed : null;
+}
+
+/** Extract only explicit kit/set counts; "4 mics total" is a microphone count, not four rental kits. */
+export function requestedMicKitCount(text: string): number | null {
+  const count = "(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)";
+  const clauses = String(text ?? "").split(/[\n,;]+|\b(?:plus|and)\b/i);
+  const counts: number[] = [];
+  for (const clause of clauses) {
+    const explicitTimes = clause.match(new RegExp(`\\b${count}\\s*(?:x|×)\\s*(?:[\\w-]+\\s+){0,6}(?:kits?|sets?)\\b`, "i"));
+    const kitPhrase = clause.match(new RegExp(`\\b${count}\\s+(?:[\\w-]+\\s+){0,3}(?:kits?|sets?)\\b`, "i"));
+    const setsOfMics = clause.match(new RegExp(`\\b${count}\\s+(?:kits?|sets?)\\s+(?:of\\s+)?(?:wireless\\s+)?(?:mics?|microphones?|lavs?)\\b`, "i"));
+    const match = explicitTimes ?? kitPhrase ?? setsOfMics;
+    if (match) {
+      const parsed = countValue(match[1]);
+      if (parsed !== null) counts.push(parsed);
+    }
+  }
+  return counts.length === 1 ? counts[0] : null;
 }
 
 function djiMicGeneration(text: string): number | null {
@@ -379,19 +425,24 @@ async function buildCard(
 ) {
   const days = quoteDays(start, end);
   let available: boolean | null = null;
+  let availableUnits: number | null = null;
   // only check availability against REAL dates — a placeholder/estimated window must
   // not surface a misleading "not free" on gear the customer hasn't actually scheduled.
   if (checkAvail && ctx.availabilityReady) {
     const av: any = await availabilityForContext(c,l._id,start,end,ctx);
-    available = (av?.available ?? 0) > 0;
+    if (Number.isSafeInteger(av?.available) && av.available >= 0) {
+      availableUnits = av.available;
+      available = av.available > 0;
+    }
   }
   const q: any = quote(l.pricing, days);
   const item: any = {
     listingId: l._id, slug: l.slug, title: l.title, image: l.heroImage ?? null, imageSources: l.imageSources ?? l.gallery ?? [],
-    start, end, pickupTime: ctx.pickupTime, returnTime: ctx.returnTime, needsTimes: !ctx.availabilityReady, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0, available,
+    start, end, pickupTime: ctx.pickupTime, returnTime: ctx.returnTime, needsTimes: !ctx.availabilityReady, days, perDay: q.perDay, total: q.total, deposit: l.depositAmount ?? 0, available, availableUnits,
     itemType: l.itemType ?? null, mount: l.specs?.mount ?? null, lensClass: l.specs?.lensClass ?? null,
     tier: l.specs?.tier ?? null, pricing: l.pricing,
   };
+  if (item.itemType === "wireless-mic" && ctx.requestedMicKitCount != null) item.requestedMicKitCount = ctx.requestedMicKitCount;
   if (ctx.estimated) item.estimated = true;
   if (ctx.memberPct > 0) { item.memberPct = ctx.memberPct; item.memberTotal = Math.round(item.total * (1 - ctx.memberPct / 100)); }
   if (ctx.favorites.includes(String(l._id))) item.favorite = true;
@@ -650,6 +701,8 @@ type Ctx = {
   cartWindow?: { start: string; end: string; pickupTime: string; returnTime: string };
   cartEvidence?: RecommendationItem[];
   compatibilityKits?: RecommendationItem[];
+  availabilityCache?: Map<string, Promise<any>>;
+  requestedMicKitCount?: number | null;
   today: string;
   estimated: boolean;
   start: string;
@@ -816,6 +869,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestTe
   ctx.pickupTime = intent.pickupTime || savedWindow?.pickupTime;
   ctx.returnTime = intent.returnTime || savedWindow?.returnTime;
   ctx.availabilityReady = !ctx.basketDatesMissing && !estimated && !!ctx.pickupTime && !!ctx.returnTime && PICKUP_SLOTS.includes(ctx.pickupTime) && PICKUP_SLOTS.includes(ctx.returnTime) && (start !== end || ctx.returnTime > ctx.pickupTime);
+  ctx.requestedMicKitCount = requestedMicKitCount(requestText);
   const facts: string[] = [];
   const cards: any[] = [];
   const primaryType = intent.itemTypes?.[0] || "";
@@ -1100,6 +1154,21 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestTe
         `These catalogue listings were named in the request; availability still needs complete rental dates and pickup/return times.`,
       );
     }
+    if (ctx.requestedMicKitCount !== null && ctx.requestedMicKitCount !== undefined) {
+      const inventoryByListing = cards
+        .filter((card) => card?.item?.itemType === "wireless-mic")
+        .map((card) => {
+          const count = card.item.availableUnits;
+          if (!Number.isSafeInteger(count)) return `${card.item.title}: stock count unconfirmed`;
+          return `${card.item.title}: ${count} available, ${count >= ctx.requestedMicKitCount! ? "enough for this request" : `short by ${ctx.requestedMicKitCount! - count}`}`;
+        });
+      facts.push(`EXPLICIT MIC-KIT REQUEST: ${ctx.requestedMicKitCount} complete microphone kits. This is the requested count of rental listing units, not individual transmitters.`);
+      if (ctx.availabilityReady) {
+        facts.push(`VERIFIED COUNT PER LISTING: ${inventoryByListing.join("; ") || "no listing had a verified stock count"}. A single model covers the request only when that listing alone has at least ${ctx.requestedMicKitCount} available.`);
+      } else {
+        facts.push("A complete pickup/return date and time is still required before giving kit counts or claiming availability.");
+      }
+    }
   }
 
   // ONE soft mention of the collaboration when the shoot is clearly commercial — that
@@ -1129,8 +1198,11 @@ const NarrateSchema = z.object({
   suggestions: z.array(z.string()).describe("exactly 2-3 short next actions in the customer's voice, max 5 words each"),
 });
 
-async function narrate(history: any[], result: ExecResult, ctx: Ctx): Promise<{ reply: string; suggestions: string[] }> {
-  const cardLines = result.cards.map((cd) => `- ${cd.item.title} — £${cd.item.perDay}/day${cd.item.favorite ? " (their saved favourite)" : ""}${cd.item.needsTimes ? " (availability unconfirmed: dates/times needed)" : cd.item.available === false ? " (NOT free for the requested dates and times)" : ""}`).join("\n") || "(no cards)";
+async function narrate(history: any[], result: ExecResult, ctx: Ctx, channel: "chat" | "email" = "chat"): Promise<{ reply: string; suggestions: string[] }> {
+  const cardLines = result.cards.map((cd) => `- ${cd.item.title} — £${cd.item.perDay}/day${cd.item.favorite ? " (their saved favourite)" : ""}${cd.item.needsTimes ? " (availability unconfirmed: dates/times needed)" : Number.isSafeInteger(cd.item.availableUnits) ? ` (${cd.item.availableUnits} available for selected dates/times)` : " (availability not confirmed)"}`).join("\n") || "(no cards)";
+  const channelRules = channel === "email"
+    ? "EMAIL RESPONSE: the application appends a complete, exact equipment-options and stock list after your prose. Keep your personal answer concise and do not duplicate the full card list. The appended list is part of the message the customer receives."
+    : "";
   const who = `Customer: ${ctx.customerName}.${ctx.memberName ? ` ${ctx.memberName} member — apply their ${ctx.memberPct}% discount and mention the saving.` : ""}${ctx.favTitles.length ? ` Saved favourites: ${ctx.favTitles.join(", ")}.` : ""}${ctx.cartTitles.length ? ` Currently in their cart: ${ctx.cartTitles.join(", ")}.` : ""}${ctx.pastTitles.length ? ` Previously rented: ${ctx.pastTitles.join(", ")}.` : ""}`;
   const convo = history.slice(-6).map((m: any) => `${m.role === "user" ? "CUSTOMER" : "GAFFER"}: ${String(m.content || "")}`).join("\n");
   const object = await generateBotObject({
@@ -1144,6 +1216,7 @@ FORMAT (always — replies must be SCANNABLE, never a wall of text):
 - NAME GEAR THE WAY A HUMAN WOULD. Catalogue titles are SEO keyword soup — repeated model names, trailing "+", unclosed brackets — so pasting one verbatim looks broken and always busts the 14-word limit. Shorten each to its trade name (brand + model + the one spec that matters): the card "Sony 24-70 mm f2.8 gmaster gm g-master g master zoom lens e mount autofocus +" becomes "**Sony 24-70mm f2.8 GM**", and "Sony FX 3 Cinema Camera Full Frame Mirrorless 4k Sony fx3 (same sensor as a7siii" becomes "**Sony FX3**". Shortening the LABEL is required; inventing a model, spec or price is still forbidden.
 - Last line: ONE short question / call-to-action.
 - Separate the lead, bullets and closing with newlines. NEVER write a paragraph longer than one sentence.
+${channelRules}
 
 ABSOLUTE GROUNDING RULES (never break):
 - State ONLY what the FACTS below say. Do NOT claim we have, lack, or recommend any gear not in FACTS/CARDS.
@@ -1217,6 +1290,6 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
     if (rel.start) { intent.start = intent.start || rel.start; intent.end = intent.end || rel.end; }
   }
   const result = await execute(intent, ctx, lastUser);
-  const { reply, suggestions } = await narrate(history, result, ctx);
+  const { reply, suggestions } = await narrate(history, result, ctx, body?.channel === "email" ? "email" : "chat");
   return { reply, cards: result.cards, suggestions, booking: ctx.activeBooking };
 }

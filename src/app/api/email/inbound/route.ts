@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { handleChat } from "@/lib/gaffer";
-import { isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
+import { formatGafferEmailReply, isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -137,7 +137,7 @@ async function processResendEmail(req: NextRequest, raw: string) {
     if (claim.state === "done") return NextResponse.json({ ok: true, duplicate: true });
     if (claim.state === "busy") return NextResponse.json({ ok: true, processing: true }, { status: 202 });
 
-    const assistant = await handleChat({ messages: claim.history });
+    const assistant = await handleChat({ messages: claim.history, channel: "email" });
     if (!assistant?.reply?.trim() || assistant.reply.includes("The assistant isn't configured yet.")) {
       throw new Error("Gaffer could not produce an email reply");
     }
@@ -145,7 +145,7 @@ async function processResendEmail(req: NextRequest, raw: string) {
       secret: process.env.INBOUND_EMAIL_SECRET,
       threadId: stored.threadId,
       inboundId: stored.inboundId,
-      text: assistant.reply,
+      text: formatGafferEmailReply(assistant.reply, assistant.cards),
       humanRequested,
     });
     if (!delivered?.ok) return NextResponse.json({ ok: true, processing: true }, { status: 202 });
