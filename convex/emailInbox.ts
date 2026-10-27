@@ -7,6 +7,7 @@ import { deliveryMessageId, sendBusinessMail } from "./lib/mailer";
 
 const OWNER_EMAIL = "dbcinemarentals@gmail.com";
 const LEASE_MS = 2 * 60_000;
+const HUMAN_ALERT_RETRY_DELAYS_MS = [15_000, 60_000] as const;
 
 function assertInboundSecret(secret: string) {
   const expected = process.env.INBOUND_EMAIL_SECRET;
@@ -183,6 +184,8 @@ export const claimInbound = mutation({
         email: thread.email,
         subject: thread.subject,
         body: message.text.slice(0, 3000),
+        inboundId,
+        attempt: 1,
       });
     }
     return { state: "claimed" as const, threadId: message.threadId, inboundId, history: await historyFor(ctx, message.threadId), email: thread.email };
@@ -197,6 +200,22 @@ export const failInbound = mutation({
     if (!message || message.direction !== "in") return { ok: false };
     await ctx.db.patch(inboundId, { state: "failed", leaseUntil: undefined, error: error.slice(0, 500) });
     return { ok: true };
+  },
+});
+
+export const scheduleHumanRequestAlertRetry = internalMutation({
+  args: { email: v.string(), subject: v.string(), body: v.string(), inboundId: v.id("email_messages"), failedAttempt: v.number() },
+  handler: async (ctx, args) => {
+    if (!Number.isInteger(args.failedAttempt) || args.failedAttempt < 1 || args.failedAttempt >= 3) throw new Error("human alert retry limit reached");
+    const nextAttempt = args.failedAttempt + 1;
+    await ctx.scheduler.runAfter(HUMAN_ALERT_RETRY_DELAYS_MS[args.failedAttempt - 1], internal.notify.emailHumanRequestAlert, {
+      email: args.email,
+      subject: args.subject,
+      body: args.body,
+      inboundId: args.inboundId,
+      attempt: nextAttempt,
+    });
+    return { scheduled: true, attempt: nextAttempt };
   },
 });
 

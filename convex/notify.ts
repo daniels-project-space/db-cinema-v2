@@ -234,15 +234,37 @@ export const followUpReplyAlert = internalAction({
 
 /** High-priority owner alert, sent only when an email customer explicitly asks for a human. */
 export const emailHumanRequestAlert = internalAction({
-  args: { email: v.string(), subject: v.string(), body: v.string() },
+  args: { email: v.string(), subject: v.string(), body: v.string(), inboundId: v.id("email_messages"), attempt: v.optional(v.number()) },
   handler: async (ctx, a) => {
+    const attempt = Math.max(1, Math.min(3, Math.floor(a.attempt ?? 1)));
     const subject = `URGENT: Human requested — ${a.subject.slice(0, 160)}`;
-    await telegram(`🚨 <b>URGENT — customer requested a human</b>\nFrom: ${a.email}\nSubject: ${a.subject}\n\n${a.body.slice(0, 800)}`);
-    await email(
-      "dbcinemarentals@gmail.com",
-      subject,
-      `<p><b>A customer requested a human reply.</b></p><p>From: ${esc(a.email)}<br/>Subject: ${esc(a.subject)}</p><blockquote>${esc(a.body).replace(/\n/g, "<br/>")}</blockquote>`,
-    );
+    const html = `<p><b>A customer requested a human reply.</b></p><p>From: ${esc(a.email)}<br/>Subject: ${esc(a.subject)}</p><blockquote>${esc(a.body).replace(/\n/g, "<br/>")}</blockquote>`;
+    let delivered = false;
+    try {
+      delivered = await email("dbcinemarentals@gmail.com", subject, html, undefined, undefined, `human-request:${a.inboundId}`) === true;
+    } catch (error) {
+      console.error("[email/human-alert] delivery attempt failed", String((error as any)?.message ?? error));
+    }
+
+    if (delivered) {
+      await telegram(`🚨 <b>URGENT — customer requested a human</b>\nFrom: ${a.email}\nSubject: ${a.subject}\n\n${a.body.slice(0, 800)}`);
+      return;
+    }
+
+    console.error(`[email/human-alert] business inbox delivery failed on attempt ${attempt}/3`);
+    if (attempt < 3) {
+      await ctx.runMutation(internal.emailInbox.scheduleHumanRequestAlertRetry, {
+        email: a.email,
+        subject: a.subject,
+        body: a.body,
+        inboundId: a.inboundId,
+        failedAttempt: attempt,
+      });
+      await telegram(`🚨 <b>URGENT — human request email needs retry</b>\nFrom: ${a.email}\nSubject: ${a.subject}\nEmail delivery attempt ${attempt}/3 failed; retry scheduled.`);
+      return;
+    }
+
+    await telegram(`🚨 <b>URGENT — human request email failed</b>\nFrom: ${a.email}\nSubject: ${a.subject}\nEmail delivery failed after 3 attempts.`);
   },
 });
 
