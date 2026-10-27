@@ -41,8 +41,14 @@ export type MailInput = {
   html: string;
   /** Defaults to the owner address; set per-send to thread a reply elsewhere. */
   replyTo?: string;
+  inReplyTo?: string;
+  references?: string[];
   attachments?: MailAttachment[];
 };
+
+export function deliveryMessageId(deliveryKey: string): string {
+  return `<rental-${createHash("sha256").update(deliveryKey).digest("hex")}@dbcinemarentals.com>`;
+}
 
 export const OWNER_EMAIL = () => process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
 const FROM_NAME = "Db Cinema Rentals";
@@ -59,12 +65,14 @@ async function viaGmail(m: MailInput, user: string, pass: string): Promise<boole
       auth: { user, pass },
     });
     const result = await transport.sendMail({
-      ...(m.deliveryKey ? {messageId:`<rental-${createHash("sha256").update(m.deliveryKey).digest("hex")}@dbcinemarentals.com>`} : {}),
+      ...(m.deliveryKey ? { messageId: deliveryMessageId(m.deliveryKey) } : {}),
       from: `${FROM_NAME} <${user}>`,
       to: m.to,
       subject: m.subject,
       html: m.html,
       replyTo: m.replyTo ?? OWNER_EMAIL(),
+      ...(m.inReplyTo ? { inReplyTo: m.inReplyTo } : {}),
+      ...(m.references?.length ? { references: m.references } : {}),
       attachments: (m.attachments ?? []).map((a) =>
         a.content
           ? { filename: a.filename, content: a.content, encoding: "base64" as const }
@@ -91,6 +99,10 @@ async function viaResend(m: MailInput, key: string): Promise<boolean> {
         subject: m.subject,
         html: m.html,
         reply_to: m.replyTo ?? OWNER_EMAIL(),
+        ...(m.inReplyTo || m.references?.length ? { headers: {
+          ...(m.inReplyTo ? { "In-Reply-To": m.inReplyTo } : {}),
+          ...(m.references?.length ? { References: m.references.join(" ") } : {}),
+        } } : {}),
         ...(m.attachments?.length ? { attachments: m.attachments } : {}),
       }),
     });
@@ -120,4 +132,15 @@ export async function sendMail(m: MailInput): Promise<boolean> {
     return false;
   }
   return viaResend(m, key);
+}
+
+/** Mail used for customer replies must originate from the business Gmail mailbox. */
+export async function sendBusinessMail(m: MailInput): Promise<boolean> {
+  const user = process.env.GMAIL_USER?.trim().toLowerCase();
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (user !== "dbcinemarentals@gmail.com" || !pass) {
+    console.error("[mail] business Gmail sender is not configured");
+    return false;
+  }
+  return viaGmail(m, user, pass);
 }

@@ -944,6 +944,46 @@ export default defineSchema({
   // goes out in the reply-to address, and inbound replies are matched back on it
   // so an email answer continues the same conversation instead of arriving as an
   // orphan in the owner's inbox.
+  email_threads: defineTable({
+    email: v.string(),
+    name: v.optional(v.string()),
+    subject: v.string(),
+    accountId: v.optional(v.id("accounts")),
+    status: v.union(v.literal("open"), v.literal("human_requested"), v.literal("closed")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastAt: v.number(),
+    lastDirection: v.union(v.literal("in"), v.literal("out")),
+    lastText: v.string(),
+    unreadOwner: v.number(),
+    humanNotifiedAt: v.optional(v.number()),
+    humanNotifiedMessageId: v.optional(v.id("email_messages")),
+  })
+    .index("by_email_updated", ["email", "updatedAt"])
+    .index("by_account_updated", ["accountId", "updatedAt"])
+    .index("by_updated", ["updatedAt"]),
+  email_messages: defineTable({
+    threadId: v.id("email_threads"),
+    direction: v.union(v.literal("in"), v.literal("out")),
+    sender: v.string(),
+    recipient: v.string(),
+    subject: v.string(),
+    text: v.string(),
+    at: v.number(),
+    providerId: v.optional(v.string()),
+    messageId: v.optional(v.string()),
+    inReplyTo: v.optional(v.string()),
+    references: v.optional(v.array(v.string())),
+    state: v.union(v.literal("received"), v.literal("processing"), v.literal("replied"), v.literal("handoff"), v.literal("failed"), v.literal("sent")),
+    leaseUntil: v.optional(v.number()),
+    replyToProviderId: v.optional(v.string()),
+    humanRequested: v.boolean(),
+    error: v.optional(v.string()),
+  })
+    .index("by_provider", ["providerId"])
+    .index("by_message_id", ["messageId"])
+    .index("by_thread_at", ["threadId", "at"])
+    .index("by_reply_to_provider", ["replyToProviderId"]),
   gaffer_follow_ups: defineTable({
     at: v.number(),
     email: v.string(),
