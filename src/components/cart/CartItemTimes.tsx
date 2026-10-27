@@ -41,7 +41,10 @@ export function CartItemTimes({ item, defaultPickupTime, defaultReturnTime, deli
     setError(null);
     try {
       let total = item.total;
-      if (first && last) {
+      // Keep an intermediate same-day clock choice visible so the customer can
+      // correct it. The invalid pair cannot be priced until its order is fixed.
+      const invalidSameDayOrder = item.start === item.end && !!first && !!last && last <= first;
+      if (first && last && !invalidSameDayOrder) {
         const quote = await priceQuote({
           items: [{
             listingId: item.listingId as any,
