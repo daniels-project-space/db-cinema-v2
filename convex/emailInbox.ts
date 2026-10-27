@@ -70,15 +70,23 @@ export const ingest = mutation({
         duplicate: true,
         threadId: duplicate.threadId,
         inboundId: duplicate._id,
-        accountId: thread?.accountId ?? null,
+        accountId: thread?.verifiedRenterEmail ? thread.accountId ?? null : null,
         blocked: false,
         history: await historyFor(ctx, duplicate.threadId),
       };
     }
 
-    const account = await ctx.db.query("accounts")
+    const accountCandidate = await ctx.db.query("accounts")
       .withIndex("by_email", (q: any) => q.eq("email", email))
       .first();
+    const account = accountCandidate &&
+      accountCandidate.email?.trim().toLowerCase() === email &&
+      accountCandidate.emailVerificationRequired !== true &&
+      typeof accountCandidate.emailVerifiedAt === "number" &&
+      Number.isFinite(accountCandidate.emailVerifiedAt) &&
+      accountCandidate.emailVerifiedAt > 0
+      ? accountCandidate
+      : null;
     let thread: any = null;
     const correlationIds = [...new Set([args.inReplyTo, ...args.references].filter(Boolean))];
     for (const messageId of correlationIds) {
@@ -106,6 +114,7 @@ export const ingest = mutation({
         name: args.name?.trim() || account?.name || undefined,
         subject: args.subject.trim().slice(0, 500) || "Customer email",
         accountId: account?._id,
+        verifiedRenterEmail: account ? email : undefined,
         status: "open",
         createdAt: now,
         updatedAt: now,
@@ -117,7 +126,8 @@ export const ingest = mutation({
       thread = await ctx.db.get(threadId);
     } else {
       await ctx.db.patch(thread._id, {
-        ...(account && !thread.accountId ? { accountId: account._id } : {}),
+        accountId: account?._id,
+        verifiedRenterEmail: account ? email : undefined,
         ...(args.name?.trim() && !thread.name ? { name: args.name.trim() } : {}),
         updatedAt: now,
         lastAt: now,
