@@ -92,7 +92,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
 
   const gearVisible = !reduce && phase === "c1" && t > 0.5 && t < 4.6;
   // Overlay (headline + CTA) fades in 3 seconds into the hero, on every device.
-  const ctaVisible = reduce || phase !== "c1" || t > 3;
+  const ctaVisible = reduce || phase !== "c1" || t > 2;
   const countBy = new Map(categories.map((c) => [c.name, c.count]));
 
   return (
@@ -286,7 +286,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
           {/* all three are the same frosted material, and none of them move:
               no magnetic lean over the footage, just light and colour */}
           <Link href="/gear" className="btn-glass btn-glass-accent px-5 py-2.5 text-sm lg:px-8 lg:py-3 lg:text-base">
-            Browse the kit
+            Book rental gear
             <IconArrowRight className="h-4 w-4" />
           </Link>
           <Link href="/how-it-works" className="btn-glass px-5 py-2.5 text-sm lg:px-8 lg:py-3 lg:text-base">

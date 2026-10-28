@@ -3,8 +3,8 @@ import { formatGbp } from "@/lib/pricing";
 import { RentalKit } from "@/components/rentals/RentalKit";
 import { RentalOrderTools } from "./RentalOrderTools";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
-import { useEffect, useRef, useState } from "react";
-import { useQuery, usePaginatedQuery, useMutation } from "convex/react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useQuery, usePaginatedQuery, useMutation, useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { RentalConversation } from "@/components/rentals/RentalConversation";
@@ -17,6 +17,117 @@ import {
   RENTAL_STAGES,
   RENTAL_STAGE_LABELS,
 } from "@/lib/rentalPresentation";
+
+function emailDate(timestamp?: number) {
+  if (!timestamp || !Number.isFinite(timestamp)) return "Time unavailable";
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+}
+
+function EmailConversationPanel({
+  token,
+  threadId,
+  onOpenRenterChat,
+}: {
+  token: string;
+  threadId: any;
+  onOpenRenterChat: (accountId: string) => void;
+}) {
+  const data = useQuery(api.emailInbox.adminThread, { token, threadId });
+  const sendOwnerReply = useAction(api.emailInbox.sendOwnerReply);
+  const markRead = useMutation(api.emailInbox.markRead);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const replyConfigured = data?.authorized === true && data.replyConfigured === true;
+  const thread = data?.authorized ? data.thread : null;
+  const messages = data?.authorized ? data.messages : [];
+
+  useEffect(() => {
+    if (!thread || !thread.unreadOwner) return;
+    void markRead({ token, threadId }).catch(() => {
+      setError("This email opened, but its unread marker could not be cleared.");
+    });
+  }, [thread?.unreadOwner, threadId, token, markRead]);
+
+  async function submitReply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setError("");
+    try {
+      const result = await sendOwnerReply({ token, threadId, text });
+      if (!result.ok) throw new Error(result.busy ? "A reply is already being sent. Wait a moment and refresh." : "The email reply could not be sent.");
+      setDraft("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The email reply could not be sent.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (data === undefined) {
+    return <div className="flex min-h-[450px] items-center justify-center rounded-3xl border border-sky-300/15 text-sm text-sky-100/50">Opening email…</div>;
+  }
+  if (!data.authorized || !thread) {
+    return <div className="flex min-h-[450px] items-center justify-center rounded-3xl border border-rose-300/15 text-sm text-rose-100/60">This email thread is unavailable.</div>;
+  }
+
+  return (
+    <section aria-label="Email conversation" className="flex min-h-[600px] flex-col overflow-hidden rounded-3xl border border-sky-300/15 bg-slate-950/70">
+      <header className="border-b border-sky-300/10 bg-sky-400/[0.06] p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-sky-300/20 bg-sky-300/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-100">
+              <span aria-hidden="true">✉</span> Email
+            </div>
+            <h3 className="break-words text-lg font-semibold text-white">{thread.subject || "Customer email"}</h3>
+            <p className="mt-1 break-all text-xs text-white/55">{thread.name ? `${thread.name} · ` : ""}{thread.email}</p>
+            {thread.status === "human_requested" && <p role="status" className="mt-3 inline-flex rounded-full border border-rose-300/25 bg-rose-300/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-100">Human requested · urgent</p>}
+          </div>
+          {thread.accountId && (
+            <button type="button" onClick={() => onOpenRenterChat(String(thread.accountId))} className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-2 text-xs text-emerald-100/80 hover:bg-emerald-300/[0.12]">
+              Open renter chat
+            </button>
+          )}
+        </div>
+      </header>
+
+      <div className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-6" aria-live="polite">
+        {!messages.length && <p className="text-sm text-white/40">No messages in this email thread.</p>}
+        {messages.map((message: any) => {
+          const fromCustomer = message.direction === "in";
+          return (
+            <article key={message._id} className={`max-w-[92%] rounded-2xl border p-4 ${fromCustomer ? "mr-auto border-white/[0.08] bg-white/[0.035]" : "ml-auto border-sky-300/15 bg-sky-300/[0.07]"}`}>
+              <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-white/45">
+                <span className={fromCustomer ? "text-white/70" : "text-sky-100/80"}>{fromCustomer ? (thread.name || thread.email) : "DB Cinema"}</span>
+                <span>·</span>
+                <time dateTime={new Date(message.at).toISOString()}>{emailDate(message.at)}</time>
+                {message.state !== (fromCustomer ? "received" : "sent") && <span className="rounded-full bg-amber-200/10 px-2 py-0.5 text-amber-100/70">{message.state}</span>}
+              </div>
+              {message.subject && fromCustomer && <p className="mb-2 text-xs font-medium text-white/60">Subject: {message.subject}</p>}
+              <p className="whitespace-pre-wrap break-words text-sm leading-6 text-white/85">{message.text}</p>
+            </article>
+          );
+        })}
+      </div>
+
+      <form onSubmit={submitReply} className="border-t border-sky-300/10 bg-white/[0.02] p-4 sm:p-5">
+        <label htmlFor="email-owner-reply" className="mb-2 block text-xs font-medium text-white/65">Reply by email</label>
+        <textarea id="email-owner-reply" value={draft} onChange={(event) => setDraft(event.target.value)} rows={4} maxLength={12000} disabled={!replyConfigured} placeholder={replyConfigured ? "Write an email reply…" : "Email replies are temporarily unavailable"} className="w-full resize-y rounded-2xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-white outline-none placeholder:text-white/25 focus:border-sky-300/35 disabled:cursor-not-allowed disabled:opacity-45" />
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[11px] text-white/40">{replyConfigured ? "Replies send from dbcinemarentals@gmail.com." : "Replies are paused because the business Gmail sender is not configured."}</p>
+          <button type="submit" disabled={!replyConfigured || sending || !draft.trim()} className="rounded-full bg-sky-200 px-4 py-2 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{sending ? "Sending…" : "Send email reply"}</button>
+        </div>
+        {error && <p role="alert" className="mt-3 text-xs leading-5 text-rose-200">{error}</p>}
+      </form>
+    </section>
+  );
+}
+
 export function RentalInbox({
   token,
   focusBookingId,
@@ -31,9 +142,14 @@ export function RentalInbox({
   const [stage, setStage] = useState(focusAccountId ? "general" : "all"),
     [search, setSearch] = useState(""),
     [selected, setSelected] = useState<string | null>(focusBookingId ?? focusAccountId ?? null);
+  const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
+  const isEmailStage = stage === "emails";
+  const emailInbox = useQuery(api.emailInbox.adminInbox, { token, limit: 100 });
+  const emailItems = emailInbox?.authorized ? emailInbox.items : [];
+  const emailUnread = emailItems.reduce((count, thread) => count + (thread.unreadOwner ?? 0), 0);
   const rentals = usePaginatedQuery(
     api.rentalChat.adminPage,
-    stage === "general"
+    stage === "general" || isEmailStage
       ? "skip"
       : { token, stage: stage === "all" ? undefined : stage },
     { initialNumItems: 50 },
@@ -69,10 +185,12 @@ export function RentalInbox({
   useEffect(() => {
     if (focusBookingId) {
       setSelected(focusBookingId);
+      setSelectedEmail(null);
       setStage("all");
       setSearch("");
     } else if (focusAccountId) {
       setSelected(focusAccountId);
+      setSelectedEmail(null);
       setStage("general");
       setSearch("");
     }
@@ -138,10 +256,10 @@ export function RentalInbox({
   const visible = rows
     .filter(
       (r) =>
-        (stage === "all" ||
+        (!isEmailStage && (stage === "all" ||
           stage === "general" ||
           (stage === "unread" && r.unreadOwner > 0) ||
-          r.status === stage) &&
+          r.status === stage)) &&
         (!search ||
           `${r.guestEmail} ${r.name} ${r.items.map((li: any) => li.title).join(" ")}`
             .toLowerCase()
@@ -152,9 +270,13 @@ export function RentalInbox({
         Number(b.unreadOwner > 0) - Number(a.unreadOwner > 0) ||
         b.updatedAt - a.updatedAt,
     );
+  const visibleEmails = emailItems
+    .filter((thread) => !search || `${thread.email} ${thread.name ?? ""} ${thread.subject} ${thread.lastText}`.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => Number((b.unreadOwner ?? 0) > 0) - Number((a.unreadOwner ?? 0) > 0) || b.updatedAt - a.updatedAt);
   const focus = selected
-    ? (rows.find((r) => r._id === selected) ?? (stage === "general" ? generalDirect : direct))
+      ? (rows.find((r) => r._id === selected) ?? (stage === "general" ? generalDirect : direct))
     : visible[0];
+  const selectedAny = isEmailStage ? !!selectedEmail : !!selected;
   return (
     <section id="messages" className={chatStyles.inboxScreen}>
       <div className={chatStyles.inbox}>
@@ -165,7 +287,7 @@ export function RentalInbox({
             Rental inbox
           </h2>
           <p className="mt-1 text-xs text-white/40">
-            {unread ? `${unread} unread messages` : "You're up to date"}
+            {unread + emailUnread ? `${unread + emailUnread} unread messages` : "You're up to date"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -203,6 +325,7 @@ export function RentalInbox({
           ["all", "All rentals"],
           ["unread", "Unread rentals"],
           ["general", "General support"],
+          ["emails", "Emails"],
           ...RENTAL_STAGES.map((s) => [s, RENTAL_STAGE_LABELS[s]]),
         ].map(([key, label]) => (
           <button
@@ -215,6 +338,7 @@ export function RentalInbox({
             className={`whitespace-nowrap rounded-full px-3 py-2 text-xs ${stage === key ? "bg-white text-black" : "bg-white/[0.04] text-white/45 hover:text-white"}`}
           >
             {label}
+            {key === "emails" && emailUnread > 0 && <span className="ml-2 rounded-full bg-sky-300/20 px-2 py-0.5 text-sky-100">{emailUnread}</span>}
             {((key === "unread"
               ? counts?.rentals
               : key === "general"
@@ -229,14 +353,39 @@ export function RentalInbox({
       </div>
 
           <input
-            aria-label="Search rental conversations"
+            aria-label={isEmailStage ? "Search email conversations" : "Search rental conversations"}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search loaded conversations"
+            placeholder={isEmailStage ? "Search loaded emails" : "Search loaded conversations"}
             className="mb-3 w-full rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3 text-sm text-white outline-none"
           />
           <div className={chatStyles.conversationList}>
-            {visible.map((r) => (
+            {isEmailStage && emailInbox === undefined && <p className="p-6 text-center text-sm text-white/35">Loading emails…</p>}
+            {isEmailStage && emailInbox && !emailInbox.authorized && <p role="alert" className="p-6 text-center text-sm text-rose-100/60">Email inbox access is unavailable.</p>}
+            {isEmailStage && visibleEmails.map((thread) => (
+              <button
+                key={thread._id}
+                aria-current={selectedEmail === thread._id}
+                onClick={() => { setSelected(null); setSelectedEmail(thread._id); }}
+                className={`w-full rounded-2xl border p-3 text-left ${selectedEmail === thread._id ? "border-sky-300/35 bg-sky-300/[0.09]" : "border-sky-300/10 bg-sky-300/[0.025] hover:bg-sky-300/[0.06]"}`}
+              >
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-300/20 bg-sky-300/[0.08] px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-sky-100"><span aria-hidden="true">✉</span> Email</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {thread.status === "human_requested" && <span className="rounded-full border border-rose-300/25 bg-rose-300/[0.08] px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-rose-100">Human requested · urgent</span>}
+                    {(thread.unreadOwner ?? 0) > 0 && <span className="rounded-full bg-sky-200 px-2 py-0.5 text-[10px] font-semibold text-slate-950">{thread.unreadOwner}</span>}
+                  </div>
+                </div>
+                <p className="truncate text-sm font-medium text-white/85">{thread.name || thread.email}</p>
+                <p className="mt-1 truncate text-xs text-sky-100/65">{thread.subject || "Customer email"}</p>
+                <p className="mt-2 line-clamp-2 text-xs leading-5 text-white/45">{thread.lastText || "No message preview"}</p>
+                <div className="mt-3 flex items-center justify-between gap-2 text-[10px] text-white/35">
+                  <span>{thread.accountId ? "Renter profile linked" : "Email contact"}</span>
+                  <time>{emailDate(thread.lastAt ?? thread.updatedAt)}</time>
+                </div>
+              </button>
+            ))}
+            {!isEmailStage && visible.map((r) => (
               <button
                 key={r._id}
                 aria-current={focus?._id === r._id}
@@ -280,7 +429,7 @@ export function RentalInbox({
                 </p>
               </button>
             ))}
-            {status === "CanLoadMore" && (
+            {!isEmailStage && status === "CanLoadMore" && (
               <button
                 onClick={() => loadMore(50)}
                 className="rounded-full border border-white/10 p-3 text-xs text-white/50"
@@ -288,21 +437,28 @@ export function RentalInbox({
                 Load older rentals
               </button>
             )}
-            {!visible.length && status !== "LoadingFirstPage" && (
+            {isEmailStage && emailInbox?.authorized && !visibleEmails.length && (
+              <p className="p-6 text-center text-sm text-white/30">No email conversations found.</p>
+            )}
+            {!isEmailStage && !visible.length && status !== "LoadingFirstPage" && (
               <p className="p-6 text-center text-sm text-white/30">
                 No conversations in this stage.
               </p>
             )}
           </div>
         </aside>
-        <div className={selected ? "min-w-0" : "hidden min-w-0 lg:block"}>
-          {selected && <button
-            onClick={() => {setSelected(null);window.history.replaceState(null,"",ownerConversationUrl({}));}}
+        <div className={selectedAny ? "min-w-0" : "hidden min-w-0 lg:block"}>
+          {selectedAny && <button
+            onClick={() => {setSelected(null);setSelectedEmail(null);window.history.replaceState(null,"",ownerConversationUrl({}));}}
             className="mb-3 text-xs text-white/65 lg:hidden"
           >
-            ← All rental conversations{notifications.length>0?` · ${notifications.length>=30?"30+":notifications.length} notifications`:""}
+            ← {isEmailStage ? "All emails" : "All rental conversations"}{notifications.length>0?` · ${notifications.length>=30?"30+":notifications.length} notifications`:""}
           </button>}
-        {focus ? (
+        {isEmailStage ? (
+          selectedEmail ? <EmailConversationPanel token={token} threadId={selectedEmail} onOpenRenterChat={(accountId) => { setStage("general"); setSelectedEmail(null); setSelected(accountId); }} /> : (
+            <div className="flex min-h-[450px] items-center justify-center rounded-3xl border border-sky-300/10 text-sm text-sky-100/35">Choose an email to read and reply.</div>
+          )
+        ) : focus ? (
           <>
             <RentalConversation
               key={focus._id}

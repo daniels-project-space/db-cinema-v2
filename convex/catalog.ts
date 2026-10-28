@@ -1,6 +1,7 @@
 import { effectiveLensSpecs } from "../shared/opticalFacts";
 import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
 import { query, mutation, internalQuery } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { quote } from "./lib/pricing";
@@ -165,6 +166,92 @@ export const listListings = query({
         a.title.localeCompare(b.title),
     );
     return await toPublicCards(ctx, rows.slice(0, limit ?? 500));
+  },
+});
+
+/**
+ * Bounded home-page search. Search uses a dedicated title index; when a brand
+ * or model has no exact hit, category pages fall back to the most-requested
+ * active listings in that category using a compound index.
+ */
+export const searchHomeGear = query({
+  args: {
+    search: v.string(),
+    category: v.optional(v.string()),
+  },
+  handler: async (ctx, { search, category }) => {
+    const normalized = search.trim().replace(/\s+/g, " ").slice(0, 96);
+    if (!normalized) return { mode: "empty" as const, category: category ?? null, listings: [] };
+
+    const words = normalized.toLowerCase().match(/[a-z0-9]+/g)?.slice(0, 12) ?? [];
+    const categoryName = category?.trim() || undefined;
+    const categoryKey = categoryName?.toLowerCase() ?? "";
+    const ignoredCategoryWords = new Set(categoryKey.match(/[a-z0-9]+/g) ?? []);
+    if (/camera|cinema|video/.test(categoryKey)) {
+      ["camera", "cameras", "cam", "camcorder", "body", "bodies", "cinema", "video"].forEach((word) => ignoredCategoryWords.add(word));
+    } else if (/lens|optic/.test(categoryKey)) {
+      ["lens", "lenses", "prime", "zoom", "optics", "glass"].forEach((word) => ignoredCategoryWords.add(word));
+    } else if (/light/.test(categoryKey)) {
+      ["light", "lights", "lighting", "led", "tube"].forEach((word) => ignoredCategoryWords.add(word));
+    } else if (/audio|sound/.test(categoryKey)) {
+      ["audio", "sound", "mic", "mics", "microphone", "microphones"].forEach((word) => ignoredCategoryWords.add(word));
+    } else if (/drone/.test(categoryKey)) {
+      ["drone", "drones", "uav"].forEach((word) => ignoredCategoryWords.add(word));
+    }
+
+    const specificWords = words.filter((word) => !ignoredCategoryWords.has(word));
+    const searchText = (specificWords.length ? specificWords : words).join(" ");
+    let matching: Doc<"listings">[] = [];
+
+    if (searchText) {
+      let candidates = await ctx.db
+        .query("listings")
+        .withSearchIndex("search_title", (q) => {
+          const searchFilter = q.search("title", searchText).eq("active", true);
+          return categoryName ? searchFilter.eq("category", categoryName) : searchFilter;
+        })
+        .take(24);
+
+      if (specificWords.length) {
+        candidates = candidates.filter((listing) =>
+          specificWords.some((word) => listing.title.toLowerCase().includes(word)),
+        );
+      }
+
+      candidates.sort((a, b) => {
+        const hits = (title: string) => words.filter((word) => title.toLowerCase().includes(word)).length;
+        const titleRank = hits(b.title) - hits(a.title);
+        return titleRank ||
+          ((b as any).demandScore ?? 0) - ((a as any).demandScore ?? 0) ||
+          a.title.localeCompare(b.title);
+      });
+      matching = candidates.slice(0, 4);
+    }
+
+    if (matching.length) {
+      return {
+        mode: "matches" as const,
+        category: categoryName ?? matching[0].category,
+        listings: await toPublicCards(ctx, matching),
+      };
+    }
+
+    if (categoryName) {
+      const alternatives = await ctx.db
+        .query("listings")
+        .withIndex("by_category_active_demand", (q) =>
+          q.eq("category", categoryName).eq("active", true),
+        )
+        .order("desc")
+        .take(4);
+      return {
+        mode: alternatives.length ? "category" as const : "empty" as const,
+        category: categoryName,
+        listings: await toPublicCards(ctx, alternatives),
+      };
+    }
+
+    return { mode: "empty" as const, category: null, listings: [] };
   },
 });
 

@@ -21,6 +21,7 @@ export const submit = mutation({
     if (!flood.allowed) throw new Error("We're getting a lot of messages right now — please try again in a minute.");
     const id = await ctx.db.insert("contact_messages", { name, email, message, handled: false });
     await ctx.scheduler.runAfter(0, internal.notify.contactAlert, { name, email, message });
+    await ctx.scheduler.runAfter(0, internal.notify.contactAutoReply, { contactId: id, name, email, message });
     return { id };
   },
 });

@@ -1,5 +1,6 @@
 export const metadata = { alternates: { canonical: "/" } };
 import Link from "next/link";
+import Image from "next/image";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -13,11 +14,43 @@ import { Marquee } from "@/components/Marquee";
 import { ViewfinderHUD } from "@/components/ViewfinderHUD";
 import { CountUp } from "@/components/CountUp";
 import { GearCard, type GearListing } from "@/components/GearCard";
+import { HomeGearSearch } from "@/components/HomeGearSearch";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { Magnetic } from "@/components/Magnetic";
 import { IconArrowRight } from "@/components/icons";
-import { BadgeTruck, BadgeShield, BadgeClock, BadgeSquare, BadgeBrowse, BadgeCalendar, BadgeLock } from "@/components/AnimatedIcons";
+import { BadgeTruck, BadgeBrowse, BadgeCalendar, BadgeLock } from "@/components/AnimatedIcons";
 import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
+
+const trustTiles = [
+  {
+    eyebrow: "Our location",
+    title: "Based at Trafalgar Square",
+    copy: "Pick up from the heart of central London.",
+    image: "/images/home/trafalgar-square-location-20261028.webp",
+    alt: "Cinema cases in Trafalgar Square, beside Nelson’s Column and the National Gallery",
+  },
+  {
+    eyebrow: "Ready for set",
+    title: "Pro kit, meticulously maintained",
+    copy: "Every item checked and cleaned before it leaves us.",
+    image: "/images/home/maintained-cinema-gear-20261028.webp",
+    alt: "A technician checks a cinema lens beside a professional camera kit",
+  },
+  {
+    eyebrow: "London-wide service",
+    title: "Delivered across London",
+    copy: "Reliable delivery and collection, straight to your set.",
+    image: "/images/home/london-delivery-20261028.webp",
+    alt: "Cinema cases being delivered through central London",
+  },
+  {
+    eyebrow: "Fast, simple booking",
+    title: "Ready when you are",
+    copy: "Book online in minutes with instant confirmation.",
+    image: "/images/home/ready-to-shoot-kit-20261028.webp",
+    alt: "A complete cinema kit prepared for a film shoot",
+  },
+];
 
 export default async function Home() {
   let rating: { ratingValue: number; reviewCount: number } | null = null;
@@ -85,40 +118,35 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* ───────────────── trust strip ───────────────── */}
+      {/* ───────────────── London, on the label ───────────────── */}
       <section className="section-window border-y border-white/5 px-6 py-12">
-        {/* four across on desktop, two-up on tablet — a fourth tile in the old
-            three-column grid orphaned itself onto a row of its own.
-            Icon beside the text on mobile, ABOVE it once the grid splits into
-            columns. In a narrow column the old side-by-side layout left the heading
-            ~158px and wrapped every one onto two lines ("Based in Trafalgar /
-            Square"), so stacking buys back the full width; but on a single-column
-            phone the tile is ~342px wide and stacking just leaves a dead patch
-            beside the icon and makes the strip 660px tall. Neither layout is right
-            at both widths.
-            auto-rows-fr + h-full on both the Reveal and the tile is what makes all
-            four match the tallest, at every breakpoint. h-full alone only equalises
-            within a row (the shortest, "Booked in minutes", sat 24px short with a
-            gap beneath); auto-rows-fr equalises the ROWS too, so the four also match
-            when they stack one- or two-up and no hardcoded min-height can go stale
-            when the copy changes. */}
-        <div className="mx-auto grid max-w-6xl auto-rows-fr grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            [BadgeSquare, "Based in Trafalgar Square", "collect from the middle of London"],
-            [BadgeTruck, "Delivered across London", "or collect in central London"],
-            [BadgeShield, "Pro-maintained gear", "checked and cleaned between rentals"],
-            [BadgeClock, "Booked in minutes", "online, any time, instant confirmation"],
-          ].map(([Icon, h, p]: any, i) => (
-            <Reveal key={h} delay={i * 90} className="h-full">
-              <div className="spot gradient-border flex h-full flex-row items-center gap-4 rounded-2xl p-6 sm:flex-col sm:items-stretch">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400">
-                  <Icon className="h-8 w-8" />
-                </span>
-                <span className="block">
-                  <span className="block font-display font-semibold leading-snug text-white/90">{h}</span>
-                  <span className="mt-1.5 block text-sm leading-relaxed text-white/40">{p}</span>
-                </span>
-              </div>
+        {/* Four visual proof cards make the London base and rental service clear at a glance. */}
+        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {trustTiles.map((tile, i) => (
+            <Reveal key={tile.title} delay={i * 70} className="h-full">
+              <article className="group relative isolate h-[300px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:h-[330px]">
+                <Image
+                  src={tile.image}
+                  alt={tile.alt}
+                  fill
+                  sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                  className="object-cover transition-transform duration-700 ease-out group-hover:scale-[1.045]"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#070709] via-[#070709]/55 to-black/5" aria-hidden />
+                <div className="absolute inset-0 bg-gradient-to-r from-black/25 via-transparent to-transparent" aria-hidden />
+                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-accent-400/90 via-accent-300/15 to-transparent opacity-80" aria-hidden />
+                <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6">
+                  <span className="inline-flex rounded-full border border-white/20 bg-black/65 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/85 shadow-lg backdrop-blur-sm">
+                    {tile.eyebrow}
+                  </span>
+                  <h2 className="mt-4 max-w-[17rem] font-display text-xl font-semibold leading-tight text-white sm:text-2xl">
+                    {tile.title}
+                  </h2>
+                  <p className="mt-2 max-w-[18rem] text-sm leading-relaxed text-white/75">
+                    {tile.copy}
+                  </p>
+                </div>
+              </article>
             </Reveal>
           ))}
         </div>
@@ -143,9 +171,7 @@ export default async function Home() {
                     The kit crews <span className="serif-accent gradient-text text-[1.06em]">fight over</span>
                   </h2>
                 </div>
-                <Link href="/gear" className="arrow-link inline-flex min-h-[40px] items-center text-sm text-accent-400 transition-colors hover:text-accent-300">
-                  All gear <span className="arrow">→</span>
-                </Link>
+                <HomeGearSearch categories={categories} />
               </div>
             </Reveal>
             <div className="dim-grid rail mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import { useAccount } from "@/components/account/AccountProvider";
 import { SiteHeader } from "@/components/SiteHeader";
 import { PageHero } from "@/components/PageHero";
 import { IconCheck, IconClock, IconPin, IconSend } from "@/components/icons";
@@ -12,13 +13,24 @@ import { AskGaffer } from "@/components/gaffer/AskGaffer";
 
 export default function ContactPage() {
   const submit = useMutation(api.contact.submit);
+  const { me, loading: accountLoading } = useAccount();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [nameTouched, setNameTouched] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
   const [message, setMessage] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [hp, setHp] = useState(""); // honeypot
+
+  useEffect(() => {
+    if (!accountLoading && !nameTouched) setName(me?.name ?? "");
+  }, [accountLoading, me?.name, nameTouched]);
+
+  useEffect(() => {
+    if (!accountLoading && !emailTouched) setEmail(me?.email ?? "");
+  }, [accountLoading, me?.email, emailTouched]);
 
   const valid = name.trim() && /\S+@\S+\.\S+/.test(email) && message.trim().length > 4;
 
@@ -62,11 +74,11 @@ export default function ContactPage() {
               <div className="flex flex-col gap-3">
                 <div>
                   <label className="hud-label mb-1.5 block" htmlFor="c-name">Your name</label>
-                  <input id="c-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" className="input w-full" />
+                  <input id="c-name" value={name} onChange={(e) => { setNameTouched(true); setName(e.target.value); }} placeholder="Jane Doe" autoComplete="name" className="input w-full" />
                 </div>
                 <div>
                   <label className="hud-label mb-1.5 block" htmlFor="c-email">Email</label>
-                  <input id="c-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" type="email" className="input w-full" />
+                  <input id="c-email" value={email} onChange={(e) => { setEmailTouched(true); setEmail(e.target.value); }} placeholder="you@email.com" type="email" autoComplete="email" className="input w-full" />
                 </div>
                 <div>
                   <label className="hud-label mb-1.5 block" htmlFor="c-msg">Message</label>

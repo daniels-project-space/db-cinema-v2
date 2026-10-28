@@ -10,7 +10,7 @@ const gm={_id:'gm',slug:'gm',title:'Sony 24-70mm f2.8 GM lens',itemType:'lens',s
 const wide={...gm,_id:'wide',slug:'wide',title:'Sony 16-35mm f2.8 GM lens',specs:{...gm.specs,lensFocal:'16-35'},demandScore:10,components:[{inventoryUnitId:'wide',qty:1}]};
 const mystery={...gm,_id:'mystery',slug:'mystery',title:'Mystery 50mm lens',specs:{coverage:'ff'},components:[{inventoryUnitId:'mystery',qty:1}]};
 const rf={...cam,_id:'r5',slug:'r5',title:'Canon R5 camera body',specs:{mount:'RF',coverage:'ff'},components:[{inventoryUnitId:'r5',qty:1}]};
-let rows=[cam,gm,wide],availability=1,availabilityWithBasket=1,checks=[],intent={},narration='';
+let rows=[cam,gm,wide],availability=1,availabilityWithBasket=1,checks=[],intent={},narration='',modelHandoff=false;
 setMock('convex/browser',{ConvexHttpClient:class{async query(name,args){
  if(name==='catalog.listListings')return rows;
  if(name==='catalog.byItemType')return rows.filter(r=>args.types.includes(r.itemType));
@@ -25,13 +25,13 @@ setMock('convex/browser',{ConvexHttpClient:class{async query(name,args){
 }}});
 setMock('@/lib/ai',{generateBotObject:async({prompt})=>{
  if(prompt.startsWith('You parse'))return intent;
- narration=prompt;return {reply:'Grounded response',suggestions:[]};
+ narration=prompt;return {reply:'Grounded response',suggestions:[],humanRequested:modelHandoff};
 }});
 process.env.OPENROUTER_API_KEY='isolated-fixture-no-provider-call';
 const {handleChat}=load('src/lib/gaffer.ts');
-async function chat(next,message,cart){
+async function chat(next,message,cart,channel){
  intent={pricePref:'any',cameraModel:'',subject:'',itemTypes:[],...next};checks=[];
- return handleChat({messages:[{role:'user',content:message}],cart});
+ return handleChat({messages:[{role:'user',content:message}],cart,channel});
 }
 (async()=>{
  const window={start:'2026-11-20',end:'2026-11-21'};
@@ -75,5 +75,14 @@ async function chat(next,message,cart){
  rows=[cam,{_id:'rig',slug:'rig',title:'Monitor rig',itemType:'monitor',pricing:{daily:10},components:[...cam.components,{inventoryUnitId:'monitor',qty:1}]}];availabilityWithBasket=0;
  result=await chat({intent:'build_kit',itemTypes:['monitor'],...window,pickupTime:'10:00',returnTime:'17:00'},'Add a monitor rig',[{listingId:cam._id,...window,pickupTime:'10:00',returnTime:'17:00'}]);
  assert.equal(result.cards.length,0,'initial Gaffer answer must include existing basket demand, before the UI refresh');assert(checks.some(check=>check.items?.[0]?.listingId===cam._id));
+ modelHandoff=true;
+ result=await chat({intent:'other'},'Would your team please contact me directly?',undefined,'email');
+ assert.equal(result.humanRequested,true,'email answers expose Gaffers structured human-request classification');
+ assert(narration.includes('HUMAN REQUEST CLASSIFICATION'));
+ modelHandoff=false;
+ result=await chat({intent:'other'},"I don't need a human; just tell me the rental price.",undefined,'email');
+ assert.equal(result.humanRequested,false,'email handoff classification does not carry a request into a negated message');
+ result=await chat({intent:'other'},'Would your team please contact me directly?',undefined,'chat');
+ assert.equal(Object.hasOwn(result,'humanRequested'),false,'the email-only routing signal is not exposed by the regular chat endpoint');
  console.log('PASS actual Gaffer planner/narration pipeline: progressive kit contents, timed availability gate, unavailable-stock rejection, unknown fit and camera-specific mount rules. Controlled model/catalogue transport; no provider writes.');
 })().catch(error=>{console.error(error);process.exitCode=1});
