@@ -3,12 +3,12 @@
 import { Suspense, useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useGafferFocus } from "@/components/gaffer/GafferFocus";
-import { IconSliders, IconSearch } from "@/components/icons";
+import { IconSearch } from "@/components/icons";
+import { AssemblyShowcase } from "@/components/AssemblyShowcase";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { GearLoopBanner } from "@/components/GearLoopBanner";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
-import Link from "next/link";
 import { GearCard } from "@/components/GearCard";
 import { HireProfessionals } from "@/components/HireProfessionals";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -81,23 +81,7 @@ function GearPageInner() {
       <SiteHeader />
       <GearLoopBanner />
       <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto min-h-screen max-w-7xl px-6 pb-12 pt-8">
-        <Link
-          href="/assemble"
-          className="spot border-beam press group mt-8 flex items-center gap-4 rounded-2xl p-4 sm:p-5"
-        >
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-400 transition-colors group-hover:bg-accent-500/20">
-            <IconSliders className="h-5 w-5" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-display font-semibold text-white/90">AI item assembly</span>
-            <span className="mt-0.5 block text-sm text-white/40">
-              Tell us the shoot — we build the kit, priced for your dates.
-            </span>
-          </span>
-          <span className="arrow-link hidden text-sm text-accent-400 sm:block">
-            Build your kit <span className="arrow">→</span>
-          </span>
-        </Link>
+        <AssemblyShowcase listings={[...best, ...(filteredListings ?? [])]} />
 
         {/* hire professionals — crew for hire, booked through us (shows on every
             category so it's there when a category is clicked from the home page; hidden only on search) */}

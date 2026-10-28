@@ -137,7 +137,7 @@ async function processGafferInboundEmail(message: InboundEmail) {
       );
     }
 
-    const assistant = await handleChat({ messages: claim.history, channel: "email" });
+    const assistant = await handleChat({ messages: claim.history, channel: "email", emailSubject: message.subject });
     if (!assistant?.reply?.trim() || assistant.reply.includes("The assistant isn't configured yet.")) {
       throw new Error("Gaffer could not produce an email reply");
     }
@@ -149,7 +149,7 @@ async function processGafferInboundEmail(message: InboundEmail) {
       secret,
       threadId: stored.threadId,
       inboundId: stored.inboundId,
-      text: formatGafferEmailReply(assistant.reply, assistant.cards),
+      text: formatGafferEmailReply(assistant.reply, assistant.cards, assistant.enquiry),
       humanRequested,
     });
     if (!delivered?.ok) {
