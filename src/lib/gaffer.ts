@@ -838,7 +838,7 @@ const IntentSchema = z.object({
   requests: z.array(z.object({
     subject: z.string().min(1).max(160).describe("One requested rental product or gear type; keep brand/model and relevant specifications. Never combine separate products in this field."),
     itemType: z.enum(Object.keys(EXPECTED_ITEMTYPES) as [string, ...string[]]),
-    quantity: z.number().int().min(1).max(100).describe("Number of complete listing units/kits requested, default 1. Two kits containing four transmitters means quantity 2, not 4. Do not infer kit counts from individual microphones."),
+    quantity: z.number().int().min(1).max(100).describe("Number of complete gear items or microphone systems requested, default 1, not the number of catalogue adverts. Two mic kits containing four transmitters means quantity 2, not 4. Do not infer kit counts from individual microphones."),
     quantityIsListingUnits: z.boolean().describe("True for complete rental items or kits. False when quantity refers only to individual components/channels and the required number of full kits cannot be determined. Never interpret a product generation number as quantity."),
     allowAlternatives: z.boolean().describe("False only if the customer explicitly requires this exact model and forbids substitutions; otherwise true."),
   })).max(8).describe("All distinct gear requirements, including multiple named models and their separate quantities. Resolve follow-ups using earlier customer turns. Empty for policy/support-only messages. Never add gear the customer did not request."),
@@ -1212,6 +1212,21 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestTe
   return { cards, facts, askDates: estimated, askTimes: !estimated && !ctx.availabilityReady };
 }
 
+/** Only reviewed owner counts can turn one offer into multiple requested items.
+ * An old title saying '5x mics' is not evidence of five complete wireless kits.
+ */
+export function unitsPerEnquiryOffer(listing: any, subject: string): number {
+  if (listing.itemType !== "wireless-mic" && /\b(?:sets?|kits?|packs?|bundles?)\b/i.test(subject)) return 1;
+  const counts = (listing.inventoryFacts?.contents ?? []).flatMap((text: string) => {
+    const match = text.match(/^\s*(\d{1,3})\s*[x×]\s*(.+)$/i);
+    if (!match || deriveItemType(match[2]) !== listing.itemType) return [];
+    if (listing.itemType === "wireless-mic" && /\b(?:transmitters?|receivers?|lavaliers?|lavs?|tx|rx)\b/i.test(match[2]) && !/\b(?:kit|set|system)\b/i.test(match[2])) return [];
+    const count = Number(match[1]);
+    return count > 0 && count <= 100 ? [count] : [];
+  });
+  return counts.length ? Math.min(100, counts.reduce((sum: number, value: number) => sum + value, 0)) : 1;
+}
+
 /** Allocate complete listing units against the shared physical stock pools.
  * Alternative offers are never summed independently: each selected quantity
  * becomes basket demand for the next stock read, then one snapshot checks all.
@@ -1236,6 +1251,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
         card = await buildCard(c, listing, start, end, planning, reason, false);
         facts.push(`Stock for "${listing.title}" could not be verified. Its catalogue price is known, but do not claim any quantity is available.`);
       }
+      card.item.stockAfterProposal = planning.cartStock!.length > (ctx.cartStock?.length ?? 0);
       cards.push(card);
       let full: any = listing;
       try { full = await c.query(api.catalog.getListingBySlug, { slug: listing.slug }) ?? listing; } catch { /* Keep only the documented public-card contents. */ }
@@ -1250,18 +1266,26 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
     const candidates = await catalogue.get(request.itemType)!;
     const original = await resolveSubjectListing(c, request.subject, { camMounts: planning.camMounts, itemType: request.itemType });
     const matches = (listing: any) => {
-      if (!titleMatchesQuery(request.subject, listing.title)) return false;
+      const fold = (text: string) => text.replace(/ø/gi, "o").normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+      const subject = fold(request.subject).replace(/\bbodies\b/gi, "body").replace(/\b(?:complete|rental|hire)\b/gi, " ");
+      const title = fold(listing.title);
+      if (!titleMatchesQuery(subject, title)) return false;
       const generation = djiMicGeneration(request.subject);
       if (generation !== null && djiMicGeneration(listing.title) !== generation) return false;
       // Short brands and edition suffixes are meaningful even though the
       // broad catalogue search deliberately ignores many short words.
       const qualifiers = request.subject.toLowerCase().match(/\b(?:dji|rode|sony|canon|arri|red|pro|mini|ii|iii|iv|vi|vii)\b/g) ?? [];
-      const compactTitle = listing.title.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const compactTitle = title.toLowerCase().replace(/[^a-z0-9]/g, "");
       return qualifiers.every(word => compactTitle.includes(word));
     };
     const exact = [...new Map([original, ...candidates]
       .filter(x => x && rentableCandidate(x) && itemTypeMatches(request.itemType, x.itemType) && matches(x))
-      .map(x => [String(x._id), x])).values()].slice(0, 8);
+      .map(x => [String(x._id), x])).values()]
+      .sort((a, b) => {
+        const aUnits = unitsPerEnquiryOffer(a, request.subject), bUnits = unitsPerEnquiryOffer(b, request.subject);
+        return Math.max(0, aUnits - request.quantity) - Math.max(0, bUnits - request.quantity) ||
+          (a.pricing.daily / aUnits) - (b.pricing.daily / bUnits) || aUnits - bUnits;
+      }).slice(0, 8);
     if (request.quantityIsListingUnits === false) {
       line.quantityUnit = "individual components; number of complete rental kits needs clarification";
       line.fulfilled = null;
@@ -1283,13 +1307,16 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
         card.item.availableUnits = stock.available;
         card.item.available = stock.available > 0;
       }
-      const count = Number.isSafeInteger(stock?.available) ? Math.min(remaining, Math.max(0, stock.available)) : 0;
+      const providedPerOffer = unitsPerEnquiryOffer(listing, request.subject);
+      const offersNeeded = Math.ceil(remaining / providedPerOffer);
+      const count = Number.isSafeInteger(stock?.available) ? Math.min(offersNeeded, Math.max(0, stock.available)) : 0;
       if (timed && !count) return;
-      const quantity = timed ? count : remaining;
-      line.lines.push({ listingId: String(listing._id), title: listing.title, slug: listing.slug, quantity, perDay: card.item.perDay, total: card.item.total * quantity, alternative });
-      remaining -= quantity;
+      const quantity = timed ? count : offersNeeded;
+      const covered = Math.min(remaining, quantity * providedPerOffer);
+      line.lines.push({ listingId: String(listing._id), title: listing.title, slug: listing.slug, quantity, providedUnits: quantity * providedPerOffer, perDay: card.item.perDay, total: card.item.total * quantity, alternative });
+      remaining -= covered;
       if (timed) {
-        line.fulfilled = (line.fulfilled ?? 0) + quantity;
+        line.fulfilled = (line.fulfilled ?? 0) + covered;
         planning.cartStock!.push({ listingId: listing._id, qty: quantity, start: dayMs(start), end: dayMs(end), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime });
       }
       if (listing.itemType === "camera-body") {

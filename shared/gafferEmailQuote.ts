@@ -21,6 +21,7 @@ export type GafferEmailQuote = {
       title: string;
       slug: string;
       quantity: number;
+      providedUnits?: number;
       perDay: number;
       total: number;
       alternative: boolean;

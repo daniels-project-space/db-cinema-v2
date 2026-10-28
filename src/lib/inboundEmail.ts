@@ -81,7 +81,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
     seen.add(key);
 
     const price = Number.isFinite(item.perDay) ? `${gbp(item.perDay)}/day` : null;
-    const requested = item.itemType === "wireless-mic" && Number.isSafeInteger(item.requestedMicKitCount)
+    const requested = !enquiry && item.itemType === "wireless-mic" && Number.isSafeInteger(item.requestedMicKitCount)
       ? item.requestedMicKitCount as number
       : null;
     let stock: string;
@@ -94,7 +94,9 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
           ? `${available} available; enough to cover the ${requested} requested kits`
           : `${available} available; ${requested} kits requested, so this listing is short by ${requested - available}`;
       } else {
-        stock = available > 0 ? `${available} available for the selected dates/times` : "none available for the selected dates/times";
+        stock = item.stockAfterProposal
+          ? `${available} additional rental units available after the other proposed items`
+          : available > 0 ? `${available} available for the selected dates/times` : "none available for the selected dates/times";
       }
     } else if (item.available === false) {
       stock = "not available for the selected dates/times";
@@ -123,7 +125,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
     const status = enquiry.complete ? "Full requested quantity covered at the time of checking" : enquiry.requirementsComplete === false ? "Proposal for the listed items only — remaining requirements need clarification" : enquiry.stockVerified ? "Partial proposal — quantities still outstanding" : "Indicative proposal — combined availability unconfirmed";
     const lines = enquiry.requests.flatMap(request => [
       `- Requested: ${request.quantity} × ${request.subject}${request.quantityUnit ? ` (${request.quantityUnit})` : ""}. ${request.fulfilled === null ? "Quantity not yet confirmed." : `${request.fulfilled} covered; ${request.quantity - request.fulfilled} outstanding.`}`,
-      ...request.lines.map(line => `  ${line.quantity} × ${line.title}${line.alternative ? " [PROPOSED ALTERNATIVE — please confirm]" : ""}: ${gbp(line.total)} for the period.`),
+      ...request.lines.map(line => `  ${line.quantity} × ${line.title}${line.providedUnits && line.providedUnits !== line.quantity ? ` [provides ${line.providedUnits} gear units; the quote prices the whole package]` : ""}${line.alternative ? " [PROPOSED ALTERNATIVE — please confirm]" : ""}: ${gbp(line.total)} for the period.`),
     ]);
     sections.push(`Your rental enquiry: ${enquiry.start} to ${enquiry.end}${enquiry.pickupTime && enquiry.returnTime ? `, ${enquiry.pickupTime} pickup / ${enquiry.returnTime} return (London)` : ""}.\n${enquiry.days} billed day${enquiry.days === 1 ? "" : "s"}${enquiry.estimated ? " — EXAMPLE DATES, please provide your actual dates" : !enquiry.timed ? " — date-only estimate; pickup and return times needed" : " — started 24-hour periods"}.\n${status}.\n${lines.join("\n")}${enquiry.total !== null ? `\n${enquiry.complete ? "Gear-hire total" : enquiry.stockVerified ? "Total for the covered items only" : "Indicative gear-hire total"}: ${gbp(enquiry.total)}.` : ""}`);
   }

@@ -39,7 +39,8 @@ setMock("@/lib/ai", { generateBotObject: async ({ prompt }) => {
   return { reply: "Here is the checked proposal.", suggestions: [], humanRequested: false };
 } });
 process.env.OPENROUTER_API_KEY = "isolated-no-provider-calls";
-const { handleChat } = load("src/lib/gaffer.ts"), { formatGafferEmailReply } = load("src/lib/inboundEmail.ts");
+const { handleChat, unitsPerEnquiryOffer } = load("src/lib/gaffer.ts"), { formatGafferEmailReply } = load("src/lib/inboundEmail.ts");
+assert.equal(unitsPerEnquiryOffer({ title: "5x mics", itemType: "wireless-mic", inventoryFacts: { contents: ["1 × DJI Wireless Mics", "2x transmitter", "1x receiver"] } }, "wireless mic kits"), 1, "reviewed contents override inflated marketing-title counts");
 const { rentalEnquiryWindow } = load("src/lib/rentalEnquiryWindow.ts");
 const windowFor = (...texts) => rentalEnquiryWindow(texts.map(content => ({ role: "user", content })), "2026-10-28");
 const actualEmail = "4 complete kits for 20 November 2026, pickup at 10am, returning 23 November 2026 at 10am";
@@ -76,8 +77,13 @@ async function run(quantity = 4, extra = {}, explicitText) {
   assert.equal(lines.filter(x => x.alternative).reduce((sum, x) => sum + x.quantity, 0), 2);
   assert(result.email.includes("PROPOSED ALTERNATIVE"));
   assert(result.email.includes("Gear-hire total: £195.00"));
+  assert(result.email.includes("additional rental units available after the other proposed items"), "shared-pool residual capacity must be labelled as additional stock, not standalone stock");
   assert(result.email.includes("Multi-day rates per unit: 1+ days £24.00/day · 3+ days £20.00/day"));
   assert(facts.includes("EMAIL ENQUIRY EVIDENCE:"));
+  a.title = "RØDE Mic Pro Kit"; duplicate.inventoryFacts.owned = false;
+  result = await run(1, { requests: [{ subject: "Rode Mic Pro", itemType: "wireless-mic", quantity: 1, allowAlternatives: false }] });
+  assert.equal(result.enquiry.requests[0].lines[0].listingId, a._id, "RØDE and Rode must resolve to the same exact model");
+  a.title = "Rode Mic Pro Kit"; duplicate.inventoryFacts.owned = true;
   result = await run(1, { start: "2026-11-20", end: "2026-11-20", pickupTime: undefined, returnTime: undefined }, actualEmail);
   assert.equal(result.enquiry.end, "2026-11-23", "explicit email dates survive a model that drops the end date");
   assert.equal(result.enquiry.days, 3);
@@ -116,6 +122,17 @@ async function run(quantity = 4, extra = {}, explicitText) {
   assert.equal(result.enquiry.complete, false, "an incomplete parse cannot claim the whole enquiry is covered");
   result = await run(1, { start: undefined, end: undefined });
   assert.equal(result.enquiry.days, result.cards[0].item.days, "example-window and item prices must use the same duration basis");
+  const pair = listing("Two Sony FX3 Bodies", camera, 90, 75, "camera-body");
+  pair.components[0].qty = 2; pair.inventoryFacts.contents = ["2 × Sony FX3", "2 × Lexar CFexpress cards"];
+  listings.push(pair);
+  result = await run(1, { requests: [{ subject: "Sony FX3 camera body", itemType: "camera", quantity: 1 }] });
+  assert.equal(result.enquiry.requests[0].lines[0].listingId, cameraListing._id, "one body should prefer a single-body offer over a two-camera package");
+  result = await run(2, { requests: [{ subject: "Sony FX3 camera bodies", itemType: "camera", quantity: 2 }] });
+  assert.equal(result.enquiry.complete, true);
+  assert.equal(result.enquiry.requests[0].lines[0].listingId, pair._id);
+  assert.equal(result.enquiry.requests[0].lines[0].quantity, 1, "one advertised package contains two verified camera bodies");
+  assert.equal(result.enquiry.requests[0].lines[0].providedUnits, 2);
+  assert.equal(result.enquiry.total, 225, "the quote prices one whole package, not two packages");
   for (const itemType of ["lens", "light", "tripod", "gimbal", "monitor", "nd-filter", "battery", "slider", "drone", "accessory", "recorder", "speaker", "dj-deck", "mixer", "headphones", "projector", "boom-mic"]) {
     const equipment = listing(`Zephyr ${itemType}`, unit(`Pool ${itemType}`, 2), 25, 20, itemType);
     listings.push(equipment);
