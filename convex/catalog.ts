@@ -203,7 +203,9 @@ export const searchHomeGear = query({
     const searchText = (specificWords.length ? specificWords : words).join(" ");
     let matching: Doc<"listings">[] = [];
 
-    if (searchText) {
+    // A department-only request should browse its best gear, rather than
+    // require the literal word "Audio" or "Cameras" in every product title.
+    if (searchText && (!categoryName || specificWords.length > 0)) {
       let candidates = await ctx.db
         .query("listings")
         .withSearchIndex("search_title", (q) => {
