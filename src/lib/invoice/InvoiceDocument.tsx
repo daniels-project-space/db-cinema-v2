@@ -1,4 +1,5 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { CONTACT_EMAIL } from "@/lib/site";
 import type { AgreementSnapshot } from "../../../shared/rentalAgreement";
 import type { InspectionInput, InspectionItem } from "../../../shared/returnInspection";
 
@@ -142,7 +143,7 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
         </View>
 
         <Text style={s.footer}>
-          Db Cinema Rentals · dbcinemarentals.com · dbcinemarentals@gmail.com{"\n"}
+          Db Cinema Rentals · dbcinemarentals.com · {CONTACT_EMAIL}{"\n"}
           Thank you for renting with us.
         </Text>
       </Page>
@@ -168,7 +169,7 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
         <View style={s.billRow}>
           <View style={s.col}>
             <Text style={s.label}>Supplier</Text><Text style={s.strong}>DB Cinema Rentals</Text>
-            <Text>dbcinemarentals@gmail.com</Text>
+            <Text>{CONTACT_EMAIL}</Text>
           </View>
           <View style={s.col}>
             <Text style={s.label}>Renter</Text><Text style={s.strong}>{data.customerName || data.customerEmail}</Text>

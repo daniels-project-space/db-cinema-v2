@@ -19,7 +19,7 @@ import { ScrollProgress } from "@/components/ScrollProgress";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { BotBubble } from "@/components/BotBubble";
 import { FormSevenPrewarm } from "@/components/FormSevenPrewarm";
-import { SITE_URL } from "@/lib/site";
+import { CONTACT_EMAIL, SITE_URL } from "@/lib/site";
 
 // Flip NEXT_PUBLIC_SITE_LIVE=true on Vercel at launch → site becomes indexable.
 const LIVE = process.env.NEXT_PUBLIC_SITE_LIVE === "true";
@@ -41,7 +41,7 @@ const orgJsonLd = {
       logo: `${SITE_URL}/db-cinema-logo-512.png`,
       description: "Pro film & cinema gear rental, delivered across London.",
       areaServed: "London, United Kingdom",
-      email: "dbcinemarentals@gmail.com",
+      email: CONTACT_EMAIL,
       sameAs: ["https://hygglo.com/uk/users/dbcinemarentals"],
     },
     {

@@ -6,9 +6,9 @@ export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://dbcinemaren
 export const SITE_NAME = "Db Cinema Rentals";
 export const AREA = "London, United Kingdom";
 
-/** The public contact address. Convex keeps its own copy (it can't import from
- * src/) — see OWNER_EMAIL there; change both, or neither. */
-export const CONTACT_EMAIL = "dbcinemarentals@gmail.com";
+/** Public customer contact address. Convex OWNER_EMAIL is an internal
+ * notification destination and is intentionally separate. */
+export const CONTACT_EMAIL = "bookings@dbcinemarentals.com";
 
 /** Pickup/return/delivery windows. Slots are derived from the windows. */
 export const HOURS_WINDOWS: readonly { opens: string; closes: string }[] = [
