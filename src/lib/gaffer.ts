@@ -241,8 +241,8 @@ async function availabilityForContext(c:ConvexHttpClient,listingId:any,start:str
   const existing = cache.get(key);
   if (existing) return existing;
   const request={listingId,start:dayMs(start),end:dayMs(end),pickupTime:ctx.pickupTime,returnTime:ctx.returnTime};
-  const pending = ctx.cartStock?.length
-    ? c.query(api.availability.forTimeSlots,{...request,items:ctx.cartStock})
+  const pending = ctx.cartStock?.length || (!ctx.availabilityReady && ctx.checkDateOnlyAvailability === true && !ctx.estimated)
+    ? c.query(api.availability.forTimeSlots,{...request,items:ctx.cartStock ?? []})
     : c.query(api.availability.forListing,request);
   cache.set(key, pending);
   try {
@@ -434,7 +434,7 @@ async function buildCard(
   let availableUnits: number | null = null;
   // only check availability against REAL dates — a placeholder/estimated window must
   // not surface a misleading "not free" on gear the customer hasn't actually scheduled.
-  if (checkAvail && ctx.availabilityReady) {
+  if (checkAvail && (ctx.availabilityReady || ctx.checkDateOnlyAvailability === true && !ctx.estimated)) {
     const av: any = await availabilityForContext(c,l._id,start,end,ctx);
     if (Number.isSafeInteger(av?.available) && av.available >= 0) {
       availableUnits = av.available;
@@ -708,6 +708,8 @@ type Ctx = {
   pickupTime?: string;
   returnTime?: string;
   availabilityReady?: boolean;
+  /** Only a structured rental quote may check a date-only basket and suggest pickup/return times. */
+  checkDateOnlyAvailability?: boolean;
   cartWindow?: { start: string; end: string; pickupTime: string; returnTime: string };
   cartEvidence?: RecommendationItem[];
   compatibilityKits?: RecommendationItem[];
@@ -898,7 +900,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestTe
   ctx.returnTime = intent.returnTime || savedWindow?.returnTime;
   ctx.availabilityReady = !ctx.basketDatesMissing && !estimated && !!ctx.pickupTime && !!ctx.returnTime && PICKUP_SLOTS.includes(ctx.pickupTime) && PICKUP_SLOTS.includes(ctx.returnTime) && (start !== end || ctx.returnTime > ctx.pickupTime);
   ctx.requestedMicKitCount = requestedMicKitCount(requestText);
-  if (channel === "email" && intent.requests?.length && ["availability", "alternative", "price", "recommend", "build_kit"].includes(intent.intent)) {
+  if ((channel === "email" || channel === "chat") && intent.requests?.length && ["availability", "alternative", "price", "recommend", "build_kit"].includes(intent.intent)) {
     return planEmailEnquiry(intent, ctx);
   }
   const facts: string[] = [];
@@ -1265,11 +1267,12 @@ export function unitsPerEnquiryOffer(listing: any, subject: string, alternative 
  */
 export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx: Ctx): Promise<ExecResult> {
   const { c, start, end } = ctx;
-  const planning: Ctx = { ...ctx, cartStock: [...(ctx.cartStock ?? [])], availabilityCache: new Map() };
+  const planning: Ctx = { ...ctx, cartStock: [...(ctx.cartStock ?? [])], availabilityCache: new Map(), checkDateOnlyAvailability: true };
   const cards: any[] = [];
   const facts: string[] = [];
   const catalogue = new Map<string, Promise<any[]>>();
   const timed = !!ctx.availabilityReady;
+  const dated = !ctx.estimated;
   const days = quoteDays(start, end, timed ? ctx.pickupTime : undefined, timed ? ctx.returnTime : undefined);
   const enquiry: GafferEmailQuote = {
     start, end, pickupTime: ctx.pickupTime, returnTime: ctx.returnTime, days,
@@ -1292,7 +1295,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
     return card;
   };
   for (const request of (intent.requests ?? []).slice(0, 8)) {
-    const line: GafferEmailQuote["requests"][number] = { subject: request.subject, quantity: request.quantity, fulfilled: timed ? 0 : null, lines: [] };
+    const line: GafferEmailQuote["requests"][number] = { subject: request.subject, quantity: request.quantity, fulfilled: dated ? 0 : null, lines: [] };
     enquiry.requests.push(line);
     if (!catalogue.has(request.itemType)) catalogue.set(request.itemType, candidatesForType(c, request.itemType));
     const candidates = await catalogue.get(request.itemType)!;
@@ -1321,10 +1324,11 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
       if (!remaining || cards.length >= 32 || planning.cartStock!.length >= 100) return;
       const card = await addCard(listing, alternative ? `Alternative to ${request.subject}; confirm the substitution` : `Requested ${request.subject}`);
       let stock: any = null;
-      if (timed) {
+      if (dated) {
         try { stock = await availabilityForContext(c, listing._id, start, end, planning); }
         catch { stockUncertain = true; return; } // A stock outage is uncertainty, never a promise or a zero-stock denial.
       }
+      if (dated && (!Number.isSafeInteger(stock?.available) || stock.available < 0)) { stockUncertain = true; return; }
       if (card.item.availableUnits === null && Number.isSafeInteger(stock?.available) && stock.available >= 0) {
         card.item.availableUnits = stock.available;
         card.item.available = stock.available > 0;
@@ -1337,12 +1341,12 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
       const offersNeeded = fittingOffers || 1;
       if (!fittingOffers) alternative = true;
       const count = Number.isSafeInteger(stock?.available) ? Math.min(offersNeeded, Math.max(0, stock.available)) : 0;
-      if (timed && !count) return;
-      const quantity = timed ? count : offersNeeded;
+      if (dated && !count) return;
+      const quantity = dated ? count : offersNeeded;
       const covered = Math.min(remaining, quantity * providedPerOffer);
       line.lines.push({ listingId: String(listing._id), title: listing.title, slug: listing.slug, quantity, providedUnits: quantity * providedPerOffer, perDay: card.item.perDay, total: card.item.total * quantity, alternative });
       remaining -= covered;
-      if (timed) {
+      if (dated) {
         line.fulfilled = (line.fulfilled ?? 0) + covered;
         planning.cartStock!.push({ listingId: listing._id, qty: quantity, start: dayMs(start), end: dayMs(end), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime });
       }
@@ -1368,29 +1372,75 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
         if (remaining && availabilityCheck.unknown) stockUncertain = true;
       } catch { stockUncertain = true; }
     }
-    if (stockUncertain && remaining) line.fulfilled = null;
+    if (stockUncertain && remaining) { line.fulfilled = null; line.availabilityIssue = "stock_check_failed"; }
     if (!exact.length) facts.push(`NO VERIFIED RENTABLE EXACT MATCH for "${request.subject}". Returned substitutes are different products, not the requested model. Do not deny the whole category.`);
   }
-  const proposed = enquiry.requests.flatMap(x => x.lines);
-  if (timed && !proposed.length && enquiry.requests.length && enquiry.requests.every(request => request.fulfilled === 0)) enquiry.stockVerified = true;
-  if (timed && proposed.length) {
+  const hasProposals = enquiry.requests.some(request => request.lines.length > 0);
+  if (dated && !hasProposals && enquiry.requests.length && enquiry.requests.every(request => request.fulfilled === 0)) enquiry.stockVerified = true;
+  if (dated && hasProposals) {
     try {
-      const stock: any = await c.query(api.availability.forCart, { items: planning.cartStock! });
-      enquiry.stockVerified = planning.cartStock!.every(x => stock[String(x.listingId)]?.ok === true);
-    } catch { enquiry.stockVerified = false; }
-    if (!enquiry.stockVerified) {
-      // An intervening booking or failed stock read cannot become an assurance.
-      for (const request of enquiry.requests) request.fulfilled = null;
+      if (timed) {
+        const stock: any = await c.query(api.availability.forCart, { items: planning.cartStock! });
+        const statuses = planning.cartStock!.map(x => stock[String(x.listingId)]?.ok);
+        const completeResult = statuses.length > 0 && statuses.every(value => typeof value === "boolean");
+        enquiry.stockVerified = completeResult && statuses.every(value => value === true);
+        if (!enquiry.stockVerified) {
+          enquiry.availabilityIssue = completeResult ? "combined_stock_changed" : "stock_check_failed";
+          if (completeResult) {
+            for (const request of enquiry.requests) {
+              const confirmed = request.lines.filter(line => stock[line.listingId]?.ok === true);
+              if (confirmed.length !== request.lines.length) {
+                request.lines = confirmed;
+                request.fulfilled = confirmed.reduce((sum, line) => sum + (line.providedUnits ?? line.quantity), 0);
+                request.availabilityIssue = "combined_stock_changed";
+              }
+            }
+          } else {
+            for (const request of enquiry.requests) if (request.lines.length) { request.fulfilled = null; request.availabilityIssue = "stock_check_failed"; }
+          }
+          for (const card of cards) if (stock[String(card.item.listingId)]?.ok !== true) { card.item.available = null; card.item.availableUnits = null; }
+          facts.push("The final combined stock check found that the proposed quantities no longer fit together for these exact times. Only lines that passed that final check are confirmed; the remaining quantity needs another date or time check.");
+        }
+      } else {
+        const stock: any = await c.query(api.availability.forCheckoutTimeSlots, { items: planning.cartStock! });
+        const pairs = Array.isArray(stock?.validPairs) ? stock.validPairs : [];
+        enquiry.stockVerified = pairs.length > 0;
+        if (pairs.length) {
+          const window = [...pairs].sort((a, b) => a.pickupTime.localeCompare(b.pickupTime) || b.returnTime.localeCompare(a.returnTime))[0];
+          enquiry.availabilityWindow = { pickupTime: window.pickupTime, returnTime: window.returnTime, suggested: true };
+          const suggestedDays = quoteDays(start, end, window.pickupTime, window.returnTime);
+          enquiry.days = suggestedDays;
+          for (const request of enquiry.requests) for (const line of request.lines) {
+            const item = cards.find(card => String(card.item.listingId) === line.listingId)?.item;
+            if (!item?.pricing) continue;
+            const priced = quote(item.pricing, suggestedDays);
+            line.perDay = priced.perDay;
+            line.total = Math.round(priced.total * line.quantity * 100) / 100;
+            Object.assign(item, { days: suggestedDays, perDay: priced.perDay, total: priced.total, rateTier: priced.tier.label, saved: priced.saved, savedPct: priced.savedPct, rateLadder: priced.ladder });
+          }
+          facts.push(`The full proposed basket fits the suggested pickup/return window on these dates: ${window.pickupTime} pickup and ${window.returnTime} return in London.`);
+        } else {
+          enquiry.availabilityIssue = "no_common_window";
+          for (const request of enquiry.requests) if (request.lines.length) { request.fulfilled = null; request.availabilityIssue = "no_common_window"; }
+          for (const card of cards) { card.item.available = null; card.item.availableUnits = null; }
+          facts.push("The requested items do not share one available pickup/return window on these dates. Do not describe the whole quantity as available; ask for another time window or different dates.");
+        }
+      }
+    } catch {
+      enquiry.stockVerified = false;
+      enquiry.availabilityIssue = "stock_check_failed";
+      for (const request of enquiry.requests) if (request.lines.length) { request.fulfilled = null; request.availabilityIssue = "stock_check_failed"; }
       for (const card of cards) { card.item.available = null; card.item.availableUnits = null; }
-      facts.push("THE COMBINED STOCK CHECK DID NOT PASS. All proposed quantities are unconfirmed. Ask the customer to review the current basket before promising any quantity.");
+      facts.push("The final live stock check could not be completed, so no proposed quantity is confirmed. Say that the stock check failed and offer to recheck; do not say the items are unavailable.");
     }
   }
   enquiry.complete = enquiry.stockVerified && intent.requirementsComplete !== false && enquiry.requests.every(x => x.fulfilled === x.quantity);
-  if (proposed.length && (!timed || enquiry.stockVerified)) enquiry.total = proposed.reduce((sum, x) => sum + x.total, 0);
-  facts.push(`EMAIL ENQUIRY EVIDENCE: ${JSON.stringify(enquiry)}. This is a read-only quote, not a hold or booking. State exactly what is covered and any shortfall. Each alternative is a proposed substitution requiring the customer's agreement. Never count individual transmitters as complete mic kits, or add independently available quantities across overlapping listings.`);
+  const proposed = enquiry.requests.flatMap(x => x.lines);
+  if (proposed.length && (!dated || enquiry.stockVerified)) enquiry.total = proposed.reduce((sum, x) => sum + x.total, 0);
+  facts.push(`RENTAL ENQUIRY EVIDENCE: ${JSON.stringify(enquiry)}. This is a read-only quote, not a hold or booking. State the exact confirmed count and shortfall. If availabilityIssue is present, explain that specific issue in one clear sentence. Each alternative is a proposed substitution requiring the customer's agreement. Never count individual transmitters as complete mic kits, or add independently available quantities across overlapping listings.`);
   if (intent.requirementsComplete === false) facts.push("INCOMPLETE ENQUIRY PARSE: additional or ambiguous requirements remain. Do not claim the whole enquiry is fulfilled. Ask the customer to clarify the remaining items; the proposal covers only the listed requirements.");
   facts.push("PRICING: quote totals and rates exactly from the evidence. For supplied times, started 24-hour London rental periods apply. Date-only totals are provisional until times are supplied. Each listing's applicable multi-day tier is already reflected in its period total. The applicable tier is already included: do not apply another multi-day discount. Gear hire excludes separately quoted delivery and security payments; never invent their amounts or a membership entitlement for an unverified email sender.");
-  return { cards, facts, enquiry, askDates: ctx.estimated, askTimes: !ctx.estimated && !timed };
+  return { cards, facts, enquiry, askDates: ctx.estimated, askTimes: !ctx.estimated && !timed && !enquiry.availabilityWindow };
 }
 
 /** Read-only structured quote for phone tools. Uses the same allocation and
@@ -1484,7 +1534,7 @@ ${convo}
 Write a concise, natural reply, plus 2-3 useful suggestion chips in the customer's voice.`,
   });
   return {
-    reply: channel === "email" && result.enquiry ? [gafferEmailQuoteIntro(result.enquiry), object.additionalAnswer?.trim()].filter(Boolean).join("\n\n") : object.reply?.trim() || "How can I help with your shoot?",
+    reply: result.enquiry ? [gafferEmailQuoteIntro(result.enquiry), object.additionalAnswer?.trim()].filter(Boolean).join("\n\n") : object.reply?.trim() || "How can I help with your shoot?",
     suggestions: (object.suggestions || []).filter((s) => s && s.length <= 56).slice(0, 3),
     humanRequested: channel === "email" && object.humanRequested === true,
   };

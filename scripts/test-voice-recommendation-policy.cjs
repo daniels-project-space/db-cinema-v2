@@ -78,6 +78,12 @@ const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts');
      const used=(args.items??[]).reduce((sum,item)=>{const listing=quoteListings.find(row=>row._id===item.listingId);return sum+(listing?.components??[]).filter(component=>component.inventoryUnitId===pool).reduce((n,component)=>n+component.qty*(item.qty??1),0)},0);
      return{available:Math.max(0,(pool==='body'?2:1)-used)};
    }
+   if(name==='availability.forCheckoutTimeSlots'){
+     const totals=new Map();
+     for(const item of args.items){const listing=quoteListings.find(row=>row._id===item.listingId);for(const component of listing?.components??[])totals.set(component.inventoryUnitId,(totals.get(component.inventoryUnitId)??0)+component.qty*(item.qty??1));}
+     const fits=[...totals].every(([pool,qty])=>qty<=(pool==='body'?2:1));
+     return{validPairs:fits?[{pickupTime:'10:00',returnTime:'18:00'}]:[]};
+   }
    if(name==='availability.forCart')return Object.fromEntries(args.items.map(item=>[item.listingId,{ok:true,available:1,demanded:item.qty}]));
    throw Error(name);
  }}});
@@ -89,7 +95,10 @@ const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts');
  const webhook=async(args,name='check_availability')=>(await voice.POST({url:'https://fixture.invalid/api/voice',headers:new Headers({'x-voice-secret':process.env.VOICE_WEBHOOK_SECRET}),json:async()=>({name,args})})).json();
  const before=stockCalls.length;
  let spoken=await webhook({item:'FX3',start:'2026-11-20',end:'2026-11-21'});
- assert.equal(spoken.needs,'times');assert.equal(stockCalls.length,before);
+ assert.equal(spoken.enquiry.complete,true,'a date-only phone query checks exact quantity against a compatible time window');
+ assert.equal(spoken.enquiry.availabilityWindow.suggested,true);
+ assert.match(spoken.result,/suggested 10:00 pickup and 18:00 return/);
+ assert.equal(stockCalls.length,before,"date-only stock uses the shared time-window availability query");
  spoken=await webhook({item:'FX3',start:'2026-11-20',end:'2026-11-21',pickup_time:'10:00',return_time:'17:00'});
  assert.equal(spoken.enquiry.complete,true);assert.equal(spoken.enquiry.days,2);assert.equal(spoken.enquiry.total,94);assert(!/security|deposit|card hold/i.test(spoken.result),'a rental quote must not include refundable money');
  assert.equal(stockCalls.at(-1).pickupTime,'10:00');assert.equal(stockCalls.at(-1).returnTime,'17:00');
@@ -118,7 +127,7 @@ const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts');
  failedPool='mic-pool';
  spoken=await webhook({...window,requests:[{subject:'FX3',quantity:1},{subject:'Rode Wireless Mic Pro set',quantity:1}]},'get_price');
  assert.equal(spoken.enquiry.stockVerified,true,'the successfully checked items remain verified');
- assert.match(spoken.result,/1 of 1 FX3/);assert.match(spoken.result,/still needs a stock check/);assert(!/0 of 1/.test(spoken.result));
+ assert.match(spoken.result,/I can confirm 1 of 1 FX3/);assert.match(spoken.result,/live stock check failed for Rode Wireless Mic Pro set/);assert.match(spoken.result,/Gear hire for the confirmed items is £47/);assert.match(spoken.result,/recheck Rode Wireless Mic Pro set stock/);assert(!/0 of 1/.test(spoken.result));
  failedPool=null;providerFailure=true;
  spoken=await webhook({item:'FX3',start:'2026-11-20',end:'2026-11-21',pickup_time:'10:00',return_time:'17:00'});
  assert.equal(spoken.needs,'availability');assert(!spoken.result.includes('already booked'));

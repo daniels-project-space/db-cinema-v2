@@ -27,7 +27,7 @@ setMock("convex/browser", { ConvexHttpClient: class {
     if (name.startsWith("availability.")) {
       stockReads++;
       if (stockFailure) throw Error("Transient stock outage");
-      if (name === "availability.forCart" && finalRace) rode.quantityOwned = 0;
+      if (["availability.forCart", "availability.forCheckoutTimeSlots"].includes(name) && finalRace) rode.quantityOwned = 0;
       return availability[name.slice("availability.".length)].handler(ctx, args);
     }
     throw Error(`Unexpected query ${name}`);
@@ -76,12 +76,12 @@ assert.equal(windowFor(overnightEmail).end, "2026-11-21", "day-rate wording cann
 assert.equal(windowFor(overnightEmail).pickupTime, "17:00");
 assert.equal(windowFor(overnightEmail).returnTime, "09:00");
 assert.equal(windowFor("20-21 November 2026 or 24-26 November 2026").ambiguous, true);
-async function run(quantity = 4, extra = {}, explicitText) {
+async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   rode.quantityOwned = 2; djiOne.quantityOwned = 1; djiTwo.quantityOwned = 1; stockReads = 0;
   intent = { intent: "availability", subject: "Rode Mic Pro", itemTypes: ["wireless-mic"], cameraModel: "", pricePref: "any", start: "2030-11-20", end: "2030-11-23", pickupTime: "10:00", returnTime: "10:00", requests: [{ subject: "Rode Mic Pro", itemType: "wireless-mic", quantity }], ...extra };
   const period = intent.start ? `From ${intent.start}${intent.end ? ` to ${intent.end}` : ""}.` : "";
   const clocks = `${intent.pickupTime ? ` Pickup at ${intent.pickupTime}.` : ""}${intent.returnTime ? ` Return at ${intent.returnTime}.` : ""}`;
-  const result = await handleChat({ messages: [{ role: "user", content: explicitText ?? `${quantity} mic kits please, alternatives welcome. ${period}${clocks}` }], channel: "email" });
+  const result = await handleChat({ messages: [{ role: "user", content: explicitText ?? `${quantity} mic kits please, alternatives welcome. ${period}${clocks}` }], channel });
   return { ...result, email: formatGafferEmailReply(result.reply, result.cards, result.enquiry) };
 }
 (async () => {
@@ -93,13 +93,13 @@ async function run(quantity = 4, extra = {}, explicitText) {
   assert.equal(lines.find(x => x.listingId === a._id).quantity, 2);
   assert(!lines.some(x => x.listingId === duplicate._id), "another account's advert cannot duplicate the physical Rode pool");
   assert.equal(lines.filter(x => x.alternative).reduce((sum, x) => sum + x.quantity, 0), 2);
-  assert(result.email.includes("suggested alternative"));
-  assert(result.email.includes("Gear-hire total: £195.00"));
+  assert(result.email.includes("alternative to Rode Mic Pro; please confirm"));
+  assert(result.email.includes("Gear hire total: £195.00"));
   assert.equal((result.email.match(/Rode Mic Pro Kit/g) || []).length, 1, "the proposed item must appear once, not repeat as an equipment-options section");
   assert(!result.email.includes("Multi-day rates per unit"), "do not append an irrelevant full rate ladder to every quote");
   assert(result.email.endsWith("DB Cinema Rentals team"));
   assert(result.email.includes("[Rode Mic Pro Kit](https://dbcinemarentals.com/gear/"), "equipment links should have readable labels");
-  assert(facts.includes("EMAIL ENQUIRY EVIDENCE:"));
+  assert(facts.includes("RENTAL ENQUIRY EVIDENCE:"));
   a.title = "RØDE Mic Pro Kit"; duplicate.inventoryFacts.owned = false;
   result = await run(1, { requests: [{ subject: "Rode Mic Pro", itemType: "wireless-mic", quantity: 1, allowAlternatives: false }] });
   assert.equal(result.enquiry.requests[0].lines[0].listingId, a._id, "RØDE and Rode must resolve to the same exact model");
@@ -112,17 +112,29 @@ async function run(quantity = 4, extra = {}, explicitText) {
   assert.equal(result.enquiry.complete, false);
   assert.equal(result.enquiry.requests[0].fulfilled, 4);
   assert.equal(result.enquiry.total, 195);
-  assert(result.email.includes("4 covered; 1 outstanding"));
-  assert(result.email.includes("Total for the covered items only: £195.00"));
+  assert(result.email.includes("4 of 5 requested Rode Mic Pro"));
+  assert(result.email.includes("Gear hire for the confirmed items: £195.00"));
   result = await run(1, { start: "2030-11-20", end: "2030-11-21", pickupTime: "17:00", returnTime: "09:00" });
   assert.equal(result.enquiry.days, 1, "overnight rentals under 24h use one daily charge");
   assert.equal(result.enquiry.total, 24);
-  result = await run(2, { pickupTime: undefined, returnTime: undefined });
+  result = await run(2, { pickupTime: undefined, returnTime: undefined }, "Please quote 2 mic kits from 20 November 2030 to 23 November 2030.");
   assert.equal(result.enquiry.timed, false);
-  assert.equal(result.enquiry.requests[0].fulfilled, null);
-  assert.equal(stockReads, 0, "missing times cannot trigger a confident stock claim");
-  assert(result.email.includes("date-only estimate"));
-  assert(result.reply.includes("provisional"), "an unverified quantity must never get an LLM assurance in the email lead");
+  assert.equal(result.enquiry.requests[0].fulfilled, 2);
+  assert.equal(result.enquiry.stockVerified, true, "a date-only request checks for one common available pickup/return window");
+  assert.equal(result.enquiry.complete, true);
+  assert(result.enquiry.availabilityWindow?.suggested);
+  assert(stockReads > 0, "a real date must trigger live availability checks even when times are omitted");
+  assert(result.email.includes("suggested"));
+  assert(result.reply.includes("suggested"), "the chat and phone quote intro states the concrete stock window");
+  result = await run(1, {
+    start: "2030-11-20", end: "2030-11-20", pickupTime: undefined, returnTime: undefined,
+    requests: [{ subject: "Sony FX3 camera body", itemType: "camera", quantity: 1 }],
+  }, "Please quote one Sony FX3 camera body for 20 November 2030.");
+  assert.equal(result.enquiry.requests[0].fulfilled, 1, "a date-only FX3 request checks the full body quantity");
+  assert.equal(result.enquiry.requests[0].lines[0].listingId, cameraListing._id, "date-only quotes keep a body-only request on the exact FX3 body");
+  assert.equal(result.enquiry.complete, true);
+  assert(result.email.includes("1 of 1 requested Sony FX3 camera body"));
+  assert(!result.email.includes("Sony FX3 with lens and DJI RS3 Pro Gimbal"));
   result = await run(2, { requests: [{ subject: "Sony FX3", itemType: "camera", quantity: 2 }, { subject: "DJI Mic 1", itemType: "wireless-mic", quantity: 2 }] });
   assert.equal(result.enquiry.requests.length, 2, "all distinct requirements survive into the proposal");
   assert.equal(result.enquiry.complete, true);
@@ -174,19 +186,43 @@ async function run(quantity = 4, extra = {}, explicitText) {
     assert.equal(result.enquiry.complete, true, `${itemType} quantities must use the same physical-stock checks`);
     assert.equal(result.enquiry.total, 120, `${itemType} must use the actual 3-day rate`);
   }
+  result = await run(4, { requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }] });
+  assert.equal(result.enquiry.complete, true, "all four distinct owned microphone kits must satisfy a generic four-kit request");
+  assert.equal(result.enquiry.requests[0].fulfilled, 4);
+  assert.equal(result.enquiry.total, 195, "the complete mixed-brand basket uses each listing's actual three-day rate");
+  assert(result.email.includes("I can confirm 4 of 4 requested wireless microphone kits"));
+  assert(result.enquiry.requests[0].lines.some(line => line.title === "DJI Mic 1 Set"));
+  assert(result.enquiry.requests[0].lines.some(line => line.title === "DJI Mic 2 Set"));
+  result = await run(4, { pickupTime: undefined, returnTime: undefined, requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }] }, "Please quote four wireless microphone kits for 20 November 2030.", "chat");
+  assert.equal(result.enquiry.complete, true, "Gaffer chat quotes must also verify date-only quantities against one shared time window");
+  assert.equal(result.enquiry.availabilityWindow.suggested, true);
+  assert(result.reply.includes(`suggested ${result.enquiry.availabilityWindow.pickupTime} pickup and ${result.enquiry.availabilityWindow.returnTime} return`));
   finalRace = true;
   result = await run();
   assert.equal(result.enquiry.stockVerified, false, "the final combined snapshot catches a booking arriving during planning");
   assert.equal(result.enquiry.total, null);
-  assert.equal(result.enquiry.requests[0].fulfilled, null);
-  assert(result.cards.every(x => x.item.available !== true));
+  assert.equal(result.enquiry.requests[0].fulfilled, 2, "the final check keeps the two alternative kits that still pass");
+  assert(result.enquiry.requests[0].lines.every(x => x.listingId !== a._id), "the raced-out Rode set is removed from the confirmed proposal");
+  assert(result.cards.some(x => x.item.listingId === a._id && x.item.available === null));
+  assert(result.email.includes("final basket check"));
+  assert(result.email.includes("2 of 4 requested Rode Mic Pro"), "the final check's exact surviving quantity must be stated");
   assert(!result.email.includes("Full requested quantity covered"));
   finalRace = false; stockFailure = true;
   result = await run(1);
   assert.equal(result.enquiry.complete, false, "stock outages must still produce an honest email reply");
   assert.equal(result.enquiry.total, null);
   assert(result.cards.every(x => x.item.available === null));
-  assert(result.email.includes("Availability is unconfirmed"));
-  assert(result.email.includes("£60.00 per unit for 3 rental days"), "a failed stock read must not distort the known period price");
+  assert(result.email.includes("live stock check"));
+  const mixedReply = formatGafferEmailReply("", [], {
+    start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00", estimated: false, timed: true,
+    days: 1, stockVerified: true, requirementsComplete: true, complete: false, total: 47,
+    requests: [
+      { subject: "FX3", quantity: 1, fulfilled: 1, lines: [{ listingId: "camera", title: "Sony FX3 Body", slug: "sony-fx3-body", quantity: 1, total: 47 }] },
+      { subject: "Rode Wireless Mic Pro set", quantity: 1, fulfilled: null, availabilityIssue: "stock_check_failed", lines: [] },
+    ],
+  });
+  assert(mixedReply.includes("I can confirm 1 of 1 requested FX3"), "email must preserve the verified camera quantity");
+  assert(mixedReply.includes("live stock check failed for Rode Wireless Mic Pro"), "email must name the item whose stock check failed");
+  assert(mixedReply.includes("Gear hire for the confirmed items: £47"), "partial verified quotes must price only confirmed gear");
   console.log("PASS Gaffer email quotes: real shared-stock handlers, mixed-model quantities, cross-account duplicate pools, partial fulfillment, exact 24h pricing and rate ladders, date-only uncertainty, multiple item types, final stock race. No live messages or reservations.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
