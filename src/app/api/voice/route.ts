@@ -124,8 +124,6 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     const subject = request.subject;
     if (/\b(?:with|and|plus)\b.{0,60}\b(?:lens|gimbal|microphone|mic|monitor|tripod)\b/i.test(subject))
       return say("Please list each specific item you need so I can quote the complete kit.", { needs: "configuration" });
-    // Classify the request itself. A broad catalogue search can rank unrelated
-    // products first; its top result must never redefine what the caller asked for.
     const itemType = deriveItemType(normalizeEquipmentName(subject));
     const listingUnits = input.quantityIsListingUnits !== undefined ? input.quantityIsListingUnits === true
       : !(quantity > 1 && itemType === "wireless-mic" && !/\b(?:kits?|sets?|systems?)\b/i.test(raw));
@@ -140,30 +138,83 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   const pickupTime = String(args.pickupTime ?? args.pickup_time ?? "") || undefined;
   const returnTime = String(args.returnTime ?? args.return_time ?? "") || undefined;
   if (startDate && !args.end && (availabilityOnly || pickupTime || returnTime || Number(args.days) > 1))
-    return say("What is your return date and time? I need that to quote the full rental period.", { needs: "dates" });
-  if (availabilityOnly && !startDate) return say("What are your pickup and return dates and times?", { needs: "dates" });
+    return say("What return date should I check with that pickup date?", { needs: "dates" });
+  if (availabilityOnly && !startDate) return say("What pickup and return dates should I check?", { needs: "dates" });
   if (endDate && startDate && (endDate < startDate || startDate === endDate && pickupTime && returnTime && returnTime <= pickupTime))
     return say("Return must be after pickup. Please confirm the dates and times.", { needs: "times" });
   const timed = !!startDate && !!pickupTime && !!returnTime && PICKUP_SLOTS.includes(pickupTime) && PICKUP_SLOTS.includes(returnTime);
-  if (availabilityOnly && !timed) return say("Choose pickup and return times before I can confirm availability.", { needs: "times" });
   const first = requests[0];
   const result = await quoteRentalEnquiry({ ...first, requests, requirementsComplete: args.requirementsComplete !== false,
     start: startDate, end: endDate, pickupTime, returnTime, days: args.days === undefined ? undefined : Number(args.days) });
   const enquiry = result.enquiry;
   if (!enquiry) throw Error("Rental quote is unavailable");
   const lines = enquiry.requests.flatMap(request => request.lines);
+  const requestedItems = enquiry.requests.map(request => request.quantity + " × " + request.subject).join("; ");
+  const requestResults = enquiry.requests.map(request => request.fulfilled === null
+    ? "no quantity confirmed for " + request.quantity + " requested " + request.subject
+    : request.fulfilled + " of " + request.quantity + " " + request.subject + " confirmed").join("; ");
   const hasAlternatives = lines.some(line => line.alternative);
-  const names = lines.map(line => `${line.quantity} × ${equipmentOfferLabel(line.title)}${line.alternative ? " (alternative; please confirm)" : ""}`);
-  const items = lines.map(line => ({ title: line.title, daily: line.perDay }));
-  if (!lines.length) return say(enquiry.stockVerified ? "I couldn't find an available match for those times. Would alternatives or different dates work?" : "I couldn't confirm availability yet. Let me check the stock before making a recommendation.", { needs: "availability", enquiry, items });
-  const period = `${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}`;
-  const quantities = enquiry.requests.map(request => request.fulfilled === null ? `${request.subject} still needs a stock check` : `${request.fulfilled} of ${request.quantity} ${request.subject}`).join("; ");
-  const status = enquiry.complete ? hasAlternatives ? "The quantities can be covered with the proposed alternatives. " : "The requested quantities are available for those times. " : enquiry.stockVerified ? `For these times, I can offer ${quantities}. ` : "This is a provisional quote; availability is unconfirmed. ";
-  const price = enquiry.total !== null ? `${money(enquiry.total)} for ${period}${enquiry.complete ? "" : enquiry.stockVerified ? " for the covered items only" : " (estimate)"}. ` : "The combined price still needs checking. ";
-  const selectedIds = new Set(lines.map(line => line.listingId));
-  const packing = result.cards.some(card => selectedIds.has(String(card.item?.listingId)) && card.item?.inventoryReviewRequired) ? "Some packing details need confirmation. " : "";
-  const next = enquiry.estimated ? "What pickup and return dates and times would you like?" : !enquiry.timed ? "What times would you like to collect and return it?" : enquiry.complete ? hasAlternatives ? "Would those substitutions work for you? This does not reserve the gear." : "This quote does not reserve the gear." : enquiry.stockVerified && enquiry.requests.every(request => request.fulfilled !== null) ? "Would other dates or another option work for the remainder?" : "I need to check the remaining availability before confirming.";
-  return say(`${status}${names.join("; ")}. Gear rental: ${price}${packing}${next}`, { enquiry, items, start: enquiry.start, end: enquiry.end, days: enquiry.days });
+  const requestIssues = enquiry.requests.filter(request => request.availabilityIssue);
+  const confirmedRequests = enquiry.requests.filter(request => request.fulfilled !== null &&
+    (!request.availabilityIssue || request.availabilityIssue === "combined_stock_changed"));
+  const confirmedQuantities = confirmedRequests.map(request => request.fulfilled + " of " + request.quantity + " " + request.subject).join("; ");
+  const issueDetails = requestIssues.map(request => request.availabilityIssue === "combined_stock_changed"
+    ? "The final basket check couldn't fit the remaining requested quantity of " + request.subject
+    : request.availabilityIssue === "no_common_window"
+      ? "No shared pickup/return window fits " + request.subject
+      : "The live stock check failed for " + request.subject + " (" + request.quantity + " requested)").join(". ") + ".";
+  const names = lines.map(line => line.quantity + " × " + equipmentOfferLabel(line.title) + (line.alternative ? " (alternative; please confirm)" : ""));
+  if (!lines.length) {
+    const message = requestIssues.length
+      ? (confirmedQuantities ? "I can confirm " + confirmedQuantities + ". " : "") + issueDetails
+      : enquiry.availabilityIssue === "stock_check_failed"
+      ? "The live stock check did not return a result for " + requestedItems + "; " + requestResults + "."
+      : enquiry.stockVerified
+        ? "I checked the listings for those dates and couldn't find a matching item available."
+        : "I could not verify availability for " + requestedItems + "; " + requestResults + ".";
+    return say(message + " Would another date or a suitable alternative work?", { needs: "availability", enquiry, items: [] });
+  }
+  const period = enquiry.days + " rental day" + (enquiry.days === 1 ? "" : "s");
+  const quantities = enquiry.requests.map(request => request.fulfilled === null
+    ? request.quantity + " " + request.subject + " awaiting a stock check"
+    : request.fulfilled + " of " + request.quantity + " " + request.subject).join("; ");
+  let status: string;
+  if (requestIssues.length) {
+    status = (confirmedQuantities ? "I can confirm " + confirmedQuantities + ". " : "") + issueDetails + " ";
+  } else if (enquiry.availabilityIssue === "no_common_window") {
+    status = "These items don't share one pickup and return window on those dates. ";
+  } else if (enquiry.availabilityIssue === "combined_stock_changed") {
+    status = "The final stock check couldn't fit the full basket at those times. ";
+  } else if (enquiry.availabilityIssue === "stock_check_failed") {
+    status = "The live stock check did not return a result for " + requestedItems + "; " + requestResults + ". ";
+  } else if (enquiry.complete && enquiry.availabilityWindow) {
+    status = "I can confirm " + quantities + " for a suggested " + enquiry.availabilityWindow.pickupTime + " pickup and " + enquiry.availabilityWindow.returnTime + " return (London). ";
+  } else if (enquiry.complete && hasAlternatives) {
+    status = "I can cover the full quantity with the listed alternatives. ";
+  } else if (enquiry.complete) {
+    status = "I can confirm " + quantities + " for those dates and times. ";
+  } else if (enquiry.stockVerified) {
+    status = "For this window, I can supply " + quantities + ". ";
+  } else if (!timed) {
+    status = "I need pickup and return times to check " + requestedItems + ". No quantity is confirmed yet. ";
+  } else {
+    status = "I could not verify " + requestedItems + " for those dates and times; " + requestResults + ". ";
+  }
+  const price = enquiry.total !== null
+    ? (enquiry.complete ? "Gear hire total is " : "Gear hire for the confirmed items is ") + money(enquiry.total) + " for " + period + ". "
+    : "I can't give a gear hire total until the quantities for " + requestedItems + " are confirmed. ";
+  let next: string;
+  const stockToRecheck = requestIssues.filter(request => request.availabilityIssue === "stock_check_failed").map(request => request.subject).join(", ");
+  if (stockToRecheck) next = "I can recheck " + stockToRecheck + " stock before you decide." + (enquiry.availabilityWindow ? " Would the suggested times work for the confirmed items?" : "");
+  else if (enquiry.availabilityWindow) next = "Would those suggested times work? This quote doesn't reserve the gear.";
+  else if (enquiry.complete && hasAlternatives) next = "Would those substitutions work? The quote doesn't reserve the gear.";
+  else if (enquiry.complete) next = "This quote doesn't reserve the gear.";
+  else if (enquiry.availabilityIssue === "stock_check_failed") next = "I can recheck the stock when you're ready.";
+  else if (enquiry.stockVerified) next = "Would another date or a listed option work for the remainder?";
+  else if (requestIssues.length) next = "Would another pickup/return window work for the remaining quantity?";
+  else if (!timed) next = "What pickup and return times suit you?";
+  else next = "Would another date or a listed option work?";
+  return say(status + names.join("; ") + ". " + price + next, { enquiry, items: lines.map(line => ({ title: line.title, daily: line.perDay })), start: enquiry.start, end: enquiry.end, days: enquiry.days });
 }
 
 export async function POST(req: NextRequest) {
