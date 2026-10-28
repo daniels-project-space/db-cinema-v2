@@ -15,6 +15,12 @@ for(const [title,type] of [
  ['NEBULA projector remote control','accessory'],['Anker NEBULA projector carry case','accessory'],
  ['JBL PartyBox speaker with projector','speaker'],['Anker power station for NEBULA projector','battery'],
 ])assert.equal(deriveItemType(title),type,title);
+for(const [title,type] of [
+ ['DJI mic 2 audio microphone recorder wireless receiver transmitter system + 2x','wireless-mic'],
+ ['DJI Mic wireless recorder with two transmitters','wireless-mic'],
+ ['Zoom H5 field recorder + DJI mic wireless kit','recorder'],
+ ['DJI Mic 2 charging case','accessory'],
+])assert.equal(deriveItemType(title),type,title);
 assert.deepEqual(COMPLEMENTS.projector,['speaker'],'Do not infer a compatible power bank or camera battery');
 for(const [title,includesLens] of [
  ['Blackmagic PYXIS 6K Basic Camera Kit',false],
