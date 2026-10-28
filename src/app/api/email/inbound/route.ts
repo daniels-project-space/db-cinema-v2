@@ -146,7 +146,7 @@ async function processGafferInboundEmail(message: InboundEmail) {
     if (humanRequested) {
       await client.mutation(api.emailInbox.markHumanRequested, { secret, inboundId: stored.inboundId });
     }
-    let replyText = formatGafferEmailReply(assistant.reply, assistant.cards, assistant.enquiry);
+    let preparedBasketUrl: string | undefined;
     const quote = assistant.enquiry;
     if (quote?.complete && quote.stockVerified && quote.timed && quote.start && quote.end) {
       const lines = quote.requests.flatMap(request => request.lines.flatMap(line =>
@@ -154,9 +154,10 @@ async function processGafferInboundEmail(message: InboundEmail) {
       if (lines.length && lines.length <= 100) {
         const shareKey = createHmac("sha256", secret).update(`email-cart:${stored.inboundId}`).digest("base64url");
         await client.mutation(api.emailInbox.prepareQuotedCart, { secret, inboundId: stored.inboundId, shareKey, lines });
-        replyText += `\n\nReview your prepared rental basket and continue booking: https://dbcinemarentals.com/cart/quote/${shareKey}\nThis private link lasts seven days. Prices and stock are rechecked before payment; nothing is reserved yet.`;
+        preparedBasketUrl = `https://dbcinemarentals.com/cart/quote/${shareKey}`;
       }
     }
+    const replyText = formatGafferEmailReply(assistant.reply, assistant.cards, assistant.enquiry, preparedBasketUrl);
     const delivered: any = await client.action(api.emailInbox.sendAssistantReply, {
       secret,
       threadId: stored.threadId,

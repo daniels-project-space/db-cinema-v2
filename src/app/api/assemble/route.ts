@@ -11,7 +11,8 @@ import { coverageCompat, battOk, isRigPower } from "@/lib/compat";
 import { PICKUP_SLOTS } from "@/lib/site";
 import { rateLimit } from "@/lib/ratelimit";
 import { compareOptions, isCameraSet } from "@/lib/kitRank";
-import { automaticRecommendation, documentedIncludedTypes, includedLensFocals, rentableCandidate, type RecommendationItem } from "../../../../shared/recommendationPolicy";
+import { automaticRecommendation, documentedIncludedTypes, includedLensFocals, rentableCandidate, unrequestedCameraExtras, type RecommendationItem } from "../../../../shared/recommendationPolicy";
+import { normalizeEquipmentName, equipmentModelTokens, equipmentModelsMatch } from "../../../../shared/equipmentIdentity";
 
 export const maxDuration = 60;
 
@@ -178,14 +179,16 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
 function pickRecommended(options: any[], hint?: string) {
   if (options.length === 0) return null;
   if (hint) {
-    const tokens = hint.toLowerCase().match(/[a-z0-9.\-]{3,}/g) || [];
+    const tokens = normalizeEquipmentName(hint).match(/[a-z0-9.\-]{2,}/g) || [];
     let best: any = null, bestScore = 0;
-    for (const o of options) {
-      const t = o.title.toLowerCase();
+    for (const o of [...options].sort((a, b) => unrequestedCameraExtras(a, hint) - unrequestedCameraExtras(b, hint))) {
+      if (!equipmentModelsMatch(hint, o.title)) continue;
+      const t = normalizeEquipmentName(o.title);
       const score = tokens.reduce((n, k) => n + (t.includes(k) ? 1 : 0), 0);
-      if (score > bestScore) { bestScore = score; best = o; }
+      if (score > 0 && (!best || unrequestedCameraExtras(o, hint) < unrequestedCameraExtras(best, hint) || unrequestedCameraExtras(o, hint) === unrequestedCameraExtras(best, hint) && score > bestScore)) { bestScore = score; best = o; }
     }
     if (best && bestScore > 0) return best.listingId;
+    if (equipmentModelTokens(hint).length) return null;
   }
   return options[0].listingId; // prefer-sorted / cheapest
 }
@@ -219,7 +222,8 @@ export async function POST(req: NextRequest) {
     design = null;
   }
 
-  let keys: string[] = design?.stages?.length ? design.stages.map((s: any) => s.key) : FALLBACK[(b.shootType || "default").toLowerCase()] || FALLBACK.default;
+  const cameraOnly = /\b(?:camera|body)\s+only\b|\bonly\s+(?:a\s+)?(?:camera|body)\b/i.test(b.note || "");
+  let keys: string[] = cameraOnly ? ["camera"] : design?.stages?.length ? design.stages.map((s: any) => s.key) : FALLBACK[(b.shootType || "default").toLowerCase()] || FALLBACK.default;
   keys = keys.filter((k) => STAGE[k]);
   keys = Array.from(new Set(keys));
   const oi = (k: string) => (ORDER.indexOf(k) === -1 ? 99 : ORDER.indexOf(k));
@@ -233,7 +237,7 @@ export async function POST(req: NextRequest) {
   };
   const wanted = new Set<string>();
   for (const cat of (b.categories || []) as string[]) for (const k of CAT_MAP[cat] || []) if (STAGE[k]) wanted.add(k);
-  if (wanted.size) {
+  if (wanted.size && !cameraOnly) {
     for (const k of wanted) if (!keys.includes(k)) keys.push(k);
     const pri = (k: string) => (k === "camera" ? 0 : k === "lens" ? 1 : wanted.has(k) ? 2 : 3);
     keys.sort((a, z) => pri(a) - pri(z) || oi(a) - oi(z));
@@ -252,6 +256,8 @@ export async function POST(req: NextRequest) {
   let includedFocal: string | null = null;
   const selected: RecommendationItem[] = [];
   const includedTypes = new Set<string>(); // contents of every recommended item, including lens/rig kits
+  const requestedCamera = equipmentModelTokens(b.note || "").filter(model => /^(?:fx|fs|a7|bmpcc|pxw|gh|eos|c\d|r\d|z\d)/.test(model)).join(" ");
+  let cameraChoiceMissing = false;
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
     const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small, selected, pickupTime, returnTime, compatibilityKits });
@@ -259,9 +265,10 @@ export async function POST(req: NextRequest) {
     // ONE recommended id per stage — camera uses the LLM hint / top body; everything else leads
     // with the top COMPATIBLE option. (Camera's recCam below must match this so the note agrees.)
     const recId: string = k === "camera"
-      ? (pickRecommended(options, meta?.recommend) ?? options[0].listingId)
-      : (options.find((o: any) => o.compat !== "incompatible" && o.automaticEligible)?.listingId ?? "");
-    if (k === "camera") {
+      ? (requestedCamera ? pickRecommended(options, requestedCamera) ?? "" : pickRecommended(options, meta?.recommend) ?? options[0].listingId)
+      : cameraChoiceMissing ? "" : (options.find((o: any) => o.compat !== "incompatible" && o.automaticEligible)?.listingId ?? "");
+    if (k === "camera" && requestedCamera && !recId) cameraChoiceMissing = true;
+    if (k === "camera" && recId) {
       const recCam = options.find((o: any) => o.listingId === recId) ?? options[0];
       camMounts = parseMounts(recCam?.mount);
       camCoverage = recCam?.specs?.coverage ?? null;
@@ -278,6 +285,8 @@ export async function POST(req: NextRequest) {
     // Model prose cannot attest contents or describe the engine's actual pick.
     // Keep equipment claims grounded in the selected catalogue records.
     let note = "Compare the available options for your selected dates and times.";
+    if (k === "camera" && requestedCamera && !recId)
+      note = "The requested camera model is not available in these options. Choose an alternative before building the rest of your kit.";
     if (includedInKit)
       note = `An earlier kit choice already includes this equipment. Only add another if you need a spare.`;
     if (k === "lens") {

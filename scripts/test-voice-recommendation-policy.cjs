@@ -28,6 +28,13 @@ setMock('@/components/account/useCreditBalance',{useCreditBalance:()=>undefined}
 setMock('@/components/gaffer/GafferFocus',{useGafferFocus:()=>({focus(){},suggest:async()=>false,suggestedIds:[],focusedId:null}),scrollToId:async()=>false});
 const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts');
 (async()=>{
+ const bodyOnly=listing({slug:'body-only',title:'Sony FX 3 Body Kit with Cage',itemType:'camera-body',category:'Cameras',pricing:{daily:47}});
+ const otherModel=listing({slug:'fx30',title:'Sony FX30 Body',itemType:'camera-body',category:'Cameras'});
+ const comparison=listing({slug:'a7-compare',title:'Sony A7 III (like Sony FX3)',itemType:'camera-body',category:'Cameras'});
+ const search=load('convex/voiceCatalog.ts').search;
+ const searched=await search.handler({db},{q:'Sony FX 3',limit:8});
+ assert.equal(searched.matches[0].id,bodyOnly._id,'spaced model finds the body before a lens package');
+ assert(!searched.matches.some(item=>[otherModel._id,comparison._id].includes(item.id)),'FX30 and comparison advertising cannot pass an FX3 identity check');
  let tools=useGafferTools();
  const unconfirmed=await tools.clientTools.find_gear({item:'FX3',start:'2026-11-20',end:'2026-11-21'});
  assert.match(unconfirmed,/choose pickup and return dates and times/);assert(!unconfirmed.includes('1 free'));assert.equal(stockCalls.length,0);

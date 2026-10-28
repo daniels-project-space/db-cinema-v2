@@ -109,7 +109,7 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  }}});
  process.env.OPENROUTER_API_KEY='isolated-fixture-no-provider-call';
  const assemble=load('src/app/api/assemble/route.ts');
- async function assembleKit(){return (await assemble.POST({json:async()=>({...window,size:'Small crew'})})).json();}
+ async function assembleKit(extra={}){return (await assemble.POST({json:async()=>({...window,size:'Small crew',...extra})})).json();}
  let incomplete=await assemble.POST({json:async()=>({start:window.start,end:window.end})});
  assert.equal(incomplete.status,400,'availability must not be claimed before times are provided');
  let assembled=await assembleKit();
@@ -117,6 +117,12 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  assert.equal(lensStage.recommendedId,wide._id,'model hint must not override documented bundled glass');
  assert.equal(lensStage.options.find(o=>o.listingId===lens._id).automaticEligible,false);
  selectedCamera=body;
+ assembled=await assembleKit({note:'I need an FX 30 camera'});
+ assert.equal(assembled.stages.find(s=>s.key==='camera').recommendedId,'','a missing explicitly requested model must not silently become the model hint');
+ assert.equal(assembled.stages.find(s=>s.key==='lens').recommendedId,'','dependent gear waits for the customer to choose an alternative camera');
+ assembled=await assembleKit({note:'FX 3 body only please'});
+ assert.equal(assembled.stages.find(s=>s.key==='camera').recommendedId,body._id,'explicit spaced model overrides the model-generated camera hint');
+ assert.deepEqual(assembled.stages.map(stage=>stage.key),['camera'],'camera-only notes cannot get unrequested lens or gimbal stages');
  assembled=await assembleKit();
  assert(assembled.stages.find(s=>s.key==='lens').recommendedId,'body without lens can get a native lens recommendation');
  assert(!assembled.reply.includes('Unverified'),'model prose cannot claim contents the selected kit does not have');

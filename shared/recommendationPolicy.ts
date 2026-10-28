@@ -79,6 +79,24 @@ export function documentedIncludedTypes(item: RecommendationItem): string[] {
   return [...new Set(types)];
 }
 
+/** Keep a body request focused; included power, media and cages remain welcome.
+ * This ranks configurations, never certifies stock or compatibility.
+ */
+export function unrequestedCameraExtras(item: RecommendationItem, request: string): number {
+  if (!/^camera(?:-body)?$/.test(item.itemType ?? "")) return 0;
+  const text = item.title ?? "";
+  const included = new Set(documentedIncludedTypes(item));
+  const extras: [string, RegExp][] = [
+    ["lens", /\blens(?:es)?\b|\b\d+\s*[-–]\s*\d+\s*mm\b/i],
+    ["gimbal", /\bgimbal\b|\brs\s*[234]\b/i],
+    ["tripod", /\btripod\b/i],
+    ["monitor", /\bmonitor\b/i],
+    ["wireless-mic", /\bmic(?:rophone)?s?\b|\baudio\b/i],
+  ];
+  return extras.filter(([type, pattern]) => !pattern.test(request) &&
+    (included.has(type) || pattern.test(text) || type === "lens" && item.specs?.includesLens === true)).length;
+}
+
 export type LensFit = "native" | "adapter" | "unknown" | "incompatible" | "crop";
 export function lensFit(candidate: RecommendationItem, selected: RecommendationItem[]): LensFit {
   const cameras = selected.filter(i => i.itemType === "camera-body");

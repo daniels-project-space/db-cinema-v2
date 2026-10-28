@@ -31,13 +31,13 @@ export type GafferEmailQuote = {
 
 /** The email lead is evidence, not an LLM availability assurance. */
 export function gafferEmailQuoteIntro(quote: GafferEmailQuote): string {
-  if (quote.estimated) return "Here are catalogue options and example prices. What are your pickup and return dates and times? I need those before confirming quantities or a final period quote.";
-  if (!quote.timed) return "I’ve listed a provisional gear quote for your dates. What are your pickup and return times? Those determine the billed duration and let me check the required quantities.";
-  if (!quote.requirementsComplete) return "The proposal below covers the listed requirements only. Some of your enquiry still needs clarification; please confirm the remaining items before treating this as a complete kit.";
-  if (!quote.stockVerified) return "I couldn’t verify a complete combined-stock proposal for your period. The options below show the checked stock or any unconfirmed availability; please review the quantities still outstanding.";
-  if (!quote.complete) return "The live stock check can cover part of your enquiry. The proposal below lists the covered quantities and what is still outstanding. Would you like to adjust the items or the dates?";
+  if (quote.estimated) return "Here are some options with example prices. What dates and times would you like to collect and return the gear?";
+  if (!quote.timed) return "Here’s a provisional quote for your dates. What times would you like to collect and return the gear? I’ll need those to confirm availability and the final price.";
+  if (!quote.requirementsComplete) return "Here’s a quote for the items I could identify. Could you clarify the remaining requirements?";
+  if (!quote.stockVerified) return "I couldn’t confirm availability for the whole request. The details below show what still needs checking.";
+  if (!quote.complete) return "Some of the requested gear is available, but there’s a shortfall shown below. Would different dates or an alternative work for you?";
   const alternatives = quote.requests.some(request => request.lines.some(line => line.alternative));
   return alternatives
-    ? "The live stock check can cover all listed quantities with the proposed alternatives below. Please confirm those substitutions before booking; this quote does not reserve the gear."
-    : "The live stock check can cover all listed quantities for your period. Your item totals and multi-day rates are below. Would you like to proceed to booking? This quote does not reserve the gear.";
+    ? "We can cover your quantities using the alternatives below. Would those substitutions work for you?"
+    : "The requested gear is available for your times. Here’s your rental quote.";
 }
