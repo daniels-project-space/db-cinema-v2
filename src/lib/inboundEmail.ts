@@ -67,7 +67,8 @@ export function isHumanHandoffRequested(subject: string, body: string): boolean 
 }
 
 /** Preserve Gaffer's exact catalogue cards in email, where there is no separate card UI. */
-export function formatGafferEmailReply(reply: string, cards: unknown): string {
+export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: import("../../shared/gafferEmailQuote").GafferEmailQuote): string {
+  const gbp = (value: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
   const rows = Array.isArray(cards) ? cards : [];
   const seen = new Set<string>();
   const options: string[] = [];
@@ -79,7 +80,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown): string {
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const price = Number.isFinite(item.perDay) ? `£${item.perDay}/day` : null;
+    const price = Number.isFinite(item.perDay) ? `${gbp(item.perDay)}/day` : null;
     const requested = item.itemType === "wireless-mic" && Number.isSafeInteger(item.requestedMicKitCount)
       ? item.requestedMicKitCount as number
       : null;
@@ -103,11 +104,32 @@ export function formatGafferEmailReply(reply: string, cards: unknown): string {
     const window = item.start && item.end
       ? ` (${item.start}${item.end === item.start ? "" : ` to ${item.end}`}${item.pickupTime && item.returnTime ? `, ${item.pickupTime} pickup / ${item.returnTime} return` : ""})`
       : "";
-    options.push(`- ${title}${price ? ` — ${price}` : ""} — ${stock}${window}.`);
+    const period = Number.isFinite(item.total) && Number.isSafeInteger(item.days)
+      ? `; ${gbp(item.total)} per unit for ${item.days} billed day${item.days === 1 ? "" : "s"}${item.estimated ? " (example dates)" : !item.quoteTimed ? " (date-only estimate; times needed)" : ""}${Number.isFinite(item.saved) && item.saved > 0 ? `; saves ${gbp(item.saved)} (${item.savedPct}%) versus the daily rate` : ""}`
+      : "";
+    const rates = Array.isArray(item.rateLadder) ? item.rateLadder
+      .filter((tier: any) => Number.isSafeInteger(tier.days) && Number.isFinite(tier.perDay))
+      .map((tier: any) => {
+        const daily = Number(item.pricing?.daily);
+        const discount = daily > tier.perDay ? Math.round((1 - tier.perDay / daily) * 100) : 0;
+        return `${tier.days}+ days ${gbp(tier.perDay)}/day${discount > 0 ? ` (${discount}% below daily)` : ""}`;
+      }).join(" · ") : "";
+    const link = typeof item.slug === "string" && item.slug ? `\n  https://dbcinemarentals.com/gear/${encodeURIComponent(item.slug)}` : "";
+    options.push(`- ${title}${price ? ` — ${price}` : ""}${period} — ${stock}${window}.${link}\n${rates ? `  Multi-day rates per unit: ${rates}.\n` : ""}`.trimEnd());
   }
   const body = String(reply ?? "").trim();
-  if (!options.length) return body;
-  return `${body}${body ? "\n\n" : ""}Equipment options and stock checked by Gaffer:\n${options.join("\n")}`;
+  const sections = [body];
+  if (enquiry) {
+    const status = enquiry.complete ? "Full requested quantity covered at the time of checking" : enquiry.requirementsComplete === false ? "Proposal for the listed items only — remaining requirements need clarification" : enquiry.stockVerified ? "Partial proposal — quantities still outstanding" : "Indicative proposal — combined availability unconfirmed";
+    const lines = enquiry.requests.flatMap(request => [
+      `- Requested: ${request.quantity} × ${request.subject}${request.quantityUnit ? ` (${request.quantityUnit})` : ""}. ${request.fulfilled === null ? "Quantity not yet confirmed." : `${request.fulfilled} covered; ${request.quantity - request.fulfilled} outstanding.`}`,
+      ...request.lines.map(line => `  ${line.quantity} × ${line.title}${line.alternative ? " [PROPOSED ALTERNATIVE — please confirm]" : ""}: ${gbp(line.total)} for the period.`),
+    ]);
+    sections.push(`Your rental enquiry: ${enquiry.start} to ${enquiry.end}${enquiry.pickupTime && enquiry.returnTime ? `, ${enquiry.pickupTime} pickup / ${enquiry.returnTime} return (London)` : ""}.\n${enquiry.days} billed day${enquiry.days === 1 ? "" : "s"}${enquiry.estimated ? " — EXAMPLE DATES, please provide your actual dates" : !enquiry.timed ? " — date-only estimate; pickup and return times needed" : " — started 24-hour periods"}.\n${status}.\n${lines.join("\n")}${enquiry.total !== null ? `\n${enquiry.complete ? "Gear-hire total" : enquiry.stockVerified ? "Total for the covered items only" : "Indicative gear-hire total"}: ${gbp(enquiry.total)}.` : ""}`);
+  }
+  if (options.length) sections.push(`Equipment options and stock checked by Gaffer:\n${options.join("\n\n")}`);
+  if (options.length || enquiry) sections.push("Multi-day rates apply automatically to the entire billed duration once its threshold is reached. Delivery and security payments are separate. This quote does not reserve equipment; availability is checked again at checkout.");
+  return sections.filter(Boolean).join("\n\n");
 }
 
 /** Every place a provider might put the recipient address. */
