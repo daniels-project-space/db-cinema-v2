@@ -149,6 +149,10 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   const enquiry = result.enquiry;
   if (!enquiry) throw Error("Rental quote is unavailable");
   const lines = enquiry.requests.flatMap(request => request.lines);
+  const requestedItems = enquiry.requests.map(request => request.quantity + " × " + request.subject).join("; ");
+  const requestResults = enquiry.requests.map(request => request.fulfilled === null
+    ? "no quantity confirmed for " + request.quantity + " requested " + request.subject
+    : request.fulfilled + " of " + request.quantity + " " + request.subject + " confirmed").join("; ");
   const hasAlternatives = lines.some(line => line.alternative);
   const requestIssues = enquiry.requests.filter(request => request.availabilityIssue);
   const confirmedRequests = enquiry.requests.filter(request => request.fulfilled !== null &&
@@ -164,10 +168,10 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     const message = requestIssues.length
       ? (confirmedQuantities ? "I can confirm " + confirmedQuantities + ". " : "") + issueDetails
       : enquiry.availabilityIssue === "stock_check_failed"
-      ? "The live stock check didn't complete, so I can't confirm a quantity yet."
+      ? "The live stock check did not return a result for " + requestedItems + "; " + requestResults + "."
       : enquiry.stockVerified
         ? "I checked the listings for those dates and couldn't find a matching item available."
-        : "I couldn't verify availability for that request.";
+        : "I could not verify availability for " + requestedItems + "; " + requestResults + ".";
     return say(message + " Would another date or a suitable alternative work?", { needs: "availability", enquiry, items: [] });
   }
   const period = enquiry.days + " rental day" + (enquiry.days === 1 ? "" : "s");
@@ -182,7 +186,7 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   } else if (enquiry.availabilityIssue === "combined_stock_changed") {
     status = "The final stock check couldn't fit the full basket at those times. ";
   } else if (enquiry.availabilityIssue === "stock_check_failed") {
-    status = "The live stock check didn't complete, so the quantities aren't confirmed. ";
+    status = "The live stock check did not return a result for " + requestedItems + "; " + requestResults + ". ";
   } else if (enquiry.complete && enquiry.availabilityWindow) {
     status = "I can confirm " + quantities + " for a suggested " + enquiry.availabilityWindow.pickupTime + " pickup and " + enquiry.availabilityWindow.returnTime + " return (London). ";
   } else if (enquiry.complete && hasAlternatives) {
@@ -192,13 +196,13 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   } else if (enquiry.stockVerified) {
     status = "For this window, I can supply " + quantities + ". ";
   } else if (!timed) {
-    status = "I need pickup and return times to confirm the quantity. ";
+    status = "I need pickup and return times to check " + requestedItems + ". No quantity is confirmed yet. ";
   } else {
-    status = "I couldn't verify the requested quantities for those dates and times. ";
+    status = "I could not verify " + requestedItems + " for those dates and times; " + requestResults + ". ";
   }
   const price = enquiry.total !== null
     ? (enquiry.complete ? "Gear hire total is " : "Gear hire for the confirmed items is ") + money(enquiry.total) + " for " + period + ". "
-    : "I can't total the full basket until the stock check is complete. ";
+    : "I can't give a gear hire total until the quantities for " + requestedItems + " are confirmed. ";
   let next: string;
   const stockToRecheck = requestIssues.filter(request => request.availabilityIssue === "stock_check_failed").map(request => request.subject).join(", ");
   if (stockToRecheck) next = "I can recheck " + stockToRecheck + " stock before you decide." + (enquiry.availabilityWindow ? " Would the suggested times work for the confirmed items?" : "");

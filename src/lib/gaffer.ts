@@ -252,6 +252,16 @@ async function availabilityForContext(c:ConvexHttpClient,listingId:any,start:str
     throw error;
   }
 }
+
+/** Retry a failed stock read once before returning an unverified quote. */
+async function readStockWithRetry<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return await read();
+  }
+}
 const categoryLabel = (t: string) => CATEGORY_PLURAL[TERM[t] || t] || "gear of that kind";
 
 function hasMultipleMics(text: string): boolean {
@@ -1380,7 +1390,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
   if (dated && hasProposals) {
     try {
       if (timed) {
-        const stock: any = await c.query(api.availability.forCart, { items: planning.cartStock! });
+        const stock: any = await readStockWithRetry(() => c.query(api.availability.forCart, { items: planning.cartStock! }));
         const statuses = planning.cartStock!.map(x => stock[String(x.listingId)]?.ok);
         const completeResult = statuses.length > 0 && statuses.every(value => typeof value === "boolean");
         enquiry.stockVerified = completeResult && statuses.every(value => value === true);
@@ -1402,7 +1412,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
           facts.push("The final combined stock check found that the proposed quantities no longer fit together for these exact times. Only lines that passed that final check are confirmed; the remaining quantity needs another date or time check.");
         }
       } else {
-        const stock: any = await c.query(api.availability.forCheckoutTimeSlots, { items: planning.cartStock! });
+        const stock: any = await readStockWithRetry(() => c.query(api.availability.forCheckoutTimeSlots, { items: planning.cartStock! }));
         const pairs = Array.isArray(stock?.validPairs) ? stock.validPairs : [];
         enquiry.stockVerified = pairs.length > 0;
         if (pairs.length) {

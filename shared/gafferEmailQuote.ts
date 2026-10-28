@@ -34,32 +34,47 @@ export type GafferEmailQuote = {
 
 /** The email lead is evidence, not an LLM availability assurance. */
 export function gafferEmailQuoteIntro(quote: GafferEmailQuote): string {
+  const requested = quote.requests.map(request => request.quantity + " × " + request.subject).join("; ") || "the requested items";
   const counts = quote.requests.map(request => request.fulfilled === null
-    ? request.quantity + " " + request.subject
-    : request.fulfilled + " of " + request.quantity + " requested " + request.subject).join("; ");
-  if (quote.estimated) return "I can give you an example price, but need pickup and return dates to check stock.";
+    ? "no quantity confirmed for " + request.quantity + " requested " + request.subject
+    : request.fulfilled + " of " + request.quantity + " requested " + request.subject + " confirmed").join("; ");
+  const issueText = (request: GafferEmailQuote["requests"][number]) => request.availabilityIssue === "combined_stock_changed"
+    ? (request.fulfilled === null
+      ? "the final basket check did not return a confirmed quantity for " + request.quantity + " requested " + request.subject
+      : "the final basket check confirmed " + request.fulfilled + " of " + request.quantity + " requested " + request.subject + "; the remaining " + Math.max(0, request.quantity - request.fulfilled) + " did not fit at those times")
+    : request.availabilityIssue === "no_common_window"
+      ? "no shared pickup/return window could be confirmed for " + request.quantity + " requested " + request.subject
+      : request.availabilityIssue === "stock_check_failed"
+        ? "the live stock check failed for " + request.quantity + " requested " + request.subject + "; no quantity is confirmed"
+        : "availability is not confirmed for " + request.quantity + " requested " + request.subject;
+  if (quote.estimated) return "I need pickup and return dates before I can check availability for " + requested + ".";
   const itemIssues = quote.requests.filter(request => request.availabilityIssue);
   if (itemIssues.length) {
     const confirmed = quote.requests.filter(request => request.fulfilled !== null &&
       (!request.availabilityIssue || request.availabilityIssue === "combined_stock_changed"))
       .map(request => request.fulfilled + " of " + request.quantity + " " + request.subject).join("; ");
-    const failed = itemIssues.map(request => request.availabilityIssue === "combined_stock_changed"
-      ? "The final basket check couldn't fit the remaining requested quantity of " + request.subject
-      : request.availabilityIssue === "no_common_window"
-        ? "No shared pickup/return window fits " + request.subject
-        : "The live stock check failed for " + request.subject + " (" + request.quantity + " requested)").join("; ");
-    return (confirmed ? "I can confirm " + confirmed + ". " : "") + failed + ".";
+    return (confirmed ? "Confirmed: " + confirmed + ". " : "") + itemIssues.map(issueText).join(". ") + ".";
   }
-  if (quote.availabilityIssue === "no_common_window") return "The requested items don't share one pickup and return window on those dates. Send another time window or dates and I'll check the full set.";
-  if (quote.availabilityIssue === "combined_stock_changed") return "The final stock check couldn't fit the whole basket at those times. I've listed only the quantities it confirmed: " + counts + ".";
-  if (quote.availabilityIssue === "stock_check_failed") return "I couldn't complete the final live stock check for the whole basket, so I can't confirm its full quantity.";
+  if (quote.availabilityIssue === "no_common_window") {
+    return "The requested items (" + requested + ") do not share one pickup/return window on those dates. Send a preferred time window and I will check them together.";
+  }
+  if (quote.availabilityIssue === "combined_stock_changed") {
+    return "The final basket check did not confirm the whole set. Item-by-item result: " + counts + ". The remaining quantity did not fit together at those times.";
+  }
+  if (quote.availabilityIssue === "stock_check_failed") {
+    return "The final live stock check did not return a result. Item-by-item result: " + counts + ". I will recheck those exact items before confirming a quote.";
+  }
   if (!quote.stockVerified) {
-    if (!quote.timed && !quote.availabilityWindow) return "I need pickup and return times for these dates before I can confirm the quantity.";
-    return "I couldn't confirm the requested quantities for those dates and times.";
+    if (!quote.timed && !quote.availabilityWindow) return "I need pickup and return times for " + requested + " on these dates before I can confirm availability. No quantity is confirmed yet.";
+    return "I could not verify these requested quantities for the selected dates and times: " + requested + ". Item-by-item result: " + counts + ". I will recheck those exact items.";
   }
-  if (!quote.requirementsComplete) return "I can confirm the items listed, but need the remaining requirements before I can confirm the full request.";
+  if (!quote.requirementsComplete) return "Item-by-item result for the listed items: " + counts + ". I still need the remaining requirements before I can confirm the whole request.";
   const alternatives = quote.requests.some(request => request.lines.some(line => line.alternative));
-  if (!quote.complete) return "I can supply " + counts + " for this window. The remaining quantity is unavailable; would another time or a listed alternative work?";
+  if (!quote.complete) {
+    const shortfalls = quote.requests.filter(request => request.fulfilled !== null && request.fulfilled < request.quantity)
+      .map(request => (request.quantity - (request.fulfilled ?? 0)) + " " + request.subject).join("; ");
+    return "For this window, I can supply " + counts + ". " + (shortfalls ? "Short by " + shortfalls + ". " : "") + "Would another time or a listed alternative work?";
+  }
   if (quote.availabilityWindow) {
     return "I can confirm " + counts + " with a suggested " + quote.availabilityWindow.pickupTime + " pickup and " + quote.availabilityWindow.returnTime + " return (London). Does that window work for you?";
   }

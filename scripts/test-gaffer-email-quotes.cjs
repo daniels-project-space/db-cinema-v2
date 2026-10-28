@@ -17,7 +17,7 @@ const duplicate = listing("Rode Mic Pro Kit alternative account", rode, 24, 20);
 const b = listing("DJI Mic 1 Set", djiOne, 12, 10), c = listing("DJI Mic 2 Set", djiTwo, 18, 15);
 const cameraListing = listing("Sony FX3 Body", camera, 60, 50, "camera-body");
 const listings = [a, duplicate, b, c, cameraListing];
-let intent, finalRace = false, stockFailure = false, stockReads = 0, facts;
+let intent, finalRace = false, stockFailure = false, finalReadFailures = 0, stockReads = 0, facts;
 setMock("convex/browser", { ConvexHttpClient: class {
   async query(name, args) {
     if (name === "catalog.getListingBySlug") return listings.find(x => x.slug === args.slug) ?? null;
@@ -27,6 +27,10 @@ setMock("convex/browser", { ConvexHttpClient: class {
     if (name.startsWith("availability.")) {
       stockReads++;
       if (stockFailure) throw Error("Transient stock outage");
+      if (["availability.forCart", "availability.forCheckoutTimeSlots"].includes(name) && finalReadFailures > 0) {
+        finalReadFailures--;
+        throw Error("Transient final stock outage");
+      }
       if (["availability.forCart", "availability.forCheckoutTimeSlots"].includes(name) && finalRace) rode.quantityOwned = 0;
       return availability[name.slice("availability.".length)].handler(ctx, args);
     }
@@ -39,7 +43,7 @@ setMock("@/lib/ai", { generateBotObject: async ({ prompt }) => {
   return { reply: "Here is the checked proposal.", suggestions: [], humanRequested: false };
 } });
 process.env.OPENROUTER_API_KEY = "isolated-no-provider-calls";
-const { handleChat, unitsPerEnquiryOffer } = load("src/lib/gaffer.ts"), { formatGafferEmailReply } = load("src/lib/inboundEmail.ts");
+const { handleChat, unitsPerEnquiryOffer } = load("src/lib/gaffer.ts"), { formatGafferEmailReply } = load("src/lib/inboundEmail.ts"), { gafferEmailQuoteIntro } = load("shared/gafferEmailQuote.ts");
 assert.equal(unitsPerEnquiryOffer({ title: "5x mics", itemType: "wireless-mic", inventoryFacts: { contents: ["1 × DJI Wireless Mics", "2x transmitter", "1x receiver"] } }, "wireless mic kits"), 1, "reviewed contents override inflated marketing-title counts");
 const mixedLenses = { itemType: "lens", inventoryFacts: { contents: ["1 × Sony 24-70mm lens", "1 × Sony 70-200mm lens", "1 × Sony 35mm lens"] } };
 assert.equal(unitsPerEnquiryOffer(mixedLenses, "lenses"), 3);
@@ -197,6 +201,11 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(result.enquiry.complete, true, "Gaffer chat quotes must also verify date-only quantities against one shared time window");
   assert.equal(result.enquiry.availabilityWindow.suggested, true);
   assert(result.reply.includes(`suggested ${result.enquiry.availabilityWindow.pickupTime} pickup and ${result.enquiry.availabilityWindow.returnTime} return`));
+  finalReadFailures = 1;
+  result = await run(4, { pickupTime: undefined, returnTime: undefined, requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }] }, "Please quote four wireless microphone kits for 20 November 2030.", "chat");
+  assert.equal(finalReadFailures, 0, "one transient failure in the authoritative shared-window check is retried");
+  assert.equal(result.enquiry.complete, true, "a successful retry confirms the exact mixed-brand quantity");
+  assert.equal(result.enquiry.requests[0].fulfilled, 4);
   finalRace = true;
   result = await run();
   assert.equal(result.enquiry.stockVerified, false, "the final combined snapshot catches a booking arriving during planning");
@@ -224,5 +233,17 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(mixedReply.includes("I can confirm 1 of 1 requested FX3"), "email must preserve the verified camera quantity");
   assert(mixedReply.includes("live stock check failed for Rode Wireless Mic Pro"), "email must name the item whose stock check failed");
   assert(mixedReply.includes("Gear hire for the confirmed items: £47"), "partial verified quotes must price only confirmed gear");
-  console.log("PASS Gaffer email quotes: real shared-stock handlers, mixed-model quantities, cross-account duplicate pools, partial fulfillment, exact 24h pricing and rate ladders, date-only uncertainty, multiple item types, final stock race. No live messages or reservations.");
+  const unresolved = gafferEmailQuoteIntro({
+    start: "2030-11-20", end: "2030-11-20", estimated: false, timed: true, stockVerified: false,
+    requirementsComplete: true, complete: false, total: null, availabilityIssue: "stock_check_failed",
+    requests: [
+      { subject: "DJI Mic 1 set", quantity: 1, fulfilled: null, lines: [] },
+      { subject: "Rode Wireless Mic Pro kits", quantity: 2, fulfilled: null, lines: [] },
+    ],
+  });
+  assert(unresolved.includes("1 requested DJI Mic 1 set"), "failed stock responses must name the exact DJI quantity requested");
+  assert(unresolved.includes("2 requested Rode Wireless Mic Pro kits"), "failed stock responses must name every requested item and quantity");
+  assert(unresolved.includes("no quantity confirmed"), "a failed read must not claim the item is unavailable");
+  assert(!unresolved.includes("full quantity"), "the broad full-quantity fallback must be removed");
+  console.log("PASS Gaffer quotes: exact per-item confirmation and shortfalls, mixed-model fulfillment, transient final-read retry, 24-hour pricing and rate ladders, stock failures, final stock race. No live messages or reservations.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
