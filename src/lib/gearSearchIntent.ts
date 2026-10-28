@@ -40,6 +40,7 @@ export function gearSearchIntent(query: string, available: SearchDepartment[]) {
   });
   const categories: string[] = [];
   const terms: string[] = [];
+  let cameraHint = false;
   const add = (name: string) => { if (!categories.includes(name)) categories.push(name); };
   for (const word of words) {
     if (stopWords.has(word)) continue;
@@ -51,10 +52,14 @@ export function gearSearchIntent(query: string, available: SearchDepartment[]) {
     const direct = available.find(item => normalize(item.name) === word);
     if (direct) { add(direct.name); continue; }
     if (/^(?:red|arri|canon|sony|blackmagic|komodo|venice|bmpcc|fx[369]|a7s(?:iii|3))$/.test(word)) {
-      const camera = available.find(item => item.name === "Cameras");
-      if (camera) add(camera.name);
+      cameraHint = true;
     }
     terms.push(word);
+  }
+  // A brand does not turn "Sony lens" or "RED light" into a camera search.
+  if (!categories.length && cameraHint) {
+    const camera = available.find(item => item.name === "Cameras");
+    if (camera) add(camera.name);
   }
   return { categories, search: terms.join(" "), categoryOnly: categories.length > 0 && terms.length === 0 };
 }
