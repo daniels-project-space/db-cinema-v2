@@ -44,9 +44,11 @@ assert.equal(unitsPerEnquiryOffer({ title: "5x mics", itemType: "wireless-mic", 
 const mixedLenses = { itemType: "lens", inventoryFacts: { contents: ["1 × Sony 24-70mm lens", "1 × Sony 70-200mm lens", "1 × Sony 35mm lens"] } };
 assert.equal(unitsPerEnquiryOffer(mixedLenses, "lenses"), 3);
 assert.equal(unitsPerEnquiryOffer(mixedLenses, "Sony 24-70mm"), 1, "different focal lengths cannot count as multiple copies of the requested lens");
+assert.equal(unitsPerEnquiryOffer({ itemType: "lens", inventoryFacts: { contents: ["2 × Sony 24-70mm f/2.8 lens"] } }, "Sony 24-70mm f2.8"), 2, "model boundaries must preserve equivalent aperture notation");
 const { rentalEnquiryWindow } = load("src/lib/rentalEnquiryWindow.ts");
 const windowFor = (...texts) => rentalEnquiryWindow(texts.map(content => ({ role: "user", content })), "2026-10-28");
 const actualEmail = "4 complete kits for 20 November 2026, pickup at 10am, returning 23 November 2026 at 10am";
+const overnightEmail = "Please quote 1 Sony FX3 camera body, pickup 20 November 2026 at 5pm and return 21 November 2026 at 9am. Please use a single-camera offer if available and show the day rate and multi-day rate thresholds.";
 const actualWindow = windowFor(actualEmail);
 assert.equal(actualWindow.start, "2026-11-20"); assert.equal(actualWindow.end, "2026-11-23");
 assert.equal(actualWindow.pickupTime, "10:00"); assert.equal(actualWindow.returnTime, "10:00");
@@ -60,6 +62,10 @@ assert.equal(windowFor("20-23 November, return at 6pm and pickup at 10am").picku
 assert.equal(windowFor("20-23 November, return at 6pm and pickup at 10am").returnTime, "18:00");
 assert.equal(windowFor("for 3 days from 20 November 2026, pickup 10am and return 10am").end, "2026-11-23");
 assert.equal(windowFor("4x DJI Mic 2 kits").start, undefined, "product generation and quantity cannot become dates");
+assert.equal(windowFor(overnightEmail).start, "2026-11-20");
+assert.equal(windowFor(overnightEmail).end, "2026-11-21", "day-rate wording cannot become an extra date");
+assert.equal(windowFor(overnightEmail).pickupTime, "17:00");
+assert.equal(windowFor(overnightEmail).returnTime, "09:00");
 assert.equal(windowFor("20-21 November 2026 or 24-26 November 2026").ambiguous, true);
 async function run(quantity = 4, extra = {}, explicitText) {
   rode.quantityOwned = 2; djiOne.quantityOwned = 1; djiTwo.quantityOwned = 1; stockReads = 0;
@@ -136,6 +142,14 @@ async function run(quantity = 4, extra = {}, explicitText) {
   assert.equal(result.enquiry.requests[0].lines[0].quantity, 1, "one advertised package contains two verified camera bodies");
   assert.equal(result.enquiry.requests[0].lines[0].providedUnits, 2);
   assert.equal(result.enquiry.total, 225, "the quote prices one whole package, not two packages");
+  const fx30 = listing("Sony FX30 Body", unit("FX30 pool", 2), 20, 15, "camera-body");
+  listings.push(fx30);
+  result = await run(1, { requests: [{ subject: "Sony FX3 camera body", itemType: "camera", quantity: 1 }] }, overnightEmail);
+  assert.equal(result.enquiry.days, 1, "the exact production overnight enquiry must bill one day");
+  assert.equal(result.enquiry.requests[0].lines[0].listingId, cameraListing._id, "FX3 cannot exactly match FX30 even when FX30 is cheaper");
+  assert.equal(result.enquiry.total, 60);
+  result = await run(1, { requests: [{ subject: "Sony fx 3 camera body", itemType: "camera", quantity: 1 }] }, overnightEmail);
+  assert.equal(result.enquiry.requests[0].lines[0].listingId, cameraListing._id, "spaced FX 3 names preserve the same model boundary");
   for (const itemType of ["lens", "light", "tripod", "gimbal", "monitor", "nd-filter", "battery", "slider", "drone", "accessory", "recorder", "speaker", "dj-deck", "mixer", "headphones", "projector", "boom-mic"]) {
     const equipment = listing(`Zephyr ${itemType}`, unit(`Pool ${itemType}`, 2), 25, 20, itemType);
     listings.push(equipment);
