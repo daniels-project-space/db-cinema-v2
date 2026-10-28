@@ -1,6 +1,7 @@
 import { REVIEW_PRIZE_GBP } from "../../../../shared/reviewPrize";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
+import { CONTACT_EMAIL } from "@/lib/site";
 import {
   REVIEW_PRIZE_TERMS,
   REVIEW_SOCIAL,
@@ -9,7 +10,7 @@ export default function PrizeTerms() {
   const sections = [
     [
       "Promoter and eligibility",
-      "DB Cinema Rentals, 25 Whitcomb Street, London WC2H 7ER, dbcinemarentals@gmail.com, promotes this skill-based set-story competition. Entrants must be UK residents aged 18 or over with an authenticated account and a genuine completed, returned website rental. Staff, judges and their immediate families cannot enter. No entry fee or additional purchase is required. One entry per rental; the same rental, review or social post cannot be entered in another round.",
+      `DB Cinema Rentals, 25 Whitcomb Street, London WC2H 7ER, ${CONTACT_EMAIL}, promotes this skill-based set-story competition. Entrants must be UK residents aged 18 or over with an authenticated account and a genuine completed, returned website rental. Staff, judges and their immediate families cannot enter. No entry fee or additional purchase is required. One entry per rental; the same rental, review or social post cannot be entered in another round.`,
     ],
     [
       "Refundable security condition",

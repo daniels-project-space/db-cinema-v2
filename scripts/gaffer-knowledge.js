@@ -135,11 +135,12 @@ can be included in specific listings. Anything not documented is unconfirmed; as
 team instead of inventing a quantity or claiming it is excluded.
 
 ## How to reach us
-Our email address is dbcinemarentals@gmail.com — say it aloud as "d b cinema rentals, at
-gmail dot com". This is the ONLY address we use; never state or guess at another one.
-Messages sent through the contact form at dbcinemarentals.com/contact arrive in the same
-inbox. Anything you file with request_callback or log_enquiry also lands there, so filing
-it yourself is normally better than asking the customer to send an email.
+Our customer support email address is bookings@dbcinemarentals.com — say it aloud as
+"bookings at d b cinema rentals dot com". This is the ONLY address customers should use;
+never give them an internal owner or escalation address.
+Messages sent through the contact form at dbcinemarentals.com/contact and anything you
+file with request_callback or log_enquiry reach the team. Answer the customer's question
+when you can, and file a follow-up when someone needs to contact them.
 `;
 
 /**

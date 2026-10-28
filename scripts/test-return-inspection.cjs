@@ -73,7 +73,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  assert.equal(mail.attachments.length,1);
  const fs=require('node:fs'),ts=require('typescript'),renderer=await import('@react-pdf/renderer');
  const source=ts.transpileModule(fs.readFileSync('src/lib/invoice/InvoiceDocument.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const module={exports:{}};new Function('require','module','exports',source)(name=>name==='@react-pdf/renderer'?renderer:require(name),module,module.exports);
+ const module={exports:{}};new Function('require','module','exports',source)(name=>name==='@react-pdf/renderer'?renderer:name==='../site'?load('src/lib/site.ts'):require(name),module,module.exports);
  const React=require('react');const pdf=await renderer.renderToBuffer(React.createElement(module.exports.ReturnStatementDocument,{data:statement}));assert.equal(pdf.subarray(0,5).toString(),'%PDF-','Actual return PDF renders the expanded inspection record');
  console.log('PASS physical item schedule, exact protected photo projection, kit/pack fallback, immutable inspection identity, quantity/extension handling, explicit conditions, zero-deduction issues, frozen retry-safe inspection, account-linked cases, admin resolution and case-aware retention.');
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -73,7 +73,7 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  // Render the actual receipt component and inspect its decoded PDF text separately.
  const renderer=await import('@react-pdf/renderer');
  const jsx=ts.transpileModule(fs.readFileSync('src/lib/invoice/InvoiceDocument.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const m={exports:{}};new Function('require','module','exports',jsx)(n=>n==='@react-pdf/renderer'?renderer:n.endsWith('shared/rentalSecurity')?require('./lib/rentalTestHarness.cjs').load('shared/rentalSecurity.ts'):require(n),m,m.exports);
+ const m={exports:{}};new Function('require','module','exports',jsx)(n=>n==='@react-pdf/renderer'?renderer:n==='../site'?load('src/lib/site.ts'):n.endsWith('shared/rentalSecurity')?require('./lib/rentalTestHarness.cjs').load('shared/rentalSecurity.ts'):require(n),m,m.exports);
  const pdf=await renderer.renderToBuffer(require('react').createElement(m.exports.InvoiceDocument,{data:invoice}));
  fs.writeFileSync('/tmp/dbc-agreement-fixture.pdf',pdf);assert.ok(pdf.length>1000);
  console.log('PASS rental agreements: missing/stale/duplicate/delivery assent, atomic attempt reuse and changed-particular rejection, immutable snapshots/history, release review/verification/hold/manual guards, private durable download, PDF rendering and email copy despite PDF failure.');
