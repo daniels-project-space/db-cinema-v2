@@ -79,9 +79,12 @@ export function HomeGearSearch({ categories, featured }: { categories: Category[
   useEffect(() => { const timer = window.setTimeout(() => setSettledValue(query), 280); return () => window.clearTimeout(timer); }, [query]);
   const category = useMemo(() => inferCategory(settledValue, categories), [settledValue, categories]);
   const result = useQuery(api.catalog.searchHomeGear, settledValue.length >= 2 ? { search: settledValue, category } : "skip");
+  const [retainedResult, setRetainedResult] = useState<typeof result>();
+  useEffect(() => { if (result) setRetainedResult(result); }, [result]);
+  const displayedResult = result ?? retainedResult;
   const searching = query.length > 0;
   const loading = searching && (query !== settledValue || (query.length >= 2 && result === undefined));
-  const listings = (searching ? query.length >= 2 && query === settledValue ? result?.listings ?? [] : [] : featured ?? []) as GearListing[];
+  const listings = (featured ? searching ? query.length >= 2 && query === settledValue ? result?.listings ?? [] : [] : featured : displayedResult?.listings ?? []) as GearListing[];
   const input = <form onSubmit={event => event.preventDefault()} className={styles.inputShell} role="search">
     <IconSearch className="h-5 w-5 shrink-0 text-accent-300" aria-hidden />
     <input type="search" value={value} onChange={event => setValue(event.target.value)} placeholder="Search any item" aria-label={featured ? "Search most booked gear" : "Search rental gear"} aria-controls={id} className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/45" />
@@ -95,7 +98,7 @@ export function HomeGearSearch({ categories, featured }: { categories: Category[
   </div></section>;
   return <div className={styles.root}>
     <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="hud-label text-accent-300">Your next shoot starts here</p><h2 className="mt-2 font-display text-2xl font-semibold text-white">Find it. Pick your time. Make it yours.</h2></div><div className="w-full max-w-[34rem]">{input}</div></div>
-    <div className={styles.reveal} data-open={searching} id={id} aria-busy={loading}><div className={styles.results}>
+    <div className={styles.reveal} data-open={searching} id={id} aria-busy={loading} aria-hidden={!searching} inert={!searching}><div className={styles.results}>
       <div className="pt-6">{status}{browse}<div className="rail flex snap-x gap-4 overflow-x-auto pb-3" aria-label="Gear search results">{listings.map(l => <button key={l._id} type="button" onClick={() => setSelected(l)} className={styles.result} aria-label={`Choose rental times for ${l.title}`}>
         <SmartImage src={l.heroImage} fallbackSources={l.imageSources} alt={l.title} fit="contain" className="h-36 w-full" />
         <span className="mt-4 block line-clamp-2 text-sm font-semibold text-white">{l.title}</span><span className="mt-2 block text-xs text-white/45">{l.category}</span><span className="mt-3 flex items-center justify-between text-sm text-accent-200">{money(l.pricing.daily)}/day <IconArrowRight className="h-4 w-4" /></span>
