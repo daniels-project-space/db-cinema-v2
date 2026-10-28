@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
+import Link from "next/link";
 import { useAccount } from "@/components/account/AccountProvider";
 import { SiteHeader } from "@/components/SiteHeader";
 import { PageHero } from "@/components/PageHero";
@@ -13,7 +14,10 @@ import { AskGaffer } from "@/components/gaffer/AskGaffer";
 
 export default function ContactPage() {
   const submit = useMutation(api.contact.submit);
-  const { me, loading: accountLoading } = useAccount();
+  const { me, signUp, loading: accountLoading } = useAccount();
+  const [creating, setCreating] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirmationSent, setConfirmationSent] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
@@ -57,7 +61,7 @@ export default function ContactPage() {
           eyebrow="Get in touch"
           lead="Contact"
           accent="us"
-          sub="Questions about gear, availability or delivery? Send us a message and we'll get back to you."
+          sub="Questions about gear, availability or delivery? Gaffer can help with live stock, rental quotes and your booking."
         />
 
         <div className="mt-10 grid gap-8 md:grid-cols-[1fr_260px]">
@@ -68,7 +72,21 @@ export default function ContactPage() {
                   <IconCheck className="h-6 w-6" />
                 </span>
                 <p className="mt-4 font-display text-lg font-semibold text-white/90">Message sent</p>
-                <p className="mt-1 text-sm text-white/45">We&apos;ll be in touch shortly.</p>
+                <p className="mt-2 text-sm leading-relaxed text-white/60">Gaffer will read your enquiry and reply to {email} with answers and next steps.</p>
+                {me ? <Link href="/account?conversation=general#chat" className="btn-primary mt-6 py-3">Continue in your Gaffer chat →</Link> : !creating ? <button type="button" className="btn-primary mt-6 py-3" onClick={() => setCreating(true)}>Create your account &amp; follow this enquiry</button> : confirmationSent ? <div className="mt-6 rounded-xl border border-accent-300/20 bg-accent-500/10 p-4 text-sm text-white/75" role="status">Check {email} for your confirmation link. Confirm once to activate your password and open this conversation in your Gaffer chat.</div> : <form className="mt-6 space-y-3 text-left" onSubmit={async event => {
+                  event.preventDefault(); setBusy(true); setErr(null);
+                  try { await signUp(email, password, name, "chat"); setConfirmationSent(true); }
+                  catch { setErr("Couldn’t create the account. If you already have one, sign in below with this email."); }
+                  finally { setBusy(false); }
+                }}>
+                  <p className="text-sm text-white/65">{name} · {email}</p>
+                  <label htmlFor="contact-account-password" className="hud-label block">Choose a password</label>
+                  <input id="contact-account-password" type="password" autoComplete="new-password" minLength={6} required value={password} onChange={event => setPassword(event.target.value)} className="input w-full" />
+                  <button type="submit" className="btn-primary w-full py-3" disabled={busy || password.length < 6}>{busy ? "Creating…" : "Save password & create account"}</button>
+                  <p className="text-xs leading-relaxed text-white/45">Confirm your email to keep your conversation private. Your name and email are already filled in.</p>
+                  <Link className="block text-sm text-accent-300" href="/account?conversation=general#chat">Already have an account? Sign in →</Link>
+                </form>}
+                {err && <p role="alert" className="mt-3 text-sm text-rose-300">{err}</p>}
               </div>
             ) : (
               <div className="flex flex-col gap-3">

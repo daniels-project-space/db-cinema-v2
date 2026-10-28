@@ -214,7 +214,7 @@ export function SiteHeader() {
                   <Link
                     key={n.href}
                     href={n.href}
-                    className={`nav-link transition-colors ${
+                    className={`nav-link px-1 py-2 text-[15px] font-medium transition-colors ${
                       active ? "active text-white" : "text-white/55 hover:text-white"
                     }`}
                   >

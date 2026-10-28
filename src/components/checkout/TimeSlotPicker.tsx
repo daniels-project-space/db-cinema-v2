@@ -72,6 +72,6 @@ export function TimeSlotPicker({ id, label, value, onChange, disabled=false, all
           aria-selected={value === time} aria-disabled={!allowed(time)} style={!allowed(time)?{opacity:0.3,cursor:"not-allowed"}:undefined} className={`${styles.option} ${active === index ? styles.active : ""} ${value === time ? styles.chosen : ""}`}
           onPointerMove={() => {if(allowed(time))setActive(index)}} onMouseDown={event => event.preventDefault()} onClick={() => choose(index)}>{time}</div>)}
       </div>
-    </div>, document.body)}
+    </div>, trigger.current?.closest("dialog") ?? document.body)}
   </div>;
 }

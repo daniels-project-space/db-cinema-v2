@@ -160,8 +160,8 @@ export const sweepExpiredSessions = internalMutation({
 
 // ── public actions ───────────────────────────────────────────────
 export const signUp = action({
-  args: { email: v.string(), password: v.string(), name: v.optional(v.string()) },
-  handler: async (ctx, { email, password, name }): Promise<{ token: string }> => {
+  args: { email: v.string(), password: v.string(), name: v.optional(v.string()), next: v.optional(v.literal("chat")) },
+  handler: async (ctx, { email, password, name, next }): Promise<{ token: string }> => {
     const e = email.trim().toLowerCase();
     if (!validAccountEmail(e) || password.length < 6)
       throw new ConvexError(accountAuthError("SIGNUP_INVALID_INPUT"));
@@ -171,7 +171,7 @@ export const signUp = action({
     const hash = await pbkdf2(password, salt);
     const token = randomHex(24);
     await ctx.runMutation(internal.accounts._create, { email: e, salt, hash, name, token, pendingEmailVerification: true });
-    await ctx.scheduler.runAfter(0,internal.accountAccess.sendForSignup,{email:e,credentialHash:hash});
+    await ctx.scheduler.runAfter(0,internal.accountAccess.sendForSignup,{email:e,credentialHash:hash,next});
     return { token: "" };
   },
 });

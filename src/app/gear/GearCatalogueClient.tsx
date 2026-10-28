@@ -98,7 +98,7 @@ function GearPageInner() {
             it, filtering to a category and finding several matches left the
             customer still looking at the hero/assembly card up top, with the
             actual results a full screen below the fold. */}
-        <div id="gear-toolbar" className="scroll-mt-24 -mx-6 mt-8 border-b border-white/[0.06] bg-[#060608]/95 px-6 py-3">
+        <div id="gear-toolbar" className="scroll-mt-24 -mx-6 mt-8 border-b border-white/[0.06] rounded-2xl border border-white/10 bg-white/[0.035] px-6 py-4 backdrop-blur-xl">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative w-full max-w-md">
               <IconSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
@@ -106,7 +106,7 @@ function GearPageInner() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search gear…"
-                className="input w-full rounded-full !pl-11"
+                className="input w-full rounded-full !border-white/15 !bg-white/[0.04] !pl-11 shadow-inner focus:!border-accent-300/50"
               />
             </div>
             <div className="rail flex gap-2 overflow-x-auto lg:flex-wrap">

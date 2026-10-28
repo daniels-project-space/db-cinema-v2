@@ -981,6 +981,7 @@ export default defineSchema({
     references: v.optional(v.array(v.string())),
     state: v.union(v.literal("received"), v.literal("processing"), v.literal("replied"), v.literal("handoff"), v.literal("failed"), v.literal("sent")),
     leaseUntil: v.optional(v.number()),
+    profileMessageId: v.optional(v.id("messages")),
     replyToProviderId: v.optional(v.string()),
     humanRequested: v.boolean(),
     error: v.optional(v.string()),

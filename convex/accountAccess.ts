@@ -6,10 +6,10 @@ import { internal } from "./_generated/api";
 import { v,ConvexError } from "convex/values";
 import { sendMail } from "./lib/mailer";
 const hash=(secret:string)=>createHash("sha256").update(secret).digest("hex");
-export const sendForSignup=internalAction({args:{email:v.string(),credentialHash:v.string()},handler:async(ctx,a):Promise<void>=>{
- const secret=randomBytes(32).toString("base64url"),claim:any=await ctx.runMutation(internal.accountClaims.prepareSignup,{...a,secretHash:hash(secret)});if(!claim)return;
+export const sendForSignup=internalAction({args:{email:v.string(),credentialHash:v.string(),next:v.optional(v.literal("chat"))},handler:async(ctx,a):Promise<void>=>{
+ const secret=randomBytes(32).toString("base64url"),claim:any=await ctx.runMutation(internal.accountClaims.prepareSignup,{email:a.email,credentialHash:a.credentialHash,secretHash:hash(secret)});if(!claim)return;
  const app=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
- if(!await sendMail({to:claim.email,subject:"Confirm your DB Cinema Rentals account",html:`<h2>Confirm your account</h2><p>You requested a new DB Cinema Rentals account. Confirm your email to activate the password you chose and open your rental workspace.</p><p><a href="${app}/account/access#${secret}">Confirm account creation</a></p><p>This link expires in one hour and works once. If you didn’t create this account, don’t click this link. You can ignore this email.</p>`}))throw Error("Signup confirmation email could not be delivered. Request a sign-in link to recover access.");
+ if(!await sendMail({to:claim.email,subject:"Confirm your DB Cinema Rentals account",html:`<h2>Confirm your account</h2><p>You requested a new DB Cinema Rentals account. Confirm your email to activate the password you chose and open your rental workspace.</p><p><a href="${app}/account/access${a.next === "chat" ? "?next=chat" : ""}#${secret}">Confirm account creation</a></p><p>This link expires in one hour and works once. If you didn’t create this account, don’t click this link. You can ignore this email.</p>`}))throw Error("Signup confirmation email could not be delivered. Request a sign-in link to recover access.");
 }});
 export const sendForRental=internalAction({args:{bookingId:v.id("bookings")},handler:async(ctx,a):Promise<void>=>{
  const secret=randomBytes(32).toString("base64url"),claim:any=await ctx.runMutation(internal.accountClaims.prepare,{...a,secretHash:hash(secret)});if(!claim)return;

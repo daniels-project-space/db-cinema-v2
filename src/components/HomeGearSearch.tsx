@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useId } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { SmartImage } from "@/components/SmartImage";
 import { IconArrowRight, IconSearch } from "@/components/icons";
-import type { GearListing } from "@/components/GearCard";
+import { GearCard, type GearListing } from "@/components/GearCard";
 import { money } from "@/lib/pricing";
 
 type Category = { name: string; count: number };
@@ -37,161 +36,71 @@ function inferCategory(query: string, categories: Category[]) {
   return hint ? categories.find((item) => hint.category.test(item.name))?.name : undefined;
 }
 
-export function HomeGearSearch({ categories }: { categories: Category[] }) {
-  const router = useRouter();
-  const [value, setValue] = useState("");
-  const [focused, setFocused] = useState(false);
-  const [settledValue, setSettledValue] = useState("");
-  const query = value.trim();
-  const settledQuery = settledValue.trim();
 
+import { BookingPanel } from "@/components/booking/BookingPanel";
+import { pickRentalDates } from "@/lib/dateSelection";
+import { IconX } from "@/components/icons";
+import styles from "./HomeGearSearch.module.css";
+
+function QuickBook({ listing, onClose }: { listing: GearListing; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [start, setStart] = useState<string | null>(null);
+  const [end, setEnd] = useState<string | null>(null);
+  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  // Load the authoritative detail so display-only offers retain their request-only behaviour.
+  const full = useQuery(api.catalog.getListingBySlug, { slug: listing.slug });
   useEffect(() => {
-    const timer = window.setTimeout(() => setSettledValue(query), 280);
-    return () => window.clearTimeout(timer);
-  }, [query]);
-
-  const category = useMemo(() => inferCategory(settledQuery, categories), [settledQuery, categories]);
-  const searchResult = useQuery(
-    api.catalog.searchHomeGear,
-    settledQuery.length >= 2 ? { search: settledQuery, category } : "skip",
-  );
-
-  function browseSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!query) return;
-    const target = category
-      ? "/gear?cat=" + encodeURIComponent(category)
-      : "/gear?q=" + encodeURIComponent(query);
-    router.push(target);
-    setFocused(false);
-  }
-
-  const listings = (searchResult?.listings ?? []) as GearListing[];
-  const categoryCount = categories.find((item) => item.name === category)?.count;
-
-  return (
-    <div className="relative w-full max-w-[34rem]">
-      <form
-        onSubmit={browseSearch}
-        className="home-search-shell flex h-14 items-center gap-3 rounded-full border border-white/20 bg-[#0b0b0e]/95 p-1.5 pl-5 shadow-[0_16px_50px_-22px_rgba(0,0,0,.9)]"
-      >
-        <IconSearch className="h-5 w-5 shrink-0 text-accent-300" aria-hidden />
-        <input
-          type="search"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          onFocus={() => setFocused(true)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setFocused(false);
-          }}
-          placeholder="Search any item"
-          aria-label="Search rental gear"
-          aria-expanded={focused}
-          aria-controls="home-gear-search-results"
-          className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/45"
-        />
-        <button
-          type="submit"
-          className="flex h-11 shrink-0 items-center gap-2 rounded-full border border-accent-300/50 bg-accent-500 px-5 text-sm font-semibold text-white shadow-[0_5px_18px_-6px_rgba(214,32,41,.7)] transition-colors hover:bg-accent-400"
-        >
-          Search <IconArrowRight className="h-4 w-4" aria-hidden />
-        </button>
-      </form>
-
-      {focused && (
-        <div
-          id="home-gear-search-results"
-          className="absolute right-0 top-full z-40 mt-3 w-full overflow-hidden rounded-2xl border border-white/12 bg-[#0b0b0e]/98 p-3 shadow-[0_24px_70px_-24px_rgba(0,0,0,.95)]"
-          role="region"
-          aria-label="Gear search suggestions"
-        >
-          {query.length < 2 ? (
-            <div>
-              <p className="px-2 pb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Browse by category</p>
-              <div className="flex flex-wrap gap-2">
-                {categories.slice(0, 6).map((item) => (
-                  <Link
-                    key={item.name}
-                    href={"/gear?cat=" + encodeURIComponent(item.name)}
-                    onClick={() => setFocused(false)}
-                    className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-xs text-white/75 transition-colors hover:border-accent-300/40 hover:bg-white/10 hover:text-white"
-                  >
-                    {item.name} <span className="ml-1 text-white/35">{item.count}</span>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          ) : query !== settledQuery || searchResult === undefined ? (
-            <p className="px-2 py-3 text-sm text-white/55" aria-live="polite">Finding the best matches in the live catalogue…</p>
-          ) : listings.length ? (
-            <div>
-              <div className="mb-2 flex items-center justify-between gap-3 px-2">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-accent-300">
-                  {searchResult.mode === "category"
-                    ? "No exact hit · top picks in " + searchResult.category
-                    : "Best matches" + (searchResult.category ? " · " + searchResult.category : "")}
-                </p>
-                {category && categoryCount ? (
-                  <Link
-                    href={"/gear?cat=" + encodeURIComponent(category)}
-                    onClick={() => setFocused(false)}
-                    className="shrink-0 text-[11px] text-white/50 transition-colors hover:text-white"
-                  >
-                    All {category} ({categoryCount})
-                  </Link>
-                ) : null}
-              </div>
-              <div className="max-h-[55vh] overflow-y-auto">
-                {listings.map((listing) => (
-                  <Link
-                    key={listing._id}
-                    href={"/gear/" + listing.slug}
-                    onClick={() => setFocused(false)}
-                    className="group flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-white/[0.07]"
-                  >
-                    <span className="relative h-14 w-16 shrink-0 overflow-hidden rounded-lg bg-white/[0.05]">
-                      {listing.heroImage ? (
-                        <SmartImage
-                          fit="contain"
-                          src={listing.heroImage}
-                          fallbackSources={listing.imageSources}
-                          alt={listing.title}
-                          className="h-full w-full"
-                        />
-                      ) : (
-                        <span className="flex h-full items-center justify-center text-accent-300"><IconSearch className="h-5 w-5" /></span>
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-white/90 group-hover:text-white">{listing.title}</span>
-                      <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.1em] text-white/40">
-                        {listing.category} <span className="mx-1.5 text-white/20">·</span> {money(listing.pricing.daily)}/day
-                      </span>
-                    </span>
-                    <IconArrowRight className="h-4 w-4 shrink-0 text-white/30 transition-transform group-hover:translate-x-0.5 group-hover:text-accent-300" aria-hidden />
-                  </Link>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="px-2 py-2">
-              <p className="text-sm text-white/65">No exact match for “{settledQuery}”. Try one of these categories:</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {(category ? categories.filter((item) => item.name !== category) : categories).slice(0, 5).map((item) => (
-                  <Link
-                    key={item.name}
-                    href={"/gear?cat=" + encodeURIComponent(item.name)}
-                    onClick={() => setFocused(false)}
-                    className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-xs text-white/75 transition-colors hover:border-accent-300/40 hover:bg-white/10 hover:text-white"
-                  >
-                    {item.name} <span className="ml-1 text-white/35">{item.count}</span>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+    const el = dialog.current!;
+    const previous = document.activeElement as HTMLElement | null;
+    el.showModal();
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { el.close(); document.body.style.overflow = overflow; previous?.focus(); };
+  }, []);
+  return <dialog ref={dialog} onCancel={onClose} className={styles.dialog} onClick={event => { if (event.target === event.currentTarget) onClose(); }} aria-labelledby="quick-book-title">
+    <div className="p-5 sm:p-7">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div><p className="hud-label text-accent-300">Choose your rental</p><h2 id="quick-book-title" className="mt-2 font-display text-xl font-semibold text-white">{listing.title}</h2></div>
+        <button type="button" onClick={onClose} aria-label="Close rental selection" className="rounded-full bg-white/10 p-3 text-white"><IconX className="h-4 w-4" /></button>
+      </div>
+      <p className="mb-4 text-sm text-white/55">Pick dates and both times. Available gear is added to your kit automatically.</p>
+      {full ? <BookingPanel listing={full} start={start} end={end} month={month} onMonthChange={setMonth} unavailable={new Set()} autoAdd onAdded={onClose} onPick={day => { const next = pickRentalDates(start, end, day); setStart(next.start); setEnd(next.end); }} /> : <p role="status">Loading rental options…</p>}
     </div>
-  );
+  </dialog>;
+}
+
+/** Two layout modes share live matching; neither paints results over neighbouring tiles. */
+export function HomeGearSearch({ categories, featured }: { categories: Category[]; featured?: GearListing[] }) {
+  const id = useId();
+  const [value, setValue] = useState("");
+  const [settledValue, setSettledValue] = useState("");
+  const [selected, setSelected] = useState<GearListing | null>(null);
+  const query = value.trim();
+  useEffect(() => { const timer = window.setTimeout(() => setSettledValue(query), 280); return () => window.clearTimeout(timer); }, [query]);
+  const category = useMemo(() => inferCategory(settledValue, categories), [settledValue, categories]);
+  const result = useQuery(api.catalog.searchHomeGear, settledValue.length >= 2 ? { search: settledValue, category } : "skip");
+  const searching = query.length > 0;
+  const loading = searching && (query !== settledValue || (query.length >= 2 && result === undefined));
+  const listings = (searching ? query.length >= 2 && query === settledValue ? result?.listings ?? [] : [] : featured ?? []) as GearListing[];
+  const input = <form onSubmit={event => event.preventDefault()} className={styles.inputShell} role="search">
+    <IconSearch className="h-5 w-5 shrink-0 text-accent-300" aria-hidden />
+    <input type="search" value={value} onChange={event => setValue(event.target.value)} placeholder="Search any item" aria-label={featured ? "Search most booked gear" : "Search rental gear"} aria-controls={id} className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/45" />
+    {searching ? <button type="button" onClick={() => setValue("")} aria-label="Clear gear search" className="rounded-full p-2 text-white/60 hover:bg-white/10"><IconX className="h-4 w-4" /></button> : <span className="rounded-full border border-accent-300/30 bg-accent-500/15 px-3 py-2 text-xs text-accent-200">Find your kit</span>}
+  </form>;
+  const status = searching && <p role="status" className="mb-4 text-sm text-white/55">{query.length < 2 ? "Type at least two characters to find gear." : loading ? "Finding the best matches…" : result?.mode === "category" ? `Closest matches in ${result.category}` : listings.length ? `${listings.length} matching items · gear hire rates shown` : "No exact match. Browse a department below or ask Gaffer."}</p>;
+  const browse = searching && !loading && <div className="mb-4 flex flex-wrap gap-2">{(category ? categories.filter(c => c.name === category) : categories.slice(0, 6)).map(c => <Link key={c.name} href={`/gear?cat=${encodeURIComponent(c.name)}`} className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-white/70">All {c.name} →</Link>)}</div>;
+  if (featured) return <section className="section-window px-6 py-20"><div className="mx-auto max-w-7xl">
+    <div className="flex flex-wrap items-end justify-between gap-5"><div><div className="hud-label !text-accent-400/90">Most booked</div><h2 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">The kit crews <span className="serif-accent gradient-text">fight over</span></h2></div><div className="w-full max-w-[34rem]">{input}</div></div>
+    <div id={id} className="mt-8" aria-label="Most booked gear results" aria-busy={loading}>{status}{browse}<div className="dim-grid rail flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">{listings.map(l => <div key={l._id} className="w-[240px] shrink-0 snap-start animate-[fade-in_.3s_ease-out] lg:w-auto"><GearCard listing={l} /></div>)}</div></div>
+  </div></section>;
+  return <div className={styles.root}>
+    <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="hud-label text-accent-300">Your next shoot starts here</p><h2 className="mt-2 font-display text-2xl font-semibold text-white">Find it. Pick your time. Make it yours.</h2></div><div className="w-full max-w-[34rem]">{input}</div></div>
+    <div className={styles.reveal} data-open={searching} id={id} aria-busy={loading}><div className={styles.results}>
+      <div className="pt-6">{status}{browse}<div className="rail flex snap-x gap-4 overflow-x-auto pb-3" aria-label="Gear search results">{listings.map(l => <button key={l._id} type="button" onClick={() => setSelected(l)} className={styles.result} aria-label={`Choose rental times for ${l.title}`}>
+        <SmartImage src={l.heroImage} fallbackSources={l.imageSources} alt={l.title} fit="contain" className="h-36 w-full" />
+        <span className="mt-4 block line-clamp-2 text-sm font-semibold text-white">{l.title}</span><span className="mt-2 block text-xs text-white/45">{l.category}</span><span className="mt-3 flex items-center justify-between text-sm text-accent-200">{money(l.pricing.daily)}/day <IconArrowRight className="h-4 w-4" /></span>
+      </button>)}</div></div>
+    </div></div>
+    {selected && <QuickBook key={selected._id} listing={selected} onClose={() => setSelected(null)} />}
+  </div>;
 }

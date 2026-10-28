@@ -7,6 +7,7 @@ import { CONTACT_EMAIL } from "@/lib/site";
 import { formatGafferEmailReply, isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
 
 export const runtime = "nodejs";
+export const maxDuration = 180;
 export const dynamic = "force-dynamic";
 
 const OWNER_EMAIL = "dbcinemarentals@gmail.com";
@@ -145,11 +146,22 @@ async function processGafferInboundEmail(message: InboundEmail) {
     if (humanRequested) {
       await client.mutation(api.emailInbox.markHumanRequested, { secret, inboundId: stored.inboundId });
     }
+    let replyText = formatGafferEmailReply(assistant.reply, assistant.cards, assistant.enquiry);
+    const quote = assistant.enquiry;
+    if (quote?.complete && quote.stockVerified && quote.timed && quote.start && quote.end) {
+      const lines = quote.requests.flatMap(request => request.lines.flatMap(line =>
+        Array.from({ length: Math.min(100, line.quantity) }, () => ({ listingId: line.listingId as any, start: Date.parse(quote.start + "T00:00:00Z"), end: Date.parse(quote.end + "T00:00:00Z"), pickupTime: quote.pickupTime, returnTime: quote.returnTime }))));
+      if (lines.length && lines.length <= 100) {
+        const shareKey = createHmac("sha256", secret).update(`email-cart:${stored.inboundId}`).digest("base64url");
+        await client.mutation(api.emailInbox.prepareQuotedCart, { secret, inboundId: stored.inboundId, shareKey, lines });
+        replyText += `\n\nReview your prepared rental basket and continue booking: https://dbcinemarentals.com/cart/quote/${shareKey}\nThis private link lasts seven days. Prices and stock are rechecked before payment; nothing is reserved yet.`;
+      }
+    }
     const delivered: any = await client.action(api.emailInbox.sendAssistantReply, {
       secret,
       threadId: stored.threadId,
       inboundId: stored.inboundId,
-      text: formatGafferEmailReply(assistant.reply, assistant.cards, assistant.enquiry),
+      text: replyText,
       humanRequested,
     });
     if (!delivered?.ok) {
@@ -161,7 +173,8 @@ async function processGafferInboundEmail(message: InboundEmail) {
     return NextResponse.json({ ok: true, replied: true, humanRequested, linkedProfile: !!stored.accountId });
   } catch (error) {
     if (stored?.inboundId) {
-      if (explicitlyRequestedHuman) {
+      // A failed answer needs visible human attention as well as a retry.
+      {
         try {
           await client.mutation(api.emailInbox.markHumanRequested, { secret, inboundId: stored.inboundId });
         } catch { /* don't replace the original delivery error */ }
@@ -206,6 +219,10 @@ async function processResendEmail(req: NextRequest, raw: string) {
   }
 
   const headers = received?.headers ?? {};
+  const automated = headerValue(headers, "auto-submitted").trim().toLowerCase();
+  if ((automated && automated !== "no") || /^(bulk|list|junk)$/i.test(headerValue(headers, "precedence").trim())) {
+    return NextResponse.json({ ok: true, ignored: "automated mail" });
+  }
   const rawFrom = received?.from ?? headerValue(headers, "from");
   return processGafferInboundEmail({
     providerId: emailId,
