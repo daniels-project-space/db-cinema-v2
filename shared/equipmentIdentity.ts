@@ -34,3 +34,11 @@ export function equipmentOfferLabel(title: string): string {
   }
   return clean;
 }
+
+/** Read a leading equipment count, never a focal range or model generation. */
+export function equipmentRequest(value: string): { subject: string; quantity: number; explicit: boolean } {
+  const words = ["one","two","three","four","five","six","seven","eight","nine","ten"];
+  const match = value.match(/^\s*(?:(\d{1,2})(?:\s*[x×]\s*|\s+)|(one|two|three|four|five|six|seven|eight|nine|ten)\s+)/i);
+  return { subject: (match ? value.slice(match[0].length) : value).replace(/^complete\s+/i, "").trim(),
+    quantity: match ? Number(match[1] ?? words.indexOf(match[2].toLowerCase()) + 1) : 1, explicit: !!match };
+}

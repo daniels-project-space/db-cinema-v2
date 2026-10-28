@@ -127,12 +127,12 @@ export const bestSellers = query({
 export const byItemType = query({
   args: { types: v.array(v.string()) },
   handler: async (ctx, { types }) => {
-    const set = new Set(types);
-    const ls = await ctx.db
-      .query("listings")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .collect();
-    return await toPublicCards(ctx, ls.filter((l) => set.has((l as any).itemType ?? "")));
+    const unique = [...new Set(types)];
+    if (unique.length > 50) throw new Error("Too many equipment types requested");
+    const groups = await Promise.all(unique.map(type => ctx.db.query("listings")
+      .withIndex("by_active_itemType", q => q.eq("active", true).eq("itemType", type as any)).collect()));
+    const listings = groups.flat().sort((a,b) => a._creationTime - b._creationTime);
+    return await toPublicCards(ctx, listings);
   },
 });
 

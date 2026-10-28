@@ -97,6 +97,16 @@ export function unrequestedCameraExtras(item: RecommendationItem, request: strin
     (included.has(type) || pattern.test(text) || type === "lens" && item.specs?.includesLens === true)).length;
 }
 
+/** Count documented camera bodies for configuration ranking, not stock capacity. */
+export function cameraOfferUnits(item: RecommendationItem): number {
+  if (item.itemType !== "camera-body") return 1;
+  const counts = (item.inventoryFacts?.contents ?? []).flatMap(text => {
+    const match = text.match(/^\s*(\d{1,2})\s*[x×]\s*(.+)$/i);
+    return match && deriveItemType(match[2]) === "camera-body" ? [Number(match[1])] : [];
+  });
+  return Math.max(1, Math.min(100, counts.reduce((sum, count) => sum + count, 0)));
+}
+
 export type LensFit = "native" | "adapter" | "unknown" | "incompatible" | "crop";
 export function lensFit(candidate: RecommendationItem, selected: RecommendationItem[]): LensFit {
   const cameras = selected.filter(i => i.itemType === "camera-body");

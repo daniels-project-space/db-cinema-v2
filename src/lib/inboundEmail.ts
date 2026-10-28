@@ -82,7 +82,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
       for (const line of request.lines) {
         const card = rows.find(card => String(card?.item?.listingId) === line.listingId)?.item;
         const saving = Number.isFinite(card?.saved) && card.saved > 0 ? ` Includes ${gbp(card.saved * line.quantity)} multi-day saving.` : "";
-        lines.push(`${line.quantity} × ${link(line.title, line.slug)}: ${gbp(line.total)}${line.alternative ? ` (suggested alternative to ${label(request.subject)}; please confirm)` : ""}.${line.providedUnits && line.providedUnits !== line.quantity ? ` Provides ${line.providedUnits} gear units in the package.` : ""}${saving}`);
+        lines.push(`${line.quantity} × ${link(line.title, line.slug)}: ${gbp(line.total)}${line.alternative ? ` (suggested alternative to ${label(request.subject)}; please confirm)` : ""}.${line.providedUnits && line.providedUnits !== line.quantity ? ` Provides ${line.providedUnits} gear units in the package.` : ""}${saving}${card?.inventoryReviewRequired ? " Some packing details need confirmation." : ""}`);
       }
       if (request.quantityUnit) lines.push(`${request.quantity} × ${label(request.subject)}: please confirm the number of complete kits needed (${request.quantityUnit}).`);
       else if (!request.lines.length) lines.push(`${request.quantity} × ${label(request.subject)}: ${request.fulfilled === 0 && enquiry.stockVerified ? "unavailable for these times" : "not yet confirmed"}.`);

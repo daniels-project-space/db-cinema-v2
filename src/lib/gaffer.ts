@@ -448,6 +448,7 @@ async function buildCard(
     itemType: l.itemType ?? null, mount: l.specs?.mount ?? null, lensClass: l.specs?.lensClass ?? null,
     tier: l.specs?.tier ?? null, pricing: l.pricing,
     quoteTimed: timed, rateTier: q.tier.label, saved: q.saved, savedPct: q.savedPct, rateLadder: q.ladder,
+    inventoryReviewRequired: l.inventoryFacts?.reviewRequired === true,
   };
   if (item.itemType === "wireless-mic" && ctx.requestedMicKitCount != null) item.requestedMicKitCount = ctx.requestedMicKitCount;
   if (ctx.estimated) item.estimated = true;
@@ -1327,7 +1328,12 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
         card.item.available = stock.available > 0;
       }
       const providedPerOffer = unitsPerEnquiryOffer(listing, request.subject, alternative);
-      const offersNeeded = Math.ceil(remaining / providedPerOffer);
+      // Prefer fitting whole packages and leave the remainder for a single
+      // item. A two-body pack is not an exact one-body configuration.
+      const fittingOffers = Math.floor(remaining / providedPerOffer);
+      if (!fittingOffers && request.allowAlternatives === false) return;
+      const offersNeeded = fittingOffers || 1;
+      if (!fittingOffers) alternative = true;
       const count = Number.isSafeInteger(stock?.available) ? Math.min(offersNeeded, Math.max(0, stock.available)) : 0;
       if (timed && !count) return;
       const quantity = timed ? count : offersNeeded;
@@ -1344,7 +1350,9 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
       }
     };
     for (const listing of exact) {
-      await consider(listing, false);
+      const configurationChange = unrequestedCameraExtras(listing, request.subject) > 0;
+      if (configurationChange && request.allowAlternatives === false) continue;
+      await consider(listing, configurationChange);
       if (!remaining) break;
     }
     if (remaining && cards.length < 32 && request.allowAlternatives !== false) {
@@ -1375,6 +1383,38 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
   if (intent.requirementsComplete === false) facts.push("INCOMPLETE ENQUIRY PARSE: additional or ambiguous requirements remain. Do not claim the whole enquiry is fulfilled. Ask the customer to clarify the remaining items; the proposal covers only the listed requirements.");
   facts.push("PRICING: quote totals and rates exactly from the evidence. For supplied times, started 24-hour London rental periods apply. Date-only totals are provisional until times are supplied. Each listing's applicable multi-day tier is already reflected in its period total. The applicable tier is already included: do not apply another multi-day discount. Gear hire excludes separately quoted delivery and security payments; never invent their amounts or a membership entitlement for an unverified email sender.");
   return { cards, facts, enquiry, askDates: ctx.estimated, askTimes: !ctx.estimated && !timed };
+}
+
+/** Read-only structured quote for phone tools. Uses the same allocation and
+ * price engine as email without another model call or any booking writes.
+ */
+export async function quoteRentalEnquiry(input: {
+  subject: string; itemType: string; quantity?: number; start?: string; end?: string;
+  pickupTime?: string; returnTime?: string; days?: number;
+  requests?: { subject: string; itemType: string; quantity: number; quantityIsListingUnits: boolean; allowAlternatives: boolean }[];
+  requirementsComplete?: boolean;
+}) {
+  const ctx = await loadContext({});
+  const quantity = input.quantity ?? 1;
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) throw Error("Invalid rental quantity");
+  const date = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(dayMs(value)) && new Date(dayMs(value)).toISOString().slice(0, 10) === value;
+  ctx.start = input.start ?? ctx.today;
+  const days = input.days ?? 1;
+  if (!Number.isSafeInteger(days) || days < 1 || days > 365 || !date(ctx.start)) throw Error("Invalid rental period");
+  ctx.end = input.end ?? new Date(dayMs(ctx.start) + (days - 1) * 86400000).toISOString().slice(0, 10);
+  if (!date(ctx.end) || ctx.end < ctx.start || dayMs(ctx.end) - dayMs(ctx.start) > 365 * 86400000) throw Error("Invalid rental period");
+  ctx.estimated = !input.start;
+  ctx.pickupTime = input.pickupTime;
+  ctx.returnTime = input.returnTime;
+  ctx.availabilityReady = !ctx.estimated && !!input.pickupTime && !!input.returnTime && PICKUP_SLOTS.includes(input.pickupTime) && PICKUP_SLOTS.includes(input.returnTime) && (ctx.start !== ctx.end || input.returnTime > input.pickupTime);
+  const itemType = input.itemType === "camera-body" ? "camera" : input.itemType;
+  const requests = input.requests?.map(request => ({ ...request, itemType: request.itemType === "camera-body" ? "camera" : request.itemType })) ??
+    [{ subject: input.subject, itemType, quantity, quantityIsListingUnits: true, allowAlternatives: true }];
+  const intent = IntentSchema.parse({
+    intent: "price", subject: input.subject, itemTypes: requests.map(request => request.itemType), cameraModel: "", pricePref: "any",
+    requirementsComplete: input.requirementsComplete !== false, requests,
+  });
+  return planEmailEnquiry(intent, ctx);
 }
 
 // ── stage 3: narrate (grounded — only states facts, only names the chosen cards) ──

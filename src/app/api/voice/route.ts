@@ -3,11 +3,13 @@ import { contentsText } from "../../../../shared/rentalContents";
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
-import { quote } from "@/lib/pricing";
+import { quoteRentalEnquiry } from "@/lib/gaffer";
+import { deriveItemType } from "../../../../convex/lib/taxonomy";
+import { equipmentOfferLabel, equipmentRequest } from "../../../../shared/equipmentIdentity";
 import { PICKUP_SLOTS } from "@/lib/site";
 import { dayMs } from "@/lib/dates";
 import { rateLimit } from "@/lib/ratelimit";
-import { londonToday, resolveDate, inclusiveDays, speak } from "@/lib/voiceDates";
+import { londonToday, resolveDate, speak } from "@/lib/voiceDates";
 
 /**
  * /api/voice — tool endpoint for the Gaffer voice agent (SignalWire phone line
@@ -103,6 +105,67 @@ type Match = {
   daily: number | null; deposit: number | null; minDays: number; deal: number | null;
 };
 
+/** Phone answers consume the same physical allocation and period prices as email. */
+async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, availabilityOnly: boolean) {
+  const supplied = args.requests === undefined ? [{ subject: args.item ?? args.query, quantity: args.quantity }] : args.requests;
+  if (!Array.isArray(supplied) || !supplied.length || supplied.length > 8)
+    return say("Please confirm the items you need, up to eight at a time.", { needs: "items" });
+  if (args.requirementsComplete !== undefined && typeof args.requirementsComplete !== "boolean")
+    return say("Please confirm the complete list of items you need.", { needs: "items" });
+  const requests: { subject: string; itemType: string; quantity: number; quantityIsListingUnits: boolean; allowAlternatives: boolean }[] = [];
+  for (const input of supplied) {
+    if (!input || typeof input !== "object" || typeof input.subject !== "string" || !input.subject.trim() || input.subject.length > 160)
+      return say("Please confirm each item you would like to rent.", { needs: "items" });
+    const raw = input.subject.trim();
+    const request = equipmentRequest(raw);
+    const quantity = Number(input.quantity ?? request.quantity);
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100 || request.explicit && input.quantity !== undefined && quantity !== request.quantity)
+      return say("Please confirm the number of complete rental items or kits.", { needs: "quantity" });
+    const subject = request.subject;
+    if (/\b(?:with|and|plus)\b.{0,60}\b(?:lens|gimbal|microphone|mic|monitor|tripod)\b/i.test(subject))
+      return say("Please list each specific item you need so I can quote the complete kit.", { needs: "configuration" });
+    const searched: any = await c.query(api.voiceCatalog.search, { q: subject, limit: 3 });
+    const top = searched?.matches?.[0];
+    const full = top?.slug ? await c.query(api.catalog.getListingBySlug, { slug: top.slug }) : null;
+    const itemType = full?.itemType ?? deriveItemType(subject);
+    const listingUnits = input.quantityIsListingUnits !== undefined ? input.quantityIsListingUnits === true
+      : !(quantity > 1 && itemType === "wireless-mic" && !/\b(?:kits?|sets?|systems?)\b/i.test(raw));
+    if (!listingUnits) return say("Do you mean complete wireless microphone kits, or individual microphones and channels?", { needs: "quantity" });
+    requests.push({ subject, itemType, quantity, quantityIsListingUnits: true, allowAlternatives: input.allowAlternatives !== false });
+  }
+  const start = args.start ? resolveDate(args.start, today) : null;
+  if (start && !start.ok) return say("Please confirm your pickup date before I quote.", { needs: "dates" });
+  const end = args.end ? resolveDate(args.end, today) : start;
+  if (end && !end.ok) return say("Please confirm your return date before I quote.", { needs: "dates" });
+  const startDate = start?.ok ? start.date : undefined, endDate = end?.ok ? end.date : undefined;
+  const pickupTime = String(args.pickupTime ?? args.pickup_time ?? "") || undefined;
+  const returnTime = String(args.returnTime ?? args.return_time ?? "") || undefined;
+  if (startDate && !args.end && (availabilityOnly || pickupTime || returnTime || Number(args.days) > 1))
+    return say("What is your return date and time? I need that to quote the full rental period.", { needs: "dates" });
+  if (availabilityOnly && !startDate) return say("What are your pickup and return dates and times?", { needs: "dates" });
+  if (endDate && startDate && (endDate < startDate || startDate === endDate && pickupTime && returnTime && returnTime <= pickupTime))
+    return say("Return must be after pickup. Please confirm the dates and times.", { needs: "times" });
+  const timed = !!startDate && !!pickupTime && !!returnTime && PICKUP_SLOTS.includes(pickupTime) && PICKUP_SLOTS.includes(returnTime);
+  if (availabilityOnly && !timed) return say("Choose pickup and return times before I can confirm availability.", { needs: "times" });
+  const first = requests[0];
+  const result = await quoteRentalEnquiry({ ...first, requests, requirementsComplete: args.requirementsComplete !== false,
+    start: startDate, end: endDate, pickupTime, returnTime, days: args.days === undefined ? undefined : Number(args.days) });
+  const enquiry = result.enquiry;
+  if (!enquiry) throw Error("Rental quote is unavailable");
+  const lines = enquiry.requests.flatMap(request => request.lines);
+  const hasAlternatives = lines.some(line => line.alternative);
+  const names = lines.map(line => `${line.quantity} × ${equipmentOfferLabel(line.title)}${line.alternative ? " (alternative; please confirm)" : ""}`);
+  const items = lines.map(line => ({ title: line.title, daily: line.perDay }));
+  if (!lines.length) return say("I haven't found a verified available exact match for that request. Would you like to try alternatives or different dates?", { needs: "availability", enquiry, items });
+  const period = `${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}`;
+  const status = enquiry.complete ? hasAlternatives ? "The quantities can be covered with the proposed alternatives. " : "The requested quantities are available for those times. " : enquiry.stockVerified ? "Some items or quantities still need confirmation. " : "This is a provisional quote; availability is unconfirmed. ";
+  const price = enquiry.total !== null ? `${money(enquiry.total)} for ${period}${enquiry.complete ? "" : enquiry.stockVerified ? " for the covered items only" : " (estimate)"}. ` : "The combined price still needs checking. ";
+  const selectedIds = new Set(lines.map(line => line.listingId));
+  const packing = result.cards.some(card => selectedIds.has(String(card.item?.listingId)) && card.item?.inventoryReviewRequired) ? "Some packing details need confirmation. " : "";
+  const next = enquiry.estimated ? "What pickup and return dates and times would you like?" : !enquiry.timed ? "What times would you like to collect and return it?" : enquiry.complete ? hasAlternatives ? "Would those substitutions work for you? This does not reserve the gear." : "This quote does not reserve the gear." : "Would alternatives or different dates work for you?";
+  return say(`${status}${names.join("; ")}. Gear rental: ${price}${packing}${next}`, { enquiry, items, start: enquiry.start, end: enquiry.end, days: enquiry.days });
+}
+
 export async function POST(req: NextRequest) {
   const secret = process.env.VOICE_WEBHOOK_SECRET;
   if (!secret) return NextResponse.json({ error: "voice tool is not configured" }, { status: 503 });
@@ -166,9 +229,12 @@ export async function POST(req: NextRequest) {
       }
 
       /* ── Do you have X? / how much is X? ──────────────────────────────── */
+      case "get_price":
+        return await rentalQuoteTool(c, args, today, false);
+      case "check_availability":
+        return await rentalQuoteTool(c, args, today, true);
       case "check_stock":
-      case "find_gear":
-      case "get_price": {
+      case "find_gear": {
         const q = String(args.item ?? args.query ?? "");
         const s: any = await c.query(api.voiceCatalog.search, { q, limit: 3 });
         const hits: Match[] = s?.matches ?? [];
@@ -191,9 +257,6 @@ export async function POST(req: NextRequest) {
         const top = hits[0];
         const full = await c.query(api.catalog.getListingBySlug,{slug:top.slug});
         const packed = contentsText(full);
-        const days = Math.max(1, Number(args.days) || 1);
-        const qt: any = quote({ daily: top.daily ?? 0 } as any, days);
-
         // Say what configurations exist. Gaffer once told a customer the a7 iii
         // "is only offered like that" after being handed a gimbal package —
         // it couldn't see the bare body, so it guessed. State the shape of the
@@ -206,78 +269,10 @@ export async function POST(req: NextRequest) {
             ? ` We've also got ${readList(hits.slice(1, 3).map((h) => h.title))}.`
             : "";
 
-        if (name === "get_price") {
-          return say(
-            `The ${shorten(top.title)} is ${money(qt.perDay)} a day` +
-            (days > 1 ? `, ${money(qt.total)} for ${days} days` : "") +
-            `${securitySummary(top.deposit)}. ` +
-            `${packed} Shall I check it's free for your dates?${alt}`,
-            { items: hits },
-          );
-        }
         return say(
           `Yes — we've got the ${shorten(top.title)}, ${money(top.daily)} a day.${alt} ` +
           `${packed} Want me to check your dates?`,
           { items: hits },
-        );
-      }
-
-      /* ── Is it free on these dates? ───────────────────────────────────── */
-      case "check_availability": {
-        const q = String(args.item ?? args.query ?? "");
-        const s: any = await c.query(api.voiceCatalog.search, { q, limit: 3 });
-        const hits: Match[] = s?.matches ?? [];
-        if (!hits.length) {
-          return say(`I couldn't find ${q || "that"} — could you say the model again?`);
-        }
-        const top = hits[0];
-
-        // The clock is ours, not the model's.
-        const start = resolveDate(args.start, today);
-        if (!start.ok) {
-          return say(
-            start.reason === "past"
-              ? `Just to check — that date's already gone. Today is ${speak(today)}. What dates did you want?`
-              : `Happy to check the ${shorten(top.title)} — what dates do you need it?`,
-            { today, needs: "dates" },
-          );
-        }
-        const end = args.end ? resolveDate(args.end, today) : start;
-        if (!end.ok) return say("Please confirm the return date before I check availability.", { needs: "dates" });
-        const endDate = end.date;
-        const pickupTime = String(args.pickupTime ?? args.pickup_time ?? "");
-        const returnTime = String(args.returnTime ?? args.return_time ?? "");
-        if (!PICKUP_SLOTS.includes(pickupTime) || !PICKUP_SLOTS.includes(returnTime))
-          return say(`I found ${shorten(top.title)} in the catalogue. Choose pickup and return times before I can confirm availability. You can select them on the booking page.`, { needs: "times", items: hits, start: start.date, end: endDate });
-        if (start.date === endDate && returnTime <= pickupTime)
-          return say("Return time must be after pickup. Please confirm the times.", { needs: "times" });
-        const days = inclusiveDays(start.date, endDate);
-
-        const av: any = await c
-          .query(api.availability.forListing, {
-            listingId: top.id as any,
-            start: dayMs(start.date),
-            end: dayMs(endDate),
-            pickupTime, returnTime,
-          })
-          .catch(() => null);
-        const qt: any = quote({ daily: top.daily ?? 0 } as any, days);
-        if (!av) return say("I could not confirm live availability just now. Please retry; I have not confirmed a booking.", { needs: "availability", items: hits });
-
-        if ((av?.available ?? 0) > 0) {
-          return say(
-            `Good news — the ${shorten(top.title)} is free ${days > 1 ? `from ${speak(start.date)} to ${speak(endDate)}` : `on ${speak(start.date)}`}, ` +
-            `at ${money(qt.perDay)} a day${days > 1 ? `, ${money(qt.total)} for the ${days} days` : ""}` +
-            `${securitySummary(top.deposit)}. ` +
-            `${contentsText(top)} We deliver across London. Shall I take your details and hold it?`,
-            { items: hits, start: start.date, end: endDate, days },
-          );
-        }
-        const others = hits.slice(1, 3).map((h) => h.title);
-        return say(
-          `The ${shorten(top.title)} is already booked for ${speak(start.date)}.` +
-          (others.length ? ` I could check ${readList(others)} instead, or different dates — which suits?` : ` Would different dates work?`),
-          { items: hits, start: start.date, end: endDate },
         );
       }
 
