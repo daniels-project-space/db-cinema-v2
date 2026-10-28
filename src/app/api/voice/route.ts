@@ -138,8 +138,8 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   const pickupTime = String(args.pickupTime ?? args.pickup_time ?? "") || undefined;
   const returnTime = String(args.returnTime ?? args.return_time ?? "") || undefined;
   if (startDate && !args.end && (availabilityOnly || pickupTime || returnTime || Number(args.days) > 1))
-    return say("What return date should I check with that pickup date?", { needs: "dates" });
-  if (availabilityOnly && !startDate) return say("What pickup and return dates should I check?", { needs: "dates" });
+    return say("What is your return date and time? I need that to quote the full rental period.", { needs: "dates" });
+  if (availabilityOnly && !startDate) return say("What are your pickup and return dates and times?", { needs: "dates" });
   if (endDate && startDate && (endDate < startDate || startDate === endDate && pickupTime && returnTime && returnTime <= pickupTime))
     return say("Return must be after pickup. Please confirm the dates and times.", { needs: "times" });
   const timed = !!startDate && !!pickupTime && !!returnTime && PICKUP_SLOTS.includes(pickupTime) && PICKUP_SLOTS.includes(returnTime);
@@ -163,7 +163,9 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     : request.availabilityIssue === "no_common_window"
       ? "No shared pickup/return window fits " + request.subject
       : "The live stock check failed for " + request.subject + " (" + request.quantity + " requested)").join(". ") + ".";
-  const names = lines.map(line => line.quantity + " × " + equipmentOfferLabel(line.title) + (line.alternative ? " (alternative; please confirm)" : ""));
+  const names = lines.map(line => line.quantity + " × " + equipmentOfferLabel(line.title) +
+    (line.providedUnits && line.providedUnits !== line.quantity ? " (package supplies " + line.providedUnits + " gear units)" : "") +
+    (line.alternative ? " (alternative; please confirm)" : ""));
   if (!lines.length) {
     const message = requestIssues.length
       ? (confirmedQuantities ? "I can confirm " + confirmedQuantities + ". " : "") + issueDetails
@@ -203,6 +205,9 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   const price = enquiry.total !== null
     ? (enquiry.complete ? "Gear hire total is " : "Gear hire for the confirmed items is ") + money(enquiry.total) + " for " + period + ". "
     : "I can't give a gear hire total until the quantities for " + requestedItems + " are confirmed. ";
+  const selectedIds = new Set(lines.map(line => line.listingId));
+  const packing = (result.cards ?? []).some(card => selectedIds.has(String(card.item?.listingId)) && card.item?.inventoryReviewRequired)
+    ? "Some packing details need confirmation. " : "";
   let next: string;
   const stockToRecheck = requestIssues.filter(request => request.availabilityIssue === "stock_check_failed").map(request => request.subject).join(", ");
   if (stockToRecheck) next = "I can recheck " + stockToRecheck + " stock before you decide." + (enquiry.availabilityWindow ? " Would the suggested times work for the confirmed items?" : "");
@@ -214,7 +219,7 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   else if (requestIssues.length) next = "Would another pickup/return window work for the remaining quantity?";
   else if (!timed) next = "What pickup and return times suit you?";
   else next = "Would another date or a listed option work?";
-  return say(status + names.join("; ") + ". " + price + next, { enquiry, items: lines.map(line => ({ title: line.title, daily: line.perDay })), start: enquiry.start, end: enquiry.end, days: enquiry.days });
+  return say(status + names.join("; ") + ". " + price + packing + next, { enquiry, items: lines.map(line => ({ title: line.title, daily: line.perDay })), start: enquiry.start, end: enquiry.end, days: enquiry.days });
 }
 
 export async function POST(req: NextRequest) {

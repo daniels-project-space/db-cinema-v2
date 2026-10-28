@@ -81,7 +81,9 @@ function GearPageInner() {
       <SiteHeader />
       <GearLoopBanner />
       <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto min-h-screen max-w-7xl px-6 pb-12 pt-8">
-        <AssemblyShowcase listings={[...best, ...(filteredListings ?? [])]} />
+        <div className="relative left-1/2 w-screen -translate-x-1/2 px-3 sm:px-4 xl:px-6">
+          <AssemblyShowcase listings={[...best, ...(filteredListings ?? [])]} />
+        </div>
 
         {/* hire professionals — crew for hire, booked through us (shows on every
             category so it's there when a category is clicked from the home page; hidden only on search) */}
