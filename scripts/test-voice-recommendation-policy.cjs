@@ -32,6 +32,8 @@ const {useGafferTools}=load('src/components/gaffer/useGafferTools.ts');
  const otherModel=listing({slug:'fx30',title:'Sony FX30 Body',itemType:'camera-body',category:'Cameras'});
  const comparison=listing({slug:'a7-compare',title:'Sony A7 III (like Sony FX3)',itemType:'camera-body',category:'Cameras'});
  const search=load('convex/voiceCatalog.ts').search;
+ const a7v=listing({slug:'a7v',title:'Sony A7 V camera body',itemType:'camera-body',category:'Cameras'});
+ assert.equal((await search.handler({db},{q:'a75',limit:3})).matches[0].id,a7v._id,'spoken A75 alias must retain the actual A7 V generation');
  const searched=await search.handler({db},{q:'Sony FX 3',limit:8});
  assert.equal(searched.matches[0].id,bodyOnly._id,'spaced model finds the body before a lens package');
  assert(!searched.matches.some(item=>[otherModel._id,comparison._id].includes(item.id)),'FX30 and comparison advertising cannot pass an FX3 identity check');

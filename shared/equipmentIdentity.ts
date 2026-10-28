@@ -4,6 +4,7 @@
 export function normalizeEquipmentName(value: string): string {
   return String(value ?? "").replace(/ø/gi, "o").normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/\ba7[\s-]*([345])\b/g, (_, generation: string) => `a7${({3:"iii",4:"iv",5:"v"} as Record<string,string>)[generation]}`)
     .replace(/\b(fx|fs|a|rs|rsc|gh|bmpcc|pxw|eos|c|r|z)[\s-]+(\d+[a-z]*)\b/g, "$1$2")
     .replace(/\b([a-z]+\d+[a-z]*)\s+(iii|ii|iv|vii|vi|v)\b/g, "$1$2");
 }
