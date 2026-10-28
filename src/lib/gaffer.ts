@@ -8,7 +8,8 @@ import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { rentalDateLabel } from "../../shared/rentalDateLabel";
 import { rentalPricingDays } from "../../shared/rentalDuration";
-import type { GafferEmailQuote } from "../../shared/gafferEmailQuote";
+import { gafferEmailQuoteIntro, type GafferEmailQuote } from "../../shared/gafferEmailQuote";
+import { rentalEnquiryWindow } from "./rentalEnquiryWindow";
 import { coverageCompat, kitWarnings } from "@/lib/compat";
 import { lensPriority, isCameraSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType, CATEGORY_OF } from "../../convex/lib/taxonomy";
@@ -1389,7 +1390,7 @@ ${convo}
 Write Gaffer's reply now in the scannable FORMAT above (lead line, bullets, closing question), plus 2-3 suggestion chips in the customer's voice.`,
   });
   return {
-    reply: object.reply?.trim() || "How can I help with your shoot?",
+    reply: channel === "email" && result.enquiry ? gafferEmailQuoteIntro(result.enquiry) : object.reply?.trim() || "How can I help with your shoot?",
     suggestions: (object.suggestions || []).filter((s) => s && s.length <= 56).slice(0, 3),
     humanRequested: channel === "email" && object.humanRequested === true,
   };
@@ -1419,6 +1420,11 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
 
   const lastUser = String([...history].reverse().find((m: any) => m.role === "user")?.content || "");
   const intent = await understand(history, ctx.today);
+  if (body?.channel === "email") {
+    const window = rentalEnquiryWindow(Array.isArray(body?.messages) ? body.messages.slice(-12) : [], ctx.today, typeof body.emailSubject === "string" ? body.emailSubject : "");
+    intent.start = window.start; intent.end = window.end;
+    intent.pickupTime = window.pickupTime; intent.returnTime = window.returnTime;
+  }
   // deterministic backstop: naming FORM / SEVEN, the free ad, or asking us to MAKE the
   // advert is never a gear query, and must not be resolved against the catalogue — "form 7"
   // matches no listing, and the classifier reads "make me an advert" as a kit request.
@@ -1437,7 +1443,7 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
   }
   // deterministic relative-date backstop: if the LLM left dates unresolved, derive them
   // from the latest user message ("this weekend", "tomorrow", "next week").
-  if (!intent.start || !intent.end) {
+  if (body?.channel !== "email" && (!intent.start || !intent.end)) {
     const rel = resolveRelativeDates(lastUser, ctx.today);
     if (rel.start) { intent.start = intent.start || rel.start; intent.end = intent.end || rel.end; }
   }

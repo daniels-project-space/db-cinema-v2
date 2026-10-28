@@ -40,10 +40,29 @@ setMock("@/lib/ai", { generateBotObject: async ({ prompt }) => {
 } });
 process.env.OPENROUTER_API_KEY = "isolated-no-provider-calls";
 const { handleChat } = load("src/lib/gaffer.ts"), { formatGafferEmailReply } = load("src/lib/inboundEmail.ts");
-async function run(quantity = 4, extra = {}) {
+const { rentalEnquiryWindow } = load("src/lib/rentalEnquiryWindow.ts");
+const windowFor = (...texts) => rentalEnquiryWindow(texts.map(content => ({ role: "user", content })), "2026-10-28");
+const actualEmail = "4 complete kits for 20 November 2026, pickup at 10am, returning 23 November 2026 at 10am";
+const actualWindow = windowFor(actualEmail);
+assert.equal(actualWindow.start, "2026-11-20"); assert.equal(actualWindow.end, "2026-11-23");
+assert.equal(actualWindow.pickupTime, "10:00"); assert.equal(actualWindow.returnTime, "10:00");
+assert.equal(windowFor("20–23 November 2026, pickup 10am and return 6pm").returnTime, "18:00");
+assert.equal(windowFor("20/11/2026 to 23/11/2026, pickup 10:00 and return 17:00").end, "2026-11-23");
+assert.equal(windowFor("Tomorrow, pickup at 9pm").start, "2026-10-29");
+assert.equal(windowFor("Tomorrow, pickup at 9pm").pickupTime, "21:00");
+assert.equal(windowFor("Tomorrow, pickup at 9").pickupTime, undefined, "ambiguous bare clock cannot become 9am");
+assert.equal(windowFor(actualEmail, "Actually return at 9pm").returnTime, "21:00");
+assert.equal(windowFor("20-23 November, return at 6pm and pickup at 10am").pickupTime, "10:00");
+assert.equal(windowFor("20-23 November, return at 6pm and pickup at 10am").returnTime, "18:00");
+assert.equal(windowFor("for 3 days from 20 November 2026, pickup 10am and return 10am").end, "2026-11-23");
+assert.equal(windowFor("4x DJI Mic 2 kits").start, undefined, "product generation and quantity cannot become dates");
+assert.equal(windowFor("20-21 November 2026 or 24-26 November 2026").ambiguous, true);
+async function run(quantity = 4, extra = {}, explicitText) {
   rode.quantityOwned = 2; djiOne.quantityOwned = 1; djiTwo.quantityOwned = 1; stockReads = 0;
   intent = { intent: "availability", subject: "Rode Mic Pro", itemTypes: ["wireless-mic"], cameraModel: "", pricePref: "any", start: "2030-11-20", end: "2030-11-23", pickupTime: "10:00", returnTime: "10:00", requests: [{ subject: "Rode Mic Pro", itemType: "wireless-mic", quantity }], ...extra };
-  const result = await handleChat({ messages: [{ role: "user", content: `${quantity} mic kits please, alternatives welcome` }], channel: "email" });
+  const period = intent.start ? `From ${intent.start}${intent.end ? ` to ${intent.end}` : ""}.` : "";
+  const clocks = `${intent.pickupTime ? ` Pickup at ${intent.pickupTime}.` : ""}${intent.returnTime ? ` Return at ${intent.returnTime}.` : ""}`;
+  const result = await handleChat({ messages: [{ role: "user", content: explicitText ?? `${quantity} mic kits please, alternatives welcome. ${period}${clocks}` }], channel: "email" });
   return { ...result, email: formatGafferEmailReply(result.reply, result.cards, result.enquiry) };
 }
 (async () => {
@@ -59,6 +78,10 @@ async function run(quantity = 4, extra = {}) {
   assert(result.email.includes("Gear-hire total: £195.00"));
   assert(result.email.includes("Multi-day rates per unit: 1+ days £24.00/day · 3+ days £20.00/day"));
   assert(facts.includes("EMAIL ENQUIRY EVIDENCE:"));
+  result = await run(1, { start: "2026-11-20", end: "2026-11-20", pickupTime: undefined, returnTime: undefined }, actualEmail);
+  assert.equal(result.enquiry.end, "2026-11-23", "explicit email dates survive a model that drops the end date");
+  assert.equal(result.enquiry.days, 3);
+  assert.equal(result.enquiry.timed, true, "explicit times survive model omission");
   result = await run(5);
   assert.equal(result.enquiry.complete, false);
   assert.equal(result.enquiry.requests[0].fulfilled, 4);
@@ -73,6 +96,7 @@ async function run(quantity = 4, extra = {}) {
   assert.equal(result.enquiry.requests[0].fulfilled, null);
   assert.equal(stockReads, 0, "missing times cannot trigger a confident stock claim");
   assert(result.email.includes("date-only estimate"));
+  assert(result.reply.includes("provisional"), "an unverified quantity must never get an LLM assurance in the email lead");
   result = await run(2, { requests: [{ subject: "Sony FX3", itemType: "camera", quantity: 2 }, { subject: "DJI Mic 1", itemType: "wireless-mic", quantity: 2 }] });
   assert.equal(result.enquiry.requests.length, 2, "all distinct requirements survive into the proposal");
   assert.equal(result.enquiry.complete, true);

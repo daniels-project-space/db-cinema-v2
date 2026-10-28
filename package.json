@@ -27,6 +27,7 @@
     "@stripe/stripe-js": "^9.17.0",
     "@trigger.dev/sdk": "^4.4.6",
     "ai": "^6.0.197",
+    "chrono-node": "2.10.3",
     "convex": "^1.40.0",
     "convex-helpers": "0.1.120",
     "next": "16.2.7",
