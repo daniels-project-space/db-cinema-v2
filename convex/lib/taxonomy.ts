@@ -137,6 +137,13 @@ export function deriveItemType(name: string): ItemType {
     return t;
   }
 
+  // A DJI Mic system remains a wireless microphone when its title mentions
+  // the recorder built into its transmitters. Recorder-led kits and separate
+  // charging accessories retain their own classifications.
+  if (/^dji\s+mic(?:\s*2)?\s+(?:charging\s+case|cable|adapter|replacement)\b/i.test(primary.trim())) return "accessory";
+  if (/^dji\s+mic(?:\s*2)?\s+(?:charger|battery)\b/i.test(primary.trim())) return "battery";
+  if (/^(?:\d+\s*[x×]\s*)?dji\s+mic(?:\s*2)?\b/i.test(primary.trim())) return "wireless-mic";
+
   // Battery/charger hero beats the greedy gimbal/light rules ("Gimbal Battery …").
   if (BATTERY_HERO.test(name.trim()) && !CAMERA_MODEL.test(name)) return "battery";
 
