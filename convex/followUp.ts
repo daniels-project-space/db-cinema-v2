@@ -1,4 +1,4 @@
-import { accountForToken, postRentalMessage } from "./lib/rentalChat";
+import { accountForToken } from "./lib/rentalChat";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -127,55 +127,40 @@ export const send = action({
  * anyone who knows the deployment URL could inject messages into a customer's
  * chat thread.
  */
-export const inbound = mutation({
+export const resolveInbound = mutation({
   args: {
     secret: v.string(),
     replyKey: v.string(),
     email: v.string(),
-    body: v.string(),
-    subject: v.optional(v.string()),
   },
-  handler: async (ctx, { secret, replyKey, email, body, subject }) => {
+  handler: async (ctx, { secret, replyKey, email }) => {
     const expected = process.env.INBOUND_EMAIL_SECRET;
     if (!expected || secret !== expected) throw new Error("unauthorized");
-    const original = await ctx.db
+    const matches = await ctx.db
       .query("gaffer_follow_ups")
       .withIndex("by_replyKey", (q) => q.eq("replyKey", replyKey))
-      .first();
+      .order("desc")
+      .take(20);
+    const normalizedEmail = email.trim().toLowerCase();
+    const original = matches.find((row) =>
+      row.direction === "out" && row.email.trim().toLowerCase() === normalizedEmail,
+    );
+    if (!original) return { ok: false as const };
 
-    if(!original||original.email.trim().toLowerCase()!==email.trim().toLowerCase())return {routed:"ignored" as const};
-
-    await ctx.db.insert("gaffer_follow_ups", {
-      at: Date.now(),
-      email,
-      name: original?.name,
-      subject: subject ?? `Re: ${original?.subject ?? "your call"}`,
-      body,
-      replyKey,
-      direction: "in",
-      handled: false,
-      accountId: original?.accountId,
-    });
-
-    // If they have an account, the reply belongs in the chat Gaffer already
-    // answers — same conversation, not a second one in a different channel.
-    const account = original.accountId ? await ctx.db.get(original.accountId) : await ctx.db
-      .query("accounts")
-      .withIndex("by_email", (q: any) => q.eq("email", email.toLowerCase()))
-      .first();
-
-    if (account && account.blockedAt==null && account.email.trim().toLowerCase()===email.trim().toLowerCase()) {
-      await postRentalMessage(ctx, {
-        accountId: account._id,
-        sender: "renter",
-        text: body,
-      });
-      await ctx.scheduler.runAfter(0, internal.gaffer.gafferReply, { accountId: account._id });
-      return { routed: "chat" as const };
-    }
-
-    await ctx.scheduler.runAfter(0, internal.notify.followUpReplyAlert, { email, body });
-    return { routed: "owner" as const };
+    // This verifies the plus-address token and sender only. The HTTP route then
+    // sends every accepted reply through the same Gaffer/emailInbox pipeline as
+    // ordinary inbound mail, so unregistered renters are not diverted to the
+    // owner inbox and registered renters get one unified email/chat history.
+    return {
+      ok: true as const,
+      original: {
+        email: original.email,
+        name: original.name,
+        subject: original.subject,
+        body: original.body,
+        at: original.at,
+      },
+    };
   },
 });
 

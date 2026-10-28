@@ -263,14 +263,14 @@ export function BotBubble() {
               ? "Hide call controls"
               : "Show call controls — you're on a call with Gaffer"
             : open
-              ? "Close chat"
-              : "Chat with Gaffer, the kit assistant"
+              ? "Close the contact chat"
+              : "Contact us — chat with Gaffer"
         }
         data-on-call={onCall ? "true" : undefined}
         data-speaking={onCall && gafferSpeaking ? "true" : undefined}
         // colours live in globals.css keyed on data-on-call, so amber→red is a
         // slow crossfade rather than a class swap that snaps
-        className="group launcher fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full border hover:scale-105 active:scale-95"
+        className="group launcher fixed bottom-5 right-5 z-50 flex h-14 items-center gap-2.5 rounded-full border px-4 hover:scale-105 active:scale-95"
       >
         {(!open || onCall) && <span className="launcher-ring" aria-hidden />}
         {onCall ? (
@@ -291,16 +291,15 @@ export function BotBubble() {
         ) : (
           <BotAvatar mood="idle" className="h-9 w-9" />
         )}
-        {onCall ? (
+        <span className="relative z-[1] whitespace-nowrap font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-white/90">
+          Contact us
+        </span>
+        {onCall && (
           <span className="pointer-events-none absolute right-full mr-3 hidden whitespace-nowrap rounded-full border border-rose-400/30 bg-rose-950/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-rose-200/90 sm:block">
             On call · {Math.floor(secs / 60)}:
             {String(secs % 60).padStart(2, "0")}
           </span>
-        ) : !open ? (
-          <span className="pointer-events-none absolute right-full mr-3 hidden whitespace-nowrap rounded-full border border-white/10 bg-charcoal-900/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-white/60 opacity-0 transition-opacity duration-300 group-hover:opacity-100 sm:block">
-            Ask Gaffer
-          </span>
-        ) : null}
+        )}
       </button>
 
       {open && (

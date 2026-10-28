@@ -36,7 +36,9 @@ export type MailInput = {
   deliveryKey?: string;
   promotional?: boolean;
   cleanReturnRequired?: boolean;
+  from?: string;
   to: string;
+  cc?: string[];
   subject: string;
   html: string;
   /** Defaults to the owner address; set per-send to thread a reply elsewhere. */
@@ -45,6 +47,10 @@ export type MailInput = {
   references?: string[];
   attachments?: MailAttachment[];
 };
+
+/** Shared customer-support sender for Gaffer email replies. */
+export const supportEmailFrom = () =>
+  process.env.SUPPORT_EMAIL_FROM?.trim() || "Bookings <bookings@dbcinemarentals.com>";
 
 export function deliveryMessageId(deliveryKey: string): string {
   return `<rental-${createHash("sha256").update(deliveryKey).digest("hex")}@dbcinemarentals.com>`;
@@ -66,8 +72,9 @@ async function viaGmail(m: MailInput, user: string, pass: string): Promise<boole
     });
     const result = await transport.sendMail({
       ...(m.deliveryKey ? { messageId: deliveryMessageId(m.deliveryKey) } : {}),
-      from: `${FROM_NAME} <${user}>`,
+      from: m.from?.trim() || `${FROM_NAME} <${user}>`,
       to: m.to,
+      ...(m.cc?.length ? { cc: m.cc } : {}),
       subject: m.subject,
       html: m.html,
       replyTo: m.replyTo ?? OWNER_EMAIL(),
@@ -87,7 +94,7 @@ async function viaGmail(m: MailInput, user: string, pass: string): Promise<boole
 }
 
 async function viaResend(m: MailInput, key: string): Promise<boolean> {
-  const from = process.env.RESEND_FROM ?? `${FROM_NAME} <onboarding@resend.dev>`;
+  const from = m.from?.trim() || process.env.RESEND_FROM || `${FROM_NAME} <onboarding@resend.dev>`;
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -96,6 +103,7 @@ async function viaResend(m: MailInput, key: string): Promise<boolean> {
       body: JSON.stringify({
         from,
         to: m.to,
+        ...(m.cc?.length ? { cc: m.cc } : {}),
         subject: m.subject,
         html: m.html,
         reply_to: m.replyTo ?? OWNER_EMAIL(),

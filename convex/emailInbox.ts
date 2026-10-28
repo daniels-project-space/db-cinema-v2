@@ -8,6 +8,18 @@ const OWNER_EMAIL = "dbcinemarentals@gmail.com";
 const LEASE_MS = 2 * 60_000;
 const HUMAN_ALERT_RETRY_DELAYS_MS = [15_000, 60_000] as const;
 
+function makeReplyKey() {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function gafferReplyAddress(replyKey: string, rawDomain = process.env.INBOUND_EMAIL_DOMAIN) {
+  const domain = rawDomain?.trim().toLowerCase();
+  if (!/^[a-f0-9]{24}$/i.test(replyKey) || !domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return null;
+  return `gaffer+${replyKey}@${domain}`;
+}
+
 function assertInboundSecret(secret: string) {
   const expected = process.env.INBOUND_EMAIL_SECRET;
   if (!expected || secret !== expected) throw new Error("unauthorized");
@@ -46,6 +58,13 @@ export const ingest = mutation({
     messageId: v.optional(v.string()),
     inReplyTo: v.optional(v.string()),
     references: v.array(v.string()),
+    replyThreadId: v.optional(v.id("email_threads")),
+    priorMessage: v.optional(v.object({
+      providerId: v.string(),
+      subject: v.string(),
+      text: v.string(),
+      at: v.number(),
+    })),
     from: v.string(),
     name: v.optional(v.string()),
     to: v.string(),
@@ -75,20 +94,27 @@ export const ingest = mutation({
       };
     }
 
-    const accountCandidate = await ctx.db.query("accounts")
+    const accountCandidates = await ctx.db.query("accounts")
       .withIndex("by_email", (q: any) => q.eq("email", email))
-      .first();
-    const account = accountCandidate &&
-      accountCandidate.email?.trim().toLowerCase() === email &&
-      accountCandidate.emailVerificationRequired !== true &&
-      typeof accountCandidate.emailVerifiedAt === "number" &&
-      Number.isFinite(accountCandidate.emailVerifiedAt) &&
-      accountCandidate.emailVerifiedAt > 0
-      ? accountCandidate
-      : null;
+      .order("desc")
+      .take(20);
+    const account = accountCandidates.find((candidate) =>
+      candidate.email?.trim().toLowerCase() === email &&
+      candidate.emailVerificationRequired !== true &&
+      typeof candidate.emailVerifiedAt === "number" &&
+      Number.isFinite(candidate.emailVerifiedAt) &&
+      candidate.emailVerifiedAt > 0,
+    ) ?? null;
     let thread: any = null;
+    if (args.replyThreadId) {
+      const replyThread = await ctx.db.get(args.replyThreadId);
+      if (!replyThread || replyThread.email.trim().toLowerCase() !== email) {
+        throw new Error("email reply address does not match the sender");
+      }
+      thread = replyThread;
+    }
     const correlationIds = [...new Set([args.inReplyTo, ...args.references].filter(Boolean))];
-    for (const messageId of correlationIds) {
+    for (const messageId of thread ? [] : correlationIds) {
       const prior = await ctx.db.query("email_messages")
         .withIndex("by_message_id", (q) => q.eq("messageId", messageId))
         .first();
@@ -117,6 +143,7 @@ export const ingest = mutation({
         email,
         name: args.name?.trim() || account?.name || undefined,
         subject: args.subject.trim().slice(0, 500) || "Customer email",
+        replyKey: makeReplyKey(),
         accountId: account?._id,
         verifiedRenterEmail: account ? email : undefined,
         status: "open",
@@ -132,6 +159,7 @@ export const ingest = mutation({
       await ctx.db.patch(thread._id, {
         accountId: account?._id,
         verifiedRenterEmail: account ? email : undefined,
+        replyKey: thread.replyKey ?? makeReplyKey(),
         ...(args.name?.trim() && !thread.name ? { name: args.name.trim() } : {}),
         updatedAt: now,
         lastAt: now,
@@ -141,6 +169,26 @@ export const ingest = mutation({
         status: thread.status === "closed" ? "open" : thread.status,
       });
       thread = await ctx.db.get(thread._id);
+    }
+
+    if (args.priorMessage) {
+      const prior = await ctx.db.query("email_messages")
+        .withIndex("by_provider", (q) => q.eq("providerId", args.priorMessage!.providerId))
+        .first();
+      if (!prior) {
+        await ctx.db.insert("email_messages", {
+          threadId: thread._id,
+          direction: "out",
+          sender: OWNER_EMAIL,
+          recipient: email,
+          subject: args.priorMessage.subject.trim().slice(0, 500) || thread.subject,
+          text: args.priorMessage.text.trim().slice(0, 12_000),
+          at: Math.min(Math.max(0, args.priorMessage.at), now - 1),
+          providerId: args.priorMessage.providerId,
+          state: "sent",
+          humanRequested: false,
+        });
+      }
     }
 
     const inboundId = await ctx.db.insert("email_messages", {
@@ -192,17 +240,57 @@ export const claimInbound = mutation({
     await ctx.db.patch(inboundId, { state: "processing", leaseUntil: now + LEASE_MS, error: undefined, humanRequested });
     const thread = await ctx.db.get(message.threadId);
     if (!thread) throw new Error("email thread not found");
-    if (humanRequested && thread.humanNotifiedMessageId !== inboundId) {
-      await ctx.db.patch(thread._id, { status: "human_requested", humanNotifiedAt: now, humanNotifiedMessageId: inboundId });
-      await ctx.scheduler.runAfter(0, internal.notify.emailHumanRequestAlert, {
-        email: thread.email,
-        subject: thread.subject,
-        body: message.text.slice(0, 3000),
-        inboundId,
-        attempt: 1,
-      });
-    }
     return { state: "claimed" as const, threadId: message.threadId, inboundId, history: await historyFor(ctx, message.threadId), email: thread.email };
+  },
+});
+
+async function markEmailHumanRequested(ctx: any, thread: any, message: any, inboundId: any, now: number) {
+  await ctx.db.patch(inboundId, { humanRequested: true });
+  if (thread.humanNotifiedMessageId === inboundId) return;
+  await ctx.db.patch(thread._id, {
+    status: "human_requested",
+    humanNotifiedAt: now,
+    humanNotifiedMessageId: inboundId,
+  });
+  await ctx.scheduler.runAfter(0, internal.notify.emailHumanRequestAlert, {
+    email: thread.email,
+    subject: thread.subject,
+    body: message.text.slice(0, 3000),
+    inboundId,
+    attempt: 1,
+  });
+}
+
+/** Apply Gaffer's semantic handoff signal after its reply has been generated. */
+export const markHumanRequested = mutation({
+  args: { secret: v.string(), inboundId: v.id("email_messages") },
+  handler: async (ctx, { secret, inboundId }) => {
+    assertInboundSecret(secret);
+    const message = await ctx.db.get(inboundId);
+    if (!message || message.direction !== "in") throw new Error("inbound message not found");
+    if (message.state !== "processing" && message.state !== "handoff" && message.state !== "replied") {
+      throw new Error("inbound message is not claimed for processing");
+    }
+    const thread = await ctx.db.get(message.threadId);
+    if (!thread) throw new Error("email thread not found");
+    const now = Date.now();
+    const duplicate = thread.humanNotifiedMessageId === inboundId;
+    await markEmailHumanRequested(ctx, thread, message, inboundId, now);
+    return { ok: true, duplicate };
+  },
+});
+
+export const resolveReplyKey = mutation({
+  args: { secret: v.string(), replyKey: v.string(), email: v.string() },
+  handler: async (ctx, { secret, replyKey, email }) => {
+    assertInboundSecret(secret);
+    const thread = await ctx.db.query("email_threads")
+      .withIndex("by_reply_key", (q) => q.eq("replyKey", replyKey))
+      .first();
+    if (!thread || thread.email.trim().toLowerCase() !== email.trim().toLowerCase()) {
+      return { ok: false as const };
+    }
+    return { ok: true as const, threadId: thread._id };
   },
 });
 
@@ -247,6 +335,9 @@ export const claimAutomaticReply = internalMutation({
     const now = Date.now();
     if (existing?.state === "sent") return { state: "sent" as const };
     if (existing?.state === "processing" && (existing.leaseUntil ?? 0) > now) return { state: "busy" as const };
+    const replyKey = thread.replyKey ?? makeReplyKey();
+    if (!thread.replyKey) await ctx.db.patch(args.threadId, { replyKey });
+    const replyThread = { ...thread, replyKey };
     let outboundId = existing?._id;
     if (outboundId) {
       await ctx.db.patch(outboundId, { state: "processing", leaseUntil: now + LEASE_MS, text: args.text, humanRequested: args.humanRequested, error: undefined });
@@ -267,7 +358,7 @@ export const claimAutomaticReply = internalMutation({
       });
     }
     await ctx.db.patch(args.inboundId, { humanRequested: args.humanRequested });
-    return { state: "claimed" as const, outboundId, deliveryKey, thread, inbound };
+    return { state: "claimed" as const, outboundId, deliveryKey, thread: replyThread, inbound };
   },
 });
 
@@ -357,12 +448,22 @@ export const sendAssistantReply = action({
     if (claim.state === "sent") return { ok: true, duplicate: true };
     if (claim.state === "busy") return { ok: false, busy: true };
     const { thread, inbound, outboundId, deliveryKey } = claim;
+    const replyTo = gafferReplyAddress(thread.replyKey);
+    if (!replyTo) {
+      await ctx.runMutation(internal.emailInbox.markSendFailed, {
+        outboundId,
+        inboundId: args.inboundId,
+        error: "INBOUND_EMAIL_DOMAIN is not configured",
+      });
+      throw new Error("Gaffer email reply routing is not configured");
+    }
     const references = [...new Set([...(inbound.references ?? []), inbound.messageId].filter((value): value is string => typeof value === "string" && value.length > 0))].slice(-20);
     const delivery = await ctx.runAction(internal.emailMailer.sendBusinessReply, {
       to: thread.email,
       subject: replySubject(thread.subject),
       html: safeHtml(text),
-      replyTo: OWNER_EMAIL,
+      replyTo,
+      ...(args.humanRequested && thread.email !== OWNER_EMAIL ? { cc: [OWNER_EMAIL] } : {}),
       deliveryKey,
       inReplyTo: inbound.messageId,
       references,
@@ -398,9 +499,12 @@ export const adminThread = query({
   handler: async (ctx, { token, threadId }) => {
     if (!checkAdminToken(token)) return { authorized: false as const, thread: null, messages: [] };
     const thread = await ctx.db.get(threadId);
-    if (!thread) return { authorized: true as const, thread: null, messages: [] };
+    const replyConfigured =
+      process.env.GMAIL_USER?.trim().toLowerCase() === "dbcinemarentals@gmail.com" &&
+      Boolean(process.env.GMAIL_APP_PASSWORD?.trim());
+    if (!thread) return { authorized: true as const, thread: null, messages: [], replyConfigured };
     const messages = (await threadMessages(ctx, threadId, 40)).reverse();
-    return { authorized: true as const, thread, messages };
+    return { authorized: true as const, thread, messages, replyConfigured };
   },
 });
 

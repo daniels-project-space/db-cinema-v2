@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { load, setMock } = require("./lib/rentalTestHarness.cjs");
+const { db, docs, load, put, setMock } = require("./lib/rentalTestHarness.cjs");
 
 const sent = [];
 const results = [];
@@ -15,11 +15,13 @@ setMock("./lib/mailer", {
 setMock("./lib/rentalChat", { postRentalMessage: async () => {} });
 delete process.env.TELEGRAM_BOT_TOKEN;
 delete process.env.TELEGRAM_ADMIN_CHAT_ID;
+process.env.INBOUND_EMAIL_SECRET = "fixture-inbound-secret";
 
-const { emailHumanRequestAlert } = load("convex/notify.ts");
-const { scheduleHumanRequestAlertRetry } = load("convex/emailInbox.ts");
+const { emailHumanRequestAlert, followUpReplyAlert } = load("convex/notify.ts");
+const { claimInbound, markHumanRequested, scheduleHumanRequestAlertRetry } = load("convex/emailInbox.ts");
 const scheduled = [];
 const ctx = {
+  db,
   scheduler: { runAfter: async (...args) => scheduled.push(args) },
   runMutation: async (reference, args) => {
     assert.equal(reference, "emailInbox.scheduleHumanRequestAlertRetry");
@@ -54,6 +56,37 @@ const base = {
   assert.equal(scheduled[1][0], 15_000);
   assert.equal(scheduled[2][0], 60_000);
   assert.equal(scheduled.length, 3, "three failed deliveries end without an unbounded retry loop");
+
+  const thread = put("email_threads", {
+    email: "customer@example.test",
+    subject: "Mic rental request",
+    status: "open",
+  });
+  const inbound = put("email_messages", {
+    threadId: thread._id,
+    direction: "in",
+    state: "received",
+    text: "Would your team please contact me directly?",
+    humanRequested: false,
+  });
+  const inboundId = inbound._id;
+  const beforeHandoff = scheduled.length;
+  await claimInbound.handler(ctx, { secret: "fixture-inbound-secret", inboundId, humanRequested: true });
+  assert.equal(scheduled.length, beforeHandoff, "Gaffer claims and processes the email before any owner alert is scheduled");
+  assert.equal(docs.get(thread._id).status, "open");
+  const firstHandoff = await markHumanRequested.handler(ctx, { secret: "fixture-inbound-secret", inboundId });
+  assert.equal(firstHandoff.duplicate, false);
+  assert.equal(docs.get(thread._id).status, "human_requested");
+  assert.equal(docs.get(inboundId).humanRequested, true);
+  assert.equal(scheduled.length, beforeHandoff + 1, "Gaffer's semantic handoff schedules the urgent owner email");
+  assert.equal(scheduled.at(-1)[1], "notify.emailHumanRequestAlert");
+  const secondHandoff = await markHumanRequested.handler(ctx, { secret: "fixture-inbound-secret", inboundId });
+  assert.equal(secondHandoff.duplicate, true);
+  assert.equal(scheduled.length, beforeHandoff + 1, "retries do not duplicate an urgent human alert");
+  const beforeLegacyReply = sent.length;
+  const legacyReply = await followUpReplyAlert.handler(ctx, { email: "customer@example.test", body: "Can you help me?" });
+  assert.equal(legacyReply.ignored, "legacy owner-only routing disabled");
+  assert.equal(sent.length, beforeLegacyReply, "legacy Gaffer replies are never forwarded directly to the owner");
   process.stdout.write("Human-request email delivery retries and bounded failure checks passed.\n");
 })().catch((error) => {
   console.error(error);

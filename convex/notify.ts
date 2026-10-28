@@ -175,6 +175,56 @@ export const contactAlert = internalAction({
   },
 });
 
+export const contactAutoReply = internalAction({
+  args: {
+    contactId: v.id("contact_messages"),
+    name: v.string(),
+    email: v.string(),
+    message: v.string(),
+  },
+  handler: async (_ctx, a) => {
+    const baseUrl = (process.env.APP_URL ?? "https://dbcinemarentals.com").replace(/\/+$/, "");
+    const secret = process.env.INBOUND_EMAIL_SECRET;
+
+    if (secret) {
+      try {
+        const response = await fetch(`${baseUrl}/api/email/inbound`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${secret}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            source: "contact-form",
+            contactId: a.contactId,
+            name: a.name,
+            email: a.email,
+            message: a.message,
+          }),
+        });
+        const result: any = await response.json().catch(() => null);
+        if (response.ok && (result?.replied === true || result?.duplicate === true)) {
+          return { ok: true, replied: result.replied === true };
+        }
+        console.error("[contact] Gaffer could not complete the contact reply", response.status);
+      } catch (error) {
+        console.error("[contact] Gaffer contact reply request failed", String((error as any)?.message ?? error));
+      }
+    }
+
+    const sent = await email(
+      a.email,
+      "We received your message",
+      `<p>Hi ${esc(a.name)},</p>
+       <p>Thanks for contacting DB Cinema Rentals. We received your message and shared it with our team. Someone will follow up shortly.</p>`,
+      undefined,
+      "bookings@dbcinemarentals.com",
+    );
+    if (!sent) console.error("[contact] fallback acknowledgement could not be delivered");
+    return { ok: !!sent, acknowledged: !!sent };
+  },
+});
+
 const esc = (s: string) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
@@ -183,9 +233,8 @@ const esc = (s: string) =>
  *
  * reply_to carries the thread key, so when the customer hits reply the answer
  * comes back to /api/email/inbound already knowing which conversation it belongs
- * to. Needs INBOUND_EMAIL_DOMAIN set and inbound routing pointed at that route;
- * without it this still sends fine, replies just go to the owner's inbox as
- * normal mail.
+ * to. This fails closed unless the Gaffer reply domain is configured, so the
+ * message is never sent with a reply address that bypasses Gaffer.
  */
 export const followUpEmail = internalAction({
   args: {
@@ -196,12 +245,15 @@ export const followUpEmail = internalAction({
     replyKey: v.string(),
   },
   handler: async (ctx, a) => {
-    const domain = process.env.INBOUND_EMAIL_DOMAIN;
-    const replyTo = domain ? `gaffer+${a.replyKey}@${domain}` : undefined;
+    const domain = process.env.INBOUND_EMAIL_DOMAIN?.trim().toLowerCase();
+    if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) {
+      throw new Error("Gaffer inbound email domain is not configured");
+    }
+    const replyTo = `gaffer+${a.replyKey}@${domain}`;
     const hello = a.name ? `Hi ${esc(a.name)},` : "Hi,";
     const body = esc(a.summary).replace(/\n/g, "<br/>");
 
-    await email(
+    const sent = await email(
       a.to,
       a.subject,
       `<div style="font-family:system-ui,sans-serif;line-height:1.55;color:#111">
@@ -214,21 +266,21 @@ export const followUpEmail = internalAction({
       undefined,
       replyTo,
     );
+    if (!sent) throw new Error("Gaffer follow-up email could not be sent");
     await telegram(`📨 <b>Gaffer follow-up sent</b>\nTo: ${a.to}\n\n${a.summary.slice(0, 500)}`);
   },
 });
 
-/** A customer replied to a follow-up but has no account to route it into. */
+/**
+ * Retained for any already-scheduled legacy jobs. New follow-up replies are
+ * handled by /api/email/inbound and must never be forwarded straight to the
+ * owner without passing through Gaffer first.
+ */
 export const followUpReplyAlert = internalAction({
   args: { email: v.string(), body: v.string() },
-  handler: async (ctx, a) => {
-    await telegram(`↩️ <b>Reply to a Gaffer follow-up</b>\nFrom: ${a.email}\n\n${a.body.slice(0, 800)}`);
-    const owner = process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com";
-    await email(
-      owner,
-      `Reply from ${a.email} — Gaffer follow-up`,
-      `<p><b>${esc(a.email)}</b> replied to a Gaffer follow-up:</p><blockquote>${esc(a.body).replace(/\n/g, "<br/>")}</blockquote>`,
-    );
+  handler: async () => {
+    console.warn("[email/follow-up] suppressed legacy owner-only reply alert; inbound messages must pass through Gaffer");
+    return { ignored: "legacy owner-only routing disabled" as const };
   },
 });
 

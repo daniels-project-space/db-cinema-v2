@@ -122,9 +122,11 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_category", ["category"])
+    .index("by_category_active_demand", ["category", "active", "demandScore"])
     .index("by_active", ["active"])
     .index("by_active_itemType", ["active", "itemType"])
-    .index("by_hyggloProductId", ["hyggloProductId"]),
+    .index("by_hyggloProductId", ["hyggloProductId"])
+    .searchIndex("search_title", { searchField: "title", filterFields: ["active", "category"] }),
 
   // ── Layer 3: the availability ledger (double-booking guard) ───
   rental_change_requests: defineTable({
@@ -948,6 +950,7 @@ export default defineSchema({
     email: v.string(),
     name: v.optional(v.string()),
     subject: v.string(),
+    replyKey: v.optional(v.string()),
     accountId: v.optional(v.id("accounts")),
     verifiedRenterEmail: v.optional(v.string()),
     status: v.union(v.literal("open"), v.literal("human_requested"), v.literal("closed")),
@@ -961,6 +964,7 @@ export default defineSchema({
     humanNotifiedMessageId: v.optional(v.id("email_messages")),
   })
     .index("by_email_updated", ["email", "updatedAt"])
+    .index("by_reply_key", ["replyKey"])
     .index("by_account_updated", ["accountId", "updatedAt"])
     .index("by_updated", ["updatedAt"]),
   email_messages: defineTable({

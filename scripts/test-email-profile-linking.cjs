@@ -15,7 +15,14 @@ setMock("./lib/mailer", {
 });
 process.env.INBOUND_EMAIL_SECRET = "fixture-inbound-secret";
 
-const { ingest } = load("convex/emailInbox.ts");
+const { gafferReplyAddress, ingest, resolveReplyKey } = load("convex/emailInbox.ts");
+
+assert.equal(
+  gafferReplyAddress("abcdef0123456789abcdef01", " DBcinemarentals.com "),
+  "gaffer+abcdef0123456789abcdef01@dbcinemarentals.com",
+);
+assert.equal(gafferReplyAddress("abcdef0123456789abcdef01", ""), null, "never fall back to the owner inbox when Gaffer routing is unconfigured");
+assert.equal(gafferReplyAddress("bad-key", "dbcinemarentals.com"), null);
 
 function input(from, providerId, extra = {}) {
   return {
@@ -75,7 +82,59 @@ function input(from, providerId, extra = {}) {
   assert.equal(docs.get(reverification.threadId).verifiedRenterEmail, undefined);
   assert.equal(chatMessages.length, linkedChatCount, "reverification-pending senders must not be attached to a renter chat");
 
-  process.stdout.write("Email profile linking uses only verified account email and posts into that renter chat.\n");
+  const duplicateEmail = "duplicate-profile@example.com";
+  put("accounts", {
+    email: duplicateEmail,
+    name: "Older unverified duplicate",
+  });
+  const verifiedDuplicate = put("accounts", {
+    email: duplicateEmail,
+    emailVerifiedAt: 2,
+    name: "Verified duplicate",
+  });
+  const duplicateProfile = await ingest.handler({ db }, input(duplicateEmail, "duplicate-profile-message"));
+  assert.equal(duplicateProfile.accountId, verifiedDuplicate._id, "a duplicate unverified row must not hide the verified profile");
+  assert.equal(chatMessages.at(-1).accountId, verifiedDuplicate._id);
+
+  const followUpEmail = "follow-up-renter@example.com";
+  const followUpAccount = put("accounts", {
+    email: followUpEmail,
+    emailVerifiedAt: 3,
+    name: "Follow-up renter",
+  });
+  const followUpReply = await ingest.handler({ db }, input(followUpEmail, "follow-up-reply", {
+    subject: "Re: Following up on your call",
+    priorMessage: {
+      providerId: "gaffer-follow-up:reply-key-1234567890abcdef12345678",
+      subject: "Following up on your call",
+      text: "I can prepare that equipment quote for you.",
+      at: 10,
+    },
+  }));
+  assert.equal(followUpReply.accountId, followUpAccount._id);
+  assert.match(docs.get(followUpReply.threadId).replyKey, /^[a-f0-9]{24}$/i, "every email thread gets a private Gaffer reply token");
+  const followUpMessages = [...docs.values()]
+    .filter((message) => message.threadId === followUpReply.threadId)
+    .sort((a, b) => a.at - b.at);
+  assert.deepEqual(followUpMessages.map((message) => message.direction), ["out", "in"]);
+  assert.equal(followUpMessages[0].text, "I can prepare that equipment quote for you.");
+  assert.deepEqual(followUpReply.history.map((message) => message.role), ["assistant", "user"]);
+  assert.equal(chatMessages.at(-1).accountId, followUpAccount._id, "follow-up email replies join the verified renter chat");
+  const addressedReply = await resolveReplyKey.handler({ db }, {
+    secret: "fixture-inbound-secret",
+    replyKey: docs.get(followUpReply.threadId).replyKey,
+    email: followUpEmail,
+  });
+  assert.equal(addressedReply.ok, true);
+  assert.equal(addressedReply.threadId, followUpReply.threadId);
+  const spoofedAddressedReply = await resolveReplyKey.handler({ db }, {
+    secret: "fixture-inbound-secret",
+    replyKey: docs.get(followUpReply.threadId).replyKey,
+    email: "spoof@example.com",
+  });
+  assert.equal(spoofedAddressedReply.ok, false, "reply tokens remain bound to the exact sender address");
+
+  process.stdout.write("Gaffer reply addresses, profile linking, and follow-up email context passed.\n");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
