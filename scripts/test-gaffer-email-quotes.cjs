@@ -49,6 +49,11 @@ const { rentalEnquiryWindow } = load("src/lib/rentalEnquiryWindow.ts");
 const windowFor = (...texts) => rentalEnquiryWindow(texts.map(content => ({ role: "user", content })), "2026-10-28");
 const actualEmail = "4 complete kits for 20 November 2026, pickup at 10am, returning 23 November 2026 at 10am";
 const overnightEmail = "Please quote 1 Sony FX3 camera body, pickup 20 November 2026 at 5pm and return 21 November 2026 at 9am. Please use a single-camera offer if available and show the day rate and multi-day rate thresholds.";
+for (const connector of ["until", "to", "through", "till"]) {
+  const explicit = windowFor(`Please quote one Sony FX3 camera from 9 November 2026 at 10:00 ${connector} 10 November 2026 at 09:00. Gear hire only, exclude deposits and refundable money. Where do I collect?`);
+  assert.equal(explicit.start, "2026-11-09"); assert.equal(explicit.end, "2026-11-10");
+  assert.equal(explicit.pickupTime, "10:00"); assert.equal(explicit.returnTime, "09:00", `${connector} must preserve both explicitly dated clocks`);
+}
 const actualWindow = windowFor(actualEmail);
 assert.equal(actualWindow.start, "2026-11-20"); assert.equal(actualWindow.end, "2026-11-23");
 assert.equal(actualWindow.pickupTime, "10:00"); assert.equal(actualWindow.returnTime, "10:00");

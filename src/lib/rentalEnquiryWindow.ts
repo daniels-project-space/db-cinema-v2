@@ -24,7 +24,25 @@ export function rentalEnquiryWindow(messages: { role?: string; content?: unknown
     // Chrono reads "the day" in "the day rate" as tomorrow. Mask billing
     // terminology without moving the offsets used to associate real clocks.
     const temporalText = text.replace(/\b(?:(?:the|a)\s+)?(?:(?:(?:multi|\d+)[-\s]*)?(?:day|week|month)|daily|weekly|monthly)[-\s]+(?:rates?|prices?|pricing|discounts?|thresholds?)\b/gi, phrase => " ".repeat(phrase.length));
-    const results = en.GB.parse(temporalText, reference, { forwardDate: true }).filter(result => !/^(?:for\s+)?\d+\s+(?:days?|hours?|weeks?)$/i.test(result.text.trim()));
+    const parse = (value: string, offset = 0) => en.GB.parse(value, reference, { forwardDate: true })
+      .filter(result => !/^(?:for\s+)?\d+\s+(?:days?|hours?|weeks?)$/i.test(result.text.trim()))
+      .map(result => ({ ...result, index: result.index + offset }));
+    let results = parse(temporalText);
+    // Chrono can discard both clocks and the second written date when merging
+    // "9 November at 10:00 until 10 November at 09:00". Independently parse
+    // explicitly dated endpoints, retaining offsets for pickup/return labels.
+    // Shared-month ranges and clock-only clauses keep the original parse.
+    const separators = [...temporalText.matchAll(/\b(?:until|to|till|through)\b/gi)];
+    if (separators.length) {
+      const points = [0, ...separators.map(match => match.index! + match[0].length)];
+      const pieces = points.map((offset, index) => parse(temporalText.slice(offset, separators[index]?.index ?? temporalText.length), offset));
+      if (pieces.filter(piece => piece.some(result => explicitDay(result.start))).length >= 2) {
+        const segmented = pieces.flat();
+        const evidence = (items: typeof results) => items.flatMap(result => [result.start, result.end].filter((part): part is ParsedComponents => !!part))
+          .reduce((total, part) => total + Number(explicitDay(part)) + Number(part.isCertain("hour")), 0);
+        if (evidence(segmented) > evidence(results)) results = segmented;
+      }
+    }
     const dates = [...new Set(results.flatMap(result => [result.start, result.end].filter((p): p is ParsedComponents => !!p && explicitDay(p)).map(day)))];
     if (dates.length > 2) { window = { ambiguous: true }; continue; }
     if (dates.length === 2) { window = { ...window, start: dates[0], end: dates[1], ambiguous: false }; rangeExplicit = true; duration = undefined; }
