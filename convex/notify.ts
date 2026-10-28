@@ -176,52 +176,32 @@ export const contactAlert = internalAction({
 });
 
 export const contactAutoReply = internalAction({
-  args: {
-    contactId: v.id("contact_messages"),
-    name: v.string(),
-    email: v.string(),
-    message: v.string(),
-  },
-  handler: async (_ctx, a) => {
+  args: { contactId: v.id("contact_messages"), name: v.string(), email: v.string(), message: v.string(), attempt: v.optional(v.number()) },
+  handler: async (ctx, a) => {
+    const attempt = a.attempt ?? 0;
     const baseUrl = (process.env.APP_URL ?? "https://dbcinemarentals.com").replace(/\/+$/, "");
     const secret = process.env.INBOUND_EMAIL_SECRET;
-
+    let retryable = true;
     if (secret) {
       try {
         const response = await fetch(`${baseUrl}/api/email/inbound`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${secret}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            source: "contact-form",
-            contactId: a.contactId,
-            name: a.name,
-            email: a.email,
-            message: a.message,
-          }),
+          method: "POST", signal: AbortSignal.timeout(175_000),
+          headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+          body: JSON.stringify({ source: "contact-form", contactId: a.contactId, name: a.name, email: a.email, message: a.message }),
         });
         const result: any = await response.json().catch(() => null);
-        if (response.ok && (result?.replied === true || result?.duplicate === true)) {
-          return { ok: true, replied: result.replied === true };
-        }
-        console.error("[contact] Gaffer could not complete the contact reply", response.status);
-      } catch (error) {
-        console.error("[contact] Gaffer contact reply request failed", String((error as any)?.message ?? error));
-      }
+        if (response.ok && (result?.replied === true || result?.duplicate === true)) return { ok: true, replied: result.replied === true };
+        retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+        console.error("[contact] Gaffer delivery incomplete", response.status, "attempt", attempt + 1);
+      } catch { console.error("[contact] Gaffer request failed, attempt", attempt + 1); }
+    } else { retryable = false; console.error("[contact] Gaffer inbound authentication is not configured"); }
+    if (retryable && attempt < 3) {
+      await ctx.scheduler.runAfter([120_000, 300_000, 900_000][attempt], internal.notify.contactAutoReply, { ...a, attempt: attempt + 1 });
+      return { ok: false, retrying: true };
     }
-
-    const sent = await email(
-      a.email,
-      "We received your message",
-      `<p>Hi ${esc(a.name)},</p>
-       <p>Thanks for contacting DB Cinema Rentals. We received your message and shared it with our team. Someone will follow up shortly.</p>`,
-      undefined,
-      "bookings@dbcinemarentals.com",
-    );
-    if (!sent) console.error("[contact] fallback acknowledgement could not be delivered");
-    return { ok: !!sent, acknowledged: !!sent };
+    await telegram(`🚨 <b>Contact enquiry needs attention</b>\nGaffer could not deliver an answer after ${attempt + 1} attempt(s). Contact ID: ${a.contactId}`);
+    await email(process.env.OWNER_EMAIL ?? "dbcinemarentals@gmail.com", "URGENT: Gaffer contact reply failed", `<p>Gaffer could not answer a contact enquiry. Review the admin contact inbox.</p><p>Contact ID: ${esc(a.contactId)}</p>`, undefined, undefined, `contact-failed:${a.contactId}`);
+    return { ok: false, escalated: true };
   },
 });
 

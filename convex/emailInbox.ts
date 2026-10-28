@@ -1,8 +1,9 @@
 import { v } from "convex/values";
+import { cartLine } from "./checkoutCartData";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
-import { postRentalMessage } from "./lib/rentalChat";
+import { postRentalMessage, accountForToken, rentalThread } from "./lib/rentalChat";
 
 const OWNER_EMAIL = "dbcinemarentals@gmail.com";
 const LEASE_MS = 2 * 60_000;
@@ -15,6 +16,8 @@ function makeReplyKey() {
 }
 
 export function gafferReplyAddress(replyKey: string, rawDomain = process.env.INBOUND_EMAIL_DOMAIN) {
+  const directReply = process.env.INBOUND_REPLY_ADDRESS?.trim().toLowerCase();
+  if (directReply && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(directReply)) return directReply;
   const domain = rawDomain?.trim().toLowerCase();
   if (!/^[a-f0-9]{24}$/i.test(replyKey) || !domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return null;
   return `gaffer+${replyKey}@${domain}`;
@@ -208,12 +211,13 @@ export const ingest = mutation({
     });
 
     if (account && account.blockedAt == null) {
-      await postRentalMessage(ctx, {
+      const profileMessageId = await postRentalMessage(ctx, {
         accountId: account._id,
         sender: "renter",
         text: body,
         meta: { channel: "email", emailThreadId: String(thread._id), emailMessageId: String(inboundId) },
       });
+      await ctx.db.patch(inboundId, { profileMessageId });
     }
 
     return {
@@ -383,7 +387,8 @@ export const finishAutomaticReply = internalMutation({
       ...(args.humanRequested ? { humanNotifiedAt: now } : {}),
     });
     if (thread.accountId) {
-      await postRentalMessage(ctx, { accountId: thread.accountId, sender: "bot", text: args.text, meta: { channel: "email", emailThreadId: String(thread._id), emailMessageId: String(args.outboundId) } });
+      const profileMessageId = await postRentalMessage(ctx, { accountId: thread.accountId, sender: "bot", text: args.text, meta: { channel: "email", emailThreadId: String(thread._id), emailMessageId: String(args.outboundId) } });
+      await ctx.db.patch(args.outboundId, { profileMessageId });
     }
     return { ok: true };
   },
@@ -499,9 +504,7 @@ export const adminThread = query({
   handler: async (ctx, { token, threadId }) => {
     if (!checkAdminToken(token)) return { authorized: false as const, thread: null, messages: [] };
     const thread = await ctx.db.get(threadId);
-    const replyConfigured =
-      process.env.GMAIL_USER?.trim().toLowerCase() === "dbcinemarentals@gmail.com" &&
-      Boolean(process.env.GMAIL_APP_PASSWORD?.trim());
+    const replyConfigured = Boolean(gafferReplyAddress("a".repeat(24)) && (process.env.RESEND_API_KEY || (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)));
     if (!thread) return { authorized: true as const, thread: null, messages: [], replyConfigured };
     const messages = (await threadMessages(ctx, threadId, 40)).reverse();
     return { authorized: true as const, thread, messages, replyConfigured };
@@ -594,6 +597,68 @@ export const sendOwnerReply = action({
       throw new Error("business email reply could not be sent");
     }
     await ctx.runMutation(internal.emailInbox.finishOwnerReply, { threadId: args.threadId, outboundId: claim.outboundId, text, messageId: delivery.messageId, inReplyTo, references });
+    return { ok: true };
+  },
+});
+
+/** Only authenticated, verified ownership can attach pre-signup email history. */
+export const claimForAccount = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const account = await accountForToken(ctx, token);
+    if (!account || !account.emailVerifiedAt || account.emailVerificationRequired || account.blockedAt != null) return { ok: false };
+    await ctx.scheduler.runAfter(0, internal.emailInbox.linkVerifiedHistory, { accountId: account._id, cursor: null });
+    return { ok: true };
+  },
+});
+
+export const linkVerifiedHistory = internalMutation({
+  args: { accountId: v.id("accounts"), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { accountId, cursor }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account || !account.emailVerifiedAt || account.emailVerificationRequired || account.blockedAt != null) return;
+    const page = await ctx.db.query("email_threads").withIndex("by_email_updated", q => q.eq("email", account.email.trim().toLowerCase())).paginate({ cursor, numItems: 10 });
+    for (const thread of page.page) {
+      if (thread.accountId) continue;
+      await ctx.db.patch(thread._id, { accountId, verifiedRenterEmail: account.email });
+      await ctx.scheduler.runAfter(0, internal.emailInbox.copyVerifiedHistory, { accountId, threadId: thread._id, cursor: null });
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.emailInbox.linkVerifiedHistory, { accountId, cursor: page.continueCursor });
+  },
+});
+
+export const copyVerifiedHistory = internalMutation({
+  args: { accountId: v.id("accounts"), threadId: v.id("email_threads"), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { accountId, threadId, cursor }) => {
+    const account = await ctx.db.get(accountId), thread = await ctx.db.get(threadId);
+    if (!account || !thread || thread.accountId !== accountId || thread.email !== account.email || !account.emailVerifiedAt || account.emailVerificationRequired || account.blockedAt != null) return;
+    const page = await ctx.db.query("email_messages").withIndex("by_thread_at", q => q.eq("threadId", threadId)).order("asc").paginate({ cursor, numItems: 40 });
+    for (const message of page.page) {
+      if (message.profileMessageId || (message.direction === "out" && message.state !== "sent")) continue;
+      // Preserve original timestamps; backfill must not emit a new renter message or alert.
+      const id = await ctx.db.insert("messages", { accountId, sender: message.direction === "in" ? "renter" : "bot", text: message.text, at: message.at, readByOwner: true, threadCounted: true, meta: { channel: "email", emailThreadId: String(threadId), emailMessageId: String(message._id) } });
+      await ctx.db.patch(message._id, { profileMessageId: id });
+      const general = await rentalThread(ctx, accountId);
+      if (!general) await ctx.db.insert("chat_threads", { accountId, escalated: thread.status === "human_requested", updatedAt: message.at, lastMessage: message.text.slice(0, 160), lastSender: message.direction === "in" ? "renter" : "bot", unreadOwner: 0, unreadRenter: 0 });
+      else if (message.at > general.updatedAt) await ctx.db.patch(general._id, { updatedAt: message.at, lastMessage: message.text.slice(0, 160), lastSender: message.direction === "in" ? "renter" : "bot" });
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.emailInbox.copyVerifiedHistory, { accountId, threadId, cursor: page.continueCursor });
+  },
+});
+
+/** Prepare a private, expiring rental basket without sending another email. */
+export const prepareQuotedCart = mutation({
+  args: { secret: v.string(), inboundId: v.id("email_messages"), shareKey: v.string(), lines: v.array(cartLine) },
+  handler: async (ctx, a) => {
+    assertInboundSecret(a.secret);
+    if (!/^[A-Za-z0-9_-]{43}$/.test(a.shareKey) || !a.lines.length || a.lines.length > 100) throw new Error("Invalid proposed basket");
+    const inbound = await ctx.db.get(a.inboundId);
+    const thread = inbound && await ctx.db.get(inbound.threadId);
+    if (!inbound || inbound.direction !== "in" || !thread || inbound.state !== "processing") throw new Error("Email is not claimed");
+    const existing = await ctx.db.query("checkout_carts").withIndex("by_share", q => q.eq("shareKey", a.shareKey)).unique();
+    if (existing) return { ok: true };
+    for (const line of a.lines) if (!Number.isSafeInteger(line.start) || !Number.isSafeInteger(line.end) || line.end < line.start || line.end - line.start > 365 * 86400000 || !line.pickupTime || !line.returnTime || !await ctx.db.get(line.listingId)) throw new Error("Invalid proposed item");
+    await ctx.db.insert("checkout_carts", { email: thread.email, accountId: thread.accountId, shareKey: a.shareKey, lines: a.lines, createdAt: Date.now(), expiresAt: Date.now() + 7 * 86400000 });
     return { ok: true };
   },
 });

@@ -18,33 +18,37 @@ import { HomeGearSearch } from "@/components/HomeGearSearch";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { Magnetic } from "@/components/Magnetic";
 import { IconArrowRight } from "@/components/icons";
-import { BadgeTruck, BadgeBrowse, BadgeCalendar, BadgeLock } from "@/components/AnimatedIcons";
+import { BadgeTruck, BadgeBrowse, BadgeCalendar, BadgeLock, BadgeSquare, BadgeShield, BadgeClock } from "@/components/AnimatedIcons";
 import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 
 const trustTiles = [
   {
-    eyebrow: "Our location",
+    eyebrow: "Location",
+    icon: BadgeSquare,
     title: "Based at Trafalgar Square",
     copy: "Pick up from the heart of central London.",
     image: "/images/home/trafalgar-square-location-20261028.webp",
     alt: "Cinema cases in Trafalgar Square, beside Nelson’s Column and the National Gallery",
   },
   {
-    eyebrow: "Ready for set",
+    eyebrow: "Pro maintained",
+    icon: BadgeShield,
     title: "Pro kit, meticulously maintained",
     copy: "Every item checked and cleaned before it leaves us.",
     image: "/images/home/maintained-cinema-gear-20261028.webp",
     alt: "A technician checks a cinema lens beside a professional camera kit",
   },
   {
-    eyebrow: "London-wide service",
+    eyebrow: "Delivery",
+    icon: BadgeTruck,
     title: "Delivered across London",
     copy: "Reliable delivery and collection, straight to your set.",
     image: "/images/home/london-delivery-20261028.webp",
     alt: "Cinema cases being delivered through central London",
   },
   {
-    eyebrow: "Fast, simple booking",
+    eyebrow: "Booking",
+    icon: BadgeClock,
     title: "Ready when you are",
     copy: "Book online in minutes with instant confirmation.",
     image: "/images/home/ready-to-shoot-kit-20261028.webp",
@@ -124,21 +128,24 @@ export default async function Home() {
         <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {trustTiles.map((tile, i) => (
             <Reveal key={tile.title} delay={i * 70} className="h-full">
-              <article className="group relative isolate h-[300px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:h-[330px]">
+              <article className="trust-card group relative isolate h-[300px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:h-[330px]">
                 <Image
                   src={tile.image}
                   alt={tile.alt}
                   fill
                   sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                  className="object-cover transition-transform duration-700 ease-out group-hover:scale-[1.045]"
+                  className="trust-card-image object-cover transition-transform duration-700 ease-out group-hover:scale-[1.045]"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#070709] via-[#070709]/55 to-black/5" aria-hidden />
                 <div className="absolute inset-0 bg-gradient-to-r from-black/25 via-transparent to-transparent" aria-hidden />
                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-accent-400/90 via-accent-300/15 to-transparent opacity-80" aria-hidden />
-                <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6">
+                <div className="absolute inset-x-0 top-0 flex items-center justify-between p-5 sm:p-6">
                   <span className="inline-flex rounded-full border border-white/20 bg-black/65 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/85 shadow-lg backdrop-blur-sm">
                     {tile.eyebrow}
                   </span>
+                  <span className="trust-symbol ci-host rounded-xl border border-accent-300/25 bg-[#160d11]/85 p-2 text-accent-300"><tile.icon className="h-8 w-8" /></span>
+                </div>
+                <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6">
                   <h2 className="mt-4 max-w-[17rem] font-display text-xl font-semibold leading-tight text-white sm:text-2xl">
                     {tile.title}
                   </h2>
@@ -152,6 +159,10 @@ export default async function Home() {
         </div>
       </section>
 
+      <section className="section-window px-6 py-8" aria-label="Find and book rental gear">
+        <div className="mx-auto max-w-7xl"><HomeGearSearch categories={categories} /></div>
+      </section>
+
       {/* ──────────── the instrument — scroll-scrubbed deconstruction ──────────── */}
       <div className="h-8 lg:h-0" aria-hidden />
       <CameraDeconstruct />
@@ -160,30 +171,7 @@ export default async function Home() {
       <div className="film-strip" aria-hidden />
 
       {/* ───────────────── featured gear ───────────────── */}
-      {featured.length > 0 && (
-        <section className="section-window px-6 py-20">
-          <div className="mx-auto max-w-7xl">
-            <Reveal>
-              <div className="flex flex-wrap items-end justify-between gap-4">
-                <div>
-                  <div className="hud-label !text-accent-400/90">Most booked</div>
-                  <h2 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
-                    The kit crews <span className="serif-accent gradient-text text-[1.06em]">fight over</span>
-                  </h2>
-                </div>
-                <HomeGearSearch categories={categories} />
-              </div>
-            </Reveal>
-            <div className="dim-grid rail mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">
-              {featured.slice(0, 8).map((l, i) => (
-                <Reveal key={l._id} delay={Math.min(i, 6) * 60} className="w-[240px] shrink-0 snap-start lg:w-auto">
-                  <GearCard listing={l} />
-                </Reveal>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
+      <HomeGearSearch categories={categories} featured={featured} />
 
       {/* ───────────────── categories ───────────────── */}
       {categories.length > 0 && (

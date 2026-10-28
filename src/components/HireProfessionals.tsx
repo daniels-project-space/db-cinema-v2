@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { Calendar } from "@/components/booking/Calendar";
@@ -119,6 +119,27 @@ export function HireProfessionals() {
   );
 }
 
+/** Play only visible loops; resume after tab switches and retain a poster on autoplay failure. */
+function CrewVideo({ role }: { role: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const video = ref.current!;
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let visible = false;
+    const sync = () => {
+      if (visible && !document.hidden && !motion.matches) { video.muted = true; void video.play().catch(() => {}); }
+      else video.pause();
+    };
+    const observer = new IntersectionObserver(entries => { visible = entries[0].isIntersecting; sync(); }, { threshold: 0.05 });
+    observer.observe(video);
+    document.addEventListener("visibilitychange", sync);
+    motion.addEventListener("change", sync);
+    video.addEventListener("canplay", sync);
+    return () => { observer.disconnect(); document.removeEventListener("visibilitychange", sync); motion.removeEventListener("change", sync); video.removeEventListener("canplay", sync); video.pause(); };
+  }, []);
+  return <video ref={ref} className="crew-video" src={`/crew/${role}.mp4`} poster={`/crew/${role}.jpg`} muted loop playsInline preload="metadata" aria-hidden />;
+}
+
 function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () => void }) {
   const neon = NEON[g.neon] || "var(--color-accent-400)";
   const hrs = g.pros.map((p) => p.rateHourly).filter((n): n is number => n != null);
@@ -130,13 +151,7 @@ function RoleTile({ g, index, onOpen }: { g: Group; index: number; onOpen: () =>
       style={{ ["--neon" as string]: neon }}
       className="crew-card crew-card--vid group w-44 shrink-0 snap-start"
     >
-      <img
-        className="crew-video"
-        src={`/crew/${g.role}.jpg`}
-        alt=""
-        loading="lazy"
-        aria-hidden
-      />
+      <CrewVideo role={g.role} />
       <div className={`crew-scrim${g.role === "videographer" ? " crew-scrim--strong" : ""}`} />
 
       <div className="crew-body">

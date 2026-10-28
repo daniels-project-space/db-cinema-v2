@@ -47,7 +47,7 @@ type AccountCtx = {
   token: string | null;
   me: Me;
   loading: boolean;
-  signUp: (email: string, password: string, name?: string) => Promise<void>;
+  signUp: (email: string, password: string, name?: string, next?: "chat") => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: (credential: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -84,6 +84,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   useEffect(()=>{if(token&&meRes?.email&&!meRes.referralCode)void ensureReferral({token}).catch(()=>{});},[token,meRes?.email,meRes?.referralCode,ensureReferral]);
   const acknowledgeLoyalty = useMutation(api.accounts.acknowledgeLoyalty);
   const claimFollowUpsM = useMutation(api.followUp.claimForAccount);
+  const claimEmails = useMutation(api.emailInbox.claimForAccount);
+  useEffect(() => { if (token && meRes?.email) void claimEmails({ token }).catch(() => {}); }, [token, meRes?.email, claimEmails]);
   useEffect(() => {
     // Email-link account creation completes after signup has returned. Claim
     // the renter's earlier Gaffer history only once ownership is authenticated.
@@ -98,8 +100,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = useCallback(
-    async (email: string, password: string, name?: string) => {
-      const { token } = await signUpA({ email, password, name });
+    async (email: string, password: string, name?: string, next?: "chat") => {
+      const { token } = await signUpA({ email, password, name, next });
       if(!token)return;
       persist(token);
       // Someone who took a Gaffer call, got an email follow-up and only then
