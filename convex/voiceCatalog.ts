@@ -1,6 +1,6 @@
 import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
-import { alreadySupplied, automaticRecommendation, rentableCandidate, unrequestedCameraExtras } from "../shared/recommendationPolicy";
-import { normalizeEquipmentName, equipmentModelsMatch } from "../shared/equipmentIdentity";
+import { alreadySupplied, automaticRecommendation, rentableCandidate, unrequestedCameraExtras, cameraOfferUnits } from "../shared/recommendationPolicy";
+import { normalizeEquipmentName, equipmentModelsMatch, equipmentRequest } from "../shared/equipmentIdentity";
 import { rentalUnavailable } from "./lib/marketingInventory";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
@@ -206,7 +206,8 @@ function shape(r: Doc<"listings">) {
 export const search = query({
   args: { q: v.string(), limit: v.optional(v.number()) },
   handler: async (ctx, { q, limit }) => {
-    const tokens = tokenize(q);
+    const request = equipmentRequest(q);
+    const tokens = tokenize(request.subject);
     const rows = bookable(await ctx.db.query("listings").collect());
     if (!tokens.length) return { matches: [], total: rows.length, brand: null, category: null };
 
@@ -222,7 +223,7 @@ export const search = query({
       .map((r) => ({ r, s: score(r, tokens, brand, category) }))
       .filter((x) => {
         if (x.s <= 0) return false;
-        if (!equipmentModelsMatch(q, x.r.title)) return false;
+        if (!equipmentModelsMatch(request.subject, x.r.title)) return false;
         if (!modelTokens.length) return true;
         const hay = haystack(x.r);
         // Plain substring, or squashed — "a75" spoken for "a7 V" / "a7v" as
@@ -254,7 +255,9 @@ export const search = query({
         // set, bare items come first as a hard rule rather than a tiebreak —
         // scoring alone kept surfacing packages, because a short bundle title
         // ("Sony FX3 + Gimbal set") looks specific by every other measure.
-        const extras = unrequestedCameraExtras(a.r, q) - unrequestedCameraExtras(b.r, q);
+        const quantityFit = Math.abs(cameraOfferUnits(a.r) - request.quantity) - Math.abs(cameraOfferUnits(b.r) - request.quantity);
+        if (quantityFit) return quantityFit;
+        const extras = unrequestedCameraExtras(a.r, request.subject) - unrequestedCameraExtras(b.r, request.subject);
         if (extras) return extras;
         if (!wantsBundle) {
           const ab = isBundle(a.r.title) ? 1 : 0;
