@@ -1369,6 +1369,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
 // ── stage 3: narrate (grounded — only states facts, only names the chosen cards) ──
 const NarrateSchema = z.object({
   reply: z.string().describe("a STRUCTURED reply: one short lead line, then a markdown bullet ('- ') per item/point, then one short closing question — newlines between. Never a paragraph."),
+  additionalAnswer: z.string().optional().describe("For email gear quotes only: answer any other customer questions about collection, location, delivery or verified policies. Leave empty if there are none. Do not repeat equipment, quantities, availability or prices here; the application supplies those exactly."),
   suggestions: z.array(z.string()).describe("exactly 2-3 short next actions in the customer's voice, max 5 words each"),
   humanRequested: z.boolean().describe("true for an explicit human request or when the case requires unavailable facts or a human decision/action; false for ordinary answerable questions and missing rental dates/times"),
 });
@@ -1427,7 +1428,7 @@ ${convo}
 Write Gaffer's reply now in the scannable FORMAT above (lead line, bullets, closing question), plus 2-3 suggestion chips in the customer's voice.`,
   });
   return {
-    reply: channel === "email" && result.enquiry ? gafferEmailQuoteIntro(result.enquiry) : object.reply?.trim() || "How can I help with your shoot?",
+    reply: channel === "email" && result.enquiry ? [gafferEmailQuoteIntro(result.enquiry), object.additionalAnswer?.trim()].filter(Boolean).join("\n\n") : object.reply?.trim() || "How can I help with your shoot?",
     suggestions: (object.suggestions || []).filter((s) => s && s.length <= 56).slice(0, 3),
     humanRequested: channel === "email" && object.humanRequested === true,
   };

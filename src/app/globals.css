@@ -3288,11 +3288,11 @@ html[data-gaffer-nav="1"] .tile-in {
 
 /* Homepage proof cards retain the original animated symbols and a moving edge light. */
 @property --trust-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
-.trust-card::after { content:''; position:absolute; inset:0; border-radius:inherit; padding:1px; background:conic-gradient(from var(--trust-angle),transparent 5%,#cf25352b 25%,#f56e7bb3 34%,transparent 46%,#ffffff1a 72%,transparent 90%); mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); mask-composite:exclude; pointer-events:none; animation:trust-edge 7s linear infinite; z-index:3; }
+.trust-card::after { content:''; position:absolute; inset:0; border-radius:inherit; padding:1px; background:conic-gradient(from var(--trust-angle),transparent 5%,color-mix(in srgb,var(--color-accent-400) 17%,transparent) 25%,color-mix(in srgb,var(--color-accent-300) 70%,transparent) 34%,transparent 46%,#ffffff1a 72%,transparent 90%); mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); mask-composite:exclude; pointer-events:none; animation:trust-edge 7s linear infinite; z-index:3; }
 .trust-card-image { filter:saturate(.36) brightness(.66); opacity:.62; transition:filter .6s,opacity .6s,transform .7s; }
 .trust-card:hover .trust-card-image { filter:saturate(.48) brightness(.73); opacity:.88; }
 .trust-card { background:#141016; transition:background .4s,box-shadow .4s; }
-.trust-card:hover { background:#1b151e; box-shadow:0 16px 55px -24px #c6283d55; }
-.trust-symbol { box-shadow:0 0 26px #d72b3522; }
+.trust-card:hover { background:#1b151e; box-shadow:0 16px 55px -24px color-mix(in srgb,var(--color-accent-400) 33%,transparent); }
+.trust-symbol { box-shadow:0 0 26px color-mix(in srgb,var(--color-accent-400) 14%,transparent); }
 @keyframes trust-edge { to { --trust-angle:360deg; } }
 @media(prefers-reduced-motion:reduce) { .trust-card::after { animation:none; } .trust-card-image { transition:none; } }
