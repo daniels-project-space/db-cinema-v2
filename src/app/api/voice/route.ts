@@ -5,7 +5,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { quoteRentalEnquiry } from "@/lib/gaffer";
 import { deriveItemType } from "../../../../convex/lib/taxonomy";
-import { equipmentOfferLabel, equipmentRequest } from "../../../../shared/equipmentIdentity";
+import { equipmentOfferLabel, equipmentRequest, normalizeEquipmentName } from "../../../../shared/equipmentIdentity";
 import { PICKUP_SLOTS } from "@/lib/site";
 import { dayMs } from "@/lib/dates";
 import { rateLimit } from "@/lib/ratelimit";
@@ -124,10 +124,9 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     const subject = request.subject;
     if (/\b(?:with|and|plus)\b.{0,60}\b(?:lens|gimbal|microphone|mic|monitor|tripod)\b/i.test(subject))
       return say("Please list each specific item you need so I can quote the complete kit.", { needs: "configuration" });
-    const searched: any = await c.query(api.voiceCatalog.search, { q: subject, limit: 3 });
-    const top = searched?.matches?.[0];
-    const full = top?.slug ? await c.query(api.catalog.getListingBySlug, { slug: top.slug }) : null;
-    const itemType = full?.itemType ?? deriveItemType(subject);
+    // Classify the request itself. A broad catalogue search can rank unrelated
+    // products first; its top result must never redefine what the caller asked for.
+    const itemType = deriveItemType(normalizeEquipmentName(subject));
     const listingUnits = input.quantityIsListingUnits !== undefined ? input.quantityIsListingUnits === true
       : !(quantity > 1 && itemType === "wireless-mic" && !/\b(?:kits?|sets?|systems?)\b/i.test(raw));
     if (!listingUnits) return say("Do you mean complete wireless microphone kits, or individual microphones and channels?", { needs: "quantity" });
