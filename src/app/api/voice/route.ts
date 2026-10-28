@@ -155,13 +155,14 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   const hasAlternatives = lines.some(line => line.alternative);
   const names = lines.map(line => `${line.quantity} × ${equipmentOfferLabel(line.title)}${line.alternative ? " (alternative; please confirm)" : ""}`);
   const items = lines.map(line => ({ title: line.title, daily: line.perDay }));
-  if (!lines.length) return say("I haven't found a verified available exact match for that request. Would you like to try alternatives or different dates?", { needs: "availability", enquiry, items });
+  if (!lines.length) return say(enquiry.stockVerified ? "I couldn't find an available match for those times. Would alternatives or different dates work?" : "I couldn't confirm availability yet. Let me check the stock before making a recommendation.", { needs: "availability", enquiry, items });
   const period = `${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}`;
-  const status = enquiry.complete ? hasAlternatives ? "The quantities can be covered with the proposed alternatives. " : "The requested quantities are available for those times. " : enquiry.stockVerified ? "Some items or quantities still need confirmation. " : "This is a provisional quote; availability is unconfirmed. ";
+  const quantities = enquiry.requests.map(request => request.fulfilled === null ? `${request.subject} still needs a stock check` : `${request.fulfilled} of ${request.quantity} ${request.subject}`).join("; ");
+  const status = enquiry.complete ? hasAlternatives ? "The quantities can be covered with the proposed alternatives. " : "The requested quantities are available for those times. " : enquiry.stockVerified ? `For these times, I can offer ${quantities}. ` : "This is a provisional quote; availability is unconfirmed. ";
   const price = enquiry.total !== null ? `${money(enquiry.total)} for ${period}${enquiry.complete ? "" : enquiry.stockVerified ? " for the covered items only" : " (estimate)"}. ` : "The combined price still needs checking. ";
   const selectedIds = new Set(lines.map(line => line.listingId));
   const packing = result.cards.some(card => selectedIds.has(String(card.item?.listingId)) && card.item?.inventoryReviewRequired) ? "Some packing details need confirmation. " : "";
-  const next = enquiry.estimated ? "What pickup and return dates and times would you like?" : !enquiry.timed ? "What times would you like to collect and return it?" : enquiry.complete ? hasAlternatives ? "Would those substitutions work for you? This does not reserve the gear." : "This quote does not reserve the gear." : "Would alternatives or different dates work for you?";
+  const next = enquiry.estimated ? "What pickup and return dates and times would you like?" : !enquiry.timed ? "What times would you like to collect and return it?" : enquiry.complete ? hasAlternatives ? "Would those substitutions work for you? This does not reserve the gear." : "This quote does not reserve the gear." : enquiry.stockVerified && enquiry.requests.every(request => request.fulfilled !== null) ? "Would other dates or another option work for the remainder?" : "I need to check the remaining availability before confirming.";
   return say(`${status}${names.join("; ")}. Gear rental: ${price}${packing}${next}`, { enquiry, items, start: enquiry.start, end: enquiry.end, days: enquiry.days });
 }
 

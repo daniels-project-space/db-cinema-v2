@@ -510,6 +510,7 @@ async function findAlternatives(
   mountHint: string[] = [],
   excludeIds: string[] = [],
   requestText = "",
+  availabilityCheck?: { unknown: boolean },
 ): Promise<any[]> {
   const r: any[] = await candidatesForType(c,itemType||"lens");
   const wantSpecs = specTokens(subjectText);
@@ -555,7 +556,7 @@ async function findAlternatives(
       try {
         const av: any = await availabilityForContext(c,x._id,ctx.start,ctx.end,ctx);
         if ((av?.available ?? 0) > 0) free.push(x);
-      } catch {}
+      } catch { if (availabilityCheck) availabilityCheck.unknown = true; }
     }
     return free;
   }
@@ -1315,13 +1316,14 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
       continue;
     }
     let remaining = request.quantity;
+    let stockUncertain = false;
     const consider = async (listing: any, alternative: boolean) => {
       if (!remaining || cards.length >= 32 || planning.cartStock!.length >= 100) return;
       const card = await addCard(listing, alternative ? `Alternative to ${request.subject}; confirm the substitution` : `Requested ${request.subject}`);
       let stock: any = null;
       if (timed) {
         try { stock = await availabilityForContext(c, listing._id, start, end, planning); }
-        catch { line.fulfilled = null; return; } // A stock outage is uncertainty, never a promise or a zero-stock denial.
+        catch { stockUncertain = true; return; } // A stock outage is uncertainty, never a promise or a zero-stock denial.
       }
       if (card.item.availableUnits === null && Number.isSafeInteger(stock?.available) && stock.available >= 0) {
         card.item.availableUnits = stock.available;
@@ -1356,15 +1358,21 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
       if (!remaining) break;
     }
     if (remaining && cards.length < 32 && request.allowAlternatives !== false) {
-      const alternatives = await findAlternatives(c, request.subject, request.itemType, planning, 8, undefined, subjectMounts(request.subject, original), exact.map(x => String(x._id)));
-      for (const listing of alternatives) {
-        await consider(listing, true);
-        if (!remaining) break;
-      }
+      try {
+        const availabilityCheck = { unknown: false };
+        const alternatives = await findAlternatives(c, request.subject, request.itemType, planning, 8, undefined, subjectMounts(request.subject, original), exact.map(x => String(x._id)), "", availabilityCheck);
+        for (const listing of alternatives) {
+          await consider(listing, true);
+          if (!remaining) break;
+        }
+        if (remaining && availabilityCheck.unknown) stockUncertain = true;
+      } catch { stockUncertain = true; }
     }
+    if (stockUncertain && remaining) line.fulfilled = null;
     if (!exact.length) facts.push(`NO VERIFIED RENTABLE EXACT MATCH for "${request.subject}". Returned substitutes are different products, not the requested model. Do not deny the whole category.`);
   }
   const proposed = enquiry.requests.flatMap(x => x.lines);
+  if (timed && !proposed.length && enquiry.requests.length && enquiry.requests.every(request => request.fulfilled === 0)) enquiry.stockVerified = true;
   if (timed && proposed.length) {
     try {
       const stock: any = await c.query(api.availability.forCart, { items: planning.cartStock! });

@@ -85,7 +85,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
         lines.push(`${line.quantity} × ${link(line.title, line.slug)}: ${gbp(line.total)}${line.alternative ? ` (suggested alternative to ${label(request.subject)}; please confirm)` : ""}.${line.providedUnits && line.providedUnits !== line.quantity ? ` Provides ${line.providedUnits} gear units in the package.` : ""}${saving}${card?.inventoryReviewRequired ? " Some packing details need confirmation." : ""}`);
       }
       if (request.quantityUnit) lines.push(`${request.quantity} × ${label(request.subject)}: please confirm the number of complete kits needed (${request.quantityUnit}).`);
-      else if (!request.lines.length) lines.push(`${request.quantity} × ${label(request.subject)}: ${request.fulfilled === 0 && enquiry.stockVerified ? "unavailable for these times" : "not yet confirmed"}.`);
+      else if (!request.lines.length) lines.push(`${request.quantity} × ${label(request.subject)}: ${request.fulfilled === 0 && enquiry.stockVerified ? "no available match found for these times" : "not yet confirmed"}.`);
       if (request.fulfilled !== null && request.fulfilled < request.quantity) lines.push(`${request.fulfilled} covered; ${request.quantity - request.fulfilled} outstanding for ${label(request.subject)}.`);
     }
     if (lines.length) sections.push(lines.join("\n"));
