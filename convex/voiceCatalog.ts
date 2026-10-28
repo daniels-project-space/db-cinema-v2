@@ -1,5 +1,6 @@
 import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
-import { alreadySupplied, automaticRecommendation, rentableCandidate } from "../shared/recommendationPolicy";
+import { alreadySupplied, automaticRecommendation, rentableCandidate, unrequestedCameraExtras } from "../shared/recommendationPolicy";
+import { normalizeEquipmentName, equipmentModelsMatch } from "../shared/equipmentIdentity";
 import { rentalUnavailable } from "./lib/marketingInventory";
 import { query } from "./_generated/server";
 import { v } from "convex/values";
@@ -60,7 +61,7 @@ const BRANDS = [
 ];
 
 function tokenize(s: string): string[] {
-  return (String(s).toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
+  return (normalizeEquipmentName(s).match(/[a-z0-9]+/g) ?? []).filter(
     (t) => t.length > 1 && !FILLER.has(t),
   );
 }
@@ -221,6 +222,7 @@ export const search = query({
       .map((r) => ({ r, s: score(r, tokens, brand, category) }))
       .filter((x) => {
         if (x.s <= 0) return false;
+        if (!equipmentModelsMatch(q, x.r.title)) return false;
         if (!modelTokens.length) return true;
         const hay = haystack(x.r);
         // Plain substring, or squashed — "a75" spoken for "a7 V" / "a7v" as
@@ -231,7 +233,7 @@ export const search = query({
         // was sitting right there, and the caller was told to try browse()'s
         // softer "can't find that exact model" fallback instead of a direct hit.
         const sq = squash(hay);
-        return modelTokens.some((t) => hay.includes(t) || sq.includes(squash(t)));
+        return modelTokens.every((t) => hay.includes(t) || sq.includes(squash(t)));
       })
       .sort((a, b) => {
         // Brand match outranks everything below it. "Nanlite 300" put an
@@ -252,6 +254,8 @@ export const search = query({
         // set, bare items come first as a hard rule rather than a tiebreak —
         // scoring alone kept surfacing packages, because a short bundle title
         // ("Sony FX3 + Gimbal set") looks specific by every other measure.
+        const extras = unrequestedCameraExtras(a.r, q) - unrequestedCameraExtras(b.r, q);
+        if (extras) return extras;
         if (!wantsBundle) {
           const ab = isBundle(a.r.title) ? 1 : 0;
           const bb = isBundle(b.r.title) ? 1 : 0;

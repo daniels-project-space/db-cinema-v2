@@ -7,6 +7,7 @@ import { tierByKey } from "@/lib/membership";
 import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { rentalDateLabel } from "../../shared/rentalDateLabel";
+import { normalizeEquipmentName } from "../../shared/equipmentIdentity";
 import { rentalPricingDays } from "../../shared/rentalDuration";
 import { gafferEmailQuoteIntro, type GafferEmailQuote } from "../../shared/gafferEmailQuote";
 import { rentalEnquiryWindow } from "./rentalEnquiryWindow";
@@ -15,7 +16,7 @@ import { lensPriority, isCameraSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType, CATEGORY_OF } from "../../convex/lib/taxonomy";
 import { contentsText } from "../../shared/rentalContents";
 import { PICKUP_SLOTS, CONTACT_EMAIL } from "@/lib/site";
-import { alreadySupplied, automaticLens, automaticRecommendation, rentableCandidate, type RecommendationItem } from "../../shared/recommendationPolicy";
+import { alreadySupplied, automaticLens, automaticRecommendation, rentableCandidate, unrequestedCameraExtras, type RecommendationItem } from "../../shared/recommendationPolicy";
 
 /**
  * Gaffer v2 — "engine decides, LLM narrates".
@@ -42,7 +43,7 @@ import { alreadySupplied, automaticLens, automaticRecommendation, rentableCandid
 
 // ── tokenisation / matching (validated against real catalogue data) ─────────────
 function toks(s: string): string[] {
-  return (String(s || "").toLowerCase().match(/[a-z0-9]+/g) || []).filter((t) => t.length >= 2);
+  return (normalizeEquipmentName(s).match(/[a-z0-9]+/g) || []).filter((t) => t.length >= 2);
 }
 /** Strip SEO comparison clauses ("(like Sony FX6 / A7SIII)") — advertising, not the product. */
 function stripCompare(s: string): string {
@@ -99,14 +100,15 @@ function isSpecificSubject(text: string): boolean {
 function titleMatchesQuery(queryText: string, title: string): boolean {
   const qt = toks(queryText);
   if (!qt.length) return false;
-  const cleanTitle = stripCompare(title);
+  const cleanTitle = normalizeEquipmentName(stripCompare(title));
   const tt = new Set(toks(cleanTitle));
   const tj = cleanTitle.toLowerCase().replace(/[^a-z0-9]/g, "");
   const has = (t: string) => tt.has(t) || tj.includes(t);
   const id = queryIdentity(queryText);
   if (id.ranges.length || id.models.length || id.nums.length || id.words.length) {
     if (!id.ranges.every((r) => tj.includes(r))) return false;
-    return [...id.models, ...id.nums, ...id.words].every(has);
+    return id.models.every(model => /^[a-z]+\d/.test(model) && !/^[ft]\d/.test(model) ? tt.has(model) : has(model))
+      && [...id.nums, ...id.words].every(has);
   }
   const words = qt.filter((t) => t.length >= 4);
   const pool = words.length ? words : qt;
@@ -535,7 +537,7 @@ async function findAlternatives(
   // fall back to the full set only if the floor leaves nothing.
   let pool = scored.filter((s) => s.score >= 0);
   if (!pool.length) pool = scored;
-  pool.sort(rankCmp(ctx.pricePref));
+  pool.sort((a, b) => unrequestedCameraExtras(a.x, subjectText) - unrequestedCameraExtras(b.x, subjectText) || rankCmp(ctx.pricePref)(a, b));
   // DETERMINISTIC mount homogenisation: with no camera known, a lens request must not
   // mix mounts (an E-lens alternative can't be an RF lens). Use the explicit hint (the
   // subject's mount); else infer from the top spec-match. Independent of LLM variance.
@@ -1221,7 +1223,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestTe
 }
 
 function enquiryNameMatches(subjectText: string, titleText: string): boolean {
-  const fold = (text: string) => text.replace(/ø/gi, "o").normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  const fold = normalizeEquipmentName;
   const subject = fold(subjectText).replace(/\bbodies\b/gi, "body").replace(/\b(?:complete|rental|hire)\b/gi, " ");
   const title = fold(titleText);
   if (!titleMatchesQuery(subject, title)) return false;
@@ -1299,7 +1301,8 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
       .map(x => [String(x._id), x])).values()]
       .sort((a, b) => {
         const aUnits = unitsPerEnquiryOffer(a, request.subject), bUnits = unitsPerEnquiryOffer(b, request.subject);
-        return Math.max(0, aUnits - request.quantity) - Math.max(0, bUnits - request.quantity) ||
+        return unrequestedCameraExtras(a, request.subject) - unrequestedCameraExtras(b, request.subject) ||
+          Math.max(0, aUnits - request.quantity) - Math.max(0, bUnits - request.quantity) ||
           (a.pricing.daily / aUnits) - (b.pricing.daily / bUnits) || aUnits - bUnits;
       }).slice(0, 8);
     if (request.quantityIsListingUnits === false) {
@@ -1370,7 +1373,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
   if (proposed.length && (!timed || enquiry.stockVerified)) enquiry.total = proposed.reduce((sum, x) => sum + x.total, 0);
   facts.push(`EMAIL ENQUIRY EVIDENCE: ${JSON.stringify(enquiry)}. This is a read-only quote, not a hold or booking. State exactly what is covered and any shortfall. Each alternative is a proposed substitution requiring the customer's agreement. Never count individual transmitters as complete mic kits, or add independently available quantities across overlapping listings.`);
   if (intent.requirementsComplete === false) facts.push("INCOMPLETE ENQUIRY PARSE: additional or ambiguous requirements remain. Do not claim the whole enquiry is fulfilled. Ask the customer to clarify the remaining items; the proposal covers only the listed requirements.");
-  facts.push("PRICING: quote totals and rates exactly from the evidence. For supplied times, started 24-hour London rental periods apply. Date-only totals are provisional until times are supplied. The appended rate ladder lists each listing's actual daily, 3-day, weekly, fortnightly and monthly per-day rates. The applicable tier is already included: do not apply another multi-day discount. Gear hire excludes separately quoted delivery and security payments; never invent their amounts or a membership entitlement for an unverified email sender.");
+  facts.push("PRICING: quote totals and rates exactly from the evidence. For supplied times, started 24-hour London rental periods apply. Date-only totals are provisional until times are supplied. Each listing's applicable multi-day tier is already reflected in its period total. The applicable tier is already included: do not apply another multi-day discount. Gear hire excludes separately quoted delivery and security payments; never invent their amounts or a membership entitlement for an unverified email sender.");
   return { cards, facts, enquiry, askDates: ctx.estimated, askTimes: !ctx.estimated && !timed };
 }
 
@@ -1385,7 +1388,7 @@ const NarrateSchema = z.object({
 async function narrate(history: any[], result: ExecResult, ctx: Ctx, channel: "chat" | "email" = "chat"): Promise<{ reply: string; suggestions: string[]; humanRequested: boolean }> {
   const cardLines = result.cards.map((cd) => `- ${cd.item.title} — £${cd.item.perDay}/day${cd.item.favorite ? " (their saved favourite)" : ""}${cd.item.needsTimes ? " (availability unconfirmed: dates/times needed)" : Number.isSafeInteger(cd.item.availableUnits) ? ` (${cd.item.availableUnits} available for selected dates/times)` : " (availability not confirmed)"}`).join("\n") || "(no cards)";
   const channelRules = channel === "email"
-    ? "EMAIL RESPONSE: the application appends exact quantities, period totals, stock evidence and multi-day rates after your prose. Lead with whether the entire requested quantity can be covered, identify substitutions and shortfalls, and ask for missing dates/times or acceptance of alternatives. Do not duplicate the full appended list or invent a combined total. The appended list is part of the message the customer receives. Put answers to any additional location, collection, delivery or policy questions in additionalAnswer, using the public facts; the application preserves that answer beside its exact gear quote."
+    ? "EMAIL RESPONSE: the application appends one concise itemised quote with quantities, period totals, relevant savings and the team signature after your prose. Lead with whether the entire requested quantity can be covered, identify substitutions and shortfalls, and ask for missing dates/times or acceptance of alternatives. Do not duplicate the full appended list or invent a combined total. The appended list is part of the message the customer receives. Do not add a signature; the application signs the finished email as DB Cinema Rentals team. Put answers to any additional location, collection, delivery or policy questions in additionalAnswer, using the public facts; the application preserves that answer beside its exact gear quote."
     : "";
   const who = `Customer: ${ctx.customerName}.${ctx.memberName ? ` ${ctx.memberName} member — apply their ${ctx.memberPct}% discount and mention the saving.` : ""}${ctx.favTitles.length ? ` Saved favourites: ${ctx.favTitles.join(", ")}.` : ""}${ctx.cartTitles.length ? ` Currently in their cart: ${ctx.cartTitles.join(", ")}.` : ""}${ctx.pastTitles.length ? ` Previously rented: ${ctx.pastTitles.join(", ")}.` : ""}`;
   const convo = history.slice(-6).map((m: any) => `${m.role === "user" ? "CUSTOMER" : "GAFFER"}: ${String(m.content || "")}`).join("\n");
@@ -1394,12 +1397,9 @@ async function narrate(history: any[], result: ExecResult, ctx: Ctx, channel: "c
     prompt:
 `You are Gaffer, Db Cinema Rentals' kit assistant — warm, confident, plain English, lightly playful. London cinema-gear rental shop.
 
-FORMAT (always — replies must be SCANNABLE, never a wall of text):
-- Line 1: ONE short lead sentence (the headline). You may **bold** key words.
-- Then, when presenting gear or options/points, put EACH on its own line as a markdown bullet starting "- ", ≤ 14 words, e.g. "- **Sony 24-70 GM** — £20/day, native E-mount, no adapter". One bullet per CARD you're recommending.
-- NAME GEAR THE WAY A HUMAN WOULD. Catalogue titles are SEO keyword soup — repeated model names, trailing "+", unclosed brackets — so pasting one verbatim looks broken and always busts the 14-word limit. Shorten each to its trade name (brand + model + the one spec that matters): the card "Sony 24-70 mm f2.8 gmaster gm g-master g master zoom lens e mount autofocus +" becomes "**Sony 24-70mm f2.8 GM**", and "Sony FX 3 Cinema Camera Full Frame Mirrorless 4k Sony fx3 (same sensor as a7siii" becomes "**Sony FX3**". Shortening the LABEL is required; inventing a model, spec or price is still forbidden.
-- Last line: ONE short question / call-to-action.
-- Separate the lead, bullets and closing with newlines. NEVER write a paragraph longer than one sentence.
+STYLE:
+Write like a knowledgeable rental colleague replying personally. Answer the actual question first, in plain English. Use short natural paragraphs, usually two to four sentences. Avoid headlines, repetitive summaries, sales patter, decorative dashes and forced bullet lists. Use a short list only when it genuinely makes several choices easier to compare. Do not repeat every card in the prose. Ask one useful question when information is missing; do not force a closing question after a complete answer.
+Use recognisable short equipment names, preserving the exact model, generation and relevant specification. Help the customer get what they requested first. Offer an upgrade only for a concrete benefit relevant to their shoot, and label it as optional. Never add lenses, a gimbal or a package to a camera-only enquiry unless the customer wants them or the exact body cannot be supplied, in which case explain and ask before substituting.
 ${channelRules}
 
 ABSOLUTE GROUNDING RULES (never break):
@@ -1433,7 +1433,7 @@ ${cardLines}
 CONVERSATION:
 ${convo}
 
-Write Gaffer's reply now in the scannable FORMAT above (lead line, bullets, closing question), plus 2-3 suggestion chips in the customer's voice.`,
+Write a concise, natural reply, plus 2-3 useful suggestion chips in the customer's voice.`,
   });
   return {
     reply: channel === "email" && result.enquiry ? [gafferEmailQuoteIntro(result.enquiry), object.additionalAnswer?.trim()].filter(Boolean).join("\n\n") : object.reply?.trim() || "How can I help with your shoot?",

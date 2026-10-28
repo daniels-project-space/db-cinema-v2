@@ -67,70 +67,56 @@ export function isHumanHandoffRequested(subject: string, body: string): boolean 
 }
 
 /** Preserve Gaffer's exact catalogue cards in email, where there is no separate card UI. */
-export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: import("../../shared/gafferEmailQuote").GafferEmailQuote): string {
+export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: import("../../shared/gafferEmailQuote").GafferEmailQuote, preparedBasketUrl?: string): string {
   const gbp = (value: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
-  const rows = Array.isArray(cards) ? cards : [];
-  const seen = new Set<string>();
-  const options: string[] = [];
-  for (const card of rows as any[]) {
-    const item = card?.item;
-    const title = typeof item?.title === "string" ? item.title.replace(/\s+/g, " ").trim() : "";
-    if (!title) continue;
-    const key = String(item.listingId ?? title).toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    const price = Number.isFinite(item.perDay) ? `${gbp(item.perDay)}/day` : null;
-    const requested = !enquiry && item.itemType === "wireless-mic" && Number.isSafeInteger(item.requestedMicKitCount)
-      ? item.requestedMicKitCount as number
-      : null;
-    let stock: string;
-    if (item.needsTimes) {
-      stock = "pickup and return dates/times needed to confirm availability";
-    } else if (Number.isSafeInteger(item.availableUnits) && item.availableUnits >= 0) {
-      const available = item.availableUnits as number;
-      if (requested !== null) {
-        stock = available >= requested
-          ? `${available} available; enough to cover the ${requested} requested kits`
-          : `${available} available; ${requested} kits requested, so this listing is short by ${requested - available}`;
-      } else {
-        stock = item.stockAfterProposal
-          ? `${available} additional rental units available after the other proposed items`
-          : available > 0 ? `${available} available for the selected dates/times` : "none available for the selected dates/times";
-      }
-    } else if (item.available === false) {
-      stock = "not available for the selected dates/times";
-    } else {
-      stock = "availability could not be confirmed";
-    }
-    const window = item.start && item.end
-      ? ` (${item.start}${item.end === item.start ? "" : ` to ${item.end}`}${item.pickupTime && item.returnTime ? `, ${item.pickupTime} pickup / ${item.returnTime} return` : ""})`
-      : "";
-    const period = Number.isFinite(item.total) && Number.isSafeInteger(item.days)
-      ? `; ${gbp(item.total)} per unit for ${item.days} billed day${item.days === 1 ? "" : "s"}${item.estimated ? " (example dates)" : !item.quoteTimed ? " (date-only estimate; times needed)" : ""}${Number.isFinite(item.saved) && item.saved > 0 ? `; saves ${gbp(item.saved)} (${item.savedPct}%) versus the daily rate` : ""}`
-      : "";
-    const rates = Array.isArray(item.rateLadder) ? item.rateLadder
-      .filter((tier: any) => Number.isSafeInteger(tier.days) && Number.isFinite(tier.perDay))
-      .map((tier: any) => {
-        const daily = Number(item.pricing?.daily);
-        const discount = daily > tier.perDay ? Math.round((1 - tier.perDay / daily) * 100) : 0;
-        return `${tier.days}+ days ${gbp(tier.perDay)}/day${discount > 0 ? ` (${discount}% below daily)` : ""}`;
-      }).join(" · ") : "";
-    const link = typeof item.slug === "string" && item.slug ? `\n  https://dbcinemarentals.com/gear/${encodeURIComponent(item.slug)}` : "";
-    options.push(`- ${title}${price ? ` — ${price}` : ""}${period} — ${stock}${window}.${link}\n${rates ? `  Multi-day rates per unit: ${rates}.\n` : ""}`.trimEnd());
-  }
-  const body = String(reply ?? "").trim();
-  const sections = [body];
+  const date = (value: string) => new Date(`${value}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
+  const label = (value: string) => equipmentOfferLabel(value).replace(/[\[\]]/g, "");
+  const link = (title: string, slug: string) => slug ? `[${label(title)}](https://dbcinemarentals.com/gear/${encodeURIComponent(slug)})` : label(title);
+  const rows: any[] = Array.isArray(cards) ? cards : [];
+  const sections = [String(reply ?? "").trim()];
   if (enquiry) {
-    const status = enquiry.complete ? "Full requested quantity covered at the time of checking" : enquiry.requirementsComplete === false ? "Proposal for the listed items only — remaining requirements need clarification" : enquiry.stockVerified ? "Partial proposal — quantities still outstanding" : "Indicative proposal — combined availability unconfirmed";
-    const lines = enquiry.requests.flatMap(request => [
-      `- Requested: ${request.quantity} × ${request.subject}${request.quantityUnit ? ` (${request.quantityUnit})` : ""}. ${request.fulfilled === null ? "Quantity not yet confirmed." : `${request.fulfilled} covered; ${request.quantity - request.fulfilled} outstanding.`}`,
-      ...request.lines.map(line => `  ${line.quantity} × ${line.title}${line.providedUnits && line.providedUnits !== line.quantity ? ` [provides ${line.providedUnits} gear units; the quote prices the whole package]` : ""}${line.alternative ? " [PROPOSED ALTERNATIVE — please confirm]" : ""}: ${gbp(line.total)} for the period.`),
-    ]);
-    sections.push(`Your rental enquiry: ${enquiry.start} to ${enquiry.end}${enquiry.pickupTime && enquiry.returnTime ? `, ${enquiry.pickupTime} pickup / ${enquiry.returnTime} return (London)` : ""}.\n${enquiry.days} billed day${enquiry.days === 1 ? "" : "s"}${enquiry.estimated ? " — EXAMPLE DATES, please provide your actual dates" : !enquiry.timed ? " — date-only estimate; pickup and return times needed" : " — started 24-hour periods"}.\n${status}.\n${lines.join("\n")}${enquiry.total !== null ? `\n${enquiry.complete ? "Gear-hire total" : enquiry.stockVerified ? "Total for the covered items only" : "Indicative gear-hire total"}: ${gbp(enquiry.total)}.` : ""}`);
+    const period = enquiry.start === enquiry.end ? date(enquiry.start) : `${date(enquiry.start)} to ${date(enquiry.end)}`;
+    sections.push(`${enquiry.estimated ? "Example dates: " : ""}${period}${enquiry.timed ? `, ${enquiry.pickupTime} pickup / ${enquiry.returnTime} return (London)` : ""}. ${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}${!enquiry.timed ? " (date-only estimate)" : ""}.`);
+    const lines: string[] = [];
+    for (const request of enquiry.requests) {
+      for (const line of request.lines) {
+        const card = rows.find(card => String(card?.item?.listingId) === line.listingId)?.item;
+        const saving = Number.isFinite(card?.saved) && card.saved > 0 ? ` Includes ${gbp(card.saved * line.quantity)} multi-day saving.` : "";
+        lines.push(`${line.quantity} × ${link(line.title, line.slug)}: ${gbp(line.total)}${line.alternative ? ` (suggested alternative to ${label(request.subject)}; please confirm)` : ""}.${line.providedUnits && line.providedUnits !== line.quantity ? ` Provides ${line.providedUnits} gear units in the package.` : ""}${saving}`);
+      }
+      if (request.quantityUnit) lines.push(`${request.quantity} × ${label(request.subject)}: please confirm the number of complete kits needed (${request.quantityUnit}).`);
+      else if (!request.lines.length) lines.push(`${request.quantity} × ${label(request.subject)}: ${request.fulfilled === 0 && enquiry.stockVerified ? "unavailable for these times" : "not yet confirmed"}.`);
+      if (request.fulfilled !== null && request.fulfilled < request.quantity) lines.push(`${request.fulfilled} covered; ${request.quantity - request.fulfilled} outstanding for ${label(request.subject)}.`);
+    }
+    if (lines.length) sections.push(lines.join("\n"));
+    if (!enquiry.requests.some(request => request.lines.length) && !enquiry.stockVerified) {
+      const options = rows.filter(card => card?.item?.availableUnits == null && Number.isFinite(card?.item?.total)).slice(0, 3);
+      for (const { item } of options) sections.push(`${link(item.title, item.slug)}: ${gbp(item.total)} per unit for ${item.days} rental day${item.days === 1 ? "" : "s"}. Availability is unconfirmed.`);
+    }
+    if (enquiry.total !== null) sections.push(`${enquiry.complete ? "Gear-hire total" : enquiry.stockVerified ? "Total for the covered items only" : "Indicative gear-hire total"}: ${gbp(enquiry.total)}.`);
+    if (enquiry.timed && !enquiry.stockVerified) sections.push("Availability is unconfirmed. Please check the basket before booking.");
+    if (!enquiry.requirementsComplete) sections.push("This covers the items listed above. Please confirm the remaining requirements.");
+    sections.push("This quote does not reserve the gear. Availability is checked again when you book.");
+  } else {
+    const seen = new Set<string>();
+    for (const card of rows) {
+      const item = card?.item;
+      if (typeof item?.title !== "string") continue;
+      const key = String(item.listingId ?? item.title);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const requested = item.itemType === "wireless-mic" && Number.isSafeInteger(item.requestedMicKitCount) ? item.requestedMicKitCount : null;
+      const stock = item.needsTimes ? "Dates and times needed to confirm availability."
+        : Number.isSafeInteger(item.availableUnits) && item.availableUnits >= 0 && requested !== null ? item.availableUnits < requested
+          ? `${item.availableUnits} available; ${requested} kits requested, so this listing is short by ${requested - item.availableUnits}.`
+          : `${item.availableUnits} available; enough to cover the ${requested} requested kits.`
+        : Number.isSafeInteger(item.availableUnits) && item.availableUnits >= 0 ? `${item.availableUnits} ${item.stockAfterProposal ? "additional rental units available after the other proposed items" : "available for these times"}.`
+        : "Availability unconfirmed.";
+      sections.push(`${link(item.title, item.slug)}${Number.isFinite(item.total) && Number.isSafeInteger(item.days) && item.days > 0 ? `: ${gbp(item.total)} for ${item.days} rental day${item.days === 1 ? "" : "s"}` : Number.isFinite(item.perDay) ? `: ${gbp(item.perDay)}/day` : ""}. ${stock}`);
+    }
   }
-  if (options.length) sections.push(`Equipment options and stock checked by Gaffer:\n${options.join("\n\n")}`);
-  if (options.length || enquiry) sections.push("Multi-day rates apply automatically to the entire billed duration once its threshold is reached. Delivery and security payments are separate. This quote does not reserve equipment; availability is checked again at checkout.");
+  if (preparedBasketUrl) sections.push(`[Review your rental basket](${preparedBasketUrl}) and continue booking. The private link lasts seven days; prices and stock are rechecked before payment.`);
+  sections.push("DB Cinema Rentals team");
   return sections.filter(Boolean).join("\n\n");
 }
 
@@ -150,3 +136,4 @@ export function recipientCandidates(msg: any): unknown[] {
 export function plainBody(msg: any): string {
   return msg?.text ?? msg?.TextBody ?? msg?.plain ?? msg?.["body-plain"] ?? "";
 }
+import { equipmentOfferLabel } from "../../shared/equipmentIdentity";
