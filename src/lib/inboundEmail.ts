@@ -70,7 +70,7 @@ export function isHumanHandoffRequested(subject: string, body: string): boolean 
 export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: import("../../shared/gafferEmailQuote").GafferEmailQuote, preparedBasketUrl?: string): string {
   const gbp = (value: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
   const date = (value: string) => new Date(`${value}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
-  const label = (value: string) => value.replace(/\s+/g, " ").replace(/[\[\]]/g, "").trim();
+  const label = (value: string) => equipmentOfferLabel(value).replace(/[\[\]]/g, "");
   const link = (title: string, slug: string) => slug ? `[${label(title)}](https://dbcinemarentals.com/gear/${encodeURIComponent(slug)})` : label(title);
   const rows: any[] = Array.isArray(cards) ? cards : [];
   const sections = [String(reply ?? "").trim()];
@@ -136,3 +136,4 @@ export function recipientCandidates(msg: any): unknown[] {
 export function plainBody(msg: any): string {
   return msg?.text ?? msg?.TextBody ?? msg?.plain ?? msg?.["body-plain"] ?? "";
 }
+import { equipmentOfferLabel } from "../../shared/equipmentIdentity";

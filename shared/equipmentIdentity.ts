@@ -18,3 +18,18 @@ export function equipmentModelsMatch(query: string, title: string): boolean {
   const tokens = new Set(normalizeEquipmentName(identity).match(/[a-z0-9]+/g) ?? []);
   return equipmentModelTokens(query).every(model => tokens.has(model));
 }
+
+/** Remove advertising comparisons without hiding a package's real contents. */
+export function equipmentOfferLabel(title: string): string {
+  const clean = title.replace(/\(\s*(?:same sensor(?: as)?|like|such as|similar to|comparable to|vs\.?|alternative to)\b[^)]*(?:\)|$)/gi, " ")
+    .replace(/\b(FX|FS|RS|GH|BMPCC)[\s-]+(\d+[a-z]*)\b/gi, "$1$2")
+    .replace(/\s+/g, " ").replace(/[\s,+|]+$/, "").trim();
+  const head = clean.match(/^(Sony|Canon|Nikon|Panasonic|Blackmagic)\s+([a-z]+\d+[a-z0-9]*(?:\s+(?:iii|ii|iv|vii|vi|v))?)\b/i);
+  if (head && /\b(?:camera|mirrorless|body)\b/i.test(clean)) {
+    const escaped = head[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const remainder = clean.slice(head[0].length).replace(new RegExp(escaped,"gi"), "")
+      .replace(/\b(?:cinema|camera|full|frame|mirrorless|digital|body|4k|6k|8k)\b/gi, "").replace(/[\s,()–—-]/g, "");
+    if (!remainder) return `${head[0]} camera body`;
+  }
+  return clean;
+}

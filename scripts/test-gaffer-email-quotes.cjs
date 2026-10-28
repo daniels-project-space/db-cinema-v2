@@ -45,6 +45,10 @@ const mixedLenses = { itemType: "lens", inventoryFacts: { contents: ["1 × Sony 
 assert.equal(unitsPerEnquiryOffer(mixedLenses, "lenses"), 3);
 assert.equal(unitsPerEnquiryOffer(mixedLenses, "Sony 24-70mm"), 1, "different focal lengths cannot count as multiple copies of the requested lens");
 assert.equal(unitsPerEnquiryOffer({ itemType: "lens", inventoryFacts: { contents: ["2 × Sony 24-70mm f/2.8 lens"] } }, "Sony 24-70mm f2.8"), 2, "model boundaries must preserve equivalent aperture notation");
+const { equipmentOfferLabel } = load("shared/equipmentIdentity.ts");
+assert.equal(equipmentOfferLabel("Sony FX 3 Cinema Camera Full Frame Mirrorless 4k Sony fx3 (same sensor as a7siii"), "Sony FX3 camera body");
+assert.equal(equipmentOfferLabel("Sony FX3 with 24–70mm GM Lens and DJI RS3 Pro Gimbal"), "Sony FX3 with 24–70mm GM Lens and DJI RS3 Pro Gimbal", "shortening a label must retain actual package contents");
+assert.equal(equipmentOfferLabel("Two Sony FX3 Bodies · Cards and Batteries"), "Two Sony FX3 Bodies · Cards and Batteries", "do not hide the advertised pack quantity");
 const { rentalEnquiryWindow } = load("src/lib/rentalEnquiryWindow.ts");
 const windowFor = (...texts) => rentalEnquiryWindow(texts.map(content => ({ role: "user", content })), "2026-10-28");
 const actualEmail = "4 complete kits for 20 November 2026, pickup at 10am, returning 23 November 2026 at 10am";
