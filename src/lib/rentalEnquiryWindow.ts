@@ -21,7 +21,10 @@ export function rentalEnquiryWindow(messages: { role?: string; content?: unknown
   const reference = new Date(`${today}T12:00:00Z`);
   const texts = [subject, ...messages.filter(x => x.role === "user").map(x => String(x.content ?? ""))].filter(Boolean);
   for (const text of texts) {
-    const results = en.GB.parse(text, reference, { forwardDate: true }).filter(result => !/^(?:for\s+)?\d+\s+(?:days?|hours?|weeks?)$/i.test(result.text.trim()));
+    // Chrono reads "the day" in "the day rate" as tomorrow. Mask billing
+    // terminology without moving the offsets used to associate real clocks.
+    const temporalText = text.replace(/\b(?:(?:the|a)\s+)?(?:(?:(?:multi|\d+)[-\s]*)?(?:day|week|month)|daily|weekly|monthly)[-\s]+(?:rates?|prices?|pricing|discounts?|thresholds?)\b/gi, phrase => " ".repeat(phrase.length));
+    const results = en.GB.parse(temporalText, reference, { forwardDate: true }).filter(result => !/^(?:for\s+)?\d+\s+(?:days?|hours?|weeks?)$/i.test(result.text.trim()));
     const dates = [...new Set(results.flatMap(result => [result.start, result.end].filter((p): p is ParsedComponents => !!p && explicitDay(p)).map(day)))];
     if (dates.length > 2) { window = { ambiguous: true }; continue; }
     if (dates.length === 2) { window = { ...window, start: dates[0], end: dates[1], ambiguous: false }; rangeExplicit = true; duration = undefined; }

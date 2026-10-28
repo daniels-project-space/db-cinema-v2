@@ -1217,6 +1217,9 @@ function enquiryNameMatches(subjectText: string, titleText: string): boolean {
   const subject = fold(subjectText).replace(/\bbodies\b/gi, "body").replace(/\b(?:complete|rental|hire)\b/gi, " ");
   const title = fold(titleText);
   if (!titleMatchesQuery(subject, title)) return false;
+  const modelSpacing = (text: string) => text.toLowerCase().replace(/\b([a-z]{1,10})[\s-]+(\d+[a-z]*)\b/g, "$1$2").replace(/\b([a-z]+\d+[a-z]*)\s+(iii|ii|iv|v|vi|vii)\b/g, "$1$2");
+  const titleTokens = new Set(toks(modelSpacing(title)));
+  if (!queryIdentity(modelSpacing(subject)).models.filter(model => /^[a-z]+\d/.test(model) && !/^[ft]\d/.test(model)).every(model => titleTokens.has(model))) return false;
   const generation = djiMicGeneration(subject);
   if (generation !== null && djiMicGeneration(title) !== generation) return false;
   const qualifiers = subject.toLowerCase().match(/\b(?:dji|rode|sony|canon|arri|red|pro|mini|ii|iii|iv|vi|vii)\b/g) ?? [];
