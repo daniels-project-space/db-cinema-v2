@@ -35,6 +35,7 @@ export function gafferEmailQuoteIntro(quote: GafferEmailQuote): string {
   if (!quote.timed) return "Here’s a provisional quote for your dates. What times would you like to collect and return the gear? I’ll need those to confirm availability and the final price.";
   if (!quote.requirementsComplete) return "Here’s a quote for the items I could identify. Could you clarify the remaining requirements?";
   if (!quote.stockVerified) return "I couldn’t confirm availability for the whole request. The details below show what still needs checking.";
+  if (!quote.complete && quote.requests.some(request => request.fulfilled === null)) return "The items below are available for your times. I’m still checking the remaining request.";
   if (!quote.complete) return "Some of the requested gear is available, but there’s a shortfall shown below. Would different dates or an alternative work for you?";
   const alternatives = quote.requests.some(request => request.lines.some(line => line.alternative));
   return alternatives
