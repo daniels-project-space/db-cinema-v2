@@ -1485,6 +1485,38 @@ export async function quoteRentalEnquiry(input: {
   return planEmailEnquiry(intent, ctx);
 }
 
+/** Read-only structured quote for phone tools. Uses the same allocation and
+ * price engine as email without another model call or any booking writes.
+ */
+export async function quoteRentalEnquiry(input: {
+  subject: string; itemType: string; quantity?: number; start?: string; end?: string;
+  pickupTime?: string; returnTime?: string; days?: number;
+  requests?: { subject: string; itemType: string; quantity: number; quantityIsListingUnits: boolean; allowAlternatives: boolean }[];
+  requirementsComplete?: boolean;
+}) {
+  const ctx = await loadContext({});
+  const quantity = input.quantity ?? 1;
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) throw Error("Invalid rental quantity");
+  const date = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(dayMs(value)) && new Date(dayMs(value)).toISOString().slice(0, 10) === value;
+  ctx.start = input.start ?? ctx.today;
+  const days = input.days ?? 1;
+  if (!Number.isSafeInteger(days) || days < 1 || days > 365 || !date(ctx.start)) throw Error("Invalid rental period");
+  ctx.end = input.end ?? new Date(dayMs(ctx.start) + (days - 1) * 86400000).toISOString().slice(0, 10);
+  if (!date(ctx.end) || ctx.end < ctx.start || dayMs(ctx.end) - dayMs(ctx.start) > 365 * 86400000) throw Error("Invalid rental period");
+  ctx.estimated = !input.start;
+  ctx.pickupTime = input.pickupTime;
+  ctx.returnTime = input.returnTime;
+  ctx.availabilityReady = !ctx.estimated && !!input.pickupTime && !!input.returnTime && PICKUP_SLOTS.includes(input.pickupTime) && PICKUP_SLOTS.includes(input.returnTime) && (ctx.start !== ctx.end || input.returnTime > input.pickupTime);
+  const itemType = input.itemType === "camera-body" ? "camera" : input.itemType;
+  const requests = input.requests?.map(request => ({ ...request, itemType: request.itemType === "camera-body" ? "camera" : request.itemType })) ??
+    [{ subject: input.subject, itemType, quantity, quantityIsListingUnits: true, allowAlternatives: true }];
+  const intent = IntentSchema.parse({
+    intent: "price", subject: input.subject, itemTypes: requests.map(request => request.itemType), cameraModel: "", pricePref: "any",
+    requirementsComplete: input.requirementsComplete !== false, requests,
+  });
+  return planEmailEnquiry(intent, ctx);
+}
+
 // ── stage 3: narrate (grounded — only states facts, only names the chosen cards) ──
 const NarrateSchema = z.object({
   reply: z.string().describe("a STRUCTURED reply: one short lead line, then a markdown bullet ('- ') per item/point, then one short closing question — newlines between. Never a paragraph."),
