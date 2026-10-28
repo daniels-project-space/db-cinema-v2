@@ -1,5 +1,5 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
-import { CONTACT_EMAIL } from "@/lib/site";
+import { CONTACT_EMAIL } from "../site";
 import type { AgreementSnapshot } from "../../../shared/rentalAgreement";
 import type { InspectionInput, InspectionItem } from "../../../shared/returnInspection";
 
