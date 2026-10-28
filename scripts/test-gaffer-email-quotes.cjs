@@ -41,6 +41,9 @@ setMock("@/lib/ai", { generateBotObject: async ({ prompt }) => {
 process.env.OPENROUTER_API_KEY = "isolated-no-provider-calls";
 const { handleChat, unitsPerEnquiryOffer } = load("src/lib/gaffer.ts"), { formatGafferEmailReply } = load("src/lib/inboundEmail.ts");
 assert.equal(unitsPerEnquiryOffer({ title: "5x mics", itemType: "wireless-mic", inventoryFacts: { contents: ["1 × DJI Wireless Mics", "2x transmitter", "1x receiver"] } }, "wireless mic kits"), 1, "reviewed contents override inflated marketing-title counts");
+const mixedLenses = { itemType: "lens", inventoryFacts: { contents: ["1 × Sony 24-70mm lens", "1 × Sony 70-200mm lens", "1 × Sony 35mm lens"] } };
+assert.equal(unitsPerEnquiryOffer(mixedLenses, "lenses"), 3);
+assert.equal(unitsPerEnquiryOffer(mixedLenses, "Sony 24-70mm"), 1, "different focal lengths cannot count as multiple copies of the requested lens");
 const { rentalEnquiryWindow } = load("src/lib/rentalEnquiryWindow.ts");
 const windowFor = (...texts) => rentalEnquiryWindow(texts.map(content => ({ role: "user", content })), "2026-10-28");
 const actualEmail = "4 complete kits for 20 November 2026, pickup at 10am, returning 23 November 2026 at 10am";

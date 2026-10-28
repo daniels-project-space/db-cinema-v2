@@ -1212,15 +1212,32 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestTe
   return { cards, facts, askDates: estimated, askTimes: !estimated && !ctx.availabilityReady };
 }
 
+function enquiryNameMatches(subjectText: string, titleText: string): boolean {
+  const fold = (text: string) => text.replace(/ø/gi, "o").normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  const subject = fold(subjectText).replace(/\bbodies\b/gi, "body").replace(/\b(?:complete|rental|hire)\b/gi, " ");
+  const title = fold(titleText);
+  if (!titleMatchesQuery(subject, title)) return false;
+  const generation = djiMicGeneration(subject);
+  if (generation !== null && djiMicGeneration(title) !== generation) return false;
+  const qualifiers = subject.toLowerCase().match(/\b(?:dji|rode|sony|canon|arri|red|pro|mini|ii|iii|iv|vi|vii)\b/g) ?? [];
+  const compact = title.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return qualifiers.every(word => compact.includes(word));
+}
+
 /** Only reviewed owner counts can turn one offer into multiple requested items.
  * An old title saying '5x mics' is not evidence of five complete wireless kits.
  */
-export function unitsPerEnquiryOffer(listing: any, subject: string): number {
+export function unitsPerEnquiryOffer(listing: any, subject: string, alternative = false): number {
   if (listing.itemType !== "wireless-mic" && /\b(?:sets?|kits?|packs?|bundles?)\b/i.test(subject)) return 1;
+  const identity = subject.replace(/\b(?:a|an|the|some|complete|wireless|microphones?|mics?|kits?|sets?|cameras?|bodies|body|lenses?|lights?|lighting|tripods?|gimbals?|monitors?|batteries|battery|drones?|recorders?|speakers?|mixers?|headphones?|projectors?|accessories|accessory|equipment|gear|rental|hire)\b/gi, "").replace(/[^a-z0-9]/gi, "");
+  const ranges = queryIdentity(subject).ranges;
   const counts = (listing.inventoryFacts?.contents ?? []).flatMap((text: string) => {
     const match = text.match(/^\s*(\d{1,3})\s*[x×]\s*(.+)$/i);
     if (!match || deriveItemType(match[2]) !== listing.itemType) return [];
     if (listing.itemType === "wireless-mic" && /\b(?:transmitters?|receivers?|lavaliers?|lavs?|tx|rx)\b/i.test(match[2]) && !/\b(?:kit|set|system)\b/i.test(match[2])) return [];
+    // A 24–70 + 70–200 + 35mm bundle is three lenses, but only one 24–70.
+    if (identity && !alternative && !enquiryNameMatches(subject, match[2])) return [];
+    if (alternative && listing.itemType === "lens" && ranges.length && !ranges.every(range => match[2].replace(/[^a-z0-9]/gi, "").includes(range))) return [];
     const count = Number(match[1]);
     return count > 0 && count <= 100 ? [count] : [];
   });
@@ -1265,19 +1282,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
     if (!catalogue.has(request.itemType)) catalogue.set(request.itemType, candidatesForType(c, request.itemType));
     const candidates = await catalogue.get(request.itemType)!;
     const original = await resolveSubjectListing(c, request.subject, { camMounts: planning.camMounts, itemType: request.itemType });
-    const matches = (listing: any) => {
-      const fold = (text: string) => text.replace(/ø/gi, "o").normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
-      const subject = fold(request.subject).replace(/\bbodies\b/gi, "body").replace(/\b(?:complete|rental|hire)\b/gi, " ");
-      const title = fold(listing.title);
-      if (!titleMatchesQuery(subject, title)) return false;
-      const generation = djiMicGeneration(request.subject);
-      if (generation !== null && djiMicGeneration(listing.title) !== generation) return false;
-      // Short brands and edition suffixes are meaningful even though the
-      // broad catalogue search deliberately ignores many short words.
-      const qualifiers = request.subject.toLowerCase().match(/\b(?:dji|rode|sony|canon|arri|red|pro|mini|ii|iii|iv|vi|vii)\b/g) ?? [];
-      const compactTitle = title.toLowerCase().replace(/[^a-z0-9]/g, "");
-      return qualifiers.every(word => compactTitle.includes(word));
-    };
+    const matches = (listing: any) => enquiryNameMatches(request.subject, listing.title);
     const exact = [...new Map([original, ...candidates]
       .filter(x => x && rentableCandidate(x) && itemTypeMatches(request.itemType, x.itemType) && matches(x))
       .map(x => [String(x._id), x])).values()]
@@ -1307,7 +1312,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
         card.item.availableUnits = stock.available;
         card.item.available = stock.available > 0;
       }
-      const providedPerOffer = unitsPerEnquiryOffer(listing, request.subject);
+      const providedPerOffer = unitsPerEnquiryOffer(listing, request.subject, alternative);
       const offersNeeded = Math.ceil(remaining / providedPerOffer);
       const count = Number.isSafeInteger(stock?.available) ? Math.min(offersNeeded, Math.max(0, stock.available)) : 0;
       if (timed && !count) return;
