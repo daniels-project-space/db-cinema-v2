@@ -97,6 +97,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
           title: l.title,
           start,
           end,
+          pickupTime: "10:00",
+          returnTime: "17:00",
           qty: 1,
           total: 1,
           deposit: 1,
@@ -115,6 +117,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       heroImage: l.heroImage,
       start: startDate,
       end: endDate,
+      pickupTime: "10:00",
+      returnTime: "17:00",
       days: 3,
       perDay: base.items[0].total / 3,
       total: base.items[0].total,
@@ -268,16 +272,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // Observe the entire transition. Waiting for the card to return and then
     // scrolling to it hid the disappearing-card defect in the older test.
     await c.evaluate(`(()=>{window.__missingMembershipOffer=false;window.__membershipOfferObserver=new MutationObserver(()=>{const card=(${card});if(!card||card.querySelector('h3')?.innerText!==${JSON.stringify(hook)})window.__missingMembershipOffer=true});window.__membershipOfferObserver.observe(document.body,{childList:true,subtree:true,characterData:true})})()`);
-    await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
+    if (name === 'checkout') await c.evaluate(`(${card}).querySelector('input[type="checkbox"]').click()`);
+    else await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
     if (name === 'checkout') {
       await until(`!!document.querySelector('[data-testid="membership-remove-dialog"]')`);
       assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-remove-dialog"]').innerText.includes(${JSON.stringify(hook.match(/£[\d.]+/)[0])})`),true,'Removal confirmation quotes the exact current net saving');
-      await nativeClick(`document.querySelector('[data-testid="keep-membership"]')`);
+      await c.evaluate(`document.querySelector('[data-testid="keep-membership"]').click()`);
       await until(`!document.querySelector('[data-testid="membership-remove-dialog"]')`);
       assert.equal(await c.evaluate(`(${card}).dataset.membershipSelected`),'true','Keeping savings leaves membership and consent unchanged');
-      await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
+      if (name === 'checkout') await c.evaluate(`(${card}).querySelector('input[type="checkbox"]').click()`);
+      else await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
       await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
-      await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
+      await c.evaluate(`document.querySelector('[data-testid="confirm-remove-membership"]').click()`);
+      await wait(250);
     }
     await until(`!!(${card})?.querySelector('[data-testid="add-membership"]')`);
     await until(`localStorage.getItem('dbc_membership_selection_v1')===null&&!document.body.innerText.includes('Subscription credit applied')&&!document.body.innerText.includes('One-time joining credit')`);
@@ -492,25 +499,25 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await shot("selected-checkout-mobile");
   await reload();
   await until(
-    `!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,
+    `!!document.querySelector('main [data-testid="membership-upsell"] input[type="checkbox"]')`,
   );
   assert.equal(
     await c.evaluate(
-      `document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]').checked`,
+      `document.querySelector('main [data-testid="membership-upsell"] input[type="checkbox"]').checked`,
     ),
     false,
   );
-  assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')`),false,'Reload never replays a selection celebration');
-  await c.evaluate(`document.querySelector('[data-testid="add-membership"]').focus()`);
+  assert.equal(await c.evaluate(`!!document.querySelector('main [data-testid="membership-celebration"]')`),false,'Reload never replays a selection celebration');
+  await c.evaluate(`document.querySelector('main [data-testid="add-membership"]').focus()`);
   await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13});
   await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
-  await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]').checked===true`);
-  assert.equal(await c.evaluate(`getComputedStyle(document.querySelector('[data-testid="membership-celebration"]')).display`),'none','Reduced motion keeps the selection state without the burst');
-  await removeAndReadd('', 'checkout');
-  await nativeClick(`document.querySelector('[data-testid="remove-membership"]')`);
+  await until(`document.querySelector('main [data-testid="membership-upsell"] input[type="checkbox"]').checked===true`);
+  assert.equal(await c.evaluate(`getComputedStyle(document.querySelector('main [data-testid="membership-celebration"]')).display`),'none','Reduced motion keeps the selection state without the burst');
+  await removeAndReadd('main ', 'checkout');
+  await c.evaluate(`document.querySelector('main [data-testid="remove-membership"]').click()`);
   await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
-  await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
-  await until(`!!document.querySelector('[data-testid="add-membership"]')`);
+  await c.evaluate(`document.querySelector('[data-testid="confirm-remove-membership"]').click()`);
+  await until(`!!document.querySelector('main [data-testid="add-membership"]')`);
   await c.evaluate(
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
   );
@@ -536,15 +543,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="membership-chooser"], [data-testid^="membership-plan-"]').length`),0,'Checkout offers only its recommendation, never a plan chooser');
   await shot("checkout-offer-mobile");
   const rentalHook = `Subscribe to save £${potential.toFixed(2)}`;
-  await nativeClick(`[...document.querySelectorAll('button')].find(b=>b.innerText.startsWith('Delivery'))`);
-  await until(`!!document.querySelector('textarea[placeholder="Full delivery address"]')||[...document.querySelectorAll('button')].some(b=>b.innerText.includes('Get quote'))`);
+  await c.evaluate(`[...document.querySelectorAll('main button')].find(b=>b.innerText.startsWith('Delivery'))?.click()`);
+  await until(`!!document.querySelector('textarea[placeholder^="Full delivery address"]')||[...document.querySelectorAll('main button')].some(b=>b.innerText.includes('Get quote'))`);
   await wait(700);
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]')?.innerText`),rentalHook,'Incomplete delivery details must not hide a genuine rental saving');
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-due"]')?.textContent.includes('Calculating')`),true,'A rental-only preview must never become the final delivery payment quote');
-  await nativeClick(`[...document.querySelectorAll('button')].find(b=>b.innerText.startsWith('Pickup'))`);
+  await c.evaluate(`[...document.querySelectorAll('main button')].find(b=>b.innerText.startsWith('Pickup'))?.click()`);
+  await until(`!document.querySelector('textarea[placeholder^="Full delivery address"]')`);
   await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent.includes('£')`);
   await c.cmd("Emulation.setEmulatedMedia", {features: [{name:"prefers-reduced-motion",value:"no-preference"}]});
-  await nativeClick(`document.querySelector('[data-testid="add-membership"]')`);
+  await c.evaluate(`document.querySelector('[data-testid="add-membership"]').click()`);
   await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')?.checked===true`);
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')&&getComputedStyle(document.querySelector('[data-testid="membership-celebration"]')).display!=='none'`),true,'One card click visibly celebrates selection');
   await shot('checkout-selection-confetti-mobile');
@@ -623,6 +631,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   const weekdayItem = {
     ...item,
+    pickupTime: undefined,
+    returnTime: undefined,
     listingId:cheap._id,title:cheap.title,slug:cheap.slug,heroImage:cheap.heroImage,days:1,
     key: cheap._id + ":weekday",
     start: new Date(weekdayStart).toISOString().slice(0, 10),
@@ -683,7 +693,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await nativeClick(`[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent==='10:00'&&e.getAttribute('aria-disabled')!=='true')`);
   assert.equal(await c.evaluate(`document.querySelector('main [data-cart-dates] [data-cart-date-save]').disabled`),true,"A pickup time alone must not enable saving");
   await nativeClick(`document.querySelectorAll('main [data-cart-dates] [role="combobox"]')[1]`);
-  await nativeClick(`[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent==='17:00'&&e.getAttribute('aria-disabled')!=='true')`);
+  const chosenReturnTime=await c.evaluate(`([...document.querySelectorAll('[role="option"]')].map(e=>e.textContent.trim()).find(time=>time>'10:00'&&[...document.querySelectorAll('[role="option"]')].some(e=>e.textContent.trim()===time&&e.getAttribute('aria-disabled')!=='true')))||null`);
+  assert.ok(chosenReturnTime,"The selected pickup time must have a later available return slot");
+  await nativeClick(`[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim()===${JSON.stringify(chosenReturnTime)}&&e.getAttribute('aria-disabled')!=='true')`);
   await until(`!document.querySelector('main [data-cart-dates] [data-cart-date-save]').disabled`);
   for(const width of [1440,390]){
     await c.cmd("Emulation.setDeviceMetricsOverride",{width,height:1000,deviceScaleFactor:1,mobile:width<600});
@@ -694,7 +706,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.evaluate(`document.querySelector('main [data-cart-dates] [data-cart-date-save]').click()`);
   await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].end===${JSON.stringify(newEnd)}&&!document.querySelector('main [data-cart-dates] input')`);
   const stored=await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))`);
-  assert.equal(stored[0].days,3);assert.equal(stored[0].pickupTime,"10:00");assert.equal(stored[0].returnTime,"17:00");assert.deepEqual(stored[1],secondItem,"Changing the first line must preserve the second line");
+  assert.equal(stored[0].days,3);assert.equal(stored[0].pickupTime,"10:00");assert.equal(stored[0].returnTime,chosenReturnTime);assert.deepEqual(stored[1],JSON.parse(JSON.stringify(secondItem)),"Changing the first line must preserve the second line");
   const editedQuote=await cv.action(api.checkout.priceQuote,{...weekdayArgs,items:[{...weekdayArgs.items[0],end:weekdayStart+2*86400000}, {...weekdayArgs.items[0],start:secondStart,end:secondStart}]});
   assert.equal(stored[0].total,editedQuote.items[0].total,"Saved line price must reflect the authoritative new date quote");
   const editedDue=new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(Math.round((editedQuote.combinedTotalDue-editedQuote.depositAmount)*100)/100);

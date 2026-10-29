@@ -291,9 +291,15 @@ export function CheckoutMembership({
                 type="checkbox"
                 className="mt-0.5 h-4 w-4 shrink-0 accent-[#acd17c]"
                 checked={confirmed}
+                onClick={(e) => {
+                  if (variant === "checkout" && confirmed) {
+                    e.preventDefault();
+                    removeSelection();
+                  }
+                }}
                 onChange={(e) => {
                   if (e.target.checked) confirmSelection();
-                  else if (selected) removeSelection();
+                  else if (selected && variant !== "checkout") removeSelection();
                 }}
               />
               <span id={consentId}>

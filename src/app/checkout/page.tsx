@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { IconLock, IconCheck, IconTruck, IconPin, IconArrowRight } from "@/components/icons";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
@@ -27,10 +27,9 @@ import { browserCheckoutStorage, readCheckoutDraft, saveCheckoutDraft } from "@/
 import { CartItemTimes } from "@/components/cart/CartItemTimes";
 import { NextAvailableRentalOptions } from "@/components/checkout/NextAvailableRentalOptions";
 import { ReplacementSets } from "@/components/cart/ReplacementSets";
-import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
-
 import { dayMs as ms } from "@/lib/dates";
 import { HOURS_SENTENCE } from "@/lib/site";
+import { groupDeliveryItems } from "../../../shared/deliveryGroups";
 
 import {useCreditBalance} from "@/components/account/useCreditBalance";
 import {CancellationProtection} from "@/components/cart/CancellationProtection";
@@ -92,6 +91,7 @@ export default function CheckoutPage() {
   const getQuote = useAction(api.delivery.quote);
   const track = useMutation(api.analytics.track);
   const membershipRequest = useRef<string|null>(null);
+  const membershipRecommendationCache = useRef<{offerContext:string;recommendations:any[]}|null>(null);
 
   useEffect(() => { membershipRequest.current = null; }, [membership?.tier, membership?.intro]);
   const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
@@ -108,14 +108,11 @@ export default function CheckoutPage() {
   const [dq, setDq] = useState<any>(null);
   const [quoting, setQuoting] = useState(false);
   const [protection, setProtection] = useState<Protection>("verify");
-  const [pickupTime, setPickupTime] = useState("");
-  const [returnTime, setReturnTime] = useState("");
   const allItemTimes=!!items.length&&items.every(i=>i.pickupTime&&i.returnTime);
-  const effectivePickupTime=allItemTimes?[...items].sort((a,b)=>(a.start+" "+a.pickupTime).localeCompare(b.start+" "+b.pickupTime))[0].pickupTime!:pickupTime;
-  const effectiveReturnTime=allItemTimes?[...items].sort((a,b)=>(b.end+" "+b.returnTime).localeCompare(a.end+" "+a.returnTime))[0].returnTime!:returnTime;
-  const stock=useCartStockCheck(items.map(i=>({...i,pickupTime:i.pickupTime||pickupTime||undefined,returnTime:i.returnTime||returnTime||undefined}))),availability=stock.availability;
-  const defaultSlots=useQuery(api.availability.forCheckoutTimeSlots,items.length?{items:items.map(i=>({listingId:i.listingId as any,start:ms(i.start),end:ms(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),pickupTime:pickupTime||undefined,returnTime:returnTime||undefined}:"skip");
-  const invalidTimeOrder = items.some(i => i.start===i.end && !!(i.pickupTime||pickupTime) && !!(i.returnTime||returnTime) && (i.returnTime||returnTime)<=(i.pickupTime||pickupTime));
+  const effectivePickupTime=allItemTimes?[...items].sort((a,b)=>(a.start+" "+a.pickupTime).localeCompare(b.start+" "+b.pickupTime))[0].pickupTime!:"";
+  const effectiveReturnTime=allItemTimes?[...items].sort((a,b)=>(b.end+" "+b.returnTime).localeCompare(a.end+" "+a.returnTime))[0].returnTime!:"";
+  const stock=useCartStockCheck(items),availability=stock.availability;
+  const invalidTimeOrder = items.some(i => i.start===i.end && !!i.pickupTime && !!i.returnTime && i.returnTime<=i.pickupTime);
   const availabilityBlocked = !!items.length && (!stock.ready || !availability || items.some(i => !availability[i.listingId]?.ok));
   const unavailableItems = items.filter(item => availability?.[item.listingId]?.ok === false);
   const unavailableLineIndices = items.flatMap((item, index) => availability?.[item.listingId]?.ok === false ? [index] : []);
@@ -128,7 +125,6 @@ export default function CheckoutPage() {
   const draftScope = account.loading ? null : account.me ? `account:${account.me._id}` : "guest";
   const [restoredScope, setRestoredScope] = useState<string | null>(null);
   const draftReady = !!draftScope && restoredScope === draftScope;
-  const [restoreDeliveryQuote, setRestoreDeliveryQuote] = useState(false);
   const deliveryRequest = useRef(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -153,14 +149,11 @@ export default function CheckoutPage() {
     setPostcode(draft?.postcode ?? profile?.address?.match(PC_RE)?.[1] ?? "");
     setProtection(draft?.protection ?? "verify");
     setUseAccountCredit(draft?.useAccountCredit??false);
-    setPickupTime(draft?.pickupTime ?? "");
-    setReturnTime(draft?.returnTime ?? "");
     setAgreed(draft?.agreed ?? false);
     setDeliveryAgreed(draft?.deliveryAgreed ?? false);
     setSignature(""); setDq(null); setQuoting(false); setRecovery(null); setQuoted(null);
     agreementRequest.current = null; membershipRequest.current = null;
     deliveryRequest.current++;
-    setRestoreDeliveryQuote(draft?.fulfilment === "delivery" && !!draft.postcode);
     setRestoredScope(draftScope);
   }, [draftScope]);
 
@@ -168,10 +161,10 @@ export default function CheckoutPage() {
     if (!draftReady) return;
     saveCheckoutDraft(browserCheckoutStorage(), draftScope!, DRAFT_TERMS, {
       email, name, phone, billingAddress, fulfilment, address, postcode, protection,
-      pickupTime, returnTime, agreed, deliveryAgreed,useAccountCredit,
+      agreed, deliveryAgreed,useAccountCredit,
     });
   }, [draftReady, draftScope, email, name, phone, billingAddress, fulfilment, address,
-    postcode, protection, pickupTime, returnTime, agreed, deliveryAgreed,useAccountCredit]);
+    postcode, protection, agreed, deliveryAgreed,useAccountCredit]);
 
   useEffect(() => {
     const profile = account.me;
@@ -183,18 +176,27 @@ export default function CheckoutPage() {
     setAddress(v => v || profile.address || "");
     setPostcode(v => v || profile.address?.match(PC_RE)?.[1] || "");
   }, [account.me?.email]);
-  const deliveryFee = fulfilment === "delivery" && dq?.ok ? dq.fee : 0;
+  const deliveryGroups = useMemo(() => groupDeliveryItems(items.map(i => ({
+    listingId: i.listingId as string, start: ms(i.start), end: ms(i.end),
+  }))), [items]);
+  const deliveryKey = JSON.stringify({
+    postcode: postcode.trim().replace(/\s+/g, "").toUpperCase(),
+    groups: deliveryGroups,
+  });
+  const deliveryQuoteCurrent = fulfilment === "delivery" && dq?.ok && dq.key === deliveryKey;
+  const deliveryDateLabel = (value: number) => new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" });
+  const deliveryPeriodLabel = (start: number, end: number) => start === end ? deliveryDateLabel(start) : `${deliveryDateLabel(start)}–${deliveryDateLabel(end)}`;
 
   const detailsDone = /\S+@\S+\.\S+/.test(email) && name.trim().length >= 3 && billingAddress.trim().length >= 10;
   const deliveryAddressPostcode = address.match(PC_RE)?.[1]?.replace(/\s/g, "").toUpperCase() ?? "";
   const quotedPostcode = postcode.match(PC_RE)?.[1]?.replace(/\s/g, "").toUpperCase() ?? "";
   const fulfilmentDone =
-    !!effectivePickupTime && !!effectiveReturnTime && (fulfilment === "pickup" ||
-      (dq?.ok && address.trim().length >= 10 && deliveryAddressPostcode === quotedPostcode && !!quotedPostcode && deliveryAgreed));
+    allItemTimes && !invalidTimeOrder && (fulfilment === "pickup" ||
+      (deliveryQuoteCurrent && address.trim().length >= 10 && deliveryAddressPostcode === quotedPostcode && !!quotedPostcode && deliveryAgreed));
   const priceArgs = {
     items: items.map((i) => ({
       listingId: i.listingId as any, title: i.title, start: ms(i.start), end: ms(i.end),
-      qty: 1, total: i.total, deposit: i.deposit, offerType: i.offerType,pickupTime:i.pickupTime||effectivePickupTime||undefined,returnTime:i.returnTime||effectiveReturnTime||undefined,
+      qty: 1, total: i.total, deposit: i.deposit, offerType: i.offerType,pickupTime:i.pickupTime,returnTime:i.returnTime,
     })),
     token: account.token && account.me ? account.token : undefined,
     selectedMembership: membership ? {tier:membership.tier,intro:membership.intro} : undefined,
@@ -205,17 +207,18 @@ export default function CheckoutPage() {
     promoCode: promo.applied ?? undefined,
     protection,useAccountCredit,
   };
-  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null, creditReservation:creditAvailability?.available??null, policy:{assessment:checkoutSettings?.assessmentSecurityEnabled,deposit:checkoutSettings?.refundableDepositEnabled,cancellation:checkoutSettings?.cancellationProtectionEnabled}, account: accountPricingContext(account.me) });
-  const offerContext = membershipOfferContext({ ...priceArgs, quotedDeliveryFee: dq?.fee ?? null, account: accountPricingContext(account.me) });
+  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, creditReservation:creditAvailability?.available??null, policy:{assessment:checkoutSettings?.assessmentSecurityEnabled,deposit:checkoutSettings?.refundableDepositEnabled,cancellation:checkoutSettings?.cancellationProtectionEnabled}, account: accountPricingContext(account.me) });
+  const offerContext = membershipOfferContext({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, account: accountPricingContext(account.me) });
   const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
   // Delivery details are not needed to quote the rental-only joining saving.
   // This preview never becomes the billing quote or enables payment.
   const rentalPreview = useBasketPrice(true, false, effectivePickupTime, effectiveReturnTime);
   const membershipDisplayQuote = currentQuote ?? rentalPreview.quote;
-  const membershipRecommendations = membershipRecommendationPreview(quoted ? {
-    offerContext: quoted.offerContext, recommendations: quoted.value.recommendations,
-  } : null, offerContext, !!quoteError);
-  const displayedRecommendations = membershipDisplayQuote?.recommendations ?? membershipRecommendations ?? rentalPreview.recommendations;
+  const membershipRecommendations = membershipRecommendationPreview(membershipRecommendationCache.current, offerContext, !!quoteError);
+  const displayedRecommendations = membershipRecommendations?.length ? membershipRecommendations : rentalPreview.recommendations?.length ? rentalPreview.recommendations : membershipDisplayQuote?.recommendations ?? [];
+  useEffect(() => {
+    if (!membership && displayedRecommendations.length) membershipRecommendationCache.current={offerContext,recommendations:displayedRecommendations};
+  }, [displayedRecommendations, membership, offerContext]);
   const equipmentValue = currentQuote?.replacementValue ?? replacementSum;
   useEffect(() => { if (equipmentValue < 1000 && protection === "deposit") setProtection("verify"); }, [equipmentValue, protection]);
   const holdAmount = currentQuote?.depositHoldAmount ?? depositFor(protection, replacementSum);
@@ -223,11 +226,12 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     setQuoteError(null);
-    if (!draftReady || !priceArgs.items.length || (fulfilment === "delivery" && (!dq?.ok || !quotedPostcode))) return;
+    if (!draftReady || !priceArgs.items.length || (fulfilment === "delivery" && (!deliveryQuoteCurrent || !quotedPostcode))) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       getPriceQuote(priceArgs).then((value) => {
         if (!cancelled) {
+          if (!membership && value.recommendations?.length) membershipRecommendationCache.current={offerContext,recommendations:value.recommendations};
           setQuoted({ key: quoteKey, offerContext, value });
           if (shouldResetMembershipPreference(membership, value)) {
             setMembership(null);
@@ -272,31 +276,29 @@ export default function CheckoutPage() {
   const readyRecorded=useRef(false);
   useEffect(()=>{if(valid&&!readyRecorded.current){readyRecorded.current=true;void track({type:"checkout_form_ready",sessionId:getSessionId()}).catch(()=>{});}},[valid,track]);
 
-  const deliveryKey = JSON.stringify({ postcode: postcode.trim().toUpperCase(), items: items.map(i => i.listingId) });
   const currentDeliveryKey = useRef(deliveryKey);
   currentDeliveryKey.current = deliveryKey;
 
-  async function quoteDelivery() {
-    if (!postcode.trim()) return;
+  const quoteDelivery = useCallback(async () => {
+    if (!postcode.trim() || !deliveryGroups.length) return;
     const request = ++deliveryRequest.current, key = deliveryKey;
     const current = () => deliveryRequest.current === request && currentDeliveryKey.current === key;
     setQuoting(true);
     setDq(null);
     try {
-      const r = await getQuote({ postcode: postcode.trim(), listingIds: items.map((i) => i.listingId as any) });
-      if (current()) setDq(r);
+      const r = await getQuote({ postcode: postcode.trim(), groups: deliveryGroups.map(group => ({ ...group, listingIds: group.listingIds as any })) });
+      if (current()) setDq({ ...r, key });
     } catch (e: any) {
-      if (current()) setDq({ ok: false, reason: e?.message ?? "Quote failed" });
+      if (current()) setDq({ ok: false, reason: e?.message ?? "Quote failed", key });
     } finally {
       if (deliveryRequest.current === request) setQuoting(false);
     }
-  }
+  }, [deliveryGroups, deliveryKey, getQuote, postcode]);
+  const quoteDeliveryRef = useRef(quoteDelivery);
+  quoteDeliveryRef.current = quoteDelivery;
   useEffect(() => {
-    if (draftReady && restoreDeliveryQuote && items.length) {
-      setRestoreDeliveryQuote(false);
-      void quoteDelivery();
-    }
-  }, [draftReady, restoreDeliveryQuote, items.length]);
+    if (draftReady && fulfilment === "delivery" && PC_RE.test(postcode)) void quoteDeliveryRef.current();
+  }, [draftReady, fulfilment, deliveryKey]);
 
   const recoveryKey=JSON.stringify({priceArgs,phone,billingAddress,name,email,pickupTime:effectivePickupTime,returnTime:effectiveReturnTime,signature,agreed,deliveryAgreed,total:currentQuote?.combinedTotalDue,deliveryFee:currentQuote?.quotedDeliveryFee,membershipTermsAccepted:membership?.termsAccepted});
   const recoveryStock = useQuery(api.bookings.recoveryStock,recovery?.acceptance ? {requestId:recovery.acceptance,token:account.token??undefined}:"skip");
@@ -323,6 +325,8 @@ export default function CheckoutPage() {
           total: i.total,
           deposit: i.deposit,
           offerType: i.offerType,
+          pickupTime: i.pickupTime,
+          returnTime: i.returnTime,
         })),
         token: account.token ?? undefined, // Server verifies account ownership and current member benefits.
         customer: { email, name: name || undefined, phone: phone || undefined, billingAddress },
@@ -381,12 +385,6 @@ export default function CheckoutPage() {
         <CheckoutCode benefitKind={currentQuote?.benefitKind}/>
         {checkoutSettings?.cancellationProtectionEnabled&&<div className="mb-4"><CancellationProtection/></div>}
         <CheckoutMembership variant="checkout" loading={rentalPreview.loading && !quoteError} appliedSavings={membershipDisplayQuote ?? undefined} suggestions={displayedRecommendations} selected={membership} onChange={value=>{setMembership(value); membershipRequest.current=null;}} />
-        <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/45">
-          <span data-testid="checkout-security-note">{refundablePolicy && (currentQuote?.depositAmount ?? 0) > 0 ? `${formatGbp(currentQuote!.depositAmount)} refundable deposit included; later card charges require evidence and notice` : "Security is shown in your quote; later card charges require evidence and notice"}</span>
-          <span className="text-white/20">·</span>
-          <span>Need a hand? Message us any time</span>
-        </p>
-
         <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_330px]">
           <div className="flex flex-col gap-5">
             {/* 01 — details */}
@@ -456,15 +454,19 @@ export default function CheckoutPage() {
                       placeholder="Delivery postcode *"
                       className="input min-w-0 flex-1 font-mono uppercase placeholder:normal-case placeholder:font-sans"
                     />
-                    <button onClick={quoteDelivery} disabled={quoting || !postcode.trim()} className="btn-primary px-4 text-sm">
+                    <button onClick={() => void quoteDelivery()} disabled={quoting || !postcode.trim()} className="btn-primary px-4 text-sm">
                       {quoting ? "…" : "Get quote"}
                     </button>
                   </div>
-                  {dq && (dq.ok ? (
-                    <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
-                      {dq.vehicleLabel} · ~{dq.km}km · round trip (delivery + collection): 2 × £{dq.oneWay}{" "}
-                      <span className="font-semibold">= £{dq.fee}</span>{" "}
-                      <span className="text-emerald-300/60">(incl. margin)</span>
+                  <p className="text-[11px] text-white/45">One postcode covers every rental period; delivery and collection are calculated separately for each date range.</p>
+                  {dq && dq.key === deliveryKey && (dq.ok ? (
+                    <div className="space-y-1 rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+                      {dq.groups.map((group: {start:number;end:number;fee:number;oneWay:number;vehicleLabel:string;km:number}, index:number) => <div key={`${group.start}-${group.end}-${index}`} className="flex flex-wrap justify-between gap-x-3">
+                        <span>{deliveryPeriodLabel(group.start, group.end)} · {group.vehicleLabel} · ~{group.km}km · 2 × £{group.oneWay}</span>
+                        <span className="font-semibold">£{group.fee} round trip</span>
+                      </div>)}
+                      <div className="border-t border-emerald-300/15 pt-1 font-semibold">Total delivery & collection · £{dq.fee}</div>
+                      <span className="text-emerald-300/60">Prices include the delivery margin.</span>
                     </div>
                   ) : (
                     <div className="rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{dq.reason}</div>
@@ -480,12 +482,7 @@ export default function CheckoutPage() {
               )}
 
               {/* times (both pickup & delivery) */}
-              <div className="mb-4 space-y-3">{items.map(item=><CartItemTimes key={item.key} item={item} defaultPickupTime={pickupTime} defaultReturnTime={returnTime} delivery={fulfilment==="delivery"}/>)}</div>
-              {availabilityBlocked && !canRecover && <p className="mt-4 text-sm text-amber-200">Item-specific times apply on each item’s pickup and return dates. Choose a valid rental period; your saved choices are kept.</p>}
-              {!allItemTimes&&<><p className="mb-2 text-xs text-white/55">Default times apply only to items without their own collection times.</p>              <div className="mt-4 flex gap-3">
-                <TimeSlotPicker id="co-time-out" label={fulfilment === "delivery" ? "Delivery time *" : "Pickup time *"} value={pickupTime} onChange={setPickupTime} disabled={!availabilityBlocked&&!defaultSlots} allowedSlots={availabilityBlocked?undefined:defaultSlots?.pickupBoundarySlots??defaultSlots?.pickupSlots}/>
-                <TimeSlotPicker id="co-time-back" label={fulfilment === "delivery" ? "Collection time *" : "Return time *"} value={returnTime} onChange={setReturnTime} disabled={!availabilityBlocked&&!defaultSlots} allowedSlots={availabilityBlocked?undefined:defaultSlots?.returnBoundarySlots??defaultSlots?.returnSlots}/>
-              </div></>}
+              <div className="mt-3 divide-y divide-white/10">{items.map((item,index)=><CartItemTimes key={`${item.listingId}|${item.start}|${item.end}|${index}`} item={item} delivery={fulfilment==="delivery"}/>)}</div>
             </StepCard>
 
             <StepCard n="03" title="Agreements & signature" done={signDone} delay={140}>
@@ -535,7 +532,7 @@ export default function CheckoutPage() {
                   <span className="font-mono">−{formatGbp(currentQuote.totalReduction - currentQuote.membershipSignupOfferSaving)}</span>
                 </div>
               )}
-              {(currentQuote?.deliveryFee ?? deliveryFee) > 0 && <Row label="Delivery (round trip)" value={currentQuote?.deliveryFee ?? deliveryFee} />}
+              {fulfilment === "delivery" && (currentQuote?.deliveryGroups ?? (deliveryQuoteCurrent ? dq.groups : [])).map((group: {start:number;end:number;fee:number}, index:number) => <Row key={`${group.start}-${group.end}-${index}`} label={`Delivery & collection · ${deliveryPeriodLabel(group.start,group.end)}`} value={group.fee} />)}
               {(creditAvailability?.available??0)>0&&(currentQuote?.availableAccountCredit??0)>0&&<label className="mb-4 block rounded-xl border border-emerald-300/20 bg-emerald-300/[.04] p-3 text-xs leading-5 text-white/75"><span className="flex items-center gap-2"><input data-testid="checkout-use-credit" type="checkbox" checked={useAccountCredit} disabled={busy} onChange={e=>{setUseAccountCredit(e.target.checked);if(e.target.checked)window.dispatchEvent(new CustomEvent("dbc:credit:selected",{detail:{accountId:account.me?._id}}));}}/>Use account credit · {formatGbp(currentQuote!.availableAccountCredit)} available</span><span className="mt-1 block text-[10px] text-white/50">Selected credit is non-refundable and cannot be withdrawn as cash, subject to statutory rights. Existing expiry dates apply. Credit cannot pay the refundable deposit or membership fee. Earned credit does not stack with discounts.</span></label>}
               {!!currentQuote?.membershipSignupOfferSaving && <Row label="One-time joining credit" value={-currentQuote.membershipSignupOfferSaving} saving />}
               {!!currentQuote?.membershipCreditApplied && <Row label="Subscription credit applied" value={-currentQuote.membershipCreditApplied} saving />}
@@ -562,12 +559,12 @@ export default function CheckoutPage() {
             </div>
             {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
             {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
-            {!!items.length&&<div className="mt-4"><CartStockNotice needsTimes={stock.needsTimes} checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
+            {!!items.length&&!stock.needsTimes&&!stock.invalidTimeOrder&&<div className="mt-4"><CartStockNotice ready={stock.ready} checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
             {invalidTimeOrder&&<p role="status" className="mt-4 text-sm text-amber-200">Choose a return time later than pickup, or a later return date in your basket.</p>}
             {availabilityBlocked&&!stock.needsTimes&&!invalidTimeOrder&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
             {unavailableItems.length>0&&!canRecover&&<section className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/[.04] p-4" aria-label="Unavailable items and replacement sets">
               <h3 className="text-sm font-semibold text-amber-100">Unavailable for these rental dates</h3>
-              <NextAvailableRentalOptions lineIndices={unavailableLineIndices} defaultPickupTime={pickupTime} defaultReturnTime={returnTime} />
+              <NextAvailableRentalOptions lineIndices={unavailableLineIndices} />
               <p className="mt-2 text-xs leading-5 text-white/55">You can shift one item to its next checked time above, or choose a checked replacement set below. The rest of your basket stays in place.</p>
               <div className="mt-3"><ReplacementSets item={unavailableItems[0]} /></div>
             </section>}

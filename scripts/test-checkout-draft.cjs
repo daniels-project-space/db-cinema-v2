@@ -6,7 +6,7 @@ const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value)
 const now = Date.UTC(2026, 9, 8);
 const draft = { email: 'renter@example.invalid', name: 'Fixture Renter', phone: '07000000000',
   billingAddress: '123 Fixture Street, London', fulfilment: 'delivery', address: '123 Fixture Street, London',
-  postcode: 'SW1A 1AA', protection: 'deposit', pickupTime: '10:00', returnTime: '18:00', agreed: true, deliveryAgreed: true };
+  postcode: 'SW1A 1AA', protection: 'deposit', agreed: true, deliveryAgreed: true };
 saveCheckoutDraft(storage, 'guest', 'current-documents', { ...draft, signature: 'NEVER STORE ME', quote: 1,
   requestId: 'do-not-replay', accountToken: 'do-not-store', recovery: {} }, now);
 assert.deepEqual(readCheckoutDraft(storage, 'guest', 'current-documents', now + 100), draft);
@@ -24,7 +24,7 @@ values.set(checkoutDraftKey('guest'), '{corrupt');
 assert.equal(readCheckoutDraft(storage, 'guest', 'current-documents', now), null);
 saveCheckoutDraft(storage, 'guest', 'current-documents', { ...draft, pickupTime: '04:00', returnTime: 'oops',
   fulfilment: 'invalid', protection: 'invalid', agreed: 'yes', deliveryAgreed: 'yes' }, now);
-assert.deepEqual(readCheckoutDraft(storage, 'guest', 'current-documents', now), { ...draft, pickupTime: '', returnTime: '',
+assert.deepEqual(readCheckoutDraft(storage, 'guest', 'current-documents', now), { ...draft,
   fulfilment: 'pickup', protection: 'verify', agreed: false, deliveryAgreed: false });
 const denied = { getItem() { throw Error('Storage denied'); }, setItem() { throw Error('Quota exceeded'); } };
 assert.equal(readCheckoutDraft(denied, 'guest', 'terms', now), null);

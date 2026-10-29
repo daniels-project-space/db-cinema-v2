@@ -35,7 +35,7 @@ const discovery=h.load('convex/catalog.ts').discovery;
  }
  assert(fs.readFileSync('src/components/HomeGearSearch.tsx','utf8').includes('index < 8'),'home search should retain the eight-card carousel limit');
  const guides=h.load('src/lib/guides.ts').GUIDES;for(const c of categories)assert(guides.some(g=>g.slug===c.guide));
- const detail=fs.readFileSync('src/app/gear/[slug]/page.tsx','utf8');assert(!detail.includes('schema.org/InStock'));assert(!detail.includes('priceValidUntil'));assert(detail.includes('initialListing={l}'));assert(detail.includes('notFound()'));assert(detail.includes('LeaseOut'));
+ const detail=fs.readFileSync('src/app/gear/[slug]/page.tsx','utf8');assert(detail.includes('availability: l.bookable ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"'),'structured availability follows the authoritative bookable status');assert(!detail.includes('priceValidUntil'));assert(detail.includes('initialListing={l}'));assert(detail.includes('notFound()'));assert(detail.includes('LeaseOut'));
  const root=fs.readFileSync('src/app/layout.tsx','utf8');assert(!root.includes('alternates: { canonical: "/" }'));
  const {sitemapXmlUrl}=h.load('src/lib/sitemapXml.ts');
  const image='https://hygglo.imgix.net/kit.jpeg?cs=strip&fm=pjpg&q=70';

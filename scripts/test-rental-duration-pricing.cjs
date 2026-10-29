@@ -32,7 +32,8 @@ try {
   const dateEditor = fs.readFileSync("src/components/cart/CartItemDates.tsx", "utf8");
   assert.match(catalog, /rentalPricingDays\(it\.start,\s*it\.end,\s*it\.pickupTime,\s*it\.returnTime\)/, "server listing repricing uses selected clocks");
   assert.match(pricing, /pickupTime:\s*i\.pickupTime,\s*returnTime:\s*i\.returnTime/, "checkout forwards selected clocks to authoritative repricing");
-  assert.match(checkout, /pickupTime:\s*i\.pickupTime\s*\|\|\s*effectivePickupTime[^,]*,\s*returnTime:\s*i\.returnTime\s*\|\|\s*effectiveReturnTime/, "checkout price quote uses the selected per-line or default clocks");
+  assert.match(checkout, /pickupTime:\s*i\.pickupTime,\s*returnTime:\s*i\.returnTime/, "checkout price quote uses each rental line's selected clocks");
+  assert.doesNotMatch(checkout, /pickupTime:\s*i\.pickupTime\s*\|\|\s*effectivePickupTime/, "checkout does not reuse a global clock across rental lines");
   assert.match(dateEditor, /pickupTime,\s*returnTime,\s*qty:\s*1/, "cart date editor forwards selected clocks when repricing");
   console.log("Rental duration pricing: PASS");
 } finally {

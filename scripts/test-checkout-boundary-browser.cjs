@@ -40,7 +40,7 @@ const backend=process.env.DBC_CONVEX_URL||'https://deafening-stoat-340.convex.cl
   const item={key:listing._id+':boundary-proof',listingId:listing._id,slug:listing.slug,title:listing.title,heroImage:listing.heroImage??null,start:dateString,end:dateString,pickupTime:'18:00',returnTime:'20:00',days:1,perDay:listing.pricing.daily,total:listing.pricing.daily,deposit:listing.depositAmount};
   await c.cmd('Page.addScriptToEvaluateOnNewDocument',{source:`if(!sessionStorage.getItem('boundary-proof-seeded')){localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([item]))});localStorage.removeItem('dbc_membership_selection_v1');sessionStorage.setItem('boundary-proof-seeded','1')}`});await reload();
   const picker=n=>`document.querySelectorAll('[data-checkout-item-times] [role=combobox]')[${n}]`;
-  async function ready(){await until(`${picker(0)}&&!${picker(0)}.disabled`,'Item time controls settle')}
+  async function ready(){await until(`!!document.querySelector('[data-checkout-item-times] > button[aria-controls]')`,'Item time row loads');await c.evaluate(`(()=>{const row=document.querySelector('[data-checkout-item-times] > button[aria-controls]');if(row?.getAttribute('aria-expanded')!=='true')row?.click()})()`);await until(`${picker(0)}&&!${picker(0)}.disabled`,'Item time controls settle')}
   async function select(n,time){await ready();await c.evaluate(`${picker(n)}.click()`);await until(`!!document.querySelector('[role=listbox]')`,'Time choices open');assert.equal(await c.evaluate(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent===${JSON.stringify(time)})?.getAttribute('aria-disabled')`),'false',`${time} is stock-free independently of clock ordering`);await c.evaluate(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent===${JSON.stringify(time)}).click()`)}
   await ready();console.log('Boundary checkout loaded');
   await select(0,'21:00');await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].pickupTime==='21:00'&&JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].returnTime==='22:00'`,'Return auto-adjusts after changed pickup');assert(await c.evaluate(`document.body.innerText.includes('Return moved to 22:00')`),'Adjustment is visibly announced');
@@ -70,12 +70,14 @@ const backend=process.env.DBC_CONVEX_URL||'https://deafening-stoat-340.convex.cl
   const persisted=await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0]`);assert.equal(persisted.pickupTime,'21:00');assert.equal(persisted.returnTime,'09:00');assert.equal(persisted.end,endString);
   const full=await client.query(api.availability.forCart,{items:[{listingId:listing._id,start:date,end,pickupTime:'21:00',returnTime:'09:00'}]});assert.equal(full[listing._id].ok,true,'Complete period passes the authoritative basket check');
   const untimed={...periodItem};delete untimed.pickupTime;delete untimed.returnTime;
+  const untimedPair=periodSlots.validPairs.find(pair=>pair.pickupTime!==pair.returnTime);
+  assert.ok(untimedPair,'The available full-period item has a complete pickup and return pair');
   await c.cmd('Page.addScriptToEvaluateOnNewDocument',{source:`if(!sessionStorage.getItem('untimed-proof-seeded')){localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([untimed]))});sessionStorage.setItem('untimed-proof-seeded','1')}`});
   await reload();await ready();
-  assert(await c.evaluate(`document.querySelector('main').innerText.includes('Choose pickup and return times to check availability')`),'Untimed checkout asks for both clocks without locking the controls');
+  assert(await c.evaluate(`document.querySelector('[data-checkout-item-times]')?.innerText.includes('Times needed')`),'Untimed checkout shows the per-item missing-times status without a separate blocking banner');
   assert.equal(await c.evaluate(`document.querySelector('main').innerText.includes('Some gear is unavailable')`),false,'Incomplete selection is not a stock verdict');
-  await select(0,'10:00');await select(1,'17:00');
-  await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].pickupTime==='10:00'&&JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].returnTime==='17:00'`,'Missing clocks can be completed in checkout');
+  await select(0,untimedPair.pickupTime);await select(1,untimedPair.returnTime);
+  await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].pickupTime===${JSON.stringify(untimedPair.pickupTime)}&&JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].returnTime===${JSON.stringify(untimedPair.returnTime)}`,'Missing clocks can be completed in checkout');
   const competingItems=Array.from({length:slots.available+1},(_,index)=>({...item,key:`${listing._id}:next-window-${index}`}));
   const competingRequests=competingItems.map(line=>({listingId:line.listingId,start:date,end:date,pickupTime:'18:00',returnTime:'20:00'}));
   const blocked=await client.query(api.availability.forCart,{items:competingRequests});assert.equal(blocked[listing._id].ok,false,'Duplicate basket lines exceed the real available pool');

@@ -1,5 +1,6 @@
 "use client";
-import { useId, useState } from "react";
+
+import { useEffect, useId, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { dayMs, daysInclusive } from "@/lib/dates";
@@ -7,19 +8,19 @@ import { rentalPricingDays } from "../../../shared/rentalDuration";
 import { TimeSlotPicker } from "../checkout/TimeSlotPicker";
 import { useCart, type CartItem } from "./CartProvider";
 
-/** Checkout edits the saved basket line, so going back retains its own clocks. */
-export function CartItemTimes({ item, defaultPickupTime, defaultReturnTime, delivery = false }: {
-  item: CartItem; defaultPickupTime: string; defaultReturnTime: string; delivery?: boolean;
-}) {
+/** Checkout keeps each line's own clocks and collapses completed time controls. */
+export function CartItemTimes({ item, delivery = false }: { item: CartItem; delivery?: boolean }) {
   const cart = useCart(), id = useId(), priceQuote = useAction(api.checkout.priceQuote);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const pickupTime = item.pickupTime || defaultPickupTime;
-  const returnTime = item.returnTime || defaultReturnTime;
+  const [expanded, setExpanded] = useState(false);
+  const pickupTime = item.pickupTime || "";
+  const returnTime = item.returnTime || "";
   const sameDay = item.start === item.end;
   const invalidOrder = sameDay && !!pickupTime && !!returnTime && returnTime <= pickupTime;
   const billableDays = invalidOrder ? daysInclusive(item.start, item.end) : rentalPricingDays(dayMs(item.start), dayMs(item.end), pickupTime, returnTime);
-  // Boundary choices must remain usable before a complete valid pair exists.
-  // The final basket check still gates payment after the customer chooses times.
+
+  useEffect(() => { if (invalidOrder) setExpanded(true); }, [invalidOrder]);
+
   const slots = useQuery(api.availability.forTimeSlots, {
     listingId: item.listingId as any,
     start: dayMs(item.start),
@@ -30,8 +31,8 @@ export function CartItemTimes({ item, defaultPickupTime, defaultReturnTime, deli
       listingId: i.listingId as any,
       start: dayMs(i.start),
       end: dayMs(i.end),
-      pickupTime: i.pickupTime || defaultPickupTime || undefined,
-      returnTime: i.returnTime || defaultReturnTime || undefined,
+      pickupTime: i.pickupTime || undefined,
+      returnTime: i.returnTime || undefined,
     })),
   });
 
@@ -41,8 +42,6 @@ export function CartItemTimes({ item, defaultPickupTime, defaultReturnTime, deli
     setError(null);
     try {
       let total = item.total;
-      // Keep an intermediate same-day clock choice visible so the customer can
-      // correct it. The invalid pair cannot be priced until its order is fixed.
       const invalidSameDayOrder = item.start === item.end && !!first && !!last && last <= first;
       if (first && last && !invalidSameDayOrder) {
         const quote = await priceQuote({
@@ -84,18 +83,36 @@ export function CartItemTimes({ item, defaultPickupTime, defaultReturnTime, deli
   }
 
   const dateLabel = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" });
-  return <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3" data-checkout-item-times={item.key}>
-    <p className="text-sm font-medium text-white/90">{item.title}</p>
-    <p className="mt-1 text-xs text-white/50">{item.start} → {item.end}</p>
-    {pickupTime && returnTime && !invalidOrder && <p className="mt-1 text-xs text-accent-200/80" aria-live="polite">{billableDays} rental day{billableDays === 1 ? "" : "s"} · billed by the selected rental duration</p>}
-    <div className="mt-3 grid grid-cols-2 gap-3">
-      <TimeSlotPicker id={`${id}-pickup`} label={`${delivery ? "Delivery" : "Pickup"} · ${dateLabel(item.start)}`} value={pickupTime} onChange={choosePickup} disabled={!slots || busy} allowedSlots={slots?.available ? slots.pickupBoundarySlots ?? slots.pickupSlots : undefined} />
-      <TimeSlotPicker id={`${id}-return`} label={`${delivery ? "Collection" : "Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time => void choose(pickupTime, time)} disabled={!slots || busy} allowedSlots={slots?.available ? slots.returnBoundarySlots ?? slots.returnSlots : undefined} />
-    </div>
-    {invalidOrder && <p role="alert" className="mt-2 text-xs text-amber-200">Return must be later than pickup on the same day. Choose a later return time or change the return date in your basket.</p>}
-    {(!pickupTime || !returnTime) && <p className="mt-2 text-xs text-white/55">Choose pickup and return times to check availability.</p>}
-    {pickupTime && returnTime && slots && !slots.available && !invalidOrder && <p className="mt-2 text-xs text-amber-200">The equipment is unavailable for this full rental period. Adjust the pickup or return time, or choose different dates or a replacement in your basket.</p>}
-    {busy && <p className="mt-2 text-xs text-white/55" role="status">Updating rental duration and price…</p>}
-    {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
+  const status = invalidOrder ? "Fix return time" : pickupTime && returnTime ? `${pickupTime} → ${returnTime}` : "Times needed";
+
+  return <div className="py-2.5" data-checkout-item-times={item.key}>
+    <button
+      type="button"
+      className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-2 text-left transition-colors hover:bg-white/[.035]"
+      aria-expanded={expanded}
+      aria-controls={`${id}-controls`}
+      onClick={() => setExpanded(value => !value)}
+    >
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-medium text-white/85">{item.title}</span>
+        <span className="block text-[11px] text-white/45">{dateLabel(item.start)}{item.start !== item.end ? ` – ${dateLabel(item.end)}` : ""}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        <span className={`text-xs ${pickupTime && returnTime && !invalidOrder ? "text-accent-200/80" : "text-amber-200/75"}`}>{status}</span>
+        <svg className={`h-4 w-4 text-white/45 transition-transform ${expanded ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m5 7.5 5 5 5-5"/></svg>
+      </span>
+    </button>
+    {expanded && <div id={`${id}-controls`} className="mt-2 rounded-lg border border-white/10 bg-white/[.02] p-2.5">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
+        <TimeSlotPicker id={`${id}-pickup`} label={`${delivery ? "Delivery" : "Pickup"} · ${dateLabel(item.start)}`} value={pickupTime} onChange={choosePickup} disabled={!slots || busy} allowedSlots={slots?.available ? slots.pickupBoundarySlots ?? slots.pickupSlots : undefined} />
+        <TimeSlotPicker id={`${id}-return`} label={`${delivery ? "Collection" : "Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time => void choose(pickupTime, time)} disabled={!slots || busy} allowedSlots={slots?.available ? slots.returnBoundarySlots ?? slots.returnSlots : undefined} />
+      </div>
+      {pickupTime && returnTime && !invalidOrder && <p className="mt-2 text-[11px] text-accent-200/75" aria-live="polite">{billableDays} rental day{billableDays === 1 ? "" : "s"} · billed by the selected rental duration</p>}
+      {invalidOrder && <p role="alert" className="mt-2 text-xs text-amber-200">Return must be later than pickup on the same day. Choose a later return time or change the return date.</p>}
+      {pickupTime && returnTime && slots && !slots.available && !invalidOrder && <p className="mt-2 text-xs text-amber-200">Unavailable for this full rental period. Adjust a time or date, or choose a replacement in your basket.</p>}
+      {busy && <p className="mt-2 text-xs text-white/55" role="status">Updating rental duration and price…</p>}
+      {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
+    </div>}
+    {!expanded && error && <p role="alert" className="ml-2 mt-1 text-xs text-red-300">{error}</p>}
   </div>;
 }

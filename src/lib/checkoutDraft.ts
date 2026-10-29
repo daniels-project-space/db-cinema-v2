@@ -1,11 +1,9 @@
-import { PICKUP_SLOTS } from "./site";
-
 /** Tab-scoped convenience only. Prices, signatures and payment/consent attempt
  * IDs are deliberately never restored from this draft. */
 export type CheckoutDraft = {
   email: string; name: string; phone: string; billingAddress: string;
   fulfilment: "pickup" | "delivery"; address: string; postcode: string;
-  protection: "verify" | "deposit"; pickupTime: string; returnTime: string;
+  protection: "verify" | "deposit";
   agreed: boolean; deliveryAgreed: boolean;useAccountCredit?:boolean;
 };
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
@@ -17,13 +15,11 @@ export const checkoutDraftKey = (scope: string) => `dbc_checkout_draft_v1:${scop
 
 function fields(value: any): CheckoutDraft {
   const text = (key: string, max = 200) => typeof value[key] === "string" ? value[key].slice(0, max) : "";
-  const slot = (key: string) => PICKUP_SLOTS.includes(value[key]) ? value[key] : "";
   return {
     email: text("email", 320), name: text("name"), phone: text("phone", 80),
     billingAddress: text("billingAddress", 2000), address: text("address", 2000), postcode: text("postcode", 20),
     fulfilment: value.fulfilment === "delivery" ? "delivery" : "pickup",
     protection: value.protection === "deposit" ? "deposit" : "verify",
-    pickupTime: slot("pickupTime"), returnTime: slot("returnTime"),
     ...(typeof value.useAccountCredit==="boolean"?{useAccountCredit:value.useAccountCredit}:{}),agreed: value.agreed === true, deliveryAgreed: value.deliveryAgreed === true,
   };
 }
