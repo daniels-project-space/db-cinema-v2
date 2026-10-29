@@ -91,8 +91,11 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
       : enquiry.returnTime ? `return at ${enquiry.returnTime}` : "return time";
     const unresolved = enquiry.requests.filter(request => request.fulfilled === null || request.availabilityIssue === "stock_check_failed");
     const partial = enquiry.requests.filter(request => request.fulfilled !== null && request.fulfilled < request.quantity);
+    const configurationConflicts = enquiry.requests.filter(request => request.configurationConflict);
     const confirmed = enquiry.requests.filter(request => request.fulfilled !== null && request.fulfilled > 0 && !unresolved.includes(request))
-      .map(request => `${request.fulfilled} × ${subjectLabel(request)}`);
+      .map(request => request.fulfilled! < request.quantity
+        ? `${request.fulfilled} of ${request.quantity} ${subjectLabel(request)} for this ${enquiry.days}-day rental`
+        : `${request.fulfilled} × ${subjectLabel(request)}`);
     const minimumPeriodRequests = enquiry.requests.filter(request => request.minimumRentalOffer);
     const compactSingleItemQuote = enquiry.stockVerified && enquiry.complete && enquiry.requirementsComplete &&
       !enquiry.timeWindowPricingConservative && enquiry.availabilityIssue === undefined &&
@@ -114,7 +117,33 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
         : minimumDays.length === 1
           ? `Would you like me to check it for the full ${minimumDays[0]}-day minimum?`
           : "Would you like me to check those items over their minimum rental periods?";
-      sections.push([...confirmed.length ? [`I can supply ${confirmed.join(", ")}.`] : [], ...minimumText, next].join(" "));
+      const confirmedTotal = enquiry.total !== null && confirmed.length
+        ? ` Gear hire for the confirmed items is ${gbp(enquiry.total)} for ${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}.`
+        : "";
+      sections.push([...confirmed.length ? [`I can supply ${confirmed.join(", ")}.`] : [], ...minimumText, confirmedTotal, next].filter(Boolean).join(" "));
+    } else if (configurationConflicts.length) {
+      sections.push(configurationConflicts.map(request => {
+        const conflict = request.configurationConflict!;
+        const offer = link(conflict.title, conflict.slug);
+        const contents = conflict.verifiedContents.length
+          ? ` It includes ${conflict.verifiedContents.join(", ")}.`
+          : " I don't have verified details of its included contents yet.";
+        const unavailable = conflict.availableUnits === 0;
+        const stock = enquiry.timed
+          ? conflict.availableUnits === null
+            ? "I couldn't verify stock for your selected times."
+            : conflict.availableUnits > 0
+              ? `${conflict.availableUnits} of this package ${conflict.availableUnits === 1 ? "is" : "are"} available for your selected times.`
+              : "This package isn't available for your selected times."
+          : unavailable
+            ? `I couldn't find this package in stock for ${period}.`
+            : "I need your pickup and return times before I can confirm availability.";
+        const price = unavailable ? "" : ` One listing is ${gbp(conflict.total)} for ${enquiry.days === 1 ? "the day" : `${enquiry.days} days`}.`;
+        const next = unavailable
+          ? "Would another time or date work, or should I look for another FX3 configuration?"
+          : "Would you accept this package?";
+        return `The ${subjectLabel(request)} is listed as ${offer}, with a different package configuration.${contents} ${stock}${price} ${next}`;
+      }).join("\n\n"));
     } else if (enquiry.estimated) {
       sections.push(`What dates and pickup and return times would suit for ${requested}?`);
     } else if (enquiry.availabilityIssue === "no_common_window") {
@@ -130,6 +159,18 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
           : request.fulfilled !== null ? `${request.fulfilled} × ${subjectLabel(request)}` : "").filter(Boolean).join(", ");
       const short = enquiry.requests.reduce((sum, request) => sum + Math.max(0, request.quantity - (request.fulfilled ?? 0)), 0);
       sections.push(`The final stock check for ${period} confirmed ${status}${short ? `; we're short by ${short}` : ""}. Would another time work?`);
+    } else if (compactSingleItemQuote && enquiry.total !== null && !enquiry.timed) {
+      const line = lines[0].line;
+      const item = link(line.displayTitle || line.title, line.slug);
+      const duration = enquiry.days === 1 ? "the day" : `${enquiry.days} days`;
+      const window = enquiry.availabilityWindow?.suggested
+        ? `A possible window is pickup at ${enquiry.availabilityWindow.pickupTime} and return at ${enquiry.availabilityWindow.returnTime}; I’ll confirm availability once you tell me those times suit.`
+        : "What pickup and return times should I check?";
+      const card = rows.find(row => String(row?.item?.listingId) === line.listingId);
+      const discountNote = enquiry.days > 1 && Number.isFinite(card?.item?.saved) && card.item.saved > 0
+        ? " The multi-day rate is already included."
+        : "";
+      sections.push(`The ${item} would be ${gbp(enquiry.total)} for ${duration} on ${period}. ${window}${discountNote}`);
     } else if (compactSingleItemQuote && enquiry.total !== null) {
       const line = lines[0].line;
       const item = link(line.displayTitle || line.title, line.slug);
@@ -206,7 +247,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
     const extraAnswer = sanitizeQuoteSupplementalAnswer(additionalAnswer, customerText);
     if (extraAnswer) sections.push(extraAnswer);
     if (preparedBasketUrl) sections.push(`[Review your gear and continue to checkout](${preparedBasketUrl})`);
-    else if (lines.length) sections.push("Availability is checked again when you book.");
+    else if (lines.length && enquiry.timed) sections.push("Availability is checked again when you book.");
   } else {
     if (String(reply ?? "").trim()) sections.push(String(reply).trim());
     const options = [...new Map(rows.filter(card => card?.item?.listingId != null &&

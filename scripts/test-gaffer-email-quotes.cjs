@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { load, setMock, db, put } = require("./lib/rentalTestHarness.cjs");
 const { LIVE_FX3_BODY_KIT, LIVE_REMUS_45 } = require("./lib/gafferLiveCatalogueFixtures.cjs");
-const { explicitlyAllowsAlternatives, explicitlyRequestsOptionalAddOns } = load("shared/gafferEmailQuote.ts");
+const { explicitlyAllowsAlternatives, explicitlyRequestsOptionalAddOns, shouldSuggestOptionalAddOns } = load("shared/gafferEmailQuote.ts");
 assert.equal(explicitlyAllowsAlternatives("I'm open to a body-only alternative."), true);
 assert.equal(explicitlyAllowsAlternatives("I'm not open to alternatives."), false);
 assert.equal(explicitlyAllowsAlternatives("Don't suggest alternatives."), false);
@@ -9,6 +9,9 @@ assert.equal(explicitlyRequestsOptionalAddOns("What else should I add to my came
 assert.equal(explicitlyRequestsOptionalAddOns("Could you recommend an ND filter for this lens?"), true);
 assert.equal(explicitlyRequestsOptionalAddOns("Please quote the FX3 camera body for Friday."), false);
 assert.equal(explicitlyRequestsOptionalAddOns("Please quote the FX3 camera body only, no lens or accessories."), false);
+assert.equal(shouldSuggestOptionalAddOns("Please quote an FX3 for a low-light interview."), true);
+assert.equal(shouldSuggestOptionalAddOns("Please quote an FX3 body only for a low-light interview."), false);
+assert.equal(shouldSuggestOptionalAddOns("Is the FX3 available on Friday?"), false);
 for (const [alias, file] of Object.entries({
   "@/lib/pricing": "src/lib/pricing.ts", "@/lib/membership": "src/lib/membership.ts",
   "@/lib/dates": "src/lib/dates.ts", "@/lib/mount": "src/lib/mount.ts",
@@ -165,6 +168,24 @@ assert.match(timeWindowIntro, /maximum gear hire cost across those time windows/
 const timeWindowEmail = formatGafferEmailReply("", [], timeWindowQuote);
 assert.match(timeWindowEmail, /pickup between 10:00 and 12:00/);
 assert.match(timeWindowEmail, /maximum hire cost/);
+const configurationConflictEmail = formatGafferEmailReply("", [], {
+  start: "2026-11-03", end: "2026-11-03", days: 1, estimated: false, timed: false,
+  stockVerified: true, requirementsComplete: true, complete: false, total: null,
+  requests: [{
+    subject: "FX3 camera body only", displaySubject: "Sony FX3 camera body", quantity: 1,
+    fulfilled: 0, availabilityIssue: "configuration_conflict", lines: [],
+    configurationConflict: {
+      title: "Sony FX3 Body with DJI RS3 Pro Gimbal", slug: "fx3-with-rs3",
+      perDay: 55, total: 55, availableUnits: 1,
+      verifiedContents: ["Sony FX3 camera body", "DJI RS3 Pro Gimbal"],
+    },
+  }],
+});
+assert.match(configurationConflictEmail, /different package configuration/i);
+assert.match(configurationConflictEmail, /DJI RS3 Pro Gimbal/);
+assert.match(configurationConflictEmail, /£55\.00/);
+assert.match(configurationConflictEmail, /Would you accept this package\?/);
+assert(!/couldn't find .*available/i.test(configurationConflictEmail), "a package conflict must not be reported as a stock denial");
 async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   rode.quantityOwned = 2; djiOne.quantityOwned = 1; djiTwo.quantityOwned = 1; stockReads = 0; sharedRefreshes = 0;
   intent = { intent: "availability", subject: "Rode Mic Pro", itemTypes: ["wireless-mic"], cameraModel: "", pricePref: "any", start: "2030-11-20", end: "2030-11-23", pickupTime: "10:00", returnTime: "10:00", requests: [{ subject: "Rode Mic Pro", itemType: "wireless-mic", quantity }], ...extra };
@@ -240,8 +261,18 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(!/a7 iii|gimbal/i.test(fx3EmailBody), "a camera-only FX3 email must not upsell a different body or an unrequested gimbal");
   assert(fx3EmailBody.includes("[Sony FX3 camera body](https://dbcinemarentals.com/gear/"), "the final email must link the exact requested body label rather than the full bundle title");
   assert(!fx3EmailBody.includes("Sony FX3 Body Kit"), "the email must not reframe a body-only quote as a bundle upsell");
+  assert.equal(fx3Email.enquiry.timed, false, "a date-only request must remain untimed until the customer chooses a window");
+  assert.match(fx3EmailBody, /possible window is pickup at .* and return at .*; I’ll confirm availability once you tell me those times suit/i);
+  assert(!/is available on 3 November/i.test(fx3EmailBody), "a system-suggested window must not be presented as the customer's confirmed availability");
   assert(fx3EmailBody.startsWith("Hi there,\n\n") && fx3EmailBody.endsWith("DB Cinema Rentals Team"), "the email reply stays personal and uses the agreed team sign-off");
   assert(!fx3EmailBody.includes("Multi-day rates per unit"), "the email stays focused instead of appending a rate ladder");
+  const fx3Chat = await handleChat({
+    messages: [{ role: "user", content: "Please quote one FX3 camera body only for 3 November 2026." }],
+    channel: "chat",
+  });
+  assert.equal(fx3Chat.enquiry.requests[0].lines[0].listingId, cameraListing._id, "chat retains the exact requested FX3 listing");
+  assert.match(fx3Chat.reply, /possible window for Sony FX3 camera body on 3 November 2026/i, "chat offers the same suggested date-only window as email");
+  assert(!/available on 3 November|a7 iii|gimbal/i.test(fx3Chat.reply), "chat does not claim stock at unselected times or substitute a bundle");
   legacyCatalogMode = false;
   listings.push(twoRodeSetOffer);
   result = await run(4, {
@@ -352,6 +383,15 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(!locationQuoteResult.email.includes("Sony FX3 with lens and DJI RS3 Pro Gimbal"));
   recommendationCalls.length = 0;
   result = await run(1, {
+    start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00",
+    requests: [{ subject: "Sony FX3 camera body", itemType: "camera", quantity: 1 }],
+  }, "Please quote one Sony FX3 camera body for a low-light interview on 20 November 2030, pickup at 10:00 and return at 18:00.", "email");
+  assert.equal(result.enquiry.recommendedAddOn?.listingId, lens._id, "a clear interview context can receive one live-checked, compatible extra");
+  assert.equal(result.enquiry.total, 60, "contextual upsells stay outside the requested gear total");
+  assert(result.email.includes("If useful") && result.email.includes("isn't included above"), "the email labels the extra optional and prices it separately");
+  assert.equal(recommendationCalls.length, 1, "a contextual quote checks only one relevant add-on group");
+  recommendationCalls.length = 0;
+  result = await run(1, {
     requests: [{ subject: "Sony FX3 camera body", itemType: "camera", quantity: 1 }],
   }, "Please quote one Sony FX3 camera body only, no lens or accessories, for 20 November 2030.");
   assert.equal(result.enquiry.recommendedAddOn, undefined, "an explicit body-only request suppresses optional add-ons");
@@ -450,7 +490,8 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(!result.email.includes("Sony FX3 Body Kit"), "a camera-only quote is not framed as a bundle upsell");
   assert.equal(result.enquiry.complete, true, "a date-only FX3 request should confirm when a shared pickup/return window is available");
   assert.equal(result.enquiry.availabilityWindow?.suggested, true, "the reply should offer a real available pickup/return window");
-  assert(result.email.includes(`I can offer pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}. Would that work for you?`));
+  assert(result.email.includes(`A possible window is pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}; I’ll confirm availability once you tell me those times suit.`));
+  assert(!/is available on 3 November/i.test(result.email), "date-only emails must not say the customer's availability is confirmed before their times are chosen");
   assert(result.email.startsWith("Hi there,\n\n"), "the email reply opens like a short human business reply");
   assert(!result.email.includes("Sony a7 III") && !result.email.includes("DJI RS3 Pro Gimbal"), "a named FX3 request cannot be replaced with the classifier's cheaper camera/gimbal bundle");
   assert(!/provisional|quantity not yet confirmed|proposed alternative|multi-day rates per unit|security payments/i.test(result.email), "the customer-facing quote leaves out internal status clutter and irrelevant rate ladders");
@@ -471,9 +512,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(result.email, [
     "Hi there,",
     "",
-    `The [Sony FX3 camera body](https://dbcinemarentals.com/gear/${liveBodyQuote.slug}) is available on 3 November 2026. I can offer pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}. Would that work for you? Gear hire is £47.00 for the day.`,
-    "",
-    "Availability is checked again when you book.",
+    `The [Sony FX3 camera body](https://dbcinemarentals.com/gear/${liveBodyQuote.slug}) would be £47.00 for the day on 3 November 2026. A possible window is pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}; I’ll confirm availability once you tell me those times suit.`,
     "",
     "DB Cinema Rentals Team",
   ].join("\n"), "the real-catalogue quote stays short, readable, correctly linked, and team-signed");
@@ -491,7 +530,10 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(result.enquiry.requests[0].lines.length, 0, "a bundled body kit cannot be presented as a body-only match when the bare body is out of stock");
   assert.equal(result.enquiry.complete, false);
   assert.equal(result.enquiry.total, null);
-  assert(!result.email.includes("FX3 Body Kit") && !result.email.includes("£47.00"));
+  assert(result.email.includes("FX3 Body Kit") && result.email.includes("different package configuration"));
+  assert(/couldn't find this package in stock|need your pickup and return times/i.test(result.email), "a package conflict must either report known date stock or ask for times before confirming it");
+  assert(result.email.includes("£47.00") && result.email.includes("Would you accept this package?"), "a differently configured FX3 listing is priced clearly and requires the customer's consent");
+  assert(!/is available on 3 November/i.test(result.email), "a package configuration must not be presented as the exact body-only request");
   assert(result.email.includes("Sony FX3 camera body"), "the unavailable exact configuration should retain a clear model name");
   camera.quantityOwned = bodyQuantity; a7BodyPool.quantityOwned = alternateBodyQuantity;
   suggestionsForTest = ["Add XLR handle unit", "Confirm 09:00 pickup and 22:00 return", "Proceed to online checkout"];
@@ -685,6 +727,26 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(personalizedReply.endsWith("DB Cinema Rentals Team"));
   stockFailure = false;
   b.minimumRentalDays = 2;
+  const partialMinimumPeriod = await run(4, {
+    start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00",
+    itemTypes: ["wireless-mic"],
+    requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }],
+  }, "Please quote four wireless microphone kits for 20 November 2030, pickup at 10am and return at 6pm.", "email");
+  assert.equal(partialMinimumPeriod.enquiry.requests[0].fulfilled, 3, "a one-day minimum mismatch must not inflate the confirmed mic-kit quantity");
+  assert.equal(partialMinimumPeriod.enquiry.requests[0].minimumRentalOffer?.title, b.title, "the one remaining owner-listed DJI kit should be surfaced as a two-day option");
+  assert.equal(partialMinimumPeriod.enquiry.complete, false);
+  assert(partialMinimumPeriod.email.includes("3 of 4 wireless microphone kits"), "email must make the confirmed quantity and shortfall explicit");
+  assert(partialMinimumPeriod.email.includes("2-day minimum"));
+  assert(partialMinimumPeriod.email.includes("I haven't checked stock for that longer period"));
+  assert(partialMinimumPeriod.email.includes("Gear hire for the confirmed items is"), "the one-day total must cover only confirmed kits");
+  const partialMinimumChat = await run(4, {
+    start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00",
+    itemTypes: ["wireless-mic"],
+    requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }],
+  }, "Please quote four wireless microphone kits for 20 November 2030, pickup at 10am and return at 6pm.", "chat");
+  assert(partialMinimumChat.reply.includes("3 of 4 wireless microphone kits"), "chat must explain the partial confirmed count");
+  assert(partialMinimumChat.reply.includes("2-day minimum"), "chat must surface the non-confirmed minimum-period option");
+  assert(partialMinimumChat.reply.includes("I haven't checked stock for that longer period"));
   const minimumPeriod = await run(1, {
     start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00",
     itemTypes: ["wireless-mic"],

@@ -8,7 +8,7 @@ const QUOTE_PROPERTIES = {
   return_time: { type: "string", description: "Requested return time in 24-hour HH:MM format." },
   days: { type: "integer", description: "Billed rental days when exact dates are not available." },
   requirementsComplete: { type: "boolean", description: "False when the caller has not yet described the complete item list or kit requirements." },
-  allowOptionalAddOns: { type: "boolean", description: "Set true only when the caller asks for compatible recommendations, upgrades or a fuller kit. Otherwise false; do not upsell on an availability or price question." },
+  allowOptionalAddOns: { type: "boolean", description: "Set true when the caller asks for recommendations or gives a clear shoot context that makes one specific extra useful. Set false for a camera-only/no-extras request or when no useful fit is clear." },
 };
 
 const QUOTE_TOOL_DESCRIPTIONS = {

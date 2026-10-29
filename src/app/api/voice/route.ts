@@ -196,22 +196,46 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     const name = requestName(request);
     if (request.minimumRentalOffer) {
       const offer = request.minimumRentalOffer;
-      return `${offer.title} has a ${offer.minimumDays}-day minimum. Minimum gear hire is ${money(offer.total)} for ${offer.minimumDays} days; stock for that longer period is not checked.`;
+      const partial = request.fulfilled !== null && request.fulfilled > 0 && request.fulfilled < request.quantity
+        ? `I can supply ${request.fulfilled} of ${request.quantity} ${name} for the current ${enquiry.days}-day rental; `
+        : "";
+      return `${partial}${offer.title} has a ${offer.minimumDays}-day minimum. Minimum gear hire is ${money(offer.total)} for ${offer.minimumDays} days; stock for that longer period is not checked.`;
     }
     if (request.fulfilled === null || request.availabilityIssue === "stock_check_failed") return `I couldn't verify stock for ${name}.`;
     if (request.fulfilled === 0) return `I couldn't find ${name} available.`;
     if (request.fulfilled < request.quantity) return `I can supply ${request.fulfilled} of ${request.quantity} ${name}; I'm short by ${request.quantity - request.fulfilled}.`;
     return `I can supply ${request.fulfilled} ${name}.`;
   });
+  const configurationConflictRequest = enquiry.requests.find(request => request.configurationConflict);
+  const configurationConflict = configurationConflictRequest?.configurationConflict;
   let status: string;
   if (minimumPeriodRequests.length) {
     status = confirmationSummary.join(" ");
+  } else if (configurationConflict && configurationConflictRequest) {
+    const unavailable = configurationConflict.availableUnits === 0;
+    const contents = configurationConflict.verifiedContents.length
+      ? ` It includes ${configurationConflict.verifiedContents.join(", ")}.`
+      : " Its included contents still need confirmation.";
+    const stock = enquiry.timed
+      ? configurationConflict.availableUnits === null
+        ? "I couldn't verify stock for those times."
+        : configurationConflict.availableUnits > 0
+          ? `${configurationConflict.availableUnits} of this package ${configurationConflict.availableUnits === 1 ? "is" : "are"} available for those times.`
+          : "This package isn't available for those times."
+      : unavailable
+        ? `I couldn't find this package in stock for ${period}.`
+        : "I need your pickup and return times before I can check availability.";
+    status = `The ${requestName(configurationConflictRequest)} is listed as ${equipmentOfferLabel(configurationConflict.title)}, which is a different package configuration.${contents} ${stock}`;
   } else if (enquiry.availabilityIssue === "no_common_window") {
     status = `I couldn't find one pickup and return window for all that gear on ${period}.`;
   } else if (enquiry.availabilityIssue === "combined_stock_changed") {
     status = `The final stock check could fit only the confirmed items at those times. ${confirmationSummary.join(" ")}`;
   } else if (requestIssues.some(request => request.availabilityIssue === "stock_check_failed") || enquiry.availabilityIssue === "stock_check_failed") {
     status = confirmationSummary.join(" ");
+  } else if (!enquiry.timed && enquiry.complete && enquiry.availabilityWindow?.suggested) {
+    status = hasAlternatives
+      ? `I found a possible alternative, ${itemSummary}, for ${period}, with pickup at ${enquiry.availabilityWindow.pickupTime} and return at ${enquiry.availabilityWindow.returnTime}.`
+      : `I found a possible window for ${itemSummary} on ${period}: pickup at ${enquiry.availabilityWindow.pickupTime} and return at ${enquiry.availabilityWindow.returnTime}.`;
   } else if (enquiry.complete && hasAlternatives && enquiry.availabilityWindow) {
     status = `I can offer ${itemSummary} as an alternative for ${period}, with a suggested ${enquiry.availabilityWindow.pickupTime} pickup and ${enquiry.availabilityWindow.returnTime} return.`;
   } else if (enquiry.complete && hasAlternatives) {
@@ -223,8 +247,12 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   } else {
     status = confirmationSummary.join(" ");
   }
-  const price = enquiry.total !== null
-    ? `${enquiry.complete ? "Gear hire" : "Confirmed gear hire"} is ${money(enquiry.total)} for ${duration}.`
+  const price = configurationConflict?.availableUnits === 0
+    ? ""
+    : configurationConflict
+    ? `${!enquiry.timed ? "The listed package estimate" : "Gear hire for the listed package"} is ${money(configurationConflict.total)} for ${duration}.`
+    : enquiry.total !== null
+    ? `${!enquiry.timed ? "The hire estimate" : enquiry.complete ? "Gear hire" : "Confirmed gear hire"} is ${money(enquiry.total)} for ${duration}.`
     : "I can't give a gear hire total until I can confirm the quantities.";
   const selectedIds = new Set(lines.map(line => line.listingId));
   const packing = (result.cards ?? []).some(card => selectedIds.has(String(card.item?.listingId)) && card.item?.inventoryReviewRequired)
@@ -237,8 +265,16 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   const discounted = enquiry.days > 1 && selectedCards.some(card => Number.isFinite(card.item?.saved) && card.item.saved > 0)
     ? "The multi-day discount is already included." : "";
   let next: string;
-  if (minimumPeriodRequests.length) next = "Would you like me to check those items over their minimum rental periods?";
+  if (minimumPeriodRequests.length) {
+    const minimumDays = [...new Set(minimumPeriodRequests.map(request => request.minimumRentalOffer!.minimumDays))];
+    next = minimumDays.length === 1
+      ? `Would you like me to check it for the full ${minimumDays[0]}-day minimum?`
+      : "Would you like me to check those items over their minimum rental periods?";
+  }
+  else if (configurationConflict && configurationConflict.availableUnits === 0) next = "Would another date or pickup window work, or should I look for another FX3 configuration?";
+  else if (configurationConflict) next = "Would you accept the included items in that package?";
   else if (requestIssues.some(request => request.availabilityIssue === "stock_check_failed") || enquiry.availabilityIssue === "stock_check_failed") next = "I can recheck the stock if you like.";
+  else if (!enquiry.timed && enquiry.availabilityWindow?.suggested) next = "Would those times work? I can confirm availability once you choose them.";
   else if (hasAlternatives && enquiry.availabilityWindow) next = "Would that alternative and those times suit you?";
   else if (hasAlternatives) next = "Would that alternative work for you?";
   else if (enquiry.availabilityWindow) next = "Would those times suit you?";

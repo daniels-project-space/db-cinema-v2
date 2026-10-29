@@ -43,7 +43,16 @@ export type GafferEmailQuote = {
     quantity: number;
     quantityUnit?: string;
     fulfilled: number | null;
-    availabilityIssue?: "no_common_window" | "combined_stock_changed" | "stock_check_failed" | "minimum_rental_days";
+    availabilityIssue?: "no_common_window" | "combined_stock_changed" | "stock_check_failed" | "minimum_rental_days" | "configuration_conflict";
+    /** Closest exact-model listing, when the only offer includes gear the renter excluded. */
+    configurationConflict?: {
+      title: string;
+      slug: string;
+      perDay: number;
+      total: number;
+      availableUnits: number | null;
+      verifiedContents: string[];
+    };
     /** The shortest period on a matching listing, with no availability assumed. */
     minimumRentalOffer?: {
       title: string;
@@ -116,10 +125,21 @@ export function explicitlyNoOptionalAddOns(value: unknown): boolean {
   return EXPLICIT_NO_ADD_ON_RE.test(String(value ?? ""));
 }
 
-/** Add-ons are suggested only when the customer asks for a fuller kit or compatible extras. */
+/** Clear production contexts can justify one optional, live-checked addition. */
 export function explicitlyRequestsOptionalAddOns(value: unknown): boolean {
   const text = String(value ?? "");
   return EXPLICIT_OPTIONAL_ADD_ON_REQUEST_RE.test(text) && !explicitlyNoOptionalAddOns(text);
+}
+
+const CLEAR_SHOOT_CONTEXT_RE = /\b(?:interview|documentary|commercial|music video|wedding|podcast|live stream|livestream|conference|event|concert|performance|sports?|wildlife|run[ -]and[ -]gun|handheld|low[ -]light|studio shoot|talking head|corporate (?:film|video|shoot)|product shoot|night shoot)\b/i;
+
+/** Offer at most one optional add-on for an explicit ask or a clear shoot need.
+ * A camera-only or no-extras instruction always wins over contextual selling.
+ */
+export function shouldSuggestOptionalAddOns(value: unknown): boolean {
+  const text = String(value ?? "");
+  if (explicitlyNoOptionalAddOns(text)) return false;
+  return explicitlyRequestsOptionalAddOns(text) || CLEAR_SHOOT_CONTEXT_RE.test(text);
 }
 
 const EXPLICIT_ALTERNATIVES_RE = /\b(?:alternatives?\s+(?:are\s+)?(?:welcome|fine|okay|ok|acceptable)|substitutes?\s+(?:are\s+)?(?:welcome|fine|okay|ok|acceptable)|(?:open|happy|willing)\s+to\s+(?:(?:consider|accept|use)\s+)?(?:(?:a|an|the|any|some|closest)\s+)?(?:[a-z0-9-]+\s+){0,2}(?:alternatives?|substitutes?)|(?:show|suggest|recommend|offer)\s+(?:me\s+)?(?:some\s+|the\s+closest\s+)?(?:alternatives?|substitutes?|similar(?:\s+(?:items?|models?|gear|cameras?))?|equivalent(?:s)?|other\s+options)|closest\s+(?:matches|options)|any\s+(?:similar|comparable|equivalent|other)\s+(?:items?|models?|options|gear|cameras?))\b/i;
@@ -166,7 +186,10 @@ export function gafferEmailQuoteIntro(quote: GafferEmailQuote): string {
       const offer = request.minimumRentalOffer!;
       const linked = offer.slug ? `[${offer.title}](https://dbcinemarentals.com/gear/${encodeURIComponent(offer.slug)})` : offer.title;
       const listing = offer.alternative ? `A possible alternative, ${linked},` : linked;
-      return `${listing} has a ${offer.minimumDays}-day minimum. Minimum gear hire is £${offer.total.toFixed(2)} for ${offer.minimumDays} days; I haven't checked stock for that longer period.`;
+      const partial = request.fulfilled !== null && request.fulfilled > 0 && request.fulfilled < request.quantity
+        ? ` I can supply ${request.fulfilled} of ${request.quantity} ${request.displaySubject ?? request.subject} for the current ${quote.days}-day rental.`
+        : "";
+      return `${partial} ${listing} has a ${offer.minimumDays}-day minimum. Minimum gear hire is £${offer.total.toFixed(2)} for ${offer.minimumDays} days; I haven't checked stock for that longer period.`.trim();
     });
     const otherRequests = quote.requests.filter(request => !request.minimumRentalOffer);
     const otherConfirmed = otherRequests.filter(request => request.fulfilled !== null && request.fulfilled > 0).map(count);

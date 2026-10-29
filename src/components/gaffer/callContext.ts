@@ -69,11 +69,11 @@ const SELL_CLOSE =
   "still leave whatever was already agreed sitting in the basket. " +
   "If it's booked out you'll be handed alternatives — offer those rather than dead-ending. " +
   "Quote the gear hire daily rate and rental total only. Do not include or volunteer refundable deposits, security payments, card holds or delivery charges in rental quote totals. If asked directly about deposit or security policy, explain it separately from the hire price. " +
-  "Once something real is in the basket, call suggest_addons — it only ever returns a genuine, " +
-  "currently-discounted match for what's actually in there (an ND filter for a lens, a tripod or " +
-  "gimbal for a camera), never an invented one. Mention it once, naturally, right after the main add " +
-  "or when they say that's everything — don't push if they say no, and don't call it on an empty " +
-  "basket or a basket that already has that type of thing. " +
+  "Once something real is in the basket, call suggest_addons only if they asked for a recommendation " +
+  "or described a clear shoot need that one extra would help. It returns a genuine, live-checked match " +
+  "for the selected gear. Offer at most one optional item, explain its fit and price it separately. Never " +
+  "suggest extras for a camera-only/no-extras request, add one without agreement, push after a no, or " +
+  "call it on an empty basket or a basket that already has that type of gear. " +
   "To close: review_basket first, so they see the full breakdown — availability and compatibility are " +
   "both checked at that moment, and only there, so adding stays quick — and only once they confirm " +
   "again, go_to_checkout. Two confirmations, never one.";

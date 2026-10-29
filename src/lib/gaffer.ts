@@ -9,7 +9,7 @@ import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { rentalDateLabel } from "../../shared/rentalDateLabel";
 import { equipmentRequest, equipmentRequestLabel, normalizeEquipmentName } from "../../shared/equipmentIdentity";
 import { rentalPricingDays } from "../../shared/rentalDuration";
-import { explicitlyAllowsAlternatives, explicitlyNoOptionalAddOns, explicitlyRequestsOptionalAddOns, gafferEmailQuoteIntro, sanitizeQuoteSupplementalAnswer, type GafferEmailQuote } from "../../shared/gafferEmailQuote";
+import { explicitlyAllowsAlternatives, explicitlyNoOptionalAddOns, gafferEmailQuoteIntro, sanitizeQuoteSupplementalAnswer, shouldSuggestOptionalAddOns, type GafferEmailQuote } from "../../shared/gafferEmailQuote";
 import { rentalEnquiryWindow } from "./rentalEnquiryWindow";
 import { coverageCompat, kitWarnings } from "@/lib/compat";
 import { lensPriority, isCameraSet, isLensSet } from "@/lib/kitRank";
@@ -1467,8 +1467,32 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
     }
     let remaining = request.quantity;
     let stockUncertain = false;
-    let durationEligibleOfferSeen = false;
     const minimumRentalOffers: NonNullable<GafferEmailQuote["requests"][number]["minimumRentalOffer"]>[] = [];
+    const recordConfigurationConflict = async (listing: any) => {
+      if (line.configurationConflict) return;
+      let card: any;
+      try { card = await buildCard(c, listing, start, end, planning, "Exact model listing includes gear the customer excluded"); }
+      catch { card = await buildCard(c, listing, start, end, planning, "Exact model listing includes gear the customer excluded", false); }
+      const availableUnits = Number.isSafeInteger(card.item.availableUnits) ? card.item.availableUnits : null;
+      const verifiedContents = listing.inventoryFacts?.reviewRequired === true
+        ? []
+        : Array.isArray(listing.inventoryFacts?.contents) ? listing.inventoryFacts.contents : [];
+      line.fulfilled = 0;
+      line.availabilityIssue = "configuration_conflict";
+      line.configurationConflict = {
+        title: listing.title,
+        slug: listing.slug ?? "",
+        perDay: card.item.perDay,
+        total: card.item.total,
+        availableUnits,
+        verifiedContents,
+      };
+      const stock = availableUnits === null ? "stock could not be verified" : availableUnits > 0
+        ? `${availableUnits} of this listed configuration are available`
+        : "none of this listed configuration are available";
+      const contents = verifiedContents.length ? ` Owner-confirmed contents: ${verifiedContents.join(", ")}.` : " Its full contents still need confirmation.";
+      facts.push(`CONFIGURATION CONFLICT for \"${request.subject}\": the closest exact-model listing is \"${listing.title}\". The customer excluded some of its included gear, so do not describe this listing as the requested configuration, count it as fulfilled, add it to the basket, or replace it with another model. ${stock}.${contents} Ask whether the customer would accept this exact listing before adding it.`);
+    };
     const consider = async (listing: any, alternative: boolean) => {
       if (!remaining || cards.length >= 32 || planning.cartStock!.length >= 100) return;
       const minimumDays = Number.isSafeInteger(listing.minimumRentalDays) && listing.minimumRentalDays >= 1 ? listing.minimumRentalDays : 1;
@@ -1479,7 +1503,6 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
         }
         return;
       }
-      durationEligibleOfferSeen = true;
       const subjectIdentity = queryIdentity(request.subject);
       const subjectSpecific = subjectIdentity.models.length > 0 || subjectIdentity.ranges.length > 0 || subjectIdentity.nums.length > 0 ||
         /\b(?:sony|canon|arri|red|dji|rode|røde|sennheiser|shure|hollyland|saramonic)\b|\bwireless\s+pro\b/i.test(request.subject);
@@ -1533,7 +1556,10 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
     };
     for (const listing of exact) {
       const configurationChange = unrequestedCameraExtras(listing, configurationText, noExtraConfiguration) > 0;
-      if (configurationChange && (request.allowAlternatives !== true || noExtraConfiguration)) continue;
+      if (configurationChange && (request.allowAlternatives !== true || noExtraConfiguration)) {
+        await recordConfigurationConflict(listing);
+        continue;
+      }
       await consider(listing, configurationChange);
       if (!remaining) break;
     }
@@ -1549,18 +1575,27 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
         if (remaining && availabilityCheck.unknown) stockUncertain = true;
       } catch { stockUncertain = true; }
     }
-    if (!line.lines.length && !durationEligibleOfferSeen && !stockUncertain && minimumRentalOffers.length) {
+    if (remaining > 0 && !stockUncertain && minimumRentalOffers.length) {
       const minimumOffer = minimumRentalOffers.sort((a, b) => a.minimumDays - b.minimumDays || a.total - b.total)[0];
       line.minimumRentalOffer = minimumOffer;
-      line.availabilityIssue = "minimum_rental_days";
-      line.fulfilled = 0;
-      facts.push(`MINIMUM RENTAL PERIOD: ${minimumOffer.title} has a ${minimumOffer.minimumDays}-day minimum. Its minimum gear hire is £${minimumOffer.total.toFixed(2)} for ${minimumOffer.minimumDays} days, but stock was not checked for that longer period. The customer's current requested duration is ${days} day${days === 1 ? "" : "s"}. Do not silently extend the dates or describe it as available; ask whether they want to check a rental that meets the minimum.`);
+      if (!line.lines.length) {
+        line.availabilityIssue = "minimum_rental_days";
+        line.fulfilled = 0;
+      }
+      const confirmed = request.quantity - remaining;
+      const quantityContext = confirmed > 0
+        ? ` The current ${days}-day request confirms ${confirmed} of ${request.quantity} requested units; ${remaining} remain unfilled.`
+        : "";
+      facts.push(`MINIMUM RENTAL PERIOD: ${minimumOffer.title} has a ${minimumOffer.minimumDays}-day minimum. Its minimum gear hire is £${minimumOffer.total.toFixed(2)} for ${minimumOffer.minimumDays} days, but stock was not checked for that longer period. The customer's current requested duration is ${days} day${days === 1 ? "" : "s"}.${quantityContext} Do not silently extend the dates or describe it as available; ask whether they want to check a rental that meets the minimum.`);
     }
     if (stockUncertain && remaining) { line.fulfilled = null; line.availabilityIssue = "stock_check_failed"; }
     if (!exact.length) facts.push(`NO VERIFIED RENTABLE EXACT MATCH for "${request.subject}". Returned substitutes are different products, not the requested model. Do not deny the whole category.`);
   }
   const hasProposals = enquiry.requests.some(request => request.lines.length > 0);
-  if (dated && !hasProposals && enquiry.requests.length && enquiry.requests.every(request => request.fulfilled === 0 && !request.minimumRentalOffer)) enquiry.stockVerified = true;
+  if (dated && !hasProposals && enquiry.requests.length && enquiry.requests.every(request =>
+    request.fulfilled === 0 && !request.minimumRentalOffer &&
+    (!request.configurationConflict || request.configurationConflict.availableUnits !== null),
+  )) enquiry.stockVerified = true;
   if (dated && hasProposals) {
     try {
       if (timed) {
@@ -1602,7 +1637,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
             line.total = Math.round(priced.total * line.quantity * 100) / 100;
             Object.assign(item, { days: suggestedDays, perDay: priced.perDay, total: priced.total, rateTier: priced.tier.label, saved: priced.saved, savedPct: priced.savedPct, rateLadder: priced.ladder });
           }
-          facts.push(`The full proposed basket fits the suggested pickup/return window on these dates: ${window.pickupTime} pickup and ${window.returnTime} return in London.`);
+          facts.push(`A possible pickup/return window is open for the full proposed basket on these dates: ${window.pickupTime} pickup and ${window.returnTime} return in London. The customer has not chosen these times. Describe this only as a possible window, ask whether it suits, and do not say the gear is confirmed at the customer's times or reserved.`);
         } else {
           enquiry.availabilityIssue = "no_common_window";
           for (const request of enquiry.requests) if (request.lines.length) { request.fulfilled = null; request.availabilityIssue = "no_common_window"; }
@@ -1639,7 +1674,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
     "camera-body": { label: "compatible camera body", fitNote: "accepts the requested lens's mount" },
   };
   const preferredAddOnTypes = sourceCard ? addOnPriority[sourceCard.item.itemType] ?? [] : [];
-  const requestText = [intent.subject, ...((intent.requests ?? []).map(item => item.subject))].join(" ");
+  const requestText = [intent.subject, ...((intent.requests ?? []).map(item => item.subject)), ctx.requestText ?? ""].join(" ");
   const optionalAddOnsAllowed = ctx.allowOptionalAddOns === true && !explicitlyNoOptionalAddOns(requestText);
   const pickupTime = enquiry.availabilityWindow?.pickupTime ?? ctx.pickupTime;
   const returnTime = enquiry.availabilityWindow?.returnTime ?? ctx.returnTime;
@@ -1683,7 +1718,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
   }
   facts.push(`RENTAL ENQUIRY EVIDENCE: ${JSON.stringify(enquiry)}. This is a read-only quote, not a hold or booking. State the exact confirmed count and shortfall. If availabilityIssue is present, explain that specific issue in one clear sentence. Each alternative is a proposed substitution requiring the customer's agreement. Never count individual transmitters as complete mic kits, or add independently available quantities across overlapping listings.`);
   if (intent.requirementsComplete === false) facts.push("INCOMPLETE ENQUIRY PARSE: additional or ambiguous requirements remain. Do not claim the whole enquiry is fulfilled. Ask the customer to clarify the remaining items; the proposal covers only the listed requirements.");
-  facts.push("PRICING: quote totals and rates exactly from the evidence. For supplied times, started 24-hour London rental periods apply. Date-only totals are provisional until times are supplied. Each listing's applicable multi-day tier is already reflected in its period total. The applicable tier is already included: do not apply another multi-day discount. Gear hire excludes separately quoted delivery and security payments; never invent their amounts or a membership entitlement for an unverified email sender.");
+  facts.push("PRICING: quote totals and rates exactly from the evidence. For supplied times, started 24-hour London rental periods apply. Date-only totals are estimates for the suggested window and remain provisional until the customer chooses pickup and return times. When a suggested window exists, call it a possible option and ask if it suits; do not call availability confirmed for unchosen times. Nothing is reserved. Each listing's applicable multi-day tier is already reflected in its period total. The applicable tier is already included: do not apply another multi-day discount. Gear hire excludes separately quoted delivery and security payments; never invent their amounts or a membership entitlement for an unverified email sender.");
   return { cards, facts, enquiry, askDates: ctx.estimated, askTimes: !ctx.estimated && !timed && !enquiry.availabilityWindow };
 }
 
@@ -1747,7 +1782,7 @@ async function narrate(history: any[], result: ExecResult, ctx: Ctx, channel: "c
 STYLE:
 Write like a knowledgeable rental colleague replying personally. Answer the actual question first, in plain English. Use short natural paragraphs, usually two to four sentences. Avoid headlines, repetitive summaries, sales patter, decorative dashes and forced bullet lists. Use a short list only when it genuinely makes several choices easier to compare. Do not repeat every card in the prose. Ask one useful question when information is missing; do not force a closing question after a complete answer.
 Use recognisable short equipment names, preserving the exact model, generation and relevant specification. Help the customer get what they requested first. Offer an upgrade only for a concrete benefit relevant to their shoot, and label it as optional. Never add lenses, a gimbal or a package to a camera-only enquiry unless the customer wants them or the exact body cannot be supplied, in which case explain and ask before substituting.
-${ctx.allowOptionalAddOns ? "The customer asked for compatible recommendations or a fuller kit. Offer no more than one verified extra when it clearly helps with the stated shoot." : "Keep the reply to the gear the customer asked about. Do not add optional equipment or upgrades unless they ask for them."}
+${ctx.allowOptionalAddOns ? "The customer either asked for recommendations or described a clear shoot context. First answer the exact request, then offer at most one live-checked extra only when it directly helps that shoot. Label it optional and price it separately. Never add it to the basket without the customer's agreement." : "Keep the reply to the gear the customer asked about. Do not add optional equipment or upgrades unless they ask or give a clear shoot context that makes one useful."}
 ${channelRules}
 
 ABSOLUTE GROUNDING RULES (never break):
@@ -1831,7 +1866,10 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
 
   const lastUser = String([...history].reverse().find((m: any) => m.role === "user")?.content || "");
   ctx.requestText = lastUser;
-  ctx.allowOptionalAddOns = explicitlyRequestsOptionalAddOns(lastUser);
+  const recentUserContext = history.filter((message: any) => message.role === "user").slice(-5)
+    .map((message: any) => String(message.content || "")).join("\n");
+  ctx.allowOptionalAddOns = !explicitlyNoOptionalAddOns(lastUser) &&
+    (shouldSuggestOptionalAddOns(lastUser) || shouldSuggestOptionalAddOns(recentUserContext));
   const intent = await understand(history, ctx.today);
   const alternativesExplicitlyAllowed = explicitlyAllowsAlternatives(lastUser);
   if (Array.isArray(intent.requests)) {
@@ -1939,7 +1977,78 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
     if (rel.start) { intent.start = intent.start || rel.start; intent.end = intent.end || rel.end; }
   }
   const result = await execute(intent, ctx, lastUser, body?.channel === "email" ? "email" : "chat");
-  const { reply, suggestions, humanRequested, additionalAnswer } = await narrate(history, result, ctx, body?.channel === "email" ? "email" : "chat");
+  const { reply: narratedReply, suggestions, humanRequested, additionalAnswer } = await narrate(history, result, ctx, body?.channel === "email" ? "email" : "chat");
+  let reply = narratedReply;
+  const dateOnlyQuote = result.enquiry;
+  const minimumPeriodRequests = dateOnlyQuote?.requests.filter(request => request.minimumRentalOffer) ?? [];
+  const money = (amount: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(amount);
+  const configurationConflictRequest = dateOnlyQuote?.requests.find(request => request.configurationConflict);
+  const dateOnlyRequest = dateOnlyQuote?.requests.length === 1 ? dateOnlyQuote.requests[0] : null;
+  const dateOnlyLine = dateOnlyRequest?.lines.length === 1 ? dateOnlyRequest.lines[0] : null;
+  if (body?.channel !== "email" && dateOnlyQuote && minimumPeriodRequests.length) {
+    const minimumMessages = minimumPeriodRequests.map(request => {
+      const offer = request.minimumRentalOffer!;
+      const subject = request.displaySubject ?? request.subject;
+      const fulfillment = request.fulfilled === null
+        ? `I couldn't verify stock for ${request.quantity} ${subject} for your current rental period.`
+        : request.fulfilled > 0
+          ? `I can supply ${request.fulfilled} of ${request.quantity} ${subject} for the current ${dateOnlyQuote.days}-day rental.`
+          : `I can't confirm any ${subject} for the current ${dateOnlyQuote.days}-day rental.`;
+      const linked = offer.slug
+        ? `[${offer.title}](https://dbcinemarentals.com/gear/${encodeURIComponent(offer.slug)})`
+        : offer.title;
+      const title = offer.alternative ? `A possible alternative is ${linked}` : linked;
+      return `${fulfillment} ${title} has a ${offer.minimumDays}-day minimum. Minimum gear hire is ${money(offer.total)} for ${offer.minimumDays} days; I haven't checked stock for that longer period.`;
+    });
+    const minimumDays = [...new Set(minimumPeriodRequests.map(request => request.minimumRentalOffer!.minimumDays))];
+    const confirmedPrice = dateOnlyQuote.total !== null
+      ? ` Gear hire for the confirmed items is ${money(dateOnlyQuote.total)} for ${dateOnlyQuote.days} rental day${dateOnlyQuote.days === 1 ? "" : "s"}.`
+      : "";
+    const next = minimumDays.length === 1
+      ? `Would you like me to check availability for the full ${minimumDays[0]}-day minimum?`
+      : "Would you like me to check availability over those minimum rental periods?";
+    reply = `${minimumMessages.join(" ")}${confirmedPrice} ${next}`;
+    if (additionalAnswer) reply += `\n\n${additionalAnswer}`;
+  } else if (body?.channel !== "email" && dateOnlyQuote && configurationConflictRequest?.configurationConflict) {
+    const conflict = configurationConflictRequest.configurationConflict;
+    const item = configurationConflictRequest.displaySubject || configurationConflictRequest.subject;
+    const listing = conflict.slug
+      ? `[${conflict.title}](https://dbcinemarentals.com/gear/${encodeURIComponent(conflict.slug)})`
+      : conflict.title;
+    const contents = conflict.verifiedContents.length
+      ? ` It includes ${conflict.verifiedContents.join(", ")}.`
+      : " I don't have verified details of its included contents yet.";
+    const money = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(conflict.total);
+    const duration = `${dateOnlyQuote.days} rental day${dateOnlyQuote.days === 1 ? "" : "s"}`;
+    const unavailable = conflict.availableUnits === 0;
+    const stock = dateOnlyQuote.timed
+      ? conflict.availableUnits === null
+        ? "I couldn't verify stock for your selected times."
+        : conflict.availableUnits > 0
+          ? `${conflict.availableUnits} of this package ${conflict.availableUnits === 1 ? "is" : "are"} available for your selected times.`
+          : "This package isn't available for your selected times."
+      : unavailable
+        ? `I couldn't find this package in stock for ${new Date(`${dateOnlyQuote.start}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" })}.`
+        : "I need your pickup and return times before I can confirm availability.";
+    const price = unavailable ? "" : ` One listing is ${money} for ${duration}.`;
+    const next = unavailable
+      ? "Would another time or date work, or should I look for another FX3 configuration?"
+      : "Would you accept this package?";
+    reply = `The ${item} is listed as ${listing}, with a different package configuration.${contents} ${stock}${price} ${next}`;
+    if (additionalAnswer) reply += `\n\n${additionalAnswer}`;
+  } else if (body?.channel !== "email" && dateOnlyQuote && !dateOnlyQuote.timed && dateOnlyQuote.complete &&
+      dateOnlyQuote.availabilityWindow?.suggested && dateOnlyRequest && dateOnlyRequest.fulfilled === dateOnlyRequest.quantity &&
+      dateOnlyLine && !dateOnlyLine.alternative && !dateOnlyQuote.recommendedAddOn) {
+    const dateLabel = new Date(`${dateOnlyQuote.start}T12:00:00Z`).toLocaleDateString("en-GB", {
+      day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London",
+    });
+    const money = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(dateOnlyQuote.total ?? dateOnlyLine.total);
+    const duration = `${dateOnlyQuote.days} rental day${dateOnlyQuote.days === 1 ? "" : "s"}`;
+    const window = dateOnlyQuote.availabilityWindow;
+    const item = dateOnlyLine.displayTitle || dateOnlyLine.title;
+    reply = `I found a possible window for ${item} on ${dateLabel}: pickup at ${window.pickupTime} and return at ${window.returnTime}. Gear hire would be ${money} for ${duration}. Those times still need your OK before I can confirm availability. Would they suit?`;
+    if (additionalAnswer) reply += `\n\n${additionalAnswer}`;
+  }
   return {
     reply,
     cards: result.cards,

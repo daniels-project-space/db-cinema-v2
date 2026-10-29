@@ -10,12 +10,15 @@ assert.match(GAFFER_VOICE_PROMPT, /Never combine different items into one field 
 assert.match(GAFFER_VOICE_PROMPT, /complete rental listings or kits/i);
 assert.match(GAFFER_VOICE_PROMPT, /An FX3 body is not a request for another camera/i);
 assert.match(GAFFER_VOICE_PROMPT, /Quote gear hire only; do not add deposits/i);
+assert.match(GAFFER_VOICE_PROMPT, /clear shoot context/i);
+assert.match(GAFFER_VOICE_PROMPT, /camera-only\/no-extras request/i);
 assert.match(GAFFER_VOICE_PROMPT, /Call request_callback only when the caller explicitly asks/i);
 assert.doesNotMatch(GAFFER_VOICE_PROMPT, /Always call request_callback|for any booking, inquiry, issue/i);
 
 const salesCallBrief = pageBrief("/gear").brief;
 assert.match(salesCallBrief, /Quote the gear hire daily rate and rental total only/i);
 assert.match(salesCallBrief, /If asked directly about deposit or security policy, explain it separately/i);
+assert.match(salesCallBrief, /clear shoot need/i);
 assert.doesNotMatch(salesCallBrief, /Quote the daily rate and the refundable holding deposit/i);
 
 const toolIds = ["quote-tool", "stock-tool"];
