@@ -279,7 +279,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       if (name === 'checkout') await c.evaluate(`(${card}).querySelector('input[type="checkbox"]').click()`);
       else await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
       await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
-      await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
+      await c.evaluate(`document.querySelector('[data-testid="confirm-remove-membership"]').click()`);
       await wait(250);
       console.log({checkoutMembershipAfterRemoval:await c.evaluate(`(()=>{const card=document.querySelector('main [data-testid="membership-upsell"]'),checkbox=card?.querySelector('input[type="checkbox"]');return{card:!!card,selected:card?.dataset.membershipSelected??null,add:!!card?.querySelector('[data-testid="add-membership"]'),confirm:!!card?.querySelector('[data-testid="confirm-membership-card"]'),remove:!!card?.querySelector('[data-testid="remove-membership"]'),checkbox:checkbox?.checked??null,dialog:!!document.querySelector('[data-testid="membership-remove-dialog"]'),savedSelection:localStorage.getItem('dbc_membership_selection_v1')}})()`)});
     }
