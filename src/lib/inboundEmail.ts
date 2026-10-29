@@ -94,6 +94,11 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
     const confirmed = enquiry.requests.filter(request => request.fulfilled !== null && request.fulfilled > 0 && !unresolved.includes(request))
       .map(request => `${request.fulfilled} × ${subjectLabel(request)}`);
     const minimumPeriodRequests = enquiry.requests.filter(request => request.minimumRentalOffer);
+    const compactSingleItemQuote = enquiry.stockVerified && enquiry.complete && enquiry.requirementsComplete &&
+      !enquiry.timeWindowPricingConservative && enquiry.availabilityIssue === undefined &&
+      enquiry.requests.length === 1 && enquiry.requests[0].quantity === 1 &&
+      lines.length === 1 && !lines[0].line.alternative && !lines[0].line.inventoryReviewRequired &&
+      minimumPeriodRequests.length === 0 && enquiry.total !== null;
 
     if (minimumPeriodRequests.length) {
       const minimumText = minimumPeriodRequests.map(request => {
@@ -125,6 +130,17 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
           : request.fulfilled !== null ? `${request.fulfilled} × ${subjectLabel(request)}` : "").filter(Boolean).join(", ");
       const short = enquiry.requests.reduce((sum, request) => sum + Math.max(0, request.quantity - (request.fulfilled ?? 0)), 0);
       sections.push(`The final stock check for ${period} confirmed ${status}${short ? `; we're short by ${short}` : ""}. Would another time work?`);
+    } else if (compactSingleItemQuote && enquiry.total !== null) {
+      const line = lines[0].line;
+      const item = link(line.displayTitle || line.title, line.slug);
+      const availability = enquiry.availabilityWindow
+        ? `The ${item} is available on ${period}. I can offer pickup at ${enquiry.availabilityWindow.pickupTime} and return at ${enquiry.availabilityWindow.returnTime}. Would that work for you?`
+        : `The ${item} is available on ${period}. Pickup at ${enquiry.pickupTime} and return at ${enquiry.returnTime} both work.`;
+      const card = rows.find(row => String(row?.item?.listingId) === line.listingId);
+      const discountNote = enquiry.days > 1 && Number.isFinite(card?.item?.saved) && card.item.saved > 0
+        ? " The multi-day rate is already included."
+        : "";
+      sections.push(`${availability} Gear hire is ${gbp(enquiry.total)} for ${enquiry.days === 1 ? "the day" : `${enquiry.days} days`}.${discountNote}`);
     } else if (enquiry.timeWindowPricingConservative) {
       sections.push(`I have ${requested} available on ${period}. I checked ${pickupWindow} and ${returnWindow}.`);
     } else if (enquiry.availabilityWindow) {
@@ -157,7 +173,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
       sections.push("I've priced the full time windows, so this is the maximum hire cost. The total may be lower once you choose exact times.");
     }
 
-    if (lines.length) {
+    if (lines.length && !compactSingleItemQuote) {
       const lineText = lines.map(({ request, line }) => {
         const suppliedUnits = typeof line.providedUnits === "number" && Number.isSafeInteger(line.providedUnits) ? line.providedUnits : line.quantity;
         const packNote = suppliedUnits > line.quantity ? ` (one listing supplies ${suppliedUnits} × ${subjectLabel(request)})` : "";

@@ -68,7 +68,7 @@ const SELL_CLOSE =
   "this as soon as each item is confirmed, not batched at the end; a call that gets interrupted should " +
   "still leave whatever was already agreed sitting in the basket. " +
   "If it's booked out you'll be handed alternatives — offer those rather than dead-ending. " +
-  "Quote the daily rate and the refundable holding deposit. " +
+  "Quote the gear hire daily rate and rental total only. Do not include or volunteer refundable deposits, security payments, card holds or delivery charges in rental quote totals. If asked directly about deposit or security policy, explain it separately from the hire price. " +
   "Once something real is in the basket, call suggest_addons — it only ever returns a genuine, " +
   "currently-discounted match for what's actually in there (an ND filter for a lens, a tripod or " +
   "gimbal for a camera), never an invented one. Mention it once, naturally, right after the main add " +

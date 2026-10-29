@@ -1,6 +1,8 @@
 const assert = require("node:assert/strict");
+const { load } = require("./lib/rentalTestHarness.cjs");
 const { GAFFER_VOICE_PROMPT } = require("./lib/gafferVoicePrompt.cjs");
 const { syncGafferVoiceAgentPrompt } = require("./lib/gafferVoiceAgentPrompt.cjs");
+const { pageBrief } = load("src/components/gaffer/callContext.ts");
 
 assert.match(GAFFER_VOICE_PROMPT, /one quote call per distinct requested item/i);
 assert.match(GAFFER_VOICE_PROMPT, /separate item calls do not confirm shared stock across the whole group/i);
@@ -10,6 +12,11 @@ assert.match(GAFFER_VOICE_PROMPT, /An FX3 body is not a request for another came
 assert.match(GAFFER_VOICE_PROMPT, /Quote gear hire only; do not add deposits/i);
 assert.match(GAFFER_VOICE_PROMPT, /Call request_callback only when the caller explicitly asks/i);
 assert.doesNotMatch(GAFFER_VOICE_PROMPT, /Always call request_callback|for any booking, inquiry, issue/i);
+
+const salesCallBrief = pageBrief("/gear").brief;
+assert.match(salesCallBrief, /Quote the gear hire daily rate and rental total only/i);
+assert.match(salesCallBrief, /If asked directly about deposit or security policy, explain it separately/i);
+assert.doesNotMatch(salesCallBrief, /Quote the daily rate and the refundable holding deposit/i);
 
 const toolIds = ["quote-tool", "stock-tool"];
 const initialAgent = { conversation_config: {

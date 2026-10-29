@@ -238,7 +238,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(fx3Email.enquiry.total, 60);
   assert.equal(fx3Email.enquiry.requests[0].lines[0].displayTitle, "Sony FX3 camera body", "body-only requests get a short body label even when the real listing contains standard kit extras");
   assert(!/a7 iii|gimbal/i.test(fx3EmailBody), "a camera-only FX3 email must not upsell a different body or an unrequested gimbal");
-  assert(fx3EmailBody.includes("1 × [Sony FX3 camera body]"), "the final email must use the exact requested body label rather than the full bundle title");
+  assert(fx3EmailBody.includes("[Sony FX3 camera body](https://dbcinemarentals.com/gear/"), "the final email must link the exact requested body label rather than the full bundle title");
   assert(!fx3EmailBody.includes("Sony FX3 Body Kit"), "the email must not reframe a body-only quote as a bundle upsell");
   assert(fx3EmailBody.startsWith("Hi there,\n\n") && fx3EmailBody.endsWith("DB Cinema Rentals Team"), "the email reply stays personal and uses the agreed team sign-off");
   assert(!fx3EmailBody.includes("Multi-day rates per unit"), "the email stays focused instead of appending a rate ladder");
@@ -290,7 +290,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(result.enquiry.requests[0].fulfilled, 1, "a date-only FX3 request checks the full body quantity");
   assert.equal(result.enquiry.requests[0].lines[0].listingId, cameraListing._id, "date-only quotes keep a body-only request on the exact FX3 body");
   assert.equal(result.enquiry.complete, true);
-  assert(result.email.includes("1 × [Sony FX3 camera body]"));
+  assert(result.email.includes("[Sony FX3 camera body](https://dbcinemarentals.com/gear/"));
   additionalAnswerForTest = "We're based in Trafalgar Square, and collection is available from our London studio.";
   const locationQuestion = "Please quote one Sony FX3 camera body for 20 November 2030. Where are you based? Also, can you recommend a compatible lens?";
   result = await run(1, {
@@ -446,11 +446,11 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(result.enquiry.requests[0].fulfilled, 1);
   assert.equal(result.enquiry.requests[0].lines[0].listingId, liveBodyQuote._id, "a body-only request may use the exact owned FX3 body kit when the renter has not excluded its documented cage and recording card");
   assert.equal(result.enquiry.requests[0].lines[0].alternative, false);
-  assert(result.email.includes("1 × [Sony FX3 camera body]"), "a camera-only email uses the short exact-body label for the real FX3 kit listing");
+  assert(result.email.includes("[Sony FX3 camera body](https://dbcinemarentals.com/gear/"), "a camera-only email uses the short exact-body label for the real FX3 kit listing");
   assert(!result.email.includes("Sony FX3 Body Kit"), "a camera-only quote is not framed as a bundle upsell");
   assert.equal(result.enquiry.complete, true, "a date-only FX3 request should confirm when a shared pickup/return window is available");
   assert.equal(result.enquiry.availabilityWindow?.suggested, true, "the reply should offer a real available pickup/return window");
-  assert(result.email.includes(`The available window is pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}. Would that work for you?`));
+  assert(result.email.includes(`I can offer pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}. Would that work for you?`));
   assert(result.email.startsWith("Hi there,\n\n"), "the email reply opens like a short human business reply");
   assert(!result.email.includes("Sony a7 III") && !result.email.includes("DJI RS3 Pro Gimbal"), "a named FX3 request cannot be replaced with the classifier's cheaper camera/gimbal bundle");
   assert(!/provisional|quantity not yet confirmed|proposed alternative|multi-day rates per unit|security payments/i.test(result.email), "the customer-facing quote leaves out internal status clutter and irrelevant rate ladders");
@@ -471,9 +471,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(result.email, [
     "Hi there,",
     "",
-    `I have 1 × Sony FX3 camera body available on 3 November 2026. The available window is pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}. Would that work for you?`,
-    "",
-    `1 × [Sony FX3 camera body](https://dbcinemarentals.com/gear/${liveBodyQuote.slug}): £47.00 for the day`,
+    `The [Sony FX3 camera body](https://dbcinemarentals.com/gear/${liveBodyQuote.slug}) is available on 3 November 2026. I can offer pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}. Would that work for you? Gear hire is £47.00 for the day.`,
     "",
     "Availability is checked again when you book.",
     "",
