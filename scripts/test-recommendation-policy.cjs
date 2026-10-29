@@ -164,6 +164,13 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  assert.equal(assembled.stages.find(s=>s.key==='monitor').includedInKit,true);
  for(const type of extraTypes){plannedStages=[{key:type,recommend:type}];assembled=await assembleKit();assert.equal(assembled.stages[0].key,type,'assembler supports catalogue type '+type);assert.equal(assembled.stages[0].recommendedId,type,'assembler recommendation is the actual requested type');}
  assert.deepEqual(p.documentedIncludedTypes({...body,inventoryFacts:{contents:['Sony 24–70mm GM lens','DJI RS3 Pro gimbal'],optionalContents:['monitor']}}).sort(),['gimbal','lens']);
+ const audioCandidate={...lens,_id:'extra-wireless-kit',itemType:'wireless-mic',title:'DJI Mic 2 wireless kit',components:[]};
+ const documentedAudioBundle={...body,_id:'interview-camera-kit',itemType:'camera-body',inventoryFacts:{owned:true,contents:['RØDE Wireless PRO microphone kit with two transmitters and one receiver']},rentalContents:{included:['2x Rode Wireless Pro microphone systems']}};
+ assert.deepEqual(p.documentedIncludedTypes(documentedAudioBundle),['wireless-mic']);
+ assert(!p.automaticRecommendation(audioCandidate,[documentedAudioBundle]),'a documented included mic kit satisfies the automatic audio preference');
+ assert(p.automaticRecommendation({...audioCandidate,itemType:'light'},[documentedAudioBundle]),'bundled audio must not suppress unrelated lighting upgrades');
+ const optionalAudioBundle={...documentedAudioBundle,inventoryFacts:{owned:true,contents:[]},rentalContents:{included:[],optional:['RØDE Wireless PRO microphone kit']}};
+ assert(p.automaticRecommendation(audioCandidate,[optionalAudioBundle]),'optional, unselected audio does not satisfy the automatic audio preference');
  // Real registered complementary query: aliases in different offers must not
  // fill the list with the same physical lens, even with strong demand scores.
  const listing = data => {const {_id,...fields}=data;return put('listings',{active:true,pricing:{daily:20},r2Images:['https://example.invalid/gear.jpg'],category:'Cameras',...fields});};

@@ -189,14 +189,16 @@ function PreferenceGlyph({ kind }: { kind: PreferenceKind }) {
   );
 }
 
-function useAnimatedBudgetTotal(total: number, animateChanges: boolean) {
+function useAnimatedBudgetTotal(total: number, animateChanges: boolean, loading: boolean) {
   const [displayTotal, setDisplayTotal] = useState(total);
   const currentTotal = useRef(total);
+  const initialized = useRef(false);
 
   useEffect(() => {
-    if (!animateChanges || Math.abs(currentTotal.current - total) < 0.01) {
+    if (loading || !initialized.current || !animateChanges || Math.abs(currentTotal.current - total) < 0.01) {
       currentTotal.current = total;
       setDisplayTotal(total);
+      if (!loading) initialized.current = true;
       return;
     }
 
@@ -214,16 +216,16 @@ function useAnimatedBudgetTotal(total: number, animateChanges: boolean) {
 
     frame = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frame);
-  }, [total, animateChanges]);
+  }, [total, animateChanges, loading]);
 
   return displayTotal;
 }
 
 function BudgetDial({ total, position, loading, animateChanges }: { total: number; position: number; loading: boolean; animateChanges: boolean }) {
   const angle = -132 + position * 2.64;
-  const displayTotal = useAnimatedBudgetTotal(total, animateChanges);
+  const displayTotal = useAnimatedBudgetTotal(total, animateChanges, loading);
   return (
-    <div className={styles.dial} style={{ "--needle-turn": `${angle}deg` } as CSSProperties} aria-label={loading ? "Matching live catalogue gear" : `Example kit ${currency(total)} per day`}>
+    <div className={styles.dial} role="img" style={{ "--needle-turn": `${angle}deg` } as CSSProperties} aria-label={loading ? "Matching live catalogue gear" : `Example kit ${currency(total)} per day`}>
       <svg viewBox="0 0 160 160" fill="none" aria-hidden="true">
         <circle className={styles.dialOuter} cx="80" cy="80" r="70" />
         <circle className={styles.dialInner} cx="80" cy="80" r="61" />
@@ -301,7 +303,14 @@ function KitPanel({ kit, position, variant, loading, dailyChange = 0, cameraCoun
         )}
         {!loading && variant === "upgrade" && dailyChange > 0 && <span className={styles.upgradeArrow} aria-hidden="true"><svg viewBox="0 0 32 22" fill="none"><path d="M2 17c5-11 11-13 17-9l5 4M19 7l6 5-7 2" /></svg></span>}
       </div>
-      {!loading && additional.length > 0 && <div className={styles.kitFoot}><span>Also includes {additional.map((item) => item.itemType === "lens" ? "a lens" : item.itemType === "wireless-mic" ? "audio" : "another piece").join(" · ")}</span></div>}
+      {!loading && additional.length > 0 && <div className={styles.kitFoot} aria-label="Additional included listings">
+        {additional.map((item) => (
+          <span className={styles.kitExtra} key={item._id}>
+            <span title={item.title}>{gearKind(item)} · {item.title}</span>
+            <small>{currency(item.pricing.daily)}/day</small>
+          </span>
+        ))}
+      </div>}
     </>
   );
 }
