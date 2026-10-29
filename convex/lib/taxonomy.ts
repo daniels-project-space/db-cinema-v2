@@ -95,7 +95,7 @@ const RULES: [ItemType, RegExp][] = [
   ["recorder", /\b(recorder|zoom h\d|zoom f\d|tascam|mixpre|field recorder)\b/i],
   ["boom-mic", /\b(boom ?mic|boom ?pole|shotgun|\bntg\b|\bmkh\b|hypercardioid|deity|sennheiser mke|sm7b|podcast mic)\b/i],
   // NOTE: no trailing \b — it would break plurals ("microphones", "dji mics").
-  ["wireless-mic", /(wireless ?mic|wireless ?go|dji ?mic|rode ?wireless|rode ?mic|lavalier|\blav\b|sennheiser ?(ew|g[34])|\bg[34]\b|handheld ?mic|radio ?mic|wireless ?microphone|microphone.{0,15}wireless)/i],
+  ["wireless-mic", /(wireless ?mic|wireless ?go|dji ?mic|r[øo]de ?wireless|r[øo]de ?mic|lavalier|\blav\b|sennheiser ?(ew|g[34])|\bg[34]\b|handheld ?mic|radio ?mic|wireless.{0,20}microphone|microphone.{0,20}wireless)/i],
   ["dj-deck", /\b(\bdj\b|cdj|ddj|xdj|pioneer|turntable|rekordbox|serato)\b/i],
   ["mixer", /\b(mixer|mixing desk|djm)\b/i],
   ["speaker", /\b(speaker|partybox|\bjbl\b|\bpa\b|sub ?woofer|sound ?system)\b/i],

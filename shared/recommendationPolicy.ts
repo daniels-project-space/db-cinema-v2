@@ -50,6 +50,7 @@ export function includedLensFocals(item: RecommendationItem): string[] {
 }
 
 function id(item: RecommendationItem) { return item._id ?? item.listingId; }
+const AUDIO_SUPPLY_TYPES = new Set(["wireless-mic", "boom-mic", "recorder"]);
 
 /** Another offer can sell the very same physical lens or a subset of a kit. */
 export function alreadySupplied(candidate: RecommendationItem, selected: RecommendationItem[]): boolean {
@@ -192,6 +193,8 @@ export function verifiedGimbalPair(candidate: RecommendationItem, selected: Reco
  * Unknown fit remains a browsable choice, rather than a promised match. */
 export function recommendationCompatible(candidate: RecommendationItem, selected: RecommendationItem[], evidence: RecommendationItem[] = []): boolean {
   if (alreadySupplied(candidate, selected)) return false;
+  if (AUDIO_SUPPLY_TYPES.has(candidate.itemType ?? "") && selected.some(item =>
+    documentedIncludedTypes(item).some(type => AUDIO_SUPPLY_TYPES.has(type)))) return false;
   if (candidate.itemType === "gimbal") return verifiedGimbalPair(candidate, selected, evidence);
   if (candidate.itemType === "lens") return automaticLens(candidate, selected);
   if (candidate.itemType === "camera-body") {
