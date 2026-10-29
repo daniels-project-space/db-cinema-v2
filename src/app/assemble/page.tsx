@@ -22,7 +22,7 @@ import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
 import { filterThreadsFor } from "../../../shared/opticalFacts";
 import { scoreOption } from "@/lib/kitRank";
-import { alreadySupplied, automaticRecommendation, documentedIncludedTypes, includedLensFocals, lensFit } from "../../../shared/recommendationPolicy";
+import { alreadySupplied, automaticRecommendation, documentedIncludedTypes, includedLensFocals, lensFit, matchesAssemblyBrief, matchesAssemblyCamera } from "../../../shared/recommendationPolicy";
 
 const EMPTY_DATES = new Set<string>();
 
@@ -78,7 +78,7 @@ export default function AssemblePage() {
 
   const rawSelection = Object.values(sel) as any[];
   const live:any = useLiveRecommendations(data ? {
-    groups:data.stages.map((s:any)=>({key:s.key,types:[STAGE_TYPE[s.key]??s.key],listingId:rawSelection.find(i=>i.stageKey===s.key)?.listingId,...liveWindow({start,end,pickupTime,returnTime})})),
+    groups:data.stages.map((s:any)=>({key:s.key,types:[STAGE_TYPE[s.key]??s.key],listingId:rawSelection.find(i=>i.stageKey===s.key)?.listingId || (s.key === "camera" || s.briefConstraint ? s.recommendedId || s.briefPreferredId || s.cameraPreferredId : undefined) || undefined,...liveWindow({start,end,pickupTime,returnTime})})),
     basket:stockLines(cart.items),selectedIds:rawSelection.map(i=>i.listingId),
   } : null);
   const selList = rawSelection.map(item=>({...item,...live?.groups[item.stageKey]?.selection?.find((current:any)=>current.listingId===item.listingId)}));
@@ -104,6 +104,18 @@ export default function AssemblePage() {
   // ONE scoring formula, shared with /api/assemble — re-ranks the live selection's downstream stages.
   const dynScore = (o: any, key: string) =>
     scoreOption(o, { key, camMounts, camCoverage: camCov, camBatts, cinemaRig, hasGimbal, includedFocal: inclFocal, small: smallShoot, lensPref });
+  const cameraConstraintFor = (stage: any) => {
+    const constraint = stage?.cameraConstraint;
+    if (!constraint?.requiresLens) return constraint;
+    const lensStage = data?.stages?.find((candidate: any) => candidate.key === "lens");
+    const group = live?.groups?.lens;
+    const selectedLens = selList.find((item: any) => item.stageKey === "lens");
+    const candidates = [group?.preferred, ...(group?.options ?? [])].filter(Boolean);
+    const lens = selectedLens
+      ? selectedLens.available === true ? selectedLens : null
+      : candidates.find((item: any) => item.available === true && lensStage?.briefConstraint && matchesAssemblyBrief(item, lensStage.briefConstraint)) ?? null;
+    return { ...constraint, requestedLens: lens };
+  };
   // the recommended ("Pick") id for a stage, re-derived from the current selection
   const dynRec = (s: any): string => {
     if (!s || !live) return "";
@@ -112,8 +124,10 @@ export default function AssemblePage() {
     const context=contextList.filter(i=>i.stageKey!==s.key||["lens","light","nd-filter","battery","lav-mic"].includes(s.key));
     const v = visibleFor(s).filter((o: any) => o.available===true && !incompatOf(o, s) &&
       !alreadySupplied(o, context.filter(i => i.listingId !== o.listingId)) &&
-      automaticRecommendation(o, context.filter(i => i.listingId !== o.listingId), live.compatibilityKits));
-    if(s.key==="camera"&&v.some((o:any)=>o.listingId===s.recommendedId))return s.recommendedId;
+      (s.key !== "camera" || !s.cameraConstraint || matchesAssemblyCamera(o, cameraConstraintFor(s))) &&
+      (!s.briefConstraint || matchesAssemblyBrief(o, s.briefConstraint)) &&
+      (s.key === "lens" && s.briefConstraint && cams.length === 0 || automaticRecommendation(o, context.filter(i => i.listingId !== o.listingId), live.compatibilityKits)));
+    if((s.key==="camera" || s.briefConstraint)&&v.some((o:any)=>o.listingId===s.recommendedId))return s.recommendedId;
     return v.length ? [...v].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key))[0].listingId : "";
   };
 
@@ -220,7 +234,17 @@ export default function AssemblePage() {
 
   // We no longer HIDE incompatible gear — we SHOW it greyed with a reason (the engine already
   // sorted compatible-first), so the customer can see e.g. "this V-mount won't power your FX3".
-  const visibleFor = (s: any): any[] => live?.groups[s?.key]?.options ?? [];
+  const visibleFor = (s: any): any[] => {
+    const group = live?.groups[s?.key];
+    const options = group?.options ?? [];
+    const preferred = group?.preferred;
+    const withPreferred = preferred && !options.some((option: any) => option.listingId === preferred.listingId) ? [preferred, ...options] : options;
+    if (s?.key === "camera" && s.cameraConstraint) {
+      const constraint = cameraConstraintFor(s);
+      return [...withPreferred].sort((a: any, b: any) => Number(!matchesAssemblyCamera(a, constraint)) - Number(!matchesAssemblyCamera(b, constraint)));
+    }
+    return s?.briefConstraint ? [...withPreferred].sort((a: any, b: any) => Number(!matchesAssemblyBrief(a, s.briefConstraint)) - Number(!matchesAssemblyBrief(b, s.briefConstraint))) : withPreferred;
+  };
   const skipped = (s: any) => s?.key === "lens" && actionOnly;
   // Why an option is incompatible with the chosen kit (null = fine). Uses the route's per-option
   // verdict for lens/battery, and a client thread check for ND filters.
@@ -388,6 +412,15 @@ export default function AssemblePage() {
               const dyn = s.key === "lens" || s.key === "battery";
               const opts = dyn ? [...visibleFor(s)].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key)) : visibleFor(s);
               const isSkip = skipped(s);
+              let stageNote = s.note;
+              const cameraRequest = s.key === "camera" && (s.cameraConstraint?.model || s.cameraConstraint?.named || s.cameraConstraint?.strict || s.cameraConstraint?.requiresLens);
+              if (live?.groups?.[s.key]?.ready === true && (cameraRequest || s.briefConstraint)) {
+                stageNote = recId
+                  ? s.key === "lens" && cams.length === 0
+                    ? "Your requested lens is available. Choose a compatible camera or verified adapter before pairing it."
+                    : "A matching option is available for your selected dates and times."
+                  : "No matching option is currently verified for this kit and time. You can choose an alternative.";
+              }
               return (
                 <div key={si} className="stage-in space-y-2">
                   <div className="msg-left flex items-start gap-3">
@@ -397,7 +430,7 @@ export default function AssemblePage() {
                         <span className="font-display font-semibold text-white/90">{s.label}</span>
                         {s.upsell && <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[11px] text-amber-300"><IconBolt className="h-3 w-3" />upgrade</span>}
                       </div>
-                      {s.note && <p className="mt-1 text-sm leading-relaxed text-white/60"><Stream text={s.note} /></p>}
+                      {stageNote && <p className="mt-1 text-sm leading-relaxed text-white/60"><Stream text={stageNote} /></p>}
                       {s.key === "lens" && camIncludesLens && !isSkip && <p className="mt-1 text-xs text-amber-300">Your camera already includes a lens — these are optional additional lenses.</p>}
                       {STAGE_TYPE[s.key] && STAGE_TYPE[s.key] !== "lens" && includedTypes.has(STAGE_TYPE[s.key]) && !isSkip && (
                         <p className="mt-1 text-xs text-amber-300">Your set already includes a {s.label.toLowerCase()} — only add one if you need a spare; the set&apos;s unit is already booked.</p>

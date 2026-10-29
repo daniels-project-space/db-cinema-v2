@@ -11,8 +11,9 @@ import { coverageCompat, battOk, isRigPower } from "@/lib/compat";
 import { PICKUP_SLOTS } from "@/lib/site";
 import { rateLimit } from "@/lib/ratelimit";
 import { compareOptions, isCameraSet } from "@/lib/kitRank";
-import { automaticRecommendation, documentedIncludedTypes, includedLensFocals, rentableCandidate, unrequestedCameraExtras, type RecommendationItem } from "../../../../shared/recommendationPolicy";
+import { assemblyCameraOnly, assemblyPositiveBrief, assemblyStageBrief, assemblyStageExcluded, automaticRecommendation, documentedIncludedTypes, includedLensFocals, inferAssemblyBriefConstraint, matchesAssemblyBrief, matchesAssemblyCamera, rentableCandidate, unrequestedCameraExtras, type AssemblyBriefConstraint, type AssemblyCameraConstraint, type RecommendationItem } from "../../../../shared/recommendationPolicy";
 import { normalizeEquipmentName, equipmentModelTokens, equipmentModelsMatch } from "../../../../shared/equipmentIdentity";
+import { explicitlyNoOptionalAddOns } from "../../../../shared/gafferEmailQuote";
 import { rentalPricingDays } from "../../../../shared/rentalDuration";
 import { createTypeListingLoader } from "@/lib/catalogCandidates";
 
@@ -118,7 +119,7 @@ function batteryCompat(optBatt: string | null | undefined, camBatt: string | nul
   return battOk(camBatt, optBatt) ? "native" : "incompatible";
 }
 
-type StageOpts = { compatibilityKits?: RecommendationItem[]; pickupTime?: string; returnTime?: string; selected?: RecommendationItem[]; lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean; refreshStock?: (listingId: string) => Promise<void> };
+type StageOpts = { compatibilityKits?: RecommendationItem[]; pickupTime?: string; returnTime?: string; selected?: RecommendationItem[]; lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean; cameraConstraint?: AssemblyCameraConstraint; briefConstraint?: AssemblyBriefConstraint; refreshStock?: (listingId: string) => Promise<void> };
 
 async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, o: StageOpts = {}, getTypeListings = createTypeListingLoader(c)) {
   const { lensPref, camMounts = [], camCoverage = null, camBattery = null, includedFocal = null, small = false } = o;
@@ -131,13 +132,16 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
   if (key === "lav-mic" || key === "wireless-mic" || key === "shotgun-mic") items = items.filter((l) => !CAM_BUNDLE.test(l.title));
   // consider the most in-demand items FIRST (byItemType is unsorted) so the availability-checked
   // window always includes the gear people actually rent (e.g. the Sony 24-70 GM).
-  if (key === "camera") items.sort((a, b) => (isCameraSet(a.title) ? 1 : 0) - (isCameraSet(b.title) ? 1 : 0) || (b.demandScore ?? 0) - (a.demandScore ?? 0));
-  else items.sort((a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0));
+  if (key === "camera") items.sort((a, b) =>
+    (o.cameraConstraint ? Number(!matchesAssemblyCamera(a, o.cameraConstraint)) - Number(!matchesAssemblyCamera(b, o.cameraConstraint)) : 0) ||
+    (o.cameraConstraint?.model ? unrequestedCameraExtras(a, o.cameraConstraint.brief, true) - unrequestedCameraExtras(b, o.cameraConstraint.brief, true) : 0) ||
+    (isCameraSet(a.title) ? 1 : 0) - (isCameraSet(b.title) ? 1 : 0) || (b.demandScore ?? 0) - (a.demandScore ?? 0));
+  else items.sort((a, b) => (o.briefConstraint ? Number(!matchesAssemblyBrief(a, o.briefConstraint)) - Number(!matchesAssemblyBrief(b, o.briefConstraint)) : 0) || (b.demandScore ?? 0) - (a.demandScore ?? 0));
   if (items.length) await o.refreshStock?.(String(items[0]._id));
   const days = rentalPricingDays(msOf(start), msOf(end), o.pickupTime, o.returnTime);
   const out: any[] = [];
   for (const l of items.slice(0, 36)) {
-
+    if (days < (l.minimumRentalDays ?? 1)) continue;
     const av: any = await c.query(api.availability.forListing, { listingId: l._id, start: msOf(start), end: msOf(end), pickupTime: o.pickupTime, returnTime: o.returnTime });
     if ((av?.available ?? 0) <= 0) continue;
     const q: any = quote(l.pricing, days);
@@ -179,16 +183,16 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
   return out;
 }
 
-function pickRecommended(options: any[], hint?: string) {
+function pickRecommended(options: any[], hint?: string, requestText = hint ?? "") {
   if (options.length === 0) return null;
   if (hint) {
     const tokens = normalizeEquipmentName(hint).match(/[a-z0-9.\-]{2,}/g) || [];
     let best: any = null, bestScore = 0;
-    for (const o of [...options].sort((a, b) => unrequestedCameraExtras(a, hint) - unrequestedCameraExtras(b, hint))) {
+    for (const o of [...options].sort((a, b) => unrequestedCameraExtras(a, requestText, true) - unrequestedCameraExtras(b, requestText, true))) {
       if (!equipmentModelsMatch(hint, o.title)) continue;
       const t = normalizeEquipmentName(o.title);
       const score = tokens.reduce((n, k) => n + (t.includes(k) ? 1 : 0), 0);
-      if (score > 0 && (!best || unrequestedCameraExtras(o, hint) < unrequestedCameraExtras(best, hint) || unrequestedCameraExtras(o, hint) === unrequestedCameraExtras(best, hint) && score > bestScore)) { bestScore = score; best = o; }
+      if (score > 0 && (!best || unrequestedCameraExtras(o, requestText, true) < unrequestedCameraExtras(best, requestText, true) || unrequestedCameraExtras(o, requestText, true) === unrequestedCameraExtras(best, requestText, true) && score > bestScore)) { bestScore = score; best = o; }
     }
     if (best && bestScore > 0) return best.listingId;
     if (equipmentModelTokens(hint).length) return null;
@@ -211,7 +215,13 @@ export async function POST(req: NextRequest) {
   if (start === end && returnTime <= pickupTime)
     return NextResponse.json({ error: "Return time must be after pickup time.", stages: [] }, { status: 400 });
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
-  const getTypeListings = createTypeListingLoader(c);
+  const loadTypeListings = createTypeListingLoader(c);
+  const typeListings = new Map<string, Promise<any[]>>();
+  const getTypeListings = (types: string[]) => {
+    const key = [...new Set(types)].sort().join(",");
+    if (!typeListings.has(key)) typeListings.set(key, loadTypeListings(types));
+    return typeListings.get(key)!;
+  };
   let stockRefresh: Promise<void> | undefined;
   let stockRefreshFailed = false;
   const refreshStock = (listingId: string) => stockRefresh ??= c.action(api.sync.refreshCartStock, {
@@ -234,7 +244,8 @@ export async function POST(req: NextRequest) {
     design = null;
   }
 
-  const cameraOnly = /\b(?:camera|body)\s+only\b|\bonly\s+(?:a\s+)?(?:camera|body)\b/i.test(b.note || "");
+  const cameraBrief = typeof b.note === "string" ? b.note.slice(0, 4000) : "";
+  const cameraOnly = assemblyCameraOnly(cameraBrief);
   let keys: string[] = cameraOnly ? ["camera"] : design?.stages?.length ? design.stages.map((s: any) => s.key) : FALLBACK[(b.shootType || "default").toLowerCase()] || FALLBACK.default;
   keys = keys.filter((k) => STAGE[k]);
   keys = Array.from(new Set(keys));
@@ -254,6 +265,30 @@ export async function POST(req: NextRequest) {
     const pri = (k: string) => (k === "camera" ? 0 : k === "lens" ? 1 : wanted.has(k) ? 2 : 3);
     keys.sort((a, z) => pri(a) - pri(z) || oi(a) - oi(z));
   }
+  const mentioned = new Set<string>();
+  if (!cameraOnly) {
+    const positive = assemblyPositiveBrief(cameraBrief);
+    const mentionedStages: [string, RegExp][] = [["lens", /\blens(?:es)?\b/i], ["gimbal", /\bgimbals?\b/i], ["tripod", /\btripods?\b/i], ["monitor", /\bmonitors?\b/i], ["light", /\blights?\b|\blighting\b/i], ["wireless-mic", /\b(?:wireless\s+)?(?:mics?|microphones?)\b/i], ["drone", /\bdrones?\b/i], ["battery", /\bbatter(?:y|ies)\b/i], ["recorder", /\brecorder\b/i], ["speaker", /\bspeakers?\b/i]];
+    for (const [key, pattern] of mentionedStages) if (pattern.test(positive)) { mentioned.add(key); if (!keys.includes(key)) keys.push(key); }
+    if (mentioned.size) {
+      const pri = (key: string) => key === "camera" ? 0 : key === "lens" ? 1 : mentioned.has(key) || wanted.has(key) ? 2 : 3;
+      keys.sort((a, b) => pri(a) - pri(b) || oi(a) - oi(b));
+    }
+  }
+  keys = keys.filter(key => !assemblyStageExcluded(cameraBrief, key));
+  const categoryNames = Array.isArray(b.categories) ? b.categories.filter((value: unknown): value is string => typeof value === "string") : [];
+  const positiveBrief = assemblyPositiveBrief(cameraBrief);
+  const cameraMentioned = cameraOnly || /\b(?:camera|body|camcorder)\b/i.test(positiveBrief) ||
+    equipmentModelTokens(positiveBrief).some(model => /^(?:fx|fs|a7|bmpcc|pxw|gh|eos|c\d|r\d|z\d)/.test(model));
+  const soundOnly = categoryNames.length > 0 && categoryNames.every((category: string) => /^(?:audio|recording|dj & sound)$/i.test(category)) && !cameraMentioned;
+  if (soundOnly) {
+    const soundStages = new Set(["lav-mic", "wireless-mic", "shotgun-mic", "recorder", "mixer", "speaker", "headphones", "dj-deck"]);
+    keys = keys.filter(key => soundStages.has(key) || mentioned.has(key));
+  }
+  if (/\bwireless\b.*\b(?:mics?|microphones?)\b|\b(?:dji\s+mic|rode\s+wireless)\b/i.test(positiveBrief)) {
+    if (!/\b(?:shotgun|boom)\b/i.test(positiveBrief)) keys = keys.filter(key => key !== "shotgun-mic");
+    if (!/\b(?:lav(?:alier)?s?|lapel)\b/i.test(positiveBrief)) keys = keys.filter(key => key !== "lav-mic");
+  }
 
   // small/solo shoots favour autofocus glass (run-and-gun); large productions favour cinema glass
   const sizeL = (b.size || "").toLowerCase();
@@ -268,24 +303,94 @@ export async function POST(req: NextRequest) {
   let includedFocal: string | null = null;
   const selected: RecommendationItem[] = [];
   const includedTypes = new Set<string>(); // contents of every recommended item, including lens/rig kits
-  const requestedCamera = equipmentModelTokens(b.note || "").filter(model => /^(?:fx|fs|a7|bmpcc|pxw|gh|eos|c\d|r\d|z\d)/.test(model)).join(" ");
+  const requestedCamera = equipmentModelTokens(cameraBrief).filter(model => /^(?:fx|fs|a7|bmpcc|pxw|gh|eos|c\d|r\d|z\d)/.test(model)).join(" ");
+  const briefConstraints = new Map<string, AssemblyBriefConstraint>();
+  const briefPreferredIds = new Map<string, string>();
+  let requestedLens: RecommendationItem | null = null;
+  let cameraNameConstraint: AssemblyBriefConstraint | null = null;
+  try {
+    for (const key of keys.slice(0, 9)) {
+      if (key === "camera" || (!mentioned.has(key) && !wanted.has(key))) continue;
+      const definition = STAGE[key];
+      let candidates = (await getTypeListings(definition.types)).filter(rentableCandidate);
+      if (definition.must) candidates = candidates.filter(item => definition.must!.test(item.title));
+      if (["lav-mic", "wireless-mic", "shotgun-mic"].includes(key)) candidates = candidates.filter(item => !CAM_BUNDLE.test(item.title));
+      const constraint = inferAssemblyBriefConstraint(assemblyStageBrief(cameraBrief, key), requestedCamera.split(" ").filter(Boolean));
+      if (constraint) {
+        briefConstraints.set(key, constraint);
+        const preferred = candidates.find(item => matchesAssemblyBrief(item, constraint));
+        if (preferred) briefPreferredIds.set(key, String(preferred._id));
+      }
+    }
+    const lensConstraint = briefConstraints.get("lens");
+    if (!requestedCamera && (cameraOnly || /\b(?:camera|body|camcorder)\b/i.test(assemblyPositiveBrief(cameraBrief)))) {
+      cameraNameConstraint = inferAssemblyBriefConstraint(assemblyStageBrief(cameraBrief, "camera"), lensConstraint?.tokens ?? []);
+    }
+    if (lensConstraint && keys.includes("camera")) {
+      const days = rentalPricingDays(msOf(start), msOf(end), pickupTime, returnTime);
+      const matching = (await getTypeListings(STAGE.lens.types)).filter(item => rentableCandidate(item) && matchesAssemblyBrief(item, lensConstraint));
+      for (const lens of matching.slice(0, 36)) {
+        if (days < (lens.minimumRentalDays ?? 1)) continue;
+        await refreshStock(String(lens._id));
+        const stock: any = await c.query(api.availability.forListing, { listingId: lens._id, start: msOf(start), end: msOf(end), pickupTime, returnTime });
+        if (!Number.isSafeInteger(stock?.available) || stock.available < 0) throw Error("Incomplete lens stock result");
+        if (stock.available > 0) {
+          requestedLens = { listingId: String(lens._id), title: lens.title, itemType: lens.itemType, specs: lens.specs,
+            components: lens.components, inventoryFacts: lens.inventoryFacts, rentalContents: lens.rentalContents };
+          break;
+        }
+      }
+    }
+  } catch {
+    return NextResponse.json({ error: "Live catalogue or stock could not be checked. Please try again.", stages: [] }, { status: 503 });
+  }
+  const excludesCameraGear = /\b(?:no|without|exclude|excluding|skip|omit|leave\s+out|don't|dont)\b(?:\s+[\w-]+){0,4}\s+(?:gimbals?|tripods?|monitors?|audio|mics?|microphones?|lenses?|accessor(?:y|ies))\b/i.test(cameraBrief);
+  const cameraConstraint: AssemblyCameraConstraint = { model: requestedCamera, brief: cameraBrief,
+    strict: cameraOnly || explicitlyNoOptionalAddOns(cameraBrief) || excludesCameraGear,
+    count: Number.isSafeInteger(b.cameras) && b.cameras > 0 && b.cameras <= 100 ? b.cameras : 1,
+    named: cameraNameConstraint, requiresLens: briefConstraints.has("lens"), requestedLens };
+  let cameraPreferredId: string | undefined;
+  if (requestedCamera || cameraNameConstraint || cameraConstraint.strict) {
+    try {
+      const identityOnly = { ...cameraConstraint, requiresLens: false };
+      const candidates = (await getTypeListings(STAGE.camera.types)).filter(item => rentableCandidate(item) && matchesAssemblyCamera(item, identityOnly));
+      candidates.sort((a, b) => unrequestedCameraExtras(a, cameraBrief, true) - unrequestedCameraExtras(b, cameraBrief, true) || (b.demandScore ?? 0) - (a.demandScore ?? 0));
+      if (candidates[0]) cameraPreferredId = String(candidates[0]._id);
+    } catch {
+      return NextResponse.json({ error: "Live catalogue could not be checked. Please try again.", stages: [] }, { status: 503 });
+    }
+  }
   let cameraChoiceMissing = false;
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
     let options: any[];
     try {
-      options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small, selected, pickupTime, returnTime, compatibilityKits, refreshStock }, getTypeListings);
+      options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small, selected, pickupTime, returnTime, compatibilityKits, cameraConstraint, briefConstraint: briefConstraints.get(k), refreshStock }, getTypeListings);
     } catch (error) {
       if (stockRefreshFailed) return NextResponse.json({ error: "Live Rental Manager stock could not be refreshed. Please try again.", stages: [] }, { status: 503 });
       throw error;
     }
-    if (!options.length) continue;
+    if (!options.length) {
+      const briefConstraint = briefConstraints.get(k);
+      if (k === "camera") cameraChoiceMissing = true;
+      if (briefConstraint || k === "camera" && (requestedCamera || cameraConstraint.named || cameraConstraint.strict || cameraConstraint.requiresLens)) {
+        stages.push({ key: k, label: DEFAULT_LABEL[k] || k, note: "No matching equipment is currently available for these dates and times.",
+          multi: MULTI.has(k), upsell: false, recommendedId: "", includedInKit: false, options: [],
+          ...(k === "camera" ? { cameraConstraint, cameraPreferredId } : {}), ...(briefConstraint ? { briefConstraint, briefPreferredId: briefPreferredIds.get(k) } : {}) });
+      }
+      continue;
+    }
     // ONE recommended id per stage — camera uses the LLM hint / top body; everything else leads
     // with the top COMPATIBLE option. (Camera's recCam below must match this so the note agrees.)
+    const matchingCameras = k === "camera" ? options.filter(option => matchesAssemblyCamera(option, cameraConstraint)) : [];
+    const briefConstraint = briefConstraints.get(k);
+    const matchingRequested = briefConstraint ? options.filter(option => matchesAssemblyBrief(option, briefConstraint) &&
+      ((k === "lens" && !camMounts.length) || option.automaticEligible)) : [];
     const recId: string = k === "camera"
-      ? (requestedCamera ? pickRecommended(options, requestedCamera) ?? "" : pickRecommended(options, meta?.recommend) ?? options[0].listingId)
+      ? (requestedCamera ? pickRecommended(matchingCameras, requestedCamera, cameraBrief) ?? "" : pickRecommended(matchingCameras, meta?.recommend, cameraBrief) ?? matchingCameras[0]?.listingId ?? "")
+      : briefConstraint ? (matchingRequested[0]?.listingId ?? "")
       : cameraChoiceMissing ? "" : (options.find((o: any) => o.compat !== "incompatible" && o.automaticEligible)?.listingId ?? "");
-    if (k === "camera" && requestedCamera && !recId) cameraChoiceMissing = true;
+    if (k === "camera" && !recId) cameraChoiceMissing = true;
     if (k === "camera" && recId) {
       const recCam = options.find((o: any) => o.listingId === recId) ?? options[0];
       camMounts = parseMounts(recCam?.mount);
@@ -303,15 +408,27 @@ export async function POST(req: NextRequest) {
     // Model prose cannot attest contents or describe the engine's actual pick.
     // Keep equipment claims grounded in the selected catalogue records.
     let note = "Compare the available options for your selected dates and times.";
-    if (k === "camera" && requestedCamera && !recId)
-      note = "The requested camera model is not available in these options. Choose an alternative before building the rest of your kit.";
+    if (k === "camera" && !recId)
+      note = cameraConstraint.requiresLens && !requestedLens
+        ? "The requested lens was not available in the checked options. Choose an available lens before pairing a camera."
+        : cameraConstraint.requiresLens
+          ? "No camera in the checked options is verified to fit your requested lens. Choose a compatible camera or verified adapter."
+        : "No camera matching the requested model and configuration is available in these options. Choose an alternative before building the rest of your kit.";
     if (includedInKit)
       note = `An earlier kit choice already includes this equipment. Only add another if you need a spare.`;
     if (k === "lens") {
       note = "Choose the focal coverage you need. Equipment already supplied by your selected kit is not recommended again.";
-      note += (note ? " " : "") + (lensPref === "cine"
+      if (briefConstraint) note = camMounts.length
+        ? "Your requested lens is shown with its current compatibility."
+        : "Your requested lens is shown. Choose a compatible camera or verified adapter before pairing it.";
+      else note += " " + (lensPref === "cine"
         ? "Cinema glass first for a larger crew (manual focus, focus puller recommended)."
         : "Autofocus glass first for fast, small-crew shooting.");
+    }
+    if (k !== "camera" && briefConstraint && !recId && !includedInKit) {
+      note = options.some(option => matchesAssemblyBrief(option, briefConstraint))
+        ? "The requested item is available, but its fit with the selected kit needs confirmation."
+        : "The requested item is not available in the checked options. You can choose an alternative.";
     }
     if (k !== "camera" && !includedInKit && recId) {
       const recommended = options.find((option: any) => option.listingId === recId);
@@ -327,6 +444,8 @@ export async function POST(req: NextRequest) {
       multi: MULTI.has(k),
       upsell: !!meta?.upsell,
       recommendedId: includedInKit ? "" : recId,
+      ...(k === "camera" ? { cameraConstraint, cameraPreferredId } : {}),
+      ...(briefConstraint ? { briefConstraint, briefPreferredId: briefPreferredIds.get(k) } : {}),
       includedInKit,
       options,
     });

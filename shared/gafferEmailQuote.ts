@@ -53,13 +53,21 @@ export type GafferEmailQuote = {
       availableUnits: number | null;
       verifiedContents: string[];
     };
-    /** The shortest period on a matching listing, with no availability assumed. */
+    /** An option for a longer minimum period; it is never added to the requested rental automatically. */
     minimumRentalOffer?: {
       title: string;
       slug: string;
       minimumDays: number;
       total: number;
       alternative: boolean;
+      availability?: "available" | "unavailable" | "unverified";
+      end?: string;
+      returnTime?: string;
+      rentalDays?: number;
+      quantity?: number;
+      providedUnits?: number;
+      priceConservative?: boolean;
+      listingId?: string;
     };
     lines: {
       listingId: string;
@@ -77,6 +85,85 @@ export type GafferEmailQuote = {
     }[];
   }[];
 };
+
+type MinimumRentalOffer = NonNullable<GafferEmailQuote["requests"][number]["minimumRentalOffer"]>;
+
+/** Keep email, chat and phone descriptions tied to the same checked option. */
+export function minimumRentalOfferText(offer: MinimumRentalOffer, options: { links?: boolean; spoken?: boolean } = {}): string {
+  const title = options.links && offer.slug
+    ? `[${offer.title}](https://dbcinemarentals.com/gear/${encodeURIComponent(offer.slug)})`
+    : offer.title;
+  const plural = (offer.quantity ?? 1) > 1;
+  const listing = plural ? `${offer.quantity} × ${title}` : title;
+  const amount = new Intl.NumberFormat("en-GB", {
+    style: "currency", currency: "GBP", minimumFractionDigits: options.spoken ? 0 : 2, maximumFractionDigits: 2,
+  }).format(offer.total);
+  const duration = offer.rentalDays ?? offer.minimumDays;
+  const description = offer.alternative
+    ? `An alternative is ${listing}. ${plural ? "These have" : "It has"} a ${offer.minimumDays}-day minimum.`
+    : `${listing} ${plural ? "have" : "has"} a ${offer.minimumDays}-day minimum.`;
+  if (offer.end && offer.returnTime && offer.availability === "available") {
+    const date = new Date(`${offer.end}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
+    return `${description} ${plural ? "They're" : "It's"} available with return at ${offer.returnTime} on ${date}; gear hire is ${offer.priceConservative ? "up to " : ""}${amount} for ${duration} rental day${duration === 1 ? "" : "s"}.`;
+  }
+  if (offer.end && offer.returnTime && offer.availability === "unavailable") {
+    const date = new Date(`${offer.end}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
+    return `${description} ${plural ? "They aren't" : "It isn't"} available with the other requested gear through ${offer.returnTime} on ${date}.`;
+  }
+  return `${description} Minimum gear hire is ${amount} for ${offer.minimumDays} days; I couldn't confirm stock for that longer period.`;
+}
+
+export function minimumRentalCombinedTotal(quote: GafferEmailQuote): number | null {
+  if (!quote.timed || quote.estimated || !quote.requirementsComplete || quote.availabilityIssue) return null;
+  if (!quote.requests.some(request => request.minimumRentalOffer)) return null;
+  const lines = quote.requests.flatMap(request => request.lines);
+  if (lines.some(line => line.alternative) || (lines.length && (!quote.stockVerified || quote.total === null))) return null;
+  for (const request of quote.requests) {
+    if (request.fulfilled === null) return null;
+    const remaining = request.quantity - request.fulfilled;
+    if (remaining <= 0) continue;
+    const offer = request.minimumRentalOffer;
+    if (!offer || offer.availability !== "available" || offer.alternative || (offer.providedUnits ?? 0) < remaining) return null;
+  }
+  const extra = quote.requests.reduce((sum, request) => sum + (request.minimumRentalOffer?.availability === "available" ? request.minimumRentalOffer.total : 0), 0);
+  return Math.round(((quote.total ?? 0) + extra) * 100) / 100;
+}
+
+export function minimumRentalNextStep(quote: GafferEmailQuote): string {
+  if (quote.estimated) return "What pickup and return dates and times should I check?";
+  if (!quote.timed) return "What pickup and return times should I check?";
+  const offers = quote.requests.flatMap(request => request.minimumRentalOffer ? [request.minimumRentalOffer] : []);
+  if (offers.some(offer => offer.availability === "available")) return "Would that later return work for you?";
+  if (offers.some(offer => offer.availability !== "unavailable")) return "I can try checking that longer period again.";
+  return "Would another date or a different item work?";
+}
+
+/** Build only a fully checked proposal; opening the link is not a reservation. */
+export function minimumRentalBasketLines(quote: GafferEmailQuote): { listingId: string; start: number; end: number; pickupTime: string; returnTime: string }[] | null {
+  const validTime = (value?: string) => typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+  if (minimumRentalCombinedTotal(quote) === null || !quote.pickupTime || !quote.returnTime || !validTime(quote.pickupTime) || !validTime(quote.returnTime)) return null;
+  const day = (date: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NaN;
+    const value = Date.parse(`${date}T00:00:00Z`);
+    return Number.isFinite(value) && new Date(value).toISOString().slice(0, 10) === date ? value : NaN;
+  };
+  const start = day(quote.start), originalEnd = day(quote.end);
+  if (!Number.isFinite(start) || !Number.isFinite(originalEnd) || originalEnd < start || originalEnd - start > 365 * 86400000) return null;
+  const lines: { listingId: string; start: number; end: number; pickupTime: string; returnTime: string }[] = [];
+  for (const request of quote.requests) {
+    for (const line of request.lines) {
+      if (!line.listingId || !Number.isSafeInteger(line.quantity) || line.quantity < 1 || lines.length + line.quantity > 100) return null;
+      for (let i = 0; i < line.quantity; i++) lines.push({ listingId: line.listingId, start, end: originalEnd, pickupTime: quote.pickupTime, returnTime: quote.returnTime });
+    }
+    if ((request.fulfilled ?? 0) >= request.quantity) continue;
+    const offer = request.minimumRentalOffer;
+    if (!offer?.listingId || !offer.end || !offer.returnTime || !validTime(offer.returnTime) || !Number.isSafeInteger(offer.quantity) || (offer.quantity ?? 0) < 1 || lines.length + (offer.quantity ?? 0) > 100) return null;
+    const end = day(offer.end);
+    if (!Number.isFinite(end) || end < originalEnd || end - start > 365 * 86400000) return null;
+    for (let i = 0; i < offer.quantity!; i++) lines.push({ listingId: offer.listingId, start, end, pickupTime: quote.pickupTime, returnTime: offer.returnTime });
+  }
+  return lines.length > 0 && lines.length <= 100 ? lines : null;
+}
 
 const INDEPENDENT_QUOTE_QUESTION_RE = /\b(?:where\s+(?:are|is)\s+(?:you|the\s+(?:shop|studio|office))|where(?:'s|\s+is)\s+(?:your|the)\s+(?:location|shop|studio|address)|where\s+can\s+i\s+(?:collect|pick\s+up)|can\s+i\s+(?:collect|pick\s+up)\s+from|(?:collection|pickup)\s+(?:point|location|address|instructions?)|how\s+does\s+collection\s+work|do\s+you\s+(?:offer|allow|provide)\s+collection|\b(?:location|address|delivery|deliver|opening\s+hours|business\s+hours|cancell?ation|refund|deposit|security\s+(?:deposit|payment)|insurance|damage\s+cover|rental\s+terms|polic(?:y|ies)|parking)\b)/i;
 
@@ -184,23 +271,23 @@ export function gafferEmailQuoteIntro(quote: GafferEmailQuote): string {
   if (minimumPeriodRequests.length) {
     const offers = minimumPeriodRequests.map(request => {
       const offer = request.minimumRentalOffer!;
-      const linked = offer.slug ? `[${offer.title}](https://dbcinemarentals.com/gear/${encodeURIComponent(offer.slug)})` : offer.title;
-      const listing = offer.alternative ? `A possible alternative, ${linked},` : linked;
-      const partial = request.fulfilled !== null && request.fulfilled > 0 && request.fulfilled < request.quantity
-        ? ` I can supply ${request.fulfilled} of ${request.quantity} ${request.displaySubject ?? request.subject} for the current ${quote.days}-day rental.`
-        : "";
-      return `${partial} ${listing} has a ${offer.minimumDays}-day minimum. Minimum gear hire is £${offer.total.toFixed(2)} for ${offer.minimumDays} days; I haven't checked stock for that longer period.`.trim();
+      const partial = request.fulfilled === null
+        ? ` I couldn't confirm the requested ${request.displaySubject ?? request.subject} for the current rental period.`
+        : request.fulfilled > 0 && request.fulfilled < request.quantity
+          ? ` I can supply ${request.fulfilled} of ${request.quantity} ${request.displaySubject ?? request.subject} for the current ${quote.days}-day rental.`
+          : "";
+      const remaining = request.fulfilled === null ? 0 : request.quantity - request.fulfilled;
+      const partialOption = offer.availability === "available" && offer.providedUnits && offer.providedUnits < remaining
+        ? ` It covers ${offer.providedUnits} of the ${remaining} still needed.` : "";
+      return `${partial} ${minimumRentalOfferText(offer, { links: true })}${partialOption}`.trim();
     });
     const otherRequests = quote.requests.filter(request => !request.minimumRentalOffer);
     const otherConfirmed = otherRequests.filter(request => request.fulfilled !== null && request.fulfilled > 0).map(count);
     const otherStatus = otherConfirmed.length ? `For the other gear, I can supply ${otherConfirmed.join("; ")}. ` : "";
-    const minimumDays = [...new Set(minimumPeriodRequests.map(request => request.minimumRentalOffer!.minimumDays))];
-    const next = quote.estimated
-      ? "What dates and pickup and return times should I check?"
-      : minimumDays.length === 1
-        ? `Would you like me to check it for the full ${minimumDays[0]}-day minimum?`
-        : "Would you like me to check those items over their minimum rental periods?";
-    return otherStatus + offers.join(" ") + " " + next + (quote.total !== null ? price : "");
+    const basePrice = quote.total !== null ? ` Gear hire for the confirmed items is ${quote.timeWindowPricingConservative ? "up to " : ""}£${quote.total.toFixed(2)} for ${duration}.` : "";
+    const combined = minimumRentalCombinedTotal(quote);
+    const combinedPrice = combined !== null && quote.total !== null ? ` Together, gear hire would be ${quote.timeWindowPricingConservative ? "up to " : ""}£${combined.toFixed(2)}.` : "";
+    return otherStatus + offers.join(" ") + timeWindow + basePrice + combinedPrice + " " + minimumRentalNextStep(quote);
   }
 
   if (quote.estimated) return "What pickup and return dates would work? I can check " + requested + ".";

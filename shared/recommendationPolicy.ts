@@ -2,6 +2,7 @@ import { effectiveLensSpecs, filterThreadsFor } from "./opticalFacts";
 import { bestCompat, parseMounts } from "../convex/lib/mount";
 import { isMarketingOnly } from "../convex/lib/marketingInventory";
 import { deriveItemType } from "../convex/lib/taxonomy";
+import { equipmentModelsMatch, normalizeEquipmentName } from "./equipmentIdentity";
 
 /** Catalogue evidence shared by the basket, assembler and complementary picks.
  * Physical components identify aliases across accounts; documented contents
@@ -85,7 +86,7 @@ export function documentedIncludedTypes(item: RecommendationItem): string[] {
 /** Keep a body request focused; included power, media and cages remain welcome.
  * This ranks configurations, never certifies stock or compatibility.
  */
-export function unrequestedCameraExtras(item: RecommendationItem, request: string, strictConfiguration = false): number {
+export function unrequestedCameraExtras(item: RecommendationItem, request: string, strictConfiguration = false, onlyExplicit = false): number {
   if (!/^camera(?:-body)?$/.test(item.itemType ?? "")) return 0;
   const text = [item.title ?? "", ...(item.inventoryFacts?.contents ?? [])].join(" ");
   const included = new Set(documentedIncludedTypes(item));
@@ -115,6 +116,7 @@ export function unrequestedCameraExtras(item: RecommendationItem, request: strin
     const present = included.has(type) || pattern.test(text) || type === "lens" && item.specs?.includesLens === true;
     if (!present) return false;
     if (negates(pattern)) return true;
+    if (onlyExplicit) return refusesAllExtras;
     if (standardAccessory) return strictConfiguration && refusesAllExtras;
     return !pattern.test(requestText);
   }).length;
@@ -128,6 +130,75 @@ export function cameraOfferUnits(item: RecommendationItem): number {
     return match && deriveItemType(match[2]) === "camera-body" ? [Number(match[1])] : [];
   });
   return Math.max(1, Math.min(100, counts.reduce((sum, count) => sum + count, 0)));
+}
+
+export type AssemblyCameraConstraint = { model: string; brief: string; strict: boolean; count: number; named?: AssemblyBriefConstraint | null; requiresLens?: boolean; requestedLens?: RecommendationItem | null };
+export type AssemblyBriefConstraint = { tokens: string[] };
+const ASSEMBLY_GENERIC_WORDS = new Set(["the", "and", "for", "with", "from", "need", "want", "please", "looking", "find", "include", "available", "availability", "good", "best", "great", "affordable", "cheap", "budget", "friendly", "portable", "handheld", "low", "interview", "documentary", "wedding", "music", "portrait", "portraits", "project", "camera", "cameras", "body", "lens", "lenses", "kit", "set", "package", "gear", "equipment", "hire", "rental", "shoot", "shooting", "filming", "video", "audio", "wireless", "microphone", "microphones", "mic", "mics", "light", "lighting", "gimbal", "tripod", "monitor", "small", "large", "crew", "only", "just", "film", "production", "full", "frame"]);
+for (const word of ["today", "tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march", "april", "june", "july", "august", "september", "october", "november", "december", "pickup", "collection", "return", "delivery", "time", "days"]) ASSEMBLY_GENERIC_WORDS.add(word);
+const ASSEMBLY_NEGATION = /\b(?:no|without|exclude|excluding|skip|omit|leave\s+out|don't|dont)\b(?:(?!\b(?:but|however)\b)[^,;.!]){0,80}/gi;
+const ASSEMBLY_STAGE_PATTERNS: Record<string, RegExp> = {
+  camera: /\b(?:camera|body|camcorder)\b/i, lens: /\blens(?:es)?\b/i, gimbal: /\bgimbals?\b/i,
+  tripod: /\btripods?\b/i, monitor: /\bmonitors?\b/i, light: /\blights?\b|\blighting\b/i,
+  "wireless-mic": /\b(?:wireless\s+)?(?:mics?|microphones?)\b/i, "lav-mic": /\b(?:lav(?:alier)?s?|mics?|microphones?)\b/i,
+  "shotgun-mic": /\b(?:shotgun|boom|mics?|microphones?)\b/i, drone: /\bdrones?\b/i, battery: /\bbatter(?:y|ies)\b/i,
+  recorder: /\brecorders?\b/i, speaker: /\bspeakers?\b/i,
+};
+
+function assemblyIdentityTokens(text: string): string[] {
+  const normalized = normalizeEquipmentName(text)
+    .replace(/(\d{2,3})\s*[-–]\s*(\d{2,3})\s*(?:mm)?\b/g, "$1-$2mm")
+    .replace(/(\d+)\s+(mm|watts?|hz)\b/g, "$1$2")
+    .replace(/\b(?:mic|microphone)\s+(\d+[a-z]?)\b/g, "mic$1");
+  return [...new Set((normalized.match(/[a-z]+[a-z0-9]*|\d+(?:-\d+)?[a-z]*/g) ?? [])
+    .filter(token => !ASSEMBLY_GENERIC_WORDS.has(token) && (token.length >= 3 || ["pl", "ef", "rf"].includes(token)))
+    .filter(token => !/^(?:\d+|\d+x|x\d+|[ft]\d+)$/.test(token)))];
+}
+
+/** Match explicit names or model/focal identifiers from the brief to real catalogue titles. */
+export function assemblyPositiveBrief(brief: string): string {
+  return brief.replace(ASSEMBLY_NEGATION, " ");
+}
+
+export function assemblyStageExcluded(brief: string, key: string): boolean {
+  const pattern = ASSEMBLY_STAGE_PATTERNS[key];
+  if (!pattern || key === "camera") return false;
+  return [...brief.matchAll(ASSEMBLY_NEGATION)].some(match => pattern.test(match[0]) || /\b(?:extras?|accessor(?:y|ies)|add[ -]?ons?)\b/i.test(match[0]));
+}
+
+export function assemblyStageBrief(brief: string, key: string): string {
+  const positive = assemblyPositiveBrief(brief);
+  const match = ASSEMBLY_STAGE_PATTERNS[key]?.exec(positive);
+  if (!match || match.index === undefined) return positive;
+  const before = positive.slice(0, match.index).split(/[,;.!]|\b(?:and|plus|with)\b/i).pop() ?? "";
+  const after = positive.slice(match.index + match[0].length).split(/[,;.!]|\b(?:and|plus|for)\b/i)[0] ?? "";
+  return `${before} ${match[0]} ${after}`;
+}
+
+export function inferAssemblyBriefConstraint(brief: string, ignored: string[] = []): AssemblyBriefConstraint | null {
+  const tokens = assemblyIdentityTokens(assemblyPositiveBrief(brief)).filter(token => !ignored.includes(token));
+  const signal = tokens.some(token => !/^(?:4k|6k|8k|1080p)$/.test(token));
+  return signal ? { tokens } : null;
+}
+
+export function matchesAssemblyBrief(item: RecommendationItem, constraint: AssemblyBriefConstraint): boolean {
+  const tokens = new Set(assemblyIdentityTokens(`${item.title ?? ""} ${item.specs?.mount ?? ""}`));
+  if (item.itemType === "wireless-mic" && item.inventoryFacts?.owned === true && item.inventoryFacts.reviewRequired === false &&
+      item.inventoryFacts.contents?.some(part => /^\s*1\s*[x×]\s*DJI\s+Wireless\s+Mics?\s*$/i.test(part))) tokens.add("mic1");
+  return constraint.tokens.length > 0 && constraint.tokens.every(token => tokens.has(token));
+}
+
+export function assemblyCameraOnly(brief: string): boolean {
+  return /\b(?:camera|body)\s+only\b|\b(?:only|just)\s+(?:a\s+|the\s+)?(?:camera|body)\b/i.test(brief);
+}
+
+/** A named model and excluded accessories remain constraints after live stock refreshes. */
+export function matchesAssemblyCamera(item: RecommendationItem, constraint: AssemblyCameraConstraint): boolean {
+  if (constraint.model && !equipmentModelsMatch(constraint.model, item.title ?? "")) return false;
+  if (constraint.named && !matchesAssemblyBrief(item, constraint.named)) return false;
+  if (constraint.strict && unrequestedCameraExtras(item, constraint.brief, true, !assemblyCameraOnly(constraint.brief)) > 0) return false;
+  if (constraint.requiresLens && (!constraint.requestedLens || !recommendationCompatible(item, [constraint.requestedLens]))) return false;
+  return cameraOfferUnits(item) <= constraint.count;
 }
 
 export type LensFit = "native" | "adapter" | "unknown" | "incompatible" | "crop";

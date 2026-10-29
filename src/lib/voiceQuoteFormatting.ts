@@ -58,6 +58,6 @@ export function spokenPackingReview(title: string, verifiedContents: string[] = 
     return [`${quantityWord(quantity)} ${quantity === 1 ? name : pluralize(name)}`];
   });
   return details.length
-    ? `${cleanTitle} has owner-confirmed contents of ${list(details)}. Other seller-listed accessories are not confirmed.`
+    ? `${cleanTitle} includes ${list(details)}. I can't yet confirm the other listed accessories.`
     : `I haven't confirmed the included contents of ${cleanTitle} yet.`;
 }

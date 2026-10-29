@@ -135,23 +135,10 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
     const suggestedDateOnlyWindow = enquiry.availabilityWindow?.suggested === true && !enquiry.timed;
 
     if (minimumPeriodRequests.length) {
-      const minimumText = minimumPeriodRequests.map(request => {
-        const offer = request.minimumRentalOffer!;
-        const offerTitle = link(offer.title, offer.slug);
-        const listing = offer.alternative ? `A possible alternative, ${offerTitle},` : offerTitle;
-        const shortPeriod = enquiry.estimated ? "" : ` Your request is for ${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}, which is below that minimum.`;
-        return `${listing} has a ${offer.minimumDays}-day minimum.${shortPeriod} Minimum gear hire is ${gbp(offer.total)} for ${offer.minimumDays} days. I haven't checked stock for that longer period.`;
-      });
-      const minimumDays = [...new Set(minimumPeriodRequests.map(request => request.minimumRentalOffer!.minimumDays))];
-      const next = enquiry.estimated
-        ? "What dates and pickup and return times should I check?"
-        : minimumDays.length === 1
-          ? `Would you like me to check it for the full ${minimumDays[0]}-day minimum?`
-          : "Would you like me to check those items over their minimum rental periods?";
-      const confirmedTotal = enquiry.total !== null && confirmed.length
-        ? ` Gear hire for the confirmed items is ${gbp(enquiry.total)} for ${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}.`
-        : "";
-      sections.push([...confirmed.length ? [`I can supply ${confirmed.join(", ")}.`] : [], ...minimumText, confirmedTotal, next].filter(Boolean).join(" "));
+      sections.push(gafferEmailQuoteIntro(enquiry));
+      const reviews = [...new Map(lines.filter(({ line }) => line.inventoryReviewRequired)
+        .map(({ line }) => [line.listingId, spokenPackingReview(line.displayTitle || line.title, line.verifiedContents ?? [])])).values()];
+      if (reviews.length) sections.push(reviews.join(" "));
     } else if (configurationConflicts.length) {
       sections.push(configurationConflicts.map(request => {
         const conflict = request.configurationConflict!;
@@ -252,7 +239,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
       sections.push(`I couldn't confirm ${requested} for ${period}. Would a different time work?`);
     }
 
-    if (enquiry.timeWindowPricingConservative) {
+    if (enquiry.timeWindowPricingConservative && !minimumPeriodRequests.length) {
       sections.push("I've priced the full time windows, so this is the maximum hire cost. The total may be lower once you choose exact times.");
     }
 
@@ -265,18 +252,18 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
         return `${line.quantity} × ${link(line.displayTitle || line.title, line.slug)}: ${gbp(line.total)} ${duration}${alternative}${packNote}`;
       });
       sections.push(lineText.join("\n"));
-      const contentNotes = lines.flatMap(({ line }) => line.inventoryReviewRequired
-        ? [line.verifiedContents?.length
-          ? `Owner-confirmed contents: ${line.verifiedContents.join(", ")}. Other seller-listed accessories still need checking.`
-          : "The owner hasn't confirmed all the listing contents yet."]
-        : []);
-      if (contentNotes.length) sections.push(contentNotes.join("\n"));
-      if ((lines.length > 1 || enquiry.requests.length > 1 || !enquiry.complete) && enquiry.total !== null) {
-        const totalLabel = enquiry.timeWindowPricingConservative ? "Maximum gear hire" : hasAlternative ? "Total for this option" : enquiry.complete ? "Total gear hire" : "Confirmed gear hire";
-        sections.push(`${totalLabel}: ${gbp(enquiry.total)} for ${enquiry.days} day${enquiry.days === 1 ? "" : "s"}.`);
-      } else if (lines.length === 1 && enquiry.days > 1) {
-        const card = rows.find(row => String(row?.item?.listingId) === lines[0].line.listingId);
-        if (Number.isFinite(card?.item?.saved) && card.item.saved > 0) sections.push(`The multi-day discount is already included.`);
+      if (!minimumPeriodRequests.length) {
+        const contentNotes = lines.flatMap(({ line }) => line.inventoryReviewRequired
+          ? [spokenPackingReview(line.displayTitle || line.title, line.verifiedContents ?? [])]
+          : []);
+        if (contentNotes.length) sections.push(contentNotes.join("\n"));
+        if ((lines.length > 1 || enquiry.requests.length > 1 || !enquiry.complete) && enquiry.total !== null) {
+          const totalLabel = enquiry.timeWindowPricingConservative ? "Maximum gear hire" : hasAlternative ? "Total for this option" : enquiry.complete ? "Total gear hire" : "Confirmed gear hire";
+          sections.push(`${totalLabel}: ${gbp(enquiry.total)} for ${enquiry.days} day${enquiry.days === 1 ? "" : "s"}.`);
+        } else if (lines.length === 1 && enquiry.days > 1) {
+          const card = rows.find(row => String(row?.item?.listingId) === lines[0].line.listingId);
+          if (Number.isFinite(card?.item?.saved) && card.item.saved > 0) sections.push(`The multi-day discount is already included.`);
+        }
       }
     }
 
@@ -288,7 +275,10 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
     if (clarification) sections.push(`How many complete ${clarification.quantityUnit} would you like?`);
     const extraAnswer = sanitizeQuoteSupplementalAnswer(additionalAnswer, customerText);
     if (extraAnswer) sections.push(extraAnswer);
-    if (preparedBasketUrl) sections.push(`[Review your gear and continue to checkout](${preparedBasketUrl})`);
+    if (preparedBasketUrl) {
+      const label = minimumRentalBasketLines(enquiry) ? "Review this option and its later return" : "Review your gear and continue to checkout";
+      sections.push(`[${label}](${preparedBasketUrl})`);
+    }
     else if (lines.length && enquiry.timed) sections.push("Availability is checked again when you book.");
   } else {
     const text = String(reply ?? "").trim();
@@ -351,4 +341,5 @@ export function plainBody(msg: any): string {
   return msg?.text ?? msg?.TextBody ?? msg?.plain ?? msg?.["body-plain"] ?? "";
 }
 import { equipmentModelTokens, equipmentOfferLabel } from "../../shared/equipmentIdentity";
-import { explicitlyAllowsAlternatives, sanitizeQuoteSupplementalAnswer } from "../../shared/gafferEmailQuote";
+import { explicitlyAllowsAlternatives, gafferEmailQuoteIntro, minimumRentalBasketLines, sanitizeQuoteSupplementalAnswer } from "../../shared/gafferEmailQuote";
+import { spokenPackingReview } from "./voiceQuoteFormatting";

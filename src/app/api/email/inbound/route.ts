@@ -5,6 +5,7 @@ import { api } from "@cvx/_generated/api";
 import { handleChat } from "@/lib/gaffer";
 import { CONTACT_EMAIL } from "@/lib/site";
 import { formatGafferEmailReply, hasSpecificModelQuoteMismatch, isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
+import { minimumRentalBasketLines } from "../../../../../shared/gafferEmailQuote";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -150,12 +151,13 @@ async function processGafferInboundEmail(message: InboundEmail) {
     }
     let preparedBasketUrl: string | undefined;
     const quote = assistant.enquiry;
-    if (quote?.complete && quote.stockVerified && quote.timed && quote.start && quote.end) {
-      const lines = quote.requests.flatMap(request => request.lines.flatMap(line =>
+    const proposedLines = quote ? minimumRentalBasketLines(quote) : null;
+    if (quote?.timed && quote.start && quote.end && ((quote.complete && quote.stockVerified) || proposedLines)) {
+      const lines = proposedLines ?? quote.requests.flatMap(request => request.lines.flatMap(line =>
         Array.from({ length: Math.min(100, line.quantity) }, () => ({ listingId: line.listingId as any, start: Date.parse(quote.start + "T00:00:00Z"), end: Date.parse(quote.end + "T00:00:00Z"), pickupTime: quote.pickupTime, returnTime: quote.returnTime }))));
       if (lines.length && lines.length <= 100) {
         const shareKey = createHmac("sha256", secret).update(`email-cart:${stored.inboundId}`).digest("base64url");
-        await client.mutation(api.emailInbox.prepareQuotedCart, { secret, inboundId: stored.inboundId, shareKey, lines });
+        await client.mutation(api.emailInbox.prepareQuotedCart, { secret, inboundId: stored.inboundId, shareKey, lines: lines.map(line => ({ ...line, listingId: line.listingId as any })) });
         preparedBasketUrl = `https://dbcinemarentals.com/cart/quote/${shareKey}`;
       }
     }

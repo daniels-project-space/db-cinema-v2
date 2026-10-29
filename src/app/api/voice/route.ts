@@ -1,6 +1,6 @@
 import { savedCardChargeLimit } from "../../../../shared/rentalSecurity";
 import { contentsText } from "../../../../shared/rentalContents";
-import { explicitlyNoOptionalAddOns } from "../../../../shared/gafferEmailQuote";
+import { explicitlyNoOptionalAddOns, minimumRentalCombinedTotal, minimumRentalNextStep, minimumRentalOfferText } from "../../../../shared/gafferEmailQuote";
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
@@ -194,12 +194,12 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     const unavailable = enquiry.requests.filter(request => request.fulfilled === 0 && request.availabilityIssue !== "stock_check_failed" && !request.minimumRentalOffer);
     const minimumMessages = minimumPeriodRequests.map(request => {
       const offer = request.minimumRentalOffer!;
-      return `${offer.title} has a ${offer.minimumDays}-day minimum. Minimum gear hire is ${money(offer.total)} for ${offer.minimumDays} days, but I haven't checked stock for that longer period.`;
+      return minimumRentalOfferText(offer, { spoken: true });
     });
     const message = enquiry.availabilityIssue === "no_common_window"
       ? `I couldn't find one pickup and return window for all that gear on ${period}. Are your times flexible?`
       : minimumMessages.length
-        ? `${minimumMessages.join(" ")} Would you like me to check those over their minimum rental periods?`
+        ? `${minimumMessages.join(" ")} ${minimumRentalNextStep(enquiry)}`
       : unresolved.length
         ? `I couldn't verify live stock for ${unresolved.map(requestName).join(", ")} on ${period}. Would another time window work?`
         : unavailable.length || enquiry.stockVerified
@@ -214,7 +214,10 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
       const partial = request.fulfilled !== null && request.fulfilled > 0 && request.fulfilled < request.quantity
         ? `I can supply ${request.fulfilled} of ${request.quantity} ${name} for the current ${enquiry.days}-day rental; `
         : "";
-      return `${partial}${offer.title} has a ${offer.minimumDays}-day minimum. Minimum gear hire is ${money(offer.total)} for ${offer.minimumDays} days; stock for that longer period is not checked.`;
+      const remaining = request.fulfilled === null ? 0 : request.quantity - request.fulfilled;
+      const shortfall = offer.availability === "available" && offer.providedUnits && offer.providedUnits < remaining
+        ? ` It covers ${offer.providedUnits} of the ${remaining} still needed.` : "";
+      return `${partial}${minimumRentalOfferText(offer, { spoken: true })}${shortfall}`;
     }
     if (request.fulfilled === null || request.availabilityIssue === "stock_check_failed") return `I couldn't verify stock for ${name}.`;
     if (request.fulfilled === 0) return `I couldn't find ${name} available.`;
@@ -269,6 +272,8 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     : enquiry.total !== null
     ? `${!enquiry.timed ? "The hire estimate" : enquiry.complete ? "Gear hire" : "Confirmed gear hire"} is ${money(enquiry.total)} for ${duration}.`
     : "I can't give a gear hire total until I can confirm the quantities.";
+  const combined = minimumRentalCombinedTotal(enquiry);
+  const combinedPrice = combined !== null && enquiry.total !== null ? `Together, gear hire would be ${enquiry.timeWindowPricingConservative ? "up to " : ""}${money(combined)}.` : "";
   const packing = enquiry.requests.flatMap(request => request.lines
     .filter(line => line.inventoryReviewRequired === true)
     .map(line => spokenPackingReview(line.displayTitle ?? line.title, line.verifiedContents ?? []))).join(" ");
@@ -282,10 +287,7 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     ? "The multi-day discount is already included." : "";
   let next: string;
   if (minimumPeriodRequests.length) {
-    const minimumDays = [...new Set(minimumPeriodRequests.map(request => request.minimumRentalOffer!.minimumDays))];
-    next = minimumDays.length === 1
-      ? `Would you like me to check it for the full ${minimumDays[0]}-day minimum?`
-      : "Would you like me to check those items over their minimum rental periods?";
+    next = minimumRentalNextStep(enquiry);
   }
   else if (configurationConflict && configurationConflict.availableUnits === 0) next = "Would another date or pickup window work, or should I look for another FX3 configuration?";
   else if (configurationConflict) next = "Would you accept the included items in that package?";
@@ -298,7 +300,7 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   else if (enquiry.stockVerified) next = "Would a different date or smaller quantity help?";
   else if (!timed) next = "What pickup and return times would suit you?";
   else next = "Would another date or pickup window help?";
-  const message = [status, price, discounted, packing, recommendation, next].filter(Boolean).join(" ");
+  const message = [status, price, combinedPrice, discounted, packing, recommendation, next].filter(Boolean).join(" ");
   return say(message, { enquiry, items: lines.map(line => ({ title: line.displayTitle ?? line.title, daily: line.perDay })), start: enquiry.start, end: enquiry.end, days: enquiry.days });
 }
 

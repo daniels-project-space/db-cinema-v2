@@ -1,12 +1,12 @@
 const assert = require("node:assert/strict");
 const { load, setMock, db, put } = require("./lib/rentalTestHarness.cjs");
 const { LIVE_FX3_BODY_KIT, LIVE_REMUS_45 } = require("./lib/gafferLiveCatalogueFixtures.cjs");
-const { explicitlyAllowsAlternatives, explicitlyRequestsOptionalAddOns, shouldSuggestOptionalAddOns } = load("shared/gafferEmailQuote.ts");
+const { explicitlyAllowsAlternatives, explicitlyRequestsOptionalAddOns, shouldSuggestOptionalAddOns, minimumRentalBasketLines } = load("shared/gafferEmailQuote.ts");
 const { spokenRentalItem, spokenPackingReview } = load("src/lib/voiceQuoteFormatting.ts");
 assert.equal(spokenRentalItem("wireless microphone kits", "4x RØDE Wireless PRO Transmitters with Two Receivers", 1, 2),
   "two wireless microphone kits from the RØDE Wireless PRO bundle", "spoken counts should describe the requested kits, not repeat the listing's transmitter count");
 assert.equal(spokenPackingReview("DJI Mic 2 Wireless Kit with Two Transmitters", ["1 × DJI Mic 2 wireless", "2x transmitter", "1x receiver", "1x charging case"]),
-  "DJI Mic 2 Wireless Kit with Two Transmitters has owner-confirmed contents of two transmitters, one receiver, and one charging case. Other seller-listed accessories are not confirmed.");
+  "DJI Mic 2 Wireless Kit with Two Transmitters includes two transmitters, one receiver, and one charging case. I can't yet confirm the other listed accessories.");
 assert.equal(explicitlyAllowsAlternatives("I'm open to a body-only alternative."), true);
 assert.equal(explicitlyAllowsAlternatives("I'm not open to alternatives."), false);
 assert.equal(explicitlyAllowsAlternatives("Don't suggest alternatives."), false);
@@ -53,6 +53,7 @@ twoRodeSetOffer.inventoryFacts = { owned: true, reviewRequired: false, contents:
   "2 × Rode Wireless Mic Pro set", "4x transmitter", "2x receiver", "4x lavalier mic", "2x smart charge case",
 ] };
 let intent, finalRace = false, stockFailure = false, finalReadFailures = 0, stockReads = 0, sharedRefreshes = 0, facts, additionalAnswerForTest = "", suggestionsForTest = [];
+let minimumStockMode = "available", minimumCombinedConflict = false, stockQueries = [];
 let recommendationAvailable = true, recommendationEligible = true, legacyCatalogMode = false;
 const recommendationCalls = [];
 setMock("convex/browser", { ConvexHttpClient: class {
@@ -78,13 +79,23 @@ setMock("convex/browser", { ConvexHttpClient: class {
     }
     if (name.startsWith("availability.")) {
       stockReads++;
+      stockQueries.push({ name, args });
       if (stockFailure) throw Error("Transient stock outage");
+      if (["availability.forListing", "availability.forTimeSlots"].includes(name) && args.listingId === b._id && args.end > args.start) {
+        if (minimumStockMode === "failure") throw Error("Minimum-period stock outage");
+        if (minimumStockMode === "unavailable") return { available: 0 };
+      }
       if (["availability.forCart", "availability.forCheckoutTimeSlots"].includes(name) && finalReadFailures > 0) {
         finalReadFailures--;
         throw Error("Transient final stock outage");
       }
       if (["availability.forCart", "availability.forCheckoutTimeSlots"].includes(name) && finalRace) rode.quantityOwned = 0;
-      return availability[name.slice("availability.".length)].handler(ctx, args);
+      const result = await availability[name.slice("availability.".length)].handler(ctx, args);
+      if (minimumCombinedConflict && name === "availability.forCart" && args.items.some(item => item.listingId === b._id && item.end > item.start)) {
+        const other = args.items.find(item => item.listingId !== b._id) ?? args.items[0];
+        result[other.listingId] = { ...result[other.listingId], ok: false };
+      }
+      return result;
     }
     throw Error(`Unexpected query ${name}`);
   }
@@ -196,7 +207,7 @@ assert.match(configurationConflictEmail, /£55\.00/);
 assert.match(configurationConflictEmail, /Would you accept this package\?/);
 assert(!/couldn't find .*available/i.test(configurationConflictEmail), "a package conflict must not be reported as a stock denial");
 async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
-  rode.quantityOwned = 2; djiOne.quantityOwned = 1; djiTwo.quantityOwned = 1; stockReads = 0; sharedRefreshes = 0;
+  rode.quantityOwned = 2; djiOne.quantityOwned = 1; djiTwo.quantityOwned = 1; stockReads = 0; stockQueries = []; sharedRefreshes = 0;
   intent = { intent: "availability", subject: "Rode Mic Pro", itemTypes: ["wireless-mic"], cameraModel: "", pricePref: "any", start: "2030-11-20", end: "2030-11-23", pickupTime: "10:00", returnTime: "10:00", requests: [{ subject: "Rode Mic Pro", itemType: "wireless-mic", quantity }], ...extra };
   const period = intent.start ? `From ${intent.start}${intent.end ? ` to ${intent.end}` : ""}.` : "";
   const clocks = `${intent.pickupTime ? ` Pickup at ${intent.pickupTime}.` : ""}${intent.returnTime ? ` Return at ${intent.returnTime}.` : ""}`;
@@ -702,7 +713,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     }] }],
   });
   assert(reviewNote.includes("Owner-confirmed contents: 1 × DJI Mic 2 wireless, 2x transmitter, 1x receiver, 1x charging case"), "quotes must list the exact owner-verified kit contents");
-  assert(reviewNote.includes("Other seller-listed accessories still need checking"), "quotes must not imply unreviewed seller extras are included");
+  assert(reviewNote.includes("I can't yet confirm the other listed accessories"), "quotes must not imply unreviewed seller extras are included");
   const unresolved = gafferEmailQuoteIntro({
     start: "2030-11-20", end: "2030-11-20", estimated: false, timed: true, stockVerified: false,
     requirementsComplete: true, complete: false, total: null, availabilityIssue: "stock_check_failed",
@@ -797,7 +808,27 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(partialMinimumPeriod.enquiry.complete, false);
   assert(partialMinimumPeriod.email.includes("3 of 4 wireless microphone kits"), "email must make the confirmed quantity and shortfall explicit");
   assert(partialMinimumPeriod.email.includes("2-day minimum"));
-  assert(partialMinimumPeriod.email.includes("I haven't checked stock for that longer period"));
+  assert.equal(partialMinimumPeriod.enquiry.requests[0].minimumRentalOffer.availability, "available");
+  assert.equal(partialMinimumPeriod.enquiry.requests[0].minimumRentalOffer.end, "2030-11-21");
+  assert.equal(partialMinimumPeriod.enquiry.requests[0].minimumRentalOffer.providedUnits, 1);
+  assert.equal(partialMinimumPeriod.enquiry.requests[0].minimumRentalOffer.total, 24);
+  assert(partialMinimumPeriod.email.includes("available with return at 18:00 on 21 November 2030"));
+  assert(partialMinimumPeriod.email.includes(`Together, gear hire would be £${(partialMinimumPeriod.enquiry.total + 24).toFixed(2)}`));
+  assert(stockQueries.some(call => call.name === "availability.forCart" && call.args.items.some(item => item.listingId === b._id && item.end > item.start) && call.args.items.some(item => item.listingId !== b._id)), "the longer option must be checked alongside the original basket");
+  const minimumBasket = minimumRentalBasketLines(partialMinimumPeriod.enquiry);
+  assert.equal(minimumBasket.length, partialMinimumPeriod.enquiry.requests[0].lines.reduce((sum, line) => sum + line.quantity, 0) + 1);
+  assert.equal(minimumBasket.find(line => line.listingId === b._id).end, Date.parse("2030-11-21T00:00:00Z"));
+  assert.equal(minimumBasket.find(line => line.listingId === b._id).returnTime, "18:00");
+  assert(minimumBasket.filter(line => line.listingId !== b._id).every(line => line.end === Date.parse("2030-11-20T00:00:00Z")), "the original items retain the customer's requested return");
+  const linkEmail = formatGafferEmailReply(partialMinimumPeriod.reply, partialMinimumPeriod.cards, partialMinimumPeriod.enquiry, "https://dbcinemarentals.com/cart/quote/example", undefined, "Daniel", "Four wireless microphone kits on 20 November 2030, 10am to 6pm");
+  assert(linkEmail.includes("Review this option and its later return"));
+  const unconfirmedBasket = structuredClone(partialMinimumPeriod.enquiry);
+  unconfirmedBasket.requests[0].minimumRentalOffer.availability = "unverified";
+  assert.equal(minimumRentalBasketLines(unconfirmedBasket), null, "unverified suggestions must never create a full proposed basket");
+  const alternativeBasket = structuredClone(partialMinimumPeriod.enquiry);
+  alternativeBasket.requests[0].minimumRentalOffer.alternative = true;
+  assert.equal(minimumRentalBasketLines(alternativeBasket), null, "unaccepted substitutions must not be added to a proposed full basket");
+  assert(partialMinimumPeriod.email.includes("Would that later return work for you?"));
   assert(partialMinimumPeriod.email.includes("Gear hire for the confirmed items is"), "the one-day total must cover only confirmed kits");
   const partialMinimumChat = await run(4, {
     start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00",
@@ -805,8 +836,17 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }],
   }, "Please quote four wireless microphone kits for 20 November 2030, pickup at 10am and return at 6pm.", "chat");
   assert(partialMinimumChat.reply.includes("3 of 4 wireless microphone kits"), "chat must explain the partial confirmed count");
-  assert(partialMinimumChat.reply.includes("2-day minimum"), "chat must surface the non-confirmed minimum-period option");
-  assert(partialMinimumChat.reply.includes("I haven't checked stock for that longer period"));
+  assert(partialMinimumChat.reply.includes("2-day minimum"), "chat must surface the checked minimum-period option");
+  assert(partialMinimumChat.reply.includes("available with return at 18:00 on 21 November 2030"));
+  const priorMic2Facts = structuredClone(c.inventoryFacts);
+  c.inventoryFacts = { owned: true, reviewRequired: true, contents: ["1 × DJI Mic 2 wireless", "2x transmitter", "1x receiver", "1x charging case"] };
+  const reviewedMicReply = await run(4, { start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00", itemTypes: ["wireless-mic"], requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }] }, "Four wireless microphone kits, 20 November 2030 10am to 6pm", "email");
+  assert(reviewedMicReply.email.includes("two transmitters, one receiver, and one charging case"));
+  assert(reviewedMicReply.email.includes("I can't yet confirm the other listed accessories"));
+  assert(!reviewedMicReply.email.includes("included contents of DJI Mic 2 Wireless Kit with Two Transmitters still need a manual check"));
+  assert(!reviewedMicReply.email.includes("Owner-confirmed contents:"), "do not repeat the same packing details below the checked minimum-period option");
+  assert(!reviewedMicReply.email.includes("Confirmed gear hire:"), "the confirmed total is already stated in the opening quote");
+  c.inventoryFacts = priorMic2Facts;
   const minimumPeriod = await run(1, {
     start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00",
     itemTypes: ["wireless-mic"],
@@ -817,15 +857,36 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(minimumPeriod.enquiry.stockVerified, false, "a one-day stock check cannot confirm a listing with a two-day minimum");
   assert.equal(minimumPeriod.enquiry.total, null, "the minimum-period estimate is not counted as a quote for the requested one-day period");
   assert(minimumPeriod.email.includes("2-day minimum"));
-  assert(minimumPeriod.email.includes("I haven't checked stock for that longer period"));
-  assert(minimumPeriod.email.includes("Would you like me to check it for the full 2-day minimum?"));
+  assert.equal(minimumPeriod.enquiry.requests[0].minimumRentalOffer.availability, "available");
+  assert(minimumPeriod.email.includes("available with return at 18:00 on 21 November 2030"));
+  assert(minimumPeriod.email.includes("Would that later return work for you?"));
   assert(minimumPeriod.email.endsWith("DB Cinema Rentals Team"));
-  assert.equal(stockReads, 0, "Gaffer must not report availability for an invalid one-day period");
+  assert(stockQueries.some(call => call.name === "availability.forListing" && call.args.listingId === b._id && call.args.end > call.args.start), "only a valid longer window is checked for the minimum-period item");
   const minimumChat = await run(1, {
     start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00",
     itemTypes: ["wireless-mic"], requests: [{ subject: "DJI Mic 1", itemType: "wireless-mic", quantity: 1 }],
   }, "Please quote one DJI Mic 1 set for 20 November 2030, pickup at 10am and return at 6pm.", "chat");
   assert(minimumChat.reply.includes("2-day minimum"), "chat and email must explain the same minimum period");
   assert(!minimumChat.reply.includes("couldn't find"), "a minimum-period mismatch is not a stock denial");
+  const dateOnlyMinimum = await run(1, { start: "2030-11-20", end: "2030-11-20", pickupTime: undefined, returnTime: undefined, itemTypes: ["wireless-mic"], requests: [{ subject: "DJI Mic 1", itemType: "wireless-mic", quantity: 1 }] }, "DJI Mic 1 on 20 November 2030", "email");
+  assert.equal(dateOnlyMinimum.enquiry.requests[0].minimumRentalOffer.availability, "unverified");
+  assert(!dateOnlyMinimum.email.includes("It's available with return"));
+  assert(dateOnlyMinimum.email.includes("pickup and return times"));
+  minimumStockMode = "unavailable";
+  const unavailableMinimum = await run(1, { start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00", itemTypes: ["wireless-mic"], requests: [{ subject: "DJI Mic 1", itemType: "wireless-mic", quantity: 1 }] }, "DJI Mic 1, 20 November 2030 10am to 6pm", "email");
+  assert.equal(unavailableMinimum.enquiry.requests[0].minimumRentalOffer.availability, "unavailable");
+  assert(unavailableMinimum.email.includes("isn't available"));
+  assert(!unavailableMinimum.email.includes("It's available with return"));
+  minimumStockMode = "failure";
+  const failedMinimum = await run(1, { start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00", itemTypes: ["wireless-mic"], requests: [{ subject: "DJI Mic 1", itemType: "wireless-mic", quantity: 1 }] }, "DJI Mic 1, 20 November 2030 10am to 6pm", "email");
+  assert.equal(failedMinimum.enquiry.requests[0].minimumRentalOffer.availability, "unverified");
+  assert(failedMinimum.email.includes("couldn't confirm stock"));
+  assert(!failedMinimum.email.includes("isn't available"));
+  minimumStockMode = "available";
+  minimumCombinedConflict = true;
+  const conflictingMinimum = await run(4, { start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00", itemTypes: ["wireless-mic"], requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }] }, "Four wireless microphone kits, 20 November 2030 10am to 6pm", "email");
+  assert.equal(conflictingMinimum.enquiry.requests[0].minimumRentalOffer.availability, "unavailable", "a candidate must fit alongside every other proposed item");
+  assert(!conflictingMinimum.email.includes("Together, gear hire would be"));
+  minimumCombinedConflict = false;
   console.log("PASS Gaffer quotes: exact per-item confirmation and shortfalls, mixed-model fulfillment, transient final-read retry, 24-hour pricing and rate ladders, minimum-period handling, stock failures, final stock race. No live messages or reservations.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

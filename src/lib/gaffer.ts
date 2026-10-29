@@ -9,7 +9,7 @@ import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { rentalDateLabel } from "../../shared/rentalDateLabel";
 import { equipmentModelsMatch, equipmentRequest, equipmentRequestDisplayLabel, equipmentRequestLabel, normalizeEquipmentName } from "../../shared/equipmentIdentity";
 import { rentalPricingDays } from "../../shared/rentalDuration";
-import { explicitlyAllowsAlternatives, explicitlyNoOptionalAddOns, gafferEmailQuoteIntro, sanitizeQuoteSupplementalAnswer, shouldSuggestOptionalAddOns, type GafferEmailQuote } from "../../shared/gafferEmailQuote";
+import { explicitlyAllowsAlternatives, explicitlyNoOptionalAddOns, gafferEmailQuoteIntro, minimumRentalOfferText, sanitizeQuoteSupplementalAnswer, shouldSuggestOptionalAddOns, type GafferEmailQuote } from "../../shared/gafferEmailQuote";
 import { rentalEnquiryWindow } from "./rentalEnquiryWindow";
 import { coverageCompat, kitWarnings } from "@/lib/compat";
 import { lensPriority, isCameraSet, isLensSet } from "@/lib/kitRank";
@@ -18,6 +18,7 @@ import { contentsText } from "../../shared/rentalContents";
 import { PICKUP_SLOTS, CONTACT_EMAIL } from "@/lib/site";
 import { alreadySupplied, automaticLens, automaticRecommendation, rentableCandidate, unrequestedCameraExtras, type RecommendationItem } from "../../shared/recommendationPolicy";
 import { createTypeListingLoader, type TypeListingLoader } from "./catalogCandidates";
+import { spokenPackingReview } from "./voiceQuoteFormatting";
 
 /**
  * Gaffer v2 — "engine decides, LLM narrates".
@@ -1397,6 +1398,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
   const cards: any[] = [];
   const facts: string[] = [];
   const catalogue = new Map<string, Promise<any[]>>();
+  const pendingMinimums: { request: GafferEmailQuote["requests"][number]; allowAlternatives: boolean; options: { listing: any; minimumDays: number; total: number; alternative: boolean }[] }[] = [];
   const getTypeListings = planning.typeListingLoader ??= createTypeListingLoader(c);
   const timed = !!ctx.availabilityReady;
   const dated = !ctx.estimated;
@@ -1466,7 +1468,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
     }
     let remaining = request.quantity;
     let stockUncertain = false;
-    const minimumRentalOffers: NonNullable<GafferEmailQuote["requests"][number]["minimumRentalOffer"]>[] = [];
+    const minimumRentalOffers: { listing: any; minimumDays: number; total: number; alternative: boolean }[] = [];
     const recordConfigurationConflict = async (listing: any) => {
       if (line.configurationConflict) return;
       let card: any;
@@ -1494,18 +1496,18 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
     };
     const consider = async (listing: any, alternative: boolean) => {
       if (!remaining || cards.length >= 32 || planning.cartStock!.length >= 100) return;
-      const minimumDays = Number.isSafeInteger(listing.minimumRentalDays) && listing.minimumRentalDays >= 1 ? listing.minimumRentalDays : 1;
-      if (days < minimumDays) {
-        if (listing.pricing && Number.isFinite(listing.pricing.daily)) {
-          const minimumQuote = quote(listing.pricing, minimumDays);
-          minimumRentalOffers.push({ title: listing.title, slug: listing.slug ?? "", minimumDays, total: minimumQuote.total, alternative });
-        }
-        return;
-      }
       const subjectIdentity = queryIdentity(request.subject);
       const subjectSpecific = subjectIdentity.models.length > 0 || subjectIdentity.ranges.length > 0 || subjectIdentity.nums.length > 0 ||
         /\b(?:sony|canon|arri|red|dji|rode|røde|sennheiser|shure|hollyland|saramonic)\b|\bwireless\s+pro\b/i.test(request.subject);
       const explicitAlternative = alternative && subjectSpecific;
+      const minimumDays = Number.isSafeInteger(listing.minimumRentalDays) && listing.minimumRentalDays >= 1 ? listing.minimumRentalDays : 1;
+      if (days < minimumDays) {
+        if (minimumDays <= 365 && listing.pricing && Number.isFinite(listing.pricing.daily)) {
+          const minimumQuote = quote(listing.pricing, minimumDays);
+          minimumRentalOffers.push({ listing, minimumDays, total: minimumQuote.total, alternative: explicitAlternative });
+        }
+        return;
+      }
       const card = await addCard(listing, explicitAlternative ? `Alternative to ${request.subject}; confirm the substitution` : `Requested ${request.subject}`);
       let stock: any = null;
       if (dated) {
@@ -1574,18 +1576,17 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
         if (remaining && availabilityCheck.unknown) stockUncertain = true;
       } catch { stockUncertain = true; }
     }
-    if (remaining > 0 && !stockUncertain && minimumRentalOffers.length) {
-      const minimumOffer = minimumRentalOffers.sort((a, b) => a.minimumDays - b.minimumDays || a.total - b.total)[0];
-      line.minimumRentalOffer = minimumOffer;
+    const fittingMinimumOffers = minimumRentalOffers.filter(option =>
+      Math.floor(remaining / unitsPerEnquiryOffer(option.listing, request.subject, option.alternative)) > 0 || request.allowAlternatives === true);
+    if (remaining > 0 && !stockUncertain && fittingMinimumOffers.length) {
+      const minimumOffer = fittingMinimumOffers.sort((a, b) => a.minimumDays - b.minimumDays || a.total - b.total)[0];
+      const oversized = unitsPerEnquiryOffer(minimumOffer.listing, request.subject, minimumOffer.alternative) > remaining;
+      line.minimumRentalOffer = { title: minimumOffer.listing.title, slug: minimumOffer.listing.slug ?? "", minimumDays: minimumOffer.minimumDays, total: minimumOffer.total, alternative: minimumOffer.alternative || oversized, availability: "unverified" };
+      pendingMinimums.push({ request: line, allowAlternatives: request.allowAlternatives === true, options: fittingMinimumOffers });
       if (!line.lines.length) {
         line.availabilityIssue = "minimum_rental_days";
         line.fulfilled = 0;
       }
-      const confirmed = request.quantity - remaining;
-      const quantityContext = confirmed > 0
-        ? ` The current ${days}-day request confirms ${confirmed} of ${request.quantity} requested units; ${remaining} remain unfilled.`
-        : "";
-      facts.push(`MINIMUM RENTAL PERIOD: ${minimumOffer.title} has a ${minimumOffer.minimumDays}-day minimum. Its minimum gear hire is £${minimumOffer.total.toFixed(2)} for ${minimumOffer.minimumDays} days, but stock was not checked for that longer period. The customer's current requested duration is ${days} day${days === 1 ? "" : "s"}.${quantityContext} Do not silently extend the dates or describe it as available; ask whether they want to check a rental that meets the minimum.`);
     }
     if (stockUncertain && remaining) { line.fulfilled = null; line.availabilityIssue = "stock_check_failed"; }
     if (!exact.length) facts.push(`NO VERIFIED RENTABLE EXACT MATCH for "${request.subject}". Returned substitutes are different products, not the requested model. Do not deny the whole category.`);
@@ -1655,6 +1656,61 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
   enquiry.complete = enquiry.stockVerified && intent.requirementsComplete !== false && enquiry.requests.every(x => x.fulfilled === x.quantity);
   const proposed = enquiry.requests.flatMap(x => x.lines);
   if (proposed.length && (!dated || enquiry.stockVerified)) enquiry.total = proposed.reduce((sum, x) => sum + x.total, 0);
+
+  // Check the minimum-period options against the same physical pools and the
+  // complete proposed basket. These are suggestions, not reservations or
+  // changes to the customer's requested return date.
+  const minimumStock: NonNullable<Ctx["cartStock"]> = [];
+  for (const pending of pendingMinimums) {
+    const request = pending.request;
+    const remaining = request.fulfilled === null ? 0 : Math.max(0, request.quantity - request.fulfilled);
+    if (dated && timed && ctx.pickupTime && ctx.returnTime && remaining && (!hasProposals || enquiry.stockVerified)) {
+      let best: { offer: NonNullable<typeof request.minimumRentalOffer>; item: NonNullable<Ctx["cartStock"]>[number]; covered: number } | undefined;
+      let unavailable: NonNullable<typeof request.minimumRentalOffer> | undefined;
+      let failed = false;
+      for (const option of pending.options.slice(0, 8)) {
+        const unitsPerOffer = unitsPerEnquiryOffer(option.listing, request.subject, option.alternative);
+        const fitting = Math.floor(remaining / unitsPerOffer);
+        if (!fitting && !pending.allowAlternatives) continue;
+        let proposedEnd = end;
+        try {
+          while (quoteDays(start, proposedEnd, ctx.pickupTime, ctx.returnTime) < option.minimumDays && dayMs(proposedEnd) - dayMs(start) < 365 * DAY)
+            proposedEnd = iso(dayMs(proposedEnd) + DAY);
+          const rentalDays = quoteDays(start, proposedEnd, ctx.pickupTime, ctx.returnTime);
+          if (rentalDays < option.minimumDays) continue;
+          const candidate = { listingId: String(option.listing._id), title: option.listing.title, slug: option.listing.slug ?? "", minimumDays: option.minimumDays,
+            total: quote(option.listing.pricing, rentalDays).total, alternative: option.alternative || !fitting,
+            end: proposedEnd, returnTime: ctx.returnTime, rentalDays, priceConservative: enquiry.timeWindowPricingConservative === true };
+          const checkedCtx: Ctx = { ...planning, cartStock: [...planning.cartStock!, ...minimumStock], availabilityCache: new Map() };
+          const stock: any = await readStockWithRetry(() => availabilityForContext(c, option.listing._id, start, proposedEnd, checkedCtx));
+          planning.sharedStockRefresh = checkedCtx.sharedStockRefresh;
+          if (!Number.isSafeInteger(stock?.available) || stock.available < 0) throw Error("Incomplete minimum-period stock result");
+          const quantity = Math.min(fitting || 1, stock.available);
+          if (!quantity) { unavailable ??= { ...candidate, availability: "unavailable" }; continue; }
+          const item = { listingId: option.listing._id, qty: quantity, start: dayMs(start), end: dayMs(proposedEnd), pickupTime: ctx.pickupTime, returnTime: ctx.returnTime };
+          const items = [...checkedCtx.cartStock!, item];
+          if (items.length > 100) throw Error("Minimum-period basket is too large");
+          const combined: any = await readStockWithRetry(() => c.query(api.availability.forCart, { items }));
+          const statuses = items.map(line => combined[String(line.listingId)]?.ok);
+          if (statuses.some(value => typeof value !== "boolean")) throw Error("Incomplete combined minimum-period stock result");
+          if (statuses.some(value => value !== true)) { unavailable ??= { ...candidate, availability: "unavailable" }; continue; }
+          const covered = Math.min(remaining, quantity * unitsPerOffer);
+          const offer = { ...candidate, availability: "available" as const, quantity, providedUnits: covered,
+            total: Math.round(candidate.total * quantity * 100) / 100 };
+          if (!best || covered > best.covered) best = { offer, item, covered };
+          if (covered === remaining) break;
+        } catch { failed = true; }
+      }
+      if (best) {
+        request.minimumRentalOffer = best.offer;
+        minimumStock.push(best.item);
+      } else if (!failed && unavailable) request.minimumRentalOffer = unavailable;
+    }
+    const offer = request.minimumRentalOffer!;
+    const covered = offer.availability === "available" && offer.providedUnits && offer.providedUnits < remaining
+      ? ` This covers ${offer.providedUnits} of the ${remaining} still needed.` : "";
+    facts.push(`MINIMUM RENTAL OPTION: ${minimumRentalOfferText(offer)}${covered} This is a proposed longer rental, not a change to the customer's dates or a reservation. Ask whether the later return works.`);
+  }
   const request = enquiry.requests.length === 1 ? enquiry.requests[0] : null;
   const requestedLine = request?.fulfilled === 1 && request.quantity === 1 && request.lines.length === 1 && !request.lines[0].alternative
     ? request.lines[0]
@@ -1985,28 +2041,7 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
   const dateOnlyRequest = dateOnlyQuote?.requests.length === 1 ? dateOnlyQuote.requests[0] : null;
   const dateOnlyLine = dateOnlyRequest?.lines.length === 1 ? dateOnlyRequest.lines[0] : null;
   if (body?.channel !== "email" && dateOnlyQuote && minimumPeriodRequests.length) {
-    const minimumMessages = minimumPeriodRequests.map(request => {
-      const offer = request.minimumRentalOffer!;
-      const subject = request.displaySubject ?? request.subject;
-      const fulfillment = request.fulfilled === null
-        ? `I couldn't verify stock for ${request.quantity} ${subject} for your current rental period.`
-        : request.fulfilled > 0
-          ? `I can supply ${request.fulfilled} of ${request.quantity} ${subject} for the current ${dateOnlyQuote.days}-day rental.`
-          : `I can't confirm any ${subject} for the current ${dateOnlyQuote.days}-day rental.`;
-      const linked = offer.slug
-        ? `[${offer.title}](https://dbcinemarentals.com/gear/${encodeURIComponent(offer.slug)})`
-        : offer.title;
-      const title = offer.alternative ? `A possible alternative is ${linked}` : linked;
-      return `${fulfillment} ${title} has a ${offer.minimumDays}-day minimum. Minimum gear hire is ${money(offer.total)} for ${offer.minimumDays} days; I haven't checked stock for that longer period.`;
-    });
-    const minimumDays = [...new Set(minimumPeriodRequests.map(request => request.minimumRentalOffer!.minimumDays))];
-    const confirmedPrice = dateOnlyQuote.total !== null
-      ? ` Gear hire for the confirmed items is ${money(dateOnlyQuote.total)} for ${dateOnlyQuote.days} rental day${dateOnlyQuote.days === 1 ? "" : "s"}.`
-      : "";
-    const next = minimumDays.length === 1
-      ? `Would you like me to check availability for the full ${minimumDays[0]}-day minimum?`
-      : "Would you like me to check availability over those minimum rental periods?";
-    reply = `${minimumMessages.join(" ")}${confirmedPrice} ${next}`;
+    reply = gafferEmailQuoteIntro(dateOnlyQuote);
     if (additionalAnswer) reply += `\n\n${additionalAnswer}`;
   } else if (body?.channel !== "email" && dateOnlyQuote && configurationConflictRequest?.configurationConflict) {
     const conflict = configurationConflictRequest.configurationConflict;
@@ -2048,21 +2083,19 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
     reply = `I found a possible window for ${item} on ${dateLabel}: pickup at ${window.pickupTime} and return at ${window.returnTime}. Gear hire would be ${money} for ${duration}. Those times still need your OK before I can confirm availability. Would they suit?`;
     if (additionalAnswer) reply += `\n\n${additionalAnswer}`;
   }
-  const contentsNeedingReview = [...new Set((result.enquiry?.requests ?? []).flatMap(request =>
-    request.lines.filter(line => line.inventoryReviewRequired === true)
-      .map(line => line.displayTitle || line.title)))];
-  if (contentsNeedingReview.length) {
-    const reviewedItems = contentsNeedingReview.join(", ");
-    const reviewMessage = result.enquiry?.complete && result.enquiry.stockVerified
-      ? `Live stock is verified for your requested quantity and dates, but the included contents of ${reviewedItems} still need a manual check before I can confirm every package detail.`
-      : `The included contents of ${reviewedItems} still need a manual check, so I can't confirm every package detail yet.`;
-    const genericReview = /A few kit contents still need confirmation\.?/i;
-    const alreadySpecific = contentsNeedingReview.every(title => reply.includes(title)) && /manual check/i.test(reply);
-    if (!alreadySpecific) {
-      reply = genericReview.test(reply)
-        ? reply.replace(genericReview, reviewMessage)
-        : `${reply.trim()}\n\n${reviewMessage}`;
+  const reviews = new Map<string, string>();
+  for (const request of result.enquiry?.requests ?? []) for (const line of request.lines) {
+    if (line.inventoryReviewRequired) {
+      const title = line.displayTitle || line.title;
+      reviews.set(title, spokenPackingReview(title, line.verifiedContents ?? []));
     }
+  }
+  if (reviews.size) {
+    const reviewMessage = [...reviews.values()].join(" ");
+    const genericReview = /A few kit contents still need confirmation\.?/i;
+    reply = genericReview.test(reply)
+      ? reply.replace(genericReview, reviewMessage)
+      : `${reply.trim()}\n\n${reviewMessage}`;
   }
   return {
     reply,
