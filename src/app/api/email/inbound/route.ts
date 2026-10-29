@@ -157,7 +157,7 @@ async function processGafferInboundEmail(message: InboundEmail) {
         preparedBasketUrl = `https://dbcinemarentals.com/cart/quote/${shareKey}`;
       }
     }
-    const replyText = formatGafferEmailReply(assistant.reply, assistant.cards, assistant.enquiry, preparedBasketUrl);
+    const replyText = formatGafferEmailReply(assistant.reply, assistant.cards, assistant.enquiry, preparedBasketUrl, assistant.additionalAnswer, message.name, message.text);
     const delivered: any = await client.action(api.emailInbox.sendAssistantReply, {
       secret,
       threadId: stored.threadId,

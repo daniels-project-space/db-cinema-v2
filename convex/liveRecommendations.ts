@@ -8,9 +8,12 @@ import { quote } from "./lib/pricing";
 import { verifiedKitEvidence } from "./lib/compatibilityEvidence";
 import { effectiveLensSpecs } from "../shared/opticalFacts";
 import { recommendationCompatible, rentableCandidate } from "../shared/recommendationPolicy";
+import { lensPriority } from "../shared/recommendationRanking";
 import { bundleContentSimilarity } from "../shared/verifiedRentalCopy";
 import { RENTAL_TIME_SLOTS } from "../shared/rentalWindow";
+import { rentalPricingDays } from "../shared/rentalDuration";
 import { createPublicListingCopy } from "./lib/publicListingCopy";
+import { parseMounts } from "./lib/mount";
 
 const group = v.object({ key: v.string(), types: v.optional(v.array(v.string())), listingId: v.optional(v.id("listings")),
   start: v.optional(v.number()), end: v.optional(v.number()), pickupTime: v.optional(v.string()), returnTime: v.optional(v.string()),
@@ -61,10 +64,13 @@ export const options = query({
       for(const listing of displayedCandidates)displayById.set(String(listing._id),listing);
       const preferredDisplay=preferred?displayById.get(String(preferred._id))??preferred:null;
       const candidateDisplays=new Map(displayedCandidates.map((listing:any)=>[String(listing._id),listing]));
-      const ready=validWindow(g),days=Number.isSafeInteger(g.start)&&Number.isSafeInteger(g.end)&&g.end!>=g.start!?Math.round((g.end!-g.start!)/DAY)+1:1;
+      const ready=validWindow(g),days=Number.isSafeInteger(g.start)&&Number.isSafeInteger(g.end)&&g.end!>=g.start!
+        ?rentalPricingDays(g.start!,g.end!,g.pickupTime,g.returnTime):1;
       const selectedFor=(candidate:any)=>selection.filter(l=>l._id!==candidate._id&&(MULTI.has(candidate.itemType)||l.itemType!==candidate.itemType));
       const retainedBasket=basket.filter(line=>line.listingId!==g.replaceListingId);
       const contextBasket=basketRecords.filter(l=>l._id!==g.replaceListingId);
+      const rankingContext=[...contextBasket,...selection,...(preferred?[preferred]:[])];
+      const cameraMounts=[...new Set(rankingContext.filter((item:any)=>item.itemType==="camera-body").flatMap((item:any)=>parseMounts(item.specs?.mount)))];
       const options=[];
       for(const l of candidates.values()){
         const publicListing=candidateDisplays.get(String(l._id))??l;
@@ -84,7 +90,7 @@ export const options = query({
           start:g.start===undefined?null:new Date(g.start).toISOString().slice(0,10),end:g.end===undefined?null:new Date(g.end).toISOString().slice(0,10),
           pickupTime:g.pickupTime??null,returnTime:g.returnTime??null,days,perDay:Math.round(total/days*100)/100,total,deposit:l.depositAmount??0});
       }
-      options.sort((a,b)=>Number(b.available===true&&b.automaticEligible)-Number(a.available===true&&a.automaticEligible)||Number(b.automaticEligible)-Number(a.automaticEligible)||bundleContentSimilarity(preferredDisplay,b)-bundleContentSimilarity(preferredDisplay,a)||b.demandScore-a.demandScore||a.total-b.total||String(a._id).localeCompare(String(b._id)));
+      options.sort((a,b)=>Number(b.available===true&&b.automaticEligible)-Number(a.available===true&&a.automaticEligible)||Number(b.automaticEligible)-Number(a.automaticEligible)||bundleContentSimilarity(preferredDisplay,b)-bundleContentSimilarity(preferredDisplay,a)||lensPriority(b.title,cameraMounts)-lensPriority(a.title,cameraMounts)||b.demandScore-a.demandScore||a.total-b.total||String(a._id).localeCompare(String(b._id)));
       result[g.key]={options:options.slice(0,36),selection:options.filter(o=>selectedIds.includes(o._id)),preferred:options.find(o=>o._id===g.listingId)??null,ready};
     }
     let selectionOk:boolean|null=selection.length===0?true:null;

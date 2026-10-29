@@ -1,5 +1,6 @@
 import { savedCardChargeLimit } from "../../../../shared/rentalSecurity";
 import { contentsText } from "../../../../shared/rentalContents";
+import { explicitlyNoOptionalAddOns } from "../../../../shared/gafferEmailQuote";
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
@@ -107,11 +108,26 @@ type Match = {
 
 /** Phone answers consume the same physical allocation and period prices as email. */
 async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, availabilityOnly: boolean) {
-  const supplied = args.requests === undefined ? [{ subject: args.item ?? args.query, quantity: args.quantity }] : args.requests;
+  const supplied = args.requests === undefined
+    ? [
+        { subject: args.item ?? args.query, quantity: args.quantity, allowAlternatives: args.allowAlternatives },
+        ...Array.from({ length: 7 }, (_, index) => {
+          const number = index + 2;
+          return { subject: args[`item_${number}`], quantity: args[`quantity_${number}`], allowAlternatives: args[`allowAlternatives_${number}`] };
+        }),
+      ].filter(input => input.subject !== undefined && input.subject !== null)
+    : args.requests;
+  const hasOrphanedDetails = args.requests === undefined && Array.from({ length: 7 }, (_, index) => index + 2)
+    .some(number => args[`item_${number}`] == null && (args[`quantity_${number}`] !== undefined || args[`allowAlternatives_${number}`] !== undefined));
+  if (hasOrphanedDetails) return say("Please confirm the item for each quantity or alternative preference.", { needs: "items" });
   if (!Array.isArray(supplied) || !supplied.length || supplied.length > 8)
     return say("Please confirm the items you need, up to eight at a time.", { needs: "items" });
   if (args.requirementsComplete !== undefined && typeof args.requirementsComplete !== "boolean")
     return say("Please confirm the complete list of items you need.", { needs: "items" });
+  if (args.allowOptionalAddOns !== undefined && typeof args.allowOptionalAddOns !== "boolean")
+    return say("Please confirm whether you want optional compatible gear suggestions.", { needs: "items" });
+  if (supplied.some(input => input?.allowAlternatives !== undefined && typeof input.allowAlternatives !== "boolean"))
+    return say("Please confirm whether you would consider an alternative for each item.", { needs: "items" });
   const requests: { subject: string; itemType: string; quantity: number; quantityIsListingUnits: boolean; allowAlternatives: boolean }[] = [];
   for (const input of supplied) {
     if (!input || typeof input !== "object" || typeof input.subject !== "string" || !input.subject.trim() || input.subject.length > 160)
@@ -128,7 +144,7 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     const listingUnits = input.quantityIsListingUnits !== undefined ? input.quantityIsListingUnits === true
       : !(quantity > 1 && itemType === "wireless-mic" && !/\b(?:kits?|sets?|systems?)\b/i.test(raw));
     if (!listingUnits) return say("Do you mean complete wireless microphone kits, or individual microphones and channels?", { needs: "quantity" });
-    requests.push({ subject, itemType, quantity, quantityIsListingUnits: true, allowAlternatives: input.allowAlternatives !== false });
+    requests.push({ subject, itemType, quantity, quantityIsListingUnits: true, allowAlternatives: input.allowAlternatives === true });
   }
   const start = args.start ? resolveDate(args.start, today) : null;
   if (start && !start.ok) return say("Please confirm your pickup date before I quote.", { needs: "dates" });
@@ -144,82 +160,100 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     return say("Return must be after pickup. Please confirm the dates and times.", { needs: "times" });
   const timed = !!startDate && !!pickupTime && !!returnTime && PICKUP_SLOTS.includes(pickupTime) && PICKUP_SLOTS.includes(returnTime);
   const first = requests[0];
+  const addOnsAllowed = args.allowOptionalAddOns === true && !supplied.some(input => explicitlyNoOptionalAddOns(input?.subject));
   const result = await quoteRentalEnquiry({ ...first, requests, requirementsComplete: args.requirementsComplete !== false,
+    allowOptionalAddOns: addOnsAllowed,
     start: startDate, end: endDate, pickupTime, returnTime, days: args.days === undefined ? undefined : Number(args.days) });
   const enquiry = result.enquiry;
   if (!enquiry) throw Error("Rental quote is unavailable");
   const lines = enquiry.requests.flatMap(request => request.lines);
-  const requestedItems = enquiry.requests.map(request => request.quantity + " × " + request.subject).join("; ");
-  const requestResults = enquiry.requests.map(request => request.fulfilled === null
-    ? "no quantity confirmed for " + request.quantity + " requested " + request.subject
-    : request.fulfilled + " of " + request.quantity + " " + request.subject + " confirmed").join("; ");
+  const requestName = (request: typeof enquiry.requests[number]) => equipmentOfferLabel(request.displaySubject || request.subject);
+  const date = (value: string) => new Date(value + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "Europe/London" });
+  const period = enquiry.start === enquiry.end ? date(enquiry.start) : date(enquiry.start) + " to " + date(enquiry.end);
+  const duration = enquiry.days === 1 ? "the day" : `${enquiry.days} days`;
+  const itemNames = lines.map(line => equipmentOfferLabel(line.displayTitle ?? line.title));
+  const itemSummary = itemNames.map((title, index) => {
+    const line = lines[index];
+    const quantity = line.providedUnits ?? line.quantity;
+    return `${quantity === 1 ? "one" : quantity} ${title}`;
+  }).join(", ");
   const hasAlternatives = lines.some(line => line.alternative);
   const requestIssues = enquiry.requests.filter(request => request.availabilityIssue);
-  const confirmedRequests = enquiry.requests.filter(request => request.fulfilled !== null &&
-    (!request.availabilityIssue || request.availabilityIssue === "combined_stock_changed"));
-  const confirmedQuantities = confirmedRequests.map(request => request.fulfilled + " of " + request.quantity + " " + request.subject).join("; ");
-  const issueDetails = requestIssues.map(request => request.availabilityIssue === "combined_stock_changed"
-    ? "The final basket check couldn't fit the remaining requested quantity of " + request.subject
-    : request.availabilityIssue === "no_common_window"
-      ? "No shared pickup/return window fits " + request.subject
-      : "The live stock check failed for " + request.subject + " (" + request.quantity + " requested)").join(". ") + ".";
-  const names = lines.map(line => line.quantity + " × " + equipmentOfferLabel(line.title) +
-    (line.providedUnits && line.providedUnits !== line.quantity ? " (package supplies " + line.providedUnits + " gear units)" : "") +
-    (line.alternative ? " (alternative; please confirm)" : ""));
+  const minimumPeriodRequests = enquiry.requests.filter(request => request.minimumRentalOffer);
   if (!lines.length) {
-    const message = requestIssues.length
-      ? (confirmedQuantities ? "I can confirm " + confirmedQuantities + ". " : "") + issueDetails
-      : enquiry.availabilityIssue === "stock_check_failed"
-      ? "The live stock check did not return a result for " + requestedItems + "; " + requestResults + "."
-      : enquiry.stockVerified
-        ? "I checked the listings for those dates and couldn't find a matching item available."
-        : "I could not verify availability for " + requestedItems + "; " + requestResults + ".";
-    return say(message + " Would another date or a suitable alternative work?", { needs: "availability", enquiry, items: [] });
+    const unresolved = enquiry.requests.filter(request => request.fulfilled === null || request.availabilityIssue === "stock_check_failed");
+    const unavailable = enquiry.requests.filter(request => request.fulfilled === 0 && request.availabilityIssue !== "stock_check_failed" && !request.minimumRentalOffer);
+    const minimumMessages = minimumPeriodRequests.map(request => {
+      const offer = request.minimumRentalOffer!;
+      return `${offer.title} has a ${offer.minimumDays}-day minimum. Minimum gear hire is ${money(offer.total)} for ${offer.minimumDays} days, but I haven't checked stock for that longer period.`;
+    });
+    const message = enquiry.availabilityIssue === "no_common_window"
+      ? `I couldn't find one pickup and return window for all that gear on ${period}. Are your times flexible?`
+      : minimumMessages.length
+        ? `${minimumMessages.join(" ")} Would you like me to check those over their minimum rental periods?`
+      : unresolved.length
+        ? `I couldn't verify live stock for ${unresolved.map(requestName).join(", ")} on ${period}. Would another time window work?`
+        : unavailable.length || enquiry.stockVerified
+          ? `I couldn't find ${unavailable.length ? unavailable.map(requestName).join(" or ") : "a matching item"} available on ${period}. Would another date work?`
+          : `What pickup and return times suit you on ${period}? I need both to check availability.`;
+    return say(message, { needs: "availability", enquiry, items: [] });
   }
-  const period = enquiry.days + " rental day" + (enquiry.days === 1 ? "" : "s");
-  const quantities = enquiry.requests.map(request => request.fulfilled === null
-    ? request.quantity + " " + request.subject + " awaiting a stock check"
-    : request.fulfilled + " of " + request.quantity + " " + request.subject).join("; ");
+  const confirmationSummary = enquiry.requests.map(request => {
+    const name = requestName(request);
+    if (request.minimumRentalOffer) {
+      const offer = request.minimumRentalOffer;
+      return `${offer.title} has a ${offer.minimumDays}-day minimum. Minimum gear hire is ${money(offer.total)} for ${offer.minimumDays} days; stock for that longer period is not checked.`;
+    }
+    if (request.fulfilled === null || request.availabilityIssue === "stock_check_failed") return `I couldn't verify stock for ${name}.`;
+    if (request.fulfilled === 0) return `I couldn't find ${name} available.`;
+    if (request.fulfilled < request.quantity) return `I can supply ${request.fulfilled} of ${request.quantity} ${name}; I'm short by ${request.quantity - request.fulfilled}.`;
+    return `I can supply ${request.fulfilled} ${name}.`;
+  });
   let status: string;
-  if (requestIssues.length) {
-    status = (confirmedQuantities ? "I can confirm " + confirmedQuantities + ". " : "") + issueDetails + " ";
+  if (minimumPeriodRequests.length) {
+    status = confirmationSummary.join(" ");
   } else if (enquiry.availabilityIssue === "no_common_window") {
-    status = "These items don't share one pickup and return window on those dates. ";
+    status = `I couldn't find one pickup and return window for all that gear on ${period}.`;
   } else if (enquiry.availabilityIssue === "combined_stock_changed") {
-    status = "The final stock check couldn't fit the full basket at those times. ";
-  } else if (enquiry.availabilityIssue === "stock_check_failed") {
-    status = "The live stock check did not return a result for " + requestedItems + "; " + requestResults + ". ";
-  } else if (enquiry.complete && enquiry.availabilityWindow) {
-    status = "I can confirm " + quantities + " for a suggested " + enquiry.availabilityWindow.pickupTime + " pickup and " + enquiry.availabilityWindow.returnTime + " return (London). ";
+    status = `The final stock check could fit only the confirmed items at those times. ${confirmationSummary.join(" ")}`;
+  } else if (requestIssues.some(request => request.availabilityIssue === "stock_check_failed") || enquiry.availabilityIssue === "stock_check_failed") {
+    status = confirmationSummary.join(" ");
+  } else if (enquiry.complete && hasAlternatives && enquiry.availabilityWindow) {
+    status = `I can offer ${itemSummary} as an alternative for ${period}, with a suggested ${enquiry.availabilityWindow.pickupTime} pickup and ${enquiry.availabilityWindow.returnTime} return.`;
   } else if (enquiry.complete && hasAlternatives) {
-    status = "I can cover the full quantity with the listed alternatives. ";
+    status = `I can cover the request with ${itemSummary} as an alternative. Would that work for you?`;
+  } else if (enquiry.complete && enquiry.availabilityWindow) {
+    status = `I found ${itemSummary} for ${period}, with a suggested ${enquiry.availabilityWindow.pickupTime} pickup and ${enquiry.availabilityWindow.returnTime} return.`;
   } else if (enquiry.complete) {
-    status = "I can confirm " + quantities + " for those dates and times. ";
-  } else if (enquiry.stockVerified) {
-    status = "For this window, I can supply " + quantities + ". ";
-  } else if (!timed) {
-    status = "I need pickup and return times to check " + requestedItems + ". No quantity is confirmed yet. ";
+    status = `I found ${itemSummary} for ${period}${timed ? `, with ${pickupTime} pickup and ${returnTime} return` : ""}.`;
   } else {
-    status = "I could not verify " + requestedItems + " for those dates and times; " + requestResults + ". ";
+    status = confirmationSummary.join(" ");
   }
   const price = enquiry.total !== null
-    ? (enquiry.complete ? "Gear hire total is " : "Gear hire for the confirmed items is ") + money(enquiry.total) + " for " + period + ". "
-    : "I can't give a gear hire total until the quantities for " + requestedItems + " are confirmed. ";
+    ? `${enquiry.complete ? "Gear hire" : "Confirmed gear hire"} is ${money(enquiry.total)} for ${duration}.`
+    : "I can't give a gear hire total until I can confirm the quantities.";
   const selectedIds = new Set(lines.map(line => line.listingId));
   const packing = (result.cards ?? []).some(card => selectedIds.has(String(card.item?.listingId)) && card.item?.inventoryReviewRequired)
-    ? "Some packing details need confirmation. " : "";
+    ? "A few kit contents still need confirmation." : "";
+  const addOn = enquiry.recommendedAddOn;
+  const recommendation = addOn
+    ? `Optional ${addOn.label}: ${equipmentOfferLabel(addOn.title)} ${addOn.fitNote} and is available for ${money(addOn.total)} for ${addOn.days} rental day${addOn.days === 1 ? "" : "s"}. It isn't included in the requested gear-hire total.`
+    : "";
+  const selectedCards = (result.cards ?? []).filter(card => selectedIds.has(String(card.item?.listingId)));
+  const discounted = enquiry.days > 1 && selectedCards.some(card => Number.isFinite(card.item?.saved) && card.item.saved > 0)
+    ? "The multi-day discount is already included." : "";
   let next: string;
-  const stockToRecheck = requestIssues.filter(request => request.availabilityIssue === "stock_check_failed").map(request => request.subject).join(", ");
-  if (stockToRecheck) next = "I can recheck " + stockToRecheck + " stock before you decide." + (enquiry.availabilityWindow ? " Would the suggested times work for the confirmed items?" : "");
-  else if (enquiry.availabilityWindow) next = "Would those suggested times work? This quote doesn't reserve the gear.";
-  else if (enquiry.complete && hasAlternatives) next = "Would those substitutions work? The quote doesn't reserve the gear.";
-  else if (enquiry.complete) next = "This quote doesn't reserve the gear.";
-  else if (enquiry.availabilityIssue === "stock_check_failed") next = "I can recheck the stock when you're ready.";
-  else if (enquiry.stockVerified) next = "Would another date or a listed option work for the remainder?";
-  else if (requestIssues.length) next = "Would another pickup/return window work for the remaining quantity?";
-  else if (!timed) next = "What pickup and return times suit you?";
-  else next = "Would another date or a listed option work?";
-  return say(status + names.join("; ") + ". " + price + packing + next, { enquiry, items: lines.map(line => ({ title: line.title, daily: line.perDay })), start: enquiry.start, end: enquiry.end, days: enquiry.days });
+  if (minimumPeriodRequests.length) next = "Would you like me to check those items over their minimum rental periods?";
+  else if (requestIssues.some(request => request.availabilityIssue === "stock_check_failed") || enquiry.availabilityIssue === "stock_check_failed") next = "I can recheck the stock if you like.";
+  else if (hasAlternatives && enquiry.availabilityWindow) next = "Would that alternative and those times suit you?";
+  else if (hasAlternatives) next = "Would that alternative work for you?";
+  else if (enquiry.availabilityWindow) next = "Would those times suit you?";
+  else if (enquiry.complete) next = "Would you like to book it? We’ll check the stock again at checkout.";
+  else if (enquiry.stockVerified) next = "Would a different date or smaller quantity help?";
+  else if (!timed) next = "What pickup and return times would suit you?";
+  else next = "Would another date or pickup window help?";
+  const message = [status, price, discounted, packing, recommendation, next].filter(Boolean).join(" ");
+  return say(message, { enquiry, items: lines.map(line => ({ title: line.displayTitle ?? line.title, daily: line.perDay })), start: enquiry.start, end: enquiry.end, days: enquiry.days });
 }
 
 export async function POST(req: NextRequest) {

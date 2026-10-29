@@ -15,6 +15,7 @@ import { quote } from "@/lib/pricing";
 import { refundableDepositFor, assessmentDepositFor, savedCardChargeLimit } from "../../../shared/rentalSecurity";
 import { resolveDate, inclusiveDays, londonToday } from "@/lib/voiceDates";
 import { dayMs } from "@/lib/dates";
+import { rentalPricingDays } from "../../../shared/rentalDuration";
 import { useGafferFocus, scrollToId } from "@/components/gaffer/GafferFocus";
 
 /**
@@ -174,8 +175,8 @@ export function useGafferTools() {
     [convex, cart.items],
   );
 
-  /** Spoken dates → a concrete window, honouring the listing's minimum hire. */
-  const resolveWindow = useCallback((start?: string, end?: string, minDays = 1) => {
+  /** Resolve only the dates and times the customer selected; never lengthen them to meet a listing minimum. */
+  const resolveWindow = useCallback((start?: string, end?: string) => {
     const today = londonToday();
     const s = resolveDate(start, today);
     // No usable date yet? Pencil it in for tomorrow so the basket is real,
@@ -184,8 +185,16 @@ export function useGafferTools() {
     const startIso = s.ok ? s.date : fallback.ok ? fallback.date : today;
     const e = end ? resolveDate(end, today) : null;
     const endIso = e?.ok ? e.date : startIso;
-    return { startIso, endIso, days: Math.max(inclusiveDays(startIso, endIso), minDays), pencilled: !s.ok };
-  }, []);
+    const matching = cart.items.filter(line => line.start === startIso && line.end === endIso);
+    const selected = matching[0];
+    const timesAgree = !!selected?.pickupTime && !!selected?.returnTime && matching.every(line =>
+      line.pickupTime === selected.pickupTime && line.returnTime === selected.returnTime,
+    );
+    const days = timesAgree
+      ? rentalPricingDays(dayMs(startIso), dayMs(endIso), selected.pickupTime, selected.returnTime)
+      : inclusiveDays(startIso, endIso);
+    return { startIso, endIso, days, pencilled: !s.ok };
+  }, [cart.items]);
 
   /**
    * Guard against booking the wrong bundle.
@@ -387,15 +396,25 @@ export function useGafferTools() {
         const free: string[] = [];
         const unconfirmed: string[] = [];
         const taken: string[] = [];
+        const minimumPeriod: string[] = [];
         for (const h of hits) {
+          const minimumDays = Number.isSafeInteger(h.minDays) && h.minDays > 0 ? h.minDays : 1;
+          if (w.days < minimumDays) {
+            minimumPeriod.push(w.pencilled
+              ? `${h.title} has a ${minimumDays}-day minimum; send the dates and I'll check a qualifying rental.`
+              : `${h.title} has a ${minimumDays}-day minimum; these dates cover ${w.days} rental day${w.days === 1 ? "" : "s"}. Stock for a longer rental hasn't been checked.`);
+            continue;
+          }
           const a = await availabilityFor(h.id, w.startIso, w.endIso);
           (a.unknown ? unconfirmed : a.available >= 1 ? free : taken).push(`${h.title} at £${h.daily} a day. ${contentsText(h)}`);
         }
-        if (unconfirmed.length) return `${shown ? "On screen now." : "Found options, but the catalogue has not finished loading on screen."} Catalogue options: ${unconfirmed.join("; ")}. Availability is unconfirmed. Choose pickup and return dates and times in the basket before checking stock.`;
-        if (!free.length) return `Nothing matching ${q} is free ${w.startIso} to ${w.endIso}. Booked: ${taken.join("; ")}.`;
+        if (unconfirmed.length) return `${shown ? "On screen now." : "Found options, but the catalogue has not finished loading on screen."} Catalogue options: ${unconfirmed.join("; ")}. Availability is unconfirmed. Choose pickup and return dates and times in the basket before checking stock.${minimumPeriod.length ? ` ${minimumPeriod.join(" ")}` : ""}`;
+        if (!free.length && minimumPeriod.length && !taken.length) return `For ${w.startIso} to ${w.endIso}, ${minimumPeriod.join(" ")} Would you like to choose dates that meet the minimum?`;
+        if (!free.length) return `Nothing matching ${q} is free ${w.startIso} to ${w.endIso}.${taken.length ? ` Booked: ${taken.join("; ")}.` : ""}${minimumPeriod.length ? ` ${minimumPeriod.join(" ")}` : ""}`;
         return (
           `${shown ? "On screen now." : "Found these options, but the catalogue has not finished loading on screen."} Free ${w.startIso} to ${w.endIso}: ${free.join("; ")}.` +
-          (taken.length ? ` Already booked: ${taken.join("; ")}.` : "")
+          (taken.length ? ` Already booked: ${taken.join("; ")}.` : "") +
+          (minimumPeriod.length ? ` ${minimumPeriod.join(" ")} Would you like to check a longer period?` : "")
         );
       },
 
@@ -403,9 +422,16 @@ export function useGafferTools() {
       find_gear: async ({ item, start, end }: { item: string; start?: string; end?: string }) => {
         const hits = await findMany(item, 3);
         if (!hits.length) return `Nothing in the catalogue matches ${item}.`;
-        const w = resolveWindow(start, end, hits[0]?.minDays ?? 1);
+        const w = resolveWindow(start, end);
         const lines: string[] = [];
         for (const h of hits) {
+          const minimumDays = Number.isSafeInteger(h.minDays) && h.minDays > 0 ? h.minDays : 1;
+          if (w.days < minimumDays) {
+            lines.push(w.pencilled
+              ? `${h.title}, £${h.daily} a day — ${minimumDays}-day minimum; send dates for a stock check.`
+              : `${h.title}, £${h.daily} a day — ${minimumDays}-day minimum; your dates cover ${w.days} day${w.days === 1 ? "" : "s"}. Availability for the longer period hasn't been checked.`);
+            continue;
+          }
           const a = await availabilityFor(h.id, w.startIso, w.endIso);
           lines.push(
             a.unknown
@@ -528,7 +554,13 @@ export function useGafferTools() {
                 `${lens.wanted} as a separate hire alongside it, or this bundle as it is.`;
         }
 
-        const { startIso, endIso, days, pencilled } = resolveWindow(start, end, hit.minDays ?? 1);
+        const { startIso, endIso, days, pencilled } = resolveWindow(start, end);
+        const minimumDays = Number.isSafeInteger(hit.minDays) && hit.minDays > 0 ? hit.minDays : 1;
+        if (days < minimumDays) {
+          return pencilled
+            ? `${hit.title} has a ${minimumDays}-day minimum. I haven't added it or pencilled in dates; what dates should I check for at least ${minimumDays} days?`
+            : `${hit.title} has a ${minimumDays}-day minimum. These dates cover ${days} rental day${days === 1 ? "" : "s"}, so I haven't added it or changed your dates. Would you like to choose dates covering at least ${minimumDays} days?`;
+        }
         const stock = await availabilityFor(hit.id, startIso, endIso);
 
         if (!stock.unknown && stock.available < 1) {
@@ -588,7 +620,7 @@ export function useGafferTools() {
         if(basketItem){const rows=await convex.query(api.cartReplacements.forCart,{items:cart.items.map(i=>({key:i.key,listingId:i.listingId as any,start:dayMs(i.start),end:dayMs(i.end),pickupTime:i.pickupTime,returnTime:i.returnTime})),limit:10});const alts=rows[basketItem.key];return alts?`${basketItem.title} is unavailable for ${basketItem.start} to ${basketItem.end}. Available alternatives: ${alts.map(c=>`${c.title} (£${c.total})`).join("; ")||"none"}. Use Show more replacements on the cart or ask which they prefer before switching.`:"This basket item is currently available. Ask before changing it.";}
         const hit = await findOne(item);
         if (!hit) return `Couldn't find ${item} to match against.`;
-        const { startIso, endIso } = resolveWindow(start, end, hit.minDays ?? 1);
+        const { startIso, endIso } = resolveWindow(start, end);
         const alts = await alternativesFor(hit, startIso, endIso);
         if (!alts.length) return `Nothing else in ${hit.category} is free ${startIso} to ${endIso}.`;
         return `Instead of ${hit.title}: ${alts.map((a) => `${a.title} at £${a.daily} a day`).join("; ")}.`;

@@ -41,7 +41,8 @@ function GearPageInner() {
   }, [urlCat, urlQ]);
 
   const cats = useQuery(api.catalog.categories) ?? [];
-  const best = useQuery(api.catalog.bestSellers, { limit: 6 }) ?? [];
+  const bestResults = useQuery(api.catalog.bestSellers, { limit: 6 });
+  const best = bestResults ?? [];
   const filteredListings =
     useQuery(api.catalog.listListings, {
       category: cat === "All" ? undefined : cat,
@@ -82,7 +83,9 @@ function GearPageInner() {
       <GearLoopBanner />
       <main data-gaffer-route={route} data-gaffer-ready={listings !== undefined && cat === (urlCat || "All") && search === (urlQ ?? "")} className="section-window mx-auto min-h-screen max-w-7xl px-6 pb-12 pt-8">
         <div className="relative left-1/2 w-screen -translate-x-1/2 px-3 sm:px-4 xl:px-6">
-          <AssemblyShowcase listings={[...best, ...(filteredListings ?? [])]} />
+          <AssemblyShowcase
+            listings={[...best, ...(filteredListings ?? [])]}
+          />
         </div>
 
         {/* hire professionals — crew for hire, booked through us (shows on every

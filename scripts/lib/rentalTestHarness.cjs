@@ -49,6 +49,8 @@ function load(file) {
                     path.resolve(path.dirname(filename), name + ".ts"),
                   ),
                 )
+        : name.startsWith("@/")
+          ? load(path.join("src", name.slice(2) + ".ts"))
               : require(name),
     mod,
     mod.exports,

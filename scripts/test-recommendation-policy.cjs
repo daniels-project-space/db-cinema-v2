@@ -2,6 +2,18 @@ const assert = require('node:assert/strict');
 const {load, setMock, put, db} = require('./lib/rentalTestHarness.cjs');
 const p = load('shared/recommendationPolicy.ts');
 const optics=load('shared/opticalFacts.ts');
+const ranking=load('shared/recommendationRanking.ts');
+const rentalPricingDays=load('shared/rentalDuration.ts').rentalPricingDays;
+const rentalDate=value=>Date.parse(`${value}T00:00:00.000Z`);
+assert.equal(rentalPricingDays(rentalDate('2026-11-20'),rentalDate('2026-11-21'),'10:00','09:00'),1,'a 23-hour rental is one billed day everywhere');
+assert.equal(rentalPricingDays(rentalDate('2026-11-20'),rentalDate('2026-11-21'),'10:00','10:00'),1,'exactly 24 hours is one billed day');
+assert.equal(rentalPricingDays(rentalDate('2026-11-20'),rentalDate('2026-11-21'),'10:00','10:01'),2,'each started 24-hour period bills the next day');
+const soloZoom='Sony 24–70mm f/2.8 G Master Lens';
+const zoomTrio='Sony G Master Zoom Trio: 16–35mm, 24–70mm and 70–200mm';
+assert(ranking.isLensSet(zoomTrio),'typographic focal ranges must identify a multi-lens pack');
+assert(ranking.isLensSet('2x Sony FE 24–70mm f/2.8 GM Lenses'),'duplicate-lens adverts are multi-lens packs');
+assert(ranking.lensPriority(soloZoom,['E'])>ranking.lensPriority(zoomTrio,['E']),'a single versatile native lens must rank before a three-lens upsell');
+assert(ranking.lensPriority(soloZoom,['E'])>ranking.lensPriority('2x Sony FE 24–70mm f/2.8 GM Lenses',['E']),'single-lens upgrades must lead duplicate-lens offers');
 assert.deepEqual(p.focalRanges('Sony FE 28–70mm f/3.5–5.6 OSS'),['28-70']);
 assert.deepEqual(p.focalRanges('7.5mm fisheye T2.8'),['7.5']);
 const telephoto={itemType:'lens',title:'Sony 70–200mm GM',specs:{mount:'E',filterThreadMm:82},inventoryFacts:{contents:['Sony FE 70–200mm f/2.8 GM OSS (original)']}};
@@ -12,6 +24,12 @@ assert.deepEqual(optics.filterThreadsFor({itemType:'lens',title:'Sony FE 90mm f/
 assert.deepEqual(optics.filterThreadsFor({itemType:'lens',title:'Unidentified 50mm prime',specs:{filterThreadMm:67}}),[]);
 assert.deepEqual(optics.filterThreadsFor({itemType:'lens',title:'Sony 24–70mm GM III'}),[],'future generations do not inherit original-model dimensions');
 const fx3 = {_id:'fx3',itemType:'camera-body',title:'Sony FX3 + Sony 24–70mm GM',specs:{mount:'E',coverage:'ff',includesLens:true,lensFocal:'24-70'},components:[{inventoryUnitId:'body',qty:1},{inventoryUnitId:'gm',qty:1}],inventoryFacts:{contents:['Sony 24–70mm GM lens']}};
+const fx3BodyKit = {itemType:'camera-body',title:'Sony FX3 Body Kit with Cage and 320GB CFexpress Card',inventoryFacts:{contents:['Sony FX3 body','Camera cage','320GB CFexpress card']}};
+assert.equal(p.unrequestedCameraExtras(fx3BodyKit,'Sony FX3'),0,'a generic model search can still surface the owner-listed FX3 kit');
+assert.equal(p.unrequestedCameraExtras(fx3BodyKit,'Sony FX3 camera body only',true),0,'body only does not reject standard contents that are documented as part of the owned body kit');
+assert(p.unrequestedCameraExtras(fx3BodyKit,'Sony FX3 camera body only, no accessories',true) > 0,'camera cages and media cards are real configuration extras for a body-only request');
+assert.equal(p.unrequestedCameraExtras(fx3BodyKit,'Sony FX3 body only with no cage and no CFexpress card',true),2,'explicitly excluded cage and media are rejected even when they are bundled with the owned body');
+assert.equal(p.unrequestedCameraExtras(fx3BodyKit,'Sony FX3 body with cage and CFexpress card',true),0,'explicitly requested bundle contents remain an exact configuration');
 const lens = {_id:'gm-lens',itemType:'lens',title:'Sony 24-70mm GM',specs:{mount:'E',coverage:'ff',tier:'premium',lensClass:'af',lensFocal:'24-70'},components:[{inventoryUnitId:'gm',qty:1}],pricing:{daily:30}};
 assert.deepEqual(p.focalRanges('Sony 24–70mm / 70—200mm / 35mm'),['24-70','70-200','35']);
 assert(p.alreadySupplied(lens,[fx3]),'physical kit lens must not be resold');
@@ -47,8 +65,8 @@ assert(!p.alreadySupplied({...wide,itemType:'monitor',components:[{inventoryUnit
 const optional = {...body,rentalContents:{included:[]},inventoryFacts:{contents:[]}};
 assert.deepEqual(p.includedLensFocals(optional),[],'optional extras do not count as supplied');
 
-let cards=[fx3], candidates=[lens], queries=[];
-setMock('convex/browser',{ConvexHttpClient:class {async query(name,args){queries.push({name,args}); if(name==='catalog.listingsByIds')return cards;if(name==='catalog.byItemType')return candidates;if(name==='availability.forTimeSlots'||name==='availability.forListing')return {available:1,pickupSlots:['10:00'],returnSlots:['17:00']};throw Error(name);}}});
+let cards=[fx3], candidates=[lens], queries=[], actions=[];
+setMock('convex/browser',{ConvexHttpClient:class {async action(name,args){actions.push({name,args});return {ok:true};} async query(name,args){queries.push({name,args}); if(name==='catalog.listingsByIds')return cards;if(name==='catalog.byItemType')return candidates;if(name==='availability.forTimeSlots'||name==='availability.forListing')return {available:1,pickupSlots:['10:00'],returnSlots:['09:00','17:00']};throw Error(name);}}});
 setMock('@/lib/pricing',load('convex/lib/pricing.ts'));
 setMock('@/lib/compat',{kitWarnings:()=>[]});
 setMock('@/lib/ratelimit',{rateLimit:async()=>({allowed:true})});
@@ -67,12 +85,13 @@ assert(warnings([{...body,specs:{...body.specs,batteryType:'NP-FZ100'}},{itemTyp
 assert(warnings([{...lens,specs:{...lens.specs,filterThreadMm:67}},{itemType:'nd-filter',title:'82mm ND',specs:{filterThreadMm:82}}]).some(w=>w.dimension==='filter'),'larger filter still needs its own ring');
 assert(!p.automaticRecommendation({...wide,marketingOnly:true},[body]));
 const {POST}=load('src/app/api/compat/route.ts');
-async function request(items){queries=[];return (await POST({json:async()=>({items})})).json();}
+async function request(items){queries=[];actions=[];return (await POST({json:async()=>({items})})).json();}
 const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:'17:00'};
 (async()=>{
  let result=await request([{listingId:'fx3',...window,total:1}]);
  assert.deepEqual(result.upgrades,[],'FX3 kit returns no false GM upgrade');
  assert.equal(queries.length,1,'no needless lens/availability reads for an already-equipped kit');
+ assert.deepEqual(actions.map(action=>action.name),['sync.refreshCartStock'],'refresh live stock before reading the exact FX3 basket');
  cards=[body,{...standard,pricing:{daily:10}}];
  result=await request([{listingId:'body',...window},{listingId:'standard',...window,total:99999}]);
  assert.equal(result.upgrades.length,1);
@@ -83,6 +102,11 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  assert.equal(availability.returnTime,'17:00');
  assert.equal(availability.items.length,1);
  assert.equal(availability.items[0].listingId,'body','remaining basket reserves shared units');
+ const shortWindow={...window,returnTime:'09:00'};
+ result=await request([{listingId:'body',...shortWindow},{listingId:'standard',...shortWindow,total:99999}]);
+ assert.equal(result.upgrades.length,1);
+ assert.equal(result.upgrades[0].days,1,'cart compatibility prices a 23-hour rental as one day');
+ assert.equal(result.upgrades[0].total,30,'cart compatibility quote uses the same one-day total as checkout');
  result=await request([{listingId:'body',...window},{listingId:'standard',...window},{listingId:'standard',...window}]);
  assert.equal(result.upgrades.length,0,'ambiguous quantity cannot silently swap one line');
  result=await request([{listingId:'body',...window},{listingId:'standard',...window,end:'2026-11-22'}]);
@@ -102,7 +126,7 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  const nd={_id:'nd82',itemType:'nd-filter',title:'82mm variable ND',specs:{filterThreadMm:82},pricing:{daily:10}};
  const monitor={_id:'monitor',itemType:'monitor',title:'External monitor',pricing:{daily:15}};
  const extraTypes=['recorder','dj-deck','mixer','headphones','projector','accessory'];
- setMock('convex/browser',{ConvexHttpClient:class {async query(name,args){
+ setMock('convex/browser',{ConvexHttpClient:class {async action(name){if(name==='sync.refreshCartStock')return {ok:true};throw Error(name);} async query(name,args){
    if(name==='catalog.compatibilityKits')return [];
    if(name==='catalog.byItemType')return extraTypes.includes(args.types[0])?[{_id:args.types[0],itemType:args.types[0],title:'Owned '+args.types[0],pricing:{daily:5}}]:args.types.includes('camera-body')?[{...selectedCamera,pricing:{daily:100}}]:args.types.includes('nd-filter')?[nd]:args.types.includes('monitor')?[monitor]:lensOptions;
    if(name==='availability.forListing')return {available:1};throw Error(name);
@@ -116,6 +140,10 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  let lensStage=assembled.stages.find(s=>s.key==='lens');
  assert.equal(lensStage.recommendedId,wide._id,'model hint must not override documented bundled glass');
  assert.equal(lensStage.options.find(o=>o.listingId===lens._id).automaticEligible,false);
+ const shortRental=await assembleKit({returnTime:'09:00'});
+ const shortCamera=shortRental.stages.find(s=>s.key==='camera').options.find(o=>o.listingId===fx3._id);
+ assert.equal(shortCamera.days,1,'AI assembly uses the shared 24-hour pricing duration for an overnight rental');
+ assert.equal(shortCamera.total,100);
  selectedCamera=body;
  assembled=await assembleKit({note:'I need an FX 30 camera'});
  assert.equal(assembled.stages.find(s=>s.key==='camera').recommendedId,'','a missing explicitly requested model must not silently become the model hint');
@@ -149,8 +177,14 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  listing({itemType:'battery',title:'Gimbal battery',specs:{batteryType:'gimbal'},demandScore:1000});
  const paired=listing({...fx3,slug:'verified-pair',stockMappingStatus:'complete',components:[...body.components,...lens.components,...gimbal.components],inventoryFacts:{owned:true,reviewRequired:false,contents:['Sony FX3','Sony 24–70mm GM lens','DJI RS3 Pro gimbal']}});
  const unreviewed=listing({...paired,slug:'unreviewed-pair',inventoryFacts:{...paired.inventoryFacts,reviewRequired:true}});
+ assert(!p.rentableCandidate({...paired,stockMappingStatus:'needs_review'}),'incomplete master-stock mappings must not enter shared automatic recommendation pools');
+ const autoMarketing={...paired,title:'Sony FX30 Body like Sony FX3',marketingOnly:false,marketingOnlySource:'auto'};
+ assert(!p.rentableCandidate(autoMarketing),'all shared recommendation paths must apply automatically classified marketing redirects');
+ assert(p.rentableCandidate({...autoMarketing,marketingOnlySource:'admin'}),'an explicit admin stock override must supersede automatic marketing classification');
+ assert(p.rentableCandidate(unreviewed),'owner-confirmed stock remains eligible for an exact core-item quote while extras are under review');
  const ownerEvidence=await load('convex/catalog.ts').compatibilityKits.handler({db},{});
  assert.equal(ownerEvidence.length,1,'only current owner-confirmed, fully mapped pairings qualify');
+ assert(!ownerEvidence.some(item=>item.slug==='unreviewed-pair'),'owner-review-needed kits cannot certify an automatic pairing');
  assert(p.verifiedGimbalPair(gimbal,[body,lens],ownerEvidence));
  const recs=await load('convex/recommendations.ts').forContext.handler({db},{slug:selected.slug,limit:8});
  assert(!recs.some(i=>i.title===lens.title),'included GM must not be recommended again');
