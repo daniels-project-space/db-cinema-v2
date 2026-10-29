@@ -216,6 +216,9 @@ export default function CheckoutPage() {
   const membershipDisplayQuote = currentQuote ?? rentalPreview.quote;
   const membershipRecommendations = membershipRecommendationPreview(membershipRecommendationCache.current, offerContext, !!quoteError);
   const displayedRecommendations = membershipRecommendations?.length ? membershipRecommendations : rentalPreview.recommendations?.length ? rentalPreview.recommendations : membershipDisplayQuote?.recommendations ?? [];
+  useEffect(() => {
+    if (!membership && displayedRecommendations.length) membershipRecommendationCache.current={offerContext,recommendations:displayedRecommendations};
+  }, [displayedRecommendations, membership, offerContext]);
   const equipmentValue = currentQuote?.replacementValue ?? replacementSum;
   useEffect(() => { if (equipmentValue < 1000 && protection === "deposit") setProtection("verify"); }, [equipmentValue, protection]);
   const holdAmount = currentQuote?.depositHoldAmount ?? depositFor(protection, replacementSum);
