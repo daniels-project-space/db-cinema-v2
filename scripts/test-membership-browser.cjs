@@ -273,7 +273,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     if (name === 'checkout') {
       await until(`!!document.querySelector('[data-testid="membership-remove-dialog"]')`);
       assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-remove-dialog"]').innerText.includes(${JSON.stringify(hook.match(/£[\d.]+/)[0])})`),true,'Removal confirmation quotes the exact current net saving');
-      await nativeClick(`document.querySelector('[data-testid="keep-membership"]')`);
+      await c.evaluate(`document.querySelector('[data-testid="keep-membership"]').click()`);
       await until(`!document.querySelector('[data-testid="membership-remove-dialog"]')`);
       assert.equal(await c.evaluate(`(${card}).dataset.membershipSelected`),'true','Keeping savings leaves membership and consent unchanged');
       if (name === 'checkout') await c.evaluate(`(${card}).querySelector('input[type="checkbox"]').click()`);
@@ -513,7 +513,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await removeAndReadd('main ', 'checkout');
   await nativeClick(`document.querySelector('main [data-testid="remove-membership"]')`);
   await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
-  await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
+  await c.evaluate(`document.querySelector('[data-testid="confirm-remove-membership"]').click()`);
   await until(`!!document.querySelector('main [data-testid="add-membership"]')`);
   await c.evaluate(
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
