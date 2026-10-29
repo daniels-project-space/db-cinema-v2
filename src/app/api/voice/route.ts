@@ -7,6 +7,7 @@ import { api } from "@cvx/_generated/api";
 import { quoteRentalEnquiry } from "@/lib/gaffer";
 import { deriveItemType } from "../../../../convex/lib/taxonomy";
 import { equipmentOfferLabel, equipmentRequest, normalizeEquipmentName } from "../../../../shared/equipmentIdentity";
+import { spokenPackingReview, spokenRentalItem } from "@/lib/voiceQuoteFormatting";
 import { PICKUP_SLOTS } from "@/lib/site";
 import { dayMs } from "@/lib/dates";
 import { rateLimit } from "@/lib/ratelimit";
@@ -104,15 +105,29 @@ type Match = {
 async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, availabilityOnly: boolean) {
   const supplied = args.requests === undefined
     ? [
-        { subject: args.item ?? args.query, quantity: args.quantity, allowAlternatives: args.allowAlternatives },
+      {
+        subject: args.item ?? args.query,
+        quantity: args.quantity,
+        quantityIsListingUnits: args.quantityIsListingUnits,
+        allowAlternatives: args.allowAlternatives,
+      },
         ...Array.from({ length: 7 }, (_, index) => {
           const number = index + 2;
-          return { subject: args[`item_${number}`], quantity: args[`quantity_${number}`], allowAlternatives: args[`allowAlternatives_${number}`] };
+        return {
+          subject: args[`item_${number}`],
+          quantity: args[`quantity_${number}`],
+          quantityIsListingUnits: args[`quantityIsListingUnits_${number}`],
+          allowAlternatives: args[`allowAlternatives_${number}`],
+        };
         }),
       ].filter(input => input.subject !== undefined && input.subject !== null)
     : args.requests;
   const hasOrphanedDetails = args.requests === undefined && Array.from({ length: 7 }, (_, index) => index + 2)
-    .some(number => args[`item_${number}`] == null && (args[`quantity_${number}`] !== undefined || args[`allowAlternatives_${number}`] !== undefined));
+    .some(number => args[`item_${number}`] == null && (
+      args[`quantity_${number}`] !== undefined ||
+      args[`quantityIsListingUnits_${number}`] !== undefined ||
+      args[`allowAlternatives_${number}`] !== undefined
+    ));
   if (hasOrphanedDetails) return say("Please confirm the item for each quantity or alternative preference.", { needs: "items" });
   if (!Array.isArray(supplied) || !supplied.length || supplied.length > 8)
     return say("Please confirm the items you need, up to eight at a time.", { needs: "items" });
@@ -120,6 +135,8 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     return say("Please confirm the complete list of items you need.", { needs: "items" });
   if (args.allowOptionalAddOns !== undefined && typeof args.allowOptionalAddOns !== "boolean")
     return say("Please confirm whether you want optional compatible gear suggestions.", { needs: "items" });
+  if (supplied.some(input => input?.quantityIsListingUnits !== undefined && typeof input.quantityIsListingUnits !== "boolean"))
+    return say("Please confirm whether each quantity means complete rental listings or individual components.", { needs: "quantity" });
   if (supplied.some(input => input?.allowAlternatives !== undefined && typeof input.allowAlternatives !== "boolean"))
     return say("Please confirm whether you would consider an alternative for each item.", { needs: "items" });
   const requests: { subject: string; itemType: string; quantity: number; quantityIsListingUnits: boolean; allowAlternatives: boolean }[] = [];
@@ -137,7 +154,9 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     const itemType = deriveItemType(normalizeEquipmentName(subject));
     const listingUnits = input.quantityIsListingUnits !== undefined ? input.quantityIsListingUnits === true
       : !(quantity > 1 && itemType === "wireless-mic" && !/\b(?:kits?|sets?|systems?)\b/i.test(raw));
-    if (!listingUnits) return say("Do you mean complete wireless microphone kits, or individual microphones and channels?", { needs: "quantity" });
+    if (!listingUnits) return say(itemType === "wireless-mic"
+      ? "Do you mean complete wireless microphone kits, or individual microphones and channels?"
+      : "Do you mean complete rental listings or individual components?", { needs: "quantity" });
     requests.push({ subject, itemType, quantity, quantityIsListingUnits: true, allowAlternatives: input.allowAlternatives === true });
   }
   const start = args.start ? resolveDate(args.start, today) : null;
@@ -165,12 +184,8 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   const date = (value: string) => new Date(value + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "Europe/London" });
   const period = enquiry.start === enquiry.end ? date(enquiry.start) : date(enquiry.start) + " to " + date(enquiry.end);
   const duration = enquiry.days === 1 ? "the day" : `${enquiry.days} days`;
-  const itemNames = lines.map(line => equipmentOfferLabel(line.displayTitle ?? line.title));
-  const itemSummary = itemNames.map((title, index) => {
-    const line = lines[index];
-    const quantity = line.providedUnits ?? line.quantity;
-    return `${quantity === 1 ? "one" : quantity} ${title}`;
-  }).join(", ");
+  const itemSummary = readList(enquiry.requests.flatMap(request => request.lines.map(line =>
+    spokenRentalItem(requestName(request), line.displayTitle ?? line.title, line.quantity ?? 1, line.providedUnits ?? line.quantity ?? 1))));
   const hasAlternatives = lines.some(line => line.alternative);
   const requestIssues = enquiry.requests.filter(request => request.availabilityIssue);
   const minimumPeriodRequests = enquiry.requests.filter(request => request.minimumRentalOffer);
@@ -254,13 +269,14 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     : enquiry.total !== null
     ? `${!enquiry.timed ? "The hire estimate" : enquiry.complete ? "Gear hire" : "Confirmed gear hire"} is ${money(enquiry.total)} for ${duration}.`
     : "I can't give a gear hire total until I can confirm the quantities.";
-  const selectedIds = new Set(lines.map(line => line.listingId));
-  const packing = (result.cards ?? []).some(card => selectedIds.has(String(card.item?.listingId)) && card.item?.inventoryReviewRequired)
-    ? "A few kit contents still need confirmation." : "";
+  const packing = enquiry.requests.flatMap(request => request.lines
+    .filter(line => line.inventoryReviewRequired === true)
+    .map(line => spokenPackingReview(line.displayTitle ?? line.title, line.verifiedContents ?? []))).join(" ");
   const addOn = enquiry.recommendedAddOn;
   const recommendation = addOn
     ? `Optional ${addOn.label}: ${equipmentOfferLabel(addOn.title)} ${addOn.fitNote} and is available for ${money(addOn.total)} for ${addOn.days} rental day${addOn.days === 1 ? "" : "s"}. It isn't included in the requested gear-hire total.`
     : "";
+  const selectedIds = new Set(lines.map(line => line.listingId));
   const selectedCards = (result.cards ?? []).filter(card => selectedIds.has(String(card.item?.listingId)));
   const discounted = enquiry.days > 1 && selectedCards.some(card => Number.isFinite(card.item?.saved) && card.item.saved > 0)
     ? "The multi-day discount is already included." : "";

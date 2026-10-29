@@ -227,6 +227,20 @@ export function gafferEmailQuoteIntro(quote: GafferEmailQuote): string {
     return "I couldn't verify stock for " + requested + " on " + period + ". No quantity is confirmed yet; I can recheck.";
   }
 
+  if (quote.availabilityWindow?.suggested && !quote.timed) {
+    const coverage = quote.requests.map(request => request.fulfilled === request.quantity
+      ? count(request)
+      : request.fulfilled === 0
+        ? "none of the " + request.quantity + " requested " + name(request)
+        : request.fulfilled === null
+          ? "stock not verified for " + request.quantity + " × " + name(request)
+          : request.fulfilled + " of " + request.quantity + " requested " + name(request)).join("; ");
+    const lead = quote.complete ? "I can quote " + requested : "The date-only check covers " + coverage;
+    const estimate = quote.total === null ? "" : " Indicative gear hire is £" + quote.total.toFixed(2) + " for " + duration + ".";
+    return lead + " for " + period + "." + estimate + " A possible window is pickup at " + quote.availabilityWindow.pickupTime +
+      " and return at " + quote.availabilityWindow.returnTime + ". Would that suit? I'll confirm availability once you confirm those times.";
+  }
+
   const partial = quote.requests.filter(request => request.fulfilled !== null && request.fulfilled < request.quantity);
   if (partial.length) {
     const supplied = quote.requests.filter(request => request.fulfilled !== null && request.fulfilled > 0).map(count).join("; ");
@@ -239,7 +253,7 @@ export function gafferEmailQuoteIntro(quote: GafferEmailQuote): string {
   if (!quote.requirementsComplete) {
     return "The listed items are available for " + period + ". What else should I include?" + timeWindow + price;
   }
-  if (quote.availabilityWindow) {
+  if (quote.availabilityWindow && quote.timed && !quote.availabilityWindow.suggested) {
     const supply = quote.requests.length === 1 ? count(quote.requests[0]) : "I found the requested gear available";
     return supply + " on " + period + ". Pickup at " + quote.availabilityWindow.pickupTime +
       " and return at " + quote.availabilityWindow.returnTime + " are available. Would those times work?" + price;

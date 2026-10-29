@@ -85,6 +85,7 @@ function GearPageInner() {
         <div className="relative left-1/2 w-screen -translate-x-1/2 px-3 sm:px-4 xl:px-6">
           <AssemblyShowcase
             listings={[...best, ...(filteredListings ?? [])]}
+            loading={bestResults === undefined || filteredListings === undefined}
           />
         </div>
 
