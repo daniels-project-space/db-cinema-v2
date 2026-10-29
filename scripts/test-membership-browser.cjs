@@ -631,6 +631,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   const weekdayItem = {
     ...item,
+    pickupTime: undefined,
+    returnTime: undefined,
     listingId:cheap._id,title:cheap.title,slug:cheap.slug,heroImage:cheap.heroImage,days:1,
     key: cheap._id + ":weekday",
     start: new Date(weekdayStart).toISOString().slice(0, 10),
