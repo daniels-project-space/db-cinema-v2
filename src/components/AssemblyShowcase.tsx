@@ -2,8 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { IconArrowRight } from "@/components/icons";
-import { SmartImage } from "@/components/SmartImage";
 import type { GearListing } from "@/components/GearCard";
 import {
   alreadySupplied,
@@ -31,8 +29,9 @@ type ShowcaseBrief = {
 };
 type ShowcaseScenario = { brief: ShowcaseBrief; low: ExampleKit; high: ExampleKit };
 
-const stages = ["Brief", "Needs", "Budget", "Updated kit"];
-const showcaseStageMs = 3600;
+const stages = ["Brief", "Needs", "Budget", "Fit"];
+const stageSlogans = ["Built around your brief", "Every need in sync", "Intelligent budgeting", "A better fit, by design"];
+const showcaseStageMs = 3800;
 const showcaseBriefs: ShowcaseBrief[] = [
   {
     id: "interview",
@@ -89,15 +88,6 @@ function supportsPreference(kit: ExampleKit, preference: PreferenceKind): boolea
   return kit.items.some((item) => matchesPreference(item, preference));
 }
 
-function gearKind(item: PreviewItem): string {
-  if (item.itemType === "camera-body") return "CAMERA";
-  if (item.itemType === "lens") return "LENS";
-  if (preferenceItemTypes.audio.includes(item.itemType ?? "")) return "AUDIO";
-  if (item.itemType === "light") return "LIGHTING";
-  if (preferenceItemTypes.stabilisation.includes(item.itemType ?? "")) return "STABILISATION";
-  return "KIT PIECE";
-}
-
 function isMultiCameraListing(item: PreviewItem): boolean {
   const evidence = [item.title, ...(item.rentalContents?.included ?? [])];
   const multipleCameras = /(?:\b(?:[2-9]|\d{2,})\s*[x×]\s*(?:[a-z0-9.+-]+\s+){0,5}(?:camera|cameras|body|bodies)\b|\b(?:two|three|four|five|six)\s+(?:[a-z0-9.+-]+\s+){0,4}(?:camera|cameras|body|bodies)\b)/i;
@@ -148,6 +138,21 @@ function CrewGlyph({ size }: { size: "solo" | "small" | "large" }) {
       <circle cx="8" cy="10" r="3.5" /><circle cx="23" cy="7" r="4.5" /><circle cx="40" cy="7" r="4.5" /><circle cx="56" cy="10" r="3.5" />
       <path d="M1 31c.4-5 2.8-8 7-8s6.6 3 7 8M15 31c.5-7 3.2-11 8-11s7.5 4 8 11M33 31c.5-7 2.2-11 7-11s7.5 4 8 11M49 31c.4-5 2.8-8 7-8s6.6 3 7 8" />
       <path d="M22 20h9v6h-9zM25 26l-3 6M28 26l3 6M51 19v12M47 31h8M49 20h5l-1-4h-3z" />
+    </svg>
+  );
+}
+
+function CameraGlyph({ upgraded }: { upgraded: boolean }) {
+  return (
+    <svg className={styles.cameraGlyph} data-upgraded={upgraded} viewBox="0 0 240 150" fill="none" aria-hidden="true">
+      <path className={styles.cameraOutline} d="M40 44h28l11-16h52l14 16h25a15 15 0 0 1 15 15v53a15 15 0 0 1-15 15H40a15 15 0 0 1-15-15V59a15 15 0 0 1 15-15Z" />
+      <path className={styles.cameraTopline} d="M77 44v-9h50l8 9M43 55h30M47 119h126" />
+      <circle className={styles.cameraLens} cx="112" cy="84" r="36" />
+      <circle className={styles.cameraLensInner} cx="112" cy="84" r="24" />
+      <circle className={styles.cameraLensCore} cx="112" cy="84" r="10" />
+      <path className={styles.cameraAccent} d="M168 62h11M168 72h11M168 82h11M168 92h11" />
+      <path className={styles.cameraUpgradeLine} d="M201 46c12 8 19 20 21 34M202 120c12-8 19-20 21-34" />
+      <circle className={styles.cameraUpgradeDot} cx="222" cy="80" r="3" />
     </svg>
   );
 }
@@ -238,7 +243,6 @@ function BudgetDial({ total, position, loading, animateChanges }: { total: numbe
       </svg>
       <i />
       <div className={styles.dialReadout}>
-        <span>{loading ? "LIVE MATCH" : "EXAMPLE KIT"}</span>
         <strong>{loading ? "···" : total > 0 ? currency(displayTotal) : "—"}</strong>
         <small>{loading ? "CHECKING" : "PER DAY"}</small>
       </div>
@@ -246,77 +250,8 @@ function BudgetDial({ total, position, loading, animateChanges }: { total: numbe
   );
 }
 
-function MiniListing({ item, order }: { item: PreviewItem; order: number }) {
-  return (
-    <div className={styles.gearCard} style={{ "--order": order } as CSSProperties}>
-      <span className={styles.gearImage}>
-        <SmartImage src={item.heroImage} fallbackSources={item.imageSources} alt={item.title} className="h-full w-full !bg-transparent" />
-      </span>
-      <span className={styles.gearKind}>
-        {gearKind(item)}
-      </span>
-      <strong>{item.title}</strong>
-      <span className={styles.gearRate}>{currency(item.pricing.daily)}<small> / day</small></span>
-    </div>
-  );
-}
-
-function LoadingMiniListing({ order }: { order: number }) {
-  return (
-    <div className={`${styles.gearCard} ${styles.loadingGearCard}`} style={{ "--order": order } as CSSProperties} aria-hidden="true">
-      <span className={styles.loadingImage} />
-      <span className={styles.loadingKind} />
-      <span className={styles.loadingTitle} />
-      <span className={styles.loadingRate} />
-    </div>
-  );
-}
-
-function KitPanel({ kit, position, variant, loading, dailyChange = 0, cameraCount, preferences, animateBudgetChanges }: { kit: ExampleKit; position: number; variant: "entry" | "upgrade" | "alternate" | "same"; loading: boolean; dailyChange?: number; cameraCount: number; preferences: PreferenceKind[]; animateBudgetChanges: boolean }) {
-  const camera = kit.items.find((item) => item.itemType === "camera-body");
-  const preferredAccessory = preferences
-    .map((preference) => kit.items.find((item) => item !== camera && matchesPreference(item, preference)))
-    .find((item): item is PreviewItem => !!item);
-  const fallbackAccessory = kit.items.find((item) => item !== camera);
-  const featured = [camera, preferredAccessory ?? fallbackAccessory].filter((item): item is PreviewItem => !!item);
-  const additional = kit.items.filter((item) => !featured.some((shown) => shown._id === item._id));
-
-  return (
-    <>
-      <div className={styles.budgetArea}>
-        <BudgetDial total={kit.total} position={position} loading={loading} animateChanges={animateBudgetChanges} />
-        <div className={styles.budgetScale}>
-          <div className={styles.budgetSummary}>
-            <span>{loading ? "MATCHING LIVE LISTINGS" : variant === "upgrade" ? "BUDGET INCREASE" : variant === "alternate" ? "ALTERNATE FIT" : variant === "same" ? "SAME DAILY RATE" : "STARTING BUDGET"}</span>
-            <strong>{loading ? "Finding the right gear." : variant === "upgrade" && dailyChange > 0 ? `+${currency(dailyChange)} per day` : variant === "alternate" ? "Another compatible kit." : variant === "same" ? "Same kit, same total." : `${cameraCount} camera · same brief`}</strong>
-          </div>
-          <div className={styles.sliderTrack} style={{ "--budget-position": `${position}%` } as CSSProperties} aria-hidden="true">
-            <i />
-            <span />
-          </div>
-          <div className={styles.sliderTicks} aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <i key={index} />)}</div>
-        </div>
-      </div>
-      <div className={styles.kitCards}>
-        {loading ? [0, 1].map((index) => <LoadingMiniListing key={index} order={index} />) : featured.length ? featured.map((item, index) => <MiniListing key={item._id} item={item} order={index} />) : (
-          <div className={styles.emptyKit}><ApertureMark /><span>No matching catalogue items for this preview</span></div>
-        )}
-        {!loading && variant === "upgrade" && dailyChange > 0 && <span className={styles.upgradeArrow} aria-hidden="true"><svg viewBox="0 0 32 22" fill="none"><path d="M2 17c5-11 11-13 17-9l5 4M19 7l6 5-7 2" /></svg></span>}
-      </div>
-      {!loading && additional.length > 0 && <div className={styles.kitFoot} aria-label="Additional included listings">
-        {additional.map((item) => (
-          <span className={styles.kitExtra} key={item._id}>
-            <span title={item.title}>{gearKind(item)} · {item.title}</span>
-            <small>{currency(item.pricing.daily)}/day</small>
-          </span>
-        ))}
-      </div>}
-    </>
-  );
-}
-
 export function AssemblyShowcase({ listings, loading = false }: { listings: PreviewListing[]; loading?: boolean }) {
-  const root = useRef<HTMLElement>(null);
+  const root = useRef<HTMLAnchorElement>(null);
   const [flow, setFlow] = useState({ scene: 0, stage: 0 });
   const flowRef = useRef(flow);
   const sceneTransitionTimer = useRef<number | null>(null);
@@ -495,80 +430,114 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
   const hasHigherKit = budgetGap > 0;
   const hasAlternativeGear = examples.high.items.length !== examples.low.items.length || examples.high.items.some((item, index) => item._id !== examples.low.items[index]?._id);
 
+  const preferenceLabels: Record<PreferenceKind, string> = {
+    lens: "Optics",
+    lighting: "Light",
+    audio: "Sound",
+    stabilisation: "Movement",
+  };
+  const orbitClasses = [styles.orbitOne, styles.orbitTwo, styles.orbitThree, styles.orbitFour];
+  const gearChangeCopy = hasHigherKit
+    ? `A considered step up · +${currency(budgetGap)} per day`
+    : hasAlternativeGear
+      ? "A different fit · the same daily rate"
+      : "Balanced to the brief · ready to refine";
+
   return (
-    <section ref={root} aria-labelledby="assembly-showcase-title" className={styles.root} data-moving={moving} data-loading={loading} data-stage={stage} data-scene={showcaseBrief.id} data-changing={sceneChanging}>
+    <Link
+      ref={root}
+      href="/assemble"
+      aria-labelledby="assembly-showcase-title"
+      className={styles.root}
+      data-moving={moving}
+      data-loading={loading}
+      data-stage={stage}
+      data-scene={showcaseBrief.id}
+      data-changing={sceneChanging}
+    >
       <div className={styles.ambientAperture} aria-hidden="true"><ApertureMark /></div>
 
-      <div className={styles.stageRail} aria-hidden="true">
-        {stages.map((name, index) => (
-          <div key={name} className={styles.stageLabel} data-active={stage === index} data-complete={stage > index}>
-            <span>{index + 1}.</span> {name}<i />
-          </div>
-        ))}
+      <div className={styles.identity}>
+        <div className={styles.brandLockup}><b>DB</b><span>CINEMA<br />RENTALS</span></div>
+        <h2 id="assembly-showcase-title" className={styles.assemblyName}><span>AI ITEM</span>{" "}<span className={styles.assemblySecondLine}>ASSEMBLY</span></h2>
+        <p className={styles.identityNote}>From shoot brief to a balanced kit.</p>
+        <span className={styles.openBuilder}>Explore the builder <i aria-hidden="true">↗</i></span>
       </div>
 
-      <div className={styles.panels}>
-        <article className={`${styles.panel} ${styles.briefPanel}`} data-active={stage === 0} aria-hidden={stage !== 0} aria-current={stage === 0 ? "step" : undefined}>
-          <span className={styles.rec}><i /> REC</span>
-          <ApertureMark className={styles.briefAperture} />
-          <div className={styles.briefContent}>
-            <div className={styles.brandLockup}><b>DB</b><span>CINEMA<br />RENTALS</span></div>
-            <h2 id="assembly-showcase-title" className={styles.assemblyName}><span>AI</span> ASSEMBLY</h2>
-            <div className={styles.briefChoice}><span className={styles.cameraOutline}><svg viewBox="0 0 26 21" fill="none" aria-hidden="true"><path d="M2 5h14a2 2 0 0 1 2 2v10H2zM18 9l6-3v11l-6-3M6 5l2-3h5l2 3" /><circle cx="10" cy="11" r="3" /></svg></span><span>{showcaseBrief.label}</span><span className={styles.chevronMark}>⌄</span></div>
-            <div className={styles.crewOptions} role="img" aria-label={`${showcaseBrief.crewLabel} selected. Solo, small crew, or large production.`}>
-              {([
-                ["solo", "Solo"],
-                ["small", "Small crew"],
-                ["large", "Large production"],
-              ] as const).map(([size, label]) => (
-                <div key={size} className={styles.crewOption} data-selected={showcaseBrief.crew === size} aria-hidden="true">
-                  <CrewGlyph size={size} />
-                  <span>{label}</span>
+      <div className={styles.demo}>
+        <div className={styles.demoHeader}>
+          <h3 className={styles.slogan} key={`slogan-${flow.scene}-${stage}`}>{stageSlogans[stage]}</h3>
+          <div className={styles.progress} aria-hidden="true">
+            {stages.map((name, index) => <i key={name} data-active={stage === index} data-complete={stage > index} />)}
+          </div>
+        </div>
+
+        <div className={styles.sceneViewport} data-changing={sceneChanging} aria-hidden="true">
+          <div className={styles.scene} key={`scene-${flow.scene}-${stage}`} data-stage={stage}>
+            {stage === 0 && (
+              <div className={styles.briefScene}>
+                <div className={styles.briefIris}><ApertureMark /></div>
+                <div className={styles.briefDetails}>
+                  <span className={styles.sceneKicker}>A BRIEF TAKES SHAPE</span>
+                  <strong>{showcaseBrief.label}</strong>
+                  <div className={styles.crewLine}><CrewGlyph size={showcaseBrief.crew} /><span>{showcaseBrief.crewLabel} <i /> {showcaseBrief.cameraCount} camera</span></div>
+                  <p>{showcaseBrief.notes.join(" · ")}</p>
                 </div>
-              ))}
-            </div>
-            <div className={styles.crewMeta}><span>CAMERA COUNT</span><strong>{String(showcaseBrief.cameraCount).padStart(2, "0")}</strong><span>CAMERA</span></div>
-            <div className={styles.briefNote}>{showcaseBrief.notes.map((note, index) => <span key={note}>{index > 0 && <i />}{note}</span>)}</div>
-          </div>
-          <div className={styles.signalPoint} aria-hidden="true" />
-        </article>
+                <div className={styles.focusSweep} />
+              </div>
+            )}
 
-        <article className={`${styles.panel} ${styles.needsPanel}`} data-active={stage === 1} aria-hidden={stage !== 1} aria-current={stage === 1 ? "step" : undefined}>
-          <div className={styles.needsContent}>
-            <h3>Gear preferences</h3>
-            <div className={styles.preferenceGrid}>
-              {([
-                ["lens", "Lenses", selectedPreferences.has("lens")],
-                ["lighting", "Lighting", selectedPreferences.has("lighting")],
-                ["audio", "Audio", selectedPreferences.has("audio")],
-                ["stabilisation", "Stabilisation", selectedPreferences.has("stabilisation")],
-              ] as const).map(([kind, label, selected]) => (
-                <div key={kind} className={styles.preference} data-selected={selected}>
-                  <PreferenceGlyph kind={kind} /><span>{label}</span><i />
+            {stage === 1 && (
+              <div className={styles.needsScene}>
+                <div className={styles.needsOrbitLine} />
+                <div className={styles.needsCore}><ApertureMark /></div>
+                {[...selectedPreferences].map((kind, index) => (
+                  <div key={kind} className={`${styles.orbitItem} ${orbitClasses[index % orbitClasses.length]}`} style={{ "--orbit-delay": `${index * -420}ms` } as CSSProperties}>
+                    <PreferenceGlyph kind={kind} />
+                    <span>{preferenceLabels[kind]}</span>
+                  </div>
+                ))}
+                <span className={styles.needsCaption}>MATCHING WHAT MATTERS</span>
+              </div>
+            )}
+
+            {stage === 2 && (
+              <div className={styles.budgetScene}>
+                <BudgetDial total={examples.low.total} position={lowPosition} loading={loading} animateChanges={moving && !loading && !reducedMotion} />
+                <div className={styles.budgetCopy}>
+                  <span className={styles.sceneKicker}>STARTING FIT</span>
+                  <strong>{loading ? "Matching live gear" : "Balanced to the brief"}</strong>
+                  <p>Daily rental rates from the live catalogue.</p>
+                  <div className={styles.budgetTrack} style={{ "--budget-position": `${lowPosition}%` } as CSSProperties}><i /><span /></div>
+                  <div className={styles.budgetEnds}><span>LEAN</span><span>MORE OPTIONS</span></div>
                 </div>
-              ))}
-            </div>
-            <div className={styles.needsFooter}>
-              <div className={styles.cameraCount}><span>CAMERA COUNT</span><div><i>−</i><b>{showcaseBrief.cameraCount}</b><i>+</i></div></div>
-              <div className={styles.noteField}><span>ADDITIONAL NOTES</span><strong>{showcaseBrief.notes.map((note) => note.toLowerCase()).join(" · ")}</strong><i>✎</i></div>
-            </div>
+                <div className={styles.budgetEcho} aria-hidden="true" />
+              </div>
+            )}
+
+            {stage === 3 && (
+              <div className={styles.refinedScene}>
+                <div className={styles.cameraStage} data-upgraded={hasHigherKit}>
+                  <div className={styles.cameraHalo}><ApertureMark /></div>
+                  <CameraGlyph upgraded={hasHigherKit || hasAlternativeGear} />
+                  <div className={styles.refinedPreferences}>
+                    {[...selectedPreferences].slice(0, 3).map((kind, index) => (
+                      <span key={kind} style={{ "--orbit-delay": `${index * -380}ms` } as CSSProperties}><PreferenceGlyph kind={kind} /></span>
+                    ))}
+                  </div>
+                  <div className={styles.upgradeArc} />
+                </div>
+                <div className={styles.refinedCopy}>
+                  <span className={styles.sceneKicker}>REFINED FIT</span>
+                  <strong>{loading ? "···" : examples.high.total > 0 ? currency(examples.high.total) : "—"}<small> / DAY</small></strong>
+                  <p>{gearChangeCopy}</p>
+                  <div className={styles.refinedRule}><i /><span>{hasHigherKit ? "MORE ROOM TO CREATE" : "ALIGNED TO YOUR BRIEF"}</span></div>
+                </div>
+              </div>
+            )}
           </div>
-          <div className={styles.needsOrbit} aria-hidden="true"><ApertureMark /></div>
-        </article>
-
-        <article className={`${styles.panel} ${styles.budgetPanel}`} data-active={stage === 2} aria-hidden={stage !== 2} aria-current={stage === 2 ? "step" : undefined}>
-          <KitPanel kit={examples.low} position={lowPosition} variant="entry" loading={loading} cameraCount={showcaseBrief.cameraCount} preferences={showcaseBrief.preferences} animateBudgetChanges={moving && !loading && !reducedMotion} />
-          <div className={styles.signalPoint} aria-hidden="true" />
-        </article>
-
-        <article className={`${styles.panel} ${styles.updatedPanel}`} data-active={stage === 3} aria-hidden={stage !== 3} aria-current={stage === 3 ? "step" : undefined}>
-          <KitPanel kit={examples.high} position={highPosition} variant={hasHigherKit ? "upgrade" : hasAlternativeGear ? "alternate" : "same"} loading={loading} dailyChange={Math.max(0, budgetGap)} cameraCount={showcaseBrief.cameraCount} preferences={showcaseBrief.preferences} animateBudgetChanges={moving && !loading && !reducedMotion} />
-        </article>
+        </div>
       </div>
-      <div className={styles.footer}>
-        <p className={styles.disclaimer}>Live catalogue examples · rates shown per day · choose rental dates in the builder to check availability.</p>
-        <Link href="/assemble" className={styles.cta}>Build your kit <IconArrowRight className="h-4 w-4" /></Link>
-      </div>
-    </section>
+    </Link>
   );
 }

@@ -40,6 +40,7 @@ export const specsFor = internalQuery({
       const l = await ctx.db.get(id);
       if (l)
         out.push({
+          listingId: l._id,
           sizeScore: l.sizeScore ?? 2,
           weightKg: l.weightKg ?? 1,
           itemType: l.itemType ?? "accessory",
@@ -50,14 +51,19 @@ export const specsFor = internalQuery({
 });
 
 export const quote = action({
-  args: { postcode: v.string(), listingIds: v.array(v.id("listings")) },
+  args: {
+    postcode: v.string(),
+    groups: v.array(v.object({ start: v.number(), end: v.number(), listingIds: v.array(v.id("listings")) })),
+  },
   handler: async (
     ctx,
-    { postcode, listingIds },
+    { postcode, groups },
   ): Promise<
-    | { ok: true; fee: number; oneWay: number; vehicle: string; vehicleLabel: string; km: number; load: number; isLondon: boolean }
+    | { ok: true; fee: number; oneWay: number; vehicle: string; vehicleLabel: string; km: number; load: number; isLondon: boolean; groups: Array<{ start: number; end: number; fee: number; oneWay: number; vehicle: string; vehicleLabel: string; km: number; load: number }> }
     | { ok: false; reason: string }
   > => {
+    if (!groups.length || groups.some(group => !group.listingIds.length || group.end < group.start))
+      return { ok: false, reason: "Add valid rental dates and equipment before quoting delivery." };
     const pc = postcode.replace(/\s+/g, "").toUpperCase();
     if (pc.length < 5) return { ok: false, reason: "Enter a full UK postcode" };
     let res: any;
@@ -79,38 +85,46 @@ export const quote = action({
         reason: `That's ~${Math.round(km)}km from us — beyond our ${maxKm}km delivery range. Please choose pickup.`,
       };
 
-    const specs: any[] = await ctx.runQuery(internal.delivery.specsFor, { ids: listingIds });
-    const totalScore = specs.reduce((n, s) => n + s.sizeScore, 0);
-    const totalWeight = specs.reduce((n, s) => n + s.weightKg, 0);
-    const maxScore = Math.max(1, ...specs.map((s) => s.sizeScore));
-    const bigItems = specs.filter((s) => s.sizeScore >= 4 || s.weightKg >= 5).length;
-    const hasDJ = specs.some((s) => s.itemType === "dj-deck");
-    const hasSpeaker = specs.some((s) => s.itemType === "speaker");
-
-    // ── vehicle (improved over v1: speakers / multiple big items -> van) ──
-    let vehicle: "motorcycle" | "car" | "van";
-    if ((hasDJ && hasSpeaker) || bigItems >= 2 || totalWeight > 20 || totalScore >= 10) {
-      vehicle = "van";
-    } else if (maxScore <= 2 && bigItems === 0 && totalWeight <= 8 && specs.length <= 3) {
-      vehicle = "motorcycle";
-    } else {
-      vehicle = "car";
-    }
-    const vehicleLabel =
-      vehicle === "van" ? "Large van" : vehicle === "car" ? "Small car courier" : "Motorcycle courier";
-
+    const ids = [...new Set(groups.flatMap(group => group.listingIds))];
+    const specs: any[] = await ctx.runQuery(internal.delivery.specsFor, { ids });
+    const specsById = new Map(specs.map(spec => [String(spec.listingId), spec]));
+    if (specsById.size !== ids.length) return { ok: false, reason: "We couldn't calculate delivery for every item. Please refresh your basket." };
     const zoneIdx = ZONE_MAX.findIndex((m) => km <= m);
-    const [lo, hi] = PRICING[vehicle][zoneIdx];
+    if (zoneIdx < 0) return { ok: false, reason: "Delivery is outside the available pricing zones. Please choose pickup." };
 
-    // ── interpolate within band by load so price scales with the basket ──
-    const load = totalScore + totalWeight * 0.25;
-    const [ls, le] = LOAD_SPAN[vehicle];
-    const t = clamp01((load - ls) / (le - ls));
-    const oneWay = Math.round(lo + (hi - lo) * t);
+    const pricedGroups = groups.map(group => {
+      const groupSpecs = group.listingIds.map(id => specsById.get(String(id))!);
+      const totalScore = groupSpecs.reduce((n, s) => n + s.sizeScore, 0);
+      const totalWeight = groupSpecs.reduce((n, s) => n + s.weightKg, 0);
+      const maxScore = Math.max(1, ...groupSpecs.map((s) => s.sizeScore));
+      const bigItems = groupSpecs.filter((s) => s.sizeScore >= 4 || s.weightKg >= 5).length;
+      const hasDJ = groupSpecs.some((s) => s.itemType === "dj-deck");
+      const hasSpeaker = groupSpecs.some((s) => s.itemType === "speaker");
 
-    // round trip (there + back) + configurable margin
-    const fee = Math.round(oneWay * 2 * (1 + (cfg.deliveryMarginPct ?? 10) / 100));
-
-    return { ok: true, fee, oneWay, vehicle, vehicleLabel, isLondon: res.region === "London", km: Math.round(km * 10) / 10, load: Math.round(load) };
+      let vehicle: "motorcycle" | "car" | "van";
+      if ((hasDJ && hasSpeaker) || bigItems >= 2 || totalWeight > 20 || totalScore >= 10) vehicle = "van";
+      else if (maxScore <= 2 && bigItems === 0 && totalWeight <= 8 && groupSpecs.length <= 3) vehicle = "motorcycle";
+      else vehicle = "car";
+      const vehicleLabel = vehicle === "van" ? "Large van" : vehicle === "car" ? "Small car courier" : "Motorcycle courier";
+      const [lo, hi] = PRICING[vehicle][zoneIdx];
+      const load = totalScore + totalWeight * 0.25;
+      const [ls, le] = LOAD_SPAN[vehicle];
+      const t = clamp01((load - ls) / (le - ls));
+      const oneWay = Math.round(lo + (hi - lo) * t);
+      const fee = Math.round(oneWay * 2 * (1 + (cfg.deliveryMarginPct ?? 10) / 100));
+      return { start: group.start, end: group.end, fee, oneWay, vehicle, vehicleLabel, km: Math.round(km * 10) / 10, load: Math.round(load) };
+    });
+    const first = pricedGroups[0];
+    return {
+      ok: true,
+      fee: pricedGroups.reduce((total, group) => total + group.fee, 0),
+      oneWay: first.oneWay,
+      vehicle: first.vehicle,
+      vehicleLabel: first.vehicleLabel,
+      isLondon: res.region === "London",
+      km: first.km,
+      load: first.load,
+      groups: pricedGroups,
+    };
   },
 });

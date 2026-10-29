@@ -26,21 +26,19 @@ function sameSuggestion(a: Suggestion | null | undefined, b: Suggestion | null |
   return a.start === b.start && a.end === b.end && a.pickupTime === b.pickupTime && a.returnTime === b.returnTime;
 }
 
-function rentalGroupKey(item: CartItem, defaultPickupTime: string, defaultReturnTime: string) {
+function rentalGroupKey(item: CartItem) {
   return JSON.stringify([
     item.listingId,
     item.start,
     item.end,
-    item.pickupTime || defaultPickupTime,
-    item.returnTime || defaultReturnTime,
+    item.pickupTime || "",
+    item.returnTime || "",
     item.offerType ?? "",
   ]);
 }
 
-export function NextAvailableRentalOptions({ lineIndices, defaultPickupTime = "", defaultReturnTime = "" }: {
+export function NextAvailableRentalOptions({ lineIndices }: {
   lineIndices: number[];
-  defaultPickupTime?: string;
-  defaultReturnTime?: string;
 }) {
   const cart = useCart();
   const convex = useConvex();
@@ -51,7 +49,7 @@ export function NextAvailableRentalOptions({ lineIndices, defaultPickupTime = ""
   for (const lineIndex of lineIndices) {
     const item = cart.items[lineIndex];
     if (!item) continue;
-    const key = rentalGroupKey(item, defaultPickupTime, defaultReturnTime);
+    const key = rentalGroupKey(item);
     const group = groupsByKey.get(key);
     if (group) group.lineIndices.push(lineIndex);
     else groupsByKey.set(key, { key, lineIndices: [lineIndex], item });
@@ -61,8 +59,8 @@ export function NextAvailableRentalOptions({ lineIndices, defaultPickupTime = ""
     listingId: item.listingId as any,
     start: dayMs(item.start),
     end: dayMs(item.end),
-    pickupTime: item.pickupTime || defaultPickupTime || undefined,
-    returnTime: item.returnTime || defaultReturnTime || undefined,
+    pickupTime: item.pickupTime || undefined,
+    returnTime: item.returnTime || undefined,
   }));
   const args = lineIndices.length ? { items: stockItems, lineIndices } : "skip";
   const results = useQuery(api.availability.nextAvailableForCart, args) as Result[] | undefined;
@@ -79,8 +77,8 @@ export function NextAvailableRentalOptions({ lineIndices, defaultPickupTime = ""
         listingId: entry.listingId as any,
         start: dayMs(entry.start),
         end: dayMs(entry.end),
-        pickupTime: entry.pickupTime || defaultPickupTime || undefined,
-        returnTime: entry.returnTime || defaultReturnTime || undefined,
+        pickupTime: entry.pickupTime || undefined,
+        returnTime: entry.returnTime || undefined,
       }));
       const fresh = await convex.query(api.availability.nextAvailableForCart, { items: currentItems, lineIndices: [targetIndex] }) as Result[];
       const freshByIndex = new Map(fresh.map((result) => [result.lineIndex, result]));

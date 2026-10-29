@@ -34,6 +34,10 @@ import { MEMBERSHIP_TERMS_VERSION,membershipActiveNow,membershipTierFor } from "
 
 const pence = (gbp: number) => Math.round(gbp * 100);
 const subActive = (status: string) => status === "active" || status === "trialing";
+const deliveryDate = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" });
+const deliveryPeriod = (start: number, end: number) => start === end
+  ? deliveryDate.format(new Date(start))
+  : `${deliveryDate.format(new Date(start))}–${deliveryDate.format(new Date(end))}`;
 
 type PriceQuoteResult = {
   replacementValue: number;
@@ -47,6 +51,7 @@ type PriceQuoteResult = {
   depositAmount: number;
   quotedDeliveryFee: number;
   deliveryFee: number;
+  deliveryGroups: {start:number;end:number;quotedFee:number;fee:number;oneWay:number;vehicle:string;vehicleLabel:string;km:number;load:number}[];
   reductionLabel?: string;
   totalReduction: number;
   creditApplied: number;
@@ -148,6 +153,7 @@ export const priceQuote = action({
       depositAmount: price.depositAmount,
       quotedDeliveryFee: price.quotedDeliveryFee,
       deliveryFee: price.deliveryFee,
+      deliveryGroups: price.deliveryGroups,
       reductionLabel: price.reductionLabel,
       totalReduction: price.totalReduction,
       benefitKind: price.benefitKind,
@@ -423,7 +429,7 @@ export const start = action({
       throw error;
     }
 
-    const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = a.items.map(
+    const rentalLineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = a.items.map(
       (i) => ({
         quantity: 1,
         price_data: {
@@ -433,29 +439,29 @@ export const start = action({
         },
       }),
     );
-    if (deliveryFee > 0) {
-      line_items.push({
-        quantity: 1,
-        price_data: {
-          currency: "gbp",
-          unit_amount: pence(deliveryFee),
-          product_data: { name: "Local delivery" },
+    const deliveryLineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = price.deliveryGroups.map(group => ({
+      quantity: 1,
+      price_data: {
+        currency: "gbp",
+        unit_amount: pence(group.quotedFee),
+        product_data: { name: `Delivery & collection · ${deliveryPeriod(group.start,group.end)}` },
+      },
+    }));
+    const depositLineItem: Stripe.Checkout.SessionCreateParams.LineItem | null = depositAmount > 0 ? {
+      quantity: 1,
+      price_data: {
+        currency: "gbp",
+        unit_amount: pence(depositAmount),
+        product_data: {
+          name: "Refundable security deposit (refunded after safe return and settlement)",
         },
-      });
-    }
-    if (depositAmount > 0) {
-      line_items.push({
-        quantity: 1,
-        price_data: {
-          currency: "gbp",
-          unit_amount: pence(depositAmount),
-          product_data: {
-            name:
-              "Refundable security deposit (refunded after safe return and settlement)",
-          },
-        },
-      });
-    }
+      },
+    } : null;
+    const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+      ...rentalLineItems,
+      ...deliveryLineItems,
+      ...(depositLineItem ? [depositLineItem] : []),
+    ];
 
     if (freedCount > 0 && acct) {
       await ctx.runMutation(internal.accounts._useFreeAccessories, {
@@ -469,10 +475,10 @@ export const start = action({
     // Other account credit can cover remaining rental/delivery, never security.
     // This applies to every checkout, including referrals without membership.
     const rentalNet=allocateSaving(a.items.map(i=>i.total),totalReduction+price.membershipCreditApplied);
-    const eligibleNet=[...rentalNet,...(deliveryFee?[deliveryFee]:[])];
+    const eligibleNet=[...rentalNet,...price.deliveryGroups.map(group=>group.fee)];
     const net=allocateSaving(eligibleNet,creditApplied-price.membershipCreditApplied);
     let checkoutLines:Stripe.Checkout.SessionCreateParams.LineItem[]=line_items.slice(0,eligibleNet.length).map((line,index)=>({...line,price_data:{...line.price_data!,unit_amount:pence(net[index])}}));
-    if(depositAmount>0)checkoutLines.push(line_items[line_items.length-1]);
+    if(depositLineItem)checkoutLines.push(depositLineItem);
     checkoutLines=checkoutLines.filter(l=>(l.price_data?.unit_amount??0)>0);
     if(membershipCheckout)checkoutLines.push({price:await ensurePrice(sb,tierByKey(membershipCheckout.tier)!),quantity:1});
     const meta = {bookingId,rentalPaidPence:String(pence(price.totalDue)),securityPolicyVersion:price.securityPolicyVersion,savedCardLimitPence:String(pence(price.savedCardLimit)),...(membershipCheckout ? {membershipTier:membershipCheckout.tier,accountEmail:acct.email,membershipCheckoutId:String(membershipCheckout._id),membershipTerms:MEMBERSHIP_TERMS_VERSION}: {})};

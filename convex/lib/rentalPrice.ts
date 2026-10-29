@@ -13,6 +13,7 @@ import { depositFor, depositChargeFor } from "./pricing";
 import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardLimitForPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit } from "../../shared/rentalSecurity";
 import { londonMonth } from "./memberDelivery";
 import { tierByKey, paidDepositExempt } from "./membership";
+import { groupDeliveryItems } from "../../shared/deliveryGroups";
 
 export type RentalPriceInput = {
   items: {
@@ -64,6 +65,7 @@ export type RentalPrice = {
   reductionLabel?: string;
   quotedDeliveryFee: number;
   deliveryFee: number;
+  deliveryGroups: Array<{ start:number;end:number;quotedFee:number;fee:number;oneWay:number;vehicle:string;vehicleLabel:string;km:number;load:number }>;
   totalBeforeCredit: number;
   creditApplied: number;
   availableAccountCredit:number;
@@ -85,6 +87,18 @@ export type RentalPrice = {
 
 const postcodeFromAddress = (address: string) =>
   address.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";
+
+function allocateDeliveryGroupFees(groups: RentalPrice["deliveryGroups"], totalNetFee: number) {
+  let remainingGrossPence=groups.reduce((sum,group)=>sum+Math.round(group.quotedFee*100),0);
+  let remainingNetPence=Math.round(totalNetFee*100);
+  return groups.map((group,index)=>{
+    const grossPence=Math.round(group.quotedFee*100);
+    const netPence=index===groups.length-1?remainingNetPence:remainingGrossPence?Math.min(grossPence,Math.round(remainingNetPence*grossPence/remainingGrossPence)):0;
+    remainingGrossPence-=grossPence;
+    remainingNetPence-=netPence;
+    return {...group,fee:netPence/100};
+  });
+}
 
 /** One authoritative calculation for the on-page quote and Stripe checkout. */
 export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput): Promise<RentalPrice> {
@@ -151,17 +165,18 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   }
   let quotedDeliveryFee = 0;
   let isLondon = false;
+  let deliveryGroups: RentalPrice["deliveryGroups"] = [];
   if (a.fulfilment === "delivery") {
     const postcode = postcodeFromAddress(a.deliveryPostcode ?? "");
     if (!postcode || postcode !== postcodeFromAddress(a.address ?? "") || (a.address ?? "").trim().length < 10)
       throw new Error("Enter the full delivery address with the same postcode used for the quote.");
-    const quote: any = await ctx.runAction(api.delivery.quote, {
-      postcode, listingIds: items.map((item) => item.listingId),
-    });
+    const groups=groupDeliveryItems(items);
+    const quote=await ctx.runAction(api.delivery.quote, { postcode, groups });
     if (!quote.ok || !Number.isSafeInteger(quote.fee) || quote.fee < 0)
       throw new Error(quote.ok ? "Delivery is unavailable for this address." : quote.reason);
     quotedDeliveryFee = quote.fee;
     isLondon = quote.isLondon === true;
+    deliveryGroups=quote.groups.map(group=>({...group,quotedFee:group.fee}));
     if (a.deliveryFee !== undefined && Math.round(a.deliveryFee * 100) !== Math.round(quotedDeliveryFee * 100))
       throw new Error("Your delivery quote has changed. Please refresh it before paying.");
   }
@@ -201,6 +216,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   }
   const deliveryReduction=benefitKind==="delivery"?chosen.savingPence/100:0;
   const deliveryFee=quotedDeliveryFee-deliveryReduction;
+  deliveryGroups=allocateDeliveryGroupFees(deliveryGroups,deliveryFee);
   const deliveryBenefitMonth=benefitKind==="delivery"&&studioAvailable?month:undefined;
   const totalReduction=Math.round((primaryReduction+membershipSignupOfferSaving)*100)/100;
   const appliedCode=benefitKind==="promo"?promoCode:undefined;
@@ -219,7 +235,7 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     referralRewardId:benefitKind==="referral_reward"?referral.reward.id:undefined,
     items,customerEmail,acct,month,freedCount,subtotal,replacementSum,protection,savedCardLimit:cardLimitForPolicy(securityPolicyVersion,replacementSum),
     securityPolicyVersion,depositHoldAmount,depositAmount,appliedCode,totalReduction,reductionLabel:chosen.kind==="none"?undefined:chosen.label,
-    quotedDeliveryFee,deliveryFee,deliveryBenefitMonth,deliveryReduction,securityWaiverReason,weekendSaving,
+    quotedDeliveryFee,deliveryFee,deliveryGroups,deliveryBenefitMonth,deliveryReduction,securityWaiverReason,weekendSaving,
     rentalSaving:totalReduction,loyaltySaving,membershipSignupOfferSaving,repeatSourceBookingId,repeatSourceFingerprint,
     membershipFee,membershipCreditApplied,combinedTotalDue:Math.round((totalDue+membershipFee)*100)/100,totalBeforeCredit,creditApplied,totalDue,
   };
