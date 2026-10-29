@@ -17,7 +17,7 @@ const {londonMonth}=load('convex/lib/memberDelivery.ts');
   if(ref==='bookings.availableCheckoutCredit')return 0;
   if(ref==='promo.validate')return {valid:true,discount:50,code:'STACK'};
   throw Error('unexpected query '+ref);
- },runAction:async(ref,args)=>{assert.equal(ref,'delivery.quote');return{ok:true,fee:100,isLondon:london};}};
+ },runAction:async(ref,args)=>{assert.equal(ref,'delivery.quote');return{ok:true,fee:100,oneWay:50,vehicle:'car',vehicleLabel:'Small car courier',km:1,load:1,isLondon:london,groups:args.groups.map(group=>({...group,fee:100,oneWay:50,vehicle:'car',vehicleLabel:'Small car courier',km:1,load:1}))};}};
  const input={items:[{listingId:camera._id,title:'tampered',start:Date.UTC(2027,0,1),end:Date.UTC(2027,0,3),qty:1,total:1,deposit:1}],token:'real',customer:{email:acct.email},fulfilment:'delivery',address:'25 Whitcomb Street London WC2H 7ER',deliveryPostcode:'WC2H7ER',promoCode:'STACK'};
  let price=await calculateRentalPrice(ctx,input);
  assert.equal(price.subtotal,540,'weekend starts with regular 3-day rate, no quiet deal');
