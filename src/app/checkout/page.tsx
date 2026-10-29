@@ -215,7 +215,7 @@ export default function CheckoutPage() {
   const rentalPreview = useBasketPrice(true, false, effectivePickupTime, effectiveReturnTime);
   const membershipDisplayQuote = currentQuote ?? rentalPreview.quote;
   const membershipRecommendations = membershipRecommendationPreview(membershipRecommendationCache.current, offerContext, !!quoteError);
-  const displayedRecommendations = membershipRecommendations ?? membershipDisplayQuote?.recommendations ?? rentalPreview.recommendations;
+  const displayedRecommendations = membershipRecommendations?.length ? membershipRecommendations : rentalPreview.recommendations?.length ? rentalPreview.recommendations : membershipDisplayQuote?.recommendations ?? [];
   const equipmentValue = currentQuote?.replacementValue ?? replacementSum;
   useEffect(() => { if (equipmentValue < 1000 && protection === "deposit") setProtection("verify"); }, [equipmentValue, protection]);
   const holdAmount = currentQuote?.depositHoldAmount ?? depositFor(protection, replacementSum);
