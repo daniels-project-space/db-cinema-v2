@@ -2049,6 +2049,22 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
     reply = `I found a possible window for ${item} on ${dateLabel}: pickup at ${window.pickupTime} and return at ${window.returnTime}. Gear hire would be ${money} for ${duration}. Those times still need your OK before I can confirm availability. Would they suit?`;
     if (additionalAnswer) reply += `\n\n${additionalAnswer}`;
   }
+  const contentsNeedingReview = [...new Set((result.enquiry?.requests ?? []).flatMap(request =>
+    request.lines.filter(line => line.inventoryReviewRequired === true)
+      .map(line => line.displayTitle || line.title)))];
+  if (contentsNeedingReview.length) {
+    const reviewedItems = contentsNeedingReview.join(", ");
+    const reviewMessage = result.enquiry?.complete && result.enquiry.stockVerified
+      ? `Live stock is verified for your requested quantity and dates, but the included contents of ${reviewedItems} still need a manual check before I can confirm every package detail.`
+      : `The included contents of ${reviewedItems} still need a manual check, so I can't confirm every package detail yet.`;
+    const genericReview = /A few kit contents still need confirmation\.?/i;
+    const alreadySpecific = contentsNeedingReview.every(title => reply.includes(title)) && /manual check/i.test(reply);
+    if (!alreadySpecific) {
+      reply = genericReview.test(reply)
+        ? reply.replace(genericReview, reviewMessage)
+        : `${reply.trim()}\n\n${reviewMessage}`;
+    }
+  }
   return {
     reply,
     cards: result.cards,

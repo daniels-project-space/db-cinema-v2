@@ -2,6 +2,11 @@ const assert = require("node:assert/strict");
 const { load, setMock, db, put } = require("./lib/rentalTestHarness.cjs");
 const { LIVE_FX3_BODY_KIT, LIVE_REMUS_45 } = require("./lib/gafferLiveCatalogueFixtures.cjs");
 const { explicitlyAllowsAlternatives, explicitlyRequestsOptionalAddOns, shouldSuggestOptionalAddOns } = load("shared/gafferEmailQuote.ts");
+const { spokenRentalItem, spokenPackingReview } = load("src/lib/voiceQuoteFormatting.ts");
+assert.equal(spokenRentalItem("wireless microphone kits", "4x RØDE Wireless PRO Transmitters with Two Receivers", 1, 2),
+  "two wireless microphone kits from the RØDE Wireless PRO bundle", "spoken counts should describe the requested kits, not repeat the listing's transmitter count");
+assert.equal(spokenPackingReview("DJI Mic 2 Wireless Kit with Two Transmitters", ["1 × DJI Mic 2 wireless", "2x transmitter", "1x receiver", "1x charging case"]),
+  "DJI Mic 2 Wireless Kit with Two Transmitters has owner-confirmed contents of two transmitters, one receiver, and one charging case. Other seller-listed accessories are not confirmed.");
 assert.equal(explicitlyAllowsAlternatives("I'm open to a body-only alternative."), true);
 assert.equal(explicitlyAllowsAlternatives("I'm not open to alternatives."), false);
 assert.equal(explicitlyAllowsAlternatives("Don't suggest alternatives."), false);
@@ -90,7 +95,7 @@ setMock("@/lib/ai", { generateBotObject: async ({ prompt }) => {
   return { reply: "Here is the checked proposal.", suggestions: suggestionsForTest, humanRequested: false, additionalAnswer: additionalAnswerForTest };
 } });
 process.env.OPENROUTER_API_KEY = "isolated-no-provider-calls";
-const { handleChat, unitsPerEnquiryOffer } = load("src/lib/gaffer.ts"), { formatGafferEmailReply } = load("src/lib/inboundEmail.ts"), { gafferEmailQuoteIntro } = load("shared/gafferEmailQuote.ts");
+const { handleChat, unitsPerEnquiryOffer } = load("src/lib/gaffer.ts"), { formatGafferEmailReply, hasSpecificModelQuoteMismatch } = load("src/lib/inboundEmail.ts"), { gafferEmailQuoteIntro } = load("shared/gafferEmailQuote.ts");
 assert.equal(unitsPerEnquiryOffer({ title: "5x mics", itemType: "wireless-mic", inventoryFacts: { contents: ["1 × DJI Wireless Mics", "2x transmitter", "1x receiver"] } }, "wireless mic kits"), 1, "reviewed contents override inflated marketing-title counts");
 assert.equal(unitsPerEnquiryOffer(b, "wireless microphone kits"), 1, "transmitters, receivers, cables and carrying cases must not inflate a complete-kit count");
 assert.equal(unitsPerEnquiryOffer({ itemType: "wireless-mic", inventoryFacts: { contents: ["2 × Rode Wireless Mic Pro set", "2x transmitter", "1x receiver", "2x lavalier mic", "1x smart charge case"] } }, "wireless microphone kits"), 2, "an explicitly reviewed pack of two complete sets still supplies two kits");
@@ -100,8 +105,9 @@ assert.equal(unitsPerEnquiryOffer(mixedLenses, "Sony 24-70mm"), 1, "different fo
 assert.equal(unitsPerEnquiryOffer({ itemType: "lens", inventoryFacts: { contents: ["2 × Sony 24-70mm f/2.8 lens"] } }, "Sony 24-70mm f2.8"), 2, "model boundaries must preserve equivalent aperture notation");
 const { equipmentOfferLabel, equipmentRequestLabel } = load("shared/equipmentIdentity.ts");
 assert.equal(equipmentOfferLabel("Sony FX 3 Cinema Camera Full Frame Mirrorless 4k Sony fx3 (same sensor as a7siii"), "Sony FX3 camera body");
-assert.equal(equipmentRequestLabel("Sony FX3 Body Kit with Cage and 320GB Card", "camera-body"), "Sony FX3 camera body", "request summaries name the requested body, not every bundle extra");
-assert.equal(equipmentRequestLabel("Sony a7 III with 24-70mm Lens and Gimbal", "camera-body"), "Sony a7 III camera body");
+assert.equal(equipmentRequestLabel("Sony FX3 camera body", "camera-body"), "Sony FX3 camera body", "a plain body listing may use a concise label");
+assert.equal(equipmentRequestLabel("Sony FX3 Body Kit with Cage and 320GB Card", "camera-body"), "Sony FX3 Body Kit with Cage and 320GB Card", "offer labels must disclose the actual kit contents");
+assert.equal(equipmentRequestLabel("Sony a7 III with 24-70mm Lens and Gimbal", "camera-body"), "Sony a7 III with 24-70mm Lens and Gimbal", "a quoted bundle must keep its lens and gimbal visible");
 assert.equal(equipmentOfferLabel("Sony FX3 with 24–70mm GM Lens and DJI RS3 Pro Gimbal"), "Sony FX3 with 24–70mm GM Lens and DJI RS3 Pro Gimbal", "shortening a label must retain actual package contents");
 assert.equal(equipmentOfferLabel("Two Sony FX3 Bodies · Cards and Batteries"), "Two Sony FX3 Bodies · Cards and Batteries", "do not hide the advertised pack quantity");
 const { rentalEnquiryWindow } = load("src/lib/rentalEnquiryWindow.ts");
@@ -486,8 +492,8 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(result.enquiry.requests[0].fulfilled, 1);
   assert.equal(result.enquiry.requests[0].lines[0].listingId, liveBodyQuote._id, "a body-only request may use the exact owned FX3 body kit when the renter has not excluded its documented cage and recording card");
   assert.equal(result.enquiry.requests[0].lines[0].alternative, false);
-  assert(result.email.includes("[Sony FX3 camera body](https://dbcinemarentals.com/gear/"), "a camera-only email uses the short exact-body label for the real FX3 kit listing");
-  assert(!result.email.includes("Sony FX3 Body Kit"), "a camera-only quote is not framed as a bundle upsell");
+  assert(result.email.includes(`[${liveBodyQuote.title}](https://dbcinemarentals.com/gear/`), "a quote links using the actual FX3 listing title");
+  assert(result.email.includes("Cage") && result.email.includes("320GB"), "the camera offer discloses its included cage and recording card");
   assert.equal(result.enquiry.complete, true, "a date-only FX3 request should confirm when a shared pickup/return window is available");
   assert.equal(result.enquiry.availabilityWindow?.suggested, true, "the reply should offer a real available pickup/return window");
   assert(result.email.includes(`A possible window is pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}; I’ll confirm availability once you tell me those times suit.`));
@@ -512,7 +518,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(result.email, [
     "Hi there,",
     "",
-    `The [Sony FX3 camera body](https://dbcinemarentals.com/gear/${liveBodyQuote.slug}) would be £47.00 for the day on 3 November 2026. A possible window is pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}; I’ll confirm availability once you tell me those times suit.`,
+    `The [${liveBodyQuote.title}](https://dbcinemarentals.com/gear/${liveBodyQuote.slug}) would be £47.00 for the day on 3 November 2026. A possible window is pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}; I’ll confirm availability once you tell me those times suit.`,
     "",
     "DB Cinema Rentals Team",
   ].join("\n"), "the real-catalogue quote stays short, readable, correctly linked, and team-signed");
@@ -725,6 +731,37 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   const personalizedReply = formatGafferEmailReply("", [], undefined, undefined, undefined, "Amira Patel");
   assert(personalizedReply.startsWith("Hi Amira,"), "the email should use a verified sender display name without repeating their full address");
   assert(personalizedReply.endsWith("DB Cinema Rentals Team"));
+  const ungroundedFx3Email = formatGafferEmailReply(
+    "I’ve listed a provisional gear quote for your dates. What are your pickup and return times? Those determine the billed duration and let me check the required quantities.\nYour rental enquiry: 2026-11-03 to 2026-11-03.\nIndicative proposal — combined availability unconfirmed.\nRequested: 1 × fx 3. Quantity not yet confirmed.\n1 × Sony a7 III, 24–70mm GM Lens and DJI RS3 Pro Gimbal [PROPOSED ALTERNATIVE — please confirm]: £45.00 for the period.\nMulti-day rates per unit: 1+ days £45.00/day · 3+ days £36.67/day.",
+    [{ item: { listingId: "wrong-bundle", slug: "sony-a7iii-bundle", title: "Sony a7 III, 24–70mm GM Lens and DJI RS3 Pro Gimbal", perDay: 45, availableUnits: 1 } }],
+    undefined,
+    undefined,
+    undefined,
+    "Daniel",
+    "Please quote one FX 3 camera only for 3 November 2026.",
+  );
+  assert(ungroundedFx3Email.includes("Hi Daniel,"));
+  assert(ungroundedFx3Email.includes("request for the FX3"));
+  assert(ungroundedFx3Email.includes("What pickup and return times should I check for that date?"));
+  assert(!ungroundedFx3Email.includes("Sony a7 III") && !ungroundedFx3Email.includes("DJI RS3 Pro Gimbal"), "an unstructured quote cannot substitute another camera or package");
+  assert(!ungroundedFx3Email.includes("£45") && !ungroundedFx3Email.includes("Multi-day rates per unit"), "an unstructured email cannot send unverified pricing or a rate ladder");
+  assert(ungroundedFx3Email.endsWith("DB Cinema Rentals Team"));
+  const mismatchedStructuredFx3Quote = {
+    start: "2026-11-03", end: "2026-11-03", days: 1, timed: false, estimated: false,
+    stockVerified: false, requirementsComplete: true, complete: false, total: 45,
+    requests: [{ subject: "FX3 camera body only", displaySubject: "Sony FX3 camera body", quantity: 1, fulfilled: 0,
+      lines: [{ listingId: "wrong-bundle", title: "Sony a7 III, 24–70mm GM Lens and DJI RS3 Pro Gimbal", slug: "sony-a7iii-bundle", quantity: 1, total: 45, alternative: true }] }],
+  };
+  const fx3EmailContext = "FX3 rental, 3 November 2026\nCamera only, no lens or gimbal.";
+  assert.equal(hasSpecificModelQuoteMismatch(fx3EmailContext, mismatchedStructuredFx3Quote), true);
+  assert.equal(hasSpecificModelQuoteMismatch(fx3EmailContext, { ...mismatchedStructuredFx3Quote, requests: [{ ...mismatchedStructuredFx3Quote.requests[0], subject: "Sony a7 III camera body", displaySubject: "Sony a7 III camera body", lines: [] }] }), true,
+    "a wrong-model request must also be stopped when the planner returned no item lines");
+  const mismatchedStructuredFx3Email = formatGafferEmailReply("A different camera may work.", [], mismatchedStructuredFx3Quote,
+    undefined, undefined, "Daniel", fx3EmailContext);
+  assert(mismatchedStructuredFx3Email.includes("request for the FX3"));
+  assert(mismatchedStructuredFx3Email.includes("I won't send a different camera or bundle."));
+  assert(!mismatchedStructuredFx3Email.includes("Sony a7 III") && !mismatchedStructuredFx3Email.includes("£45"), "a structured but mismatched quote must be stopped at the outbound email boundary");
+  assert(mismatchedStructuredFx3Email.endsWith("DB Cinema Rentals Team"));
   stockFailure = false;
   b.minimumRentalDays = 2;
   const partialMinimumPeriod = await run(4, {

@@ -66,6 +66,27 @@ export function isHumanHandoffRequested(subject: string, body: string): boolean 
   });
 }
 
+/** Stop an exact-model request from leaving the email route as a different model or bundle. */
+export function hasSpecificModelQuoteMismatch(customerText: string, enquiry?: import("../../shared/gafferEmailQuote").GafferEmailQuote): boolean {
+  const requestedModels = equipmentModelTokens(String(customerText ?? ""));
+  if (!enquiry || !requestedModels.length) return false;
+  const acceptsAlternatives = explicitlyAllowsAlternatives(customerText);
+  return enquiry.requests.some(request => {
+    const requestModels = equipmentModelTokens(request.displaySubject || request.subject);
+    const requestModelMismatch = requestModels.length > 0 && !requestModels.some(model => requestedModels.includes(model));
+    if (requestModelMismatch && !(acceptsAlternatives && request.lines.length > 0 && request.lines.every(line => line.alternative))) return true;
+    const expectedModels = requestModels.length
+      ? requestModels.filter(model => requestedModels.includes(model))
+      : requestedModels;
+    return request.lines.some(line => {
+      if (line.alternative && acceptsAlternatives) return false;
+      const offerModels = equipmentModelTokens(equipmentOfferLabel(line.displayTitle || line.title));
+      return !expectedModels.some(model => offerModels.includes(model)) ||
+        offerModels.some(model => !expectedModels.includes(model));
+    });
+  });
+}
+
 /** Preserve Gaffer's exact catalogue cards in email, where there is no separate card UI. */
 export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: import("../../shared/gafferEmailQuote").GafferEmailQuote, preparedBasketUrl?: string, additionalAnswer?: string, recipientName?: string, customerText?: string): string {
   const gbp = (value: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
@@ -73,11 +94,20 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
   const label = (value: string) => equipmentOfferLabel(value).replace(/[\[\]]/g, "");
   const link = (title: string, slug: string) => slug ? "[" + label(title) + "](https://dbcinemarentals.com/gear/" + encodeURIComponent(slug) + ")" : label(title);
   const rows: any[] = Array.isArray(cards) ? cards : [];
+  const customer = String(customerText ?? "");
   const firstName = String(recipientName ?? "").trim().replace(/^['"]|['"]$/g, "").split(/\s+/)[0] ?? "";
   const greeting = /^[\p{L}][\p{L}\p{M}'’-]{0,31}$/u.test(firstName) ? `Hi ${firstName},` : "Hi there,";
   const sections: string[] = [greeting];
+  const requestedModels = equipmentModelTokens(customer);
+  const mismatchedSpecificQuote = hasSpecificModelQuoteMismatch(customer, enquiry);
 
-  if (enquiry) {
+  if (mismatchedSpecificQuote) {
+    const requestedItem = requestedModels.length === 1 ? `the ${requestedModels[0].toUpperCase()}` : "your requested model";
+    const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:[01]?\d|2[0-3])\s*(?:am|pm)\b|\b(?:at|around|about)\s+(?:[01]?\d|2[0-3])\b/i.test(customer);
+    sections.push(`I have your request for ${requestedItem}. I couldn't verify an exact match in this quote, so I won't send a different camera or bundle. ${hasTime ? "Could another pickup and return time work?" : "What pickup and return times should I check?"}`);
+    const independentAnswer = sanitizeQuoteSupplementalAnswer(additionalAnswer, customer);
+    if (independentAnswer) sections.push(independentAnswer);
+  } else if (enquiry) {
     const period = enquiry.start === enquiry.end ? date(enquiry.start) : date(enquiry.start) + " to " + date(enquiry.end);
     const subjectLabel = (request: typeof enquiry.requests[number]) => label(request.displaySubject || request.subject);
     const requested = enquiry.requests.map(request => request.quantity + " × " + subjectLabel(request)).join(", ") || "the requested gear";
@@ -249,23 +279,42 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
     if (preparedBasketUrl) sections.push(`[Review your gear and continue to checkout](${preparedBasketUrl})`);
     else if (lines.length && enquiry.timed) sections.push("Availability is checked again when you book.");
   } else {
-    if (String(reply ?? "").trim()) sections.push(String(reply).trim());
-    const options = [...new Map(rows.filter(card => card?.item?.listingId != null &&
-      !(Number.isSafeInteger(card.item.availableUnits) && card.item.availableUnits === 0))
-      .map(card => [String(card.item.listingId), card])).values()].slice(0, 2);
-    if (options.length) {
-      sections.push(options.map(card => {
-        const item = card.item;
-        const price = Number.isFinite(item.perDay) ? `£${gbp(item.perDay).replace(/^£/, "")}/day` : "";
-        const requestedMicKits = Number.isSafeInteger(item.requestedMicKitCount) && item.requestedMicKitCount > 0 ? item.requestedMicKitCount : null;
-        const available = Number.isSafeInteger(item.availableUnits) ? item.availableUnits : null;
-        const count = requestedMicKits !== null
-          ? available === null ? `${requestedMicKits} complete mic kits requested; stock not confirmed`
-            : available >= requestedMicKits ? `${available} complete mic kits available`
-              : `${available} of ${requestedMicKits} complete mic kits available; short by ${requestedMicKits - available}`
-          : available !== null && available > 0 ? `${available} available` : "";
-        return `${link(String(item.title ?? "Gear option"), String(item.slug ?? ""))}${price ? `: ${price}` : ""}${count ? ` (${count})` : ""}`;
-      }).join("\n"));
+    const text = String(reply ?? "").trim();
+    const ungroundedQuote = /(?:your rental enquiry|indicative proposal|provisional gear quote|equipment options? and stock checked|quantity not yet confirmed|proposed alternative|multi[ -]day rates per unit|rate ladder)/i.test(text) ||
+      /£\s?\d/.test(text) && /\b(?:rental|gear|hire|quote|price|stock|availability|available)\b/i.test(text);
+    const rentalDateMentioned = /\b(?:20\d{2}-\d{1,2}-\d{1,2}|\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(customer);
+    const rentalRequestWithoutQuote = requestedModels.length > 0 &&
+      (rentalDateMentioned || /\b(?:rent|hire|book|quote|price|cost|available|availability|rental)\b/i.test(customer));
+    if (ungroundedQuote || rentalRequestWithoutQuote) {
+      const requestedItem = requestedModels.length === 1 ? `the ${requestedModels[0].toUpperCase()}` : "your requested gear";
+      const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:[01]?\d|2[0-3])\s*(?:am|pm)\b|\b(?:at|around|about)\s+(?:[01]?\d|2[0-3])\b/i.test(customer);
+      const nextStep = rentalDateMentioned
+        ? hasTime
+          ? "I couldn't verify the exact listing and live stock for that window in this reply, so I won't quote a substitute."
+          : "What pickup and return times should I check for that date? I’ll confirm the exact listing, live stock and gear-only price."
+        : "What rental dates and pickup and return times should I check? I’ll confirm the exact listing, live stock and gear-only price.";
+      sections.push(`I have your request for ${requestedItem}. ${nextStep}`);
+      const independentAnswer = sanitizeQuoteSupplementalAnswer(additionalAnswer, customer) || sanitizeQuoteSupplementalAnswer(text, customer);
+      if (independentAnswer) sections.push(independentAnswer);
+    } else {
+      if (text) sections.push(text);
+      const options = [...new Map(rows.filter(card => card?.item?.listingId != null &&
+        !(Number.isSafeInteger(card.item.availableUnits) && card.item.availableUnits === 0))
+        .map(card => [String(card.item.listingId), card])).values()].slice(0, 2);
+      if (options.length) {
+        sections.push(options.map(card => {
+          const item = card.item;
+          const price = Number.isFinite(item.perDay) ? `£${gbp(item.perDay).replace(/^£/, "")}/day` : "";
+          const requestedMicKits = Number.isSafeInteger(item.requestedMicKitCount) && item.requestedMicKitCount > 0 ? item.requestedMicKitCount : null;
+          const available = Number.isSafeInteger(item.availableUnits) ? item.availableUnits : null;
+          const count = requestedMicKits !== null
+            ? available === null ? `${requestedMicKits} complete mic kits requested; stock not confirmed`
+              : available >= requestedMicKits ? `${available} complete mic kits available`
+                : `${available} of ${requestedMicKits} complete mic kits available; short by ${requestedMicKits - available}`
+            : available !== null && available > 0 ? `${available} available` : "";
+          return `${link(String(item.title ?? "Gear option"), String(item.slug ?? ""))}${price ? `: ${price}` : ""}${count ? ` (${count})` : ""}`;
+        }).join("\n"));
+      }
     }
   }
 
@@ -289,5 +338,5 @@ export function recipientCandidates(msg: any): unknown[] {
 export function plainBody(msg: any): string {
   return msg?.text ?? msg?.TextBody ?? msg?.plain ?? msg?.["body-plain"] ?? "";
 }
-import { equipmentOfferLabel } from "../../shared/equipmentIdentity";
-import { sanitizeQuoteSupplementalAnswer } from "../../shared/gafferEmailQuote";
+import { equipmentModelTokens, equipmentOfferLabel } from "../../shared/equipmentIdentity";
+import { explicitlyAllowsAlternatives, sanitizeQuoteSupplementalAnswer } from "../../shared/gafferEmailQuote";

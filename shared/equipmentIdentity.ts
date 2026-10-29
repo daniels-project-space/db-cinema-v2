@@ -44,6 +44,11 @@ export function equipmentOfferLabel(title: string): string {
 export function equipmentRequestLabel(title: string, itemType: string): string {
   if (itemType === "camera-body" || itemType === "camera") {
     const clean = String(title ?? "").replace(/\s+/g, " ").trim();
+    // Keep the quoted listing's real contents visible. This helper is used for
+    // the customer-facing offer line, so shortening an FX3 body kit to "camera
+    // body" would hide the cage/media bundle the customer is actually renting.
+    const hasPackageContents = /\b(?:kit|set|bundle|package|cage|cfexpress|xqd|sd(?:xc|hc)?|cards?|media|lens|gimbal|tripod|monitor|microphones?|mics?|audio|rig|v-?mount|batter(?:y|ies)|charger|handle)\b|\b\d{2,4}\s*(?:gb|tb)\b/i.test(clean);
+    if (hasPackageContents) return equipmentOfferLabel(clean);
     const brand = clean.match(/\b(Sony|Canon|Nikon|Panasonic|Blackmagic)\b/i);
     if (brand) {
       const afterBrand = clean.slice((brand.index ?? 0) + brand[0].length, (brand.index ?? 0) + brand[0].length + 48);

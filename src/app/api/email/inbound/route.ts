@@ -4,7 +4,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 import { handleChat } from "@/lib/gaffer";
 import { CONTACT_EMAIL } from "@/lib/site";
-import { formatGafferEmailReply, isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
+import { formatGafferEmailReply, hasSpecificModelQuoteMismatch, isHumanHandoffRequested, newTextOnly, plainBody, recipientCandidates, replyKeyFrom, senderFrom } from "@/lib/inboundEmail";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -142,7 +142,9 @@ async function processGafferInboundEmail(message: InboundEmail) {
     if (!assistant?.reply?.trim() || assistant.reply.includes("The assistant isn't configured yet.")) {
       throw new Error("Gaffer could not produce an email reply");
     }
-    const humanRequested = explicitlyRequestedHuman || assistant.humanRequested === true;
+    const customerEmailText = `${message.subject}\n${message.text}`;
+    const humanRequested = explicitlyRequestedHuman || assistant.humanRequested === true ||
+      hasSpecificModelQuoteMismatch(customerEmailText, assistant.enquiry);
     if (humanRequested) {
       await client.mutation(api.emailInbox.markHumanRequested, { secret, inboundId: stored.inboundId });
     }
@@ -157,7 +159,7 @@ async function processGafferInboundEmail(message: InboundEmail) {
         preparedBasketUrl = `https://dbcinemarentals.com/cart/quote/${shareKey}`;
       }
     }
-    const replyText = formatGafferEmailReply(assistant.reply, assistant.cards, assistant.enquiry, preparedBasketUrl, assistant.additionalAnswer, message.name, message.text);
+    const replyText = formatGafferEmailReply(assistant.reply, assistant.cards, assistant.enquiry, preparedBasketUrl, assistant.additionalAnswer, message.name, customerEmailText);
     const delivered: any = await client.action(api.emailInbox.sendAssistantReply, {
       secret,
       threadId: stored.threadId,

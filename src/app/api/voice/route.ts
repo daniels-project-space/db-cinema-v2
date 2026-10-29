@@ -7,6 +7,7 @@ import { api } from "@cvx/_generated/api";
 import { quoteRentalEnquiry } from "@/lib/gaffer";
 import { deriveItemType } from "../../../../convex/lib/taxonomy";
 import { equipmentOfferLabel, equipmentRequest, normalizeEquipmentName } from "../../../../shared/equipmentIdentity";
+import { spokenPackingReview, spokenRentalItem } from "@/lib/voiceQuoteFormatting";
 import { PICKUP_SLOTS } from "@/lib/site";
 import { dayMs } from "@/lib/dates";
 import { rateLimit } from "@/lib/ratelimit";
@@ -165,12 +166,8 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
   const date = (value: string) => new Date(value + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "Europe/London" });
   const period = enquiry.start === enquiry.end ? date(enquiry.start) : date(enquiry.start) + " to " + date(enquiry.end);
   const duration = enquiry.days === 1 ? "the day" : `${enquiry.days} days`;
-  const itemNames = lines.map(line => equipmentOfferLabel(line.displayTitle ?? line.title));
-  const itemSummary = itemNames.map((title, index) => {
-    const line = lines[index];
-    const quantity = line.providedUnits ?? line.quantity;
-    return `${quantity === 1 ? "one" : quantity} ${title}`;
-  }).join(", ");
+  const itemSummary = readList(enquiry.requests.flatMap(request => request.lines.map(line =>
+    spokenRentalItem(requestName(request), line.displayTitle ?? line.title, line.quantity ?? 1, line.providedUnits ?? line.quantity ?? 1))));
   const hasAlternatives = lines.some(line => line.alternative);
   const requestIssues = enquiry.requests.filter(request => request.availabilityIssue);
   const minimumPeriodRequests = enquiry.requests.filter(request => request.minimumRentalOffer);
@@ -254,13 +251,14 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     : enquiry.total !== null
     ? `${!enquiry.timed ? "The hire estimate" : enquiry.complete ? "Gear hire" : "Confirmed gear hire"} is ${money(enquiry.total)} for ${duration}.`
     : "I can't give a gear hire total until I can confirm the quantities.";
-  const selectedIds = new Set(lines.map(line => line.listingId));
-  const packing = (result.cards ?? []).some(card => selectedIds.has(String(card.item?.listingId)) && card.item?.inventoryReviewRequired)
-    ? "A few kit contents still need confirmation." : "";
+  const packing = enquiry.requests.flatMap(request => request.lines
+    .filter(line => line.inventoryReviewRequired === true)
+    .map(line => spokenPackingReview(line.displayTitle ?? line.title, line.verifiedContents ?? []))).join(" ");
   const addOn = enquiry.recommendedAddOn;
   const recommendation = addOn
     ? `Optional ${addOn.label}: ${equipmentOfferLabel(addOn.title)} ${addOn.fitNote} and is available for ${money(addOn.total)} for ${addOn.days} rental day${addOn.days === 1 ? "" : "s"}. It isn't included in the requested gear-hire total.`
     : "";
+  const selectedIds = new Set(lines.map(line => line.listingId));
   const selectedCards = (result.cards ?? []).filter(card => selectedIds.has(String(card.item?.listingId)));
   const discounted = enquiry.days > 1 && selectedCards.some(card => Number.isFinite(card.item?.saved) && card.item.saved > 0)
     ? "The multi-day discount is already included." : "";
