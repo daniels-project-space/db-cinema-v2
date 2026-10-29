@@ -108,7 +108,7 @@ export function CartItemTimes({ item, delivery = false }: { item: CartItem; deli
         <TimeSlotPicker id={`${id}-return`} label={`${delivery ? "Collection" : "Return"} · ${dateLabel(item.end)}`} value={returnTime} onChange={time => void choose(pickupTime, time)} disabled={!slots || busy} allowedSlots={slots?.available ? slots.returnBoundarySlots ?? slots.returnSlots : undefined} />
       </div>
       {pickupTime && returnTime && !invalidOrder && <p className="mt-2 text-[11px] text-accent-200/75" aria-live="polite">{billableDays} rental day{billableDays === 1 ? "" : "s"} · billed by the selected rental duration</p>}
-      {invalidOrder && <p role="alert" className="mt-2 text-xs text-amber-200">Return must be later than pickup on the same day.</p>}
+      {invalidOrder && <p role="alert" className="mt-2 text-xs text-amber-200">Return must be later than pickup on the same day. Choose a later return time or change the return date.</p>}
       {pickupTime && returnTime && slots && !slots.available && !invalidOrder && <p className="mt-2 text-xs text-amber-200">Unavailable for this full rental period. Adjust a time or date, or choose a replacement in your basket.</p>}
       {busy && <p className="mt-2 text-xs text-white/55" role="status">Updating rental duration and price…</p>}
       {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
