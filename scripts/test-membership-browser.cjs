@@ -281,7 +281,6 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
       await c.evaluate(`document.querySelector('[data-testid="confirm-remove-membership"]').click()`);
       await wait(250);
-      console.log({checkoutMembershipAfterRemoval:await c.evaluate(`(()=>{const card=document.querySelector('main [data-testid="membership-upsell"]'),checkbox=card?.querySelector('input[type="checkbox"]');return{card:!!card,selected:card?.dataset.membershipSelected??null,add:!!card?.querySelector('[data-testid="add-membership"]'),confirm:!!card?.querySelector('[data-testid="confirm-membership-card"]'),remove:!!card?.querySelector('[data-testid="remove-membership"]'),checkbox:checkbox?.checked??null,dialog:!!document.querySelector('[data-testid="membership-remove-dialog"]'),savedSelection:localStorage.getItem('dbc_membership_selection_v1')}})()`)});
     }
     await until(`!!(${card})?.querySelector('[data-testid="add-membership"]')`);
     await until(`localStorage.getItem('dbc_membership_selection_v1')===null&&!document.body.innerText.includes('Subscription credit applied')&&!document.body.innerText.includes('One-time joining credit')`);
@@ -540,8 +539,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.equal(await c.evaluate(`document.querySelectorAll('[data-testid="membership-chooser"], [data-testid^="membership-plan-"]').length`),0,'Checkout offers only its recommendation, never a plan chooser');
   await shot("checkout-offer-mobile");
   const rentalHook = `Subscribe to save £${potential.toFixed(2)}`;
-  await nativeClick(`[...document.querySelectorAll('button')].find(b=>b.innerText.startsWith('Delivery'))`);
-  await until(`!!document.querySelector('textarea[placeholder="Full delivery address"]')||[...document.querySelectorAll('button')].some(b=>b.innerText.includes('Get quote'))`);
+  await c.evaluate(`[...document.querySelectorAll('main button')].find(b=>b.innerText.startsWith('Delivery'))?.click()`);
+  await until(`!!document.querySelector('textarea[placeholder^="Full delivery address"]')||[...document.querySelectorAll('main button')].some(b=>b.innerText.includes('Get quote'))`);
   await wait(700);
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="potential-membership-savings"]')?.innerText`),rentalHook,'Incomplete delivery details must not hide a genuine rental saving');
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="checkout-due"]')?.textContent.includes('Calculating')`),true,'A rental-only preview must never become the final delivery payment quote');
