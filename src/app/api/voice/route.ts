@@ -4,7 +4,11 @@ import { explicitlyNoOptionalAddOns, minimumRentalCombinedTotal, minimumRentalNe
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
-import { quoteRentalEnquiry } from "@/lib/gaffer";
+import { handleChat, quoteRentalEnquiry } from "@/lib/gaffer";
+import { formatGafferEmailReply } from "@/lib/inboundEmail";
+import { rentalEmail } from "../../../../shared/rentalEmail";
+import { sendMail, supportEmailFrom } from "../../../../convex/lib/mailer";
+import { createHash } from "node:crypto";
 import { deriveItemType } from "../../../../convex/lib/taxonomy";
 import { equipmentOfferLabel, equipmentRequest, normalizeEquipmentName } from "../../../../shared/equipmentIdentity";
 import { spokenPackingReview, spokenRentalItem } from "@/lib/voiceQuoteFormatting";
@@ -28,6 +32,28 @@ import { londonToday, resolveDate, speak } from "@/lib/voiceDates";
  * Works with Retell ({name,args}) and ElevenLabs (flat body + ?fn=<tool>).
  */
 export const maxDuration = 30;
+export const runtime = "nodejs";
+
+function escapeVoiceEmail(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+}
+
+function voiceFollowUpEmailBody(text: string, heading: string): string {
+  const content = escapeVoiceEmail(text)
+    .replace(/\[([^\]]+)\]\((https:\/\/dbcinemarentals\.com\/[^)\s]+)\)/g, '<a href="$2" style="color:#805b3d">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p style="margin:0 0 16px;line-height:1.65">${paragraph.replace(/\n/g, "<br>")}</p>`)
+    .join("");
+  const title = escapeVoiceEmail(heading);
+  return rentalEmail({
+    title,
+    preview: "A useful summary of your call, with the next step for your rental.",
+    body: `<h2 style="margin:0 0 20px;color:#191817;font-size:23px">${title}</h2>${content}`,
+    url: "https://dbcinemarentals.com/gear",
+    button: "Continue with your rental",
+  });
+}
 
 /**
  * Every field that goes into this response is context the model has to read
@@ -468,11 +494,59 @@ export async function POST(req: NextRequest) {
         if (!phone && !email) {
           return say(`Thanks ${nm} — what's the best number or email to reach you on? I want to make sure the team can get back to you.`, { lead_saved: true, needs: "contact" });
         }
+
+        // If the caller gave an email address, send a real, item-aware answer
+        // from Gaffer after the lead is safely recorded. Never tell the caller
+        // it was sent unless the mail transport confirms delivery.
+        if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          try {
+            const callNotes = parts || "No item, dates, or specific question were recorded during the call.";
+            const answer = await handleChat({
+              messages: [{
+                role: "user",
+                content: `A customer has just called DB Cinema Rentals and asked for a useful follow-up by email. Their name is ${nm}. Please answer their questions directly, verify availability and quote rental-only pricing for any requested dates when possible, suggest the closest suitable alternatives if something is unavailable, and include a booking link when it helps. Do not merely repeat these notes. Phone call notes: ${callNotes}`,
+              }],
+              channel: "email",
+              emailSubject: "Follow-up to your phone enquiry",
+            });
+            if (!answer.reply?.trim() || /assistant isn't configured yet/i.test(answer.reply)) {
+              throw new Error("Gaffer could not produce a customer-ready reply.");
+            }
+            const reply = formatGafferEmailReply(
+              answer.reply,
+              answer.cards,
+              answer.enquiry,
+              undefined,
+              answer.additionalAnswer,
+              nm,
+              callNotes,
+            );
+            const heading = kind === "booking" ? "Your rental booking enquiry" : "Following up on your enquiry";
+            const dayKey = londonToday();
+            const deliveryKey = `voice-followup:${createHash("sha256").update(`${email.toLowerCase()}|${kind}|${parts}|${dayKey}`).digest("hex")}`;
+            const sent = await sendMail({
+              deliveryKey,
+              from: supportEmailFrom(),
+              to: email,
+              replyTo: supportEmailFrom(),
+              subject: heading,
+              html: voiceFollowUpEmailBody(reply, heading),
+            });
+            if (sent) {
+              return say(`Thanks ${nm}, I've saved your details and sent you a tailored email with the answer and any useful booking options. You can reply to that email if you'd like me to help further.`, { lead_saved: true, customer_email_sent: true });
+            }
+          } catch (err) {
+            console.error("[voice] customer follow-up failed", { kind, hasEmail: true, err });
+          }
+        }
+        const deliveryNote = email
+          ? "I couldn't send the follow-up email just now, so the team will get back to you."
+          : "The team will get back to you using the contact details you gave me.";
         return say(
           kind === "booking"
-            ? `Brilliant ${nm}, I've got those booking details down and sent them straight to the team — they'll confirm availability and the total with you shortly. Anything else?`
-            : `Thanks ${nm}, that's noted and passed to the team — they'll come back to you. Anything else I can help with?`,
-          { lead_saved: true },
+            ? `Brilliant ${nm}, I've saved those booking details for the team. ${email ? "I couldn't send the follow-up email just now, so they'll confirm availability and the total with you shortly." : deliveryNote} Anything else?`
+            : `Thanks ${nm}, that's saved for the team. ${deliveryNote} Anything else I can help with?`,
+          { lead_saved: true, customer_email_sent: false },
         );
       }
 

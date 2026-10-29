@@ -241,7 +241,6 @@ export const followUpEmail = internalAction({
          <p>Following up on your call with Gaffer at Db Cinema Rentals:</p>
          <div style="border-left:3px solid #e0992f;padding:2px 0 2px 14px;margin:16px 0">${body}</div>
          <p>Just reply to this email if you need anything else — it comes straight back to us.</p>
-         <p style="color:#666">— Gaffer · Db Cinema Rentals</p>
        </div>`,
       undefined,
       replyTo,

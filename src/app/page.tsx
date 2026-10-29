@@ -128,7 +128,7 @@ export default async function Home() {
         <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {trustTiles.map((tile, i) => (
             <Reveal key={tile.title} delay={i * 70} className="h-full">
-              <article className="trust-card group relative isolate h-[300px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:h-[330px]">
+              <article className="trust-card group relative isolate h-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:h-[304px]">
                 <Image
                   src={tile.image}
                   alt={tile.alt}
@@ -138,7 +138,6 @@ export default async function Home() {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#070709] via-[#070709]/55 to-black/5" aria-hidden />
                 <div className="absolute inset-0 bg-gradient-to-r from-black/25 via-transparent to-transparent" aria-hidden />
-                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-accent-400/90 via-accent-300/15 to-transparent opacity-80" aria-hidden />
                 <div className="absolute inset-x-0 top-0 flex items-center justify-between p-5 sm:p-6">
                   <span className="inline-flex rounded-full border border-white/20 bg-black/65 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.17em] text-white/85 shadow-lg backdrop-blur-sm">
                     {tile.eyebrow}

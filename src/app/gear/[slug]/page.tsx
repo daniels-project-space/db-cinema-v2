@@ -52,6 +52,7 @@ export default async function Page({
           {
             "@type": "Product",
             name: l.title,
+            sku: slug,
             category: l.category,
             image: l.gallery?.length ? l.gallery : l.heroImage ? [l.heroImage] : [],
             description: l.description ?? l.knowledge?.summary ?? `Hire ${l.title} in London. Select your dates for rental availability.`,
@@ -62,7 +63,7 @@ export default async function Page({
               price: l.pricing?.daily ?? undefined,
               businessFunction: "http://purl.org/goodrelations/v1#LeaseOut",
               seller:{"@id":`${BASE}/#organization`},
-              ...(!l.bookable?{availability:"https://schema.org/OutOfStock"}:{}),
+              availability: l.bookable ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
               priceSpecification:{"@type":"UnitPriceSpecification",price:l.pricing.daily,priceCurrency:"GBP",unitCode:"DAY"},
               url: `${BASE}/gear/${slug}`,
 

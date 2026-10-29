@@ -40,8 +40,8 @@ function QuickBook({ listing, onClose }: { listing: GearListing; onClose: () => 
         <div><p className="hud-label text-accent-300">Choose your rental</p><h2 id="quick-book-title" className="mt-2 font-display text-xl font-semibold text-white">{listing.title}</h2></div>
         <button type="button" onClick={onClose} aria-label="Close rental selection" className="rounded-full bg-white/10 p-3 text-white"><IconX className="h-4 w-4" /></button>
       </div>
-      <p className="mb-4 text-sm text-white/55">Pick dates and both times. Available gear is added to your kit automatically.</p>
-      {full ? <BookingPanel listing={full} start={start} end={end} month={month} onMonthChange={setMonth} unavailable={new Set()} autoAdd onAdded={onClose} onPick={day => { const next = pickRentalDates(start, end, day); setStart(next.start); setEnd(next.end); }} /> : <p role="status">Loading rental options…</p>}
+      <p className="mb-4 text-sm text-white/55">Pick your dates and times, then choose “Add to kit” when you’re ready.</p>
+      {full ? <BookingPanel listing={full} start={start} end={end} month={month} onMonthChange={setMonth} unavailable={new Set()} onAdded={onClose} onPick={day => { const next = pickRentalDates(start, end, day); setStart(next.start); setEnd(next.end); }} /> : <p role="status">Loading rental options…</p>}
     </div>
   </dialog>;
 }
@@ -86,7 +86,7 @@ export function HomeGearSearch({ categories, featured }: { categories: Category[
   const browseCategories = displayedResult?.categories.length ? displayedResult.categories : displayedResult?.category ? [displayedResult.category] : [];
   const input = <form onSubmit={event => event.preventDefault()} className={styles.inputShell} role="search">
     <IconSearch className="h-5 w-5 shrink-0 text-accent-300" aria-hidden />
-    <input type="search" value={value} onChange={event => setValue(event.target.value)} placeholder="Search gear, categories or abbreviations" aria-label={featured ? "Search most booked gear" : "Search rental gear"} aria-controls={id} className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/45" />
+    <input type="search" value={value} onChange={event => setValue(event.target.value)} placeholder="Search gear or categories" aria-label={featured ? "Search most booked gear" : "Search rental gear"} aria-controls={id} className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/45" />
     {searching ? <button type="button" onClick={() => setValue("")} aria-label="Clear gear search" className="rounded-full p-2 text-white/60 hover:bg-white/10"><IconX className="h-4 w-4" /></button> : <span className="rounded-full border border-accent-300/30 bg-accent-500/15 px-3 py-2 text-xs text-accent-200">Find your kit</span>}
   </form>;
   const status = showDetails && <p role="status" className="mb-4 text-sm text-white/55">{searching && query.length < 2 ? "Type at least two characters to find gear." : loading ? "Finding the best matches…" : displayedResult?.failed ? "Some matches couldn’t load. Browse a department below or try again." : displayedResult?.mode === "category" ? `Explore ${browseCategories.join(" + ") || "matching gear"} · popular picks below` : listings.length ? `${listings.length} matching items${browseCategories.length ? ` · ${browseCategories.join(" + ")}` : ""} · gear hire rates shown` : "No exact match. Browse a department below or ask Gaffer."}</p>;

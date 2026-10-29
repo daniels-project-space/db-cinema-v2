@@ -320,7 +320,6 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
     }
   }
 
-  sections.push("DB Cinema Rentals Team");
   return sections.filter(Boolean).join("\n\n");
 }
 

@@ -46,7 +46,7 @@ async function deliver(id) {
   assert(prepared[0].lines.filter(line => line.listingId !== "dji1").every(line => line.end === Date.parse("2030-11-20T00:00:00Z")));
   assert(sent[0].includes("Review this option and its later return"));
   assert(sent[0].includes("£94.00"));
-  assert(sent[0].endsWith("DB Cinema Rentals Team"));
+  assert(!sent[0].endsWith("DB Cinema Rentals Team"), "the common mail sender adds the shared sign-off after formatting");
 
   quote = structuredClone(baseQuote);
   quote.requests[0].minimumRentalOffer.availability = "unverified";

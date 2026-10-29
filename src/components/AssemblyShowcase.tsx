@@ -451,17 +451,12 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
     if (reducedMotion || !visible || !pageVisible || (!loading && !hasExampleGear)) return;
     const timer = window.setInterval(() => {
       const current = flowRef.current;
-      if (current.stage + 1 < stages.length) {
-        const next = { ...current, stage: current.stage + 1 };
-        flowRef.current = next;
-        setFlow(next);
-        return;
-      }
-
+      const next = current.stage + 1 < stages.length
+        ? { ...current, stage: current.stage + 1 }
+        : { scene: (current.scene + 1) % Math.max(1, scenarios.length), stage: 0 };
       setSceneChanging(true);
       if (sceneTransitionTimer.current !== null) window.clearTimeout(sceneTransitionTimer.current);
       sceneTransitionTimer.current = window.setTimeout(() => {
-        const next = { scene: (flowRef.current.scene + 1) % Math.max(1, scenarios.length), stage: 0 };
         flowRef.current = next;
         setFlow(next);
         sceneTransitionTimer.current = null;
@@ -513,7 +508,7 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
       </div>
 
       <div className={styles.panels}>
-        <article className={`${styles.panel} ${styles.briefPanel}`} data-active={stage === 0} aria-current={stage === 0 ? "step" : undefined}>
+        <article className={`${styles.panel} ${styles.briefPanel}`} data-active={stage === 0} aria-hidden={stage !== 0} aria-current={stage === 0 ? "step" : undefined}>
           <span className={styles.rec}><i /> REC</span>
           <ApertureMark className={styles.briefAperture} />
           <div className={styles.briefContent}>
@@ -538,7 +533,7 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
           <div className={styles.signalPoint} aria-hidden="true" />
         </article>
 
-        <article className={`${styles.panel} ${styles.needsPanel}`} data-active={stage === 1} aria-current={stage === 1 ? "step" : undefined}>
+        <article className={`${styles.panel} ${styles.needsPanel}`} data-active={stage === 1} aria-hidden={stage !== 1} aria-current={stage === 1 ? "step" : undefined}>
           <div className={styles.needsContent}>
             <h3>Gear preferences</h3>
             <div className={styles.preferenceGrid}>
@@ -561,12 +556,12 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
           <div className={styles.needsOrbit} aria-hidden="true"><ApertureMark /></div>
         </article>
 
-        <article className={`${styles.panel} ${styles.budgetPanel}`} data-active={stage === 2} aria-current={stage === 2 ? "step" : undefined}>
+        <article className={`${styles.panel} ${styles.budgetPanel}`} data-active={stage === 2} aria-hidden={stage !== 2} aria-current={stage === 2 ? "step" : undefined}>
           <KitPanel kit={examples.low} position={lowPosition} variant="entry" loading={loading} cameraCount={showcaseBrief.cameraCount} preferences={showcaseBrief.preferences} animateBudgetChanges={moving && !loading && !reducedMotion} />
           <div className={styles.signalPoint} aria-hidden="true" />
         </article>
 
-        <article className={`${styles.panel} ${styles.updatedPanel}`} data-active={stage === 3} aria-current={stage === 3 ? "step" : undefined}>
+        <article className={`${styles.panel} ${styles.updatedPanel}`} data-active={stage === 3} aria-hidden={stage !== 3} aria-current={stage === 3 ? "step" : undefined}>
           <KitPanel kit={examples.high} position={highPosition} variant={hasHigherKit ? "upgrade" : hasAlternativeGear ? "alternate" : "same"} loading={loading} dailyChange={Math.max(0, budgetGap)} cameraCount={showcaseBrief.cameraCount} preferences={showcaseBrief.preferences} animateBudgetChanges={moving && !loading && !reducedMotion} />
         </article>
       </div>

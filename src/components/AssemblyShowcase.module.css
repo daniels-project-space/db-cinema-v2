@@ -362,3 +362,106 @@
   .root *, .root *::before, .root *::after { animation: none !important; transition: none !important; }
   .briefPanel .apertureBlades { transform: rotate(-20deg); }
 }
+
+/* One low-profile landscape card. Each step takes the whole surface so the
+   animated mark and the real catalogue changes read as one continuous story. */
+.stageRail { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.root { margin-top: 22px; padding: 12px 20px; }
+.stageRail { margin: 0 2px 5px; gap: 8px; }
+.stageLabel { gap: 5px; font-size: 9px; }
+.footer { gap: 12px; margin: 7px 3px 0; }
+.disclaimer { font-size: 8px; }
+.cta { min-height: 30px; padding: 0 12px; }
+.panels { display: block; min-height: 0; }
+.panel:not([data-active="true"]) { display: none; }
+.panel { min-height: 150px; height: 150px; padding: 8px 16px; }
+.briefPanel { justify-content: center; }
+.briefAperture { top: 50%; left: 4%; width: clamp(112px, 15vw, 164px); height: auto; opacity: .42; transform: translateY(-50%) rotate(-20deg); }
+.briefContent { width: min(62%, 760px); margin: 0 2% 0 34%; justify-content: center; }
+.brandLockup { display: none; }
+.assemblyName { margin: 0 0 5px; font-size: clamp(18px, 1.8vw, 22px); }
+.briefChoice { max-width: 100%; min-height: 30px; height: 30px; }
+.crewOptions { max-width: 440px; margin-top: 4px; }
+.crewOptions button { min-height: 42px; padding-top: 4px; padding-bottom: 4px; }
+.crewMeta { margin-top: 3px; padding-top: 0; font-size: 8px; }
+.briefNote { display: none; }
+.needsPanel { display: grid; grid-template-columns: minmax(150px, 30%) minmax(0, 1fr); align-items: center; gap: 20px; }
+.needsContent { grid-column: 2; grid-row: 1; padding-top: 0; }
+.needsContent h3 { margin-bottom: 6px; }
+.preferenceGrid { gap: 6px; }
+.preference { height: 31px; }
+.needsFooter { margin-top: 6px; }
+.needsOrbit { position: relative; inset: auto; grid-column: 1; grid-row: 1; width: min(100%, 170px); margin: auto; opacity: .24; }
+.budgetPanel, .updatedPanel { display: grid; grid-template-columns: minmax(155px, 30%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; align-items: center; column-gap: 20px; }
+.budgetArea { grid-column: 1; grid-row: 1 / 3; min-height: 0; height: 100%; flex-direction: column; justify-content: center; gap: 4px; }
+.dial { width: 88px; height: 88px; flex-basis: 88px; }
+.budgetScale { width: 100%; max-width: 166px; flex: 0 1 auto; }
+.budgetSummary { margin-top: 1px; text-align: center; }
+.budgetSummary>strong { margin-top: 1px; font-size: 8px; }
+.sliderTrack { margin-top: 4px; }
+.sliderTicks { display: none; }
+.kitCards { grid-column: 2; grid-row: 1; min-height: 100px; margin: 0; gap: 8px; }
+.gearCard { min-height: 100px; padding: 5px; }
+.gearImage, .loadingImage { height: 45px; flex-basis: 45px; margin-bottom: 2px; }
+.gearCard>strong { min-height: 22px; font-size: 8px; }
+.gearRate { font-size: 9px; }
+.kitFoot { grid-column: 2; grid-row: 2; max-height: 18px; min-height: 0; margin: 2px 0 0; overflow: hidden; font-size: 8px; }
+.panel[data-active="true"] { animation: assemblyPanelIn .58s cubic-bezier(.2, .8, .2, 1) both; }
+.panel[data-active="true"] .briefAperture,
+.panel[data-active="true"] .needsOrbit { animation-duration: 16s; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
+
+@keyframes assemblyPanelIn {
+  from { opacity: 0; filter: blur(3px); transform: translateY(7px) scale(.99); }
+  to { opacity: 1; filter: saturate(1) brightness(1); transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 1080px) {
+  .panels { display: block; }
+  .panel { min-height: 150px; height: 150px; padding: 8px 15px; }
+  .briefContent { width: min(64%, 650px); margin: 0 1% 0 31%; }
+  .needsPanel { grid-template-columns: minmax(130px, 28%) minmax(0, 1fr); }
+  .budgetPanel, .updatedPanel { grid-template-columns: minmax(140px, 28%) minmax(0, 1fr); column-gap: 12px; }
+  .dial { width: 88px; height: 88px; flex-basis: 88px; }
+  .kitCards { min-height: 100px; }
+  .gearImage, .loadingImage { height: 45px; flex-basis: 45px; }
+}
+
+@media (max-width: 620px) {
+  .stageRail { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; }
+  .stageLabel { font-size: 7px; }
+  .stageLabel::after { display: block; }
+  .stageLabel::before { display: none; }
+  .panels { display: block; }
+  .panel { min-height: 260px; height: 260px; padding: 12px; }
+  .briefContent { width: 70%; margin: 0 0 0 28%; }
+  .briefAperture { left: -4%; width: 120px; opacity: .3; }
+  .assemblyName { margin-bottom: 8px; font-size: 18px; }
+  .crewOptions { margin-top: 7px; }
+  .crewMeta, .briefNote { font-size: 7px; }
+  .needsPanel { grid-template-columns: 76px minmax(0, 1fr); gap: 9px; }
+  .needsOrbit { width: 75px; opacity: .2; }
+  .needsContent h3 { font-size: 12px; }
+  .preferenceGrid { gap: 5px; }
+  .preference { height: 38px; gap: 5px; padding: 0 7px; font-size: 9px; }
+  .preference svg { width: 18px; height: 18px; flex-basis: 18px; }
+  .needsFooter { flex-direction: column; align-items: stretch; gap: 6px; margin-top: 7px; }
+  .budgetPanel, .updatedPanel { grid-template-columns: 94px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; column-gap: 8px; }
+  .budgetArea { justify-content: center; gap: 5px; }
+  .dial { width: 82px; height: 82px; flex-basis: 82px; }
+  .dialReadout strong { font-size: 16px; }
+  .dialReadout>span, .dialReadout>small { font-size: 6px; }
+  .budgetSummary>strong { display: none; }
+  .budgetSummary>span { font-size: 6px; }
+  .budgetScale { padding: 0; }
+  .kitCards { min-height: 153px; gap: 5px; }
+  .gearCard { min-height: 153px; padding: 5px; border-radius: 12px; }
+  .gearImage, .loadingImage { height: 54px; flex-basis: 54px; }
+  .gearKind { font-size: 6px; }
+  .gearCard>strong { min-height: 32px; margin: 3px 0; font-size: 8px; }
+  .gearRate { font-size: 8px; }
+  .kitFoot { font-size: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel[data-active="true"] { animation: none; }
+}

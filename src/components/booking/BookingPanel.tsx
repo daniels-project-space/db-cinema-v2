@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { useAccount } from "@/components/account/AccountProvider";
 import { api } from "@cvx/_generated/api";
@@ -88,7 +88,6 @@ export function BookingPanel({
   unavailable,
   demand = 0,
   onAdded,
-  autoAdd = false,
 }: {
   listing: Listing;
   start: string | null;
@@ -99,7 +98,6 @@ export function BookingPanel({
   unavailable: Set<string>;
   demand?: number;
   onAdded?: () => void;
-  autoAdd?: boolean;
 }) {
   const cart = useCart();
   const policy = useQuery(api.settings.get, {});
@@ -154,15 +152,6 @@ export function BookingPanel({
     });
     onAdded?.();
   }
-
-  const added = useRef(false);
-  useEffect(() => {
-    // Auto-add only after the exact prospective basket and chosen times pass.
-    // Unavailable offers keep the explicit request button and checkout safeguards.
-    if (!autoAdd || added.current || !canAdd || !cand?.ok || !timesAllowed || !calendarStock.ready || needsRequestReview) return;
-    added.current = true;
-    addToKit();
-  });
 
   return (
     <div className="flex flex-col gap-4">

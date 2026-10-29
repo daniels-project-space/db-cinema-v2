@@ -2,6 +2,7 @@
 
 import { createHash } from "node:crypto";
 import nodemailer from "nodemailer";
+import { brandedEmailHtml } from "../../shared/emailBrand";
 
 /**
  * The one place email leaves this app.
@@ -76,7 +77,7 @@ async function viaGmail(m: MailInput, user: string, pass: string): Promise<boole
       to: m.to,
       ...(m.cc?.length ? { cc: m.cc } : {}),
       subject: m.subject,
-      html: m.html,
+      html: brandedEmailHtml(m.html),
       replyTo: m.replyTo ?? OWNER_EMAIL(),
       ...(m.inReplyTo ? { inReplyTo: m.inReplyTo } : {}),
       ...(m.references?.length ? { references: m.references } : {}),
@@ -105,7 +106,7 @@ async function viaResend(m: MailInput, key: string): Promise<boolean> {
         to: m.to,
         ...(m.cc?.length ? { cc: m.cc } : {}),
         subject: m.subject,
-        html: m.html,
+        html: brandedEmailHtml(m.html),
         reply_to: m.replyTo ?? OWNER_EMAIL(),
         ...(m.inReplyTo || m.references?.length ? { headers: {
           ...(m.inReplyTo ? { "In-Reply-To": m.inReplyTo } : {}),

@@ -85,6 +85,10 @@ export const metadata: Metadata = {
     "camera equipment hire near me",
   ],
   applicationName: "Db Cinema Rentals",
+  icons: {
+    icon: { url: "/db-cinema-aperture-blue.png", type: "image/png", sizes: "512x512" },
+    apple: "/db-cinema-aperture-blue.png",
+  },
   openGraph: {
     type: "website",
     siteName: "Db Cinema Rentals",

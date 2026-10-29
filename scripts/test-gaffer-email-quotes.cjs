@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { load, setMock, db, put } = require("./lib/rentalTestHarness.cjs");
 const { LIVE_FX3_BODY_KIT, LIVE_REMUS_45 } = require("./lib/gafferLiveCatalogueFixtures.cjs");
 const { explicitlyAllowsAlternatives, explicitlyRequestsOptionalAddOns, shouldSuggestOptionalAddOns, minimumRentalBasketLines } = load("shared/gafferEmailQuote.ts");
+const { brandedEmailHtml } = load("shared/emailBrand.ts");
 const { spokenRentalItem, spokenPackingReview } = load("src/lib/voiceQuoteFormatting.ts");
 assert.equal(spokenRentalItem("wireless microphone kits", "4x RØDE Wireless PRO Transmitters with Two Receivers", 1, 2),
   "two wireless microphone kits from the RØDE Wireless PRO bundle", "spoken counts should describe the requested kits, not repeat the listing's transmitter count");
@@ -230,7 +231,12 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal((result.email.match(/Rode Mic Pro Kit/g) || []).length, 1, "the proposed item must appear once, not repeat as an equipment-options section");
   assert(!result.email.includes("Multi-day rates per unit"), "do not append an irrelevant full rate ladder to every quote");
   assert(result.email.startsWith("Hi there,\n\n"), "email replies should start like a concise personal note");
-  assert(result.email.endsWith("DB Cinema Rentals Team"));
+  assert(!result.email.endsWith("DB Cinema Rentals Team"), "the quote formatter leaves the shared sign-off to the mail sender");
+  const deliveredHtml = brandedEmailHtml(`<html><body>${result.email}</body></html>`);
+  assert(deliveredHtml.includes('data-dbc-email-footer="true"'));
+  assert(deliveredHtml.includes("The DB Cinema Rentals Team"));
+  assert(deliveredHtml.includes('href="https://dbcinemarentals.com"'));
+  assert.equal((deliveredHtml.match(/data-dbc-email-footer/g) || []).length, 1, "shared branding should appear exactly once");
   assert(!result.email.includes("deposit"), "the rental quote must stay focused on gear hire");
   assert(result.email.includes("[Rode Mic Pro Kit](https://dbcinemarentals.com/gear/"), "equipment links should have readable labels");
   assert(facts.includes("RENTAL ENQUIRY EVIDENCE:"));
@@ -286,7 +292,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(fx3Email.enquiry.timed, false, "a date-only request must remain untimed until the customer chooses a window");
   assert.match(fx3EmailBody, /possible window is pickup at .* and return at .*; I’ll confirm availability once you tell me those times suit/i);
   assert(!/is available on 3 November/i.test(fx3EmailBody), "a system-suggested window must not be presented as the customer's confirmed availability");
-  assert(fx3EmailBody.startsWith("Hi there,\n\n") && fx3EmailBody.endsWith("DB Cinema Rentals Team"), "the email reply stays personal and uses the agreed team sign-off");
+  assert(fx3EmailBody.startsWith("Hi there,\n\n"), "the email reply stays personal; the common sender adds the team sign-off");
   assert(!fx3EmailBody.includes("Multi-day rates per unit"), "the email stays focused instead of appending a rate ladder");
   const fx3Chat = await handleChat({
     messages: [{ role: "user", content: "Please quote one FX3 camera body only for 3 November 2026." }],
@@ -353,7 +359,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   }, locationQuestion, "email");
   assert(result.email.includes("We're based in Trafalgar Square"), "the actual email narration answer must reach the final formatted quote");
   assert.equal((result.email.match(/We're based in Trafalgar Square/g) || []).length, 1, "the extra answer should not be duplicated from the generated prose");
-  assert(result.email.endsWith("DB Cinema Rentals Team"));
+  assert(!result.email.endsWith("DB Cinema Rentals Team"), "the common mail sender adds the team sign-off after formatting");
   const locationQuoteResult = result;
   const locationRecommendationCall = recommendationCalls.at(-1);
   additionalAnswerForTest = "";
@@ -435,7 +441,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(!result.email.includes("Gimbal"));
   assert(result.email.includes("Sony FX3 camera body"), "an abbreviated model request should be answered using the exact catalogue name");
   assert(!result.email.includes("× fx3"), "email text should not expose the parser's raw lowercase model token");
-  assert(result.email.endsWith("DB Cinema Rentals Team"));
+  assert(!result.email.endsWith("DB Cinema Rentals Team"), "the common mail sender adds the team sign-off after formatting");
   result = await run(1, {
     subject: "Sony a7 III, 24-70mm GM Lens and DJI RS3 Pro Gimbal",
     itemTypes: ["camera"], start: "2026-11-03", end: "2026-11-03", pickupTime: "10:00", returnTime: "18:00",
@@ -518,7 +524,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(result.email.startsWith("Hi there,\n\n"), "the email reply opens like a short human business reply");
   assert(!result.email.includes("Sony a7 III") && !result.email.includes("DJI RS3 Pro Gimbal"), "a named FX3 request cannot be replaced with the classifier's cheaper camera/gimbal bundle");
   assert(!/provisional|quantity not yet confirmed|proposed alternative|multi-day rates per unit|security payments/i.test(result.email), "the customer-facing quote leaves out internal status clutter and irrelevant rate ladders");
-  assert(result.email.endsWith("DB Cinema Rentals Team"), "Gaffer emails use the agreed team signature");
+  assert(!result.email.endsWith("DB Cinema Rentals Team"), "the common mail sender adds the team sign-off after formatting");
   result = await run(1, {
     subject: a7GimbalBundle.title, itemTypes: ["camera"], start: "2026-11-03", end: "2026-11-03",
     requests: [{ subject: a7GimbalBundle.title, itemType: "camera", quantity: 1, allowAlternatives: true }],
@@ -536,14 +542,12 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     "Hi there,",
     "",
     `The [${liveBodyQuote.title}](https://dbcinemarentals.com/gear/${liveBodyQuote.slug}) would be £47.00 for the day on 3 November 2026. A possible window is pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}; I’ll confirm availability once you tell me those times suit.`,
-    "",
-    "DB Cinema Rentals Team",
-  ].join("\n"), "the real-catalogue quote stays short, readable, correctly linked, and team-signed");
+  ].join("\n"), "the real-catalogue quote stays short, readable, and correctly linked");
   assert(!result.email.includes("Sony a7 III"));
   assert(!result.email.includes("DJI RS3 Pro Gimbal"));
   assert(!result.email.includes("Optional compatible lens"), "a camera-only request should not trigger an unsolicited lens upsell");
   assert(!result.email.includes("Multi-day rates per unit"));
-  assert(result.email.endsWith("DB Cinema Rentals Team"));
+  assert(!result.email.endsWith("DB Cinema Rentals Team"), "the common mail sender adds the team sign-off after formatting");
   const bodyQuantity = camera.quantityOwned, alternateBodyQuantity = a7BodyPool.quantityOwned;
   camera.quantityOwned = 0; a7BodyPool.quantityOwned = 0;
   result = await run(1, {
@@ -712,7 +716,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
       inventoryReviewRequired: true, verifiedContents: ["1 × DJI Mic 2 wireless", "2x transmitter", "1x receiver", "1x charging case"],
     }] }],
   });
-  assert(reviewNote.includes("Owner-confirmed contents: 1 × DJI Mic 2 wireless, 2x transmitter, 1x receiver, 1x charging case"), "quotes must list the exact owner-verified kit contents");
+  assert(reviewNote.includes("DJI Mic 2 Wireless Kit includes two transmitters, one receiver, and one charging case"), "quotes must list the exact verified kit contents");
   assert(reviewNote.includes("I can't yet confirm the other listed accessories"), "quotes must not imply unreviewed seller extras are included");
   const unresolved = gafferEmailQuoteIntro({
     start: "2030-11-20", end: "2030-11-20", estimated: false, timed: true, stockVerified: false,
@@ -750,7 +754,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(conciseDateOnlyEmail.includes("would be £47.00 for the day on 3 November 2026"));
   assert(conciseDateOnlyEmail.includes("A possible window is pickup at 09:00 and return at 22:00"));
   assert(conciseDateOnlyEmail.includes("I’ll confirm availability once you tell me those times suit."));
-  assert(conciseDateOnlyEmail.endsWith("DB Cinema Rentals Team"));
+  assert(!conciseDateOnlyEmail.endsWith("DB Cinema Rentals Team"), "date-only quote formatting leaves the sign-off to the shared sender");
   assert(!/Sony a7 III|gimbal|Multi-day rates per unit|\b(?:3|7|14|30)\+ days\b|deposit|What dates/.test(conciseDateOnlyEmail), "a body-only date quote must stay focused and not repeat questions or upsell");
   const emailWithExtraAnswer = formatGafferEmailReply("This generated quote intro is replaced by the grounded email summary.", [], {
     start: "2026-11-03", end: "2026-11-03", pickupTime: "10:00", returnTime: "18:00", estimated: false, timed: true,
@@ -761,10 +765,10 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(emailWithExtraAnswer.includes("We're based in Trafalgar Square"), "an answer to the customer's extra question must survive quote formatting");
   assert(!emailWithExtraAnswer.includes("This generated quote intro"), "the generated quote prose must not duplicate the grounded quote");
   assert(emailWithExtraAnswer.includes("£47.00 for the day"));
-  assert(emailWithExtraAnswer.endsWith("DB Cinema Rentals Team"));
+  assert(!emailWithExtraAnswer.endsWith("DB Cinema Rentals Team"), "additional answers leave the sign-off to the shared sender");
   const personalizedReply = formatGafferEmailReply("", [], undefined, undefined, undefined, "Amira Patel");
   assert(personalizedReply.startsWith("Hi Amira,"), "the email should use a verified sender display name without repeating their full address");
-  assert(personalizedReply.endsWith("DB Cinema Rentals Team"));
+  assert(!personalizedReply.endsWith("DB Cinema Rentals Team"), "personalized replies leave the sign-off to the shared sender");
   const ungroundedFx3Email = formatGafferEmailReply(
     "I’ve listed a provisional gear quote for your dates. What are your pickup and return times? Those determine the billed duration and let me check the required quantities.\nYour rental enquiry: 2026-11-03 to 2026-11-03.\nIndicative proposal — combined availability unconfirmed.\nRequested: 1 × fx 3. Quantity not yet confirmed.\n1 × Sony a7 III, 24–70mm GM Lens and DJI RS3 Pro Gimbal [PROPOSED ALTERNATIVE — please confirm]: £45.00 for the period.\nMulti-day rates per unit: 1+ days £45.00/day · 3+ days £36.67/day.",
     [{ item: { listingId: "wrong-bundle", slug: "sony-a7iii-bundle", title: "Sony a7 III, 24–70mm GM Lens and DJI RS3 Pro Gimbal", perDay: 45, availableUnits: 1 } }],
@@ -779,7 +783,7 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(ungroundedFx3Email.includes("What pickup and return times should I check for that date?"));
   assert(!ungroundedFx3Email.includes("Sony a7 III") && !ungroundedFx3Email.includes("DJI RS3 Pro Gimbal"), "an unstructured quote cannot substitute another camera or package");
   assert(!ungroundedFx3Email.includes("£45") && !ungroundedFx3Email.includes("Multi-day rates per unit"), "an unstructured email cannot send unverified pricing or a rate ladder");
-  assert(ungroundedFx3Email.endsWith("DB Cinema Rentals Team"));
+  assert(!ungroundedFx3Email.endsWith("DB Cinema Rentals Team"), "unverified quotes also use the shared sender footer");
   const mismatchedStructuredFx3Quote = {
     start: "2026-11-03", end: "2026-11-03", days: 1, timed: false, estimated: false,
     stockVerified: false, requirementsComplete: true, complete: false, total: 45,
@@ -795,7 +799,6 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert(mismatchedStructuredFx3Email.includes("request for the FX3"));
   assert(mismatchedStructuredFx3Email.includes("I won't send a different camera or bundle."));
   assert(!mismatchedStructuredFx3Email.includes("Sony a7 III") && !mismatchedStructuredFx3Email.includes("£45"), "a structured but mismatched quote must be stopped at the outbound email boundary");
-  assert(mismatchedStructuredFx3Email.endsWith("DB Cinema Rentals Team"));
   stockFailure = false;
   b.minimumRentalDays = 2;
   const partialMinimumPeriod = await run(4, {
@@ -860,7 +863,6 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(minimumPeriod.enquiry.requests[0].minimumRentalOffer.availability, "available");
   assert(minimumPeriod.email.includes("available with return at 18:00 on 21 November 2030"));
   assert(minimumPeriod.email.includes("Would that later return work for you?"));
-  assert(minimumPeriod.email.endsWith("DB Cinema Rentals Team"));
   assert(stockQueries.some(call => call.name === "availability.forListing" && call.args.listingId === b._id && call.args.end > call.args.start), "only a valid longer window is checked for the minimum-period item");
   const minimumChat = await run(1, {
     start: "2030-11-20", end: "2030-11-20", pickupTime: "10:00", returnTime: "18:00",
