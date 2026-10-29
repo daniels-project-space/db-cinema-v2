@@ -189,14 +189,16 @@ function PreferenceGlyph({ kind }: { kind: PreferenceKind }) {
   );
 }
 
-function useAnimatedBudgetTotal(total: number, animateChanges: boolean) {
+function useAnimatedBudgetTotal(total: number, animateChanges: boolean, loading: boolean) {
   const [displayTotal, setDisplayTotal] = useState(total);
   const currentTotal = useRef(total);
+  const initialized = useRef(false);
 
   useEffect(() => {
-    if (!animateChanges || Math.abs(currentTotal.current - total) < 0.01) {
+    if (loading || !initialized.current || !animateChanges || Math.abs(currentTotal.current - total) < 0.01) {
       currentTotal.current = total;
       setDisplayTotal(total);
+      if (!loading) initialized.current = true;
       return;
     }
 
@@ -214,14 +216,14 @@ function useAnimatedBudgetTotal(total: number, animateChanges: boolean) {
 
     frame = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frame);
-  }, [total, animateChanges]);
+  }, [total, animateChanges, loading]);
 
   return displayTotal;
 }
 
 function BudgetDial({ total, position, loading, animateChanges }: { total: number; position: number; loading: boolean; animateChanges: boolean }) {
   const angle = -132 + position * 2.64;
-  const displayTotal = useAnimatedBudgetTotal(total, animateChanges);
+  const displayTotal = useAnimatedBudgetTotal(total, animateChanges, loading);
   return (
     <div className={styles.dial} role="img" style={{ "--needle-turn": `${angle}deg` } as CSSProperties} aria-label={loading ? "Matching live catalogue gear" : `Example kit ${currency(total)} per day`}>
       <svg viewBox="0 0 160 160" fill="none" aria-hidden="true">
