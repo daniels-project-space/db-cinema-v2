@@ -1,4 +1,4 @@
-import { equipmentOfferLabel, normalizeEquipmentName } from "../../shared/equipmentIdentity";
+import { equipmentModelTokens, equipmentOfferLabel, normalizeEquipmentName } from "../../shared/equipmentIdentity";
 
 function quantityWord(quantity: number): string {
   return ({ 1: "one", 2: "two", 3: "three", 4: "four", 5: "five" } as Record<number, string>)[quantity] ?? String(quantity);
@@ -23,6 +23,22 @@ export function spokenRentalItem(requestName: string, title: string, listingQuan
     const rode = title.match(/\bR[ØO]DE\s+Wireless\s+PRO\b/i)?.[0];
     const source = rode ? `the ${rode} bundle` : `one ${equipmentOfferLabel(title)} listing`;
     return `${quantityWord(count)} ${requestName} from ${source}`;
+  }
+  const requestedModels = equipmentModelTokens(requestName);
+  const offeredModels = equipmentModelTokens(title);
+  if (/\b(?:camera\s+body|body\s+only|camera\s+only)\b/i.test(requestName) &&
+      requestedModels.length === 1 && offeredModels.includes(requestedModels[0])) {
+    const brand = requestName.match(/\b(Sony|Canon|Nikon|Panasonic|Blackmagic)\b/i)?.[1] ??
+      title.match(/\b(Sony|Canon|Nikon|Panasonic|Blackmagic)\b/i)?.[1];
+    let concise = requestName
+      .replace(/\b(?:only|no|without)\b/gi, " ")
+      .replace(/\b(?:lens(?:es)?|gimbals?|accessories?|extras?|cards?|media|cages?|bundles?|kits?)\b/gi, " ")
+      .replace(/\b(?:or|and)\b/gi, " ")
+      .replace(/\s+/g, " ").replace(/^[,\s]+|[,\s]+$/g, "");
+    concise = concise.replace(/\bcamera\s+only\b/i, "camera body");
+    if (!/\bcamera\s+body\b/i.test(concise)) concise += " camera body";
+    if (brand && !new RegExp(`\\b${brand}\\b`, "i").test(concise)) concise = `${brand} ${concise}`;
+    return `${quantityWord(listingCount)} ${equipmentOfferLabel(concise)}`;
   }
   return `${quantityWord(listingCount)} ${equipmentOfferLabel(title)}`;
 }

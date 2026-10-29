@@ -7,7 +7,7 @@ import { tierByKey } from "@/lib/membership";
 import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { rentalDateLabel } from "../../shared/rentalDateLabel";
-import { equipmentRequest, equipmentRequestLabel, normalizeEquipmentName } from "../../shared/equipmentIdentity";
+import { equipmentModelsMatch, equipmentRequest, equipmentRequestDisplayLabel, equipmentRequestLabel, normalizeEquipmentName } from "../../shared/equipmentIdentity";
 import { rentalPricingDays } from "../../shared/rentalDuration";
 import { explicitlyAllowsAlternatives, explicitlyNoOptionalAddOns, gafferEmailQuoteIntro, sanitizeQuoteSupplementalAnswer, shouldSuggestOptionalAddOns, type GafferEmailQuote } from "../../shared/gafferEmailQuote";
 import { rentalEnquiryWindow } from "./rentalEnquiryWindow";
@@ -1306,8 +1306,7 @@ function enquiryNameMatches(subjectText: string, titleText: string): boolean {
   const title = fold(titleText);
   if (!titleMatchesQuery(subject, title)) return false;
   const modelSpacing = (text: string) => text.toLowerCase().replace(/\b([a-z]{1,10})[\s-]+(\d+[a-z]*)\b/g, "$1$2").replace(/\b([a-z]+\d+[a-z]*)\s+(iii|ii|iv|v|vi|vii)\b/g, "$1$2");
-  const titleTokens = new Set(toks(modelSpacing(title)));
-  if (!queryIdentity(modelSpacing(subject)).models.filter(model => /^[a-z]+\d/.test(model) && !/^[ft]\d/.test(model)).every(model => titleTokens.has(model))) return false;
+  if (!equipmentModelsMatch(modelSpacing(subject), modelSpacing(title))) return false;
   const generation = djiMicGeneration(subject);
   if (generation !== null && djiMicGeneration(title) !== generation) return false;
   const qualifiers = subject.toLowerCase().match(/\b(?:dji|rode|sony|canon|arri|red|pro|mini|ii|iii|iv|vi|vii)\b/g) ?? [];
@@ -1456,7 +1455,7 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
     const displayListing = namedRequest
       ? exact.find(listing => unrequestedCameraExtras(listing, configurationText, noExtraConfiguration) === 0) ?? exact[0]
       : undefined;
-    if (displayListing) line.displaySubject = equipmentRequestLabel(displayListing.title, displayListing.itemType);
+    if (displayListing) line.displaySubject = equipmentRequestDisplayLabel(request.subject, displayListing.title, displayListing.itemType);
     if (request.quantityIsListingUnits === false) {
       line.quantityUnit = "individual components; number of complete rental kits needs clarification";
       line.fulfilled = null;

@@ -59,6 +59,34 @@ export function equipmentRequestLabel(title: string, itemType: string): string {
   return equipmentOfferLabel(title);
 }
 
+/** Keep the requested camera identity separate from the listing's bundled title. */
+export function equipmentRequestDisplayLabel(request: string, listingTitle: string, itemType: string): string {
+  if (itemType !== "camera-body") return equipmentRequestLabel(listingTitle, itemType);
+  const requested = String(request ?? "").replace(/\s+/g, " ").trim();
+  const requestedModels = equipmentModelTokens(requested);
+  const offeredModels = equipmentModelTokens(listingTitle);
+  if (requestedModels.length !== 1 || !offeredModels.includes(requestedModels[0])) {
+    return equipmentRequestLabel(listingTitle, itemType);
+  }
+
+  const brand = requested.match(/\b(Sony|Canon|Nikon|Panasonic|Blackmagic)\b/i)?.[1] ??
+    listingTitle.match(/\b(Sony|Canon|Nikon|Panasonic|Blackmagic)\b/i)?.[1];
+  const titleWords = String(listingTitle ?? "").match(/[A-Za-z0-9]+/g) ?? [];
+  let displayModel = "";
+  for (let start = 0; start < titleWords.length && !displayModel; start++) {
+    for (let width = 1; width <= 3 && start + width <= titleWords.length; width++) {
+      const candidate = titleWords.slice(start, start + width).join(" ");
+      if (equipmentModelTokens(candidate).includes(requestedModels[0])) {
+        displayModel = candidate;
+        break;
+      }
+    }
+  }
+  displayModel ||= requestedModels[0].toUpperCase();
+  if (brand) displayModel = displayModel.replace(new RegExp(`^${brand}\\s+`, "i"), "");
+  return equipmentOfferLabel(`${brand ? `${brand} ` : ""}${displayModel} camera body`);
+}
+
 /** Read a leading equipment count, never a focal range or model generation. */
 export function equipmentRequest(value: string): { subject: string; quantity: number; explicit: boolean } {
   const words = ["one","two","three","four","five","six","seven","eight","nine","ten"];

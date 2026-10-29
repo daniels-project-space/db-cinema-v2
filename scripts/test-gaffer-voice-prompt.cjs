@@ -4,8 +4,10 @@ const { GAFFER_VOICE_PROMPT } = require("./lib/gafferVoicePrompt.cjs");
 const { syncGafferVoiceAgentPrompt } = require("./lib/gafferVoiceAgentPrompt.cjs");
 const { pageBrief } = load("src/components/gaffer/callContext.ts");
 
-assert.match(GAFFER_VOICE_PROMPT, /one quote call per distinct requested item/i);
-assert.match(GAFFER_VOICE_PROMPT, /separate item calls do not confirm shared stock across the whole group/i);
+assert.match(GAFFER_VOICE_PROMPT, /one quote call for the complete item list/i);
+assert.match(GAFFER_VOICE_PROMPT, /item_2 through item_8/i);
+assert.match(GAFFER_VOICE_PROMPT, /shared stock is checked together/i);
+assert.doesNotMatch(GAFFER_VOICE_PROMPT, /separate item calls do not confirm shared stock/i);
 assert.match(GAFFER_VOICE_PROMPT, /Never combine different items into one field or omit an item/i);
 assert.match(GAFFER_VOICE_PROMPT, /complete rental listings or kits/i);
 assert.match(GAFFER_VOICE_PROMPT, /An FX3 body is not a request for another camera/i);

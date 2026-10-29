@@ -105,15 +105,29 @@ type Match = {
 async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, availabilityOnly: boolean) {
   const supplied = args.requests === undefined
     ? [
-        { subject: args.item ?? args.query, quantity: args.quantity, allowAlternatives: args.allowAlternatives },
+      {
+        subject: args.item ?? args.query,
+        quantity: args.quantity,
+        quantityIsListingUnits: args.quantityIsListingUnits,
+        allowAlternatives: args.allowAlternatives,
+      },
         ...Array.from({ length: 7 }, (_, index) => {
           const number = index + 2;
-          return { subject: args[`item_${number}`], quantity: args[`quantity_${number}`], allowAlternatives: args[`allowAlternatives_${number}`] };
+        return {
+          subject: args[`item_${number}`],
+          quantity: args[`quantity_${number}`],
+          quantityIsListingUnits: args[`quantityIsListingUnits_${number}`],
+          allowAlternatives: args[`allowAlternatives_${number}`],
+        };
         }),
       ].filter(input => input.subject !== undefined && input.subject !== null)
     : args.requests;
   const hasOrphanedDetails = args.requests === undefined && Array.from({ length: 7 }, (_, index) => index + 2)
-    .some(number => args[`item_${number}`] == null && (args[`quantity_${number}`] !== undefined || args[`allowAlternatives_${number}`] !== undefined));
+    .some(number => args[`item_${number}`] == null && (
+      args[`quantity_${number}`] !== undefined ||
+      args[`quantityIsListingUnits_${number}`] !== undefined ||
+      args[`allowAlternatives_${number}`] !== undefined
+    ));
   if (hasOrphanedDetails) return say("Please confirm the item for each quantity or alternative preference.", { needs: "items" });
   if (!Array.isArray(supplied) || !supplied.length || supplied.length > 8)
     return say("Please confirm the items you need, up to eight at a time.", { needs: "items" });
@@ -121,6 +135,8 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     return say("Please confirm the complete list of items you need.", { needs: "items" });
   if (args.allowOptionalAddOns !== undefined && typeof args.allowOptionalAddOns !== "boolean")
     return say("Please confirm whether you want optional compatible gear suggestions.", { needs: "items" });
+  if (supplied.some(input => input?.quantityIsListingUnits !== undefined && typeof input.quantityIsListingUnits !== "boolean"))
+    return say("Please confirm whether each quantity means complete rental listings or individual components.", { needs: "quantity" });
   if (supplied.some(input => input?.allowAlternatives !== undefined && typeof input.allowAlternatives !== "boolean"))
     return say("Please confirm whether you would consider an alternative for each item.", { needs: "items" });
   const requests: { subject: string; itemType: string; quantity: number; quantityIsListingUnits: boolean; allowAlternatives: boolean }[] = [];
@@ -138,7 +154,9 @@ async function rentalQuoteTool(c: ConvexHttpClient, args: any, today: string, av
     const itemType = deriveItemType(normalizeEquipmentName(subject));
     const listingUnits = input.quantityIsListingUnits !== undefined ? input.quantityIsListingUnits === true
       : !(quantity > 1 && itemType === "wireless-mic" && !/\b(?:kits?|sets?|systems?)\b/i.test(raw));
-    if (!listingUnits) return say("Do you mean complete wireless microphone kits, or individual microphones and channels?", { needs: "quantity" });
+    if (!listingUnits) return say(itemType === "wireless-mic"
+      ? "Do you mean complete wireless microphone kits, or individual microphones and channels?"
+      : "Do you mean complete rental listings or individual components?", { needs: "quantity" });
     requests.push({ subject, itemType, quantity, quantityIsListingUnits: true, allowAlternatives: input.allowAlternatives === true });
   }
   const start = args.start ? resolveDate(args.start, today) : null;

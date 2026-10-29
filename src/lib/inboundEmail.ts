@@ -132,6 +132,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
       enquiry.requests.length === 1 && enquiry.requests[0].quantity === 1 &&
       lines.length === 1 && !lines[0].line.alternative && !lines[0].line.inventoryReviewRequired &&
       minimumPeriodRequests.length === 0 && enquiry.total !== null;
+    const suggestedDateOnlyWindow = enquiry.availabilityWindow?.suggested === true && !enquiry.timed;
 
     if (minimumPeriodRequests.length) {
       const minimumText = minimumPeriodRequests.map(request => {
@@ -214,6 +215,17 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
       sections.push(`${availability} Gear hire is ${gbp(enquiry.total)} for ${enquiry.days === 1 ? "the day" : `${enquiry.days} days`}.${discountNote}`);
     } else if (enquiry.timeWindowPricingConservative) {
       sections.push(`I have ${requested} available on ${period}. I checked ${pickupWindow} and ${returnWindow}.`);
+    } else if (suggestedDateOnlyWindow) {
+      const coverage = enquiry.requests.map(request => request.fulfilled === request.quantity
+        ? `${request.quantity} × ${subjectLabel(request)}`
+        : request.fulfilled === null
+          ? `stock not verified for ${request.quantity} × ${subjectLabel(request)}`
+          : `${request.fulfilled} of ${request.quantity} requested ${subjectLabel(request)}`).join(", ");
+      const listingNames = [...new Set(lines.map(({ line }) => link(line.displayTitle || line.title, line.slug)))];
+      const listings = listingNames.length ? ` The matching listing${listingNames.length === 1 ? " is " : "s are "}${listingNames.join(", ")}.` : "";
+      const estimate = enquiry.total === null ? "" : ` Indicative gear hire is ${gbp(enquiry.total)} for ${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}.`;
+      const window = enquiry.availabilityWindow!;
+      sections.push(`The date-only check covers ${coverage} on ${period}.${listings}${estimate} A possible window is pickup at ${window.pickupTime} and return at ${window.returnTime}. Would that suit? I'll confirm availability once you confirm those times.`);
     } else if (enquiry.availabilityWindow) {
       const window = enquiry.availabilityWindow;
       const option = hasAlternative ? "I found an alternative that fits" : `I have ${requested} available`;
@@ -244,7 +256,7 @@ export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: 
       sections.push("I've priced the full time windows, so this is the maximum hire cost. The total may be lower once you choose exact times.");
     }
 
-    if (lines.length && !compactSingleItemQuote) {
+    if (lines.length && !compactSingleItemQuote && !suggestedDateOnlyWindow) {
       const lineText = lines.map(({ request, line }) => {
         const suppliedUnits = typeof line.providedUnits === "number" && Number.isSafeInteger(line.providedUnits) ? line.providedUnits : line.quantity;
         const packNote = suppliedUnits > line.quantity ? ` (one listing supplies ${suppliedUnits} × ${subjectLabel(request)})` : "";

@@ -1,7 +1,8 @@
 const QUOTE_PROPERTIES = {
-  item: { type: "string", description: "One specific requested item. Use one quote call per distinct item; never combine separate items in this field." },
-  quantity: { type: "integer", description: "Number of complete listings or kits when quoting one item." },
-  allowAlternatives: { type: "boolean", description: "Set true only when the caller explicitly accepts alternatives for this item. Otherwise false; never silently substitute a named model or configuration." },
+  item: { type: "string", description: "First specific requested item. Put every other distinct item in item_2 through item_8 in this same call; never omit an item." },
+  quantity: { type: "integer", description: "Number of complete listings or kits requested for item." },
+  quantityIsListingUnits: { type: "boolean", description: "Set false only when the caller counted individual components or microphone channels instead of complete rental listings or kits." },
+  allowAlternatives: { type: "boolean", description: "Set true only when the caller explicitly accepts alternatives for item. Otherwise false; never silently substitute a named model or configuration." },
   start: { type: "string", description: "Pickup date in YYYY-MM-DD format." },
   end: { type: "string", description: "Return date in YYYY-MM-DD format." },
   pickup_time: { type: "string", description: "Requested pickup time in 24-hour HH:MM format." },
@@ -11,9 +12,16 @@ const QUOTE_PROPERTIES = {
   allowOptionalAddOns: { type: "boolean", description: "Set true when the caller asks for recommendations or gives a clear shoot context that makes one specific extra useful. Set false for a camera-only/no-extras request or when no useful fit is clear." },
 };
 
+for (let index = 2; index <= 8; index += 1) {
+  QUOTE_PROPERTIES[`item_${index}`] = { type: "string", description: `Additional distinct requested item ${index}; include every requested item and keep its exact model/configuration.` };
+  QUOTE_PROPERTIES[`quantity_${index}`] = { type: "integer", description: `Number of complete listings or kits requested for item_${index}.` };
+  QUOTE_PROPERTIES[`quantityIsListingUnits_${index}`] = { type: "boolean", description: `Set false only if quantity_${index} counts individual components or microphone channels, not complete listings or kits.` };
+  QUOTE_PROPERTIES[`allowAlternatives_${index}`] = { type: "boolean", description: `Set true only when the caller explicitly accepts alternatives for item_${index}; otherwise false.` };
+}
+
 const QUOTE_TOOL_DESCRIPTIONS = {
-  check_availability: "Check live stock and the rental price for one requested item and rental period. For multiple distinct items, call once per item using the same dates and times. Set allowAlternatives true only after the caller explicitly accepts substitutes; otherwise keep the exact request.",
-  get_price: "Quote live rental price and stock for one requested item and rental dates. For multiple distinct items, call once per item using the same dates and times. Set allowAlternatives true only after the caller explicitly accepts substitutes; otherwise keep the exact request.",
+  check_availability: "Check live stock and gear-hire prices for the complete request in one call. Use item and item_2 through item_8, each with its matching quantity_2 through quantity_8. Use one shared date and time window. Set each allowAlternatives field true only when the caller explicitly accepts alternatives for that item; otherwise keep the exact model/configuration.",
+  get_price: "Quote live stock and gear-hire prices for the complete request in one call. Use item and item_2 through item_8, each with its matching quantity_2 through quantity_8. Use one shared date and time window. Set each allowAlternatives field true only when the caller explicitly accepts alternatives for that item; otherwise keep the exact model/configuration.",
 };
 
 function quoteToolSpec(name) {
@@ -31,15 +39,10 @@ function withMultiItemQuoteSchema(toolConfig) {
   const current = toolConfig.api_schema.request_body_schema;
   if (!current || current.type !== "object") throw new Error(`The existing ${name} request schema is not an object.`);
   const properties = { ...(current.properties ?? {}) };
-  // The Convai webhook schema rejects arrays. Keep webhook inputs scalar; the
-  // live endpoint currently accepts one item per call, so Gaffer repeats the
-  // call for each distinct request until the batched route is released.
+  // The voice provider webhook schema rejects arrays, so use scalar item slots. The route
+  // combines these into one quote and checks the complete basket against the
+  // same stock window and shared physical inventory pools.
   delete properties.requests;
-  for (let index = 2; index <= 8; index += 1) {
-    delete properties[`item_${index}`];
-    delete properties[`quantity_${index}`];
-    delete properties[`allowAlternatives_${index}`];
-  }
   return {
     ...toolConfig,
     description: QUOTE_TOOL_DESCRIPTIONS[name],
@@ -71,12 +74,17 @@ function attachedToolReferences(agent) {
 function hasQuoteSchema(config, name) {
   const body = config?.api_schema?.request_body_schema;
   const properties = body?.properties ?? {};
-  const noUnsupportedFields = !Object.hasOwn(properties, "requests") && Array.from({ length: 7 }, (_, index) => index + 2)
-    .every((index) => !Object.hasOwn(properties, `item_${index}`) && !Object.hasOwn(properties, `quantity_${index}`) && !Object.hasOwn(properties, `allowAlternatives_${index}`));
-  return config?.type === "webhook" && properties.item?.type === "string" && noUnsupportedFields &&
+  const scalarSlotsReady = Array.from({ length: 7 }, (_, index) => index + 2).every((index) =>
+    properties[`item_${index}`]?.type === "string" &&
+    properties[`quantity_${index}`]?.type === "integer" &&
+    properties[`quantityIsListingUnits_${index}`]?.type === "boolean" &&
+    properties[`allowAlternatives_${index}`]?.type === "boolean");
+  return config?.type === "webhook" && properties.item?.type === "string" &&
+    !Object.hasOwn(properties, "requests") && scalarSlotsReady &&
     config?.description === QUOTE_TOOL_DESCRIPTIONS[name] &&
     properties.pickup_time?.type === "string" &&
-    properties.return_time?.type === "string" && properties.allowOptionalAddOns?.type === "boolean" &&
+    properties.return_time?.type === "string" && properties.quantityIsListingUnits?.type === "boolean" &&
+    properties.allowOptionalAddOns?.type === "boolean" &&
     properties.allowAlternatives?.type === "boolean" &&
     /explicitly accepts alternatives/i.test(properties.allowAlternatives.description ?? "") &&
     JSON.stringify(body.required ?? []) === JSON.stringify(name === "check_availability" ? ["item", "start"] : ["item"]);

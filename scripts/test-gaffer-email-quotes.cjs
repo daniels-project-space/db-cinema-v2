@@ -103,7 +103,10 @@ const mixedLenses = { itemType: "lens", inventoryFacts: { contents: ["1 × Sony 
 assert.equal(unitsPerEnquiryOffer(mixedLenses, "lenses"), 3);
 assert.equal(unitsPerEnquiryOffer(mixedLenses, "Sony 24-70mm"), 1, "different focal lengths cannot count as multiple copies of the requested lens");
 assert.equal(unitsPerEnquiryOffer({ itemType: "lens", inventoryFacts: { contents: ["2 × Sony 24-70mm f/2.8 lens"] } }, "Sony 24-70mm f2.8"), 2, "model boundaries must preserve equivalent aperture notation");
-const { equipmentOfferLabel, equipmentRequestLabel } = load("shared/equipmentIdentity.ts");
+const { equipmentOfferLabel, equipmentRequestLabel, equipmentModelsMatch } = load("shared/equipmentIdentity.ts");
+assert.equal(equipmentModelsMatch("FX 3", "Sony FX3 camera body"), true, "the shared identity matcher accepts spaced FX3 spelling");
+assert.equal(equipmentModelsMatch("FX 3", "Sony FX6 camera body"), false, "the shared identity matcher rejects a different camera model");
+assert.equal(equipmentModelsMatch("Sony a7 III", "Sony a7 IV camera body"), false, "the shared identity matcher rejects adjacent A7 generations");
 assert.equal(equipmentOfferLabel("Sony FX 3 Cinema Camera Full Frame Mirrorless 4k Sony fx3 (same sensor as a7siii"), "Sony FX3 camera body");
 assert.equal(equipmentRequestLabel("Sony FX3 camera body", "camera-body"), "Sony FX3 camera body", "a plain body listing may use a concise label");
 assert.equal(equipmentRequestLabel("Sony FX3 Body Kit with Cage and 320GB Card", "camera-body"), "Sony FX3 Body Kit with Cage and 320GB Card", "offer labels must disclose the actual kit contents");
@@ -256,7 +259,9 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     channel: "email",
     emailSubject: "Sony FX3 on 3 November",
   });
-  assert.match(fx3Email.reply, /^I have the requested Sony FX3 camera body available/i, "Gaffer chat uses a natural exact-item confirmation instead of repeating requested/confirmed counts");
+  assert.match(fx3Email.reply, /^I can quote Sony FX3 camera body for 3 November 2026\./i, "date-only chat quotes the exact requested model without claiming unselected times are available");
+  assert(fx3Email.reply.includes("A possible window is pickup at 09:00 and return at 22:00."));
+  assert(!/available on 3 November|times are available/i.test(fx3Email.reply));
   assert(!/1 of 1 requested|confirmed.*confirmed/i.test(fx3Email.reply), "the chat quote does not repeat robotic quantity confirmations");
   const fx3EmailBody = formatGafferEmailReply(fx3Email.reply, fx3Email.cards, fx3Email.enquiry, undefined, fx3Email.additionalAnswer, undefined, "Please quote one FX 3 camera body only for 3 November 2026.");
   assert.equal(fx3Email.enquiry.requests[0].lines[0].listingId, cameraListing._id, "a mistaken A7/gimbal parse must be corrected to the exact FX3 request");
@@ -317,9 +322,10 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   assert.equal(result.enquiry.complete, true);
   assert(result.enquiry.availabilityWindow?.suggested);
   assert(stockReads > 0, "a real date must trigger live availability checks even when times are omitted");
-  assert(result.email.includes("available on 20 November 2030"));
-  assert(result.email.includes("Would that work for you?"), "a suggested pickup window must be offered for the renter to accept, not described as a confirmed booking");
-  assert(result.reply.includes(`Pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}`), "the chat and phone quote intro states the concrete stock window in natural language");
+  assert(result.email.includes("The date-only check covers 2 ×"));
+  assert(result.email.includes("A possible window is pickup at"));
+  assert(result.email.includes("Would that suit?"), "a suggested pickup window must be offered for the renter to accept, not described as a confirmed booking");
+  assert(result.reply.includes(`A possible window is pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}`), "the chat and phone quote intro states the date-only window without promising availability");
   result = await run(1, {
     start: "2030-11-20", end: "2030-11-20", pickupTime: undefined, returnTime: undefined,
     requests: [{ subject: "Sony FX3 camera body", itemType: "camera", quantity: 1 }],
@@ -653,7 +659,8 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
   result = await run(4, { pickupTime: undefined, returnTime: undefined, requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }] }, "Please quote four wireless microphone kits for 20 November 2030.", "chat");
   assert.equal(result.enquiry.complete, true, "Gaffer chat quotes must also verify date-only quantities against one shared time window");
   assert.equal(result.enquiry.availabilityWindow.suggested, true);
-  assert(result.reply.includes(`Pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}`));
+  assert(result.reply.includes(`A possible window is pickup at ${result.enquiry.availabilityWindow.pickupTime} and return at ${result.enquiry.availabilityWindow.returnTime}`));
+  assert(!/available on 20 November|times are available/i.test(result.reply));
   finalReadFailures = 1;
   result = await run(4, { pickupTime: undefined, returnTime: undefined, requests: [{ subject: "wireless microphone kits", itemType: "wireless-mic", quantity: 4 }] }, "Please quote four wireless microphone kits for 20 November 2030.", "chat");
   assert.equal(finalReadFailures, 0, "one transient failure in the authoritative shared-window check is retried");
@@ -714,10 +721,26 @@ async function run(quantity = 4, extra = {}, explicitText, channel = "email") {
     requirementsComplete: true, complete: true, total: 47, days: 1,
     requests: [{ subject: "fx3", displaySubject: "Sony FX3 camera body", quantity: 1, fulfilled: 1, lines: [] }],
   });
-  assert(conciseChatQuote.includes("I have the requested Sony FX3 camera body available on 3 November 2026"));
-  assert(conciseChatQuote.includes("Pickup at 10:00 and return at 18:00 are available"));
-  assert(conciseChatQuote.includes("Gear hire is £47.00 for 1 rental day."));
+  assert(conciseChatQuote.includes("I can quote Sony FX3 camera body for 3 November 2026."));
+  assert(conciseChatQuote.includes("Indicative gear hire is £47.00 for 1 rental day."));
+  assert(conciseChatQuote.includes("A possible window is pickup at 10:00 and return at 18:00."));
+  assert(conciseChatQuote.includes("I'll confirm availability once you confirm those times."));
+  assert(!conciseChatQuote.includes("available on"), "date-only chat must not present suggested times as confirmed availability");
   assert(!conciseChatQuote.includes("1 of 1"), "the chat summary should avoid repeating the same quantity in two formats");
+  const conciseDateOnlyEmail = formatGafferEmailReply("", [], {
+    start: "2026-11-03", end: "2026-11-03", estimated: false, timed: false, stockVerified: true,
+    availabilityWindow: { pickupTime: "09:00", returnTime: "22:00", suggested: true },
+    requirementsComplete: true, complete: true, total: 47, days: 1,
+    requests: [{ subject: "FX 3", displaySubject: "Sony FX3 camera body", quantity: 1, fulfilled: 1,
+      lines: [{ listingId: "fx3", title: "Sony FX3 Body Kit with Cage and 320GB CFexpress Card",
+        displayTitle: "Sony FX3 Body Kit with Cage and 320GB CFexpress Card", slug: "sony-fx3", quantity: 1,
+        perDay: 47, total: 47, alternative: false }] }],
+  }, undefined, undefined, "Alex", "FX3 rental, 3 November 2026. Camera body only, no lens or gimbal.");
+  assert(conciseDateOnlyEmail.includes("would be £47.00 for the day on 3 November 2026"));
+  assert(conciseDateOnlyEmail.includes("A possible window is pickup at 09:00 and return at 22:00"));
+  assert(conciseDateOnlyEmail.includes("I’ll confirm availability once you tell me those times suit."));
+  assert(conciseDateOnlyEmail.endsWith("DB Cinema Rentals Team"));
+  assert(!/Sony a7 III|gimbal|Multi-day rates per unit|\b(?:3|7|14|30)\+ days\b|deposit|What dates/.test(conciseDateOnlyEmail), "a body-only date quote must stay focused and not repeat questions or upsell");
   const emailWithExtraAnswer = formatGafferEmailReply("This generated quote intro is replaced by the grounded email summary.", [], {
     start: "2026-11-03", end: "2026-11-03", pickupTime: "10:00", returnTime: "18:00", estimated: false, timed: true,
     stockVerified: true, requirementsComplete: true, complete: true, total: 47, days: 1,
