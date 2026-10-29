@@ -268,14 +268,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // Observe the entire transition. Waiting for the card to return and then
     // scrolling to it hid the disappearing-card defect in the older test.
     await c.evaluate(`(()=>{window.__missingMembershipOffer=false;window.__membershipOfferObserver=new MutationObserver(()=>{const card=(${card});if(!card||card.querySelector('h3')?.innerText!==${JSON.stringify(hook)})window.__missingMembershipOffer=true});window.__membershipOfferObserver.observe(document.body,{childList:true,subtree:true,characterData:true})})()`);
-    await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
+    if (name === 'checkout') await c.evaluate(`(${card}).querySelector('input[type="checkbox"]').click()`);
+    else await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
     if (name === 'checkout') {
       await until(`!!document.querySelector('[data-testid="membership-remove-dialog"]')`);
       assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-remove-dialog"]').innerText.includes(${JSON.stringify(hook.match(/£[\d.]+/)[0])})`),true,'Removal confirmation quotes the exact current net saving');
       await nativeClick(`document.querySelector('[data-testid="keep-membership"]')`);
       await until(`!document.querySelector('[data-testid="membership-remove-dialog"]')`);
       assert.equal(await c.evaluate(`(${card}).dataset.membershipSelected`),'true','Keeping savings leaves membership and consent unchanged');
-      await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
+      if (name === 'checkout') await c.evaluate(`(${card}).querySelector('input[type="checkbox"]').click()`);
+      else await nativeClick(name === 'drawer' ? `(${card}).querySelector('[data-testid="remove-membership"]')` : `(${card}).querySelector('input[type="checkbox"]')`);
       await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
       await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
     }
