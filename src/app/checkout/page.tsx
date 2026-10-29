@@ -216,7 +216,7 @@ export default function CheckoutPage() {
   const membershipRecommendations = membershipRecommendationPreview(quoted ? {
     offerContext: quoted.offerContext, recommendations: quoted.value.recommendations,
   } : null, offerContext, !!quoteError);
-  const displayedRecommendations = membershipDisplayQuote?.recommendations ?? membershipRecommendations ?? rentalPreview.recommendations;
+  const displayedRecommendations = membershipRecommendations ?? membershipDisplayQuote?.recommendations ?? rentalPreview.recommendations;
   const equipmentValue = currentQuote?.replacementValue ?? replacementSum;
   useEffect(() => { if (equipmentValue < 1000 && protection === "deposit") setProtection("verify"); }, [equipmentValue, protection]);
   const holdAmount = currentQuote?.depositHoldAmount ?? depositFor(protection, replacementSum);
