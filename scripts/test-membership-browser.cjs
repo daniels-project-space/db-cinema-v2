@@ -492,25 +492,25 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await shot("selected-checkout-mobile");
   await reload();
   await until(
-    `!!document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')`,
+    `!!document.querySelector('main [data-testid="membership-upsell"] input[type="checkbox"]')`,
   );
   assert.equal(
     await c.evaluate(
-      `document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]').checked`,
+      `document.querySelector('main [data-testid="membership-upsell"] input[type="checkbox"]').checked`,
     ),
     false,
   );
-  assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')`),false,'Reload never replays a selection celebration');
-  await c.evaluate(`document.querySelector('[data-testid="add-membership"]').focus()`);
+  assert.equal(await c.evaluate(`!!document.querySelector('main [data-testid="membership-celebration"]')`),false,'Reload never replays a selection celebration');
+  await c.evaluate(`document.querySelector('main [data-testid="add-membership"]').focus()`);
   await c.cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13});
   await c.cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
-  await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]').checked===true`);
-  assert.equal(await c.evaluate(`getComputedStyle(document.querySelector('[data-testid="membership-celebration"]')).display`),'none','Reduced motion keeps the selection state without the burst');
-  await removeAndReadd('', 'checkout');
-  await nativeClick(`document.querySelector('[data-testid="remove-membership"]')`);
+  await until(`document.querySelector('main [data-testid="membership-upsell"] input[type="checkbox"]').checked===true`);
+  assert.equal(await c.evaluate(`getComputedStyle(document.querySelector('main [data-testid="membership-celebration"]')).display`),'none','Reduced motion keeps the selection state without the burst');
+  await removeAndReadd('main ', 'checkout');
+  await nativeClick(`document.querySelector('main [data-testid="remove-membership"]')`);
   await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
   await nativeClick(`document.querySelector('[data-testid="confirm-remove-membership"]')`);
-  await until(`!!document.querySelector('[data-testid="add-membership"]')`);
+  await until(`!!document.querySelector('main [data-testid="add-membership"]')`);
   await c.evaluate(
     `document.querySelector('[data-testid="membership-upsell"]').scrollIntoView({block:'center'})`,
   );
