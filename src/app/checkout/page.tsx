@@ -91,6 +91,7 @@ export default function CheckoutPage() {
   const getQuote = useAction(api.delivery.quote);
   const track = useMutation(api.analytics.track);
   const membershipRequest = useRef<string|null>(null);
+  const membershipRecommendationCache = useRef<{offerContext:string;recommendations:any[]}|null>(null);
 
   useEffect(() => { membershipRequest.current = null; }, [membership?.tier, membership?.intro]);
   const replacementSum = items.reduce((n, i) => n + i.deposit, 0);
@@ -213,9 +214,7 @@ export default function CheckoutPage() {
   // This preview never becomes the billing quote or enables payment.
   const rentalPreview = useBasketPrice(true, false, effectivePickupTime, effectiveReturnTime);
   const membershipDisplayQuote = currentQuote ?? rentalPreview.quote;
-  const membershipRecommendations = membershipRecommendationPreview(quoted ? {
-    offerContext: quoted.offerContext, recommendations: quoted.value.recommendations,
-  } : null, offerContext, !!quoteError);
+  const membershipRecommendations = membershipRecommendationPreview(membershipRecommendationCache.current, offerContext, !!quoteError);
   const displayedRecommendations = membershipRecommendations ?? membershipDisplayQuote?.recommendations ?? rentalPreview.recommendations;
   const equipmentValue = currentQuote?.replacementValue ?? replacementSum;
   useEffect(() => { if (equipmentValue < 1000 && protection === "deposit") setProtection("verify"); }, [equipmentValue, protection]);
@@ -229,6 +228,7 @@ export default function CheckoutPage() {
     const timer = setTimeout(() => {
       getPriceQuote(priceArgs).then((value) => {
         if (!cancelled) {
+          if (!membership && value.recommendations?.length) membershipRecommendationCache.current={offerContext,recommendations:value.recommendations};
           setQuoted({ key: quoteKey, offerContext, value });
           if (shouldResetMembershipPreference(membership, value)) {
             setMembership(null);
