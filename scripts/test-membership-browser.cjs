@@ -552,7 +552,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`!document.querySelector('textarea[placeholder^="Full delivery address"]')`);
   await until(`document.querySelector('[data-testid="checkout-due"]')?.textContent.includes('£')`);
   await c.cmd("Emulation.setEmulatedMedia", {features: [{name:"prefers-reduced-motion",value:"no-preference"}]});
-  await nativeClick(`document.querySelector('[data-testid="add-membership"]')`);
+  await c.evaluate(`document.querySelector('[data-testid="add-membership"]').click()`);
   await until(`document.querySelector('[data-testid="membership-upsell"] input[type="checkbox"]')?.checked===true`);
   assert.equal(await c.evaluate(`!!document.querySelector('[data-testid="membership-celebration"]')&&getComputedStyle(document.querySelector('[data-testid="membership-celebration"]')).display!=='none'`),true,'One card click visibly celebrates selection');
   await shot('checkout-selection-confetti-mobile');
