@@ -98,9 +98,10 @@ function extras(title: string): number {
  */
 const squash = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
 
-/** Bookable items only; display-only marketing rows must never be quoted. */
+/** Bookable items only; display-only, unowned, marketing and unmapped rows must
+ * never be quoted or offered as available catalogue choices. */
 function bookable(rows: Doc<"listings">[]) {
-  return rows.filter((r) => r.active && !r.suppressed);
+  return rows.filter((r) => !rentalUnavailable(r) && rentableCandidate(r));
 }
 
 function detect(tokens: string[]) {

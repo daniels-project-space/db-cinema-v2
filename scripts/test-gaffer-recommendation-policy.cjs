@@ -6,26 +6,33 @@ for (const [alias,file] of Object.entries({
  '@/lib/compat':'src/lib/compat.ts','@/lib/kitRank':'src/lib/kitRank.ts','@/lib/site':'src/lib/site.ts',
 })) setMock(alias,load(file));
 const cam={_id:'fx3',slug:'fx3',title:'Sony FX3 camera + 24-70mm GM lens',itemType:'camera-body',specs:{mount:'E',coverage:'ff',includesLens:true,lensFocal:'24-70',batteryType:'NP-FZ100'},pricing:{daily:90},components:[{inventoryUnitId:'body',qty:1},{inventoryUnitId:'gm',qty:1}],inventoryFacts:{contents:['Sony FX3','Sony 24–70mm GM lens']}};
+const fx3Body={...cam,_id:'fx3-body',slug:'fx3-body',title:'Sony FX3 camera body',specs:{...cam.specs,includesLens:false},pricing:{daily:60},components:[{inventoryUnitId:'body',qty:1}],inventoryFacts:{owned:true,contents:['Sony FX3 camera body']}};
 const gm={_id:'gm',slug:'gm',title:'Sony 24-70mm f2.8 GM lens',itemType:'lens',specs:{mount:'E',coverage:'ff',tier:'premium',lensClass:'af',lensFocal:'24-70'},pricing:{daily:30},demandScore:999,components:[{inventoryUnitId:'gm',qty:1}]};
 const wide={...gm,_id:'wide',slug:'wide',title:'Sony 16-35mm f2.8 GM lens',specs:{...gm.specs,lensFocal:'16-35'},demandScore:10,components:[{inventoryUnitId:'wide',qty:1}]};
 const mystery={...gm,_id:'mystery',slug:'mystery',title:'Mystery 50mm lens',specs:{coverage:'ff'},components:[{inventoryUnitId:'mystery',qty:1}]};
 const rf={...cam,_id:'r5',slug:'r5',title:'Canon R5 camera body',specs:{mount:'RF',coverage:'ff'},components:[{inventoryUnitId:'r5',qty:1}]};
-let rows=[cam,gm,wide],availability=1,availabilityWithBasket=1,checks=[],intent={},narration='',modelHandoff=false;
+let rows=[cam,gm,wide],availability=1,availabilityWithBasket=1,checks=[],intent={},narration='',modelHandoff=false,modelSuggestions=[];
 setMock('convex/browser',{ConvexHttpClient:class{async query(name,args){
  if(name==='catalog.listListings')return rows;
  if(name==='catalog.byItemType')return rows.filter(r=>args.types.includes(r.itemType));
  if(name==='catalog.listingsByIds')return rows.filter(r=>args.ids.includes(r._id));
  if(name==='catalog.getListingBySlug')return rows.find(r=>r.slug===args.slug)||null;
  if(name==='catalog.compatibilityKits')return [];
+ if(name==='availability.forCheckoutTimeSlots'){
+  checks.push(args);return {validPairs:[{pickupTime:'10:00',returnTime:'17:00'}]};
+ }
+ if(name==='availability.forCart'){
+  checks.push(args);return Object.fromEntries(args.items.map(item=>[item.listingId,{ok:true,available:1}]));
+ }
  if(name==='availability.forListing'||name==='availability.forTimeSlots'){
-  assert(args.pickupTime&&args.returnTime,'date-only chat must not check/claim final availability');
+  if(args.pickupTime||args.returnTime)assert(args.pickupTime&&args.returnTime,'a clocked stock check needs both pickup and return times');
   checks.push(args);return {available:args.items?.length?availabilityWithBasket:availability};
  }
  throw Error('Unexpected query '+name);
 }}});
 setMock('@/lib/ai',{generateBotObject:async({prompt})=>{
  if(prompt.startsWith('You parse'))return intent;
- narration=prompt;return {reply:'Grounded response',suggestions:[],humanRequested:modelHandoff};
+ narration=prompt;return {reply:'Grounded response',suggestions:modelSuggestions,humanRequested:modelHandoff};
 }});
 process.env.OPENROUTER_API_KEY='isolated-fixture-no-provider-call';
 const {handleChat}=load('src/lib/gaffer.ts');
@@ -40,11 +47,19 @@ async function chat(next,message,cart,channel){
  assert(result.cards.every(c=>c.item.needsTimes&&c.item.available===null));
  assert.equal(checks.length,0);
  assert(narration.includes('Availability is not confirmed')||narration.includes('ask for complete dates and times'));
+	rows=[fx3Body];
  result=await chat({intent:'availability',subject:'Sony FX3',itemTypes:['camera'],...window},'Is the Sony FX3 free 20–21 November?');
- assert.equal(result.cards[0].item.available,null);
- assert(narration.includes('Choose pickup and return times before confirming availability'));
- assert.equal(checks.length,0);
- result=await chat({intent:'availability',subject:'Sony FX3',itemTypes:['camera'],...window,pickupTime:'10:00',returnTime:'17:00'},'Is the Sony FX3 free 20–21 November, pickup10 return17?');
+	assert.equal(result.enquiry.availabilityWindow?.suggested,true,'date-only chat can offer a real common pickup/return window');
+	assert.equal(result.enquiry.stockVerified,true,'a suggested window is backed by the common-basket stock check');
+	assert.equal(result.cards[0].item.available,true);
+	assert(narration.includes('10:00 pickup and 17:00 return'));
+	assert.equal(checks.length,2);
+	modelSuggestions=['Book the FX3','Add XLR handle unit','Try a compatible lens'];
+	result=await chat({intent:'price',subject:'Sony FX3',itemTypes:['camera'],start:'2026-11-03',end:'2026-11-03',pickupTime:'10:00',returnTime:'18:00'},'I need an FX3 camera body only for 3 November, pickup 10:00 and return 18:00.');
+	assert.equal(result.enquiry.complete,true,'the requested FX3 body remains the quoted item');
+	assert.deepEqual(result.suggestions,['Book the FX3'],'camera-only chat must suppress unrelated handles and lens upsells');
+	modelSuggestions=[];
+	result=await chat({intent:'availability',subject:'Sony FX3',itemTypes:['camera'],...window,pickupTime:'10:00',returnTime:'17:00'},'Is the Sony FX3 free 20–21 November, pickup at 10:00 and return at 17:00?');
  assert(checks.length>0);
  assert.equal(result.cards[0].item.pickupTime,'10:00');assert.equal(result.cards[0].item.returnTime,'17:00');
  assert.equal(result.cards[0].item.available,true);assert.equal(result.cards[0].item.needsTimes,false);
@@ -66,7 +81,7 @@ async function chat(next,message,cart,channel){
    assert(result.cards.some(card=>card.item.itemType===type),'Gaffer planner supports real catalogue type '+type);
  }
  for(const [mount,coverage,name,focal,extra] of [['EF','s35','Blackmagic Pocket 6K','24-70','16-35'],['RF','ff','Canon R5','24-70','15-35'],['MFT','mft','Panasonic GH5','12-35','7-14'],['E','ff','Sony A7 V','24-70','16-35']]){
-   const body={...cam,_id:'body-'+mount,slug:'body-'+mount,title:name+' with '+focal+'mm lens',specs:{mount,coverage,includesLens:true,lensFocal:focal},components:[{inventoryUnitId:'body-'+mount,qty:1},{inventoryUnitId:'kit-'+mount,qty:1}],inventoryFacts:{contents:[focal+'mm lens']}};
+   const body={...cam,_id:'body-'+mount,slug:'body-'+mount,title:name+' with '+focal+'mm lens',specs:{mount,coverage,includesLens:true,lensFocal:focal},components:[{inventoryUnitId:'body-'+mount,qty:1},{inventoryUnitId:'kit-'+mount,qty:1}],inventoryFacts:{owned:true,contents:[focal+'mm lens']},marketingOnly:false,marketingOnlySource:'rental_manager'};
    const bundled={...gm,_id:'lens-'+mount,slug:'lens-'+mount,title:name+' '+focal+'mm lens',specs:{mount,coverage,lensFocal:focal},components:[{inventoryUnitId:'kit-'+mount,qty:1}]};
    const useful={...bundled,_id:'extra-'+mount,slug:'extra-'+mount,title:name+' '+extra+'mm lens',specs:{mount,coverage,lensFocal:extra},components:[{inventoryUnitId:'extra-'+mount,qty:1}]};
    rows=[body,bundled,useful];result=await chat({intent:'build_kit',itemTypes:['camera','lens'],...window,pickupTime:'10:00',returnTime:'17:00'},'Build a '+name+' kit');

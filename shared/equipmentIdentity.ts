@@ -4,6 +4,7 @@
 export function normalizeEquipmentName(value: string): string {
   return String(value ?? "").replace(/ø/gi, "o").normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[×✕]/g, "x")
     .replace(/\ba7[\s-]*([345])\b/g, (_, generation: string) => `a7${({3:"iii",4:"iv",5:"v"} as Record<string,string>)[generation]}`)
     .replace(/\b(fx|fs|a|rs|rsc|gh|bmpcc|pxw|eos|c|r|z)[\s-]+(\d+[a-z]*)\b/g, "$1$2")
     .replace(/\b([a-z]+\d+[a-z]*)\s+(iii|ii|iv|vii|vi|v)\b/g, "$1$2");
@@ -33,6 +34,24 @@ export function equipmentOfferLabel(title: string): string {
     if (!remainder) return `${head[0]} camera body`;
   }
   return clean;
+}
+
+/**
+ * A short, customer-facing name for the product they asked for. Listing titles
+ * can include bundle extras; those belong on the quoted line, not in the
+ * requested-item summary.
+ */
+export function equipmentRequestLabel(title: string, itemType: string): string {
+  if (itemType === "camera-body" || itemType === "camera") {
+    const clean = String(title ?? "").replace(/\s+/g, " ").trim();
+    const brand = clean.match(/\b(Sony|Canon|Nikon|Panasonic|Blackmagic)\b/i);
+    if (brand) {
+      const afterBrand = clean.slice((brand.index ?? 0) + brand[0].length, (brand.index ?? 0) + brand[0].length + 48);
+      const model = afterBrand.match(/^\s*((?:EOS\s+)?[A-Za-z]{1,6}\s*-?\s*\d+[A-Za-z0-9]*(?:\s+(?:VII|VI|IV|III|II|V))?)/i)?.[1];
+      if (model) return equipmentOfferLabel(`${brand[1]} ${model} camera body`);
+    }
+  }
+  return equipmentOfferLabel(title);
 }
 
 /** Read a leading equipment count, never a focal range or model generation. */

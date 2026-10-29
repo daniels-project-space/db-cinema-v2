@@ -7,16 +7,17 @@ import { tierByKey } from "@/lib/membership";
 import { dayMs } from "@/lib/dates";
 import { lensScore, bestCompat, parseMounts } from "@/lib/mount";
 import { rentalDateLabel } from "../../shared/rentalDateLabel";
-import { normalizeEquipmentName } from "../../shared/equipmentIdentity";
+import { equipmentRequest, equipmentRequestLabel, normalizeEquipmentName } from "../../shared/equipmentIdentity";
 import { rentalPricingDays } from "../../shared/rentalDuration";
-import { gafferEmailQuoteIntro, type GafferEmailQuote } from "../../shared/gafferEmailQuote";
+import { explicitlyAllowsAlternatives, explicitlyNoOptionalAddOns, explicitlyRequestsOptionalAddOns, gafferEmailQuoteIntro, sanitizeQuoteSupplementalAnswer, type GafferEmailQuote } from "../../shared/gafferEmailQuote";
 import { rentalEnquiryWindow } from "./rentalEnquiryWindow";
 import { coverageCompat, kitWarnings } from "@/lib/compat";
-import { lensPriority, isCameraSet } from "@/lib/kitRank";
+import { lensPriority, isCameraSet, isLensSet } from "@/lib/kitRank";
 import { mountOf, coverageOf, deriveItemType, CATEGORY_OF } from "../../convex/lib/taxonomy";
 import { contentsText } from "../../shared/rentalContents";
 import { PICKUP_SLOTS, CONTACT_EMAIL } from "@/lib/site";
 import { alreadySupplied, automaticLens, automaticRecommendation, rentableCandidate, unrequestedCameraExtras, type RecommendationItem } from "../../shared/recommendationPolicy";
+import { createTypeListingLoader, type TypeListingLoader } from "./catalogCandidates";
 
 /**
  * Gaffer v2 — "engine decides, LLM narrates".
@@ -92,6 +93,23 @@ function queryIdentity(text: string): { ranges: string[]; models: string[]; nums
 function isSpecificSubject(text: string): boolean {
   const id = queryIdentity(text || "");
   return !!(id.ranges.length || id.models.length || id.nums.length || id.words.length);
+}
+
+function namedEquipmentModels(text: string): string[] {
+  return [...new Set(queryIdentity(text).models.filter(model =>
+    (/^[a-z]+\d/.test(model) || /^\d+(?:mm|cm|gb|tb|wh|mah|v|w|hz|k|p)$/i.test(model)) && !/^[ft]\d/.test(model)))];
+}
+
+function requestedQuantityNearModel(text: string, model: string): number {
+  const modelPattern = model.replace(/([a-z])(?=\d)/g, "$1\\s*");
+  const countWords = "one|two|three|four|five|six|seven|eight|nine|ten";
+  const match = text.match(new RegExp(`\\b(\\d{1,2}|${countWords}|a|an)\\s*(?:[x×]\\s*)?(?<bridge>(?:[a-z][a-z0-9-]*\\s+){0,2})${modelPattern}(?:s)?\\b`, "i"));
+  if (!match) return 1;
+  if (/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(match.groups?.bridge ?? "")) return 1;
+  const value = String(match[1]).toLowerCase();
+  const words = ["one","two","three","four","five","six","seven","eight","nine","ten"];
+  const quantity = value === "a" || value === "an" ? 1 : /^\d+$/.test(value) ? Number(value) : words.indexOf(value) + 1;
+  return Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 100 ? quantity : 1;
 }
 /** Genuine name match. Focal ranges must appear contiguously; model designators / standalone
  * numbers / distinctive words must all appear (checked against the despaced title so "24-70"
@@ -172,9 +190,7 @@ function demandBoost(l: any): number {
 /** For a SINGLE-item slot, prefer one item over a multi-item "ultimate"/3-lens kit (those
  * win on summed demand but aren't what "a lens" asks for). */
 function setPenalty(l: any): number {
-  const t = String(l?.title || "").toLowerCase();
-  if (/\bultimate\b/.test(t)) return 14;
-  if (l?.itemType === "lens" && (t.match(/\d{2,3}\s*-\s*\d{2,3}/g) || []).length >= 3) return 14; // 3-lens kit
+  if (l?.itemType === "lens" && isLensSet(String(l?.title || ""))) return 14;
   return 0;
 }
 /** Focal/aperture tokens for lens-similarity ranking ("24-70mm f2.8" → 24,70,28). */
@@ -221,6 +237,25 @@ function itemTypeMatches(slot: string, itemType: string | null | undefined): boo
   if (!expected) return false;
   return !!itemType && expected.includes(itemType);
 }
+/** Some owner-reviewed wireless mic multipacks are historically typed as recorders.
+ * Their verified pack-level contents let Gaffer find them for mic requests without
+ * treating arbitrary recorders or transmitter counts as complete microphone kits.
+ */
+function ownerVerifiedWirelessMicUnits(listing: any): number {
+  if (listing?.itemType !== "recorder" || listing.inventoryFacts?.owned !== true ||
+      listing.inventoryFacts?.reviewRequired !== false || !Array.isArray(listing.inventoryFacts?.contents)) return 0;
+  return listing.inventoryFacts.contents.reduce((total: number, content: unknown) => {
+    if (typeof content !== "string") return total;
+    const match = content.match(/^\s*(\d{1,3})\s*[x×]\s*(.+)$/i);
+    if (!match || !/\bwireless\s+mic(?:rophone)?\b/i.test(match[2]) || !/\b(?:set|kit|system)\b/i.test(match[2])) return total;
+    const count = Number(match[1]);
+    return count > 0 && count <= 100 ? total + count : total;
+  }, 0);
+}
+function itemTypeMatchesListing(slot: string, listing: any): boolean {
+  return itemTypeMatches(slot, listing?.itemType) ||
+    ((slot === "wireless-mic" || slot === "mic") && ownerVerifiedWirelessMicUnits(listing) > 0);
+}
 /** Plural human label for a gear type, for facts that ASSERT we stock a category. */
 const CATEGORY_PLURAL: Record<string, string> = {
   camera: "camera bodies", lens: "lenses", light: "lights", gimbal: "gimbals",
@@ -228,9 +263,18 @@ const CATEGORY_PLURAL: Record<string, string> = {
   tripod: "tripods", drone: "drones", speaker: "speakers",
   slider:"sliders",recorder:"recorders",DJ:"DJ decks",mixer:"mixers",headphones:"headphones",projector:"projectors",accessory:"accessories",
 };
-async function candidatesForType(c:ConvexHttpClient,type:string):Promise<any[]>{
+async function candidatesForType(
+  c: ConvexHttpClient,
+  type: string,
+  getTypeListings: TypeListingLoader = createTypeListingLoader(c),
+): Promise<any[]> {
   const types=EXPECTED_ITEMTYPES[type];
-  return types?c.query(api.catalog.byItemType,{types}):[];
+  if (!types) return [];
+  const listings: any[] = await getTypeListings(types);
+  if (type !== "wireless-mic" && type !== "mic") return listings;
+  const recorderListings: any[] = await getTypeListings(["recorder"]);
+  const verifiedMicPacks = recorderListings.filter(listing => ownerVerifiedWirelessMicUnits(listing) > 0);
+  return [...new Map([...listings, ...verifiedMicPacks].map(listing => [String(listing._id), listing])).values()];
 }
 async function availabilityForContext(c:ConvexHttpClient,listingId:any,start:string,end:string,ctx:Ctx):Promise<any>{
   // An inventory result is reused by recommendation ranking, card construction and
@@ -241,9 +285,22 @@ async function availabilityForContext(c:ConvexHttpClient,listingId:any,start:str
   const existing = cache.get(key);
   if (existing) return existing;
   const request={listingId,start:dayMs(start),end:dayMs(end),pickupTime:ctx.pickupTime,returnTime:ctx.returnTime};
-  const pending = ctx.cartStock?.length || (!ctx.availabilityReady && ctx.checkDateOnlyAvailability === true && !ctx.estimated)
-    ? c.query(api.availability.forTimeSlots,{...request,items:ctx.cartStock ?? []})
-    : c.query(api.availability.forListing,request);
+  const pending = (async () => {
+    if (!ctx.sharedStockRefresh) {
+      const action = (c as any).action;
+      // The test harness uses query-only clients; production ConvexHttpClient
+      // always exposes action(). A failed refresh stays a stock-check failure
+      // rather than silently quoting an old Rental Manager mirror.
+      if (typeof action === "function") {
+        const items = ctx.cartStock?.length ? ctx.cartStock : [{ ...request, qty: 1 }];
+        ctx.sharedStockRefresh = action.call(c, api.sync.refreshCartStock, { items });
+      }
+    }
+    if (ctx.sharedStockRefresh) await ctx.sharedStockRefresh;
+    return ctx.cartStock?.length || (!ctx.availabilityReady && ctx.checkDateOnlyAvailability === true && !ctx.estimated)
+      ? c.query(api.availability.forTimeSlots,{...request,items:ctx.cartStock ?? []})
+      : c.query(api.availability.forListing,request);
+  })();
   cache.set(key, pending);
   try {
     return await pending;
@@ -522,12 +579,12 @@ async function findAlternatives(
   requestText = "",
   availabilityCheck?: { unknown: boolean },
 ): Promise<any[]> {
-  const r: any[] = await candidatesForType(c,itemType||"lens");
+  const r: any[] = await candidatesForType(c,itemType||"lens",ctx.typeListingLoader ??= createTypeListingLoader(c));
   const wantSpecs = specTokens(subjectText);
   const cam = ctx.camMounts;
   const scored = (r || [])
     .filter(x => rentableCandidate(x) && !alreadySupplied(x, ctx.cartEvidence ?? []))
-    .filter((x) => itemTypeMatches(itemType, x.itemType) && String(x._id) !== excludeId && !excludeIds.includes(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && !listingNamedInRequest(x.title, requestText))
+    .filter((x) => itemTypeMatchesListing(itemType, x) && String(x._id) !== excludeId && !excludeIds.includes(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && !listingNamedInRequest(x.title, requestText))
     .map((x) => {
       let score = 0;
       if (itemType === "lens" || itemType === "lenses") {
@@ -581,10 +638,11 @@ async function findNamedMicOptions(
   requestText: string,
   ctx: Ctx,
 ): Promise<{ available: any[]; unavailable: any[]; unverified: any[] }> {
-  const rows: any[] = await candidatesForType(c, "wireless-mic");
+  const rows: any[] = await candidatesForType(c, "wireless-mic",ctx.typeListingLoader ??= createTypeListingLoader(c));
   const named = (rows || [])
-    .filter((item) => rentableCandidate(item) && itemTypeMatches("wireless-mic", item.itemType))
-    .filter((item) => listingNamedInRequest(item.title, requestText))
+    .filter((item) => rentableCandidate(item) && itemTypeMatchesListing("wireless-mic", item))
+    .filter((item) => listingNamedInRequest(item.title, requestText) ||
+      (djiMicGeneration(requestText) === 1 && ownerVerifiedFirstGenDjiMic(item)))
     .slice(0, 12);
   if (!ctx.availabilityReady) return { available: [], unavailable: [], unverified: named };
 
@@ -604,13 +662,13 @@ async function findNamedMicOptions(
 
 /** Best in-stock pick for a single slot (recommend / kit-fill), favourites-boosted. */
 async function bestForType(c: ConvexHttpClient, itemType: string, ctx: Ctx, seen: Set<string>): Promise<any | null> {
-  const r: any[] = await candidatesForType(c,itemType);
+  const r: any[] = await candidatesForType(c,itemType,ctx.typeListingLoader ??= createTypeListingLoader(c));
   const cam = ctx.camMounts;
   const cands = (r || [])
     .filter(x => rentableCandidate(x) && !alreadySupplied(x, ctx.cartEvidence ?? []))
     .filter(x => !["battery", "nd-filter", "gimbal"].includes(x.itemType ?? "") || automaticRecommendation(x, ctx.cartEvidence ?? [], ctx.compatibilityKits))
     .filter(x => x.itemType !== "lens" || !ctx.cartEvidence?.some(i => i.itemType === "camera-body") || automaticLens(x, ctx.cartEvidence))
-    .filter((x) => !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && itemTypeMatches(itemType, x.itemType))
+    .filter((x) => !seen.has(String(x._id)) && !ctx.cartIds.includes(String(x._id)) && itemTypeMatchesListing(itemType, x))
     .map((x) => {
       let score: number;
       if (itemType === "lens" || itemType === "lenses") {
@@ -717,6 +775,8 @@ type Ctx = {
   basketDatesMissing?:boolean;
   pickupTime?: string;
   returnTime?: string;
+  pickupTimeWindow?: { from: string; to: string };
+  returnTimeWindow?: { from: string; to: string };
   availabilityReady?: boolean;
   /** Only a structured rental quote may check a date-only basket and suggest pickup/return times. */
   checkDateOnlyAvailability?: boolean;
@@ -724,7 +784,11 @@ type Ctx = {
   cartEvidence?: RecommendationItem[];
   compatibilityKits?: RecommendationItem[];
   availabilityCache?: Map<string, Promise<any>>;
+  typeListingLoader?: TypeListingLoader;
+  sharedStockRefresh?: Promise<unknown>;
   requestedMicKitCount?: number | null;
+  allowOptionalAddOns?: boolean;
+  requestText?: string;
   today: string;
   estimated: boolean;
   start: string;
@@ -1230,7 +1294,7 @@ async function execute(intent: z.infer<typeof IntentSchema>, ctx: Ctx, requestTe
   // single-type discipline: a one-type ask shows only that type
   if (intent.itemTypes?.length === 1 && intent.intent !== "build_kit") {
     const want = intent.itemTypes[0];
-    const filtered = cards.filter((cd) => itemTypeMatches(want, cd.item?.itemType));
+      const filtered = cards.filter((cd) => itemTypeMatchesListing(want, cd.item));
     if (filtered.length) return { cards: filtered, facts, askDates: estimated, askTimes: !estimated && !ctx.availabilityReady };
   }
   return { cards, facts, askDates: estimated, askTimes: !estimated && !ctx.availabilityReady };
@@ -1251,19 +1315,72 @@ function enquiryNameMatches(subjectText: string, titleText: string): boolean {
   return qualifiers.every(word => compact.includes(word));
 }
 
+function ownerVerifiedFirstGenDjiMic(listing: any): boolean {
+  const contents = listing?.inventoryFacts?.contents;
+  return listing?.itemType === "wireless-mic" &&
+    listing.inventoryFacts?.owned === true &&
+    listing.inventoryFacts?.reviewRequired === false &&
+    Array.isArray(contents) && contents.some((line: unknown) =>
+      typeof line === "string" && /^\s*1\s*[x×]\s*DJI\s+Wireless\s+Mics?\s*$/i.test(line));
+}
+
+const GENERIC_ENQUIRY_WORDS = new Set([
+  "a", "an", "the", "some", "complete", "rental", "hire", "gear", "equipment",
+  "camera", "cameras", "body", "bodies", "lens", "lenses", "light", "lights", "lighting",
+  "wireless", "microphone", "microphones", "mic", "mics", "kit", "kits", "set", "sets",
+  "system", "systems", "audio", "gimbal", "gimbals", "monitor", "monitors", "tripod", "tripods",
+  "drone", "drones", "speaker", "speakers", "battery", "batteries", "filter", "filters", "nd",
+  "recorder", "recorders", "boom",
+]);
+function stripGenericRequestQuantity(subject: string): string {
+  return subject.trim().replace(
+    /^\s*(?:\d+\s*(?:[x×]\s*)?|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?=(?:complete\s+)?(?:wireless\s+)?(?:microphones?|mics?|kits?|sets?|systems?))/i,
+    "",
+  );
+}
+
+function enquiryListingMatches(subject: string, listing: any): boolean {
+  if (enquiryNameMatches(subject, listing.title)) return true;
+  // A generic category request may use the best real listing of that type even when the
+  // title uses a brand or a synonym (for example, "wireless microphone kit" vs
+  // "Rode Wireless Mic Pro set"). Keep named models, brands, numeric specs, and other
+  // distinguishing words on the exact-match path; they require a true name match or an
+  // explicitly accepted alternative.
+  const genericSubject = stripGenericRequestQuantity(subject);
+  const identity = queryIdentity(genericSubject);
+  const hasNamedBrand = /\b(?:sony|canon|arri|red|dji|rode|røde|sennheiser|shure|hollyland|saramonic)\b/i.test(genericSubject);
+  const unexplainedWords = toks(genericSubject).filter(token => !/^\d+$/.test(token) && !GENERIC_ENQUIRY_WORDS.has(token));
+  const requestedTypes = EXPECTED_ITEMTYPES[deriveItemType(genericSubject)] ?? [];
+  if (!identity.ranges.length && !identity.models.length && !identity.nums.length && !hasNamedBrand &&
+      !unexplainedWords.length && requestedTypes.some(type => itemTypeMatchesListing(type, listing))) return true;
+  // This owner-verified original DJI Mic offer is titled without a generation
+  // number. Its canonical stock line distinguishes it from the separate Mic 2.
+  if (djiMicGeneration(subject) !== 1 || !ownerVerifiedFirstGenDjiMic(listing)) return false;
+  const firstGenSubject = subject.replace(
+    /\bdji\s+(?:wireless\s+)?mic(?:rophone)?\s*(?:one|1(?:st)?)\b/gi,
+    "DJI Mic",
+  );
+  return enquiryNameMatches(firstGenSubject, listing.title);
+}
+
 /** Only reviewed owner counts can turn one offer into multiple requested items.
  * An old title saying '5x mics' is not evidence of five complete wireless kits.
  */
 export function unitsPerEnquiryOffer(listing: any, subject: string, alternative = false): number {
-  if (listing.itemType !== "wireless-mic" && /\b(?:sets?|kits?|packs?|bundles?)\b/i.test(subject)) return 1;
-  const identity = subject.replace(/\b(?:a|an|the|some|complete|wireless|microphones?|mics?|kits?|sets?|cameras?|bodies|body|lenses?|lights?|lighting|tripods?|gimbals?|monitors?|batteries|battery|drones?|recorders?|speakers?|mixers?|headphones?|projectors?|accessories|accessory|equipment|gear|rental|hire)\b/gi, "").replace(/[^a-z0-9]/gi, "");
-  const ranges = queryIdentity(subject).ranges;
+  const verifiedWirelessMicPack = ownerVerifiedWirelessMicUnits(listing) > 0;
+  if (listing.itemType !== "wireless-mic" && !verifiedWirelessMicPack && /\b(?:sets?|kits?|packs?|bundles?)\b/i.test(subject)) return 1;
+  const matchSubject = stripGenericRequestQuantity(subject);
+  const identity = matchSubject.replace(/\b(?:a|an|the|some|complete|wireless|microphones?|mics?|kits?|sets?|cameras?|bodies|body|lenses?|lights?|lighting|tripods?|gimbals?|monitors?|batteries|battery|drones?|recorders?|speakers?|mixers?|headphones?|projectors?|accessories|accessory|equipment|gear|rental|hire)\b/gi, "").replace(/[^a-z0-9]/gi, "");
+  const ranges = queryIdentity(matchSubject).ranges;
   const counts = (listing.inventoryFacts?.contents ?? []).flatMap((text: string) => {
     const match = text.match(/^\s*(\d{1,3})\s*[x×]\s*(.+)$/i);
-    if (!match || deriveItemType(match[2]) !== listing.itemType) return [];
-    if (listing.itemType === "wireless-mic" && /\b(?:transmitters?|receivers?|lavaliers?|lavs?|tx|rx)\b/i.test(match[2]) && !/\b(?:kit|set|system)\b/i.test(match[2])) return [];
+    if (!match) return [];
+    const partType = deriveItemType(match[2]);
+    if (partType !== listing.itemType && !(verifiedWirelessMicPack && partType === "wireless-mic")) return [];
+    if ((listing.itemType === "wireless-mic" || verifiedWirelessMicPack) && /\b(?:transmitters?|receivers?|lavaliers?|lavs?|lapels?|tx|rx|cases?|cables?|adapters?|chargers?|clips?|windscreens?|windshields?)\b/i.test(match[2]) &&
+      !/\b(?:kit|set|system)\b/i.test(match[2])) return [];
     // A 24–70 + 70–200 + 35mm bundle is three lenses, but only one 24–70.
-    if (identity && !alternative && !enquiryNameMatches(subject, match[2])) return [];
+    if (identity && !alternative && !enquiryNameMatches(matchSubject, match[2])) return [];
     if (alternative && listing.itemType === "lens" && ranges.length && !ranges.every(range => match[2].replace(/[^a-z0-9]/gi, "").includes(range))) return [];
     const count = Number(match[1]);
     return count > 0 && count <= 100 ? [count] : [];
@@ -1281,13 +1398,21 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
   const cards: any[] = [];
   const facts: string[] = [];
   const catalogue = new Map<string, Promise<any[]>>();
+  const getTypeListings = planning.typeListingLoader ??= createTypeListingLoader(c);
   const timed = !!ctx.availabilityReady;
   const dated = !ctx.estimated;
   const days = quoteDays(start, end, timed ? ctx.pickupTime : undefined, timed ? ctx.returnTime : undefined);
   const enquiry: GafferEmailQuote = {
     start, end, pickupTime: ctx.pickupTime, returnTime: ctx.returnTime, days,
+    pickupTimeWindow: ctx.pickupTimeWindow, returnTimeWindow: ctx.returnTimeWindow,
+    timeWindowPricingConservative: (!!ctx.pickupTimeWindow || !!ctx.returnTimeWindow) && timed,
     estimated: ctx.estimated, timed, stockVerified: false, requirementsComplete: intent.requirementsComplete !== false, complete: false, total: null, requests: [],
   };
+  if (enquiry.timeWindowPricingConservative) {
+    const pickupRange = ctx.pickupTimeWindow ? `${ctx.pickupTimeWindow.from}–${ctx.pickupTimeWindow.to}` : ctx.pickupTime;
+    const returnRange = ctx.returnTimeWindow ? `${ctx.returnTimeWindow.from}–${ctx.returnTimeWindow.to}` : ctx.returnTime;
+    facts.push(`The customer gave a time window. Check stock and price against pickup ${pickupRange} through return ${returnRange}; the quoted price uses the earliest pickup and latest return and may be lower once exact times are set.`);
+  }
   const addCard = async (listing: any, reason: string) => {
     let card = cards.find(x => String(x.item.listingId) === String(listing._id));
     if (!card) {
@@ -1307,19 +1432,31 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
   for (const request of (intent.requests ?? []).slice(0, 8)) {
     const line: GafferEmailQuote["requests"][number] = { subject: request.subject, quantity: request.quantity, fulfilled: dated ? 0 : null, lines: [] };
     enquiry.requests.push(line);
-    if (!catalogue.has(request.itemType)) catalogue.set(request.itemType, candidatesForType(c, request.itemType));
+    if (!catalogue.has(request.itemType)) catalogue.set(request.itemType, candidatesForType(c, request.itemType, getTypeListings));
     const candidates = await catalogue.get(request.itemType)!;
     const original = await resolveSubjectListing(c, request.subject, { camMounts: planning.camMounts, itemType: request.itemType });
-    const matches = (listing: any) => enquiryNameMatches(request.subject, listing.title);
+    const matches = (listing: any) => enquiryListingMatches(request.subject, listing);
+    const configurationText = [request.subject, ctx.requestText ?? ""].filter(Boolean).join(" ");
+    const noExtraConfiguration = explicitlyNoOptionalAddOns(configurationText);
     const exact = [...new Map([original, ...candidates]
-      .filter(x => x && rentableCandidate(x) && itemTypeMatches(request.itemType, x.itemType) && matches(x))
+      .filter(x => x && rentableCandidate(x) && itemTypeMatchesListing(request.itemType, x) && matches(x))
       .map(x => [String(x._id), x])).values()]
       .sort((a, b) => {
         const aUnits = unitsPerEnquiryOffer(a, request.subject), bUnits = unitsPerEnquiryOffer(b, request.subject);
-        return unrequestedCameraExtras(a, request.subject) - unrequestedCameraExtras(b, request.subject) ||
+        return unrequestedCameraExtras(a, configurationText, noExtraConfiguration) - unrequestedCameraExtras(b, configurationText, noExtraConfiguration) ||
           Math.max(0, aUnits - request.quantity) - Math.max(0, bUnits - request.quantity) ||
           (a.pricing.daily / aUnits) - (b.pricing.daily / bUnits) || aUnits - bUnits;
       }).slice(0, 8);
+    const requestIdentity = queryIdentity(request.subject);
+    const namedRequest = requestIdentity.models.length > 0 || requestIdentity.ranges.length > 0 || requestIdentity.nums.length > 0 ||
+      djiMicGeneration(request.subject) !== null || /\b(?:sony|canon|arri|red|dji|rode|røde|sennheiser|shure|hollyland|saramonic)\b/i.test(request.subject);
+    // Keep the renter's named model in the reply even when its only catalogue
+    // match has excluded accessories or is out of stock. This label describes
+    // the request; only the later stock-checked `lines` describe an offer.
+    const displayListing = namedRequest
+      ? exact.find(listing => unrequestedCameraExtras(listing, configurationText, noExtraConfiguration) === 0) ?? exact[0]
+      : undefined;
+    if (displayListing) line.displaySubject = equipmentRequestLabel(displayListing.title, displayListing.itemType);
     if (request.quantityIsListingUnits === false) {
       line.quantityUnit = "individual components; number of complete rental kits needs clarification";
       line.fulfilled = null;
@@ -1330,9 +1467,24 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
     }
     let remaining = request.quantity;
     let stockUncertain = false;
+    let durationEligibleOfferSeen = false;
+    const minimumRentalOffers: NonNullable<GafferEmailQuote["requests"][number]["minimumRentalOffer"]>[] = [];
     const consider = async (listing: any, alternative: boolean) => {
       if (!remaining || cards.length >= 32 || planning.cartStock!.length >= 100) return;
-      const card = await addCard(listing, alternative ? `Alternative to ${request.subject}; confirm the substitution` : `Requested ${request.subject}`);
+      const minimumDays = Number.isSafeInteger(listing.minimumRentalDays) && listing.minimumRentalDays >= 1 ? listing.minimumRentalDays : 1;
+      if (days < minimumDays) {
+        if (listing.pricing && Number.isFinite(listing.pricing.daily)) {
+          const minimumQuote = quote(listing.pricing, minimumDays);
+          minimumRentalOffers.push({ title: listing.title, slug: listing.slug ?? "", minimumDays, total: minimumQuote.total, alternative });
+        }
+        return;
+      }
+      durationEligibleOfferSeen = true;
+      const subjectIdentity = queryIdentity(request.subject);
+      const subjectSpecific = subjectIdentity.models.length > 0 || subjectIdentity.ranges.length > 0 || subjectIdentity.nums.length > 0 ||
+        /\b(?:sony|canon|arri|red|dji|rode|røde|sennheiser|shure|hollyland|saramonic)\b|\bwireless\s+pro\b/i.test(request.subject);
+      const explicitAlternative = alternative && subjectSpecific;
+      const card = await addCard(listing, explicitAlternative ? `Alternative to ${request.subject}; confirm the substitution` : `Requested ${request.subject}`);
       let stock: any = null;
       if (dated) {
         try { stock = await availabilityForContext(c, listing._id, start, end, planning); }
@@ -1347,14 +1499,28 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
       // Prefer fitting whole packages and leave the remainder for a single
       // item. A two-body pack is not an exact one-body configuration.
       const fittingOffers = Math.floor(remaining / providedPerOffer);
-      if (!fittingOffers && request.allowAlternatives === false) return;
+      if (!fittingOffers && request.allowAlternatives !== true) return;
       const offersNeeded = fittingOffers || 1;
-      if (!fittingOffers) alternative = true;
+      const requiresConfirmation = explicitAlternative || !fittingOffers;
       const count = Number.isSafeInteger(stock?.available) ? Math.min(offersNeeded, Math.max(0, stock.available)) : 0;
       if (dated && !count) return;
       const quantity = dated ? count : offersNeeded;
       const covered = Math.min(remaining, quantity * providedPerOffer);
-      line.lines.push({ listingId: String(listing._id), title: listing.title, slug: listing.slug, quantity, providedUnits: quantity * providedPerOffer, perDay: card.item.perDay, total: card.item.total * quantity, alternative });
+      const bodyOnlyRequest = listing.itemType === "camera-body" &&
+        !/\b(?:lens|gimbal|tripod|monitor|microphones?|mics?|audio|rig|kit|bundle|package)\b/i.test(request.subject) &&
+        unrequestedCameraExtras(listing, configurationText, noExtraConfiguration) === 0;
+      const displayTitle = bodyOnlyRequest && !requiresConfirmation
+        ? equipmentRequestLabel(listing.title, listing.itemType)
+        : undefined;
+      line.lines.push({
+        listingId: String(listing._id), title: listing.title, ...(displayTitle ? { displayTitle } : {}), slug: listing.slug, quantity,
+        providedUnits: quantity * providedPerOffer, perDay: card.item.perDay, total: card.item.total * quantity,
+        alternative: requiresConfirmation,
+        ...(listing.inventoryFacts?.reviewRequired === true ? {
+          inventoryReviewRequired: true,
+          ...(Array.isArray(listing.inventoryFacts?.contents) ? { verifiedContents: listing.inventoryFacts.contents } : {}),
+        } : {}),
+      });
       remaining -= covered;
       if (dated) {
         line.fulfilled = (line.fulfilled ?? 0) + covered;
@@ -1366,27 +1532,35 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
       }
     };
     for (const listing of exact) {
-      const configurationChange = unrequestedCameraExtras(listing, request.subject) > 0;
-      if (configurationChange && request.allowAlternatives === false) continue;
+      const configurationChange = unrequestedCameraExtras(listing, configurationText, noExtraConfiguration) > 0;
+      if (configurationChange && (request.allowAlternatives !== true || noExtraConfiguration)) continue;
       await consider(listing, configurationChange);
       if (!remaining) break;
     }
-    if (remaining && cards.length < 32 && request.allowAlternatives !== false) {
+    if (remaining && cards.length < 32 && request.allowAlternatives === true) {
       try {
         const availabilityCheck = { unknown: false };
         const alternatives = await findAlternatives(c, request.subject, request.itemType, planning, 8, undefined, subjectMounts(request.subject, original), exact.map(x => String(x._id)), "", availabilityCheck);
         for (const listing of alternatives) {
+          if (noExtraConfiguration && unrequestedCameraExtras(listing, configurationText, true) > 0) continue;
           await consider(listing, true);
           if (!remaining) break;
         }
         if (remaining && availabilityCheck.unknown) stockUncertain = true;
       } catch { stockUncertain = true; }
     }
+    if (!line.lines.length && !durationEligibleOfferSeen && !stockUncertain && minimumRentalOffers.length) {
+      const minimumOffer = minimumRentalOffers.sort((a, b) => a.minimumDays - b.minimumDays || a.total - b.total)[0];
+      line.minimumRentalOffer = minimumOffer;
+      line.availabilityIssue = "minimum_rental_days";
+      line.fulfilled = 0;
+      facts.push(`MINIMUM RENTAL PERIOD: ${minimumOffer.title} has a ${minimumOffer.minimumDays}-day minimum. Its minimum gear hire is £${minimumOffer.total.toFixed(2)} for ${minimumOffer.minimumDays} days, but stock was not checked for that longer period. The customer's current requested duration is ${days} day${days === 1 ? "" : "s"}. Do not silently extend the dates or describe it as available; ask whether they want to check a rental that meets the minimum.`);
+    }
     if (stockUncertain && remaining) { line.fulfilled = null; line.availabilityIssue = "stock_check_failed"; }
     if (!exact.length) facts.push(`NO VERIFIED RENTABLE EXACT MATCH for "${request.subject}". Returned substitutes are different products, not the requested model. Do not deny the whole category.`);
   }
   const hasProposals = enquiry.requests.some(request => request.lines.length > 0);
-  if (dated && !hasProposals && enquiry.requests.length && enquiry.requests.every(request => request.fulfilled === 0)) enquiry.stockVerified = true;
+  if (dated && !hasProposals && enquiry.requests.length && enquiry.requests.every(request => request.fulfilled === 0 && !request.minimumRentalOffer)) enquiry.stockVerified = true;
   if (dated && hasProposals) {
     try {
       if (timed) {
@@ -1447,6 +1621,66 @@ export async function planEmailEnquiry(intent: z.infer<typeof IntentSchema>, ctx
   enquiry.complete = enquiry.stockVerified && intent.requirementsComplete !== false && enquiry.requests.every(x => x.fulfilled === x.quantity);
   const proposed = enquiry.requests.flatMap(x => x.lines);
   if (proposed.length && (!dated || enquiry.stockVerified)) enquiry.total = proposed.reduce((sum, x) => sum + x.total, 0);
+  const request = enquiry.requests.length === 1 ? enquiry.requests[0] : null;
+  const requestedLine = request?.fulfilled === 1 && request.quantity === 1 && request.lines.length === 1 && !request.lines[0].alternative
+    ? request.lines[0]
+    : null;
+  const sourceCard = requestedLine && cards.find(card => String(card.item.listingId) === requestedLine.listingId &&
+    ["camera-body", "lens"].includes(card.item.itemType));
+  const addOnPriority: Record<string, string[]> = {
+    "camera-body": ["lens", "battery", "gimbal"],
+    lens: ["nd-filter", "camera-body"],
+  };
+  const addOnDetails: Record<string, { label: string; fitNote: string }> = {
+    lens: { label: "compatible lens", fitNote: "fits the camera's mount" },
+    battery: { label: "matching battery", fitNote: "uses the camera's battery type" },
+    gimbal: { label: "compatible gimbal", fitNote: "is verified for this camera setup" },
+    "nd-filter": { label: "compatible ND filter", fitNote: "matches the lens's filter thread" },
+    "camera-body": { label: "compatible camera body", fitNote: "accepts the requested lens's mount" },
+  };
+  const preferredAddOnTypes = sourceCard ? addOnPriority[sourceCard.item.itemType] ?? [] : [];
+  const requestText = [intent.subject, ...((intent.requests ?? []).map(item => item.subject))].join(" ");
+  const optionalAddOnsAllowed = ctx.allowOptionalAddOns === true && !explicitlyNoOptionalAddOns(requestText);
+  const pickupTime = enquiry.availabilityWindow?.pickupTime ?? ctx.pickupTime;
+  const returnTime = enquiry.availabilityWindow?.returnTime ?? ctx.returnTime;
+  if (optionalAddOnsAllowed && enquiry.complete && enquiry.stockVerified && sourceCard && preferredAddOnTypes.length && enquiry.total !== null &&
+      !enquiry.availabilityIssue && !sourceCard.item.inventoryReviewRequired && !enquiry.estimated && pickupTime && returnTime) {
+    try {
+      const groupKey = "gaffer-compatible-add-on";
+      const recommendationResult: any = await ctx.c.query(api.liveRecommendations.options, {
+        groups: [{ key: groupKey, types: preferredAddOnTypes, start: dayMs(start), end: dayMs(end), pickupTime, returnTime }],
+        basket: planning.cartStock!.map(item => ({ ...item, pickupTime, returnTime })),
+      });
+      const candidates: any[] = recommendationResult?.groups?.[groupKey]?.options ?? [];
+      const compatible = preferredAddOnTypes.map(type => candidates.find(option => option?.itemType === type &&
+        option?.available === true && option?.automaticEligible === true && option?.inventoryFacts?.reviewRequired !== true &&
+        typeof option?.listingId === "string" && typeof option?.title === "string" && typeof option?.slug === "string" &&
+        option?.pricing && Number.isFinite(option.pricing.daily))).find(Boolean);
+      if (compatible) {
+        const details = addOnDetails[compatible.itemType];
+        const price = quote(compatible.pricing, enquiry.days);
+        const recommendation = {
+          listingId: compatible.listingId, title: compatible.title, slug: compatible.slug, itemType: compatible.itemType,
+          label: details.label, fitNote: details.fitNote, quantity: 1,
+          perDay: price.perDay, total: price.total, days: enquiry.days, start, end, pickupTime, returnTime,
+          compatibility: details.fitNote, includedInTotal: false as const,
+        };
+        enquiry.recommendedAddOn = recommendation;
+        const item = {
+          listingId: compatible.listingId, slug: compatible.slug, title: compatible.title, image: compatible.heroImage ?? compatible.image ?? null,
+          imageSources: compatible.imageSources ?? [], start, end, pickupTime, returnTime, needsTimes: false, days: enquiry.days,
+          perDay: price.perDay, total: price.total, available: true, availableUnits: 1, itemType: compatible.itemType,
+          mount: compatible.specs?.mount ?? compatible.mount ?? null, lensClass: compatible.specs?.lensClass ?? null,
+          tier: compatible.specs?.tier ?? null, pricing: compatible.pricing, quoteTimed: true, rateTier: price.tier.label,
+          saved: price.saved, savedPct: price.savedPct, rateLadder: price.ladder, inventoryReviewRequired: false,
+        };
+        cards.push({ kind: "add", reason: `Optional ${details.label}; separately priced`, item });
+        facts.push(`OPTIONAL ${details.label.toUpperCase()}: ${compatible.title} (${compatible.slug}) ${details.fitNote} and passed a live combined-basket stock check for ${start} ${pickupTime} pickup to ${end} ${returnTime} return in London. Its gear-hire price is £${price.total.toFixed(2)} for ${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}. This is an optional addition, is not included in the requested-item total, is not reserved, and must be added by the customer if wanted.`);
+      }
+    } catch {
+      // A recommendation lookup failure must never change the confirmed quote.
+    }
+  }
   facts.push(`RENTAL ENQUIRY EVIDENCE: ${JSON.stringify(enquiry)}. This is a read-only quote, not a hold or booking. State the exact confirmed count and shortfall. If availabilityIssue is present, explain that specific issue in one clear sentence. Each alternative is a proposed substitution requiring the customer's agreement. Never count individual transmitters as complete mic kits, or add independently available quantities across overlapping listings.`);
   if (intent.requirementsComplete === false) facts.push("INCOMPLETE ENQUIRY PARSE: additional or ambiguous requirements remain. Do not claim the whole enquiry is fulfilled. Ask the customer to clarify the remaining items; the proposal covers only the listed requirements.");
   facts.push("PRICING: quote totals and rates exactly from the evidence. For supplied times, started 24-hour London rental periods apply. Date-only totals are provisional until times are supplied. Each listing's applicable multi-day tier is already reflected in its period total. The applicable tier is already included: do not apply another multi-day discount. Gear hire excludes separately quoted delivery and security payments; never invent their amounts or a membership entitlement for an unverified email sender.");
@@ -1461,6 +1695,7 @@ export async function quoteRentalEnquiry(input: {
   pickupTime?: string; returnTime?: string; days?: number;
   requests?: { subject: string; itemType: string; quantity: number; quantityIsListingUnits: boolean; allowAlternatives: boolean }[];
   requirementsComplete?: boolean;
+  allowOptionalAddOns?: boolean;
 }) {
   const ctx = await loadContext({});
   const quantity = input.quantity ?? 1;
@@ -1474,10 +1709,14 @@ export async function quoteRentalEnquiry(input: {
   ctx.estimated = !input.start;
   ctx.pickupTime = input.pickupTime;
   ctx.returnTime = input.returnTime;
+  const requestSubjects = [input.subject, ...(input.requests ?? []).map(request => request.subject)].join(" ");
+  ctx.requestText = requestSubjects;
+  ctx.allowOptionalAddOns = input.allowOptionalAddOns === true && !explicitlyNoOptionalAddOns(requestSubjects);
   ctx.availabilityReady = !ctx.estimated && !!input.pickupTime && !!input.returnTime && PICKUP_SLOTS.includes(input.pickupTime) && PICKUP_SLOTS.includes(input.returnTime) && (ctx.start !== ctx.end || input.returnTime > input.pickupTime);
   const itemType = input.itemType === "camera-body" ? "camera" : input.itemType;
-  const requests = input.requests?.map(request => ({ ...request, itemType: request.itemType === "camera-body" ? "camera" : request.itemType })) ??
-    [{ subject: input.subject, itemType, quantity, quantityIsListingUnits: true, allowAlternatives: true }];
+  const requests = input.requests?.map(request => ({ ...request, itemType: request.itemType === "camera-body" ? "camera" : request.itemType,
+    allowAlternatives: request.allowAlternatives === true })) ??
+    [{ subject: input.subject, itemType, quantity, quantityIsListingUnits: true, allowAlternatives: false }];
   const intent = IntentSchema.parse({
     intent: "price", subject: input.subject, itemTypes: requests.map(request => request.itemType), cameraModel: "", pricePref: "any",
     requirementsComplete: input.requirementsComplete !== false, requests,
@@ -1487,16 +1726,16 @@ export async function quoteRentalEnquiry(input: {
 
 // ── stage 3: narrate (grounded — only states facts, only names the chosen cards) ──
 const NarrateSchema = z.object({
-  reply: z.string().describe("a STRUCTURED reply: one short lead line, then a markdown bullet ('- ') per item/point, then one short closing question — newlines between. Never a paragraph."),
-  additionalAnswer: z.string().describe("For email gear quotes only: answer any other customer questions about collection, location, delivery or verified policies. Use an empty string if there are none. Do not repeat equipment, quantities, availability or prices here; the application supplies those exactly."),
+  reply: z.string().describe("A concise, natural reply in short paragraphs. Use a short list only when it makes several choices easier to compare."),
+  additionalAnswer: z.string().describe("Only when the customer also asks a separate question about location, collection, delivery or a verified policy: answer that question briefly using public facts. Otherwise return an empty string. Never include gear options, quantities, stock, rental prices, rate tables or checkout text; structured quote facts are supplied separately."),
   suggestions: z.array(z.string()).describe("exactly 2-3 short next actions in the customer's voice, max 5 words each"),
   humanRequested: z.boolean().describe("true for an explicit human request or when the case requires unavailable facts or a human decision/action; false for ordinary answerable questions and missing rental dates/times"),
 });
 
-async function narrate(history: any[], result: ExecResult, ctx: Ctx, channel: "chat" | "email" = "chat"): Promise<{ reply: string; suggestions: string[]; humanRequested: boolean }> {
-  const cardLines = result.cards.map((cd) => `- ${cd.item.title} — £${cd.item.perDay}/day${cd.item.favorite ? " (their saved favourite)" : ""}${cd.item.needsTimes ? " (availability unconfirmed: dates/times needed)" : Number.isSafeInteger(cd.item.availableUnits) ? ` (${cd.item.availableUnits} available for selected dates/times)` : " (availability not confirmed)"}`).join("\n") || "(no cards)";
+async function narrate(history: any[], result: ExecResult, ctx: Ctx, channel: "chat" | "email" = "chat"): Promise<{ reply: string; suggestions: string[]; humanRequested: boolean; additionalAnswer?: string }> {
+  const cardLines = result.cards.map((cd) => `- ${cd.item.title} — £${cd.item.perDay}/day${cd.item.favorite ? " (their saved favourite)" : ""}${cd.item.needsTimes ? " (availability unconfirmed: dates/times needed)" : Number.isSafeInteger(cd.item.availableUnits) ? ` (${cd.item.availableUnits} available for selected dates/times)` : " (availability not confirmed)"}${cd.item.inventoryReviewRequired ? " (packing review needed: describe only owner-verified contents)" : ""}`).join("\n") || "(no cards)";
   const channelRules = channel === "email"
-    ? "EMAIL RESPONSE: the application appends one concise itemised quote with quantities, period totals, relevant savings and the team signature after your prose. Lead with whether the entire requested quantity can be covered, identify substitutions and shortfalls, and ask for missing dates/times or acceptance of alternatives. Do not duplicate the full appended list or invent a combined total. The appended list is part of the message the customer receives. Do not add a signature; the application signs the finished email as DB Cinema Rentals team. Put answers to any additional location, collection, delivery or policy questions in additionalAnswer, using the public facts; the application preserves that answer beside its exact gear quote."
+    ? "EMAIL RESPONSE: the application constructs the complete itemised quote from verified data and adds the team signature. When an enquiry has a structured quote, your reply prose is not used. Put only a brief answer to a separate location, collection, delivery or policy question in additionalAnswer, using public facts. Leave it empty when the customer did not ask a separate question. Never recreate or supplement the structured quote."
     : "";
   const who = `Customer: ${ctx.customerName}.${ctx.memberName ? ` ${ctx.memberName} member — apply their ${ctx.memberPct}% discount and mention the saving.` : ""}${ctx.favTitles.length ? ` Saved favourites: ${ctx.favTitles.join(", ")}.` : ""}${ctx.cartTitles.length ? ` Currently in their cart: ${ctx.cartTitles.join(", ")}.` : ""}${ctx.pastTitles.length ? ` Previously rented: ${ctx.pastTitles.join(", ")}.` : ""}`;
   const convo = history.slice(-6).map((m: any) => `${m.role === "user" ? "CUSTOMER" : "GAFFER"}: ${String(m.content || "")}`).join("\n");
@@ -1508,6 +1747,7 @@ async function narrate(history: any[], result: ExecResult, ctx: Ctx, channel: "c
 STYLE:
 Write like a knowledgeable rental colleague replying personally. Answer the actual question first, in plain English. Use short natural paragraphs, usually two to four sentences. Avoid headlines, repetitive summaries, sales patter, decorative dashes and forced bullet lists. Use a short list only when it genuinely makes several choices easier to compare. Do not repeat every card in the prose. Ask one useful question when information is missing; do not force a closing question after a complete answer.
 Use recognisable short equipment names, preserving the exact model, generation and relevant specification. Help the customer get what they requested first. Offer an upgrade only for a concrete benefit relevant to their shoot, and label it as optional. Never add lenses, a gimbal or a package to a camera-only enquiry unless the customer wants them or the exact body cannot be supplied, in which case explain and ask before substituting.
+${ctx.allowOptionalAddOns ? "The customer asked for compatible recommendations or a fuller kit. Offer no more than one verified extra when it clearly helps with the stated shoot." : "Keep the reply to the gear the customer asked about. Do not add optional equipment or upgrades unless they ask for them."}
 ${channelRules}
 
 ABSOLUTE GROUNDING RULES (never break):
@@ -1520,6 +1760,7 @@ ABSOLUTE GROUNDING RULES (never break):
 - Category denials are ALWAYS wrong: never write anything of the form "we don't carry cameras", "we don't rent camera bodies", "we specialise in glass", "we don't do video lenses", or "we have no X category". We stock cameras, lenses, lights, audio, grip and more.
 - If the CARDS are a different kind of gear from what the customer asked for, just present them as your suggestion — or ask what they're after. Do NOT explain the mismatch by claiming we don't carry what they asked for. An unhelpful card is a bad suggestion; it is never proof of an empty shelf.
 - Never invent specs, prices, availability, or model names. Never say "let me check" or promise a later message — everything is already decided here.
+- If a card says packing review is needed, quote its owner-confirmed stock and price, describe only owner-verified contents, and identify any seller-listed extra as unconfirmed when relevant.
 - LINKS: when a FACT gives you a link as [label](url), paste it EXACTLY as written — the chat renders it as a real clickable link. Never invent, shorten or alter a URL, and never link to anything that isn't in FACTS.
 - If ${result.askDates ? "TRUE" : "FALSE"} is TRUE, ask for pickup and return dates AND times in ONE short question (prices shown are for example dates).
 - If ${result.askTimes ? "TRUE" : "FALSE"} is TRUE, dates are known but pickup/return times are incomplete: ask for those times, and do not call equipment available or unavailable.
@@ -1543,15 +1784,31 @@ ${convo}
 
 Write a concise, natural reply, plus 2-3 useful suggestion chips in the customer's voice.`,
   });
+  const latestCustomerText = String([...history].reverse().find((message: any) => message.role === "user")?.content || "")
+    .replace(/^Email subject \(customer text\):[^\n]*\n\n/, "");
+  const additionalAnswer = sanitizeQuoteSupplementalAnswer(object.additionalAnswer, latestCustomerText);
+  const requestedModels = [...new Set((result.enquiry?.requests ?? []).flatMap((request) =>
+    namedEquipmentModels(`${request.subject} ${request.displaySubject ?? ""}`)))];
+  const suggestions = (object.suggestions || [])
+    .filter((suggestion): suggestion is string => typeof suggestion === "string" && suggestion.trim().length <= 56)
+    .filter((suggestion) => {
+      if (ctx.allowOptionalAddOns) return true;
+      const mentionsExtraGear = /\b(?:lens|lenses|gimbal|handle|microphones?|mics?|audio|accessories|filters?|tripods?|rigs?|lights?|batteries|cases?|optional|upgrade|bundle)\b/i.test(suggestion);
+      if (!mentionsExtraGear) return true;
+      const normalized = suggestion.toLowerCase().replace(/[^a-z0-9]+/g, "");
+      return requestedModels.some((model) => normalized.includes(model.toLowerCase().replace(/[^a-z0-9]+/g, "")));
+    })
+    .slice(0, 3);
   return {
-    reply: result.enquiry ? [gafferEmailQuoteIntro(result.enquiry), object.additionalAnswer?.trim()].filter(Boolean).join("\n\n") : object.reply?.trim() || "How can I help with your shoot?",
-    suggestions: (object.suggestions || []).filter((s) => s && s.length <= 56).slice(0, 3),
+    reply: result.enquiry ? [gafferEmailQuoteIntro(result.enquiry), additionalAnswer].filter(Boolean).join("\n\n") : object.reply?.trim() || "How can I help with your shoot?",
+    suggestions,
     humanRequested: channel === "email" && object.humanRequested === true,
+    ...(channel === "email" && additionalAnswer ? { additionalAnswer } : {}),
   };
 }
 
 // ── orchestrator ──────────────────────────────────────────────────────────────────
-export async function handleChat(body: any): Promise<{ reply: string; cards: any[]; suggestions: string[]; booking: any; humanRequested?: boolean; enquiry?: GafferEmailQuote }> {
+export async function handleChat(body: any): Promise<{ reply: string; cards: any[]; suggestions: string[]; booking: any; humanRequested?: boolean; enquiry?: GafferEmailQuote; additionalAnswer?: string }> {
   if (!process.env.OPENROUTER_API_KEY) return { reply: "The assistant isn't configured yet.", cards: [], suggestions: [], booking: null, ...(body?.channel === "email" ? { humanRequested: false } : {}) };
   const history = Array.isArray(body?.messages) ? body.messages.slice(-12).map((message: any) => ({ ...message })) : [];
   if (body?.channel === "email" && typeof body.emailSubject === "string") {
@@ -1573,11 +1830,91 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
   ctx.partnerMentioned = history.some((m: any) => m.role !== "user" && PARTNER_MENTIONED_RE.test(String(m.content || "")));
 
   const lastUser = String([...history].reverse().find((m: any) => m.role === "user")?.content || "");
+  ctx.requestText = lastUser;
+  ctx.allowOptionalAddOns = explicitlyRequestsOptionalAddOns(lastUser);
   const intent = await understand(history, ctx.today);
+  const alternativesExplicitlyAllowed = explicitlyAllowsAlternatives(lastUser);
+  if (Array.isArray(intent.requests)) {
+    intent.requests = intent.requests.map((request: any) => ({
+      ...request,
+      allowAlternatives: request.allowAlternatives === false ? false : alternativesExplicitlyAllowed,
+    }));
+  }
+  const windowMessages = body?.channel === "email" && Array.isArray(body?.messages)
+    ? body.messages.slice(-12)
+    : history;
+  const parsedWindow = rentalEnquiryWindow(
+    windowMessages,
+    ctx.today,
+    body?.channel === "email" && typeof body.emailSubject === "string" ? body.emailSubject : "",
+  );
+  ctx.pickupTimeWindow = parsedWindow.pickupTimeWindow;
+  ctx.returnTimeWindow = parsedWindow.returnTimeWindow;
   if (body?.channel === "email") {
-    const window = rentalEnquiryWindow(Array.isArray(body?.messages) ? body.messages.slice(-12) : [], ctx.today, typeof body.emailSubject === "string" ? body.emailSubject : "");
-    intent.start = window.start; intent.end = window.end;
-    intent.pickupTime = window.pickupTime; intent.returnTime = window.returnTime;
+    // Emails are entirely free-form, so customer-written dates are the source
+    // of truth even when the model supplies a guessed or partial window.
+    intent.start = parsedWindow.start; intent.end = parsedWindow.end;
+    intent.pickupTime = parsedWindow.pickupTime; intent.returnTime = parsedWindow.returnTime;
+  } else if (parsedWindow.ambiguous) {
+    // Never let a model silently choose between two different date ranges.
+    intent.start = undefined; intent.end = undefined;
+    intent.pickupTime = undefined; intent.returnTime = undefined;
+  } else if (parsedWindow.start) {
+    // Chat can carry dates from a stale classifier response just like email.
+    // A parsed date wins; leaving an unmentioned clock blank lets the checked
+    // cart window supply it only when that window is for the same dates.
+    intent.start = parsedWindow.start;
+    intent.end = parsedWindow.end ?? parsedWindow.start;
+    intent.pickupTime = parsedWindow.pickupTime;
+    intent.returnTime = parsedWindow.returnTime;
+  } else {
+    if (parsedWindow.pickupTime) intent.pickupTime = parsedWindow.pickupTime;
+    if (parsedWindow.returnTime) intent.returnTime = parsedWindow.returnTime;
+  }
+  // The model may preserve the customer's named camera in `subject` but omit
+  // `requests`, or turn it into a different model while proposing a substitute.
+  // Keep the requested model as the quote line and let the deterministic planner
+  // check that exact listing and its live stock before any alternative is offered.
+  // A named model inside a kit-building request is an anchor for the assembly
+  // planner, not a request to replace the kit with a single-item quote.
+  const requestIntent = ["availability", "alternative", "price", "recommend"].includes(intent.intent);
+  if (requestIntent && !COMPAT_RE.test(lastUser)) {
+    const latestModels = namedEquipmentModels(lastUser);
+    const conversationModels = namedEquipmentModels(allUserText);
+    const sourceModels = latestModels.length ? latestModels : conversationModels;
+    if (sourceModels.length === 1) {
+      const requestedModel = sourceModels[0];
+      const requests = [...(intent.requests ?? [])].filter(request => {
+        const models = namedEquipmentModels(request.subject);
+        return !latestModels.length || !models.length || models.includes(requestedModel);
+      });
+      const matchingRequest = requests.find(request => namedEquipmentModels(request.subject).includes(requestedModel));
+      const subjectModels = namedEquipmentModels(intent.subject);
+      const subject = subjectModels.includes(requestedModel) ? intent.subject : requestedModel;
+      const parsedSubject = equipmentRequest(subject);
+      const preferredType = intent.itemTypes.find(type => EXPECTED_ITEMTYPES[type]) || "camera";
+      let matchedListing: any = null;
+      try { matchedListing = await resolveSubjectListing(ctx.c, parsedSubject.subject, { itemType: preferredType }); }
+      catch { /* Keep the parser's type; the quote planner will report stock uncertainty. */ }
+      if (!matchedListing) {
+        try { matchedListing = await resolveSubjectListing(ctx.c, parsedSubject.subject); }
+        catch { /* No catalogue match is not proof that the category is unstocked. */ }
+      }
+      if (matchingRequest && matchedListing?.itemType) matchingRequest.itemType = matchedListing.itemType;
+      if (!matchingRequest) {
+        const carriedQuantity = requests.length === 0 && intent.requests?.length === 1 && Number.isSafeInteger(intent.requests[0].quantity)
+          ? intent.requests[0].quantity
+          : null;
+        requests.push({
+          subject: parsedSubject.subject,
+          itemType: matchedListing?.itemType ?? preferredType,
+          quantity: carriedQuantity ?? (parsedSubject.explicit ? parsedSubject.quantity : requestedQuantityNearModel(lastUser, requestedModel)),
+          quantityIsListingUnits: true,
+          allowAlternatives: alternativesExplicitlyAllowed,
+        });
+      }
+      intent.requests = requests;
+    }
   }
   // deterministic backstop: naming FORM / SEVEN, the free ad, or asking us to MAKE the
   // advert is never a gear query, and must not be resolved against the catalogue — "form 7"
@@ -1597,12 +1934,12 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
   }
   // deterministic relative-date backstop: if the LLM left dates unresolved, derive them
   // from the latest user message ("this weekend", "tomorrow", "next week").
-  if (body?.channel !== "email" && (!intent.start || !intent.end)) {
+  if (body?.channel !== "email" && !parsedWindow.ambiguous && (!intent.start || !intent.end)) {
     const rel = resolveRelativeDates(lastUser, ctx.today);
     if (rel.start) { intent.start = intent.start || rel.start; intent.end = intent.end || rel.end; }
   }
   const result = await execute(intent, ctx, lastUser, body?.channel === "email" ? "email" : "chat");
-  const { reply, suggestions, humanRequested } = await narrate(history, result, ctx, body?.channel === "email" ? "email" : "chat");
+  const { reply, suggestions, humanRequested, additionalAnswer } = await narrate(history, result, ctx, body?.channel === "email" ? "email" : "chat");
   return {
     reply,
     cards: result.cards,
@@ -1610,5 +1947,6 @@ export async function handleChat(body: any): Promise<{ reply: string; cards: any
     booking: ctx.activeBooking,
     ...(result.enquiry ? { enquiry: result.enquiry } : {}),
     ...(body?.channel === "email" ? { humanRequested } : {}),
+    ...(body?.channel === "email" && additionalAnswer ? { additionalAnswer } : {}),
   };
 }

@@ -51,12 +51,28 @@ function contentsFor(listing) {
     included:listing.includes,optional:listing.optional,excluded:listing.excludes,
     notes:listing.notes,status:listing.contentsStatus,sources:listing.contentsSources,
   } : null);
+  // Completed owner stock mapping and packing review are the exact offer's
+  // source of truth. Product-level seller copy may describe another renter's
+  // similar listing, so never merge it into the owned kit.
+  if (inventoryFacts?.owned===true && inventoryFacts.reviewRequired===false) {
+    const includes=unique([...strings(inventoryFacts.contents),...verified]);
+    return {includes,optional:unique(strings(inventoryFacts.optionalContents)),excludes:[],notes:[],
+      contentsStatus:includes.length?'documented':'unknown',contentsSources:[],inventoryFacts};
+  }
   if (!c || !Array.isArray(c.sources) || !c.sources.length) return {includes:unique([...strings(inventoryFacts?.contents),...verified]),optional:unique(strings(inventoryFacts?.optionalContents)),excludes:[],notes:[],contentsStatus:inventoryFacts?.contents.length||verified.length?'documented':'unknown',contentsSources:[],...(inventoryFacts?{inventoryFacts}:{})};
   return {includes:unique([...strings(c.included),...verified]),optional:unique([...strings(c.optional),...strings(inventoryFacts?.optionalContents)]),excludes:strings(c.excluded),notes:strings(c.notes),contentsStatus:c.status==='documented'||verified.length?'documented':'unknown',contentsSources:c.sources.map(s=>({account:s.account,productId:s.productId,url:s.url,checkedAt:s.checkedAt})),...(inventoryFacts?{inventoryFacts}:{})};
 }
 function contentsText(listing) {
   const c=contentsFor(listing);
   const facts=c.inventoryFacts;
+  if (facts?.owned===true && facts.reviewRequired===false) {
+    return [
+      c.includes.length?`Owner-verified contents for this rental: ${c.includes.join('; ')}.`
+        :'Owner-verified stock is available, but accessories for this exact listing are not documented; do not infer them.',
+      c.optional.length?`Only if explicitly requested: ${c.optional.join('; ')}.`:'',
+      'Anything not listed is unconfirmed; use the live availability tool for the requested dates.',
+    ].filter(Boolean).join(' ');
+  }
   return [facts?`CURRENT INVENTORY FACTS (take precedence over older seller notes): ${facts.contents.join('; ')}. ${facts.owned===false?'This listing is not backed by rentable owned stock. ':''}${facts.reviewRequired?'Some remaining packing details need review. ':''}These are partial kit contents, not dated availability; use the live availability tool for the requested dates.`:'',c.includes.length?`${facts?.reviewRequired?'Seller lists these additional details; confirm them before promising:':'Included:'} ${c.includes.join('; ')}.`:!facts?'Included accessories are not documented for this listing; do not infer them from the model, specs or title.':'',c.optional.length?`Only if explicitly requested: ${c.optional.join('; ')}.`:'',c.excludes.length?`Explicitly excluded: ${c.excludes.join('; ')}.`:'',c.notes.length?`Seller notes: ${c.notes.join(' ')}`:'','Anything not listed is unconfirmed, not automatically excluded.'].filter(Boolean).join(' ');
 }
 module.exports={extractContents,contentsFor,contentsText};

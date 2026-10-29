@@ -70,7 +70,7 @@ export function HomeGearSearch({ categories, featured }: { categories: Category[
     const good = groups.filter(group => !(group instanceof Error));
     const listings: GearListing[] = [];
     // Interleave departments so a camera enquiry cannot crowd audio out.
-    for (let index = 0; index < 4; index++) for (const group of good) {
+    for (let index = 0; index < 8; index++) for (const group of good) {
       const item = group.listings?.[index] as GearListing | undefined;
       if (item && !listings.some(listing => listing._id === item._id) && listings.length < 8) listings.push(item);
     }

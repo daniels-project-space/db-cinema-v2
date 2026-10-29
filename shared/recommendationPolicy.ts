@@ -1,5 +1,6 @@
 import { effectiveLensSpecs, filterThreadsFor } from "./opticalFacts";
 import { bestCompat, parseMounts } from "../convex/lib/mount";
+import { isMarketingOnly } from "../convex/lib/marketingInventory";
 import { deriveItemType } from "../convex/lib/taxonomy";
 
 /** Catalogue evidence shared by the basket, assembler and complementary picks.
@@ -9,7 +10,8 @@ import { deriveItemType } from "../convex/lib/taxonomy";
  */
 export type RecommendationItem = {
   _id?: string; listingId?: string; title?: string; itemType?: string | null;
-  marketingOnly?: boolean; displayOnly?: boolean;
+  marketingOnly?: boolean; marketingOnlySource?: "auto" | "admin" | "rental_manager"; displayOnly?: boolean;
+  stockMappingStatus?: string | null;
   specs?: { mount?: string | null; coverage?: string | null; includesLens?: boolean | null;
     lensFocal?: string | null; tier?: string | null; lensClass?: string | null; batteryType?: string | null; filterThreadMm?: number | null } | null;
   components?: { inventoryUnitId: string; qty: number }[];
@@ -82,19 +84,39 @@ export function documentedIncludedTypes(item: RecommendationItem): string[] {
 /** Keep a body request focused; included power, media and cages remain welcome.
  * This ranks configurations, never certifies stock or compatibility.
  */
-export function unrequestedCameraExtras(item: RecommendationItem, request: string): number {
+export function unrequestedCameraExtras(item: RecommendationItem, request: string, strictConfiguration = false): number {
   if (!/^camera(?:-body)?$/.test(item.itemType ?? "")) return 0;
-  const text = item.title ?? "";
+  const text = [item.title ?? "", ...(item.inventoryFacts?.contents ?? [])].join(" ");
   const included = new Set(documentedIncludedTypes(item));
-  const extras: [string, RegExp][] = [
-    ["lens", /\blens(?:es)?\b|\b\d+\s*[-–]\s*\d+\s*mm\b/i],
-    ["gimbal", /\bgimbal\b|\brs\s*[234]\b/i],
-    ["tripod", /\btripod\b/i],
-    ["monitor", /\bmonitor\b/i],
-    ["wireless-mic", /\bmic(?:rophone)?s?\b|\baudio\b/i],
+  const extras: [string, RegExp, boolean][] = [
+    ["lens", /\blens(?:es)?\b|\b\d+\s*[-–]\s*\d+\s*mm\b/i, false],
+    ["gimbal", /\bgimbal\b|\brs\s*[234]\b/i, false],
+    ["tripod", /\btripod\b/i, false],
+    ["monitor", /\bmonitor\b/i, false],
+    ["wireless-mic", /\bmic(?:rophone)?s?\b|\baudio\b/i, false],
+    // A cage and recording card are part of some owner-listed camera-body offers.
+    // Count them as a configuration conflict only when the renter explicitly excludes
+    // accessories or names that item negatively; "camera only" still means no separate
+    // lens, gimbal, tripod, monitor or audio listing.
+    ["camera-cage", /\bcage\b|\bbase\s*plate\b|\btop\s+handle\b|\bside\s+handle\b/i, true],
+    ["recording-media", /\b(?:cfexpress|xqd|sd(?:xc|hc)?|compact\s*flash)\b(?:\s+(?:type\s*[ab])?)?(?:\s+cards?)?\b|\b\d{2,4}\s*gb\b/i, true],
   ];
-  return extras.filter(([type, pattern]) => !pattern.test(request) &&
-    (included.has(type) || pattern.test(text) || type === "lens" && item.specs?.includesLens === true)).length;
+  const requestText = String(request ?? "");
+  const refusesAllExtras = /\b(?:no|without|exclude|skip|omit|leave\s+out|don't|dont|do\s+not|not\s+include)\b.{0,32}\b(?:extras?|accessor(?:y|ies)|add[ -]?ons?)\b/i.test(requestText);
+  const negates = (pattern: RegExp) => [...requestText.matchAll(new RegExp(pattern.source, "gi"))].some((match) => {
+    const at = match.index ?? 0;
+    const before = requestText.slice(Math.max(0, at - 52), at);
+    const after = requestText.slice(at + match[0].length, at + match[0].length + 28);
+    return /\b(?:no|without|exclude|excluding|skip|omit|leave\s+out|don't|dont|do\s+not|not\s+include|not\s+want|not\s+need)\b(?:\s+[\w-]+){0,3}\s*$/i.test(before) ||
+      /^\s*(?:is\s+)?(?:not\s+wanted|excluded|left\s+out|not\s+included)\b/i.test(after);
+  });
+  return extras.filter(([type, pattern, standardAccessory]) => {
+    const present = included.has(type) || pattern.test(text) || type === "lens" && item.specs?.includesLens === true;
+    if (!present) return false;
+    if (negates(pattern)) return true;
+    if (standardAccessory) return strictConfiguration && refusesAllExtras;
+    return !pattern.test(requestText);
+  }).length;
 }
 
 /** Count documented camera bodies for configuration ranking, not stock capacity. */
@@ -131,7 +153,11 @@ export function lensFit(candidate: RecommendationItem, selected: RecommendationI
 }
 
 export function rentableCandidate(item: RecommendationItem): boolean {
-  return !item.marketingOnly && !item.displayOnly && item.inventoryFacts?.owned !== false;
+  const marketingOnly = item.title
+    ? isMarketingOnly({ ...item, title: item.title })
+    : item.marketingOnly === true;
+  return !marketingOnly && !item.displayOnly && item.inventoryFacts?.owned !== false &&
+    (item.stockMappingStatus === undefined || item.stockMappingStatus === "complete");
 }
 
 /** A narrower zoom adds no focal coverage to an already supplied zoom.

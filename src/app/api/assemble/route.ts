@@ -13,6 +13,8 @@ import { rateLimit } from "@/lib/ratelimit";
 import { compareOptions, isCameraSet } from "@/lib/kitRank";
 import { automaticRecommendation, documentedIncludedTypes, includedLensFocals, rentableCandidate, unrequestedCameraExtras, type RecommendationItem } from "../../../../shared/recommendationPolicy";
 import { normalizeEquipmentName, equipmentModelTokens, equipmentModelsMatch } from "../../../../shared/equipmentIdentity";
+import { rentalPricingDays } from "../../../../shared/rentalDuration";
+import { createTypeListingLoader } from "@/lib/catalogCandidates";
 
 export const maxDuration = 60;
 
@@ -116,13 +118,13 @@ function batteryCompat(optBatt: string | null | undefined, camBatt: string | nul
   return battOk(camBatt, optBatt) ? "native" : "incompatible";
 }
 
-type StageOpts = { compatibilityKits?: RecommendationItem[]; pickupTime?: string; returnTime?: string; selected?: RecommendationItem[]; lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean };
+type StageOpts = { compatibilityKits?: RecommendationItem[]; pickupTime?: string; returnTime?: string; selected?: RecommendationItem[]; lensPref?: string; camMounts?: string[]; camCoverage?: string | null; camBattery?: string | null; includedFocal?: string | null; small?: boolean; refreshStock?: (listingId: string) => Promise<void> };
 
-async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, o: StageOpts = {}) {
+async function optionsForStage(c: ConvexHttpClient, key: string, start: string, end: string, o: StageOpts = {}, getTypeListings = createTypeListingLoader(c)) {
   const { lensPref, camMounts = [], camCoverage = null, camBattery = null, includedFocal = null, small = false } = o;
   const def = STAGE[key];
   if (!def) return [];
-  let items: any[] = await c.query(api.catalog.byItemType, { types: def.types });
+  let items: any[] = await getTypeListings(def.types);
   items = items.filter(rentableCandidate);
   if (def.must) items = items.filter((l) => def.must!.test(l.title));
   // mic stages: drop camera BUNDLES that merely contain mics (a "GoPro interview set" is not a lav-mic)
@@ -131,7 +133,8 @@ async function optionsForStage(c: ConvexHttpClient, key: string, start: string, 
   // window always includes the gear people actually rent (e.g. the Sony 24-70 GM).
   if (key === "camera") items.sort((a, b) => (isCameraSet(a.title) ? 1 : 0) - (isCameraSet(b.title) ? 1 : 0) || (b.demandScore ?? 0) - (a.demandScore ?? 0));
   else items.sort((a, b) => (b.demandScore ?? 0) - (a.demandScore ?? 0));
-  const days = Math.max(1, Math.round((msOf(end) - msOf(start)) / 86400000) + 1);
+  if (items.length) await o.refreshStock?.(String(items[0]._id));
+  const days = rentalPricingDays(msOf(start), msOf(end), o.pickupTime, o.returnTime);
   const out: any[] = [];
   for (const l of items.slice(0, 36)) {
 
@@ -208,6 +211,15 @@ export async function POST(req: NextRequest) {
   if (start === end && returnTime <= pickupTime)
     return NextResponse.json({ error: "Return time must be after pickup time.", stages: [] }, { status: 400 });
   const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  const getTypeListings = createTypeListingLoader(c);
+  let stockRefresh: Promise<void> | undefined;
+  let stockRefreshFailed = false;
+  const refreshStock = (listingId: string) => stockRefresh ??= c.action(api.sync.refreshCartStock, {
+    items: [{ listingId: listingId as any, start: msOf(start), end: msOf(end), pickupTime, returnTime, qty: 1 }],
+  }).then(() => undefined).catch(error => {
+    stockRefreshFailed = true;
+    throw error;
+  });
 
   const compatibilityKits = await c.query(api.catalog.compatibilityKits, {}).catch(() => []);
   let design: any = null;
@@ -260,7 +272,13 @@ export async function POST(req: NextRequest) {
   let cameraChoiceMissing = false;
   for (const k of keys.slice(0, 9)) {
     const meta = design?.stages?.find((s: any) => s.key === k);
-    const options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small, selected, pickupTime, returnTime, compatibilityKits });
+    let options: any[];
+    try {
+      options = await optionsForStage(c, k, start, end, { lensPref, camMounts, camCoverage, camBattery, includedFocal, small, selected, pickupTime, returnTime, compatibilityKits, refreshStock }, getTypeListings);
+    } catch (error) {
+      if (stockRefreshFailed) return NextResponse.json({ error: "Live Rental Manager stock could not be refreshed. Please try again.", stages: [] }, { status: 503 });
+      throw error;
+    }
     if (!options.length) continue;
     // ONE recommended id per stage — camera uses the LLM hint / top body; everything else leads
     // with the top COMPATIBLE option. (Camera's recCam below must match this so the note agrees.)

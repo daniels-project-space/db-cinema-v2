@@ -1,4 +1,8 @@
 import { readFileSync } from "node:fs";
+import gafferVoicePrompt from "./lib/gafferVoicePrompt.cjs";
+import gafferVoiceQuoteTools from "./lib/gafferVoiceQuoteTools.cjs";
+
+const { quoteToolSpec } = gafferVoiceQuoteTools;
 
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8").split(/\r?\n/).filter((l) => l.includes("=")).map((l) => {
@@ -25,21 +29,15 @@ for (const id of ["agent_0601kvk2n9ecfer9nfsr7919y6sw"]) await fetch(`https://ap
 for (const id of ["tool_7701kvk2n8tnfy3994bxwbm8c7pt"]) await fetch(`https://api.elevenlabs.io/v1/convai/tools/${id}`, { method: "DELETE", headers: H }).catch(() => {});
 
 const specs = [
-  ["check_availability", "Check if a piece of gear is free for given dates and its price", { item: { type: "string", description: "gear name e.g. Sony FX3" }, start: { type: "string", description: "start date YYYY-MM-DD" }, end: { type: "string", description: "end date YYYY-MM-DD" } }, ["item", "start"]],
-  ["get_price", "Get the daily and total price of a piece of gear", { item: { type: "string", description: "gear name e.g. Sony 24-70 GM lens" }, days: { type: "integer", description: "number of rental days" } }, ["item"]],
+  quoteToolSpec("check_availability"),
+  quoteToolSpec("get_price"),
   ["check_stock", "Check whether the shop stocks a piece of gear", { item: { type: "string", description: "gear name e.g. Sony FX3" } }, ["item"]],
   ["request_callback", "Log a callback request for the team", { name: { type: "string", description: "the caller's name" }, phone: { type: "string", description: "the caller's phone number" }, message: { type: "string", description: "what the caller needs" } }, ["name", "phone"]],
 ];
 const tool_ids = [];
 for (const s of specs) { const id = await mkTool(...s); if (id) tool_ids.push(id); }
 
-const prompt = [
-  "You are Gaffer, the phone assistant for Db Cinema Rentals, a London cinema-gear rental shop (cameras, lenses, lighting, audio, drones). Be warm, concise and natural.",
-  "To answer do-you-have / is-it-free / what-does-it-cost, ALWAYS call the matching tool (check_stock, check_availability, get_price). Never guess prices or stock.",
-  "Convert spoken dates to YYYY-MM-DD before calling check_availability. Ask for dates if not given.",
-  "If the caller wants to book or you cannot fully help, call request_callback with their name, phone and need, and say the team will call back.",
-  "Hours are 09:00-22:00 daily; you deliver across London.",
-].join(" ");
+const prompt = gafferVoicePrompt.GAFFER_VOICE_PROMPT;
 
 const agentBody = {
   name: "Db Cinema Rentals - Gaffer",

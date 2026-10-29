@@ -124,13 +124,19 @@ export const bestSellers = query({
   },
 });
 
+const MAX_GAFFER_CANDIDATES_PER_TYPE = 500;
+
 export const byItemType = query({
   args: { types: v.array(v.string()) },
   handler: async (ctx, { types }) => {
     const unique = [...new Set(types)];
     if (unique.length > 50) throw new Error("Too many equipment types requested");
     const groups = await Promise.all(unique.map(type => ctx.db.query("listings")
-      .withIndex("by_active_itemType", q => q.eq("active", true).eq("itemType", type as any)).collect()));
+      .withIndex("by_active_itemType", q => q.eq("active", true).eq("itemType", type as any))
+      .take(MAX_GAFFER_CANDIDATES_PER_TYPE + 1)));
+    if (groups.some(rows => rows.length > MAX_GAFFER_CANDIDATES_PER_TYPE)) {
+      throw new Error("The live catalogue exceeds the safe quote-candidate limit for an equipment type");
+    }
     const listings = groups.flat().sort((a,b) => a._creationTime - b._creationTime);
     return await toPublicCards(ctx, listings);
   },
@@ -227,7 +233,7 @@ export const searchHomeGear = query({
           ((b as any).demandScore ?? 0) - ((a as any).demandScore ?? 0) ||
           a.title.localeCompare(b.title);
       });
-      matching = candidates.slice(0, 4);
+        matching = candidates.slice(0, 8);
     }
 
     if (matching.length) {

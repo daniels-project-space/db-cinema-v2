@@ -67,111 +67,152 @@ export function isHumanHandoffRequested(subject: string, body: string): boolean 
 }
 
 /** Preserve Gaffer's exact catalogue cards in email, where there is no separate card UI. */
-export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: import("../../shared/gafferEmailQuote").GafferEmailQuote, preparedBasketUrl?: string): string {
+export function formatGafferEmailReply(reply: string, cards: unknown, enquiry?: import("../../shared/gafferEmailQuote").GafferEmailQuote, preparedBasketUrl?: string, additionalAnswer?: string, recipientName?: string, customerText?: string): string {
   const gbp = (value: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
   const date = (value: string) => new Date(value + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
   const label = (value: string) => equipmentOfferLabel(value).replace(/[\[\]]/g, "");
   const link = (title: string, slug: string) => slug ? "[" + label(title) + "](https://dbcinemarentals.com/gear/" + encodeURIComponent(slug) + ")" : label(title);
   const rows: any[] = Array.isArray(cards) ? cards : [];
-  const sections: string[] = [];
+  const firstName = String(recipientName ?? "").trim().replace(/^['"]|['"]$/g, "").split(/\s+/)[0] ?? "";
+  const greeting = /^[\p{L}][\p{L}\p{M}'’-]{0,31}$/u.test(firstName) ? `Hi ${firstName},` : "Hi there,";
+  const sections: string[] = [greeting];
 
   if (enquiry) {
     const period = enquiry.start === enquiry.end ? date(enquiry.start) : date(enquiry.start) + " to " + date(enquiry.end);
-    const exactWindow = enquiry.timed ? String(enquiry.pickupTime) + " pickup / " + String(enquiry.returnTime) + " return (London)" : "";
-    const suggestedWindow = enquiry.availabilityWindow
-      ? "suggested " + enquiry.availabilityWindow.pickupTime + " pickup / " + enquiry.availabilityWindow.returnTime + " return (London)"
-      : "";
-    const timing = exactWindow || suggestedWindow;
-    const confirmed = enquiry.requests.map(request => {
-      const subject = label(request.subject);
-      if (request.fulfilled === null) return "unconfirmed quantity of " + subject + " (" + request.quantity + " requested)";
-      return request.fulfilled + " of " + request.quantity + " requested " + subject;
-    }).join("; ");
-    const requestIssues = enquiry.requests.filter(request => request.availabilityIssue);
-    const confirmedRequests = enquiry.requests.filter(request => request.fulfilled !== null &&
-      (!request.availabilityIssue || request.availabilityIssue === "combined_stock_changed"));
-    const issueText = (request: typeof enquiry.requests[number]) => request.availabilityIssue === "combined_stock_changed"
-      ? "The final basket check couldn't fit the remaining requested quantity of " + label(request.subject)
-      : request.availabilityIssue === "no_common_window"
-        ? "No shared pickup/return window fits " + label(request.subject)
-        : "The live stock check failed for " + label(request.subject) + " (" + request.quantity + " requested)";
+    const subjectLabel = (request: typeof enquiry.requests[number]) => label(request.displaySubject || request.subject);
+    const requested = enquiry.requests.map(request => request.quantity + " × " + subjectLabel(request)).join(", ") || "the requested gear";
+    const lines = enquiry.requests.flatMap(request => request.lines.map(line => ({ request, line })));
+    const hasAlternative = lines.some(({ line }) => line.alternative);
+    const pickupWindow = enquiry.pickupTimeWindow
+      ? `pickup between ${enquiry.pickupTimeWindow.from} and ${enquiry.pickupTimeWindow.to}`
+      : enquiry.pickupTime ? `pickup at ${enquiry.pickupTime}` : "pickup time";
+    const returnWindow = enquiry.returnTimeWindow
+      ? `return between ${enquiry.returnTimeWindow.from} and ${enquiry.returnTimeWindow.to}`
+      : enquiry.returnTime ? `return at ${enquiry.returnTime}` : "return time";
+    const unresolved = enquiry.requests.filter(request => request.fulfilled === null || request.availabilityIssue === "stock_check_failed");
+    const partial = enquiry.requests.filter(request => request.fulfilled !== null && request.fulfilled < request.quantity);
+    const confirmed = enquiry.requests.filter(request => request.fulfilled !== null && request.fulfilled > 0 && !unresolved.includes(request))
+      .map(request => `${request.fulfilled} × ${subjectLabel(request)}`);
+    const minimumPeriodRequests = enquiry.requests.filter(request => request.minimumRentalOffer);
 
-    if (requestIssues.length) {
-      const confirmedText = confirmedRequests.map(request => request.fulfilled + " of " + request.quantity + " requested " + label(request.subject)).join("; ");
-      sections.push("Thanks for getting in touch. For " + period + (timing ? ", " + timing : "") + ", " +
-        (confirmedText ? "I can confirm " + confirmedText + ". " : "") + requestIssues.map(issueText).join(". ") + ".");
-    } else if (enquiry.stockVerified) {
-      sections.push("Thanks for getting in touch. For " + period + (timing ? ", " + timing : "") + ", I can confirm " + confirmed + ".");
-    } else if (enquiry.availabilityIssue === "no_common_window") {
-      sections.push("Thanks for getting in touch. The requested items don't share one pickup and return window on " + period + ". Send a preferred time window or different dates and I'll check the full set again.");
-    } else if (enquiry.availabilityIssue === "combined_stock_changed") {
-      sections.push("Thanks for getting in touch. The final stock check found that the proposed quantities don't fit together for " + period + " at " + (exactWindow || "the selected times") + ". I've listed only items that passed that check.");
-    } else if (enquiry.availabilityIssue === "stock_check_failed") {
-      sections.push("Thanks for getting in touch. I couldn't complete the live stock check for " + period + ", so I can't confirm the requested quantities yet.");
+    if (minimumPeriodRequests.length) {
+      const minimumText = minimumPeriodRequests.map(request => {
+        const offer = request.minimumRentalOffer!;
+        const offerTitle = link(offer.title, offer.slug);
+        const listing = offer.alternative ? `A possible alternative, ${offerTitle},` : offerTitle;
+        const shortPeriod = enquiry.estimated ? "" : ` Your request is for ${enquiry.days} rental day${enquiry.days === 1 ? "" : "s"}, which is below that minimum.`;
+        return `${listing} has a ${offer.minimumDays}-day minimum.${shortPeriod} Minimum gear hire is ${gbp(offer.total)} for ${offer.minimumDays} days. I haven't checked stock for that longer period.`;
+      });
+      const minimumDays = [...new Set(minimumPeriodRequests.map(request => request.minimumRentalOffer!.minimumDays))];
+      const next = enquiry.estimated
+        ? "What dates and pickup and return times should I check?"
+        : minimumDays.length === 1
+          ? `Would you like me to check it for the full ${minimumDays[0]}-day minimum?`
+          : "Would you like me to check those items over their minimum rental periods?";
+      sections.push([...confirmed.length ? [`I can supply ${confirmed.join(", ")}.`] : [], ...minimumText, next].join(" "));
     } else if (enquiry.estimated) {
-      sections.push("Thanks for getting in touch. Please send your pickup and return dates so I can check the requested quantities.");
+      sections.push(`What dates and pickup and return times would suit for ${requested}?`);
+    } else if (enquiry.availabilityIssue === "no_common_window") {
+      sections.push(`I couldn't find one pickup and return window for all the gear on ${period}. Could you move either time?`);
+    } else if (unresolved.length) {
+      const names = unresolved.map(request => `${request.quantity} × ${subjectLabel(request)}`).join(", ");
+      sections.push(`${confirmed.length ? `I can supply ${confirmed.join(", ")}. ` : ""}I couldn't verify stock for ${names} on ${period}, so I can't confirm those quantities yet. Could you try a different time?`);
+    } else if (enquiry.availabilityIssue === "combined_stock_changed") {
+      const status = enquiry.requests.map(request => request.fulfilled === 0
+        ? `none of the ${request.quantity} requested ${subjectLabel(request)}`
+        : request.fulfilled !== null && request.fulfilled < request.quantity
+          ? `${request.fulfilled} of the ${request.quantity} requested ${subjectLabel(request)}`
+          : request.fulfilled !== null ? `${request.fulfilled} × ${subjectLabel(request)}` : "").filter(Boolean).join(", ");
+      const short = enquiry.requests.reduce((sum, request) => sum + Math.max(0, request.quantity - (request.fulfilled ?? 0)), 0);
+      sections.push(`The final stock check for ${period} confirmed ${status}${short ? `; we're short by ${short}` : ""}. Would another time work?`);
+    } else if (enquiry.timeWindowPricingConservative) {
+      sections.push(`I have ${requested} available on ${period}. I checked ${pickupWindow} and ${returnWindow}.`);
+    } else if (enquiry.availabilityWindow) {
+      const window = enquiry.availabilityWindow;
+      const option = hasAlternative ? "I found an alternative that fits" : `I have ${requested} available`;
+      sections.push(`${option} on ${period}. The available window is pickup at ${window.pickupTime} and return at ${window.returnTime}. Would that work for you?`);
+    } else if (enquiry.stockVerified && partial.length) {
+      const unavailable = partial.filter(request => request.fulfilled === 0);
+      if (unavailable.length === partial.length && !confirmed.length) {
+        sections.push(`I couldn't find ${unavailable.map(subjectLabel).join(", ")} available on ${period}. Are your dates flexible?`);
+      } else {
+        const coverage = partial.map(request => `${request.fulfilled ?? 0} of the ${request.quantity} requested ${subjectLabel(request)}`).join(", ");
+        const short = partial.reduce((sum, request) => sum + request.quantity - (request.fulfilled ?? 0), 0);
+        const supplied = confirmed.length ? `${confirmed.join(", ")} are available. ` : "";
+        sections.push(`${supplied}I can supply ${coverage}${short ? `; I'm short by ${short}` : ""} on ${period}. Are your dates flexible?`);
+      }
+    } else if (enquiry.stockVerified && hasAlternative) {
+      sections.push(`I found an available alternative for ${period}. Would you like to consider it?`);
+    } else if (enquiry.stockVerified && enquiry.complete) {
+      sections.push(enquiry.timed
+        ? `Yes, ${requested} is available for ${period}. Pickup at ${enquiry.pickupTime} and return at ${enquiry.returnTime} work.`
+        : `I have ${requested} available on ${period}. What pickup and return times would suit you?`);
     } else if (!enquiry.timed) {
-      sections.push("Thanks for getting in touch. I need pickup and return times for " + period + " to confirm the quantities.");
+      sections.push(`I can check ${requested} for ${period}. What pickup and return times do you have in mind?`);
     } else {
-      sections.push("Thanks for getting in touch. I couldn't verify the requested quantities for " + period + " at " + exactWindow + ".");
+      sections.push(`I couldn't confirm ${requested} for ${period}. Would a different time work?`);
     }
 
-    for (const request of enquiry.requests) {
-      if (request.quantityUnit) {
-        sections.push("Please confirm how many complete kits you need; " + request.quantityUnit + " describes individual components.");
-      }
-      if (request.availabilityIssue === "stock_check_failed") {
-        sections.push("- No quantity of " + label(request.subject) + " is confirmed because its live stock check failed.");
-      }
-      if (request.availabilityIssue === "no_common_window") {
-        sections.push("- " + label(request.subject) + " could not be confirmed in a shared pickup and return window.");
-      }
-      for (const line of request.lines) {
-        const alternative = line.alternative ? " (alternative to " + label(request.subject) + "; please confirm)" : "";
-        sections.push("- " + line.quantity + " × " + link(line.title, line.slug) + " — " + gbp(line.total) + alternative + ".");
-      }
-      if (!request.lines.length && request.fulfilled === 0 && enquiry.stockVerified) {
-        sections.push("- No matching " + label(request.subject) + " are available for these dates and times.");
+    if (enquiry.timeWindowPricingConservative) {
+      sections.push("I've priced the full time windows, so this is the maximum hire cost. The total may be lower once you choose exact times.");
+    }
+
+    if (lines.length) {
+      const lineText = lines.map(({ request, line }) => {
+        const suppliedUnits = typeof line.providedUnits === "number" && Number.isSafeInteger(line.providedUnits) ? line.providedUnits : line.quantity;
+        const packNote = suppliedUnits > line.quantity ? ` (one listing supplies ${suppliedUnits} × ${subjectLabel(request)})` : "";
+        const alternative = line.alternative ? " (alternative; please confirm)" : "";
+        const duration = enquiry.days === 1 ? "for the day" : `for ${enquiry.days} days`;
+        return `${line.quantity} × ${link(line.displayTitle || line.title, line.slug)}: ${gbp(line.total)} ${duration}${alternative}${packNote}`;
+      });
+      sections.push(lineText.join("\n"));
+      const contentNotes = lines.flatMap(({ line }) => line.inventoryReviewRequired
+        ? [line.verifiedContents?.length
+          ? `Owner-confirmed contents: ${line.verifiedContents.join(", ")}. Other seller-listed accessories still need checking.`
+          : "The owner hasn't confirmed all the listing contents yet."]
+        : []);
+      if (contentNotes.length) sections.push(contentNotes.join("\n"));
+      if ((lines.length > 1 || enquiry.requests.length > 1 || !enquiry.complete) && enquiry.total !== null) {
+        const totalLabel = enquiry.timeWindowPricingConservative ? "Maximum gear hire" : hasAlternative ? "Total for this option" : enquiry.complete ? "Total gear hire" : "Confirmed gear hire";
+        sections.push(`${totalLabel}: ${gbp(enquiry.total)} for ${enquiry.days} day${enquiry.days === 1 ? "" : "s"}.`);
+      } else if (lines.length === 1 && enquiry.days > 1) {
+        const card = rows.find(row => String(row?.item?.listingId) === lines[0].line.listingId);
+        if (Number.isFinite(card?.item?.saved) && card.item.saved > 0) sections.push(`The multi-day discount is already included.`);
       }
     }
 
-    if (enquiry.total !== null) {
-      const totalLabel = enquiry.complete ? "Gear hire total" : enquiry.stockVerified ? "Gear hire for the confirmed items" : "Indicative gear hire";
-      sections.push(totalLabel + ": " + gbp(enquiry.total) + " for " + enquiry.days + " rental day" + (enquiry.days === 1 ? "" : "s") + ".");
-      if (rows.some(card => Number.isFinite(card?.item?.saved) && card.item.saved > 0)) sections.push("Any multi-day rate has already been applied.");
+    if (enquiry.recommendedAddOn) {
+      const addOn = enquiry.recommendedAddOn;
+      sections.push(`If useful, ${link(addOn.title, addOn.slug)} ${addOn.fitNote}. It adds ${gbp(addOn.total)} for ${addOn.days} day${addOn.days === 1 ? "" : "s"} and isn't included above.`);
     }
-    if (!enquiry.requirementsComplete) sections.push("This covers the items listed; please send the remaining requirements.");
-    if (preparedBasketUrl) sections.push("[Review and book your basket](" + preparedBasketUrl + ").");
-    sections.push("This quote doesn't reserve the gear; availability is checked again when you book.");
-  } else if (String(reply ?? "").trim()) {
-    sections.push(String(reply).trim());
+    const clarification = enquiry.requests.find(request => request.quantityUnit);
+    if (clarification) sections.push(`How many complete ${clarification.quantityUnit} would you like?`);
+    const extraAnswer = sanitizeQuoteSupplementalAnswer(additionalAnswer, customerText);
+    if (extraAnswer) sections.push(extraAnswer);
+    if (preparedBasketUrl) sections.push(`[Review your gear and continue to checkout](${preparedBasketUrl})`);
+    else if (lines.length) sections.push("Availability is checked again when you book.");
+  } else {
+    if (String(reply ?? "").trim()) sections.push(String(reply).trim());
+    const options = [...new Map(rows.filter(card => card?.item?.listingId != null &&
+      !(Number.isSafeInteger(card.item.availableUnits) && card.item.availableUnits === 0))
+      .map(card => [String(card.item.listingId), card])).values()].slice(0, 2);
+    if (options.length) {
+      sections.push(options.map(card => {
+        const item = card.item;
+        const price = Number.isFinite(item.perDay) ? `£${gbp(item.perDay).replace(/^£/, "")}/day` : "";
+        const requestedMicKits = Number.isSafeInteger(item.requestedMicKitCount) && item.requestedMicKitCount > 0 ? item.requestedMicKitCount : null;
+        const available = Number.isSafeInteger(item.availableUnits) ? item.availableUnits : null;
+        const count = requestedMicKits !== null
+          ? available === null ? `${requestedMicKits} complete mic kits requested; stock not confirmed`
+            : available >= requestedMicKits ? `${available} complete mic kits available`
+              : `${available} of ${requestedMicKits} complete mic kits available; short by ${requestedMicKits - available}`
+          : available !== null && available > 0 ? `${available} available` : "";
+        return `${link(String(item.title ?? "Gear option"), String(item.slug ?? ""))}${price ? `: ${price}` : ""}${count ? ` (${count})` : ""}`;
+      }).join("\n"));
+    }
   }
 
-  const quotedIds = new Set((enquiry?.requests ?? []).flatMap(request => request.lines.map(line => line.listingId)));
-  const options = [...new Map(rows.filter(card => card?.item?.listingId != null &&
-    !(Number.isSafeInteger(card.item.availableUnits) && card.item.availableUnits === 0) && !quotedIds.has(String(card.item.listingId)))
-    .map(card => [String(card.item.listingId), card])).values()];
-  if (options.length) {
-    sections.push((enquiry ? "Other listed options" : "Available gear options") + ":");
-    for (const card of options) {
-      const item = card.item;
-      const details: string[] = [];
-      const available = Number.isSafeInteger(item.availableUnits) && item.availableUnits >= 0 ? item.availableUnits : null;
-      const requested = Number.isSafeInteger(item.requestedMicKitCount) && item.requestedMicKitCount > 0 ? item.requestedMicKitCount : null;
-      if (available === null) details.push("stock count not verified");
-      else if (requested !== null && available < requested) details.push(available + " available; " + requested + " kits requested, so this listing is short by " + (requested - available));
-      else if (requested !== null) details.push(available + " available; " + requested + " kits requested");
-      else details.push(available + " available");
-      if (Number.isFinite(item.total) && Number.isSafeInteger(item.days) && item.days > 0) {
-        details.push("gear hire " + gbp(item.total) + " for " + item.days + " rental day" + (item.days === 1 ? "" : "s") + (item.quoteTimed ? "" : " (provisional until pickup/return times are confirmed)"));
-      } else if (Number.isFinite(item.perDay)) {
-        details.push("from " + gbp(item.perDay) + " per rental day");
-      }
-      sections.push("- " + link(String(item.title ?? "Gear option"), String(item.slug ?? "")) + " — " + details.join("; ") + ".");
-    }
-  }
-
-  sections.push("DB Cinema Rentals team");
+  sections.push("DB Cinema Rentals Team");
   return sections.filter(Boolean).join("\n\n");
 }
 
@@ -192,3 +233,4 @@ export function plainBody(msg: any): string {
   return msg?.text ?? msg?.TextBody ?? msg?.plain ?? msg?.["body-plain"] ?? "";
 }
 import { equipmentOfferLabel } from "../../shared/equipmentIdentity";
+import { sanitizeQuoteSupplementalAnswer } from "../../shared/gafferEmailQuote";

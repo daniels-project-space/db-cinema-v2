@@ -3,6 +3,9 @@
 // (live re-rank), so the recommendation can never drift between them. Pure module.
 import { parseMounts, mountCompat } from "@/lib/mount";
 import { battOk, isRigPower, coverageCompat } from "@/lib/compat";
+import { isAnamorphic, isLensSet, lensPriority } from "../../shared/recommendationRanking";
+
+export { isAnamorphic, isLensSet, lensPriority };
 
 export type RankCtx = {
   key: string; // stage key
@@ -50,32 +53,9 @@ export function batteryVerdict(
   return battOk(camBatt, optBatt) ? "native" : "incompatible";
 }
 
-export const isAnamorphic = (t: string) => /\banamorphic\b/i.test(t || "");
-/** A multi-lens bundle ("ultimate set", 3+ focal ranges) — we lead with individual glass. */
-export const isLensSet = (t: string) =>
-  /\bultimate\b|\blens (?:set|kit|bundle)\b|\d-?lens/i.test(t || "") ||
-  ((t || "").match(/\d{2,3}\s*-\s*\d{2,3}/g) || []).length >= 3;
-
 /** A camera SET/bundle (vs a standalone body) — bodies lead, sets follow as an upsell. */
 export const isCameraSet = (t: string) =>
   /\+|\bset\b|\bkit\b|\bbundle\b|\bultimate\b|production set|full (?:set|kit|production)|operator|\bdp\b|\d\s*[x\u00d7]\s/i.test(t || "");
-
-/** Native-flagship lens preference for the chosen body's mount.
- *  Sony-E → Sony G Master; EF/PL/RF (BMPCC / cinema) → anamorphic + Canon glass. */
-export function lensPriority(title: string, camMounts: string[] = []): number {
-  const t = (title || "").toLowerCase();
-  let b = 0;
-  const sony = camMounts.includes("E");
-  const efpl = camMounts.includes("EF") || camMounts.includes("PL") || camMounts.includes("RF");
-  if (sony && /\bg ?master\b|gmaster|\bgm\b/.test(t) && /\bsony\b/.test(t)) b += 18;
-  if (sony && /\b(sigma|tamron|samyang|rokinon|viltrox)\b/.test(t)) b -= 4;
-  if (efpl && isAnamorphic(t)) b += 22; // anamorphic first for BMPCC / cinema bodies
-  if (efpl && /\bcanon\b|\bef\b/.test(t) && /\bl\b|usm|f2\.8 l|f4 l|l series/.test(t)) b += 16;
-  else if (efpl && (/\bcanon\b/.test(t) || /\bef\b/.test(t))) b += 8;
-  if (/24-?70/.test(t)) b += 4; // workhorse zoom
-  if (isLensSet(t)) b -= 18; // individual lenses lead, multi-lens kits demoted
-  return b;
-}
 
 /** Battery scoring vs the chosen kit (gimbal pack / V-mount / native spare). */
 export function batteryScore(o: any, ctx: RankCtx): number {

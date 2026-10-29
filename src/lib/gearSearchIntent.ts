@@ -4,7 +4,7 @@ export type SearchDepartment = { name: string; count: number };
 const normalize = (value: string) => value.toLowerCase().replace(/ø/g, "o").normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
 const departments = [
   { name: "Cameras", aliases: "camera cameras cam cams camcorder camcorders cinema cine dslr dslm slr body bodies video vid" },
-  { name: "Lenses", aliases: "lens lenses len lense glass optics optic prime primes zoom zooms anamorphic anamorphics" },
+  { name: "Lenses", aliases: "lens lenses len lense glass optics optic prime primes zoom zooms anamorphic anamorphics remus" },
   { name: "Lighting", aliases: "light lights lighting lgt lite led leds tube tubes softbox softboxes fresnel rgb illumination" },
   { name: "Audio", aliases: "audio aud sound sounds snd mic mics mike microphone microphones lav lavs lavalier lavaliers boom recorder recorders" },
   { name: "Sound & DJ", aliases: "dj deejay speaker speakers loudspeaker pa mixer mixers turntable turntables decks" },
@@ -48,7 +48,14 @@ export function gearSearchIntent(query: string, available: SearchDepartment[]) {
     // Only accept a typo when all matching words point to the same department.
     const near = exact ? [] : rules.filter(rule => rule.words.some(alias => nearWord(word, alias)));
     const rule = exact ?? (near.length === 1 ? near[0] : undefined);
-    if (rule) { add(rule.category); continue; }
+    if (rule) {
+      add(rule.category);
+      // Remus is both a lens-family hint and a useful part of the catalogue
+      // search. Keep it in the text query so "Remus lenses" finds that range
+      // instead of falling back to the department's most popular items.
+      if (word === "remus") terms.push(word);
+      continue;
+    }
     const direct = available.find(item => normalize(item.name) === word);
     if (direct) { add(direct.name); continue; }
     if (/^(?:red|arri|canon|sony|blackmagic|komodo|venice|bmpcc|fx[369]|a7s(?:iii|3))$/.test(word)) {
