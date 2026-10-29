@@ -511,7 +511,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await until(`document.querySelector('main [data-testid="membership-upsell"] input[type="checkbox"]').checked===true`);
   assert.equal(await c.evaluate(`getComputedStyle(document.querySelector('main [data-testid="membership-celebration"]')).display`),'none','Reduced motion keeps the selection state without the burst');
   await removeAndReadd('main ', 'checkout');
-  await nativeClick(`document.querySelector('main [data-testid="remove-membership"]')`);
+  await c.evaluate(`document.querySelector('main [data-testid="remove-membership"]').click()`);
   await until(`!!document.querySelector('[data-testid="confirm-remove-membership"]')`);
   await c.evaluate(`document.querySelector('[data-testid="confirm-remove-membership"]').click()`);
   await until(`!!document.querySelector('main [data-testid="add-membership"]')`);
