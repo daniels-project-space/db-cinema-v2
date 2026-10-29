@@ -74,7 +74,7 @@ const backend=process.env.DBC_CONVEX_URL||'https://deafening-stoat-340.convex.cl
   assert.ok(untimedPair,'The available full-period item has a complete pickup and return pair');
   await c.cmd('Page.addScriptToEvaluateOnNewDocument',{source:`if(!sessionStorage.getItem('untimed-proof-seeded')){localStorage.setItem('dbc_cart_v1',${JSON.stringify(JSON.stringify([untimed]))});sessionStorage.setItem('untimed-proof-seeded','1')}`});
   await reload();await ready();
-  assert(await c.evaluate(`(()=>{const text=document.querySelector('main').innerText;return text.includes('Choose pickup and return times for')&&text.includes('availability checks automatically')})()`),'Untimed checkout names the missing item and explains automatic availability checks');
+  assert(await c.evaluate(`document.querySelector('[data-checkout-item-times]')?.innerText.includes('Times needed')`),'Untimed checkout shows the per-item missing-times status without a separate blocking banner');
   assert.equal(await c.evaluate(`document.querySelector('main').innerText.includes('Some gear is unavailable')`),false,'Incomplete selection is not a stock verdict');
   await select(0,untimedPair.pickupTime);await select(1,untimedPair.returnTime);
   await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].pickupTime===${JSON.stringify(untimedPair.pickupTime)}&&JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].returnTime===${JSON.stringify(untimedPair.returnTime)}`,'Missing clocks can be completed in checkout');
