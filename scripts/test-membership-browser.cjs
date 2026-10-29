@@ -706,7 +706,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.evaluate(`document.querySelector('main [data-cart-dates] [data-cart-date-save]').click()`);
   await until(`JSON.parse(localStorage.getItem('dbc_cart_v1'))[0].end===${JSON.stringify(newEnd)}&&!document.querySelector('main [data-cart-dates] input')`);
   const stored=await c.evaluate(`JSON.parse(localStorage.getItem('dbc_cart_v1'))`);
-  assert.equal(stored[0].days,3);assert.equal(stored[0].pickupTime,"10:00");assert.equal(stored[0].returnTime,chosenReturnTime);assert.deepEqual(stored[1],secondItem,"Changing the first line must preserve the second line");
+  assert.equal(stored[0].days,3);assert.equal(stored[0].pickupTime,"10:00");assert.equal(stored[0].returnTime,chosenReturnTime);assert.deepEqual(stored[1],JSON.parse(JSON.stringify(secondItem)),"Changing the first line must preserve the second line");
   const editedQuote=await cv.action(api.checkout.priceQuote,{...weekdayArgs,items:[{...weekdayArgs.items[0],end:weekdayStart+2*86400000}, {...weekdayArgs.items[0],start:secondStart,end:secondStart}]});
   assert.equal(stored[0].total,editedQuote.items[0].total,"Saved line price must reflect the authoritative new date quote");
   const editedDue=new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(Math.round((editedQuote.combinedTotalDue-editedQuote.depositAmount)*100)/100);
