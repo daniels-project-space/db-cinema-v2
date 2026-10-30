@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useGafferSession } from "@/components/gaffer/GafferSession";
 
 function Headset() {
@@ -22,12 +23,10 @@ function clock(total: number) {
 /** In-browser voice call to Gaffer. A bespoke, cinematic control (no floating widget) so it can
  * sit inside the bot, the hero and the footer.
  *
- * Layout stability is the whole design brief here: the button must never twitch when Gaffer
- * starts or stops speaking. So every label that can appear *during a call* is stacked in the
- * same grid cell (the cell sizes to the widest, the words cross-fade inside it), and the only
- * width change in the component's life is the deliberate idle→live expansion, which is animated
- * via `grid-template-columns: 0fr → 1fr`. Speaking state is expressed purely through things that
- * cost no layout: equaliser amplitude (`--gc-amp`, eased), halo intensity and shadow. */
+ * Only the current call state is rendered in the label rail, so crawlers and
+ * assistive technology never receive idle, connecting and live states together.
+ * The rail still cross-fades state changes, and the deliberate idle→live width
+ * expansion is animated via `grid-template-columns: 0fr → 1fr`. */
 export function GafferCall({
   className = "",
   label = "Talk to Gaffer",
@@ -53,12 +52,15 @@ export function GafferCall({
   const connecting = state === "connecting";
 
   return (
+    <>
     <button
+      type="button"
       onClick={() => toggle(topic)}
       data-state={state}
       data-variant={variant}
       data-speaking={live && speaking ? "true" : "false"}
-      aria-label={live ? "End voice call with Gaffer" : "Start a voice call with Gaffer"}
+      aria-busy={connecting}
+      aria-label={live ? "End voice call with Gaffer" : connecting ? "Cancel connection to Gaffer" : error ? "Retry voice call with Gaffer" : "Start a voice call with Gaffer"}
       title={error ?? undefined}
       className={`gaffer-call relative inline-flex select-none items-center rounded-full px-4 py-2 text-sm font-semibold text-white ${className}`}
     >
@@ -96,21 +98,22 @@ export function GafferCall({
         <span className="gc-seg" data-open={!live}>
           <span className="gc-seg-in">
             <span className="gc-stack">
-              <span data-on={state === "idle"}>{label}</span>
-              <span data-on={connecting}>Connecting…</span>
+              {state === "idle" && <span className="gc-status" data-on="true" aria-hidden="true">{label}</span>}
+              {connecting && <span className="gc-status" data-on="true" aria-hidden="true">Connecting…</span>}
             </span>
           </span>
         </span>
 
         <span className="gc-seg" data-open={live}>
           <span className="gc-seg-in">
-            {!compact && (
+            {live && !compact && (
               <span className="gc-stack">
-                <span data-on={speaking}>Gaffer speaking…</span>
-                <span data-on={!speaking}>Listening…</span>
+                <span className="gc-status" data-on="true" aria-hidden="true">
+                  {speaking ? "Gaffer speaking…" : "Listening…"}
+                </span>
               </span>
             )}
-            <span className="gc-timer">{clock(secs)}</span>
+            {live && <span className="gc-timer">{clock(secs)}</span>}
           </span>
         </span>
       </span>
@@ -129,5 +132,11 @@ export function GafferCall({
               : ""}
       </span>
     </button>
+    {error && !live && !connecting && (
+      <span role="alert" className="ml-2 inline-flex flex-wrap items-center gap-1 text-xs text-rose-200/85">
+        Voice call unavailable. <Link href="/contact" className="underline underline-offset-2">Contact us</Link>
+      </span>
+    )}
+    </>
   );
 }

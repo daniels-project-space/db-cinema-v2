@@ -110,6 +110,10 @@ export function BookingPanel({
     () => (days ? computeQuote(listing.pricing, days) : null),
     [listing.pricing, days],
   );
+  const rateLadder = useMemo(
+    () => computeQuote(listing.pricing, 1).ladder.filter((tier) => tier.days === 3 || tier.days === 7),
+    [listing.pricing],
+  );
 
   const startMs = start ? dayMs(start) : 0;
   const endMs = end ? dayMs(end) : 0;
@@ -184,6 +188,13 @@ export function BookingPanel({
             <span className="text-sm text-white/40"> /day</span>
           </div>
         </div>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/45" aria-label="Multi-day rental rates">
+          {rateLadder.map((tier) => (
+            <span key={tier.days}>
+              {tier.label} <span className="font-medium text-white/70">£{tier.perDay}/day</span>
+            </span>
+          ))}
+        </div>
 
         {demand >= 120 && (
           <div className="mt-2.5 inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-300">
@@ -195,7 +206,7 @@ export function BookingPanel({
           <div className="mt-4 border-t border-white/5 pt-4">
             <div className="flex items-baseline justify-between">
               <span className="text-sm text-white/60">
-                £{q.perDay}/day × {days} day{days > 1 ? "s" : ""}
+                Rental total · £{q.perDay}/day × {days} day{days > 1 ? "s" : ""}
                 <span className="ml-2 rounded bg-accent-500/15 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-accent-300">
                   {q.tier.label}
                 </span>
@@ -209,6 +220,9 @@ export function BookingPanel({
                 multi-day discount applied — save £{q.saved} ({q.savedPct}%)
               </div>
             )}
+            <p className="mt-2 text-right text-[11px] text-white/40">
+              Gear rental only. Delivery and collection are priced separately by postcode in your kit.
+            </p>
             <div className="mt-3 rounded-xl bg-white/[0.03] p-3 text-xs text-white/55">
               <p className="font-medium text-white/75">Refundable deposit shown at checkout</p>
               <p className="mt-1">{policy === undefined ? "Checking deposit policy…" : policy.assessmentSecurityEnabled

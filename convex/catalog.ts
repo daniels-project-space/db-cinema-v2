@@ -62,6 +62,7 @@ const card = (l: any) => ({
   title: l.title,
   category: l.category,
   itemType: l.itemType ?? null,
+  isPackage: l.isPackage ?? l.category === "Packages",
   specs: effectiveLensSpecs(l),
   inventoryFacts: l.inventoryFacts ?? null,
   rentalContents: l.rentalContents ? { ...l.rentalContents } : null,

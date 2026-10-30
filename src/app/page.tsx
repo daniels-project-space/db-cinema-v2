@@ -12,7 +12,6 @@ import { CameraDeconstruct } from "@/components/CameraDeconstruct";
 import { Reveal } from "@/components/Reveal";
 import { Marquee } from "@/components/Marquee";
 import { ViewfinderHUD } from "@/components/ViewfinderHUD";
-import { CountUp } from "@/components/CountUp";
 import { GearCard, type GearListing } from "@/components/GearCard";
 import { HomeGearSearch } from "@/components/HomeGearSearch";
 import { CategoryIcon } from "@/components/CategoryIcon";
@@ -71,6 +70,19 @@ export default async function Home() {
     featured = (best as any) ?? [];
     categories = ((cats as any) ?? []).filter((x: any) => x.count > 0);
   } catch {}
+
+  // Use the same live review and category reads as the hero. Never publish
+  // placeholder counts when one of those public data sources is unavailable.
+  const itemCount = categories.reduce((sum, category) => sum + category.count, 0);
+  const trustStats = [
+    ...(rating
+      ? [
+          { value: rating.ratingValue, decimals: 2, suffix: "", label: "average rating" },
+          { value: rating.reviewCount, decimals: 0, suffix: "+", label: "verified reviews" },
+        ]
+      : []),
+    ...(itemCount > 0 ? [{ value: itemCount, decimals: 0, suffix: "", label: "items for hire" }] : []),
+  ];
 
   const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const jsonLd = {
@@ -291,22 +303,22 @@ export default async function Home() {
       </section>
 
       {/* ───────────────── numbers ───────────────── */}
-      <section className="section-window border-y border-white/5 px-6 py-14">
-        <div className="mx-auto grid max-w-4xl grid-cols-3 gap-6 text-center">
-          {[
-            { v: rating?.ratingValue ?? 4.86, d: 2, suffix: "", label: "average rating" },
-            { v: rating?.reviewCount ?? 875, d: 0, suffix: "+", label: "verified reviews" },
-            { v: 200, d: 0, suffix: "+", label: "items for hire" },
-          ].map((s) => (
-            <div key={s.label}>
-              <div className="font-poster text-4xl text-white sm:text-5xl">
-                <CountUp value={s.v} decimals={s.d} suffix={s.suffix} className="gradient-text" />
+      {trustStats.length > 0 && (
+        <section className="section-window border-y border-white/5 px-6 py-14" aria-label="Live rental and review figures">
+          <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 text-center sm:grid-cols-2 lg:grid-cols-3">
+            {trustStats.map((stat) => (
+              <div key={stat.label}>
+                <div className="font-poster text-4xl text-white sm:text-5xl">
+                  <span className="tabular-nums gradient-text">
+                    {stat.value.toFixed(stat.decimals)}{stat.suffix}
+                  </span>
+                </div>
+                <div className="hud-label mt-2">{stat.label}</div>
               </div>
-              <div className="hud-label mt-2">{s.label}</div>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="film-strip" aria-hidden />
 
