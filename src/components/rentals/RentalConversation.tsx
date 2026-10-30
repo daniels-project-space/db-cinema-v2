@@ -234,6 +234,7 @@ export function RentalConversation({
           <div><p className={styles.eyebrow}>{admin ? "Rental conversation" : "Your rental team"}</p>
             <h3>{admin && thread && "renter" in thread ? thread.renter?.name || "Guest renter" : "DB Cinema Rentals"}</h3>
             <p className={styles.supportStatus}><span />{teamHandling ? "Team handling your conversation" : "Gaffer available · team can join"}</p>
+            {!admin && teamHandling && <p className="mt-1 max-w-sm text-xs leading-relaxed text-white/45">The team has your enquiry. Add any other details here; replies will appear in this conversation.</p>}
           </div>
         </div>
         <button onClick={handoff} disabled={handoffBusy} className={styles.handoff}>

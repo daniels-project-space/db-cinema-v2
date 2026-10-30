@@ -17,6 +17,8 @@ export type GearListing = {
   slug: string;
   title: string;
   category: string;
+  itemType?: string | null;
+  isPackage?: boolean | null;
   heroImage: string | null;
   imageSources?: string[];
   pricing: { daily: number; day3?: number; day7?: number };

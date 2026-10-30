@@ -1,14 +1,39 @@
 import {publicPageMetadata} from "@/lib/pageMetadata";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@cvx/_generated/api";
 import Link from "next/link";
 import { PageHero } from "@/components/PageHero";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
-import { CountUp } from "@/components/CountUp";
 import { IconArrowRight } from "@/components/icons";
 
 export const metadata = publicPageMetadata("/about",'About our London hire service','Meet DB Cinema Rentals, a London film and photography equipment hire service. Explore the catalogue, collection and local delivery options.');
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  let rating: { ratingValue: number; reviewCount: number } | null = null;
+  let itemCount = 0;
+  try {
+    const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+    const [reviewStats, categories] = await Promise.all([
+      client.query(api.reviews.stats, {}).catch(() => null),
+      client.query(api.catalog.categories, {}).catch(() => []),
+    ]);
+    if (reviewStats?.count) {
+      rating = { ratingValue: Number(reviewStats.average), reviewCount: reviewStats.count };
+    }
+    itemCount = categories.reduce((sum, category) => sum + category.count, 0);
+  } catch {}
+
+  const trustStats = [
+    ...(rating
+      ? [
+          { value: rating.ratingValue, decimals: 2, suffix: "", label: "average rating" },
+          { value: rating.reviewCount, decimals: 0, suffix: "+", label: "verified reviews" },
+        ]
+      : []),
+    ...(itemCount > 0 ? [{ value: itemCount, decimals: 0, suffix: "", label: "items for hire" }] : []),
+  ];
+
   return (
     <>
       <SiteHeader />
@@ -53,22 +78,20 @@ export default function AboutPage() {
           </Reveal>
         </div>
 
-        <div className="mt-10 grid grid-cols-3 gap-4 text-center">
-          {[
-            { v: 4.86, d: 2, s: "", label: "average rating" },
-            { v: 875, d: 0, s: "+", label: "verified reviews" },
-            { v: 200, d: 0, s: "+", label: "items for hire" },
-          ].map((x, i) => (
-            <Reveal key={x.label} delay={i * 80}>
-              <div className="spot gradient-border rounded-2xl p-5">
-                <div className="font-poster text-3xl text-accent-400">
-                  <CountUp value={x.v} decimals={x.d} suffix={x.s} />
+        {trustStats.length > 0 && (
+          <div className="mt-10 grid grid-cols-1 gap-4 text-center sm:grid-cols-2 lg:grid-cols-3" aria-label="Live rental and review figures">
+            {trustStats.map((stat, index) => (
+              <Reveal key={stat.label} delay={index * 80}>
+                <div className="spot gradient-border rounded-2xl p-5">
+                  <div className="font-poster text-3xl text-accent-400">
+                    {stat.value.toFixed(stat.decimals)}{stat.suffix}
+                  </div>
+                  <div className="hud-label mt-2">{stat.label}</div>
                 </div>
-                <div className="hud-label mt-2">{x.label}</div>
-              </div>
-            </Reveal>
-          ))}
-        </div>
+              </Reveal>
+            ))}
+          </div>
+        )}
 
         <Reveal className="mt-10">
           <Link href="/gear" className="btn-primary px-7 py-3">

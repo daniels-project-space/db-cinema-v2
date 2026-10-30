@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useRef } from "react";
+import { Suspense, useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useGafferFocus } from "@/components/gaffer/GafferFocus";
 import { IconSearch } from "@/components/icons";
@@ -9,7 +9,7 @@ import { CategoryIcon } from "@/components/CategoryIcon";
 import { GearLoopBanner } from "@/components/GearLoopBanner";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
-import { GearCard } from "@/components/GearCard";
+import { GearCard, type GearListing } from "@/components/GearCard";
 import { HireProfessionals } from "@/components/HireProfessionals";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Reveal } from "@/components/Reveal";
@@ -20,11 +20,65 @@ import { getSessionId } from "@/lib/session";
 const catParam = (p: URLSearchParams) => p.get("cat") ?? p.get("category");
 const qParam = (p: URLSearchParams) => p.get("q") ?? p.get("search");
 
+const BRAND_MATCHERS = [
+  ["ARRI", ["arri"]],
+  ["Aputure", ["aputure"]],
+  ["Atomos", ["atomos"]],
+  ["BeamZ", ["beamz"]],
+  ["Blackmagic", ["blackmagic"]],
+  ["Blazar", ["blazar"]],
+  ["Canon", ["canon"]],
+  ["DJI", ["dji"]],
+  ["DZOFILM", ["dzofilm"]],
+  ["Fxlion", ["fxlion"]],
+  ["Godox", ["godox"]],
+  ["GoPro", ["gopro", "go pro"]],
+  ["Hollyland", ["hollyland"]],
+  ["JBL", ["jbl"]],
+  ["K&F Concept", ["k&f", "k and f"]],
+  ["Lexar", ["lexar"]],
+  ["Nanlite", ["nanlite"]],
+  ["Nanlux", ["nanlux"]],
+  ["Nikon", ["nikon"]],
+  ["Panasonic", ["panasonic"]],
+  ["Pioneer", ["pioneer"]],
+  ["RØDE", ["rode"]],
+  ["Sennheiser", ["sennheiser"]],
+  ["Shure", ["shure"]],
+  ["Sigma", ["sigma"]],
+  ["SmallHD", ["smallhd"]],
+  ["SmallRig", ["smallrig"]],
+  ["Sony", ["sony"]],
+  ["Tascam", ["tascam"]],
+  ["Tilta", ["tilta"]],
+  ["Vaxis", ["vaxis"]],
+  ["Zoom", ["zoom"]],
+  ["Other", []],
+] as const;
+
+const normalizeBrandText = (value: string) =>
+  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[øØ]/g, "o").toLowerCase();
+
+function brandForTitle(title: string) {
+  const searchable = normalizeBrandText(title).replace(
+    /^(?:(?:\d+\s*[x×]\s*)|(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+)/i,
+    "",
+  );
+  const match = BRAND_MATCHERS.find(([, aliases]) => aliases.some((alias) => searchable.startsWith(normalizeBrandText(alias))));
+  return match?.[0] ?? "Other";
+}
+
+const isPackageListing = (listing: GearListing) =>
+  listing.isPackage ?? listing.category.toLowerCase() === "packages";
+
 function GearPageInner() {
   const params = useSearchParams();
   const { suggestedIds } = useGafferFocus();
   const [cat, setCat] = useState(() => catParam(params) ?? "All");
   const [search, setSearch] = useState(() => qParam(params) ?? "");
+  const [brandFilter, setBrandFilter] = useState("all");
+  const [maxDailyPrice, setMaxDailyPrice] = useState("");
+  const [packageFilter, setPackageFilter] = useState("all");
 
   // Gaffer filters this page by pushing a new URL. Without this the page is
   // already mounted, so the initialisers above never run again and the grid
@@ -38,6 +92,9 @@ function GearPageInner() {
   useEffect(() => {
     setCat(urlCat || "All");
     setSearch(urlQ ?? "");
+    setBrandFilter("all");
+    setMaxDailyPrice("");
+    setPackageFilter("all");
   }, [urlCat, urlQ]);
 
   const cats = useQuery(api.catalog.categories) ?? [];
@@ -58,6 +115,26 @@ function GearPageInner() {
 
   const total = cats.reduce((n, c) => n + c.count, 0);
   const tabs = [{ name: "All", count: total }, ...cats];
+  const brandOptions = useMemo(
+    () => [...new Set((listings ?? []).map((listing) => brandForTitle(listing.title)))].sort((a, b) => a.localeCompare(b)),
+    [listings],
+  );
+  const visibleListings = useMemo(() => (listings ?? []).filter((listing) => {
+    if (brandFilter !== "all" && brandForTitle(listing.title) !== brandFilter) return false;
+    if (maxDailyPrice && listing.pricing.daily > Number(maxDailyPrice)) return false;
+    if (packageFilter === "packages" && !isPackageListing(listing)) return false;
+    if (packageFilter === "individual" && isPackageListing(listing)) return false;
+    return true;
+  }), [listings, brandFilter, maxDailyPrice, packageFilter]);
+  const hasRefinements = brandFilter !== "all" || !!maxDailyPrice || packageFilter !== "all";
+
+  function clearFilters() {
+    setSearch("");
+    setCat("All");
+    setBrandFilter("all");
+    setMaxDailyPrice("");
+    setPackageFilter("all");
+  }
 
   // log searches that return nothing (demand signal for the owner dashboard)
   const track = useMutation(api.analytics.track);
@@ -137,10 +214,62 @@ function GearPageInner() {
               ))}
             </div>
           </div>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <label className="grid gap-1.5 text-[10px] uppercase tracking-[0.12em] text-white/40">
+              Brand
+              <select
+                value={brandFilter}
+                onChange={(e) => setBrandFilter(e.target.value)}
+                aria-label="Filter gear by brand"
+                className="input h-10 min-w-[145px] rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80"
+              >
+                <option value="all">All brands</option>
+                {brandOptions.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-[10px] uppercase tracking-[0.12em] text-white/40">
+              Daily budget
+              <select
+                value={maxDailyPrice}
+                onChange={(e) => setMaxDailyPrice(e.target.value)}
+                aria-label="Filter by maximum daily rental price"
+                className="input h-10 min-w-[155px] rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80"
+              >
+                <option value="">Any daily rate</option>
+                <option value="25">Up to £25/day</option>
+                <option value="50">Up to £50/day</option>
+                <option value="100">Up to £100/day</option>
+                <option value="250">Up to £250/day</option>
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-[10px] uppercase tracking-[0.12em] text-white/40">
+              Kit type
+              <select
+                value={packageFilter}
+                onChange={(e) => setPackageFilter(e.target.value)}
+                aria-label="Filter by kit type"
+                className="input h-10 min-w-[155px] rounded-full !bg-white/[0.04] text-sm normal-case tracking-normal text-white/80"
+              >
+                <option value="all">All gear</option>
+                <option value="packages">Complete kits</option>
+                <option value="individual">Individual items</option>
+              </select>
+            </label>
+            <div role="status" aria-live="polite" className="ml-auto pb-2 text-xs text-white/45">
+              {listings === undefined
+                ? "Loading gear…"
+                : `${visibleListings.length} ${visibleListings.length === 1 ? "item" : "items"} ${hasRefinements ? "match these filters" : search || cat !== "All" ? "match your search" : "in the catalogue"}`}
+            </div>
+            {hasRefinements && (
+              <button type="button" onClick={clearFilters} className="pb-2 text-xs text-accent-300 underline underline-offset-4">
+                Clear filters
+              </button>
+            )}
+          </div>
         </div>
 
         {/* best sellers (data-driven) — only on All, no search */}
-        {cat === "All" && !search && best.length > 0 && (
+        {cat === "All" && !search && !hasRefinements && best.length > 0 && (
           <section className="mt-10">
             <h2 className="flex items-center gap-3 font-display text-lg font-semibold text-white/85">
               <span className="hud-label !text-accent-400/90">Best sellers</span>
@@ -171,15 +300,12 @@ function GearPageInner() {
               </div>
             ))}
           </div>
-        ) : listings.length === 0 ? (
+        ) : visibleListings.length === 0 ? (
           <div className="mt-20 text-center">
             <div className="hud-label">No matches</div>
             <p className="mt-3 text-white/40">Nothing matches that search.</p>
             <button
-              onClick={() => {
-                setSearch("");
-                setCat("All");
-              }}
+              onClick={clearFilters}
               className="btn-ghost mt-5 px-6 py-2.5 text-sm"
             >
               Clear filters
@@ -187,7 +313,7 @@ function GearPageInner() {
           </div>
         ) : (
           <div className="dim-grid mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {listings.map((l, i) => (
+            {visibleListings.map((l, i) => (
               <Reveal key={l._id} delay={Math.min(i, 8) * 50}>
                 <GearCard listing={l} />
               </Reveal>

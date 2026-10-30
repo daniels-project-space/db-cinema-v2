@@ -2363,8 +2363,7 @@ html[data-gaffer-nav="1"] .tile-in {
   overflow: hidden;
   white-space: nowrap;
 }
-/* every label that can appear in a single state shares one cell, so the cell is
-   as wide as the longest of them and the words cross-fade without a reflow */
+/* Only the current label is present in the DOM; it fades in as the state changes. */
 .gc-stack { display: grid; }
 .gc-stack > * {
   grid-area: 1 / 1;
@@ -2374,6 +2373,11 @@ html[data-gaffer-nav="1"] .tile-in {
   transition: opacity 0.28s ease, transform 0.34s var(--gc-ease);
 }
 .gc-stack > [data-on="true"] { opacity: 1; transform: none; }
+@keyframes gc-status-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+.gc-stack > .gc-status { animation: gc-status-in 0.28s ease both; }
 .gc-timer {
   font-family: var(--font-mono, monospace);
   font-variant-numeric: tabular-nums;
@@ -2386,6 +2390,7 @@ html[data-gaffer-nav="1"] .tile-in {
   .gc-halo, .gc-ring, .gc-bar, .gc-sheen::before { animation: none !important; }
   .gc-bar { transform: scaleY(var(--gc-amp)); }
   .gaffer-call, .gc-seg, .gc-stack > *, .gc-icon-layer { transition-duration: 0.01ms !important; }
+  .gc-stack > .gc-status { animation-duration: 0.01ms !important; }
 }
 
 /* ── FORM / SEVEN badge — orbiting edge glow, eased periodic spin, idle shine, hover reveal ── */
