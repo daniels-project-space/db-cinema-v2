@@ -10,6 +10,7 @@
  */
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { bumpCatalogRevision } from "./lib/catalogRevision";
 
 export const status = internalQuery({
   args: {},
@@ -48,6 +49,7 @@ export const republish = internalMutation({
         });
         if ((l as { hyggloProductId?: number }).hyggloProductId != null) hasHyggloProductId++;
       }
+      if (targets.length) await bumpCatalogRevision(ctx);
     } else {
       hasHyggloProductId = targets.filter(
         (l) => (l as { hyggloProductId?: number }).hyggloProductId != null,

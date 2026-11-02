@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { automaticMarketingFields, isMarketingOnly, marketingRedirect } from "./lib/marketingInventory";
 import { listingImages } from "./lib/catalogImages";
+import { bumpCatalogRevision } from "./lib/catalogRevision";
 
 const changeValidator = v.object({ listingId: v.id("listings"), marketingOnly: v.union(v.boolean(), v.null()), expectedUpdatedAt: v.optional(v.number()) });
 const managerResultValidator = v.object({ productId: v.number(), marketingOnly: v.boolean(), mode: v.union(v.literal("automatic"), v.literal("manual")), updatedAt: v.number() });
@@ -48,6 +49,7 @@ export const save = mutation({
       marketingOnlySource: change.marketingOnly === null ? "auto" : "admin",
       marketingOnlyUpdatedAt: at,
     });
+    if (rows.length) await bumpCatalogRevision(ctx);
     return { saved: rows.length };
   },
 });
@@ -122,6 +124,7 @@ export const finishSave = internalMutation({
         await ctx.db.patch(listing._id, { marketingOnly: change.marketingOnly ?? !!marketingRedirect(listing), marketingOnlySource: change.marketingOnly === null ? "auto" : "admin", marketingOnlyUpdatedAt: Math.max(Date.now(), (listing.marketingOnlyUpdatedAt ?? 0) + 1) });
       }
     }
+    if (listings.length) await bumpCatalogRevision(ctx);
     await ctx.db.patch(operation._id, { state: "complete", saved: listings.length });
     return { saved: listings.length };
   },
@@ -162,6 +165,7 @@ export const seedIdentified = internalMutation({
       if (Object.keys(fields).length) { await ctx.db.patch(l._id, fields); updated++; }
       if (isMarketingOnly({ ...l, ...fields })) tagged++;
     }
+    if (updated) await bumpCatalogRevision(ctx);
     return { tagged, updated, total: rows.length };
   },
 });

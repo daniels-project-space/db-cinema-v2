@@ -12,6 +12,7 @@ import { alreadySupplied, automaticRecommendation } from "../shared/recommendati
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { createPublicListingCopy } from "./lib/publicListingCopy";
 import { rentalPricingDays } from "../shared/rentalDuration";
+import { bumpCatalogRevision, catalogRevision } from "./lib/catalogRevision";
 
 /**
  * SERVER-AUTHORITATIVE line pricing for checkout (anti-tamper). Recomputes each line's
@@ -55,6 +56,8 @@ export const repriceLines = internalQuery({
 /** Public catalog reads. heroImage/gallery prefer migrated R2 over source. */
 
 const images = listingImages;
+
+export const publicRevision = query({ args: {}, handler: async ctx => `v1:${await catalogRevision(ctx)}` });
 
 const card = (l: any) => ({
   _id: l._id,
@@ -349,6 +352,7 @@ export const refreshQuietDeals = mutation({
         want ? set++ : cleared++;
       }
     }
+    if (set || cleared) await bumpCatalogRevision(ctx);
     return { discounted: set, cleared, scanned: ls.length, picks: idle.map((x) => x.l.title.slice(0, 50)) };
   },
 });
@@ -521,6 +525,7 @@ export const applyR2Images = mutation({
         n++;
       }
     }
+    if (n) await bumpCatalogRevision(ctx);
     return { updated: n };
   },
 });

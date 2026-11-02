@@ -7,6 +7,7 @@ import { assertAdmin } from "./adminAuth";
 import { automaticMarketingFields } from "./lib/marketingInventory";
 import { inventoryCapacity } from "./lib/inventoryCapacity";
 import { CART_STOCK_SYNC_MAX_AGE_MS, isSharedStockSyncFresh } from "./lib/shared_stock_sync";
+import { bumpCatalogRevision } from "./lib/catalogRevision";
 
 /**
  * Canonical camera-MODEL identity for inventory reconciliation against the rental
@@ -434,6 +435,7 @@ export const applyCatalog = internalMutation({
       if (state) await ctx.db.patch(state._id, next);
       else await ctx.db.insert("rmv2_sync_state", next);
     }
+    await bumpCatalogRevision(ctx);
     return { listings: listingCount, units: unitCount, deactivated, skipped: false };
   },
 });
@@ -456,6 +458,7 @@ export const applyManagerMarketingTags = internalMutation({
           !Number.isSafeInteger(change.updatedAt) || change.updatedAt < 0))
       throw Error("Choose up to 50 distinct, valid listing changes.");
 
+    let changed = false;
     let acknowledged = 0;
     let missing = 0;
     let stale = 0;
@@ -481,9 +484,11 @@ export const applyManagerMarketingTags = internalMutation({
           marketingOnlySource: "rental_manager",
           marketingOnlyUpdatedAt: change.updatedAt,
         });
+        changed = true;
       }
       acknowledged++;
     }
+    if (changed) await bumpCatalogRevision(ctx);
     return { protocolVersion: 1 as const, acknowledged, missing, stale };
   },
 });
@@ -541,6 +546,7 @@ export const applyDemand = internalMutation({
         updated++;
       }
     }
+    if (updated) await bumpCatalogRevision(ctx);
     return { updated, withDemand, listings: listings.length };
   },
 });
@@ -716,6 +722,7 @@ export const setSuppressed = internalMutation({
         updated++;
       }
     }
+    if (updated) await bumpCatalogRevision(ctx);
     return { updated, skipped };
   },
 });
@@ -724,6 +731,7 @@ export const suppressByIds = internalMutation({
   args: { ids: v.array(v.id("listings")), suppressed: v.boolean() },
   handler: async (ctx, { ids, suppressed }) => {
     for (const id of ids) await ctx.db.patch(id, suppressed ? { suppressed: true, active: false } : { suppressed: false });
+    if (ids.length) await bumpCatalogRevision(ctx);
     return { updated: ids.length };
   },
 });
@@ -759,6 +767,7 @@ export const setItemTypes = mutation({
   args: { updates: v.array(v.object({ id: v.id("listings"), itemType: v.string() })) },
   handler: async (ctx, { updates }) => {
     for (const u of updates) await ctx.db.patch(u.id, { itemType: u.itemType });
+    if (updates.length) await bumpCatalogRevision(ctx);
     return { updated: updates.length };
   },
 });
@@ -775,6 +784,7 @@ export const reclassify = mutation({
         n++;
       }
     }
+    if (n) await bumpCatalogRevision(ctx);
     return { updated: n, total: ls.length };
   },
 });
@@ -796,6 +806,7 @@ export const recategorize = mutation({
         n++;
       }
     }
+    if (n) await bumpCatalogRevision(ctx);
     return { updated: n, total: ls.length };
   },
 });
@@ -831,6 +842,7 @@ export const applyClassification = mutation({
     await assertAdmin(ctx, token, "sync.applyClassification");
     let n = 0;
     for (const it of items) { await ctx.db.patch(it.id, { itemType: it.itemType, category: it.category, isPackage: it.isPackage, specs: it.specs }); n++; }
+    if (n) await bumpCatalogRevision(ctx);
     return { updated: n };
   },
 });
