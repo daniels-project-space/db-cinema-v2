@@ -26,10 +26,10 @@ async function run(options = {}) {
     ...options.report,
   };
   if (options.existing) {
-    put('verification_documents', { archiveId: job._id, bookingId: booking._id,
+    put('verification_documents', { archiveId: job._id, bookingId: booking._id,sessionId:job.sessionId,
       kind: 'identity-0-front_image', storageId: 'old-file', sha256: sha(image),
       size: image.length, contentType: 'image/jpeg', savedAt: 123 });
-    if (options.existing !== 'missing') stored.set('old-file', new Blob([options.existing === 'corrupt' ? Buffer.from('bad!') : image]));
+    if (options.existing !== 'missing') stored.set('old-file', new Blob([options.existing === 'corrupt' ? Buffer.from('bad!') : image],{type:'image/jpeg'}));
   }
   const storage = {
     store: async blob => { const id = `file-${++counter}`; stored.set(id, options.corruptStore ? new Blob(['broken']) : blob); return id; },
@@ -37,7 +37,7 @@ async function run(options = {}) {
     delete: async id => { removed.push(id); if(!stored.has(id))throw Error('Storage object not found');stored.delete(id); },
   };
   const scheduled = [];
-  const mutationCtx = { db:{...db,system:{get:async id=>stored.has(id)?{_id:id}:null}},storage,scheduler: { runAfter: async (delay, ref, args) => scheduled.push({delay,ref,args}) } };
+  const mutationCtx = { db:{...db,system:{get:async id=>{const blob=stored.get(id);return blob?{_id:id,size:blob.size,contentType:blob.type,sha256:sha(Buffer.from(await blob.arrayBuffer()))}:null}}},storage,scheduler: { runAfter: async (delay, ref, args) => scheduled.push({delay,ref,args}) } };
   const ctx = { storage,
     runQuery: async (_, args) => archive.context.handler(mutationCtx, args),
     runMutation: async (ref, args) => archive[ref.split('.').at(-1)].handler(mutationCtx, args),

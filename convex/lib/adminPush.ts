@@ -16,7 +16,7 @@ export function ownerPushAllowed(subscription: {humanRequests?:boolean;renterMes
 }
 
 export async function queueOwnerNotification(ctx: any, args: {
-  eventKey: string; kind: string; accountId: any; bookingId?: any; title: string; body: string;
+  eventKey: string; kind: string; accountId?: any; bookingId?: any; title: string; body: string;
   income?: { gross: number; net: number; currency: string };
 }) {
   const existing = await ctx.db.query("admin_notifications").withIndex("by_event", (q: any) => q.eq("eventKey", args.eventKey)).first();

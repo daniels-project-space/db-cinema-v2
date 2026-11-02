@@ -34,6 +34,15 @@ const message=put('messages',{accountId:account._id,bookingId:booking._id,sender
  const count=tables.get('admin_notifications').length;await bookings.flagDiditProcessingFailure.handler(ctx,{bookingId:booking._id,sessionId:'foreign-session'});assert.equal(tables.get('admin_notifications').length,count,'foreign provider sessions cannot alert for this booking');
  await bookings.flagDiditProcessingFailure.handler(ctx,{bookingId:booking._id,sessionId:'bound-session'});await bookings.flagDiditProcessingFailure.handler(ctx,{bookingId:booking._id,sessionId:'bound-session'});
  const flags=tables.get('admin_notifications').filter(n=>n.kind==='verification_failure');assert.equal(flags.length,1);assert.equal(flags[0].telegramStatus,'queued');
+ const guest=put('bookings',{status:'confirmed',verificationProvider:'didit',diditSessionId:'guest-session',guestEmail:'guest@example.invalid'});
+ await bookings.flagDiditProcessingFailure.handler(ctx,{bookingId:guest._id,sessionId:guest.diditSessionId});
+ const guestFlag=tables.get('admin_notifications').find(n=>n.bookingId===guest._id&&n.kind==='verification_failure');
+ assert.ok(guestFlag,'guest verification failures create a durable owner incident');
+ await telegram.deliver.handler(ctx,{notificationId:guestFlag._id});assert.match(payload.text,new RegExp(guest._id),'the guest alert links to its rental');
+ const systemFlag=await queueOwnerNotification(ctx,{eventKey:'verification-configuration-fixture',kind:'verification_failure',title:'Verification configuration needs attention',body:'Check configuration.'});
+ const managerClaim=await load('convex/managerNotifications.ts').claim.handler(ctx,{notificationId:systemFlag});
+ assert.equal(JSON.parse(managerClaim.payload).conversationId,'system:verification','accountless incidents have a valid manager destination');
+ await telegram.deliver.handler(ctx,{notificationId:systemFlag});assert.match(payload.text,/Verification configuration needs attention/);assert.match(payload.text,/\/admin/);
  await db.patch(booking._id,{status:'confirmed'});
  const beforeOpen=tables.get('admin_notifications').length;
  await bookings.flagDiditOpeningFailure.handler(ctx,{bookingId:booking._id,sessionId:'foreign-session'});

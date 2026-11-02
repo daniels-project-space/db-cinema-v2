@@ -8,9 +8,24 @@ export function verificationDetail(value: unknown) {
   return typeof value === "string" ? value.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ") : "";
 }
 export function validReuse(record: any, booking: any, now = Date.now()) {
-  return !!record && record.expiresAt > now && record.expiresAt > Math.min(...booking.lineItems.map((li: any) => li.start)) &&
+  return !!record && Array.isArray(booking.lineItems) && booking.lineItems.length > 0 &&
+    booking.lineItems.every((li: any) => Number.isFinite(li.start) && record.expiresAt > li.start) && record.expiresAt > now &&
     !!verificationDetail(booking.agreementName) && !!verificationDetail(booking.billingAddress) &&
     record.name === verificationDetail(booking.agreementName) && record.address === verificationDetail(booking.billingAddress);
+}
+export async function saveAccountDiditVerification(ctx: any, booking: any, verifiedAt: number, documentExpiresAt: number | undefined, checks: any, personKey: string | undefined) {
+  if (!booking.accountId || booking.accountAccessRequired !== false || !booking.diditSessionId || booking.verificationReuseBlockedSessionId === booking.diditSessionId ||
+      !["identity", "selfie", "address"].every(key => checks?.[key] === "approved") ||
+      !personKey || !Number.isFinite(verifiedAt) || !Number.isFinite(documentExpiresAt)) return false;
+  const name = verificationDetail(booking.agreementName), address = verificationDetail(booking.billingAddress);
+  const expiresAt = Math.min(verifiedAt + VERIFICATION_REUSE_DAYS * 86400000, documentExpiresAt!);
+  if (!name || !address || expiresAt <= Date.now()) return false;
+  const account = await ctx.db.get(booking.accountId);
+  if (!account || account.blockedAt != null || account.emailVerificationRequired && !account.emailVerifiedAt) return false;
+  if (account.name && verificationDetail(account.name) !== name || account.address && verificationDetail(account.address) !== address) return false;
+  if ((account.rentalVerification?.verifiedAt ?? 0) > verifiedAt) return false;
+  await ctx.db.patch(account._id, { rentalVerification: { sourceBookingId: booking._id, name, address, verifiedAt, expiresAt } });
+  return true;
 }
 export async function verificationUpdateMessage(ctx: any, bookingId: any, previous: string | undefined, status: string) {
   if (previous === status) return;
