@@ -14,9 +14,11 @@ import { availableCreditRows,creditPlan,creditKind } from "./lib/checkoutCredit"
 import { ensurePaidBookingAccount } from "./accountClaims";
 import { referralEligibility,availableReferralReward } from "./lib/referrals";
 import { SINGLE_BENEFIT_VERSION } from "../shared/rentalBenefits";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardLimitForPolicy, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, depositChargeFor, savedCardChargeLimit } from "../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, STRICT_ASSESSMENT_SECURITY_POLICY_VERSION, hasAssessmentSecurityPolicy, depositForBookingPolicy, assessmentDepositFor, cardLimitForPolicy, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, depositChargeFor, savedCardChargeLimit } from "../shared/rentalSecurity";
+import { strictDepositWaiver } from "./lib/strictDepositWaiver";
 import { isSavedCardRental, assessmentConsentText, savedCardConsentText, assertSavedCardConsent } from "../shared/savedCardSecurity";
 import { loyaltyProgress } from "./lib/loyalty";
+import { queueEncoreCheck } from "./lib/encoreCheckQueue";
 import { creditDebit,usableCredit } from "./lib/creditLedger";
 import { safeRepeatRental,repeatRentalFingerprint } from "./lib/repeatRental";
 import { reviewContext } from "./lib/reviewContext";
@@ -201,7 +203,7 @@ export const createPending = internalMutation({
       if(!owner||owner.blockedAt!=null||owner.email!==a.customerEmail.trim().toLowerCase())throw Error("Rental account does not match the checkout customer.");
     }
     if(a.checkoutInputFingerprint&&!/^[a-f0-9]{64}$/.test(a.checkoutInputFingerprint))throw Error("Invalid checkout receipt.");
-    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16"].includes(d.version));
+    const newAgreement = a.agreementDocs?.some(d => [LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16","2026-11-v17","2026-11-v18"].includes(d.version));
     if (hasCashDepositPolicy(a.securityPolicyVersion) && !newAgreement) throw Error("Review and accept the current refundable-deposit agreements before paying.");
     const agreementRequestFingerprint = a.agreementRequestId ? fingerprintAgreement(a) : undefined;
     if (newAgreement && !a.agreementRequestId) throw Error("An agreement acceptance attempt is required.");
@@ -215,8 +217,8 @@ export const createPending = internalMutation({
       }
     }
     if(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && a.securityWaiverReason)throw Error("The refundable deposit cannot be waived by membership or a prior rental.");
-    if(a.securityPolicyVersion && a.securityPolicyVersion!==SECURITY_POLICY_VERSION && !(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true") && !(a.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION && process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"))throw Error("Unsupported security policy.");
-    if(a.cancellationProtectionEnabled && (process.env.CANCELLATION_PROTECTION_POLICY_ENABLED!=="true"||a.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION))throw Error("The cancellation protection policy is not enabled.");
+    if(a.securityPolicyVersion && a.securityPolicyVersion!==SECURITY_POLICY_VERSION && !(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true") && !(a.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION && process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true") && !(a.securityPolicyVersion===STRICT_ASSESSMENT_SECURITY_POLICY_VERSION && process.env.STRICT_SECURITY_POLICY_ENABLED==="true" && process.env.ENCORE_EVIDENCE_READ_ENABLED==="true" && process.env.MEMBERSHIP_BOUNDED_RECONCILE_ENABLED==="true"))throw Error("Unsupported security policy.");
+    if(a.cancellationProtectionEnabled && (process.env.CANCELLATION_PROTECTION_POLICY_ENABLED!=="true"||!hasAssessmentSecurityPolicy(a.securityPolicyVersion)))throw Error("The cancellation protection policy is not enabled.");
     const single=a.pricingVersion===SINGLE_BENEFIT_VERSION;
     if(a.pricingVersion&&!single)throw Error("Unsupported pricing version.");
     const account=a.creditAccountId?await ctx.db.get(a.creditAccountId):null;
@@ -226,8 +228,8 @@ export const createPending = internalMutation({
       if(a.benefitKind==="earned_credit"&&((a.discount??0)!==(a.membershipSignupOfferSaving??0)||a.deliveryFee!==(a.quotedDeliveryFee??a.deliveryFee)))throw Error("Only one price benefit can apply, plus the one-time joining credit.");
       if(["referral_friend","referral_reward"].includes(a.benefitKind??"")){
         const value = isSavedCardRental(a) ? (await Promise.all(a.lineItems.map(line=>ctx.db.get(line.listingId)))).reduce((n,item,i)=>n+(item?.depositAmount??0)*a.lineItems[i].qty,0) : undefined;
-        const normalDeposit = a.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION && value !== undefined ? a.securityWaiverReason?0:assessmentDepositFor(value) : hasCashDepositPolicy(a.securityPolicyVersion) && value !== undefined ? refundableDepositFor(value) : value === undefined ? Math.round((a.depositHoldAmount??0)*50)/100 : depositChargeFor(a.protection === "deposit" ? "deposit" : "verify",value);
-        if((a.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION&&a.securityWaiverReason)||a.depositAmount!==normalDeposit)throw Error("Referral offers require normal upfront security.");
+        const normalDeposit = hasAssessmentSecurityPolicy(a.securityPolicyVersion) && value !== undefined ? depositForBookingPolicy(a,value) : hasCashDepositPolicy(a.securityPolicyVersion) && value !== undefined ? refundableDepositFor(value) : value === undefined ? Math.round((a.depositHoldAmount??0)*50)/100 : depositChargeFor(a.protection === "deposit" ? "deposit" : "verify",value);
+        if((!hasAssessmentSecurityPolicy(a.securityPolicyVersion)&&a.securityWaiverReason)||a.depositAmount!==normalDeposit)throw Error("Referral offers require normal upfront security.");
         if(a.benefitKind==="referral_friend"){
           friend=await referralEligibility(ctx,account,a.referralCode??"");if(!friend.valid)throw Error(friend.reason);
           if(Math.round(((a.discount??0)-(a.membershipSignupOfferSaving??0))*100)!==Math.round(Math.min(10,a.subtotal)*100))throw Error("Referral price changed.");
@@ -269,7 +271,7 @@ export const createPending = internalMutation({
       const account=a.creditAccountId?await ctx.db.get(a.creditAccountId):null;
       if(!source||!safeRepeatRental(source,account,a.lineItems)||repeatRentalFingerprint(await reviewContext(ctx,source))!==a.repeatSourceFingerprint)throw Error("Your repeat-rental security benefit changed. Refresh checkout before paying.");
     }
-    if (a.securityWaiverReason === "paid_membership" && !paidDepositExempt(a.creditAccountId ? await ctx.db.get(a.creditAccountId) : null))
+    if (a.securityWaiverReason === "paid_membership" && a.securityPolicyVersion!==STRICT_ASSESSMENT_SECURITY_POLICY_VERSION && !paidDepositExempt(a.creditAccountId ? await ctx.db.get(a.creditAccountId) : null))
       throw Error("Your paid membership changed. Refresh the security payment before paying.");
     let customer = await ctx.db
       .query("customers")
@@ -335,7 +337,7 @@ export const createPending = internalMutation({
     const exposure = await assertRenterExposure(ctx, { customerEmail, status: "pending_payment", lineItems: a.lineItems });
     const values = await replacementValues(ctx, { lineItems: a.lineItems });
     const savedCard = isSavedCardRental(a);
-    const assessmentPolicy=a.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION;
+    const assessmentPolicy=hasAssessmentSecurityPolicy(a.securityPolicyVersion),strictPolicy=a.securityPolicyVersion===STRICT_ASSESSMENT_SECURITY_POLICY_VERSION;
     const refundablePolicy = hasCashDepositPolicy(a.securityPolicyVersion);
     const equipmentValue = a.lineItems.reduce((n,line)=>n+(values.find(value=>value.listingId===line.listingId)?.unitPence??0)*line.qty/100,0);
     const cardLimit = savedCard ? cardLimitForPolicy(a.securityPolicyVersion,equipmentValue) : undefined;
@@ -343,7 +345,8 @@ export const createPending = internalMutation({
     if(assessmentPolicy && a.securityWaiverReason){
       const signedAccount=a.accountId?await ctx.db.get(a.accountId):null;
       if(!signedAccount || signedAccount._id!==customerAccount?._id)throw Error("Deposit exemption belongs to a different account.");
-      if(a.securityWaiverReason==="active_membership")waiverValid=membershipActiveNow(signedAccount);
+      if(strictPolicy)waiverValid=a.accountAccessRequired===false&&await strictDepositWaiver(ctx,signedAccount,Math.round(equipmentValue*100))===a.securityWaiverReason;
+      else if(a.securityWaiverReason==="active_membership")waiverValid=membershipActiveNow(signedAccount);
       else if(a.securityWaiverReason==="encore"){const progress=await loyaltyProgress(ctx,signedAccount);waiverValid=progress.eligible&&progress.level>=3;}
       else if(a.securityWaiverReason==="membership_checkout" && a.membershipCheckoutId){const selected=await ctx.db.get(a.membershipCheckoutId);waiverValid=!!selected && selected.accountId===signedAccount._id && selected.state==="creating";}
       if(!waiverValid)throw Error("Your deposit exemption changed; review checkout before paying.");
@@ -1126,7 +1129,7 @@ export const recordLateFee = internalMutation({
         ...(hasCashDepositPolicy(b.securityPolicyVersion)?depositRefundStatementFields(b):{}),
         holdStatus: b.depositHoldStatus,
         damageTotal: b.depositKept ?? 0, damageFromHold: b.depositHoldCapturedForDamage ?? 0,
-        ...(isSavedCardRental(b)?{securityPolicyVersion:b.securityPolicyVersion,...(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?{}:{savedCardLimit:b.savedCardLimit}),damageAssessed:b.returnDecision?.damageKept??0}:{}),
+        ...(isSavedCardRental(b)?{securityPolicyVersion:b.securityPolicyVersion,...(hasAssessmentSecurityPolicy(b.securityPolicyVersion)?{}:{savedCardLimit:b.savedCardLimit}),damageAssessed:b.returnDecision?.damageKept??0}:{}),
         damageNote: b.depositDeductionNote,
         inspection: b.returnDecision?.inspection,
         lateAssessed: amount, lateWaived: waivedAmount ?? 0, lateBreakdown: breakdown,
@@ -1136,6 +1139,7 @@ export const recordLateFee = internalMutation({
     if (amount > 0 && !isSavedCardRental(b)) await ctx.scheduler.runAfter(0, internal.lateFees.sendNotice, { bookingId });
     await ctx.scheduler.runAfter(0, internal.referralPayments.attest, {bookingId});
     await ctx.scheduler.runAfter(0, internal.invoice.returnSettlementEmail, { bookingId });
+    await queueEncoreCheck(ctx,bookingId);
   },
 });
 

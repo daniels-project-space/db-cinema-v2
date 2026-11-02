@@ -4,18 +4,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
-function load(file, mocks = {}, globals = {}) {
+function load(file, mocks = {}, globals = {}, cache = new Map()) {
   const filename = path.resolve(root, file);
+  if(cache.has(filename))return cache.get(filename).exports;
+  const mod = { exports: {} };cache.set(filename,mod);
   const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
   }).outputText;
-  const mod = { exports: {} };
   const req = (name) => {
     if (name in mocks) return mocks[name];
     if (name.startsWith('.')) {
       let target = path.resolve(path.dirname(filename), name);
       if (!path.extname(target)) target += fs.existsSync(target + '.ts') ? '.ts' : '.js';
-      if (target.endsWith('.ts')) return load(target, mocks, globals);
+      if (target.endsWith('.ts')) return load(target, mocks, globals, cache);
       return require(target);
     }
     return require(name);

@@ -1,4 +1,4 @@
-import {ASSESSMENT_SECURITY_POLICY_VERSION,depositForBookingPolicy} from "../shared/rentalSecurity";
+import {hasAssessmentSecurityPolicy,depositForBookingPolicy} from "../shared/rentalSecurity";
 import { replacementSets } from "./lib/replacementSets";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
@@ -30,7 +30,7 @@ async function context(ctx: any, bookingId: any, lineIndex: number) {
 }
 /** Bounded, category-indexed candidates; every result checks the entire proposed basket. */
 async function assertReplacementDeposit(ctx:any,b:any,lines:any[]){
- if(b.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION)return;
+ if(!hasAssessmentSecurityPolicy(b.securityPolicyVersion))return;
  const values=await replacementValues(ctx,b,lines);
  const value=lines.reduce((sum:number,line:any)=>sum+values.find(v=>v.listingId===line.listingId)!.unitPence*line.qty/100,0);
  if(depositForBookingPolicy(b,value)>b.depositAmount)throw Error("This equipment upgrade needs a reviewed deposit update before it can be applied.");

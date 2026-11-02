@@ -1,4 +1,4 @@
-import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
+import { hasCashDepositPolicy, hasAssessmentSecurityPolicy, STRICT_ASSESSMENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
 import {canDeferAdditionSecurity} from "../shared/pickupSecurity";
 import {schedulePickupHold} from "./pickupSecurity";
 import { tierByKey } from "../shared/membership";
@@ -152,9 +152,9 @@ async function qualifyAddition(ctx: QueryCtx, a: AdditionSelection) {
       b.depositHoldAmount ?? 0,
       security.hold,
     );
-    const securityCharge = ["paid_membership","new_paid_membership"].includes(b.securityWaiverReason??"") ? 0 : Math.max(
+    const securityCharge = b.securityPolicyVersion!==STRICT_ASSESSMENT_SECURITY_POLICY_VERSION&&["paid_membership","new_paid_membership"].includes(b.securityWaiverReason??"") ? 0 : Math.max(
       0,
-      (b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION ? depositForBookingPolicy(b,value) : security.deposit) - b.depositAmount,
+      (hasAssessmentSecurityPolicy(b.securityPolicyVersion) ? depositForBookingPolicy(b,value) : security.deposit) - b.depositAmount,
     );
     const membership=b.status==="pending_payment"&&b.membershipCheckoutId?await ctx.db.get(b.membershipCheckoutId):null;
     if(membership&&(!membership.sessionParams||!["creating","open"].includes(membership.state)||membership.bookingId!==b._id))throw Error("Refresh the initial membership checkout before changing its order.");

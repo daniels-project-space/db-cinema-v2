@@ -4,6 +4,8 @@ import { v,ConvexError } from "convex/values";
 import { bump } from "./rateLimit";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
+import { queueEncoreCheck } from "./lib/encoreCheckQueue";
+import { encoreGuestClaimEligible } from "./lib/encoreGuestClaim";
 /** Runs inside the attested paid-booking transaction, independently of email delivery. */
 export async function ensurePaidBookingAccount(ctx: any, booking: any) {
  if(!["confirmed","active"].includes(booking.status))return null;
@@ -54,7 +56,7 @@ export const prepare=internalMutation({args:{bookingId:v.id("bookings"),secretHa
  const account=await ensurePaidBookingAccount(ctx,b);if(!account)return null;
  if(account!.blockedAt!=null)return null;
  const previous=await ctx.db.query("account_access_links").withIndex("by_booking",q=>q.eq("bookingId",b._id)).collect();for(const link of previous)if(!link.usedAt)await ctx.db.patch(link._id,{expiresAt:Date.now()});
- const claimId=await ctx.db.insert("account_access_links",{accountId:account!._id,bookingId:b._id,secretHash:a.secretHash,expiresAt:Date.now()+3600000,createdAt:Date.now()});
+ const claimId=await ctx.db.insert("account_access_links",{accountId:account!._id,bookingId:b._id,recipientEmail:account.email.trim().toLowerCase(),secretHash:a.secretHash,expiresAt:Date.now()+3600000,createdAt:Date.now()});
  await ctx.db.patch(b._id,{accountAccessEmailClaimId:claimId,accountAccessEmailLeaseUntil:Date.now()+5*60000,accountAccessEmailRetryAt:Date.now()+5*60000,accountAccessEmailAttempts:(b.accountAccessEmailAttempts??0)+1});
  return{email:account.email,bookingId:b._id,claimId};
 }});
@@ -69,11 +71,24 @@ export const dueRentalAccess=internalQuery({args:{},handler:async(ctx)=>{
  const rows=await ctx.db.query("bookings").withIndex("by_account_access_retry",q=>q.gt("accountAccessEmailRetryAt",0).lte("accountAccessEmailRetryAt",Date.now())).take(100);
  return rows.filter(b=>!b.accountAccessEmailSentAt&&["confirmed","active"].includes(b.status)&&(b.accountAccessEmailLeaseUntil??0)<=Date.now()).map(b=>b._id);
 }});
+export const prepareEncoreClaim=internalMutation({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),secretHash:v.string()},handler:async(ctx,args)=>{
+ const delivery=await ctx.db.get(args.deliveryId);
+ if(!delivery||delivery.kind!=="encore_guest_claim"||delivery.state!=="sending"||delivery.generation!==args.generation||delivery.dueAt<=Date.now()||delivery.payloadStorageId||!delivery.encoreAccountId)return null;
+ const booking=await ctx.db.get(delivery.bookingId),account=await ctx.db.get(delivery.encoreAccountId);
+ if(!await encoreGuestClaimEligible(ctx,booking,account))return null;
+ if(delivery.encoreClaimId){const previous=await ctx.db.get(delivery.encoreClaimId);if(previous&&!previous.usedAt)await ctx.db.patch(previous._id,{expiresAt:Date.now()});}
+ const recent=await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",query=>query.eq("bookingId",delivery.bookingId).eq("kind","encore_guest_claim")).order("desc").take(2);
+ for(const earlier of recent)if(earlier._id!==delivery._id&&earlier.encoreClaimId){const previous=await ctx.db.get(earlier.encoreClaimId);if(previous&&!previous.usedAt)await ctx.db.patch(previous._id,{expiresAt:Date.now()});}
+ const now=Date.now(),recipientEmail=account!.email.trim().toLowerCase();
+ const linkId=await ctx.db.insert("account_access_links",{accountId:account!._id,bookingId:booking!._id,recipientEmail,secretHash:args.secretHash,createdAt:now,expiresAt:now+24*3600000});
+ await ctx.db.patch(delivery._id,{encoreClaimId:linkId,updatedAt:now});return {email:recipientEmail};
+}});
 export const exchange=internalMutation({args:{secretHash:v.string(),sessionToken:v.string()},handler:async(ctx,a)=>{
  const link=await ctx.db.query("account_access_links").withIndex("by_hash",q=>q.eq("secretHash",a.secretHash)).unique();if(!link||link.usedAt||link.expiresAt<=Date.now())throw new ConvexError({code:"ACCESS_LINK_EXPIRED",message:"This sign-in link has expired or has already been used."});
  const account=await ctx.db.get(link.accountId);if(!account)throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});
  if(account.blockedAt!=null)throw new ConvexError({code:"ACCOUNT_BLOCKED",message:"Please contact DB Cinema Rentals for help with your account."});
  if(link.bookingId&&!belongsToRentalAccount(await ctx.db.get(link.bookingId),account))throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});
+ if(link.recipientEmail&&link.recipientEmail!==account.email.trim().toLowerCase())throw new ConvexError({code:"ACCESS_LINK_INVALID",message:"This sign-in link is no longer valid."});
  if(link.purpose==="signup"&&(account.emailVerifiedAt||account.hash!==link.credentialHash))throw new ConvexError({code:"ACCESS_LINK_EXPIRED",message:"This signup link is no longer valid. Request a new sign-in link."});
  if(account.emailVerificationRequired&&!account.emailVerifiedAt){
   // A rental/sign-in email proves ownership but must not activate a password
@@ -82,5 +97,6 @@ export const exchange=internalMutation({args:{secretHash:v.string(),sessionToken
   const sessions=await ctx.db.query("sessions").withIndex("by_account",q=>q.eq("accountId",account._id)).collect();for(const session of sessions)await ctx.db.delete(session._id);
  }
  await ctx.db.patch(account._id,{emailVerifiedAt:Date.now(),emailVerificationRequired:false});
+ if(link.bookingId&&link.recipientEmail){const booking=await ctx.db.get(link.bookingId);if(booking?.accountId===account._id&&!booking.encoreOwnershipVerifiedAt){await ctx.db.patch(booking._id,{encoreOwnershipVerifiedAt:Date.now()});await queueEncoreCheck(ctx,booking._id);}}
  await ctx.db.patch(link._id,{usedAt:Date.now()});await ctx.db.insert("sessions",{accountId:account._id,token:a.sessionToken,createdAt:Date.now(),expiresAt:Date.now()+90*86400000});return{token:a.sessionToken,bookingId:link.bookingId};
 }});

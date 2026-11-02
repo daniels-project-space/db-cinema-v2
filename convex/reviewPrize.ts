@@ -229,9 +229,9 @@ export const submit = mutation({
         verifiedBookingId: b._id,
         date: Date.now(),
         published: true,
-        incentivized: true,prizeEntry:true,encoreReward:!encoreGate(b),
+        incentivized: true,prizeEntry:true,encoreReward:process.env.ENCORE_EVIDENCE_READ_ENABLED!=="true"&&!encoreGate(b),
       });
-    else await ctx.db.patch(reviewId, { incentivized: true,prizeEntry:true,encoreReward:review?.encoreReward||!encoreGate(b) });
+    else await ctx.db.patch(reviewId, { incentivized: true,prizeEntry:true,encoreReward:review?.encoreReward||(process.env.ENCORE_EVIDENCE_READ_ENABLED!=="true"&&!encoreGate(b)) });
     await unlockLoyalty(ctx,account);
     const patch = {
       accountId: account._id,

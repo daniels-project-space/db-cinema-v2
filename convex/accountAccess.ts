@@ -4,7 +4,7 @@ import { createHash,randomBytes } from "node:crypto";
 import { internalAction,action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v,ConvexError } from "convex/values";
-import { sendMail } from "./lib/mailer";
+import { sendMail, type MailInput } from "./lib/mailer";
 const hash=(secret:string)=>createHash("sha256").update(secret).digest("hex");
 export const sendForSignup=internalAction({args:{email:v.string(),credentialHash:v.string(),next:v.optional(v.literal("chat"))},handler:async(ctx,a):Promise<void>=>{
  const secret=randomBytes(32).toString("base64url"),claim:any=await ctx.runMutation(internal.accountClaims.prepareSignup,{email:a.email,credentialHash:a.credentialHash,secretHash:hash(secret)});if(!claim)return;
@@ -17,6 +17,12 @@ export const sendForRental=internalAction({args:{bookingId:v.id("bookings")},han
  const ok=await sendMail({to:claim.email,subject:"Complete your DB Cinema rental checks",html:rentalEmail({title:"Your private rental workspace",preview:"Sign in securely to complete your rental checks and follow your request.",url:`${app}/account/access?next=verification#${encodeURIComponent(secret)}`,button:"Open my rental checks",body:"<p>Your payment has been received. Use this private sign-in link to complete your checks, follow verification and talk to our team.</p><p>The link works once and expires in one hour. Don’t forward it. Equipment handover requires completed checks and approval.</p>"})});
  if(!ok){await ctx.runMutation(internal.accountClaims.failed,{bookingId:a.bookingId,claimId:claim.claimId});throw Error("Rental account access email could not be delivered; it is queued for retry.");}
  await ctx.runMutation(internal.accountClaims.sent,{bookingId:a.bookingId,claimId:claim.claimId});
+}});
+export const prepareEncoreEmail=internalAction({args:{deliveryId:v.id("rental_email_deliveries"),generation:v.number(),deliveryKey:v.string()},handler:async(ctx,a):Promise<MailInput|null>=>{
+ const secret=randomBytes(32).toString("base64url"),claim:{email:string}|null=await ctx.runMutation(internal.accountClaims.prepareEncoreClaim,{deliveryId:a.deliveryId,generation:a.generation,secretHash:hash(secret)});if(!claim)return null;
+ const app=new URL(process.env.APP_URL??"https://dbcinemarentals.com").origin;
+ const delivery:{bookingId:string}|null=await ctx.runQuery(internal.rentalEmailDelivery.ready,{deliveryId:a.deliveryId,generation:a.generation});if(!delivery)return null;
+ return {to:claim.email,deliveryKey:a.deliveryKey,subject:"Confirm your completed DB Cinema rental",html:rentalEmail({title:"Your completed rental",preview:"Confirm this rental belongs to you to see your Encore progress.",url:`${app}/account/access?claim=${encodeURIComponent(delivery.bookingId)}#${encodeURIComponent(secret)}`,button:"Confirm my rental",body:"<p>Your completed rental may count towards Encore. Confirm that it belongs to you to see any available account benefits.</p><p>This private link works once and expires in 24 hours. Do not forward it. If this was not your rental, ignore this email.</p>"})};
 }});
 export const retryRentalAccess=internalAction({args:{},handler:async(ctx):Promise<void>=>{
  const due=await ctx.runQuery(internal.accountClaims.dueRentalAccess,{});

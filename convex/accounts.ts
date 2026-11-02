@@ -5,11 +5,12 @@ import { belongsToRentalAccount, rentalsForAccount } from "./lib/rentalAccount";
 import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { creditKind } from "./lib/checkoutCredit";
-import { loyaltyProgress, celebratedLoyaltyLevel, ENCORE_POLICY_VERSION } from "./lib/loyalty";
+import { loyaltyProgress, celebratedLoyaltyLevel, encorePolicyVersion } from "./lib/loyalty";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { usableCredit } from "./lib/creditLedger";
 import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
 import { accountVerificationReady } from "./lib/accountVerificationReady";
+import { currentMembershipRead, markMembershipReadApplied, membershipReadFenceEnabled } from "./lib/membershipReadFence";
 import {
   action,
   query,
@@ -285,6 +286,7 @@ export const _useFreeAccessories = internalMutation({
 export const _setMembership = internalMutation({
   args: { email: v.string(), tier: v.string(), subscriptionId: v.optional(v.string()) },
   handler: async (ctx, { email, tier, subscriptionId }) => {
+    if(membershipReadFenceEnabled())throw Error("Unfenced membership updates are disabled.");
     const a = await ctx.db
       .query("accounts")
       .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
@@ -636,11 +638,17 @@ export const _listSubscribers = internalQuery({
 
 /** Reconcile one account's membership to the REAL Stripe subscription state (cron). */
 export const _applyMembershipReconcile = internalMutation({
-  args: { accountId: v.id("accounts"), active: v.boolean(), tier: v.optional(v.string()) },
-  handler: async (ctx, { accountId, active, tier }) => {
+  args: { accountId: v.id("accounts"), active: v.boolean(), tier: v.optional(v.string()), expectedSubscriptionId:v.optional(v.string()),providerReadAt:v.optional(v.number()),providerGeneration:v.optional(v.number()) },
+  handler: async (ctx, { accountId, active, tier, expectedSubscriptionId, providerReadAt, providerGeneration }) => {
+    const account=await ctx.db.get(accountId);
+    if(expectedSubscriptionId!==undefined&&account?.stripeSubscriptionId!==expectedSubscriptionId)return;
+    if(membershipReadFenceEnabled()&&(!expectedSubscriptionId||!await currentMembershipRead(ctx,expectedSubscriptionId,providerGeneration)))return;
+    if(!membershipReadFenceEnabled()&&providerReadAt!==undefined&&(providerReadAt<(account?.membershipProviderReadAt??0)||providerReadAt===account?.membershipProviderReadAt&&active))return;
     const patch: Record<string, unknown> = { membershipActive: active };
+    if(providerReadAt!==undefined)patch.membershipProviderReadAt=providerReadAt;
     if (tier) patch.membershipTier = tier;
     await ctx.db.patch(accountId, patch);
+    if(expectedSubscriptionId)await markMembershipReadApplied(ctx,expectedSubscriptionId,providerGeneration);
   },
 });
 
@@ -649,6 +657,7 @@ export const _applyMembershipReconcile = internalMutation({
 export const _setMembershipBySubscription = internalMutation({
   args: { subscriptionId: v.string(), active: v.boolean(), tier: v.optional(v.string()) },
   handler: async (ctx, { subscriptionId, active, tier }) => {
+    if(membershipReadFenceEnabled())throw Error("Unfenced membership updates are disabled.");
     const a = await ctx.db
       .query("accounts")
       .withIndex("by_subscription", (q) => q.eq("stripeSubscriptionId", subscriptionId))
@@ -692,9 +701,9 @@ export const acknowledgeLoyalty = mutation({
     const account=await resolve(ctx,token);
     if(!account)throw Error("Sign in to your account.");
     const progress=await loyaltyProgress(ctx,account),earned=level??progress.level;
-    if(!Number.isInteger(earned)||earned<1||earned>progress.level)throw Error("Complete a clean rental and its review before claiming this Encore level.");
+    if(!Number.isInteger(earned)||earned<1||earned>progress.level)throw Error(process.env.ENCORE_EVIDENCE_READ_ENABLED==="true"?"Complete a clean, settled rental before claiming this Encore level.":"Complete a clean rental and its review before claiming this Encore level.");
     const celebrated=celebratedLoyaltyLevel(account);
-    if(earned>celebrated)await ctx.db.patch(account._id,{loyaltyPolicyVersion:ENCORE_POLICY_VERSION,loyaltyLevel:progress.level,loyaltyCelebratedLevel:earned,...(earned===3?{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()}:{})});
+    if(earned>celebrated)await ctx.db.patch(account._id,{loyaltyPolicyVersion:encorePolicyVersion(),loyaltyLevel:progress.level,loyaltyCelebratedLevel:earned,...(earned===3?{loyaltyUnlockedAt:account.loyaltyUnlockedAt??Date.now(),loyaltyCelebratedAt:Date.now()}:{})});
     return true;
   },
 });

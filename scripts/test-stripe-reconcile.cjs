@@ -19,12 +19,14 @@ class FakeStripe {
     expire: async id => ({...sessions[id],status:'expired'}),
   }};
 }
+const cache=new Map();
 function load(file) {
   const filename = path.resolve(root, file);
+  if(cache.has(filename))return cache.get(filename).exports;
+  const mod = {exports:{}};cache.set(filename,mod);
   const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: {module: ts.ModuleKind.CommonJS,target: ts.ScriptTarget.ES2020,esModuleInterop:true},
   }).outputText;
-  const mod = {exports:{}};
   const mocks = {'./_generated/server':registered,'./_generated/api':{internal:refs,api:refs},stripe:FakeStripe};
   new Function('require','module','exports',source)((name) => {
     if(name in mocks)return mocks[name];

@@ -173,6 +173,17 @@ export const timeChangeEmail = internalAction({
   },
 });
 
+export const encoreEmail = internalAction({
+  args:{bookingId:v.id("bookings"),accountId:v.id("accounts"),deliveryKey:v.string(),level:v.number()},
+  handler:async(ctx,{bookingId,accountId,deliveryKey,level}):Promise<any>=>{
+    const account=await ctx.runQuery(internal.reviewFollowUpState.encoreContext,{bookingId,accountId});
+    if(!account||level<1||level>3||account.level<level)return null;
+    const app=process.env.APP_URL??"https://dbcinemarentals.com",percent=[0,2,4,10][level];
+    return {to:account.email,subject:`Your Encore level ${level} is unlocked`,deliveryKey,
+      html:rentalEmail({title:`Encore level ${level} unlocked`,preview:"Your clean rental has advanced your Encore level.",url:`${app}/account`,button:"View your account",body:`<p>Your completed rental has unlocked Encore level ${level}: ${percent}% off eligible rental charges.</p><p>Your account shows your current level and applicable benefits.</p>`})};
+  },
+});
+
 /**
  * A contact-form submission.
  *

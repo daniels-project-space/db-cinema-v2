@@ -1,5 +1,5 @@
 "use client";
-import {ASSESSMENT_SECURITY_POLICY_VERSION} from "../../../shared/rentalSecurity";
+import {hasAssessmentSecurityPolicy} from "../../../shared/rentalSecurity";
 
 import {securityAmendmentConsentText} from "../../../shared/savedCardSecurity";
 import { useEffect,useState } from "react";
@@ -81,7 +81,7 @@ export function RentalAdditionApproval({
         your order after payment and bank approval.
       </p>
       {r.requiresAcceptance&&<div className="mt-3 space-y-3 rounded-xl border border-sky-300/20 p-3">
-        <p className="text-sm">Refundable deposit {formatGbp(r.priorDeposit??0)} → {formatGbp(r.depositAmount)}{r.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION&&<><br/>Combined damage / late-fee limit {formatGbp(r.priorSavedCardLimit??0)} → {formatGbp(r.savedCardLimit??0)}</>}</p>
+        <p className="text-sm">Refundable deposit {formatGbp(r.priorDeposit??0)} → {formatGbp(r.depositAmount)}{!hasAssessmentSecurityPolicy(r.securityPolicyVersion)&&<><br/>Combined damage / late-fee limit {formatGbp(r.priorSavedCardLimit??0)} → {formatGbp(r.savedCardLimit??0)}</>}</p>
         <p className="text-xs text-white/60">Retained deposit reduces the same assessed loss. Notice and dispute rights remain unchanged.</p>
         <details className="text-xs text-white/60"><summary>Read the updated permission</summary><p className="mt-2 leading-relaxed">{securityAmendmentConsentText(r.savedCardLimit??0,r.depositAmount,r.priorSavedCardLimit??0,r.priorDeposit??0,r.securityPolicyVersion)}</p></details>
         <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={accepted} disabled={busy} onChange={e=>setAccepted(e.target.checked)}/>I accept this equipment change and the deposit / saved-card amounts shown.</label>

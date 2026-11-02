@@ -21,6 +21,7 @@ function configFrom(d: any) {
     refundableDepositEnabled:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"||process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true",
     cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true",
     assessmentSecurityEnabled:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true",
+    strictSecurityEnabled:process.env.STRICT_SECURITY_POLICY_ENABLED==="true",
     checkoutEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" && (d?.acceptingOrders ?? DEFAULTS.acceptingOrders),
     googleReviewUrl: d?.googleReviewUrl ?? DEFAULTS.googleReviewUrl,
     businessAddress: d?.businessAddress ?? DEFAULTS.businessAddress,

@@ -27,7 +27,7 @@ StripeFixture.prototype.customers={create:async()=>({id:'cus_fixture'}),retrieve
   const account=h.put('accounts',{email:kind+'@example.invalid',emailVerifiedAt:Date.now(),stripeCustomerId:'cus_fixture',...(kind==='member'?{membershipActive:true,membershipTier:'pro',membershipStatus:'active',membershipPaidThrough:Date.now()+86400000}: {})});
   if(kind==='encore'){
    const {reviewContext}=h.load('convex/lib/reviewContext.ts'),{reviewSettlementFingerprint}=h.load('convex/lib/reviewEligibility.ts');
-   for(let i=0;i<3;i++){const past=h.put('bookings',{accountId:account._id,guestEmail:account.email,status:'returned',stripeCheckoutSessionId:'cs-past-'+i,depositAmount:0,total:100,actualReturnedAt:Date.now()-86400000,lineItems:[{listingId:listing._id,title:listing.title,qty:1,start:Date.UTC(2025,0,1+i*5),end:Date.UTC(2025,0,2+i*5),lineTotal:100}],returnDecision:{inspection:[{key:'past',title:'Camera',condition:'good',details:'',openCase:false}]}});past.reviewEligibilityFingerprint=reviewSettlementFingerprint(await reviewContext(ctx,past));h.put('reviews',{verifiedBookingId:past._id,source:'native',authorAccountId:account._id,rating:1,published:false});}
+   for(let i=0;i<3;i++){const past=h.put('bookings',{accountId:account._id,accountAccessRequired:false,guestEmail:account.email,status:'returned',stripeCheckoutSessionId:'cs-past-'+i,depositAmount:0,total:100,actualReturnedAt:Date.now()-86400000,lineItems:[{listingId:listing._id,title:listing.title,qty:1,start:Date.UTC(2025,0,1+i*5),end:Date.UTC(2025,0,2+i*5),lineTotal:100}],returnDecision:{inspection:[{key:'past',title:'Camera',condition:'good',details:'',openCase:false}]}});past.reviewEligibilityFingerprint=reviewSettlementFingerprint(await reviewContext(ctx,past));h.put('reviews',{verifiedBookingId:past._id,source:'native',authorAccountId:account._id,rating:1,published:false});}
   }
   const token='token-'+kind;h.put('sessions',{token,accountId:account._id,expiresAt:Date.now()+86400000});
   if(kind==='credit')h.put('credits',{accountId:account._id,amount:1000,remaining:1000,kind:'refund',createdAt:0,expiresAt:Date.now()+86400000,status:'active'});
@@ -83,5 +83,39 @@ StripeFixture.prototype.customers={create:async()=>({id:'cus_fixture'}),retrieve
   const paidNotice=h.tables.get('admin_notifications').find(n=>n.eventKey==='paid:'+b._id);assert.equal(paidNotice.income.net,useAccountCredit?90:100,'Money-made notifications exclude credit already funded or granted earlier');
  }
  delete process.env.CANCELLATION_PROTECTION_POLICY_ENABLED;
+ process.env.STRICT_SECURITY_POLICY_ENABLED='true';process.env.ENCORE_EVIDENCE_READ_ENABLED='true';process.env.MEMBERSHIP_BOUNDED_RECONCILE_ENABLED='true';
+ const strictPolicy=h.load('convex/strictDepositPolicy.ts'),originalQuery=ctx.runQuery;
+ ctx.runQuery=async(ref,queryArgs)=>ref==='strictDepositPolicy.quote'?strictPolicy.quote.handler(ctx,queryArgs):originalQuery(ref,queryArgs);
+ const strictAccount=h.put('accounts',{email:'strict@example.invalid',emailVerifiedAt:Date.now(),stripeCustomerId:'cus_fixture',stripeSubscriptionId:'sub_strict',membershipActive:true,membershipStatus:'active',membershipPaidThrough:Date.now()+86400000});
+ const strictToken='strict-fixture';h.put('sessions',{token:strictToken,accountId:strictAccount._id,expiresAt:Date.now()+86400000});
+ const strictArgs=structuredClone(args);strictArgs.token=strictToken;strictArgs.customer.email=strictAccount.email;strictArgs.items[0].start+=60*86400000;strictArgs.items[0].end+=60*86400000;
+ strictArgs.agreement.documents=legal.agreementsForSecurityPolicy(policy.STRICT_ASSESSMENT_SECURITY_POLICY_VERSION);strictArgs.agreement.requestId='fixture-strict-assessment';
+ const strictQuote=()=>checkout.priceQuote.handler(ctx,{items:strictArgs.items,token:strictToken,customerEmail:strictAccount.email,fulfilment:'pickup'});
+ h.put('membership_credit_grants',{accountId:strictAccount._id,subscriptionId:'sub_strict',periodEnd:Date.now()+86400000,paidMembershipPence:1000,membershipRefundedPence:0,waiverProofReadyAt:Date.now()});
+ let strict=await strictQuote();assert.equal(strict.depositAmount,20,'A paid subscription does not exempt the first rental');
+ const {reviewContext}=h.load('convex/lib/reviewContext.ts'),{reviewSettlementFingerprint}=h.load('convex/lib/reviewEligibility.ts');
+ const past=h.put('bookings',{accountId:strictAccount._id,accountAccessRequired:false,guestEmail:strictAccount.email,status:'returned',stripeCheckoutSessionId:'cs-strict-past',depositAmount:0,total:100,actualReturnedAt:Date.now()-86400000,lineItems:[{listingId:listing._id,title:listing.title,qty:1,start:Date.UTC(2025,0,1),end:Date.UTC(2025,0,2),lineTotal:100}],returnDecision:{inspection:[{key:'past',title:'Camera',condition:'good',details:'',openCase:false}]}});
+ const fingerprint=reviewSettlementFingerprint(await reviewContext(ctx,past));past.reviewEligibilityFingerprint=fingerprint;
+ h.put('encore_eligibility_evidence',{accountId:strictAccount._id,bookingId:past._id,checkoutKey:past.stripeCheckoutSessionId,fingerprint,verifiedAt:Date.now()});
+ const {queueEncoreRollup}=h.load('convex/lib/encoreRollup.ts'),rollups=h.load('convex/encoreRollups.ts');await queueEncoreRollup(ctx,strictAccount._id);const rollup=h.tables.get('encore_account_rollups').find(row=>row.accountId===strictAccount._id);await rollups.page.handler(ctx,{accountId:strictAccount._id,generation:rollup.generation});
+ strict=await strictQuote();assert.equal(strict.depositAmount,20,'an unbootstrapped provider read cannot waive the deposit');
+ h.put('membership_provider_reads',{subscriptionId:'sub_strict',generation:1,appliedGeneration:1});
+ strict=await strictQuote();assert.equal(strict.depositAmount,0);assert.equal(strict.securityWaiverReason,'paid_membership');
+ strictArgs.expectedTotalDue=strict.combinedTotalDue;strictArgs.expectedSavedCardLimit=strict.savedCardLimit;
+ await checkout.start.handler(ctx,strictArgs);const strictBooking=h.tables.get('bookings').at(-1);assert.equal(strictBooking.securityWaiverReason,'paid_membership');assert.equal(JSON.parse(strictBooking.agreementSnapshot).version,'2026-11-v17');
+ const quantityArgs=structuredClone(strictArgs);quantityArgs.items[0].qty=2;const beforeQuantityCreates=creates,beforeQuantityBookings=h.tables.get('bookings').length;
+ await assert.rejects(checkout.priceQuote.handler(ctx,{items:quantityArgs.items,token:strictToken,customerEmail:strictAccount.email,fulfilment:'pickup'}),/one item/);
+ await assert.rejects(checkout.start.handler(ctx,quantityArgs),/one item/);assert.equal(creates,beforeQuantityCreates);assert.equal(h.tables.get('bookings').length,beforeQuantityBookings,'qty>1 never creates a booking or provider session');
+ const linesAt=offset=>[0,6].map(days=>({...strictArgs.items[0],start:strictArgs.items[0].start+(offset+days)*86400000,end:strictArgs.items[0].end+(offset+days)*86400000,qty:1}));
+ listing.depositAmount=500;const thousand=structuredClone(strictArgs);delete thousand.token;thousand.customer.email='two-units-first-rental@example.invalid';thousand.items=linesAt(100);thousand.agreement.requestId='strict-two-units-thousand';
+ const quoteThousand=await checkout.priceQuote.handler(ctx,{items:thousand.items,customerEmail:thousand.customer.email,fulfilment:'pickup'});assert.equal(quoteThousand.depositAmount,50,'two £500 one-unit lines cross the £1,000 threshold');
+ thousand.expectedTotalDue=quoteThousand.combinedTotalDue;thousand.expectedSavedCardLimit=quoteThousand.savedCardLimit;await checkout.start.handler(ctx,thousand);const bookingThousand=h.tables.get('bookings').at(-1);assert.equal(bookingThousand.depositAmount,50);assert.equal(bookingThousand.lineItems.length,2);assert(bookingThousand.lineItems.every(line=>line.qty===1));
+ listing.depositAmount=1999.99;const fourThousand=structuredClone(strictArgs);fourThousand.items=linesAt(120);fourThousand.agreement.requestId='strict-two-units-four-thousand';
+ let combined=await checkout.priceQuote.handler(ctx,{items:fourThousand.items,token:strictToken,customerEmail:strictAccount.email,fulfilment:'pickup'});assert.equal(combined.depositAmount,0,'a qualifying member retains the waiver below £4,000');
+ listing.depositAmount=2000;combined=await checkout.priceQuote.handler(ctx,{items:fourThousand.items,token:strictToken,customerEmail:strictAccount.email,fulfilment:'pickup'});assert.equal(combined.depositAmount,100,'two £2,000 one-unit lines reach £4,000 and cannot be waived');assert.equal(combined.securityWaiverReason,undefined);
+ fourThousand.expectedTotalDue=combined.combinedTotalDue;fourThousand.expectedSavedCardLimit=combined.savedCardLimit;await checkout.start.handler(ctx,fourThousand);const bookingFourThousand=h.tables.get('bookings').at(-1);assert.equal(bookingFourThousand.depositAmount,100);assert.equal(bookingFourThousand.securityWaiverReason,undefined);assert.equal(bookingFourThousand.lineItems.length,2);assert.equal(JSON.parse(bookingFourThousand.agreementSnapshot).version,'2026-11-v17');
+ listing.depositAmount=160;
+ await h.db.patch(past._id,{accountId:'foreign-account'});strict=await strictQuote();assert.equal(strict.depositAmount,20,'Reassigned history cannot qualify');
+ process.env.MEMBERSHIP_BOUNDED_RECONCILE_ENABLED='false';await assert.rejects(strictQuote(),/security policy is not ready/,'strict checkout cannot run before bounded reconciliation is active');
  console.log('PASS v2 future assessment policy actual quote → checkout → paid stock confirmation: plain, refund credit, paid member and referral; exact v15 acceptance, £20 protected cash and verified member/Encore exemptions, saved-card reuse, truthful Stripe text and physical allocation. Synthetic transport/data only.');
 }finally{global.fetch=realFetch}})().catch(e=>{console.error(e);process.exitCode=1});

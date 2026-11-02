@@ -1,10 +1,10 @@
 "use node";
-import { hasCashDepositPolicy, ASSESSMENT_SECURITY_POLICY_VERSION, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
+import { hasCashDepositPolicy, hasAssessmentSecurityPolicy, cardLimitForPolicy, depositForBookingPolicy } from "../shared/rentalSecurity";
 import {isSavedCardRental} from "../shared/savedCardSecurity";
 import {REFUNDABLE_DEPOSIT_POLICY_VERSION} from "../shared/rentalSecurity";
 import {canDeferAdditionSecurity,PICKUP_HOLD_POLICY,pickupHoldAt} from "../shared/pickupSecurity";
 import Stripe from "stripe";
-import { checkoutPaymentIntent, syncStripeMembership } from "./checkout";
+import { beginMembershipProviderRead, checkoutPaymentIntent, syncStripeMembership } from "./checkout";
 import { createHash } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
@@ -88,7 +88,7 @@ async function ensureSession(ctx: any, id: any) {
       integration_identifier: `db-rental-update-${Array.from(createHash("sha256").update(r.requestId).digest().subarray(0, 8), (n) => String.fromCharCode(97 + (n % 26))).join("")}`,
       custom_text: {
         submit: {
-          message: r.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?`You accepted an equipment update with a refundable deposit of £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and saved-card permission for evidenced future damage, loss and late-fee payments. Retained deposit reduces the same assessment. Notice and dispute rights remain under your rental agreement.`:hasCashDepositPolicy(r.securityPolicyVersion)?`You accepted an equipment update with refundable deposit £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and a combined damage/late-fee card-payment limit of £${r.proposedSavedCardLimit.toFixed(2)}. Retained cash reduces that limit and the same loss. Existing notice and dispute rights remain under your rental agreement.`:`By paying you accept the updated rental under our [terms](${origin}/legal/terms), including the stated refundable security charge and updated card authorisation. For pickup-scheduled security, the updated hold is requested at pickup on your saved card. Documented late fees and damage are handled under your rental agreement.`,
+          message: hasAssessmentSecurityPolicy(r.securityPolicyVersion)?`You accepted an equipment update with a refundable deposit of £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and saved-card permission for evidenced future damage, loss and late-fee payments. Retained deposit reduces the same assessment. Notice and dispute rights remain under your rental agreement.`:hasCashDepositPolicy(r.securityPolicyVersion)?`You accepted an equipment update with refundable deposit £${((r.baseSecurity??0)+r.securityCharge).toFixed(2)} and a combined damage/late-fee card-payment limit of £${r.proposedSavedCardLimit.toFixed(2)}. Retained cash reduces that limit and the same loss. Existing notice and dispute rights remain under your rental agreement.`:`By paying you accept the updated rental under our [terms](${origin}/legal/terms), including the stated refundable security charge and updated card authorisation. For pickup-scheduled security, the updated hold is requested at pickup on your saved card. Documented late fees and damage are handled under your rental agreement.`,
         },
       },
       mode: "payment",
@@ -207,7 +207,7 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
     const customer = typeof session.customer === "string" ? session.customer : session.customer?.id;
     const subId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
     if (!member || !account || member.bookingId !== r.bookingId || member.sessionId !== session.id || customer !== account.stripeCustomerId || !subId || member.subscriptionId && member.subscriptionId !== subId || r.withdrawalMembershipSubscriptionId && r.withdrawalMembershipSubscriptionId !== subId) throw Error("Membership withdrawal ownership mismatch");
-    let sub = await sb().subscriptions.retrieve(subId);
+    const mutationKey=`membership-withdrawal:${id}`,providerGeneration=await beginMembershipProviderRead(ctx,subId,mutationKey),providerReadAt=Date.now();let sub = await sb().subscriptions.retrieve(subId);
     const assertSubscription = (candidate: Stripe.Subscription) => {
       const subCustomer = typeof candidate.customer === "string" ? candidate.customer : candidate.customer.id;
       if (candidate.id !== subId || subCustomer !== customer || candidate.metadata.membershipCheckoutId !== r.membershipCheckoutId || candidate.metadata.bookingId !== r.bookingId || candidate.metadata.membershipTier !== member.tier || candidate.metadata.accountEmail !== account.email || account.membershipActive && account.stripeSubscriptionId !== subId) throw Error("Membership withdrawal subscription mismatch");
@@ -219,7 +219,13 @@ async function withdraw(ctx: any, id: any): Promise<{ pending: boolean; needsAtt
     }
     assertSubscription(sub);
     if (sub.status !== "canceled") throw Error("The membership cancellation is not confirmed");
-    await syncStripeMembership(ctx, sub);
+    if(providerGeneration!==undefined){
+      const confirmedGeneration=await beginMembershipProviderRead(ctx,subId,mutationKey),confirmedAt=Date.now();
+      sub=await sb().subscriptions.retrieve(subId);assertSubscription(sub);
+      if(sub.status!=="canceled"||confirmedGeneration===undefined||!await syncStripeMembership(ctx,sub,undefined,confirmedAt,confirmedGeneration))throw Error("The membership cancellation needs another provider check");
+      const finished=await ctx.runMutation(internal.membershipBenefits.finishProviderMutation,{subscriptionId:subId,mutationKey,generation:confirmedGeneration,accountId:account._id});
+      if(!finished)throw Error("The membership cancellation changed during confirmation; retry the saved withdrawal");
+    }else await syncStripeMembership(ctx, sub, undefined,providerReadAt,providerGeneration);
     await ctx.runMutation(internal.rentalAdditionState.recordMembershipWithdrawal, { id, subscriptionId: subId });
   }
   const payment = await checkoutPaymentIntent(session);

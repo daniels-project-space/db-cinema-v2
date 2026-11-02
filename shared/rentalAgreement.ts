@@ -73,7 +73,7 @@ export function assertAgreementBeforeRelease(b: any) {
   if (!b.agreementName?.trim() || !b.agreementSignedAt ||
       !b.agreementDocs?.some((d:Accepted)=>d.kind==="rental-agreement" && !!d.version))
     throw Error("Retained agreement acceptance is required before handover; do not backfill or infer consent.");
-  if (b.agreementDocs.some((d:Accepted)=>[LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16"].includes(d.version))) {
+  if (b.agreementDocs.some((d:Accepted)=>[LEGAL_VERSION,REFUNDABLE_DEPOSIT_LEGAL_VERSION,"2026-10-v15","2026-10-v16","2026-11-v17","2026-11-v18"].includes(d.version))) {
     const legalVersion = agreementsForSecurityPolicy(b.securityPolicyVersion,b.cancellationProtectionEnabled).find(doc=>doc.kind==="rental-agreement")!.version;
     const s=readAgreementSnapshot(b.agreementSnapshot);
     if (!s || s.version!==legalVersion || s.signer!==b.agreementName.trim() || s.acceptedAt!==b.agreementSignedAt ||
