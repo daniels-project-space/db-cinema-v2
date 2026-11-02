@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { HIRE_CATEGORIES } from "@/lib/hireCategories";
-import { discoveryListings, discoveryOffers, discoveryCameraPage } from "@/lib/discovery";
+import { discoveryListings, discoveryOffers, discoveryCameraPage, publicCatalogRevision } from "@/lib/discovery";
+import { CatalogRevisionGuard } from "@/components/CatalogRevisionGuard";
 import { HireOfferGrid } from "@/components/HireOfferGrid";
 import { discoveryOfferSlugs } from "@/lib/discoveryOfferSelection";
 import { SITE_URL } from "@/lib/site";
@@ -24,11 +25,12 @@ export default async function HireCategory({ params, searchParams }: Props) {
   if (!c) notFound();
   const { after } = await searchParams;
   if (c.category === "Cameras" && after !== undefined && (typeof after !== "string" || !/^[a-z0-9-]{1,200}$/.test(after))) notFound();
+  const revision = await publicCatalogRevision();
   const cameraPage = c.category === "Cameras" ? await discoveryCameraPage(typeof after === "string" ? after : undefined) : null;
   const rows = cameraPage?.page ?? (await discoveryListings()).filter(r => r.category === c.category);
   const cameraOffers = cameraPage ? (await discoveryOffers(discoveryOfferSlugs(rows))).filter(offer => offer.category === "Cameras") : [];
   const schema = { "@context": "https://schema.org", "@type": "CollectionPage", name: `${c.name} London`, url: `${SITE_URL}/hire/${c.slug}${cameraPage && typeof after === "string" ? `?after=${encodeURIComponent(after)}` : ""}`, description: c.description, mainEntity: { "@type": "ItemList", itemListElement: rows.map((r, i) => ({ "@type": "ListItem", position: i + 1, name: r.title, url: `${SITE_URL}/gear/${r.slug}` })) } };
-  return <><SiteHeader /><main className="mx-auto max-w-6xl px-6 py-12">
+  return <><SiteHeader /><CatalogRevisionGuard revision={revision}><main className="mx-auto max-w-6xl px-6 py-12">
     <nav aria-label="Breadcrumb" className="mb-8 text-sm text-white/50"><Link href="/">Home</Link> / <Link href="/gear">Gear</Link> / {c.name}</nav>
     <p className="hud-label text-accent-400">London equipment rental</p>
     <h1 className="mt-3 font-display text-4xl font-bold sm:text-5xl">{c.name} London</h1>
@@ -38,5 +40,5 @@ export default async function HireCategory({ params, searchParams }: Props) {
     <section className="mt-12" aria-labelledby="hire-products"><h2 id="hire-products" className="font-display text-2xl">Explore {c.name.toLowerCase()}</h2><p className="mt-2 text-sm text-white/50">Open a listing for its packing list, rates and availability for your dates.</p><ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{rows.map(r => <li key={r.slug}><Link href={`/gear/${r.slug}`} className="block h-full rounded-2xl border border-white/10 bg-white/[0.025] p-5 transition-colors hover:border-accent-400/50"><span className="font-medium text-white/90">{r.title}</span><span className="mt-3 block text-sm text-accent-400">View kit &amp; dates →</span></Link></li>)}</ul>{cameraPage?.nextAfter && <Link className="mt-6 inline-block text-accent-400" href={`/hire/camera-hire-london?after=${encodeURIComponent(cameraPage.nextAfter)}`}>Next camera listings →</Link>}</section>
     <section className="mt-12 rounded-2xl border border-white/10 p-6"><h2 className="font-display text-2xl">Before you book</h2><ul className="mt-4 space-y-3 text-white/65">{c.tips.map(t => <li key={t}>✓ {t}</li>)}</ul><div className="mt-5 flex flex-wrap gap-5 text-accent-400"><Link href={`/guides/${c.guide}`}>Read the hire guide →</Link><Link href="/how-it-works">Collection &amp; delivery →</Link><Link href="/faq">Rental questions →</Link></div></section>
     <nav aria-label="Other hire departments" className="mt-10 flex flex-wrap gap-3">{HIRE_CATEGORIES.filter(x => x.slug !== c.slug).map(x => <Link key={x.slug} className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/60" href={`/hire/${x.slug}`}>{x.name}</Link>)}</nav>
-  </main><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replace(/</g, "\\u003c") }} /></>;
+  </main></CatalogRevisionGuard><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replace(/</g, "\\u003c") }} /></>;
 }

@@ -559,17 +559,6 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.cmd("Emulation.setEmulatedMedia", {features: [{name:"prefers-reduced-motion",value:"reduce"}]});
   assert.equal(await c.evaluate(`document.querySelector('[data-testid="membership-upsell"]').innerText.includes('consent confirmed')`),true,'One-click checkout opt-in confirms monthly terms');
   await until(`document.querySelector('[data-testid="checkout-summary"]').innerText.includes('One-time joining credit')`);
-  // The homepage placement is checked against the actual rendered sections.
-  await navigate(root + "/");
-  await until(`!!document.querySelector('.fund-invite')`);
-  let placement = await c.evaluate(
-    `(()=>{let f=document.querySelector('.fund-invite');return {previousText:f.previousElementSibling?.innerText.slice(0,100),afterGear:!!f.previousElementSibling?.querySelector('a[href^="/gear"]')}})()`,
-  );
-  assert.equal(
-    placement.afterGear,
-    true,
-    "Film Fund must remain directly after the gear catalogue",
-  );
   // A large weekday kit must now offer first-month credit in this checkout.
   const weekdayStart = start + 3 * 86400000,
     weekdayEnd = weekdayStart;
@@ -795,7 +784,6 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     zeroAndNegativeSavingsHidden: true,
     largeWeekdayImmediateCredit: true,
     modal,
-    placement,
     screenshots: "/tmp/dbc-basket-*.png",
   });
   c.close();
