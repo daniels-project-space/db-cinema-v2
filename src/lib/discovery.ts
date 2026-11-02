@@ -5,6 +5,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@cvx/_generated/api";
 
 export type DiscoveryListing={slug:string;title:string;category:string;image:string|null;lastModified:number};
+export type DiscoveryOffer={slug:string;title:string;category:string;image:string|null;daily:number|null;minimumRentalDays:number};
 // One shared, cached index supports categories, catalogue links and the sitemap.
 // The live rental calendar remains authoritative for any selected dates.
 export const discoveryListings=unstable_cache(async():Promise<DiscoveryListing[]>=>{
@@ -21,3 +22,5 @@ export const discoveryListings=unstable_cache(async():Promise<DiscoveryListing[]
 
 // Deduplicate metadata + page reads within one server render.
 export const publicListing=cache((slug:string)=>new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.getListingBySlug,{slug}));
+export const discoveryOffers=cache((slugs:string[]):Promise<DiscoveryOffer[]>=>new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.discoveryOffers,{slugs}));
+export const discoveryCameraPage=cache((after?:string)=>new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.discoveryCameraPage,{...(after?{after}:{})}));
