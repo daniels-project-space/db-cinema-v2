@@ -1,26 +1,26 @@
-/**
- * Static catalogue header: navigation and page content do not autoplay media.
- */
+import { LoopingBannerVideo } from "./LoopingBannerVideo";
+
 export function GearLoopBanner({
   eyebrow = "The catalogue",
   lead = "Rent",
   accent = "cinema gear",
   sub = "Professional cameras, lenses, lighting, audio and more. Delivered across London.",
+  motion = false,
 }: {
   eyebrow?: string;
   lead?: string;
   accent?: string;
   sub?: string;
+  motion?: boolean;
 } = {}) {
   return (
     <section className="section-window relative h-[46vh] min-h-[320px] w-full overflow-hidden">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
+      {motion ? <LoopingBannerVideo src="/gear-loop.mp4" poster="/gear-loop-poster.jpg" /> : <img
         className="absolute inset-0 h-full w-full object-cover object-center"
         src="/gear-loop-poster.jpg"
         alt=""
         aria-hidden
-      />
+      />}
       <div
         className="pointer-events-none absolute inset-0"
         style={{

@@ -1237,9 +1237,7 @@ html[data-gaffer-nav="1"] .tile-in {
   .ci-pwr { animation: ci-flicker 2.6s ease-in-out infinite; }
 }
 
-/* Touch devices can't hover, so auto-play the category symbols on mobile
-   (mirrors the .ci-host:hover step-up). Gated behind reduced-motion. */
-@media (hover: none) and (prefers-reduced-motion: no-preference) {
+@media (prefers-reduced-motion: no-preference) {
   .ci-host .ci-spin { animation: ci-rot 1.3s linear infinite; }
   .ci-host .ci-spin-fast { animation: ci-rot 0.45s linear infinite; }
   .ci-host .ci-zoom { animation: ci-zoom-pump 1.4s ease-in-out infinite; }
@@ -1266,12 +1264,20 @@ html[data-gaffer-nav="1"] .tile-in {
   .ci-host .ci-bob { animation: ci-hover-bob 1.7s ease-in-out infinite; }
   .ci-host .ci-rec { animation: rec-blink 0.9s steps(1) infinite; }
   /* transition-based icons → settle into their active pose */
-  .ci-host .ci-leg-l { transform: rotate(-10deg); }
-  .ci-host .ci-leg-r { transform: rotate(10deg); }
-  .ci-host .ci-grip-arm { transform: rotate(5deg); }
-  .ci-host .ci-lid { transform: translateY(-4px) rotate(-13deg); }
-  .ci-host .ci-pop { opacity: 1; transform: translate(0, 0) scale(1) rotate(0deg); }
+  .ci-host .ci-leg-l { animation: ci-leg-left 3s ease-in-out infinite; }
+  .ci-host .ci-leg-r { animation: ci-leg-right 3s ease-in-out infinite; }
+  .ci-host .ci-grip-arm { animation: ci-grip-arm-cycle 3s ease-in-out infinite; }
+  .ci-host .ci-lid { animation: ci-lid-cycle 3.6s ease-in-out infinite; }
+  .ci-host .ci-pop { animation: ci-pop-cycle 3.6s ease-in-out infinite; }
+  .ci-host .ci-pop-b { animation-delay: .1s; }
+  .ci-host .ci-pop-c { animation-delay: .2s; }
 }
+@keyframes ci-leg-left { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-10deg); } }
+@keyframes ci-leg-right { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(10deg); } }
+@keyframes ci-grip-arm-cycle { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(5deg); } }
+@keyframes ci-lid-cycle { 0%, 100% { transform: translateY(0) rotate(0); } 35%, 65% { transform: translateY(-4px) rotate(-13deg); } }
+@keyframes ci-pop-cycle { 0%, 15%, 100% { opacity: 0; transform: translate(var(--px), var(--py)) scale(.25) rotate(25deg); } 40%, 65% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0); } }
+@media (prefers-reduced-motion: reduce) { .ci-host * { animation: none !important; transition: none !important; } }
 
 /* ── Ambient badges (ab-*) — trust-strip & how-it-works symbols that
    live on their own, no hover needed. Transform/opacity only (the road
