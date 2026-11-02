@@ -87,7 +87,7 @@ async function pool(items, n, fn) {
   return out;
 }
 
-const todo = await convexQuery("catalog:listForMigration");
+const todo = await convexQuery("catalog:listForMigration", { token: ADMIN_TOKEN });
 console.log(`listings to migrate: ${todo.length}`);
 const results = await pool(todo, CONCURRENCY, migrateOne);
 console.log(`uploaded images for ${results.length} listings; writing back…`);
