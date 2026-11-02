@@ -134,6 +134,7 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_category", ["category"])
+    .index("by_category_slug", ["category", "slug"])
     .index("by_category_active_demand", ["category", "active", "demandScore"])
     .index("by_active", ["active"])
     .index("by_active_itemType", ["active", "itemType"])
