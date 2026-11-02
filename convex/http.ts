@@ -49,7 +49,7 @@ http.route({
 
 function documentCors(req: Request) {
   const origin = req.headers.get("origin") ?? "";
-  const allowed = new Set([process.env.APP_URL?.replace(/\/$/, ""), "https://dbcinemarentals.com", "https://www.dbcinemarentals.com"]);
+  const allowed = new Set([process.env.APP_URL?.replace(/\/$/, ""), "https://dbcinemarentals.com", "https://www.dbcinemarentals.com", "https://db-cinema-v2.vercel.app"]);
   return allowed.has(origin) ? { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Checkout-Session", "Access-Control-Allow-Methods": "POST, OPTIONS", "Vary": "Origin" } : null;
 }
 http.route({path:"/renter-drone-document",method:"OPTIONS",handler:httpAction(async(_ctx,req)=>{
