@@ -31,6 +31,7 @@ crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSes
 crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {});
 crons.daily("review-story-prize-deadlines", { hourUTC: 8, minuteUTC: 15 }, internal.reviewPrize.maintenance, {});
 crons.interval("settled-rental-review-emails", { hours: 12 }, internal.reviewFollowUp.processDue, {});
+crons.interval("verify-archived-document-readability", { minutes: 5 }, internal.verificationArchive.scheduleReadProofs, {});
 crons.interval("late-fee-notices-and-collection", { hours: 1 }, internal.lateFees.processDue, {});
 // Provider reads only: an administrator must explicitly initiate each collection.
 crons.interval("saved-card-charge-reconciliation", { minutes: 5 }, internal.securityCharges.processPending, {});
@@ -39,7 +40,7 @@ crons.interval("send-return-statements", { hours: 1 }, internal.invoice.retryRet
 // is within 24 hours of its issuer-provided expiry, so a six-hour cadence leaves
 // several opportunities to resolve any authentication request for long rentals.
 crons.interval("renew-rental-security-holds", { hours: 6 }, internal.holdRenewal.renewDue, {});
-crons.interval("reconcile-rental-verifications", { hours: 1 }, internal.didit.reconcileOpenSessions, {});
+crons.interval("reconcile-rental-verifications", { hours: 1 }, internal.diditSweep.start, {});
 crons.interval("archive-verification-documents", { minutes: 5 }, internal.verificationArchiveWorker.retryDue, {});
 crons.interval("retry-rental-manager-delivery", { minutes: 1 }, internal.rmv2_webhook.retryDue, {});
 crons.interval("purge-expired-verification-documents", { hours: 24 }, internal.verificationArchive.purgeExpired, {});

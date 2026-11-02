@@ -34,9 +34,11 @@ export function RentalWorkspace({
   const setStatus = useMutation(api.bookings.adminSetStatus),
     setIdentity = useMutation(api.bookings.adminSetIdStatus),
     review = useAction(api.didit.adminReview),
-    reverify = useMutation(api.bookings.adminRequireReverification);
+    reverify = useMutation(api.bookings.adminRequireReverification),
+    suspendReuse = useMutation(api.bookings.adminSuspendVerificationReuse);
   const [section, setSection] = useState("order"),
     [note, setNote] = useState(""),
+    [reuseReason, setReuseReason] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
   async function execute(operation: () => Promise<unknown>) {
@@ -201,6 +203,11 @@ export function RentalWorkspace({
               </span>
             </a>
           )}
+          {b.diditSessionId && <div className="mt-4 rounded-xl border border-white/10 p-3">
+            <label className="block text-xs text-white/50">Reason to stop using this verification<textarea value={reuseReason} onChange={event=>setReuseReason(event.target.value)} rows={2} className="input mt-2 w-full" /></label>
+            <button disabled={busy || reuseReason.trim().length<10} onClick={()=>void execute(()=>suspendReuse({token,bookingId:b._id,reason:reuseReason}))} className="mt-3 rounded-full border border-amber-300/20 px-4 py-2 text-xs text-amber-200 disabled:opacity-30">Suspend verification reuse</button>
+            <p className="mt-2 text-xs text-white/40">This stops reuse and revokes dependent approvals. It does not delete documents or complete an erasure request.</p>
+          </div>}
           {b.status === "confirmed" && b.idVerifyStatus === "verified" && <div className="mt-4">
             <p className="text-xs text-white/45">{b.verificationExpiresAt ? `Valid until ${new Date(b.verificationExpiresAt).toLocaleDateString("en-GB")}` : "Booking-specific approval"}{b.verificationReusedFrom ? " · reused automatic check" : ""}</p>
             <label className="mt-3 block text-xs text-white/50">Reason for a new check<textarea value={note} onChange={e=>setNote(e.target.value)} rows={2} className="input mt-2 w-full" /></label>

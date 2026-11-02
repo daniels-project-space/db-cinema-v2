@@ -12,7 +12,7 @@
     "test:seo-browser": "node scripts/test-fx3-hire-browser.cjs",
     "test:assembly-browser": "node scripts/test-live-recommendations-browser.cjs && node scripts/test-assembly-showcase-browser.cjs",
     "test:rental-agreements": "node scripts/test-rental-agreements.cjs",
-    "test:verification-archive": "node scripts/test-verification-archive.cjs && node scripts/test-verification-archive-worker.cjs && node scripts/test-verification-file-readiness.cjs && node scripts/test-verification-backfill.cjs && node scripts/test-verification-ownership.cjs",
+    "test:verification-archive": "node scripts/test-verification-archive.cjs && node scripts/test-verification-archive-worker.cjs && node scripts/test-verification-file-readiness.cjs && node scripts/test-verification-backfill.cjs && node scripts/test-verification-ownership.cjs && node scripts/test-verification-read-proof.cjs && node scripts/test-verification-expiry-pagination.cjs && node scripts/test-didit-sweep.cjs",
     "test:customer-management": "node scripts/test-customer-directory.cjs && node scripts/test-customer-management.cjs && node scripts/test-admin-accounts.cjs",
     "test:return-review": "node scripts/test-return-preview.cjs && node scripts/test-return-preview-pdf.cjs && node scripts/test-return-inspection.cjs",
     "test:invoice-ownership": "node scripts/test-invoice-ownership.cjs",

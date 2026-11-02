@@ -2,9 +2,13 @@ const assert = require("node:assert/strict");
 const { load, db, put } = require("./lib/rentalTestHarness.cjs");
 const admin = load("convex/accountAdmin.ts");
 process.env.ADMIN_TOKEN = "fixture-admin";
+process.env.VERIFICATION_ARCHIVE_REUSE_ENABLED = "true";
 let scans = 0, avatarReads = 0;
 const ctx = { db: { ...db, query(table) { scans++; return db.query(table); } }, storage: { getUrl: async () => { avatarReads++; return "https://example.invalid/avatar"; } } };
-const old = put("accounts", { email: "older+camera@example.invalid", name: "Older Cinematographer", createdAt: 1, adminMembershipTier: "pro", avatarStorageId: "old-avatar", rentalVerification: { expiresAt: Date.now() + 100000 }, hash: "private-hash", stripeCustomerId: "private-provider" });
+const old = put("accounts", { email: "older+camera@example.invalid", name: "Older Cinematographer", address:"1 Example Road", createdAt: 1, adminMembershipTier: "pro", avatarStorageId: "old-avatar", hash: "private-hash", stripeCustomerId: "private-provider" });
+const source=put('bookings',{accountId:old._id,accountAccessRequired:false,status:'returned',returnedAt:Date.now(),diditSessionId:'directory-session',idVerifyStatus:'verified',idVerificationSource:'didit',renterPersonKey:'fixture',documentExpiresAt:Date.now()+200000,verificationChecks:{identity:'approved',selfie:'approved',address:'approved'}});
+old.rentalVerification={sourceBookingId:source._id,name:'older cinematographer',address:'1 example road',expiresAt:Date.now()+100000};
+const proof=put('verification_archives',{accountId:old._id,bookingId:source._id,sessionId:source.diditSessionId,status:'complete'});require('./lib/verificationFiles.cjs').seedVerificationFiles(put,proof);
 for (let i = 0; i < 220; i++) put("accounts", { email: `customer${i}@example.invalid`, name: `Customer ${i}`, createdAt: i + 2, idVerified: true, ...(i === 3 ? { rentalVerification: { expiresAt: 1 } } : {}) });
 async function find(search, filter = "all", tier = "all", verification = "all") {
  let cursor = null, pageCount = 0; const rows = [];
@@ -27,9 +31,11 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  assert.deepEqual((await find("camera@EXAMPLE")).rows.map(a => a.id), [old._id]);
  assert.equal(JSON.stringify(byName.rows).includes("private-hash"), false); assert.equal(JSON.stringify(byName.rows).includes("private-provider"), false);
  assert.equal((await find("Cinematographer", "pending")).rows.length, 0);
- const pending = await find("", "pending"); assert.equal(pending.rows.length, 1); assert.equal(pending.rows[0].email, "customer3@example.invalid");
+ const pending = await find("", "pending"); assert.equal(pending.rows.length, 220); assert(pending.rows.some(row=>row.email==='customer3@example.invalid'));
  assert.equal((await find("", "members", "pro", "verified")).rows.length, 1);
  assert.equal((await find("", "members", "pro", "pending")).rows.length, 0, "Membership and verification filters must compose");
+ proof.status='deleted';assert.equal((await find('Cinematographer')).rows[0].verified,false,'deleted archives cannot retain an admin directory verification badge');
+ assert.equal((await admin.search.handler(ctx,{token:'fixture-admin',email:old.email})).items[0].verified,false,'admin search shares the same archive gate');proof.status='complete';
  put("bookings", { accountId: old._id, guestEmail: "different@example.invalid", status: "active" });
  put("bookings", { guestEmail: old.email, status: "confirmed" });
  put("bookings", { accountId: "foreign-account", guestEmail: old.email, status: "active" });

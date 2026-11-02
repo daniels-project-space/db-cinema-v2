@@ -154,6 +154,20 @@ function signed(event) {
     const createCtx = {runAction:async()=>{},runQuery:async ref=>ref==='accounts:_byToken'
       ? {email:'renter@example.invalid'} : {status:'confirmed',verificationProvider:'didit',idVerifyStatus:'required',guestEmail:'renter@example.invalid',renterName:'Test Rental Customer',billingAddress:'25 Whitcomb Street, London WC2H 7ER'},
       runMutation:async()=>true};
+    let pendingProviderCall=false,pendingMutation=false;
+    const pendingCtx={...createCtx,runAction:async()=>{pendingProviderCall=true;},runMutation:async()=>{pendingMutation=true;},runQuery:async ref=>
+      ref==='bookings:reuseVerificationPotential'?true:ref==='bookings:reuseVerificationCandidate'?null:createCtx.runQuery(ref)};
+    await assert.rejects(bookingSession.handler(pendingCtx,{bookingId:'booking-1',accountToken:'account-token'}),/saved verification is being checked/);
+    assert.equal(pendingProviderCall,false,'pending rollout or archive proof never starts a provider session');
+    assert.equal(pendingMutation,false,'expected rollout waits do not create false owner failure alerts');
+    let reused=false;
+    const savedApiKey=process.env.DIDIT_API_KEY;
+    try {
+      delete process.env.DIDIT_API_KEY;
+      const reuseCtx={...createCtx,runAction:async()=>{reused=true;},runQuery:async ref=>ref==='accounts:_byToken'
+        ? {email:'renter@example.invalid'} : {status:'confirmed',verificationProvider:'didit',idVerifyStatus:reused?'verified':'required',guestEmail:'renter@example.invalid'}};
+      assert.deepEqual(await bookingSession.handler(reuseCtx,{bookingId:'booking-1',accountToken:'account-token'}),{url:null,reused:true},'retained eligible verification does not require a live Didit API key');
+    } finally { process.env.DIDIT_API_KEY=savedApiKey; }
     await bookingSession.handler(createCtx,{bookingId:'booking-1',accountToken:'account-token'});
     assert.deepEqual(sentBody.expected_details,{first_name:'Test',last_name:'Rental Customer',address:'25 Whitcomb Street, London WC2H 7ER',poa_country:'GBR'});
     assert.equal(sentBody.expected_details.id_country,undefined,'a UK address must not restrict the issuing country of the ID');
@@ -306,18 +320,27 @@ function signed(event) {
     report.poa_verifications[0].poa_parsed_address = {postal_code:'SW1A 1AA'};
     global.fetch = async () => new Response(JSON.stringify(report),{status:200});
     await reconcileOpenSessions.handler({
-      runQuery: async ref => ref === 'bookings:diditReconcileCandidates'
+      runQuery: async ref => ref === 'diditSweep:batch'
         ? [{bookingId:'booking-1',sessionId:'session-1',email:'renter@example.invalid'}] : [],
       runMutation: async (ref,args) => { reconciled.push({ref,args}); return true; },
-    },{});
+    },{generation:1});
     const recovered = reconciled.find(x=>x.ref==='bookings:setDiditResult');
     assert.equal(recovered.args.reconciliation,true,'periodic reads are distinguished from document-change events');
     assert.equal(recovered.args.status,'verified','missed webhooks are recovered from the provider decision');
     assert.deepEqual(recovered.args.poaPostcodes,['SW1A 1AA']);
     assert.ok(reconciled.some(x=>x.ref==='bookings:markDiditReconciled'));
+    assert.ok(reconciled.some(x=>x.ref==='diditSweep:finish'),'successful dispatch releases the sweep');
     reconciled.length=0;global.fetch=async()=>new Response('',{status:503});
-    await assert.rejects(()=>reconcileOpenSessions.handler({runQuery:async()=>[{bookingId:'booking-1',sessionId:'session-1',email:'renter@example.invalid'}],runMutation:async(ref,args)=>{reconciled.push({ref,args});return true;}},{}),/could not be reconciled/);
+    await assert.rejects(()=>reconcileOpenSessions.handler({runQuery:async()=>[{bookingId:'booking-1',sessionId:'session-1',email:'renter@example.invalid'}],runMutation:async(ref,args)=>{reconciled.push({ref,args});return true;}},{generation:1}),/could not be reconciled/);
     assert(reconciled.some(x=>x.ref==='bookings:flagDiditProcessingFailure'),'a failed reconciliation creates an owner alert');assert(reconciled.some(x=>x.ref==='bookings:markDiditReconciled'),'failed cases still rotate fairly');
+    assert.ok(reconciled.some(x=>x.ref==='diditSweep:finish'),'failed dispatch releases the sweep');
+    reconciled.length=0;
+    await assert.rejects(()=>reconcileOpenSessions.handler({runQuery:async()=>[{bookingId:'booking-1',sessionId:'session-1',email:'renter@example.invalid'}],runMutation:async(ref,args)=>{reconciled.push({ref,args});if(ref==='bookings:flagDiditProcessingFailure')throw Error('alert unavailable');return true;}},{generation:1}),/could not be reconciled/);
+    assert(!reconciled.some(x=>x.ref==='bookings:markDiditReconciled'),'an unrecorded failure remains eligible for retry');
+    const apiKey=process.env.DIDIT_API_KEY;delete process.env.DIDIT_API_KEY;reconciled.length=0;
+    try {await assert.rejects(()=>reconcileOpenSessions.handler({runQuery:async()=>[],runMutation:async(ref,args)=>{reconciled.push({ref,args});return true;}},{generation:1}),/temporarily unavailable/);}
+    finally {process.env.DIDIT_API_KEY=apiKey;}
+    assert.ok(reconciled.some(x=>x.ref==='diditSweep:configurationFailure'),'missing configuration creates a durable owner incident even without candidates');
   } finally { global.fetch = savedFetch; }
   const workflow = { workflow_id: 'workflow-1', status: 'published', version: 1,
     features: 'OCR + LIVENESS + FACE_MATCH + PROOF_OF_ADDRESS', max_price: 0.5 };

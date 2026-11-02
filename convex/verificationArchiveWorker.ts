@@ -3,6 +3,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { createHash } from "node:crypto";
+import { verificationReadSnapshot } from "./lib/verificationReadProof";
 
 export function documentMedia(report: any): { kind: string; url: string }[] {
   const media: { kind: string; url: string }[] = [];
@@ -92,3 +93,16 @@ export const retryDue = internalAction({ args: {}, handler: async ctx => {
   const extra = await ctx.runQuery(internal.verificationArchive.supplementalDue, {});
   for (const job of extra) await ctx.runAction(internal.verificationArchiveWorker.capture, { archiveId: job._id,supplemental:true });
 } });
+export const checkReadability=internalAction({args:{archiveId:v.id("verification_archives"),proofGeneration:v.number()},handler:async(ctx,args)=>{
+  const candidate=await ctx.runQuery(internal.verificationArchive.readProofCandidate,args);
+  if(!candidate){await ctx.runMutation(internal.verificationArchive.readProofUnavailable,args);return;}
+  try{
+    for(const document of candidate.documents){
+      const blob=await ctx.storage.get(document.storageId);
+      if(!blob||blob.size!==document.size||blob.type!==document.contentType||createHash("sha256").update(Buffer.from(await blob.arrayBuffer())).digest("hex")!==document.sha256)throw Error("Required verification copy unavailable");
+    }
+  }catch{
+    await ctx.runMutation(internal.verificationArchive.reuseReadFailure,{archiveId:args.archiveId,generation:candidate.generation,proofGeneration:args.proofGeneration});return;
+  }
+  await ctx.runMutation(internal.verificationArchive.recordReadProof,{archiveId:args.archiveId,generation:candidate.generation,proofGeneration:args.proofGeneration,snapshot:verificationReadSnapshot(candidate.documents)});
+}});

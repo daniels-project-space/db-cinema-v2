@@ -1,13 +1,15 @@
 import { assertVerificationArchive } from "./verificationArchive";
 import { renterVerificationNote } from "../shared/verificationProgress";
 import { ensureReferralCode } from "./lib/referrals";
-import { rentalsForAccount } from "./lib/rentalAccount";
+import { belongsToRentalAccount, rentalsForAccount } from "./lib/rentalAccount";
+import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { requiresDroneLicence, droneLicenceStatusForRental } from "./lib/droneVerification";
 import { creditKind } from "./lib/checkoutCredit";
 import { loyaltyProgress, celebratedLoyaltyLevel, ENCORE_POLICY_VERSION } from "./lib/loyalty";
 import { membershipActiveNow, membershipTierFor } from "../shared/membership";
 import { usableCredit } from "./lib/creditLedger";
 import { verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
+import { accountVerificationReady } from "./lib/accountVerificationReady";
 import {
   action,
   query,
@@ -206,12 +208,21 @@ async function resolve(ctx: any, token: string) {
   const account=await ctx.db.get(s.accountId);return account?.blockedAt!=null||account?.emailVerificationRequired&&!account.emailVerifiedAt?null:account;
 }
 
+export const checkoutVerification = query({
+  args: { token:v.string(), name:v.string(), address:v.string(), starts:v.array(v.number()) },
+  handler: async (ctx,{token,name,address,starts}) => {
+    if(name.length>200||address.length>1000)return null;
+    return accountVerificationReady(ctx,await resolve(ctx,token),name,address,starts);
+  },
+});
+
 export const me = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     const a: any = await resolve(ctx, token);
     if (!a) return null;
     const loyalty = await loyaltyProgress(ctx,a);
+    const verification=await accountVerificationReady(ctx,a);
     const now = Date.now();
     const credits = await ctx.db
       .query("credits")
@@ -237,8 +248,9 @@ export const me = query({
       marketingEmails: a.marketingEmails ?? false,
       favorites: (a.favorites ?? []) as string[],
       avatarUrl: a.avatarStorageId ? await ctx.storage.getUrl(a.avatarStorageId) : (a.googleAvatarUrl ?? null),
-      idVerified: a.rentalVerification ? a.rentalVerification.expiresAt > now : (a.idVerified ?? false),
-      verificationValidUntil: a.rentalVerification?.expiresAt ?? null,
+      idVerified: !!verification,
+      verificationValidUntil: verification?.expiresAt ?? null,
+      verificationReadyUntil: verification?.proofExpiresAt ?? null,
       hasPassword: !!a.hash,
       membershipTier: membershipTierFor(a) ?? null,
       membershipAdminGranted: !!a.adminMembershipTier && a.adminMembershipTier !== "standard",
@@ -376,11 +388,16 @@ export const updateProfile = mutation({
       (patch.address != null && verificationDetail(patch.address) !== verificationDetail(a.address));
     await ctx.db.patch(a._id, { ...patch, ...(changed ? { rentalVerification: undefined, idVerified: false } : {}) });
     if (changed) {
-      const bookings = await ctx.db.query("bookings").withIndex("by_guestEmail", q => q.eq("guestEmail", a.email)).collect();
+      const [linked, legacy] = await Promise.all([
+        ctx.db.query("bookings").withIndex("by_account_status", q => q.eq("accountId", a._id).eq("status", "confirmed")).take(101),
+        ctx.db.query("bookings").withIndex("by_guestEmail_status", q => q.eq("guestEmail", a.email).eq("status", "confirmed")).take(101),
+      ]);
+      if (linked.length > 100 || legacy.length > 100) throw Error("Too many open rentals to update this profile automatically. Contact the team.");
+      const bookings = [...new Map([...linked, ...legacy].filter(b => belongsToRentalAccount(b, a)).map(b => [b._id, b])).values()];
       for (const b of bookings) if (b.status === "confirmed" && b.verificationReusedFrom) { await ctx.db.patch(b._id, {
         idVerifyStatus: "requires_input", verificationReusedFrom: undefined, verificationExpiresAt: undefined,
         verificationNote: "Your account details changed. Complete a new identity and address check before handover.",
-      }); await verificationUpdateMessage(ctx, b._id, b.idVerifyStatus, "requires_input"); }
+      }); await verificationUpdateMessage(ctx, b._id, b.idVerifyStatus, "requires_input"); await queueRmv2Sync(ctx, b._id); }
     }
     return { ok: true };
   },

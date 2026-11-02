@@ -53,7 +53,7 @@ import { inspectionInput } from "./lib/returnInspectionFields";
 import { returnInspectionSchedule } from "./lib/returnInspection";
 import { normalizeReturnInspection } from "../shared/returnInspection";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
-import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage } from "./lib/verificationReuse";
+import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage, saveAccountDiditVerification } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
 import { rentalCancellationStart, bookingCancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION } from "../src/lib/legal";
@@ -1544,6 +1544,8 @@ export const verificationAccess = internalQuery({
     const customer = b.customerId ? await ctx.db.get(b.customerId) : null;
     return { guestEmail: b.guestEmail, status: b.status, verificationProvider: b.verificationProvider,
       idVerifyStatus: b.idVerifyStatus, diditSessionId: b.diditSessionId,
+      idVerificationSource: b.idVerificationSource, diditEventId: b.diditEventId ?? null,
+      diditEventAt: b.diditEventAt ?? null, diditManualDecisionAt: b.diditManualDecisionAt ?? null,
       verificationChecks: b.verificationChecks ?? null,
       verificationNote: b.verificationNote ?? null,
       documentExpiresAt: b.documentExpiresAt ?? null,
@@ -1569,25 +1571,10 @@ export const claimDiditProgressRefresh = internalMutation({
   },
 });
 
-/** Oldest checked first so a failed provider request cannot starve other rentals. */
-export const diditReconcileCandidates = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const confirmed = await ctx.db.query("bookings")
-      .withIndex("by_verificationProvider_status", (q) => q.eq("verificationProvider", "didit").eq("status", "confirmed")).collect();
-    const active = await ctx.db.query("bookings")
-      .withIndex("by_verificationProvider_status", (q) => q.eq("verificationProvider", "didit").eq("status", "active")).collect();
-    return [...confirmed, ...active]
-      .filter((b) => !!b.diditSessionId && !!b.guestEmail)
-      .sort((a, b) => (a.diditReconciledAt ?? 0) - (b.diditReconciledAt ?? 0))
-      .slice(0, 50)
-      .map((b) => ({ bookingId: b._id, sessionId: b.diditSessionId!, email: b.guestEmail! }));
-  },
-});
-
 export const markDiditReconciled = internalMutation({
-  args: { bookingId: v.id("bookings"), sessionId: v.string(), attemptedAt: v.number() },
-  handler: async (ctx, { bookingId, sessionId, attemptedAt }) => {
+  args: { bookingId: v.id("bookings"), sessionId: v.string(), attemptedAt: v.number(), sweepGeneration: v.optional(v.number()) },
+  handler: async (ctx, { bookingId, sessionId, attemptedAt, sweepGeneration }) => {
+    if (sweepGeneration !== undefined && !(await currentDiditSweep(ctx, sweepGeneration))) return;
     const b = await ctx.db.get(bookingId);
     if (b?.diditSessionId === sessionId)
       await ctx.db.patch(bookingId, { diditReconciledAt: attemptedAt });
@@ -1595,12 +1582,13 @@ export const markDiditReconciled = internalMutation({
 });
 
 export const flagDiditProcessingFailure = internalMutation({
-  args:{bookingId:v.id("bookings"),sessionId:v.string()},
-  handler:async(ctx,{bookingId,sessionId})=>{
+  args:{bookingId:v.id("bookings"),sessionId:v.string(),sweepGeneration:v.optional(v.number())},
+  handler:async(ctx,{bookingId,sessionId,sweepGeneration})=>{
+    if (sweepGeneration !== undefined && !(await currentDiditSweep(ctx, sweepGeneration))) return;
     const booking=await ctx.db.get(bookingId);
     if(!booking||booking.verificationProvider!=="didit"||booking.diditSessionId!==sessionId)return;
     const account=await accountForRental(ctx,booking);
-    if(account)await queueOwnerNotification(ctx,{eventKey:`didit-processing-failed:${bookingId}:${sessionId}`,kind:"verification_failure",accountId:account._id,bookingId,title:"Verification update needs attention",body:"Verification processing could not complete. Open the rental and check its status."});
+    await queueOwnerNotification(ctx,{eventKey:`didit-processing-failed:${bookingId}:${sessionId}:${Math.floor(Date.now()/86400000)}`,kind:"verification_failure",...(account?{accountId:account._id}:{}),bookingId,title:"Verification update needs attention",body:"Verification processing could not complete. Open the rental and check its status."});
   },
 });
 
@@ -1611,7 +1599,7 @@ export const flagDiditOpeningFailure = internalMutation({
     if(!booking||booking.verificationProvider!=="didit"||!["confirmed","active"].includes(booking.status)||
       booking.diditSessionId!==sessionId||!verificationSessionCanOpen(booking))return;
     const account=await accountForRental(ctx,booking);
-    if(account)await queueOwnerNotification(ctx,{eventKey:`didit-opening-failed:${bookingId}:${Math.floor(Date.now()/900000)}`,kind:"verification_failure",accountId:account._id,bookingId,title:"Verification could not open",body:"A renter could not open verification. Check this rental's verification progress."});
+    await queueOwnerNotification(ctx,{eventKey:`didit-opening-failed:${bookingId}:${Math.floor(Date.now()/900000)}`,kind:"verification_failure",...(account?{accountId:account._id}:{}),bookingId,title:"Verification could not open",body:"A renter could not open verification. Check this rental's verification progress."});
   },
 });
 
@@ -1665,6 +1653,11 @@ export const setDiditSession = internalMutation({
   },
 });
 
+async function currentDiditSweep(ctx: any, generation: number) {
+  const state = await ctx.db.query("didit_reconcile_sweeps").withIndex("by_key", (q: any) => q.eq("key", "open-sessions")).unique();
+  return state?.generation === generation && state.phase === "dispatch";
+}
+
 /** Didit webhooks are signed in the node action. Never accept browser results. */
 export const setDiditResult = internalMutation({
   args: {
@@ -1680,10 +1673,17 @@ export const setDiditResult = internalMutation({
     personKey: v.optional(v.string()),
     checks: v.optional(v.object({ identity: v.string(), selfie: v.string(), address: v.string() })),
     reconciliation: v.optional(v.boolean()),
+    sweepGeneration: v.optional(v.number()),
+    expectedEventId: v.optional(v.union(v.string(), v.null())),
+    expectedEventAt: v.optional(v.union(v.number(), v.null())),
+    expectedManualDecisionAt: v.optional(v.union(v.number(), v.null())),
   },
-  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation }) => {
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation, sweepGeneration, expectedEventId, expectedEventAt, expectedManualDecisionAt }) => {
+    if (sweepGeneration !== undefined && !(await currentDiditSweep(ctx, sweepGeneration))) return false;
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
+    if (expectedEventId !== undefined && ((b.diditEventId ?? null) !== expectedEventId || (b.diditEventAt ?? null) !== expectedEventAt ||
+        (b.diditManualDecisionAt ?? null) !== expectedManualDecisionAt)) return true;
     if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
         (b.diditManualDecisionAt ?? 0) >= eventAt) return true;
     if (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting")) {
@@ -1734,7 +1734,10 @@ export const setDiditResult = internalMutation({
       verificationNote: note?.slice(0, 400),
       verificationUpdatedAt: Date.now(),
     });
-    if (status === "verified") await markAccountVerified(ctx, bookingId);
+    if (status === "verified") {
+      await markAccountVerified(ctx, bookingId);
+      await saveAccountDiditVerification(ctx, b, verifiedAt!, documentExpiresAt, checks, personKey ?? b.renterPersonKey);
+    }
     else if (["rejected", "requires_input", "manual_review"].includes(status)) await revokeReuse(ctx, bookingId);
     await verificationUpdateMessage(ctx, bookingId, previous, status);
     if (["confirmed", "active"].includes(b.status) && previous !== status && ["verified", "manual_review", "requires_input", "rejected"].includes(status))
@@ -2019,7 +2022,7 @@ export const _finalizeCancellation = internalMutation({
 async function revokeReuse(ctx: any, sourceBookingId: any) {
   const source = await ctx.db.get(sourceBookingId);
   if (!source) return;
-  const account = await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", (source.guestEmail ?? "").trim().toLowerCase())).first();
+  const account = await accountForRental(ctx, source);
   if (account?.rentalVerification?.sourceBookingId === sourceBookingId) await ctx.db.patch(account._id, { rentalVerification: undefined, idVerified: false });
   const reused = await ctx.db.query("bookings").withIndex("by_verification_reused", (q: any) => q.eq("verificationReusedFrom", sourceBookingId)).collect();
   for (const b of reused) if (["confirmed", "active"].includes(b.status) && b.idVerifyStatus === "verified") {
@@ -2028,48 +2031,81 @@ async function revokeReuse(ctx: any, sourceBookingId: any) {
     await queueRmv2Sync(ctx, b._id);
   }
 }
-export const revokeVerificationReuse = internalMutation({ args: { sourceBookingId: v.id("bookings") }, handler: async (ctx, args) => revokeReuse(ctx, args.sourceBookingId) });
-export const reuseVerificationCandidate = internalQuery({
-  args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => {
+export const revokeVerificationReuse = internalMutation({
+  args: { sourceBookingId: v.id("bookings"), sessionId:v.optional(v.string()), expectedEventId:v.optional(v.union(v.string(),v.null())),
+    expectedEventAt:v.optional(v.union(v.number(),v.null())), expectedManualDecisionAt:v.optional(v.union(v.number(),v.null())) },
+  handler: async (ctx, args) => {
+    if (args.expectedEventId !== undefined) {
+      const source=await ctx.db.get(args.sourceBookingId);
+      if (!source || source.diditSessionId!==args.sessionId || (source.diditEventId??null)!==args.expectedEventId ||
+          (source.diditEventAt??null)!==args.expectedEventAt || (source.diditManualDecisionAt??null)!==args.expectedManualDecisionAt) return false;
+      await ctx.db.patch(source._id,{verificationReuseBlockedSessionId:source.diditSessionId,verificationReuseBlockReason:"The provider decision is no longer eligible for reuse."});
+    }
+    await revokeReuse(ctx, args.sourceBookingId);
+    return true;
+  },
+});
+async function potentialVerificationReuse(ctx: any, bookingId: any) {
     const b = await ctx.db.get(bookingId);
-    if (!b || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.idVerifyStatus !== "required" || b.diditSessionId || !verificationCanStart(b)) return null;
+    if (!b || !b.accountId || b.accountAccessRequired !== false || !["confirmed","active"].includes(b.status) || b.verificationProvider !== "didit" || b.idVerifyStatus !== "required" || b.diditSessionId || !verificationCanStart(b)) return null;
     const account: Doc<"accounts"> | null = await accountForRental(ctx,b);
     if (!validReuse(account?.rentalVerification, b)) return null;
     const source = await ctx.db.get(account!.rentalVerification!.sourceBookingId);
-    if (!source?.diditSessionId || !belongsToRentalAccount(source,account) || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit") return null;
-    try { await assertVerificationArchive(ctx, source); } catch { return null; }
+    if (!source?.diditSessionId || source.verificationReuseBlockedSessionId === source.diditSessionId || source.accountId !== account?._id || source.accountAccessRequired !== false || !belongsToRentalAccount(source,account) || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !["identity","selfie","address"].every(key => source.verificationChecks?.[key as "identity"|"selfie"|"address"] === "approved") || !source.documentExpiresAt || !source.renterPersonKey) return null;
     return { source };
+}
+export const reuseVerificationPotential = internalQuery({
+  args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => !!await potentialVerificationReuse(ctx, bookingId),
+});
+export const reuseVerificationCandidate = internalQuery({
+  args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => {
+    if(process.env.VERIFICATION_ARCHIVE_REUSE_ENABLED!=="true")return null;
+    const candidate=await potentialVerificationReuse(ctx,bookingId);
+    if(!candidate)return null;
+    const booking=await ctx.db.get(bookingId);
+    if(booking?.status!=="confirmed")return null;
+    try { await assertVerificationArchive(ctx, candidate.source); } catch { return null; }
+    return candidate;
   },
 });
 export const applyVerificationReuse = internalMutation({
   args: { bookingId: v.id("bookings"), sourceBookingId: v.id("bookings"), documentExpiresAt: v.number(), personKey: v.optional(v.string()) },
   handler: async (ctx, { bookingId, sourceBookingId, documentExpiresAt, personKey }) => {
+    if(process.env.VERIFICATION_ARCHIVE_REUSE_ENABLED!=="true")return false;
     const b = await ctx.db.get(bookingId), source = await ctx.db.get(sourceBookingId);
-    if (!b || !source || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !verificationCanStart(b)) return false;
+    if (!b || !source || !source.diditSessionId || source.verificationReuseBlockedSessionId === source.diditSessionId || !b.accountId || b.accountAccessRequired !== false || source.accountAccessRequired !== false || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !verificationCanStart(b) || !["identity","selfie","address"].every(key => source.verificationChecks?.[key as "identity"|"selfie"|"address"] === "approved") || !source.renterPersonKey || personKey !== source.renterPersonKey || documentExpiresAt !== source.documentExpiresAt) return false;
     try { await assertVerificationArchive(ctx, source); } catch { return false; }
     const account = await accountForRental(ctx,b);
     const record = account?.rentalVerification;
-    if (!record || !belongsToRentalAccount(source,account) || record.sourceBookingId !== sourceBookingId || !validReuse(record, b) || documentExpiresAt <= Date.now() || documentExpiresAt <= Math.min(...b.lineItems.map(li => li.start))) return false;
+    if (!record || source.accountId !== account?._id || !belongsToRentalAccount(source,account) || record.sourceBookingId !== sourceBookingId || !validReuse(record, b) || documentExpiresAt <= Date.now() || b.lineItems.some(li => !Number.isFinite(li.start) || documentExpiresAt <= li.start)) return false;
     await attachRenterPerson(ctx, b, personKey ?? source.renterPersonKey);
     await assertRenterExposure(ctx, { ...b, renterPersonKey: personKey ?? source.renterPersonKey });
     await ctx.db.patch(bookingId, { renterPersonKey: personKey ?? source.renterPersonKey, verificationChecks: source.verificationChecks, idVerifyStatus: "verified", idVerificationSource: "reused_didit", idVerifiedAt: record.verifiedAt,
       verificationExpiresAt: Math.min(record.expiresAt, documentExpiresAt), verificationReusedFrom: sourceBookingId,
-      verificationNote: "Your recent identity and address verification was checked again and reused for this rental.", verificationUpdatedAt: Date.now() });
+      verificationNote: "Your recent approved identity and address verification was reused for this rental.", verificationUpdatedAt: Date.now() });
     await verificationUpdateMessage(ctx, bookingId, "required", "verified");
     await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:"verified"});
     await queueRmv2Sync(ctx, bookingId);
     return true;
   },
 });
+export const adminSuspendVerificationReuse = mutation({args:{token:v.string(),bookingId:v.id("bookings"),reason:v.string()},handler:async(ctx,{token,bookingId,reason})=>{
+  await assertAdmin(ctx,token,"bookings.adminSuspendVerificationReuse");
+  const booking=await ctx.db.get(bookingId);
+  if(!booking?.diditSessionId||reason.trim().length<10)throw Error("A verification session and recorded reason are required.");
+  await ctx.db.patch(bookingId,{verificationReuseBlockedSessionId:booking.diditSessionId,verificationReuseBlockReason:reason.trim().slice(0,500)});
+  await revokeReuse(ctx,bookingId);
+}});
 export const expireRentalVerifications = internalMutation({
-  args: {}, handler: async (ctx) => {
+  args: { cursor: v.optional(v.string()) }, handler: async (ctx, { cursor }) => {
     const now = Date.now();
-    const rows = await ctx.db.query("bookings").withIndex("by_status", q => q.eq("status", "confirmed")).collect();
+    const page = await ctx.db.query("bookings").withIndex("by_status", q => q.eq("status", "confirmed"))
+      .paginate({ numItems: 50, cursor: cursor ?? null });
     // Match handover and the manager feed: the earliest identity/document
     // expiry wins, including legacy approvals with only an approval timestamp.
     // Commit the changed approval and delivery revision together so the
     // receiver can accept the downgrade without relaxing its revision fence.
-    for (const b of rows) if (b.idVerifyStatus === "verified" &&
+    for (const b of page.page) if (b.idVerifyStatus === "verified" &&
       Math.min(b.verificationExpiresAt ?? ((b.idVerifiedAt ?? 0) + VERIFICATION_REUSE_DAYS * 86400000), b.documentExpiresAt ?? Infinity) <= now) {
       await revokeReuse(ctx, b._id);
       await ctx.db.patch(b._id, { idVerifyStatus: "requires_input", diditSessionId: undefined, verificationReusedFrom: undefined,
@@ -2077,6 +2113,7 @@ export const expireRentalVerifications = internalMutation({
       await verificationUpdateMessage(ctx, b._id, "verified", "requires_input");
       await queueRmv2Sync(ctx, b._id);
     }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.bookings.expireRentalVerifications, { cursor: page.continueCursor });
   },
 });
 

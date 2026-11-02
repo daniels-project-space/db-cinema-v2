@@ -38,6 +38,7 @@ import type * as credits from "../credits.js";
 import type * as crons from "../crons.js";
 import type * as delivery from "../delivery.js";
 import type * as didit from "../didit.js";
+import type * as diditSweep from "../diditSweep.js";
 import type * as droneArchive from "../droneArchive.js";
 import type * as droneLicences from "../droneLicences.js";
 import type * as emailInbox from "../emailInbox.js";
@@ -221,6 +222,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   delivery: typeof delivery;
   didit: typeof didit;
+  diditSweep: typeof diditSweep;
   droneArchive: typeof droneArchive;
   droneLicences: typeof droneLicences;
   emailInbox: typeof emailInbox;

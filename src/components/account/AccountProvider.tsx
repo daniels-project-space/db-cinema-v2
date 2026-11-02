@@ -6,11 +6,13 @@ import {
   useEffect,
   useState,
   useCallback,
+  useMemo,
   ReactNode,
 } from "react";
 import { useQuery, useAction, useMutation } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { LoyaltyCelebration } from "./LoyaltyCelebration";
+import { useFreshVerification } from "./useFreshVerification";
 
 type Me = {
   _id: string;
@@ -22,6 +24,7 @@ type Me = {
   favorites: string[];
   avatarUrl: string | null;
   idVerified: boolean;
+  verificationReadyUntil: number | null;
   hasPassword: boolean;
   storeCredit: number;
   earnedCredit:number;refundCredit:number;referralCode:string|null;
@@ -74,6 +77,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const meRes = useQuery(api.accounts.me, token ? { token } : "skip");
+  const verificationFresh=useFreshVerification(meRes?.verificationReadyUntil);
+  const me=useMemo(()=>meRes ? {...meRes,idVerified:meRes.idVerified&&verificationFresh} : null,[meRes,verificationFresh]);
   const signUpA = useAction(api.accounts.signUp);
   const signInA = useAction(api.accounts.signIn);
   const signInGoogleA = useAction(api.googleAuth.signInWithGoogle);
@@ -155,7 +160,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider
       value={{
         token,
-        me: (meRes ?? null) as Me,
+        me: me as Me,
         loading: !hydrated || (!!token && meRes === undefined),
         signUp,
         signIn,
