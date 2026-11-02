@@ -38,6 +38,7 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [reused, setReused] = useState(false);
+  const [updated, setUpdated] = useState(false);
   const mounted = useRef(false);
   const flight = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -51,6 +52,7 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
     flight.current = true;
     setBusy(true);
     setErr(null);
+    setUpdated(false);
     try {
       const result = await getSession({
         bookingId: bookingId as any,
@@ -59,6 +61,7 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
       });
       if (!mounted.current) return;
       if (result.reused) setReused(true);
+      else if (result.updated) setUpdated(true);
       else if (result.url) setSessionUrl(result.url);
       else setErr("Verification could not open. Try again or contact the team from your rental conversation.");
     }
@@ -83,9 +86,10 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
       {status === "processing" && <p className="mt-1 text-xs text-white/45">We will update this page when the provider completes its check. You can return later.</p>}
       {status === "manual_review" && <p className="mt-1 text-xs text-white/45">We will review this result and contact you if another document is needed.</p>}
       {reused && <p role="status" className="mt-2 text-sm text-emerald-300">Your recent verification has been reused. We’re updating your rental progress.</p>}
+      {updated && <p role="status" className="mt-2 text-sm text-emerald-300">We checked your existing verification. Your rental progress is updating.</p>}
       {status !== "rejected" && status !== "manual_review" && !sessionUrl && !reused && (
         <button onClick={() => void open()} disabled={busy} className="btn-primary mt-2 px-5 py-2 text-sm">
-          {busy ? "Opening…" : err ? "Try again" : restart ? "Restart verification" : status === "requires_input" ? "Replace requested document" : "Continue verification"}
+          {busy ? "Opening…" : err ? "Try again" : updated ? "Check again" : restart ? "Restart verification" : status === "requires_input" ? "Replace requested document" : "Continue verification"}
         </button>
       )}
       {sessionUrl && status !== "rejected" && status !== "manual_review" && (

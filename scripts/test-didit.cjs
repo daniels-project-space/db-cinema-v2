@@ -211,6 +211,36 @@ function signed(event) {
       {url:sessionUrl},'an active case with no retrieved URL reopens the same session');
     assert.equal(calls.filter(x=>x.options?.method==='POST').length,1);
     assert.equal(boundNewSession,false,'reopening an active case preserves its recorded progress');
+    report.status = 'Approved';
+    report.poa_verifications[0].poa_parsed_address = {postal_code:'SW1A 1AA'};
+    const recovered = [];
+    const completedCtx = {
+      runQuery:async ref=>ref==='accounts:_byToken' ? {email:'renter@example.invalid'} : {...reviewBooking,idVerifyStatus:'processing'},
+      runMutation:async(ref,args)=>{recovered.push({ref,args});return true;},
+    };
+    calls.length = 0;
+    assert.deepEqual(await bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'}),
+      {url:null,updated:true},'a completed provider case reconciles instead of failing to open');
+    assert.equal(recovered[0].ref,'bookings:setDiditResult');
+    assert.equal(recovered[0].args.status,'verified');
+    assert.equal(recovered[0].args.reconciliation,true);
+    assert.deepEqual(recovered[0].args.poaPostcodes,['SW1A 1AA']);
+    assert.equal(calls.some(x=>x.options?.method==='POST'),false,'an existing decision never creates another session');
+    recovered.length = 0;
+    await assert.rejects(bookingSession.handler({...completedCtx,runQuery:async ref=>ref==='accounts:_byToken'
+      ? {email:'renter@example.invalid'} : {...reviewBooking,idVerifyStatus:'requires_input',idVerificationSource:'manual'}},
+      {bookingId:'booking-1',accountToken:'account-token'}),/replacement request/);
+    assert.equal(recovered.length,0,'an outstanding manual resubmission cannot be overwritten by an old decision');
+    report.poa_verifications = [];
+    recovered.length = 0;
+    await bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'});
+    assert.equal(recovered[0].args.status,'manual_review','top-level approval cannot bypass the address check');
+    report.vendor_data = 'dbc-booking-another';
+    recovered.length = 0;
+    await assert.rejects(bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'}),/does not match/);
+    assert.equal(recovered.length,0,'a foreign decision is never reconciled');
+    report.vendor_data = 'dbc-booking-booking-1';
+    report.poa_verifications = [{status:'Approved',node_id:'feature_poa'}];
     report.status = 'Resubmitted';
     report.session_url = savedSessionUrl;
     calls.length = 0;

@@ -43,7 +43,7 @@ export const bookingSession = action({
     accountToken: v.optional(v.string()),
     checkoutSessionId: v.optional(v.string()),
   },
-  handler: async (ctx, a): Promise<{ url: string | null; reused?: boolean }> => {
+  handler: async (ctx, a): Promise<{ url: string | null; reused?: boolean; updated?: boolean }> => {
     const cfg = config();
     let booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
     if (!booking || booking.verificationProvider !== "didit" || !["confirmed", "active"].includes(booking.status) ||
@@ -72,6 +72,7 @@ export const bookingSession = action({
     }
     let reopeningExistingSession = false;
     if (booking.diditSessionId) {
+      const decisionReadAt = Date.now();
       const existing = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
       if (existing.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
       if (resumableSessionStatuses.includes(existing.status)) {
@@ -79,7 +80,17 @@ export const bookingSession = action({
           return { url: existing.session_url };
         reopeningExistingSession = true;
       } else if (existing.status !== "Expired" && existing.status !== "Abandoned" && !(booking.idVerifyStatus === "verified" && verificationExpired(booking) && existing.status === "Approved")) {
-        throw new Error("This verification has a decision. Please refresh your rental status.");
+        if (booking.idVerificationSource === "manual" && booking.idVerifyStatus === "requires_input")
+          throw new Error("The replacement request is being prepared. Contact the team from your rental conversation.");
+        const mapped = mapDecision(existing.status, existing);
+        if (!mapped) throw new Error("The verification decision could not be read. Contact the team from your rental conversation.");
+        const saved = await ctx.runMutation(internal.bookings.setDiditResult, {
+          bookingId: a.bookingId, sessionId: booking.diditSessionId,
+          eventId: `open-progress-${booking.diditSessionId}-${decisionReadAt}`, eventAt: decisionReadAt,
+          providerStatus: existing.status, reconciliation: true, ...mapped,
+        });
+        if (!saved) throw new Error("The verification session changed. Refresh this rental.");
+        return { url: null, updated: true };
       }
     }
     const nameParts = String(booking.renterName ?? "").trim().split(/\s+/).filter(Boolean);
