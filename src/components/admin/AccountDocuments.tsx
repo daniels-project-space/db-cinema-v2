@@ -7,6 +7,9 @@ import styles from "./AccountDocuments.module.css";
 import { SmartImage } from "@/components/SmartImage";
 
 function documentTitle(kind: string) {
+  if (kind.startsWith("selfie-")) return "Selfie · liveness image";
+  if (kind.startsWith("face-match-")) return `Face match · ${kind.endsWith("source_image") ? "source" : "target"} image`;
+  if (kind.startsWith("id-extra-")) return kind.endsWith("portrait_image") ? "ID portrait" : `ID camera image · ${kind.includes("back_image") ? "back" : "front"}`;
   return kind === "drone-operator-licence" ? "Drone operator licence" : kind.startsWith("address-") ? "Proof of address" : `Proof of identity · ${kind.includes("back") ? "back" : "front"}${kind.includes("full_") ? " · full image" : ""}`;
 }
 
@@ -25,7 +28,7 @@ function DocumentReadinessCard({ archives, verified, verificationExpiresAt }: { 
     <div><dt>Proof of identity</dt><dd data-good={state.identitySaved}>{state.identitySaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : "Private copy missing"}</dd></div>
     <div><dt>Proof of address</dt><dd data-good={state.addressSaved}>{state.addressSaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : "Private copy missing"}</dd></div></dl>
     <p>{state.daysLeft !== null ? `Earliest archive deletion in ${state.daysLeft} ${state.daysLeft === 1 ? "day" : "days"} · ${new Date(state.archiveExpiry!).toLocaleDateString("en-GB")}` : state.protectedArchive ? "Copies retained while a rental or insurance hold is active." : "Retention countdown begins after the rental closes."}</p>
-    <small>Copies are admin-only. Retention normally ends 30 days after rental closure; verification expiry is separate.</small>
+    <small>Copies are admin-only. Retention normally ends 90 days after rental closure; verification expiry is separate.</small>
   </section>;
 }
 
@@ -116,6 +119,8 @@ export function AccountDocuments({
   verificationExpiresAt = null,
   onBack,
   onSection,
+  embedded = false,
+  verified,
 }: {
   token: string;
   accountId: string;
@@ -123,12 +128,15 @@ export function AccountDocuments({
   verificationExpiresAt?: number | null;
   onBack?: () => void;
   onSection?: (section: string) => void;
+  embedded?: boolean;
+  verified?: boolean;
 }) {
   const archives = useQuery(api.verificationArchive.accountDocuments, {
     token,
     accountId: accountId as any,
   });
   const retry = useMutation(api.verificationArchive.retry);
+  const retryImages = useMutation(api.verificationArchive.retrySupplemental);
   const backfill = useMutation(api.verificationArchive.backfillAccount);
   const retentionHold = useMutation(api.verificationArchive.retentionHold);
   const [preview, setPreview] = useState<{
@@ -168,9 +176,6 @@ export function AccountDocuments({
   const active = currentArchives.some(a => a.retention.status === "active-rental");
   const unhealthy = currentArchives.some(a => a.status !== "deleted" && a.retention.viewable && !a.copiesReady);
   const shortDate = (at: number) => new Date(at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
-  useEffect(() => {
-    if (selectedFile?.available && selectedDocument === null) void view(selectedFile);
-  }, [accountId, token, selectedFile?.id, selectedFile?.available]);
   useEffect(()=>{
     if(!preview || !archives)return;
     const archive=archives.find(a=>a.documents.some(d=>d.id===preview.documentId));
@@ -196,6 +201,9 @@ export function AccountDocuments({
     if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
     activeUrl.current = null;
   }, [accountId, token]);
+  useEffect(() => {
+    if (selectedFile?.available && selectedDocument === null) void view(selectedFile);
+  }, [accountId, token, selectedFile?.id, selectedFile?.available]);
   useEffect(
     () => () => {
       scope.current++;
@@ -262,9 +270,9 @@ export function AccountDocuments({
     finally { if (currentScope === scope.current) setBusy(false); }
   }
   return (
-    <section className={styles.page} aria-label="Account documents" data-testid="retained-documents-page">
+    <section className={`${styles.page} ${embedded ? styles.embedded : ""}`} aria-label="Account documents" data-testid="retained-documents-page">
       <div className={styles.tools}>
-        <button type="button" onClick={onBack} className={styles.breadcrumb}>← <span>Customers</span> / {customer?.name ?? "Account documents"}</button>
+        {onBack ? <button type="button" onClick={onBack} className={styles.breadcrumb}>← <span>Customers</span> / {customer?.name ?? "Account documents"}</button> : <span className={styles.breadcrumb}>Private customer documents</span>}
         <button type="button" disabled={busy} onClick={() => void perform(() => backfill({token,accountId:accountId as any}))} className={styles.primary}>↑ <span>Import from Didit</span></button>
       </div>
       {customer && <div className={styles.profile}>
@@ -275,13 +283,13 @@ export function AccountDocuments({
       <div className={styles.stats}>
         <div><DocumentIcon /><p><strong>{archives === undefined ? "…" : savedCount}</strong><span>saved document{savedCount === 1 ? "" : "s"}</span></p></div>
         <div><span className={styles.shield}><DocumentIcon type="shieldCheck" /></span><p><strong>{unhealthy ? "Documents need attention" : savedCount ? "Documents saved" : "Awaiting documents"}</strong><span>{unhealthy ? "Repair incomplete or missing copies" : "Private copies linked to this account"}</span></p></div>
-        <div><span className={styles.lock}><DocumentIcon type="lock" /></span><p><strong>{active ? "Retention protected" : selectedArchive?.retention.viewable ? "Within retention" : "Retention status"}</strong><span>{active ? "Active rentals keep documents available" : "30 days after rental closure"}</span></p></div>
+        <div><span className={styles.lock}><DocumentIcon type="lock" /></span><p><strong>{active ? "Retention protected" : selectedArchive?.retention.viewable ? "Within retention" : "Retention status"}</strong><span>{active ? "Active rentals keep documents available" : "90 days after rental closure"}</span></p></div>
       </div>
       <div className={styles.retentionStrip}>
-        <span className={styles.shield}><DocumentIcon type="shield" /></span><div><strong>Retained during the rental and for 30 days after return.</strong><p>An active rental keeps its documents available.</p></div>
-        <ol aria-label="Document retention timeline">{["Uploaded","Saved","Rental active","Returned","30-day retention"].map((name,i) => <li key={name} className={i === 0 && allFiles.length || i === 1 && savedCount || i === 2 && active ? styles.reached : ""}><span/><strong>{name}</strong><small>{i === 0 && allFiles[0] ? shortDate(Math.min(...allFiles.map(d => d.savedAt))) : i === 1 && selectedArchive?.completedAt ? shortDate(selectedArchive.completedAt) : i === 2 && active ? "Active" : i === 4 && selectedArchive?.retention.expiresAt ? shortDate(selectedArchive.retention.expiresAt) : "—"}</small></li>)}</ol>
+        <span className={styles.shield}><DocumentIcon type="shield" /></span><div><strong>Retained during the rental and normally for 90 days after closure.</strong><p>An active rental keeps its documents available.</p></div>
+        <ol aria-label="Document retention timeline">{["Uploaded","Saved","Rental active","Closed","90-day retention"].map((name,i) => <li key={name} className={i === 0 && allFiles.length || i === 1 && savedCount || i === 2 && active ? styles.reached : ""}><span/><strong>{name}</strong><small>{i === 0 && allFiles[0] ? shortDate(Math.min(...allFiles.map(d => d.savedAt))) : i === 1 && selectedArchive?.completedAt ? shortDate(selectedArchive.completedAt) : i === 2 && active ? "Active" : i === 4 && selectedArchive?.retention.expiresAt ? shortDate(selectedArchive.retention.expiresAt) : "—"}</small></li>)}</ol>
       </div>
-      <DocumentReadinessCard archives={archives} verified={customer?.verified ?? false} verificationExpiresAt={verificationExpiresAt} />
+      <DocumentReadinessCard archives={archives} verified={verified ?? customer?.verified ?? false} verificationExpiresAt={verificationExpiresAt} />
       {error && <p role="alert" className={styles.error}>{error}</p>}
       <div className={styles.columns}>
         <section className={styles.library} aria-label="Saved documents">
@@ -296,6 +304,7 @@ export function AccountDocuments({
             {document.available && <div className={styles.fileActions}><button type="button" disabled={busy} aria-label={`View ${documentTitle(document.kind)}`} onClick={() => void view(document)}><DocumentIcon type="eye" /></button><button type="button" disabled={busy} aria-label={`Download ${documentTitle(document.kind)}`} onClick={() => void view(document,true)}><DocumentIcon type="download" /></button></div>}
           </li>)}</ul>}
           {currentArchives.filter(a => a.status !== "deleted" && a.retention.viewable && !a.copiesReady).map(archive => <div key={archive._id} className={styles.repair}><strong>{archive.status === "complete" ? "Saved copies need repair" : archive.status === "attention" ? "Archive needs attention" : "Saving documents"}</strong><p>{archive.source === "drone" ? "Ask the renter to upload a current licence copy through their rental." : archive.error ?? "Verification files must finish saving before handover."}</p>{archive.source !== "drone" && <button type="button" disabled={busy} onClick={() => void perform(() => retry({token,archiveId:archive._id}))}>{archive.status === "complete" ? "Repair document archive" : "Retry document archive"} →</button>}</div>)}
+          {currentArchives.filter(a=>a.status==="complete" && a.retention.viewable && a.supplementalStatus && a.supplementalStatus!=="complete").map(archive=><div key={`extra-${archive._id}`} className={styles.repair}><strong>{archive.supplementalStatus==="pending"?"Saving additional verification images":"Additional verification images need attention"}</strong><p>{archive.supplementalError ?? "Checking available selfie and face-match images without interrupting saved documents."}</p>{archive.supplementalStatus==="attention" && <button type="button" disabled={busy} onClick={()=>void perform(()=>retryImages({token,archiveId:archive._id}))}>Retry image recovery →</button>}</div>)}
         </section>
         <section className={styles.preview} aria-label="Document preview">
           <header><h3>{selectedFile ? documentTitle(selectedFile.kind) : "Document preview"}</h3><span className={styles.private}><DocumentIcon type="lock" /> Private document</span></header>

@@ -1,0 +1,26 @@
+const assert = require('node:assert/strict');
+const {load,setMock} = require('./lib/rentalTestHarness.cjs');
+let prompt;
+setMock('@openrouter/ai-sdk-provider',{createOpenRouter:()=>()=>({})});
+setMock('ai',{generateObject:async options=>{prompt=options.system;return {object:{reply:'Here is your recorded verification status.',handoff:false,offerCredit:false}};}});
+const {gafferReply} = load('convex/gaffer.ts');
+const previousKey=process.env.OPENROUTER_API_KEY;
+process.env.OPENROUTER_API_KEY='test-key';
+const facts={escalated:false,latestRenterId:'message',gafferGeneration:0,messages:[{sender:'renter',text:'Why can I not upload proof of address?'}],booking:{status:'confirmed',summary:'Camera',dates:'today',fulfilment:'pickup',verification:{status:'processing',checks:{identity:'approved',selfie:'approved',address:'waiting'},expired:false}},accountCredit:{},checkoutUi:{},hours:'09:00–22:00',location:null};
+(async()=>{
+ let calls=[],response={status:'updated'};
+ const ctx={runQuery:async()=>facts,runAction:async(ref,args)=>{calls.push({ref,args});if(response instanceof Error)throw response;return response;},runMutation:async(ref,args)=>{calls.push({ref,args});return true;},scheduler:{runAfter:async()=>{}}};
+ await gafferReply.handler(ctx,{accountId:'owner',bookingId:'booking',messageId:'message'});
+ assert.deepEqual(calls[0],{ref:'didit.refreshForGaffer',args:{accountId:'owner',bookingId:'booking'}});
+ assert.match(prompt,/"address":"waiting"/);assert.match(prompt,/Provider refresh result: updated/);
+ calls=[];response=new Error('provider unavailable');
+ await gafferReply.handler(ctx,{accountId:'owner',bookingId:'booking',messageId:'message'});
+ assert.match(prompt,/Provider refresh result: unavailable/);assert.match(prompt,/do not claim it succeeded/);
+ calls=[];facts.messages[0].text='What lenses are included?';
+ await gafferReply.handler(ctx,{accountId:'owner',bookingId:'booking',messageId:'message'});
+ assert(!calls.some(call=>call.ref==='didit.refreshForGaffer'));
+ calls=[];facts.messages[0].text='Please verify my identity';facts.latestRenterId='newer';
+ await gafferReply.handler(ctx,{accountId:'owner',bookingId:'booking',messageId:'message'});
+ assert.equal(calls.length,0,'stale reply cannot initiate a provider refresh');
+ console.log('PASS Gaffer verification: scoped refresh, recorded checks, truthful provider failure, no refresh for unrelated or stale messages; mocked provider and AI.');
+})().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>{if(previousKey===undefined)delete process.env.OPENROUTER_API_KEY;else process.env.OPENROUTER_API_KEY=previousKey;});

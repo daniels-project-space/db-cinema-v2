@@ -10,6 +10,7 @@ export function RenterNotificationBell({token}:{token:string}) {
   const [connected,setConnected]=useState(false);
   const [ready,setReady]=useState(false),[permission,setPermission]=useState<NotificationPermission>("default");
   const registration=useRef<ServiceWorkerRegistration|null>(null),browserSubscription=useRef<PushSubscription|null>(null),epoch=useRef(0);
+  const panelRef=useRef<HTMLElement|null>(null),focusOnOpen=useRef(false);
   const state=useQuery(api.renterNotifications.device,deviceId?{token,deviceId}:"skip");
   const subscribe=useMutation(api.renterNotifications.subscribe),disable=useMutation(api.renterNotifications.disable),preferences=useMutation(api.renterNotifications.preferences);
   useEffect(()=>{
@@ -36,6 +37,12 @@ export function RenterNotificationBell({token}:{token:string}) {
     return()=>{++epoch.current;clearTimeout(timer);};
   },[token,supported,ios,installed,state?.configured,state?.publicKey]);
   useEffect(()=>{if(!open)return;const close=(e:KeyboardEvent)=>{if(e.key==="Escape")setOpen(false);};window.addEventListener("keydown",close);return()=>window.removeEventListener("keydown",close);},[open]);
+  useEffect(()=>{
+    const openFromChat=()=>{if(panelRef.current){panelRef.current.focus();return;}focusOnOpen.current=true;setOpen(true);};
+    window.addEventListener("dbc:open-renter-notifications",openFromChat);
+    return()=>window.removeEventListener("dbc:open-renter-notifications",openFromChat);
+  },[]);
+  useEffect(()=>{if(open&&focusOnOpen.current){panelRef.current?.focus();focusOnOpen.current=false;}},[open]);
   async function enable() {
     if(busy||!deviceId||!state?.publicKey||!registration.current)return;
     const generation=epoch.current;setBusy(true);setError(null);
@@ -56,7 +63,7 @@ export function RenterNotificationBell({token}:{token:string}) {
   const active=!!state?.enabled&&connected&&permission==="granted";
   return <div className={styles.root}>
     <button type="button" onClick={()=>setOpen(!open)} aria-expanded={open} aria-controls="renter-notification-settings" aria-label={active?"Manage enabled rental notifications":"Rental notifications"} className={styles.bell}><svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M18 8a6 6 0 00-12 0v5l-2 3v1h16v-1l-2-3V8ZM9 20h6"/></svg><span>{active?"Alerts on":"Notifications"}</span></button>
-    {open&&<section id="renter-notification-settings" className={styles.panel} aria-label="Rental notification settings"><header><h2>Stay in touch with your rental</h2><button type="button" onClick={()=>setOpen(false)} aria-label="Close notification settings">×</button></header>
+    {open&&<section id="renter-notification-settings" ref={panelRef} tabIndex={-1} className={styles.panel} aria-label="Rental notification settings"><header><h2>Stay in touch with your rental</h2><button type="button" onClick={()=>setOpen(false)} aria-label="Close notification settings">×</button></header>
       <p>Receive booking updates and messages from the rental team on this device. For phone alerts, open your account on your phone.</p>
       {!installed&&<div className={styles.install}><h3>Add DB Cinema to your Home Screen</h3><p>{ios?"On iPhone or iPad, open the browser's Share menu, choose Add to Home Screen, then open DB Cinema from its new icon and enable notifications here.":"Use your browser's Install app or Add to Home Screen option, then open DB Cinema from the new icon."}</p>{install&&<button type="button" onClick={async()=>{try{await install.prompt();await install.userChoice;setInstall(null);}catch{setError("The installation prompt could not open. Use your browser’s Add to Home Screen menu instead.");}}}>Add to Home Screen</button>}</div>}
       {!supported&&!(ios&&!installed)&&<p>Push notifications are unavailable in this browser. Try a supported phone browser or keep using your rental chat here.</p>}

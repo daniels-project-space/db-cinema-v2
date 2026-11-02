@@ -557,9 +557,10 @@ export default function CheckoutPage() {
               </div>
               {!!membership && currentQuote && <p className="mt-2 text-[11px] leading-5 text-white/50">Includes the rental with credits applied, {currentQuote.membershipFee > 0 ? "your first subscription month and " : ""}any delivery charge.{!assessmentPolicy&&" The saved-card collection limit is excluded."}</p>}
             </div>
-            {quoteError && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
-            {err && <div className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
+            {quoteError && <div role="alert" className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{quoteError}</div>}
+            {err && <div role="alert" className="mt-3 rounded-lg border border-rec-500/20 bg-rec-500/10 px-3 py-2 text-xs text-red-300">{err}</div>}
             {!!items.length&&!stock.needsTimes&&!stock.invalidTimeOrder&&<div className="mt-4"><CartStockNotice ready={stock.ready} checking={stock.checking} error={stock.error} onRetry={()=>void stock.recheck()}/></div>}
+            {(quoteError || err || stock.error) && <p className="mt-3 text-xs text-white/70">Need help? <Link href={account.token ? "/account?conversation=general#chat" : "/contact"} className="underline underline-offset-4">{account.token ? "Open your chat with the team" : "Contact the team"}</Link>.</p>}
             {invalidTimeOrder&&<p role="status" className="mt-4 text-sm text-amber-200">Choose a return time later than pickup, or a later return date in your basket.</p>}
             {availabilityBlocked&&!stock.needsTimes&&!invalidTimeOrder&&!canRecover&&!stock.error&&!stock.checking && <p role="status" className="mt-4 text-sm text-red-300">Some gear is unavailable. <Link href="/cart" className="underline">Review your basket and switch to an available alternative</Link>.</p>}
             {unavailableItems.length>0&&!canRecover&&<section className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/[.04] p-4" aria-label="Unavailable items and replacement sets">

@@ -134,6 +134,7 @@ import type * as offers from "../offers.js";
 import type * as operatorCancellation from "../operatorCancellation.js";
 import type * as operatorCancellationState from "../operatorCancellationState.js";
 import type * as operators from "../operators.js";
+import type * as ownerTelegram from "../ownerTelegram.js";
 import type * as pickupSecurity from "../pickupSecurity.js";
 import type * as promo from "../promo.js";
 import type * as rateLimit from "../rateLimit.js";
@@ -316,6 +317,7 @@ declare const fullApi: ApiFromModules<{
   operatorCancellation: typeof operatorCancellation;
   operatorCancellationState: typeof operatorCancellationState;
   operators: typeof operators;
+  ownerTelegram: typeof ownerTelegram;
   pickupSecurity: typeof pickupSecurity;
   promo: typeof promo;
   rateLimit: typeof rateLimit;

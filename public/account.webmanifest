@@ -2,7 +2,7 @@
   "id": "/account",
   "name": "DB Cinema Rentals",
   "short_name": "DB Cinema",
-  "start_url": "/account",
+  "start_url": "/account#chat",
   "scope": "/account",
   "display": "standalone",
   "background_color": "#131313",

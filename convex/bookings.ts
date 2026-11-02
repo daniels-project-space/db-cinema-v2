@@ -43,6 +43,7 @@ import {
   query,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { belongsToRentalAccount, accountForRental } from "./lib/rentalAccount";
@@ -1402,6 +1403,8 @@ export const get = internalQuery({
       total: b.total,
       currency: b.currency,
       fulfilment: b.fulfilment,
+      pickupTime: b.pickupTime ?? null,
+      returnTime: b.returnTime ?? null,
       guestEmail: account?.email??(b.accountId?null:b.guestEmail),
       idVerifyStatus: b.idVerifyStatus ?? "required",
       verificationProvider: b.verificationProvider ?? "stripe",
@@ -1591,6 +1594,16 @@ export const markDiditReconciled = internalMutation({
   },
 });
 
+export const flagDiditProcessingFailure = internalMutation({
+  args:{bookingId:v.id("bookings"),sessionId:v.string()},
+  handler:async(ctx,{bookingId,sessionId})=>{
+    const booking=await ctx.db.get(bookingId);
+    if(!booking||booking.verificationProvider!=="didit"||booking.diditSessionId!==sessionId)return;
+    const account=await accountForRental(ctx,booking);
+    if(account)await queueOwnerNotification(ctx,{eventKey:`didit-processing-failed:${bookingId}:${sessionId}`,kind:"verification_failure",accountId:account._id,bookingId,title:"Verification update needs attention",body:"Verification processing could not complete. Open the rental and check its status."});
+  },
+});
+
 export const setIdentity = internalMutation({
   args: {
     bookingId: v.id("bookings"),
@@ -1655,13 +1668,17 @@ export const setDiditResult = internalMutation({
     documentExpiresAt: v.optional(v.number()),
     personKey: v.optional(v.string()),
     checks: v.optional(v.object({ identity: v.string(), selfie: v.string(), address: v.string() })),
+    reconciliation: v.optional(v.boolean()),
   },
-  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks }) => {
+  handler: async (ctx, { bookingId, sessionId, eventId, status, providerStatus, note, poaPostcodes, eventAt, documentExpiresAt, personKey, checks, reconciliation }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.verificationProvider !== "didit" || b.diditSessionId !== sessionId) return false;
     if (b.diditEventId === eventId || (b.diditEventAt ?? 0) > eventAt ||
         (b.diditManualDecisionAt ?? 0) >= eventAt) return true;
-    if (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting")) await queueVerificationArchive(ctx, b,true);
+    if (status!=="processing" || providerStatus==="In Progress" || Object.values(checks??{}).some(check=>check!=="waiting")) {
+      const changed=b.idVerifyStatus!==status || (["identity","selfie","address"] as const).some(key=>b.verificationChecks?.[key]!==checks?.[key]) || (b.documentExpiresAt??null)!==(documentExpiresAt??null);
+      await queueVerificationArchive(ctx,b,!reconciliation || changed);
+    }
     // The provider checks the bill and its holder. Also require its UK postcode
     // to match the address this renter supplied for the booking.
     const postcode = (s: string) => s.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";
@@ -2005,10 +2022,10 @@ export const reuseVerificationCandidate = internalQuery({
   args: { bookingId: v.id("bookings") }, handler: async (ctx, { bookingId }) => {
     const b = await ctx.db.get(bookingId);
     if (!b || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.idVerifyStatus !== "required" || b.diditSessionId || !verificationCanStart(b)) return null;
-    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    const account: Doc<"accounts"> | null = await accountForRental(ctx,b);
     if (!validReuse(account?.rentalVerification, b)) return null;
     const source = await ctx.db.get(account!.rentalVerification!.sourceBookingId);
-    if (!source?.diditSessionId || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit") return null;
+    if (!source?.diditSessionId || !belongsToRentalAccount(source,account) || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit") return null;
     try { await assertVerificationArchive(ctx, source); } catch { return null; }
     return { source };
   },
@@ -2019,15 +2036,16 @@ export const applyVerificationReuse = internalMutation({
     const b = await ctx.db.get(bookingId), source = await ctx.db.get(sourceBookingId);
     if (!b || !source || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !verificationCanStart(b)) return false;
     try { await assertVerificationArchive(ctx, source); } catch { return false; }
-    const account = await ctx.db.query("accounts").withIndex("by_email", q => q.eq("email", (b.guestEmail ?? "").trim().toLowerCase())).first();
+    const account = await accountForRental(ctx,b);
     const record = account?.rentalVerification;
-    if (!record || record.sourceBookingId !== sourceBookingId || !validReuse(record, b) || documentExpiresAt <= Date.now() || documentExpiresAt <= Math.min(...b.lineItems.map(li => li.start))) return false;
+    if (!record || !belongsToRentalAccount(source,account) || record.sourceBookingId !== sourceBookingId || !validReuse(record, b) || documentExpiresAt <= Date.now() || documentExpiresAt <= Math.min(...b.lineItems.map(li => li.start))) return false;
     await attachRenterPerson(ctx, b, personKey ?? source.renterPersonKey);
     await assertRenterExposure(ctx, { ...b, renterPersonKey: personKey ?? source.renterPersonKey });
     await ctx.db.patch(bookingId, { renterPersonKey: personKey ?? source.renterPersonKey, verificationChecks: source.verificationChecks, idVerifyStatus: "verified", idVerificationSource: "reused_didit", idVerifiedAt: record.verifiedAt,
       verificationExpiresAt: Math.min(record.expiresAt, documentExpiresAt), verificationReusedFrom: sourceBookingId,
       verificationNote: "Your recent identity and address verification was checked again and reused for this rental.", verificationUpdatedAt: Date.now() });
     await verificationUpdateMessage(ctx, bookingId, "required", "verified");
+    await queueRentalEmail(ctx,bookingId,"verification",{verificationStatus:"verified"});
     await queueRmv2Sync(ctx, bookingId);
     return true;
   },

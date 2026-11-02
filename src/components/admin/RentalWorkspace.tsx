@@ -13,6 +13,7 @@ import { formatGbp } from "@/lib/pricing";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
 import { RentalVerificationSummary } from "@/components/rentals/RentalVerificationSummary";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
+import { AccountDocuments } from "./AccountDocuments";
 export function RentalWorkspace({
   token,
   bookingId,
@@ -177,7 +178,8 @@ export function RentalWorkspace({
         </div>
       )}
       {section === "verification" && (
-        <div className="mt-6 max-w-xl">
+        <div className="mt-6">
+          {b.documentAccountId ? <div className="mb-8"><h3 className="mb-4 text-sm font-semibold text-white">Saved verification documents</h3><AccountDocuments token={token} accountId={b.documentAccountId} verified={b.idVerifyStatus === "verified"} verificationExpiresAt={b.verificationExpiresAt ?? null} embedded /></div> : <p className="mb-4 text-sm text-amber-200">No customer account is linked to these documents. Check the account before importing.</p>}
           <AdminDroneLicence token={token} bookingId={bookingId} />
           <h3 className="text-sm font-medium text-white">
             Identity & address · {b.idVerifyStatus ?? "required"}

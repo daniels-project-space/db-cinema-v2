@@ -5,6 +5,7 @@ import { accountForToken, ownedBooking, rentalThread, postRentalMessage } from "
 import { accountForRental } from "./lib/rentalAccount";
 import { bookingCancelKind, cancellationDaysForBooking } from "../src/lib/cancellationPolicy";
 import { contentsText } from "../shared/rentalContents";
+import { verificationExpired } from "../shared/verificationProgress";
 import { query, mutation, internalQuery, internalMutation, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
@@ -57,7 +58,8 @@ export const send = mutation({
     const thread = await rentalThread(ctx,a._id,bookingId);
     if (thread?.escalated) {
       // a human is handling this thread → forward to Telegram so they see the new message
-      await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: a.email, text: t, bookingId });
+      if (!(process.env.RMV2_WEBHOOK_URL && process.env.RMV2_WEBHOOK_SECRET))
+        await ctx.scheduler.runAfter(0, internal.notify.renterChat, { email: a.email, text: t, bookingId });
     } else {
       // Gaffer (AI) handles it — scoped to the rental the customer is asking about, if any
       await ctx.scheduler.runAfter(0, internal.gaffer.gafferReply, { accountId: a._id, bookingId, messageId });
@@ -123,6 +125,7 @@ export const _gafferContext = internalQuery({
         rentalContents,
         operatorCancellation:operatorChoice?{state:operatorChoice.state,choice:operatorChoice.choice??null,decisionAfter:operatorChoice.decisionAfter,choiceDeadline:operatorChoice.choiceDeadline??null,creditPence:operatorAmounts?.credit.creditPence??null,cashRefundPence:operatorAmounts?.refund.cardRefundPence??null,depositRefundPence:operatorChoice.securityRemainingPence??null}:null,
         stage:pick.status,
+        verification:{status:pick.idVerifyStatus ?? "required",checks:pick.verificationChecks ?? null,expired:verificationExpired(pick)},
         cancellation:{fullRefundDays:cancellationDaysForBooking(pick),policy:pick.cancellationDecision?.kind??bookingCancelKind(pick,Date.now()),cardRefund:pick.refundAmount??null,creditIssued:creditIssue?creditIssue.amountPence/100:credit?.amount??0,creditBonus:(creditIssue?.bonusPence??0)/100,creditExpiresAt:creditIssue?.expiresAt??credit?.expiresAt??null,rentalRefunds:refunds.map(r=>({amount:r.amountPence/100,status:r.status}))},
         payment:{securityPolicyVersion:pick.securityPolicyVersion??null,savedCardLimit:pick.savedCardLimit??null,total:pick.total,securityPaid:pick.depositAmount,securityRefunded:pick.depositRefundAmount??null,depositRefunded:!!pick.depositRefunded,securityRetained:pick.depositKept??0,holdStatus:pick.depositHoldStatus??null,savedCardChargePaidPence:pick.savedCardChargePaidPence??0,savedCardChargeReservedPence:pick.savedCardChargeReservedPence??0,lateFee:pick.lateFeeAmount??0,lateFeeStatus:pick.lateFeeStatus??null},
         summary: pick.lineItems.map((li: any) => li.title).join(", "),
@@ -150,6 +153,15 @@ export const _gafferContext = internalQuery({
         ? settings?.businessAddress || null : null,
       hours: settings?.openingHours || "09:00–22:00, daily",
     };
+  },
+});
+
+export const _gafferVerificationAccess = internalQuery({
+  args: { accountId: v.id("accounts"), bookingId: v.id("bookings") },
+  handler: async (ctx, { accountId, bookingId }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account || account.blockedAt != null) return null;
+    return await ownedBooking(ctx, account, bookingId);
   },
 });
 
@@ -195,7 +207,7 @@ export const requestHuman = mutation({
     if (t?.escalated) return { ok: true };
     if (t) await ctx.db.patch(t._id, { escalated: true, gafferGeneration: (t.gafferGeneration ?? 0) + 1, updatedAt: Date.now() });
     else await ctx.db.insert("chat_threads", { accountId: a._id, bookingId, escalated: true, gafferGeneration: 1, updatedAt: Date.now() });
-    const messageId = await postRentalMessage(ctx,{accountId:a._id,bookingId,sender:"system",text:"The team has been notified. Your conversation stays here."});
+    const messageId = await postRentalMessage(ctx,{accountId:a._id,bookingId,sender:"system",text:"Your request for the team is recorded. Your conversation stays here."});
     await queueOwnerNotification(ctx, { eventKey: `human-request:${messageId}`, kind: "human_request", accountId: a._id, bookingId,
       title: "Renter requested a human", body: "A renter is waiting for your team in the rental inbox." });
     await ctx.scheduler.runAfter(0, internal.chat._escalationAlert, { accountId: a._id, bookingId });

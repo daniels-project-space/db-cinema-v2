@@ -2,6 +2,8 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),ts=require('typescript');
 const {load,db,put,tables,setMock}=require('./lib/rentalTestHarness.cjs');
 const {AGREEMENTS,LEGAL_VERSION}=load('src/lib/legal.ts');
+const {LEGAL_ARCHIVE}=load('shared/legalDocuments.ts');
+const {CURRENT_PRIVACY_NOTICE}=load('shared/currentPrivacyNotice.ts');
 const contract=load('shared/rentalAgreement.ts');
 const bookings=load('convex/bookings.ts');
 process.env.ADMIN_TOKEN='agreement-owner-fixture';
@@ -14,6 +16,9 @@ const args={customerEmail:'renter@agreement.invalid',customerName:'Original Rent
  agreementName:'Original Renter',agreementDocs:AGREEMENTS.map(({kind,version})=>({kind,version})),
  agreementRequestId:'agreement-fixture-attempt-0001',securityHoldConsent:true,laterChargeConsent:true,pickupTime:'10:00',returnTime:'18:00'};
 (async()=>{
+ assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='5. Retention').p,/90 days/);
+ assert.match(CURRENT_PRIVACY_NOTICE.sections.find(s=>s.h==='1. What we collect').p,/private copies/i);
+ assert.doesNotMatch(LEGAL_ARCHIVE['2026-10-v16'].privacy.sections.find(s=>s.h==='5. Retention').p,/90 days/,'A current privacy notice must not rewrite archived agreements');
  const count=()=>tables.get('bookings')?.length??0;
  assert.throws(()=>contract.assertCurrentAgreement(undefined,'pickup'),/sign/);
  assert.throws(()=>contract.assertCurrentAgreement({name:'Person',securityHoldConsent:true,laterChargeConsent:true,documents:args.agreementDocs.slice(1)},'pickup'),/current rental/);

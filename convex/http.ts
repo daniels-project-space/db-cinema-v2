@@ -120,12 +120,12 @@ http.route({
   method: "POST",
   handler: httpAction(async (ctx, req) => {
     const body = await req.text();
-    const ok: boolean = await ctx.runAction(internal.didit.webhook, {
+    const result: boolean | "processing_error" = await ctx.runAction(internal.didit.webhook, {
       body,
       signature: req.headers.get("x-signature-v2") ?? "",
       timestamp: req.headers.get("x-timestamp") ?? "",
     });
-    return new Response(ok ? "ok" : "invalid", { status: ok ? 200 : 400 });
+    return new Response(result === true ? "ok" : result === "processing_error" ? "temporarily unavailable" : "invalid", { status: result === true ? 200 : result === "processing_error" ? 500 : 400 });
   }),
 });
 

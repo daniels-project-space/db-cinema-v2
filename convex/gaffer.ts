@@ -31,8 +31,21 @@ export const ownerDrafts = action({
 export const gafferReply = internalAction({
   args: { accountId: v.id("accounts"), bookingId: v.optional(v.id("bookings")),messageId:v.optional(v.id("messages")) },
   handler: async (ctx, { accountId, bookingId, messageId }) => {
-    const cx: any = await ctx.runQuery(internal.chat._gafferContext, { accountId, focusBookingId: bookingId });
+    let cx: any = await ctx.runQuery(internal.chat._gafferContext, { accountId, focusBookingId: bookingId });
     if (!cx || cx.escalated || (messageId && cx.latestRenterId!==messageId)) return; // human is handling it — stay quiet
+
+    let verificationRefresh: string | null = null;
+    const latestRenter = [...cx.messages].reverse().find((message: any) => message.sender === "renter");
+    if (bookingId && latestRenter && /\b(verif(?:y|ied|ication)|didit|identity|selfie|proof of address|upload(?:ed|ing|s)?)\b/i.test(latestRenter.text)) {
+      try {
+        const result = await ctx.runAction(internal.didit.refreshForGaffer, {accountId, bookingId});
+        verificationRefresh = result.status;
+        cx = await ctx.runQuery(internal.chat._gafferContext, {accountId, focusBookingId: bookingId});
+        if (!cx || cx.escalated || (messageId && cx.latestRenterId !== messageId)) return;
+      } catch {
+        verificationRefresh = "unavailable";
+      }
+    }
 
     const fallback=async()=>{
       const posted=await ctx.runMutation(internal.chat._postBot,{accountId,bookingId,generation:cx.gafferGeneration,replyTo:messageId??cx.latestRenterId??undefined,text:"I couldn't complete that answer just now. I've passed this rental conversation to the team so they can help."});
@@ -66,6 +79,7 @@ export const gafferReply = internalAction({
       b
         ? `This customer's most relevant rental — STATUS: ${b.status}. Gear: ${b.summary}. Dates: ${b.dates}. Fulfilment: ${b.fulfilment === "delivery" ? "delivered to the address on their order (you do NOT have that address and must NOT recite or guess it)" : "the customer collects it themselves"}.${b.pickupTime ? ` Pickup time ${b.pickupTime}.` : ""}${b.returnTime ? ` Return time ${b.returnTime}.` : ""}`
         : `No rental is selected. Account-owned rental summaries: ${JSON.stringify(cx.accountRentals)}. Ask which rental they mean before discussing changes.`,
+      b ? `VERIFICATION FACTS: ${JSON.stringify(b.verification)}. Provider refresh result: ${verificationRefresh ?? "not attempted"}. These are the recorded check statuses, not handover clearance. A refresh marked unchanged may have been rate-limited, so do not claim the provider was just checked. If refresh is unavailable, do not claim it succeeded; offer team help. Never claim a document was uploaded, a session reopened, or a problem fixed unless the facts establish it. Direct the renter to this rental's verification and uploads control when input is required.` : "",
       ``,
       ...(b?.rentalContents ?? []).map((contents:string) => `RENTAL CONTENTS FACTS: ${contents}`),
       `OWN ACCOUNT CREDIT: ${JSON.stringify(cx.accountCredit)}. Available balance is account-bound and excludes existing checkout reservations. It is used only if the renter selects Use account credit at checkout, cannot pay deposits/membership fees, and is not a cash withdrawal. Explain the recorded expiry and credit receipts in their account. Do not issue credit or claim it has been spent.`,

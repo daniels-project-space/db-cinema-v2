@@ -7,6 +7,7 @@ import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { OWNER_EMAIL, sendMail } from "./lib/mailer";
 import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
+import { bookingStockLines } from "../shared/rentalWindow";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -86,7 +87,7 @@ export const waitlistEmail = internalAction({
 /** Emails the renter when their ID-verification status changes (verified / needs-retry). */
 export const verificationEmail = internalAction({
   args: { prepareOnly:v.optional(v.boolean()), deliveryKey:v.optional(v.string()), bookingId: v.id("bookings"), status: v.string() },
-  handler: async (ctx, { prepareOnly, deliveryKey, bookingId, status }) => {
+  handler: async (ctx, { prepareOnly, deliveryKey, bookingId, status }):Promise<any> => {
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
     if (!b || !b.guestEmail || b.idVerifyStatus!==status || !["confirmed","active"].includes(b.status)) return null;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
@@ -100,7 +101,21 @@ export const verificationEmail = internalAction({
       canceled:{title:"Continue your verification",body:"Your verification session was cancelled. Open your rental to continue the required checks.",button:"Continue verification"},
     };
     const message=messages[status];if(!message)return null;
-    return email(b.guestEmail,message.title,rentalEmail({title:message.title,preview:message.body,url,button:message.button,body:`<p>${emailEscape(message.body)}</p>`}),undefined,undefined,deliveryKey,prepareOnly);
+    let detail="",attachments: Array<{filename:string;content:string}>|undefined;
+    if(status==="verified"){
+      if(b.fulfilment==="pickup"){
+        const settings:any=await ctx.runQuery(api.settings.get,{});
+        const rows:Array<[string,string]>=bookingStockLines(b).map((line:any)=>[line.title,`${day(line.start)} · ${line.pickupTime ?? "time to be confirmed"}`]);
+        detail=`<h2>Pickup details</h2>${settings?.businessAddress ? `<p>${emailEscape(settings.businessAddress)}</p>` : "<p>The team will confirm the pickup location in your rental conversation.</p>"}${emailRows(rows)}<p>All times are London local time.</p>`;
+      }
+      const receipt:any=await ctx.runAction(internal.invoice.invoiceEmail,{bookingId,prepareOnly:true,deliveryKey});
+      if(!receipt?.attachments?.length)throw Error("Verification receipt PDF is unavailable");
+      attachments=receipt.attachments;
+      detail+="<p>Your payment receipt is attached as a PDF.</p>";
+    }
+    const conversation=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
+    const payload={to:b.guestEmail,subject:message.title,html:rentalEmail({title:message.title,preview:message.body,url:status==="verified"?conversation:url,button:message.button,body:`<p>${emailEscape(message.body)}</p>${detail}`,helpText:"Need help? Open your rental conversation to message our team."}),attachments,deliveryKey};
+    return prepareOnly?payload:sendMail(payload);
   },
 });
 
@@ -143,6 +158,16 @@ export const changeEmail = internalAction({
       subj,
       `<h2>Rental updated</h2><p>Your rental has been <b>${escape(kind)}</b>${detail ? ` — ${escape(detail)}` : ""}.</p><p>See it any time in <a href="${app}/account?rental=${encodeURIComponent(bookingId)}#chat">your account</a>.</p>`,
     );
+  },
+});
+
+export const timeChangeEmail = internalAction({
+  args:{bookingId:v.id("bookings"),detail:v.string(),deliveryKey:v.string(),prepareOnly:v.boolean()},
+  handler:async(ctx,{bookingId,detail,deliveryKey,prepareOnly}):Promise<any>=>{
+    const recipient: {email:string}|null=await ctx.runQuery(internal.rentalOperations.changeRecipient,{bookingId});
+    if(!recipient)return null;
+    const app=process.env.APP_URL??"https://dbcinemarentals.com",url=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
+    return email(recipient.email,"Your DB Cinema pickup time changed",rentalEmail({title:"Pickup time updated",preview:"Please review your updated pickup details.",url,button:"View rental conversation",body:`<p>${emailEscape(detail)}</p><p>All times are London local time. Your agreed charges remain unchanged.</p>`}),undefined,undefined,deliveryKey,prepareOnly);
   },
 });
 

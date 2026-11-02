@@ -96,7 +96,10 @@ export const settings = query({args:{token:v.string()},handler:async(ctx,{token}
   if(!checkAdminToken(token))throw Error("unauthorized");
   const devices=await ctx.db.query("admin_push_subscriptions").order("desc").take(51);
   const deliveries=await ctx.db.query("admin_push_deliveries").order("desc").take(30);
+  const recentAlerts=await ctx.db.query("admin_notifications").order("desc").take(30);
   return {configured:!!process.env.ADMIN_PUSH_PUBLIC_KEY&&!!process.env.ADMIN_PUSH_PRIVATE_KEY,moreDevices:devices.length>50,
+    telegramConfigured:!!process.env.TELEGRAM_BOT_TOKEN&&!!process.env.TELEGRAM_ADMIN_CHAT_ID,
+    telegramDeliveries:recentAlerts.filter(n=>n.telegramStatus).map(n=>({_id:n._id,title:n.title,status:n.telegramStatus!,attempts:n.telegramAttempts??0,createdAt:n.createdAt,lastError:n.telegramLastError??null,canRetry:n.telegramStatus==="review"&&!n.read&&Date.now()-n.createdAt<=86400000})),
     devices:devices.slice(0,50).map(d=>({deviceId:d.deviceId,label:d.label??"Unnamed device",enabled:d.enabled,humanRequests:d.humanRequests!==false,renterMessages:d.renterMessages!==false,createdAt:d.createdAt,updatedAt:d.updatedAt,lastError:d.lastError??null})),
     deliveries:await Promise.all(deliveries.map(async d=>{const n=await ctx.db.get(d.notificationId),s=await ctx.db.get(d.subscriptionId);return {_id:d._id,deviceLabel:s?.label??"Unnamed device",kind:n?.kind??"unknown",title:n?.title??"Removed notification",status:d.status,attempts:d.attempts,updatedAt:d.updatedAt,lastError:d.lastError??null,
       canRetry:["retry","permanent_failure"].includes(d.status)&&!!s?.enabled&&s.updatedAt===d.subscriptionUpdatedAt&&!!n&&!n.read&&Date.now()-n.createdAt<=86400000&&ownerPushAllowed(s,n.kind)};}))};

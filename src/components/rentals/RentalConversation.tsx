@@ -247,6 +247,7 @@ export function RentalConversation({
         <div><h4>{title}</h4><p>{bookingSummary ? `${bookingSummary.dates} · ${bookingSummary.count} ${bookingSummary.count === 1 ? "listing" : "listings"}` : bookingId ? "Messages, collection and return" : "Account support and enquiries"}</p></div>
         <span className={styles.stage}>{stageLabel ?? RENTAL_STAGE_LABELS[stage] ?? stage}</span>
       </div>
+      {!admin && <button type="button" className="mt-3 text-xs text-white/70 underline underline-offset-4" onClick={() => window.dispatchEvent(new Event("dbc:open-renter-notifications"))}>Add chat to your Home Screen &amp; enable notifications</button>}
       {bookingId && (!admin || !tools) && <RentalVerificationSummary bookingId={bookingId} token={token} admin={admin}/>}
       {!admin && bookingId && (
         <RentalAdditionApproval token={token} bookingId={bookingId} />

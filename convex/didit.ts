@@ -232,12 +232,17 @@ export const refreshProgress = action({
     // page; it must be the exact session already bound by Stripe fulfilment.
     if (!authorized && a.checkoutSessionId && booking?.stripeCheckoutSessionId === a.checkoutSessionId && ["confirmed", "active"].includes(booking.status)) authorized = true;
     if (!authorized || !booking) throw Error("Sign in to view this rental's verification.");
+    return await refreshBoundProgress(ctx, a.bookingId, booking);
+  },
+});
+
+async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Promise<{status:string}> {
     if (!["confirmed", "active"].includes(booking.status)) return {status: "closed"};
     if (booking.verificationProvider !== "didit" || !booking.diditSessionId) return {status: "not_started"};
-    const claimed = await ctx.runMutation(internal.bookings.claimDiditProgressRefresh, {bookingId:a.bookingId, sessionId:booking.diditSessionId});
+    const claimed = await ctx.runMutation(internal.bookings.claimDiditProgressRefresh, {bookingId, sessionId:booking.diditSessionId});
     if (!claimed) return {status: "unchanged"};
     const cfg = config();
-    const report = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
+    const report = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.guestEmail);
     if (report.workflow_id !== cfg.workflowId) throw Error("Verification workflow does not match this rental.");
     const mapped = mapDecision(report.status, report);
     if (!mapped) throw Error("Unknown verification status.");
@@ -248,11 +253,19 @@ export const refreshProgress = action({
         (booking.verificationNote ?? null) === (mapped.note ?? null) && (booking.documentExpiresAt ?? null) === (mapped.documentExpiresAt ?? null) &&
         (!mapped.personKey || booking.renterPersonKey === mapped.personKey)) return {status: "unchanged"};
     const saved = await ctx.runMutation(internal.bookings.setDiditResult, {
-      bookingId: a.bookingId, sessionId: booking.diditSessionId,
+      bookingId, sessionId: booking.diditSessionId,
       eventId: `progress-${booking.diditSessionId}-${Date.now()}`, eventAt: Date.now(), providerStatus: report.status, ...mapped,
     });
     if (!saved) throw Error("The verification session changed. Refresh this rental.");
     return {status: "updated"};
+}
+
+export const refreshForGaffer = internalAction({
+  args: { accountId: v.id("accounts"), bookingId: v.id("bookings") },
+  handler: async (ctx, {accountId, bookingId}): Promise<{status:string}> => {
+    const booking = await ctx.runQuery(internal.chat._gafferVerificationAccess, {accountId, bookingId});
+    if (!booking) throw Error("Rental unavailable.");
+    return await refreshBoundProgress(ctx, bookingId, booking);
   },
 });
 
@@ -280,11 +293,14 @@ export const reconcileOpenSessions = internalAction({
             eventId: `reconcile-${candidate.sessionId}-${Date.now()}`,
             eventAt: Date.now(),
             providerStatus: report.status,
+            reconciliation: true,
             ...mapped,
           });
           if (!saved) throw new Error("Verification session changed during reconciliation.");
         } catch {
           failures++;
+          try { await ctx.runMutation(internal.bookings.flagDiditProcessingFailure,{bookingId:candidate.bookingId,sessionId:candidate.sessionId}); }
+          catch { console.error("Verification reconciliation alert failed"); }
         } finally {
           await ctx.runMutation(internal.bookings.markDiditReconciled, {
             bookingId: candidate.bookingId, sessionId: candidate.sessionId, attemptedAt: Date.now(),
@@ -351,7 +367,7 @@ function mapDecision(rawStatus: unknown, decision: any): {
  * address feature must have its own Approved decision. */
 export const webhook = internalAction({
   args: { body: v.string(), signature: v.string(), timestamp: v.string() },
-  handler: async (ctx, { body, signature, timestamp }): Promise<boolean> => {
+  handler: async (ctx, { body, signature, timestamp }): Promise<boolean | "processing_error"> => {
     let cfg: ReturnType<typeof config>;
     try { cfg = config(); } catch { return false; }
     if (body.length > 1_000_000 || !/^[a-f0-9]{64}$/i.test(signature) || !/^\d{10}$/.test(timestamp) ||
@@ -369,9 +385,9 @@ export const webhook = internalAction({
         typeof event.session_id !== "string" || typeof event.event_id !== "string" ||
         !Number.isSafeInteger(event.created_at)) return false;
     const bookingId = event.vendor_data.slice("dbc-booking-".length);
-    const mapped = mapDecision(event.status, event.decision);
-    if (!mapped) return true;
     try {
+      const mapped = mapDecision(event.status, event.decision);
+      if (!mapped) throw Error("Unsupported verification status");
       return await ctx.runMutation(internal.bookings.setDiditResult, {
         bookingId: bookingId as any,
         sessionId: event.session_id,
@@ -380,6 +396,10 @@ export const webhook = internalAction({
         providerStatus: event.status,
         ...mapped,
       });
-    } catch { return false; }
+    } catch {
+      try { await ctx.runMutation(internal.bookings.flagDiditProcessingFailure,{bookingId:bookingId as any,sessionId:event.session_id}); }
+      catch { console.error("Verified Didit event processing and alert failed"); }
+      return "processing_error";
+    }
   },
 });

@@ -8,6 +8,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { accountForRental } from "./lib/rentalAccount";
+import { pickupScheduleFingerprint } from "./lib/rentalEmailQueue";
 const LEASE_MS=10*60_000, MAX_ATTEMPTS=8;
 
 async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliveries">) {
@@ -26,9 +27,13 @@ async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliv
     return !await ctx.db.query("reviews").withIndex("by_booking",q=>q.eq("verifiedBookingId",b._id)).first();
   }
   if(row.kind === "cancellation")return b.status === "cancelled";
+  if(row.kind === "time_change") {
+    const latest=(await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",b._id).eq("kind","time_change")).order("desc").take(1))[0];
+    return latest?._id===row._id && ["confirmed","active"].includes(b.status) && !!row.changeSchedule && row.changeSchedule===pickupScheduleFingerprint(b);
+  }
   if(row.kind === "verification") {
     const latest=(await ctx.db.query("rental_email_deliveries").withIndex("by_booking_kind",q=>q.eq("bookingId",b._id).eq("kind","verification")).order("desc").take(1))[0];
-    return latest?._id===row._id && b.idVerifyStatus === row.verificationStatus && ["confirmed","active"].includes(b.status);
+    return latest?._id===row._id && b.idVerifyStatus === row.verificationStatus && ["confirmed","active"].includes(b.status) && (!row.verificationSchedule || row.verificationSchedule===pickupScheduleFingerprint(b));
   }
   if(row.kind === "payment")return ["confirmed","active"].includes(b.status);
   // A payment receipt remains useful after a paid rental is returned/cancelled.

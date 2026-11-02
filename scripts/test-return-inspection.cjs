@@ -50,7 +50,7 @@ const ctx={db,scheduler:{runAfter:async()=>{}},storage:{delete:async()=>{}}};
  await assert.rejects(()=>bookings.beginReturnDecision.handler(ctx,{...decision,inspection:input}),/already in progress/);
  await assert.rejects(()=>cases.validate.handler(ctx,{bookingId:b._id,inspection:input,damage:0}),/saved item inspection/,'Reject changed inspection before any Stripe operation');
  await db.patch(unit._id,{name:'Edited catalogue name'});assert.deepEqual(await returnInspectionSchedule(ctx,b),schedule,'Saved equipment identity survives catalogue edits');
- await archives.queueVerificationArchive(ctx,b);const archive=tables.get('verification_archives')[0];await db.patch(b._id,{status:'returned',returnedAt:Date.now()-31*86400000});
+ await archives.queueVerificationArchive(ctx,b);const archive=tables.get('verification_archives')[0];await db.patch(b._id,{status:'returned',returnedAt:Date.now()-91*86400000});
  assert.equal(await archives.purgeExpired.handler(ctx,{}),0,'An actual open damage case preserves verification evidence');
  const damageCase=tables.get('rental_damage_cases')[0];await assert.rejects(()=>cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:damageCase._id,bookingId:'other-rental',resolution:'Resolved by insurance'}),/does not belong/);await assert.rejects(()=>cases.closeCase.handler(ctx,{token:'wrong',caseId:damageCase._id,resolution:'Resolved by insurance'}),/unauthorized/);
  await cases.closeCase.handler(ctx,{token:process.env.ADMIN_TOKEN,caseId:damageCase._id,resolution:'Resolved by insurance without further claim'});

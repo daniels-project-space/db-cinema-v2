@@ -6,8 +6,9 @@ import {OwnerNotificationBell} from "./OwnerNotificationBell";
 import styles from "./NotificationSettings.module.css";
 export function NotificationSettings({token}:{token:string}) {
   const data=useQuery(api.adminNotifications.settings,{token});
-  const save=useMutation(api.adminNotifications.preferences),disable=useMutation(api.adminNotifications.disable),retry=useMutation(api.adminNotifications.retry);
+  const save=useMutation(api.adminNotifications.preferences),disable=useMutation(api.adminNotifications.disable),retry=useMutation(api.adminNotifications.retry),retryTelegram=useMutation(api.ownerTelegram.retry);
   const [busy,setBusy]=useState<string|null>(null),[error,setError]=useState<string|null>(null);
+  const telegramDeliveries=data?.telegramDeliveries ?? [];
   async function run(key:string,action:()=>Promise<unknown>){if(busy)return;setBusy(key);setError(null);try{await action();}catch(e){setError(e instanceof Error?e.message:"Notification settings could not be updated.");}finally{setBusy(null);}}
   return <section className={styles.root} aria-label="Admin notification settings"><header><div><h2>Notifications</h2><p>Manage phone alerts for your rental team.</p></div><OwnerNotificationBell token={token}/></header>
     {!data?<p role="status">Loading notification settings…</p>:<>
@@ -24,6 +25,8 @@ export function NotificationSettings({token}:{token:string}) {
       </form>)}</div>}
       <h3>Recent delivery attempts</h3><p className={styles.note}>The 30 newest delivery records. “Sent” means the push service accepted the alert; it does not confirm that a person saw it.</p>
       {!data.deliveries.length?<p>No delivery attempts yet.</p>:<div className={styles.deliveries}>{data.deliveries.map(d=><article key={d._id}><div><strong>{d.title}</strong><span>{d.deviceLabel} · {d.attempts} attempt{d.attempts===1?"":"s"}</span>{d.lastError&&<p className={styles.error}>{d.lastError}</p>}</div><div className={styles.deliveryState}><span>{d.status.replaceAll("_"," ")}</span><small>{new Date(d.updatedAt).toLocaleString("en-GB")}</small>{d.canRetry&&<button type="button" disabled={!!busy} onClick={()=>void run(d._id,()=>retry({token,deliveryId:d._id}))}>{busy===d._id?"Retrying…":"Retry delivery"}</button>}</div></article>)}</div>}
+      <h3>Telegram alerts</h3><p className={styles.note}>{data.telegramConfigured?"Telegram credentials are configured.":"Telegram credentials are missing."} These records show direct renter messages, team requests and document or email failures when the manager bridge is enabled. “Sent” means Telegram accepted the message, not that it was read.</p>
+      {!telegramDeliveries.length?<p>No recent direct Telegram alerts.</p>:<div className={styles.deliveries}>{telegramDeliveries.map(d=><article key={d._id}><div><strong>{d.title}</strong><span>{d.attempts} attempt{d.attempts===1?"":"s"}</span>{d.lastError&&<p className={styles.error}>{d.lastError}</p>}</div><div className={styles.deliveryState}><span>{d.status.replaceAll("_"," ")}</span><small>{new Date(d.createdAt).toLocaleString("en-GB")}</small>{d.canRetry&&<button type="button" disabled={!!busy} onClick={()=>void run(d._id,()=>retryTelegram({token,notificationId:d._id}))}>{busy===d._id?"Retrying…":"Retry delivery"}</button>}</div></article>)}</div>}
     </>}{error&&<p role="alert" className={styles.error}>{error}</p>}
   </section>;
 }

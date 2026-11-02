@@ -9,9 +9,16 @@ export function documentMedia(report: any): { kind: string; url: string }[] {
   for (const [i, row] of (report.id_verifications ?? []).entries()) {
     for (const field of ["front_image", "back_image", "full_front_image", "full_back_image"])
       if (typeof row[field] === "string" && row[field]) media.push({ kind: `identity-${i}-${field}`, url: row[field] });
+    for (const field of ["portrait_image", "front_image_camera_front", "back_image_camera_front"])
+      if (typeof row[field] === "string" && row[field]) media.push({ kind: `id-extra-${i}-${field}`, url: row[field] });
   }
   for (const [i, row] of (report.poa_verifications ?? []).entries())
     if (typeof row.document_file === "string" && row.document_file) media.push({ kind: `address-${i}`, url: row.document_file });
+  for (const [i, row] of (report.liveness_checks ?? []).entries())
+    if (typeof row.reference_image === "string" && row.reference_image) media.push({ kind: `selfie-${i}-reference_image`, url: row.reference_image });
+  for (const [i, row] of (report.face_matches ?? []).entries())
+    for (const field of ["source_image", "target_image"])
+      if (typeof row[field] === "string" && row[field]) media.push({ kind: `face-match-${i}-${field}`, url: row[field] });
   return media;
 }
 export function trustedMediaUrl(raw: string): boolean {
@@ -22,11 +29,12 @@ export function trustedMediaUrl(raw: string): boolean {
       (host.endsWith(".didit.me") || host.endsWith(".cloudfront.net") || /^[a-z0-9.-]+\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(host) || host.endsWith(".r2.cloudflarestorage.com") || (process.env.DIDIT_ARCHIVE_MEDIA_HOSTS ?? "").split(",").map(h => h.trim()).filter(Boolean).includes(host));
   } catch { return false; }
 }
-export const capture = internalAction({ args: { archiveId: v.id("verification_archives") }, handler: async (ctx, { archiveId }) => {
-  const archive = await ctx.runMutation(internal.verificationArchive.claim, { archiveId });
+export const capture = internalAction({ args: { archiveId: v.id("verification_archives"), supplemental:v.optional(v.boolean()) }, handler: async (ctx, { archiveId,supplemental }) => {
+  const archive = await ctx.runMutation(supplemental ? internal.verificationArchive.claimSupplemental : internal.verificationArchive.claim, { archiveId });
   if (!archive) return;
   const generation=archive.generation,documents=archive.documents;
   let complete = false;
+  let imagesPresent = false;
   try {
     const key = process.env.DIDIT_API_KEY;
     if (!key || !/^[A-Za-z0-9_-]{8,100}$/.test(archive.sessionId)) throw Error("Provider configuration unavailable");
@@ -34,7 +42,8 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
     if (!response.ok) throw Error("Provider decision unavailable");
     const report = await response.json();
     if (report.session_id !== archive.sessionId || report.vendor_data !== `dbc-booking-${archive.bookingId}` || report.contact_details?.email?.trim().toLowerCase() !== archive.email.trim().toLowerCase() || report.workflow_id !== process.env.DIDIT_WORKFLOW_ID || report.session_kind !== "user") throw Error("Verification case mismatch");
-    const media = documentMedia(report);
+    const media = documentMedia(report).filter(file=>!supplemental || /^(selfie-|face-match-|id-extra-)/.test(file.kind));
+    imagesPresent=media.some(m=>m.kind.startsWith("selfie-"))&&media.some(m=>m.kind.startsWith("face-match-")&&m.kind.endsWith("source_image"))&&media.some(m=>m.kind.startsWith("face-match-")&&m.kind.endsWith("target_image"));
     if (media.length > 30) throw Error("Too many provider documents");
     async function saveFile(file:{kind:string;url:string}) {
       if (!trustedMediaUrl(file.url)) throw Error("Unapproved provider media host");
@@ -50,6 +59,7 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
       const bytes = Buffer.concat(chunks);
       const type = bytes.subarray(0, 5).toString() === "%PDF-" ? "application/pdf" : bytes[0] === 0xff && bytes[1] === 0xd8 ? "image/jpeg" : bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? "image/png" : bytes.subarray(0,4).toString() === "RIFF" && bytes.subarray(8,12).toString() === "WEBP" ? "image/webp" : null;
       if (!type) throw Error("Unexpected document format");
+      if (/^(selfie-|face-match-|id-extra-)/.test(file.kind) && !type.startsWith("image/")) throw Error("Unexpected verification image format");
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const previous = documents.find(d => d.kind === file.kind && d.sha256 === sha256);
       if (previous) {
@@ -60,7 +70,7 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
       try {
         const stored = await ctx.storage.get(storageId);
         if (!stored || stored.size !== size || createHash("sha256").update(Buffer.from(await stored.arrayBuffer())).digest("hex") !== sha256) throw Error("Stored document integrity check failed");
-        const saved=await ctx.runMutation(internal.verificationArchive.save, { archiveId,generation,kind: file.kind, storageId, sha256, size, contentType: type, ...(previous ? { replaceStorageId: previous.storageId } : {}) });
+        const saved=await ctx.runMutation(internal.verificationArchive.save, { archiveId,generation,kind: file.kind, storageId, sha256, size, contentType: type, ...(supplemental?{supplemental:true}:{}), ...(previous ? { replaceStorageId: previous.storageId } : {}) });
         if(!saved)throw Error("Archive revision changed");
       }
       catch (error) { if(await ctx.storage.get(storageId))await ctx.storage.delete(storageId); throw error; }
@@ -72,11 +82,13 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
       const results=await Promise.allSettled(media.slice(offset,offset+3).map(saveFile));
       if(results.some(r=>r.status==="rejected"))failed=true;
     }
-    complete = !failed && media.some(m=>m.kind.startsWith("identity-")) && media.some(m=>m.kind.startsWith("address-"));
+    complete = !failed && (supplemental ? imagesPresent : media.some(m=>m.kind.startsWith("identity-")) && media.some(m=>m.kind.startsWith("address-")));
   } catch { /* Persist a bounded, non-sensitive failure; cron/admin retries fetch fresh URLs. */ }
-  await ctx.runMutation(internal.verificationArchive.finish, { archiveId,generation:archive.generation,complete });
+  await ctx.runMutation(supplemental ? internal.verificationArchive.finishSupplemental : internal.verificationArchive.finish, { archiveId,generation:archive.generation,complete,...(!supplemental?{imagesPresent}: {}) });
 } });
 export const retryDue = internalAction({ args: {}, handler: async ctx => {
   const jobs = await ctx.runQuery(internal.verificationArchive.due, {});
   for (const job of jobs) await ctx.runAction(internal.verificationArchiveWorker.capture, { archiveId: job._id });
+  const extra = await ctx.runQuery(internal.verificationArchive.supplementalDue, {});
+  for (const job of extra) await ctx.runAction(internal.verificationArchiveWorker.capture, { archiveId: job._id,supplemental:true });
 } });

@@ -71,8 +71,8 @@ export async function postRentalMessage(
     eventKey: `renter-message:${id}`, kind: "renter_message", accountId: a.accountId, bookingId: a.bookingId,
     title: "New rental message", body: "A renter has sent a new message.",
   });
-  if (a.sender === "owner" || a.sender === "system") await queueRenterNotification(ctx, {
-    eventKey: `rental-message:${id}`, kind: a.sender === "owner" ? "messages" : "booking",
+  if (a.sender === "owner" || a.sender === "bot" || a.sender === "system") await queueRenterNotification(ctx, {
+    eventKey: `rental-message:${id}`, kind: a.sender === "system" ? "booking" : "messages",
     accountId: a.accountId, bookingId: a.bookingId, messageAt: now,
   });
   return id;

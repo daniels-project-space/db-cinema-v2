@@ -61,7 +61,7 @@ const upload=storageId=>({bookingId:booking._id,token:'owner',storageId,sha256:'
  await licences.saveUpload.handler(ctx,upload('replacement'));assert.equal((await archives.accountDocuments.handler(ctx,{token:'fixture-admin',accountId:account._id}))[0].documents.length,2,'Previous submitted revision remains retained');
  const access=await archives.downloadAccess.handler(ctx,{token:'fixture-admin',documentId:result.documentId});assert.equal(access.storageId,'valid-file');
  await assert.rejects(()=>archives.downloadAccess.handler(ctx,{token:'other',documentId:result.documentId}),/unauthorized/);
- booking.status='returned';booking.returnedAt=Date.now()-31*86400000;
+ booking.status='returned';booking.returnedAt=Date.now()-91*86400000;
  assert.equal((await licences.adminDetails.handler(ctx,{token:'fixture-admin',bookingId:booking._id})).documentId,null,'Expired licence cannot be downloaded');
  await assert.rejects(()=>archives.downloadAccess.handler(ctx,{token:'fixture-admin',documentId:result.documentId}),/retention/);
  await archives.purgeExpired.handler(ctx,{});assert.equal(files.has('valid-file'),false);assert.equal(files.has('replacement'),false,'Both old and new uploaded bytes expire');
@@ -70,5 +70,5 @@ const upload=storageId=>({bookingId:booking._id,token:'owner',storageId,sha256:'
  await legacy.saveLegacy.handler(ctx,{bookingId:old._id,storageId:'legacy-file',sha256:'b'.repeat(64),size:512,contentType:'application/pdf'});
  assert(old.droneLicenceDocumentId);assert.equal(old.droneLicenceStatus,'approved','Legacy archive does not reset an existing decision');
  files.get('legacy-file').sha256='b'.repeat(64);await assertDroneApproval(ctx,old);
- console.log('PASS pre-pickup drone upload, permanent ownership, MIME bytes, private archive/view/30-day purge, real team/chat notifications, approval/replacement/RM readiness, retry idempotency and legacy preservation. No live writes.');
+ console.log('PASS pre-pickup drone upload, permanent ownership, MIME bytes, private archive/view/90-day purge, real team/chat notifications, approval/replacement/RM readiness, retry idempotency and legacy preservation. No live writes.');
 })().catch(e=>{console.error(e);process.exitCode=1});
