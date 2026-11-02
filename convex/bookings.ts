@@ -53,7 +53,7 @@ import { inspectionInput } from "./lib/returnInspectionFields";
 import { returnInspectionSchedule } from "./lib/returnInspection";
 import { normalizeReturnInspection } from "../shared/returnInspection";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
-import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage, saveAccountDiditVerification } from "./lib/verificationReuse";
+import { VERIFICATION_REUSE_DAYS, validReuse, verificationDetail, verificationUpdateMessage, saveAccountDiditVerification, verificationReuseOwnerMatches } from "./lib/verificationReuse";
 import { assertCreditOffer } from "./lib/rentalCreditPolicy";
 import { rentalCancellationStart, bookingCancelKind,CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { LEGAL_VERSION, REFUNDABLE_DEPOSIT_LEGAL_VERSION } from "../src/lib/legal";
@@ -2051,7 +2051,7 @@ async function potentialVerificationReuse(ctx: any, bookingId: any) {
     const account: Doc<"accounts"> | null = await accountForRental(ctx,b);
     if (!validReuse(account?.rentalVerification, b)) return null;
     const source = await ctx.db.get(account!.rentalVerification!.sourceBookingId);
-    if (!source?.diditSessionId || source.verificationReuseBlockedSessionId === source.diditSessionId || source.accountId !== account?._id || source.accountAccessRequired !== false || !belongsToRentalAccount(source,account) || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !["identity","selfie","address"].every(key => source.verificationChecks?.[key as "identity"|"selfie"|"address"] === "approved") || !source.documentExpiresAt || !source.renterPersonKey) return null;
+    if (!source?.diditSessionId || source.verificationReuseBlockedSessionId === source.diditSessionId || source.accountId !== account?._id || !await verificationReuseOwnerMatches(ctx,source) || !belongsToRentalAccount(source,account) || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !["identity","selfie","address"].every(key => source.verificationChecks?.[key as "identity"|"selfie"|"address"] === "approved") || !source.documentExpiresAt || !source.renterPersonKey) return null;
     return { source };
 }
 export const reuseVerificationPotential = internalQuery({
@@ -2073,7 +2073,7 @@ export const applyVerificationReuse = internalMutation({
   handler: async (ctx, { bookingId, sourceBookingId, documentExpiresAt, personKey }) => {
     if(process.env.VERIFICATION_ARCHIVE_REUSE_ENABLED!=="true")return false;
     const b = await ctx.db.get(bookingId), source = await ctx.db.get(sourceBookingId);
-    if (!b || !source || !source.diditSessionId || source.verificationReuseBlockedSessionId === source.diditSessionId || !b.accountId || b.accountAccessRequired !== false || source.accountAccessRequired !== false || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !verificationCanStart(b) || !["identity","selfie","address"].every(key => source.verificationChecks?.[key as "identity"|"selfie"|"address"] === "approved") || !source.renterPersonKey || personKey !== source.renterPersonKey || documentExpiresAt !== source.documentExpiresAt) return false;
+    if (!b || !source || !source.diditSessionId || source.verificationReuseBlockedSessionId === source.diditSessionId || !b.accountId || b.accountAccessRequired !== false || !await verificationReuseOwnerMatches(ctx,source) || b.status !== "confirmed" || b.verificationProvider !== "didit" || b.diditSessionId || b.idVerifyStatus !== "required" || source.idVerifyStatus !== "verified" || source.idVerificationSource !== "didit" || !verificationCanStart(b) || !["identity","selfie","address"].every(key => source.verificationChecks?.[key as "identity"|"selfie"|"address"] === "approved") || !source.renterPersonKey || personKey !== source.renterPersonKey || documentExpiresAt !== source.documentExpiresAt) return false;
     try { await assertVerificationArchive(ctx, source); } catch { return false; }
     const account = await accountForRental(ctx,b);
     const record = account?.rentalVerification;
