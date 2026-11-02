@@ -38,6 +38,7 @@ class Rows{
  async collect(){return this.rows;}async first(){return this.rows[0]??null;}async take(n:number){return this.rows.slice(0,n);}order(){return this;}
 }
 const ctx={db:{get:async(id:any)=>records.get(String(id))??null,query:(table:string)=>new Rows(table)}};
+let queryDelay=0;
 export function useFixtureQuery(path:any,args:any){
  useSyncExternalStore(subscribe,()=>version,()=>version);
  if(args==='skip')return undefined;
@@ -46,7 +47,7 @@ export function useFixtureQuery(path:any,args:any){
   cache.set(key,{value:undefined});
   const handler=String(path)==='liveRecommendations.options'?(options as any).handler:String(path)==='recommendations.forContext'?(forContext as any).handler:null;
   if(!handler)throw Error('Unexpected fixture query '+String(path));
-  Promise.resolve(handler(ctx,args)).then(value=>{cache.set(key,{value});notify();}).catch(error=>{console.error(error);(window as any).fixture.error=String(error);});
+  Promise.resolve(handler(ctx,args)).then(value=>new Promise(resolve=>setTimeout(()=>resolve(value),queryDelay))).then(value=>{cache.set(key,{value});notify();}).catch(error=>{console.error(error);(window as any).fixture.error=String(error);});
  }
  return cache.get(key).value;
 }
@@ -58,6 +59,7 @@ const card=(l:any)=>({kind:'add',reason:'Original planned choice',item:{...cartI
 const requestCounts={model:0};const originalFetch=window.fetch;window.fetch=(input:any,args:any)=>String(input)==='/api/assemble'?(requestCounts.model++,Promise.resolve(new Response(JSON.stringify({reply:'Build your kit',stages:mode==='assembly-constraint'||mode==='assembly-constraint-empty'?[{key:'camera',label:'camera',recommendedId:mode==='assembly-constraint-empty'?'':fxBody._id,cameraPreferredId:fxBody._id,cameraConstraint:{model:'fx3',brief:'FX3 camera body only, no lens or gimbal',strict:true,count:1},options:[],note:'Choose your equipment'}]:mode==='assembly-lens-constraint'?[{key:'camera',label:'camera',recommendedId:plCamera._id,cameraConstraint:{model:'',brief:'Blazar Remus 45mm PL lens',strict:false,count:1,requiresLens:true,requestedLens:remus},options:[],note:'Choose your equipment'},{key:'lens',label:'lens',recommendedId:remus._id,briefPreferredId:remus._id,briefConstraint:{tokens:['blazar','remus','45mm','pl']},options:[],note:'Choose your equipment'}]:['camera','lens','light','monitor'].map(key=>({key,label:key,recommendedId:key==='camera'?ef._id:undefined,options:[],note:'Choose your equipment'})),compatibilityKits:[]})))):String(input)==='/api/bot'?(requestCounts.model++,Promise.resolve(new Response(JSON.stringify({reply:'Here are choices for your kit.',cards:[card(light),card(efLens)]})))):originalFetch(input,args);
 (window as any).fixture={
  counts:requestCounts,
+ setQueryDelay:(value:number)=>{queryDelay=value;},
  clearBasket:()=>{basket=[];notify();},
  spawnLight:()=>{const row=listing('new-light-'+(++counter),'light','New rental light',{demandScore:1000});dbVersion++;notify();return row._id;},
  setMode:(value:string)=>{mode=value;notify();},

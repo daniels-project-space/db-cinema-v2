@@ -102,3 +102,12 @@ export function compareOptions(a: any, b: any, ctx: RankCtx): number {
   if (d !== 0) return d;
   return (a.total ?? 0) - (b.total ?? 0);
 }
+
+export function compareAssemblyBudget(a: any, b: any, remainingBudget: number, ctx: RankCtx): number {
+  if (Number.isFinite(remainingBudget)) {
+    const affordable = (item: any) => Number.isFinite(item.total) && item.total <= Math.max(0, remainingBudget);
+    const difference = Number(!affordable(a)) - Number(!affordable(b));
+    if (difference) return difference;
+  }
+  return compareOptions(a, b, ctx);
+}

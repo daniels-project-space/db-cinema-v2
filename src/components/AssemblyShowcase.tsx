@@ -259,6 +259,7 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
   const [reducedMotion, setReducedMotion] = useState(false);
   const [visible, setVisible] = useState(false);
   const [pageVisible, setPageVisible] = useState(true);
+  const [budgetRaised, setBudgetRaised] = useState(false);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -413,6 +414,12 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
   }, []);
 
   const stage = flow.stage;
+  useEffect(() => {
+    setBudgetRaised(false);
+    if (stage !== 2 || reducedMotion || !visible || !pageVisible || loading) return;
+    const timer = window.setTimeout(() => setBudgetRaised(true), 850);
+    return () => window.clearTimeout(timer);
+  }, [stage, flow.scene, reducedMotion, visible, pageVisible, loading]);
   const activeScenario: ShowcaseScenario = scenarios.length ? scenarios[flow.scene % scenarios.length] : {
     brief: showcaseBriefs[0], low: { items: [], total: 0 }, high: { items: [], total: 0 },
   };
@@ -460,7 +467,7 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
       <div className={styles.identity}>
         <div className={styles.brandLockup}><b>DB</b><span>CINEMA<br />RENTALS</span></div>
         <h2 id="assembly-showcase-title" className={styles.assemblyName}><span>AI ITEM</span>{" "}<span className={styles.assemblySecondLine}>ASSEMBLY</span></h2>
-        <p className={styles.identityNote}>From shoot brief to a balanced kit.</p>
+        <p className={styles.identityNote}>Describe your shoot and get compatible gear suggestions for your dates, crew and budget.</p>
         <span className={styles.openBuilder}>Explore the builder <i aria-hidden="true">↗</i></span>
       </div>
 
@@ -503,12 +510,12 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
 
             {stage === 2 && (
               <div className={styles.budgetScene}>
-                <BudgetDial total={examples.low.total} position={lowPosition} loading={loading} animateChanges={moving && !loading && !reducedMotion} />
+                <BudgetDial total={budgetRaised ? examples.high.total : examples.low.total} position={budgetRaised ? highPosition : lowPosition} loading={loading} animateChanges={moving && !loading && !reducedMotion} />
                 <div className={styles.budgetCopy}>
-                  <span className={styles.sceneKicker}>STARTING FIT</span>
-                  <strong>{loading ? "Matching live gear" : "Balanced to the brief"}</strong>
-                  <p>Daily rental rates from the live catalogue.</p>
-                  <div className={styles.budgetTrack} style={{ "--budget-position": `${lowPosition}%` } as CSSProperties}><i /><span /></div>
+                  <span className={styles.sceneKicker}>{budgetRaised ? "MORE ROOM" : "STARTING FIT"}</span>
+                  <strong>{loading ? "Matching live gear" : budgetRaised && hasHigherKit ? "Explore a higher budget" : "Balanced to the brief"}</strong>
+                  <p>Example daily rates from the live catalogue.</p>
+                  <div className={styles.budgetTrack} style={{ "--budget-position": `${budgetRaised ? highPosition : lowPosition}%` } as CSSProperties}><i /><span /></div>
                   <div className={styles.budgetEnds}><span>LEAN</span><span>MORE OPTIONS</span></div>
                 </div>
                 <div className={styles.budgetEcho} aria-hidden="true" />
