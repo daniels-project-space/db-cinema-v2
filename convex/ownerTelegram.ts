@@ -27,8 +27,8 @@ export const claim = internalMutation({
       await ctx.db.patch(notificationId, {telegramStatus:"review",telegramLastError:"Alert delivery exhausted retries"});
       return null;
     }
-    const account = await ctx.db.get(notification.accountId);
-    if (!account) {
+    const account = notification.accountId ? await ctx.db.get(notification.accountId) : null;
+    if (notification.accountId && !account) {
       await ctx.db.patch(notificationId, {telegramStatus:"review",telegramLastError:"Account no longer exists"});
       return null;
     }
@@ -38,7 +38,7 @@ export const claim = internalMutation({
     const messageText = message?.sender === "renter" && message.accountId === notification.accountId && message.bookingId === notification.bookingId ? message.text.slice(0, 1500) : null;
     const generation = (notification.telegramGeneration ?? 0) + 1;
     await ctx.db.patch(notificationId, {telegramStatus:"sending",telegramAttempts:(notification.telegramAttempts ?? 0)+1,telegramGeneration:generation,telegramDueAt:now+LEASE_MS});
-    return {generation,attempts:(notification.telegramAttempts ?? 0)+1,kind:notification.kind,title:notification.title,body:notification.body,email:account.email,bookingId:notification.bookingId,accountId:notification.accountId,messageText};
+    return {generation,attempts:(notification.telegramAttempts ?? 0)+1,kind:notification.kind,title:notification.title,body:notification.body,email:account?.email,bookingId:notification.bookingId,accountId:notification.accountId,messageText};
   },
 });
 
@@ -64,7 +64,7 @@ export const deliver = internalAction({
       if (!token || !chat) { result="review"; error="Telegram alert configuration is missing"; }
       else {
         const origin = new URL(process.env.APP_URL ?? "https://dbcinemarentals.com").origin;
-        const link = claimed.bookingId ? `${origin}/admin?rental=${claimed.bookingId}#messages` : `${origin}/admin?account=${claimed.accountId}#messages`;
+        const link = claimed.bookingId ? `${origin}/admin?rental=${claimed.bookingId}#messages` : claimed.accountId ? `${origin}/admin?account=${claimed.accountId}#messages` : `${origin}/admin`;
         const text = [claimed.title, claimed.email, claimed.messageText ?? claimed.body, `Open conversation: ${link}`].filter(Boolean).join("\n\n");
         const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chat_id:chat,text}),signal:AbortSignal.timeout(20000)});
         if (response.ok) {

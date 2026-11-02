@@ -313,6 +313,7 @@ export function RentalInbox({
         <button type="button" onClick={() => setShowAttention(v => !v)} aria-expanded={showAttention} aria-controls="rental-attention-list" className={chatStyles.attentionToggle}><span>Needs your attention</span><span className="rounded-full bg-[#b98160]/15 px-2 py-1">{notifications.length>=30?"30+":notifications.length}</span></button>
         {showAttention && <div id="rental-attention-list" className={chatStyles.attentionList}>{notifications.map(n => <button key={n._id} type="button" onClick={() => {
           const target=n.bookingId??n.accountId;
+          if(!target){void acknowledge({token,id:n._id}).catch(()=>setAttentionError("The notification could not be marked read. Please retry."));return;}
           setAttentionError("");setSearch("");setStage(n.bookingId?"all":"general");setSelected(target);
           setPendingAttention({id:n._id,target,general:!n.bookingId});setNavigationRevision(v=>v+1);
           window.history.replaceState(null,"",ownerConversationUrl(n.bookingId?{bookingId:n.bookingId}:{accountId:n.accountId}));

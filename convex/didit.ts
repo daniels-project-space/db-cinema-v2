@@ -2,7 +2,7 @@
 
 import { verificationChecks, verificationCanStart, verificationExpired } from "../shared/verificationProgress";
 import { belongsToRentalAccount } from "./lib/rentalAccount";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import Stripe from "stripe";
 import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -11,11 +11,20 @@ import { v } from "convex/values";
 const sessionApi = "https://verification.didit.me/v3/session/";
 const hostedSessionUrl = /^https:\/\/verify\.didit\.me\/(?:[a-z-]+\/)?session\/[A-Za-z0-9_-]+$/;
 const resumableSessionStatuses = ["Not Started", "In Progress", "Awaiting User", "Resubmitted"] as const;
+class DiditDecisionUnavailable extends Error {}
+class DiditDecisionNotFound extends DiditDecisionUnavailable {}
+class VerificationReusePending extends Error {}
 
 async function retrieveSession(apiKey: string, sessionId: string, bookingId: string, email: string): Promise<any> {
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(sessionId)) throw new Error("Invalid verification case ID.");
-  const res = await fetch(`${sessionApi}${sessionId}/decision/`, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(20_000) });
-  if (!res.ok) throw new Error("Could not check the current verification decision. Please try again.");
+  let res: Response;
+  try { res = await fetch(`${sessionApi}${sessionId}/decision/`, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(20_000) }); }
+  catch { throw new DiditDecisionUnavailable("Could not check the current verification decision. Please try again."); }
+  if (!res.ok) {
+    if (res.status === 404) throw new DiditDecisionNotFound("Could not check the current verification decision. Please try again.");
+    if (res.status === 429 || res.status >= 500) throw new DiditDecisionUnavailable("Could not check the current verification decision. Please try again.");
+    throw new Error("Could not check the current verification decision. Please try again.");
+  }
   const session: any = await res.json();
   if (session.session_id !== sessionId || session.session_kind !== "user" ||
       session.vendor_data !== `dbc-booking-${bookingId}` ||
@@ -64,14 +73,19 @@ export const bookingSession = action({
 
     const originalSessionId = booking.diditSessionId;
     try {
-    const cfg = config();
     if (!booking.diditSessionId && booking.idVerifyStatus === "required") {
+      if(await ctx.runQuery(internal.bookings.reuseVerificationPotential,{bookingId:a.bookingId}) === true &&
+         !(await ctx.runQuery(internal.bookings.reuseVerificationCandidate,{bookingId:a.bookingId})))
+        throw new VerificationReusePending("Your saved verification is being checked. Please try again shortly or contact the team in your rental conversation.");
       // Finish the eligible previous-check revalidation before starting a fresh upload workflow.
       await ctx.runAction(internal.didit.reuseVerification, { bookingId: a.bookingId });
       booking = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
       if (booking?.idVerifyStatus === "verified" && verificationCanStart(booking)) return { url: null, reused: true };
       if (!booking || !verificationCanStart(booking) || !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required")) throw Error("The rental changed. Refresh its verification progress.");
+      if(!booking.diditSessionId && await ctx.runQuery(internal.bookings.reuseVerificationPotential,{bookingId:a.bookingId}) === true)
+        throw new VerificationReusePending("Your saved verification is being checked. Please try again shortly or contact the team in your rental conversation.");
     }
+    const cfg = config();
     let reopeningExistingSession = false;
     if (booking.diditSessionId) {
       const decisionReadAt = Date.now();
@@ -89,7 +103,8 @@ export const bookingSession = action({
         const saved = await ctx.runMutation(internal.bookings.setDiditResult, {
           bookingId: a.bookingId, sessionId: booking.diditSessionId,
           eventId: `open-progress-${booking.diditSessionId}-${decisionReadAt}`, eventAt: decisionReadAt,
-          providerStatus: existing.status, reconciliation: true, ...mapped,
+          providerStatus: existing.status, reconciliation: true, expectedEventId: booking.diditEventId ?? null,
+          expectedEventAt: booking.diditEventAt ?? null, expectedManualDecisionAt: booking.diditManualDecisionAt ?? null, ...mapped,
         });
         if (!saved) throw new Error("The verification session changed. Refresh this rental.");
         return { url: null, updated: true };
@@ -145,6 +160,7 @@ export const bookingSession = action({
     }
     return { url: result.url };
     } catch (error) {
+      if(error instanceof VerificationReusePending)throw error;
       try {
         await ctx.runMutation(internal.bookings.flagDiditOpeningFailure, {
           bookingId: a.bookingId, sessionId: originalSessionId,
@@ -157,22 +173,43 @@ export const bookingSession = action({
   },
 });
 
-/** Re-read the original decision; missing/changed results always fall back to a fresh check. */
 export const reuseVerification = internalAction({
  args: { bookingId: v.id("bookings") },
  handler: async (ctx, { bookingId }) => {
   const candidate: any = await ctx.runQuery(internal.bookings.reuseVerificationCandidate, { bookingId });
   if (!candidate) return;
   try {
-    const cfg = config();
+    let cfg: ReturnType<typeof config>;
+    try { cfg = config(); } catch { throw new DiditDecisionUnavailable("Verification provider configuration is unavailable."); }
     const report = await retrieveSession(cfg.apiKey, candidate.source.diditSessionId, String(candidate.source._id), candidate.source.guestEmail);
     if (report.workflow_id !== cfg.workflowId) return;
     const mapped = mapDecision(report.status, report);
-    if (!mapped || mapped.status !== "verified" || !mapped.documentExpiresAt || mapped.documentExpiresAt <= Date.now()) {
-      await ctx.runMutation(internal.bookings.revokeVerificationReuse, { sourceBookingId: candidate.source._id }); return;
+    if (!mapped) return;
+    if (mapped.status !== "verified" || (mapped.documentExpiresAt !== undefined && mapped.documentExpiresAt <= Date.now())) {
+      await ctx.runMutation(internal.bookings.revokeVerificationReuse, { sourceBookingId: candidate.source._id,
+        sessionId:candidate.source.diditSessionId,expectedEventId:candidate.source.diditEventId??null,
+        expectedEventAt:candidate.source.diditEventAt??null,expectedManualDecisionAt:candidate.source.diditManualDecisionAt??null }); return;
     }
+    if (!mapped.documentExpiresAt) return;
     await ctx.runMutation(internal.bookings.applyVerificationReuse, { bookingId, sourceBookingId: candidate.source._id, documentExpiresAt: mapped.documentExpiresAt, personKey: mapped.personKey });
-  } catch { /* Outage or mismatched case requires the normal verification flow. */ }
+  } catch (error) {
+    if (!(error instanceof DiditDecisionUnavailable)) return;
+    try { await ctx.runMutation(internal.bookings.flagDiditProcessingFailure, { bookingId:candidate.source._id,sessionId:candidate.source.diditSessionId }); }
+    catch { console.error("Verification provider availability alert failed"); }
+    const copies=await ctx.runQuery(internal.verificationArchive.reuseReadCandidate,{bookingId:candidate.source._id});
+    if(!copies)return;
+    try {
+      for(const document of copies.documents){
+        const blob=await ctx.storage.get(document.storageId);
+        if(!blob||blob.size!==document.size||blob.type!==document.contentType||createHash("sha256").update(Buffer.from(await blob.arrayBuffer())).digest("hex")!==document.sha256)throw Error("Required verification copy unavailable");
+      }
+    } catch {
+      await ctx.runMutation(internal.verificationArchive.reuseReadFailure,{archiveId:copies.archiveId,generation:copies.generation,expectedVerifiedAt:copies.readVerifiedAt});
+      return;
+    }
+    await ctx.runMutation(internal.bookings.applyVerificationReuse, { bookingId, sourceBookingId:candidate.source._id,
+      documentExpiresAt:candidate.source.documentExpiresAt,personKey:candidate.source.renterPersonKey });
+  }
  }
 });
 
@@ -265,6 +302,7 @@ async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Pro
     const claimed = await ctx.runMutation(internal.bookings.claimDiditProgressRefresh, {bookingId, sessionId:booking.diditSessionId});
     if (!claimed) return {status: "unchanged"};
     const cfg = config();
+    const readStartedAt = Date.now();
     const report = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(bookingId), booking.guestEmail);
     if (report.workflow_id !== cfg.workflowId) throw Error("Verification workflow does not match this rental.");
     const mapped = mapDecision(report.status, report);
@@ -277,7 +315,9 @@ async function refreshBoundProgress(ctx: any, bookingId: any, booking: any): Pro
         (!mapped.personKey || booking.renterPersonKey === mapped.personKey)) return {status: "unchanged"};
     const saved = await ctx.runMutation(internal.bookings.setDiditResult, {
       bookingId, sessionId: booking.diditSessionId,
-      eventId: `progress-${booking.diditSessionId}-${Date.now()}`, eventAt: Date.now(), providerStatus: report.status, ...mapped,
+      eventId: `progress-${booking.diditSessionId}-${readStartedAt}`, eventAt: readStartedAt, providerStatus: report.status,
+      expectedEventId: booking.diditEventId ?? null, expectedEventAt: booking.diditEventAt ?? null,
+      expectedManualDecisionAt: booking.diditManualDecisionAt ?? null, ...mapped,
     });
     if (!saved) throw Error("The verification session changed. Refresh this rental.");
     return {status: "updated"};
@@ -295,15 +335,22 @@ export const refreshForGaffer = internalAction({
 /** Webhook delivery is normally immediate. Re-read a bounded set of open
  * rentals hourly so a missed callback cannot leave verification stuck. */
 export const reconcileOpenSessions = internalAction({
-  args: {},
-  handler: async (ctx) => {
-    const candidates = await ctx.runQuery(internal.bookings.diditReconcileCandidates, {});
+  args: { generation: v.number() },
+  handler: async (ctx, { generation }) => {
+    try {
+    const candidates = await ctx.runQuery(internal.diditSweep.batch, { generation });
+    let cfg: ReturnType<typeof config>;
+    try { cfg = config(); }
+    catch (error) {
+      await ctx.runMutation(internal.diditSweep.configurationFailure, { generation });
+      throw error;
+    }
     if (!candidates.length) return;
-    const cfg = config();
     let failures = 0;
     for (let i = 0; i < candidates.length; i += 5) {
-      await Promise.all(candidates.slice(i, i + 5).map(async (candidate) => {
+      const outcomes = await Promise.allSettled(candidates.slice(i, i + 5).map(async (candidate) => {
         try {
+          const readStartedAt = Date.now();
           const report = await retrieveSession(cfg.apiKey, candidate.sessionId,
             String(candidate.bookingId), candidate.email);
           if (report.workflow_id !== cfg.workflowId)
@@ -314,24 +361,30 @@ export const reconcileOpenSessions = internalAction({
             bookingId: candidate.bookingId,
             sessionId: candidate.sessionId,
             eventId: `reconcile-${candidate.sessionId}-${Date.now()}`,
-            eventAt: Date.now(),
+            eventAt: readStartedAt,
             providerStatus: report.status,
             reconciliation: true,
+            sweepGeneration: generation,
+            expectedEventId: candidate.expectedEventId,
+            expectedEventAt: candidate.expectedEventAt,
+            expectedManualDecisionAt: candidate.expectedManualDecisionAt,
             ...mapped,
           });
           if (!saved) throw new Error("Verification session changed during reconciliation.");
         } catch {
           failures++;
-          try { await ctx.runMutation(internal.bookings.flagDiditProcessingFailure,{bookingId:candidate.bookingId,sessionId:candidate.sessionId}); }
-          catch { console.error("Verification reconciliation alert failed"); }
-        } finally {
-          await ctx.runMutation(internal.bookings.markDiditReconciled, {
-            bookingId: candidate.bookingId, sessionId: candidate.sessionId, attemptedAt: Date.now(),
-          });
+          await ctx.runMutation(internal.bookings.flagDiditProcessingFailure,{bookingId:candidate.bookingId,sessionId:candidate.sessionId,sweepGeneration:generation});
         }
+        await ctx.runMutation(internal.bookings.markDiditReconciled, {
+          bookingId: candidate.bookingId, sessionId: candidate.sessionId, attemptedAt: Date.now(), sweepGeneration:generation,
+        });
       }));
+      failures += outcomes.filter(outcome => outcome.status === "rejected").length;
     }
     if (failures) throw new Error(`${failures} rental verification case(s) could not be reconciled.`);
+    } finally {
+      await ctx.runMutation(internal.diditSweep.finish, { generation });
+    }
   },
 });
 

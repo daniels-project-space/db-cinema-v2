@@ -6,6 +6,7 @@ import { rentalsForAccount, belongsToRentalAccount } from "./lib/rentalAccount";
 import { availableCreditRows } from "./lib/checkoutCredit";
 import { listingImages } from "./lib/catalogImages";
 import { paginationOptsValidator } from "convex/server";
+import { accountVerificationReady } from "./lib/accountVerificationReady";
 
 export const directoryAccess = query({
   args: { token: v.string() },
@@ -28,22 +29,21 @@ export const directory = query({
       throw Error("Invalid customer page size.");
     const result = await ctx.db.query("accounts").order("desc").paginate(args.paginationOpts);
     const search = args.search.trim().toLocaleLowerCase("en-GB");
-    const now = Date.now();
-    const matches = result.page.filter(account => {
+    const checked=await Promise.all(result.page.map(async account=>({account,verified:!!await accountVerificationReady(ctx,account)})));
+    const matches = checked.filter(({account,verified}) => {
       const tier = membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
-      const verified = account.rentalVerification ? account.rentalVerification.expiresAt > now : !!account.idVerified;
       return (!search || `${account.name ?? ""} ${account.email}`.toLocaleLowerCase("en-GB").includes(search)) &&
         (args.tier === "all" || tier === args.tier) &&
         (!args.verification || args.verification === "all" || (args.verification === "verified" ? verified : !verified)) &&
         (args.filter === "all" || args.filter === "members" && tier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified);
     });
-    return { ...result, page: await Promise.all(matches.map(async account => ({
+    return { ...result, page: await Promise.all(matches.map(async ({account,verified}) => ({
       id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
       tier: membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard",
       override: account.adminMembershipTier ?? "automatic", blocked: account.blockedAt != null,
       blockedReason: account.blockedReason ?? "", hasSubscription: !!account.stripeSubscriptionId,
       subscriptionTier: account.membershipTier ?? null,
-      verified: account.rentalVerification ? account.rentalVerification.expiresAt > now : !!account.idVerified,
+      verified,
       avatarUrl: account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
     }))) };
   },
@@ -112,9 +112,7 @@ export const search = query({
           blockedReason: a.blockedReason ?? "",
           hasSubscription: !!a.stripeSubscriptionId,
           subscriptionTier: a.membershipTier ?? null,
-          verified: a.rentalVerification
-            ? a.rentalVerification.expiresAt > Date.now()
-            : !!a.idVerified,
+          verified: !!await accountVerificationReady(ctx,a),
           avatarUrl: a.avatarStorageId
             ? await ctx.storage.getUrl(a.avatarStorageId)
             : (a.googleAvatarUrl ?? null),
