@@ -10,6 +10,7 @@ import { v } from "convex/values";
 
 const sessionApi = "https://verification.didit.me/v3/session/";
 const hostedSessionUrl = /^https:\/\/verify\.didit\.me\/(?:[a-z-]+\/)?session\/[A-Za-z0-9_-]+$/;
+const resumableSessionStatuses = ["Not Started", "In Progress", "Awaiting User", "Resubmitted"] as const;
 
 async function retrieveSession(apiKey: string, sessionId: string, bookingId: string, email: string): Promise<any> {
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(sessionId)) throw new Error("Invalid verification case ID.");
@@ -69,16 +70,17 @@ export const bookingSession = action({
       if (booking?.idVerifyStatus === "verified" && verificationCanStart(booking)) return { url: null, reused: true };
       if (!booking || !verificationCanStart(booking) || !["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required")) throw Error("The rental changed. Refresh its verification progress.");
     }
+    let reopeningExistingSession = false;
     if (booking.diditSessionId) {
       const existing = await retrieveSession(cfg.apiKey, booking.diditSessionId, String(a.bookingId), booking.guestEmail);
       if (existing.workflow_id !== cfg.workflowId) throw new Error("Verification workflow does not match this rental.");
-      if (["Not Started", "In Progress", "Awaiting User", "Resubmitted"].includes(existing.status)) {
-        if (typeof existing.session_url !== "string" || !hostedSessionUrl.test(existing.session_url))
-          throw new Error("Verification provider returned an invalid link.");
-        return { url: existing.session_url };
-      }
-      if (existing.status !== "Expired" && existing.status !== "Abandoned" && !(booking.idVerifyStatus === "verified" && verificationExpired(booking) && existing.status === "Approved"))
+      if (resumableSessionStatuses.includes(existing.status)) {
+        if (typeof existing.session_url === "string" && hostedSessionUrl.test(existing.session_url))
+          return { url: existing.session_url };
+        reopeningExistingSession = true;
+      } else if (existing.status !== "Expired" && existing.status !== "Abandoned" && !(booking.idVerifyStatus === "verified" && verificationExpired(booking) && existing.status === "Approved")) {
         throw new Error("This verification has a decision. Please refresh your rental status.");
+      }
     }
     const nameParts = String(booking.renterName ?? "").trim().split(/\s+/).filter(Boolean);
     const expectedDetails: Record<string, string> = {};
@@ -105,7 +107,14 @@ export const bookingSession = action({
       }),
     });
     if (!res.ok) throw new Error("Verification could not start. Please try again.");
-    const result: { session_id?: string; url?: string; workflow_id?: string } = await res.json();
+    const result: { session_id?: string; url?: string; workflow_id?: string; status?: string } = await res.json();
+    if (reopeningExistingSession) {
+      if (result.session_id !== booking.diditSessionId || result.workflow_id !== cfg.workflowId ||
+          !resumableSessionStatuses.includes(result.status as typeof resumableSessionStatuses[number]) ||
+          !result.url || !hostedSessionUrl.test(result.url))
+        throw new Error("The saved verification session could not be reopened. Contact the team from your rental conversation.");
+      return { url: result.url };
+    }
     if (!result.session_id || result.session_id === booking.diditSessionId ||
         result.workflow_id !== cfg.workflowId || !result.url ||
         !hostedSessionUrl.test(result.url))
