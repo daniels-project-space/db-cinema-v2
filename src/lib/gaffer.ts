@@ -851,7 +851,6 @@ async function loadContext(body: any): Promise<Ctx> {
   ctx.publicFacts = ["COLLECTION LOCATION: Based at Trafalgar Square in central London. Do not invent a street address or pickup instructions."];
   try {
     const settings = await c.query(api.settings.get, {});
-    if (settings.businessAddress) ctx.publicFacts.push(`CURRENT PUBLIC COLLECTION ADDRESS: ${settings.businessAddress}.`);
     ctx.publicFacts.push(`CURRENT OPENING HOURS: ${settings.openingHours}. Delivery is offered within ${settings.deliveryMaxKm} km; the customer's address, delivery cost and slot must be checked before confirmation.`);
     ctx.publicFacts.push(`CHECKOUT: ${settings.checkoutEnabled ? "Online checkout is enabled; a quote does not reserve equipment or confirm a booking." : "Online payment is currently paused. Help prepare the kit and answer questions, but do not promise an immediately confirmed online booking."}`);
   } catch { /* Keep the verified public location; never guess live business settings. */ }

@@ -1,4 +1,4 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { assertAdmin, checkAdminToken } from "./adminAuth";
 
@@ -33,8 +33,14 @@ export const get = query({
   args: {},
   handler: async (ctx) => {
     const d = await ctx.db.query("settings").first();
-    return configFrom(d);
+    const { businessAddress: _businessAddress, ...publicConfig } = configFrom(d);
+    return publicConfig;
   },
+});
+
+export const pickupAddress = internalQuery({
+  args: {},
+  handler: async ctx => ({ businessAddress: (await ctx.db.query("settings").first())?.businessAddress ?? "" }),
 });
 
 export const adminGet = query({

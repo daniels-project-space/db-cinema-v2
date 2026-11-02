@@ -11,9 +11,11 @@ assert.ok(!replies.some(r => ["Rental details", "Verification needed"].includes(
 replies = rentalReplyTemplates({ ...booking, status: "confirmed" }, settings);
 assert.match(replies[0].text, /1 Apr 2027 at 10:30/);
 assert.match(replies[0].text, /2 Apr 2027 at 16:00/);
-assert.ok(replies[0].text.includes(settings.businessAddress));
+assert.ok(!replies[0].text.includes(settings.businessAddress));
 assert.ok(replies.some(r => r.label === "Resubmit documents"));
 assert.ok(!rentalReplyTemplates({ ...booking, status: "confirmed", idVerifyStatus: "verified" }, settings).some(r => r.label === "Resubmit documents"));
+assert.ok(rentalReplyTemplates({ ...booking, status: "confirmed", idVerifyStatus: "verified" }, settings)[0].text.includes(settings.businessAddress));
+assert.ok(!rentalReplyTemplates({ ...booking, status: "confirmed", idVerifyStatus: "verified", verificationExpiresAt: 1 }, settings)[0].text.includes(settings.businessAddress));
 for (const status of ["cancelled", "returned"]) assert.ok(!JSON.stringify(rentalReplyTemplates({ ...booking, status }, settings)).includes(settings.businessAddress));
 assert.ok(!JSON.stringify(rentalReplyTemplates({ ...booking, status: "confirmed", fulfilment: "delivery" }, settings)).includes(settings.businessAddress));
 assert.match(rentalReplyTemplates({ ...booking, status: "confirmed", pickupTime: undefined, returnTime: undefined }, {})[0].text, /time to be confirmed/);
@@ -27,6 +29,9 @@ console.log("PASS stage-aware reply templates: no unpaid/cancelled/returned pick
   const account = put("accounts", { email: "stage@rental-test.invalid" });
   put("settings", settings);
   const ctx = { db, scheduler: { runAfter: async () => {} } };
+  const config = load("convex/settings.ts");
+  assert.equal((await config.get.handler(ctx, {})).businessAddress, undefined, "Public settings never expose the pickup address");
+  assert.equal((await config.pickupAddress.handler(ctx, {})).businessAddress, settings.businessAddress, "Verified notifications can use the internal address");
   const rental = put("bookings", { ...booking, guestEmail: account.email, accountId: account._id });
   for (const status of ["pending_payment", "cancelled", "returned"]) {
     await db.patch(rental._id, { status });
@@ -37,7 +42,7 @@ console.log("PASS stage-aware reply templates: no unpaid/cancelled/returned pick
   await postBookingMessages.handler(ctx, { bookingId: rental._id });
   await postBookingMessages.handler(ctx, { bookingId: rental._id });
   assert.equal(tables.get("messages").length, 1, "Confirmation retry cannot duplicate");
-  assert.match(tables.get("messages")[0].text, /Private confirmed pickup depot/);
+  assert.doesNotMatch(tables.get("messages")[0].text, /Private confirmed pickup depot/);
   assert.match(tables.get("messages")[0].text, /10:30/);
   assert.match(tables.get("messages")[0].text, /16:00/);
   console.log("PASS confirmation transaction: current stage, recorded dates/location, persistent retry receipt.");
