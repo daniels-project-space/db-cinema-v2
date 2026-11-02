@@ -57,6 +57,26 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert(first.includes('Fixture Camera A'));
     const initialHome = await (await fetch(`http://127.0.0.1:${webPort}/`)).text();
     assert(initialHome.includes('Fixture Camera A'), 'Homepage initially renders the featured catalogue');
+    if (process.env.DBC_TEST_CATALOG_PLACEMENT === '1') {
+      const source = require('node:fs').readFileSync(path.join(root, 'scripts/test-membership-browser.cjs'), 'utf8');
+      const connect = new Function('require', source.slice(0, source.indexOf('const { ConvexHttpClient }')) + ';return connect;')(require);
+      const browser = await connect('about:blank');
+      try {
+        await browser.cmd('Page.enable');
+        await browser.cmd('Runtime.enable');
+        await browser.cmd('Page.navigate', { url: `http://127.0.0.1:${webPort}/` });
+        let placement = false;
+        for (let attempt = 0; attempt < 100; attempt++) {
+          placement = await browser.evaluate(`(()=>{const fund=document.querySelector('.fund-invite');return !!fund?.previousElementSibling?.querySelector('a[href^="/gear"]')})()`);
+          if (placement) break;
+          await wait(100);
+        }
+        assert.equal(placement, true, 'Film Fund must remain directly after the gear catalogue');
+      } finally {
+        browser.close();
+        await fetch((process.env.DBC_CDP_URL || 'http://localhost:9224') + '/json/close/' + browser.tabId, { signal: AbortSignal.timeout(3000) }).catch(() => {});
+      }
+    }
     const initialHire = await (await fetch(`http://127.0.0.1:${webPort}/hire/camera-hire-london`)).text();
     assert(initialHire.includes('Fixture Camera A'), 'Camera directory initially renders the current catalogue');
     const firstReads = reads;
