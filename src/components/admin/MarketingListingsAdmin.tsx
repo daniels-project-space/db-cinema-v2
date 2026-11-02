@@ -1,20 +1,36 @@
 "use client";
-import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useEffect, useState } from "react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import type { Id } from "@cvx/_generated/dataModel";
 import { SmartImage } from "@/components/SmartImage";
 
 type Draft = { marketingOnly: boolean | null; expectedUpdatedAt?: number };
+type Pending = { requestId: string; changes: Array<Draft & { listingId: Id<"listings"> }> };
+const PENDING_KEY = "dbc_marketing_save_pending_v1";
 export function MarketingListingsAdmin({ token }: { token: string }) {
   const result = useQuery(api.marketingAdmin.list, { token });
-  const saveTags = useMutation(api.marketingAdmin.save);
+  const savedDrafts = useQuery(api.marketingAdmin.savedDrafts, { token });
+  const saveTags = useAction(api.marketingAdmin.saveThroughManager);
+  const removeSavedDraft = useMutation(api.marketingAdmin.removeSavedDraft);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [restoredId, setRestoredId] = useState<Id<"marketing_saved_drafts"> | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  useEffect(() => {
+    try {
+      const value = localStorage.getItem(PENDING_KEY);
+      if (!value) return;
+      const saved = JSON.parse(value) as Pending;
+      if (typeof saved.requestId !== "string" || !Array.isArray(saved.changes) || !saved.changes.length || saved.changes.length > 500) throw Error("Invalid pending save");
+      setPending(saved);
+      setDrafts(Object.fromEntries(saved.changes.map(({ listingId, ...draft }) => [listingId, draft])));
+    } catch { setError("A pending save could not be restored. Contact the team before making another change."); }
+  }, []);
   const items = result?.items ?? [];
   const visible = items.filter(l => l.title.toLowerCase().includes(search.toLowerCase()) &&
     (filter === "all" || (filter === "marketing" ? l.marketingOnly : !l.marketingOnly)));
@@ -22,10 +38,18 @@ export function MarketingListingsAdmin({ token }: { token: string }) {
   async function save() {
     setBusy(true); setError(""); setMessage("");
     try {
-      const saved = await saveTags({ token, changes: Object.entries(drafts).map(([id, d]) => ({
-        listingId: id as Id<"listings">, ...d,
-      })) });
-      setDrafts({}); setMessage(`Saved ${saved.saved} ${saved.saved === 1 ? "listing" : "listings"}. Baskets update immediately.`);
+      const operation = pending ?? { requestId: crypto.randomUUID(), changes: Object.entries(drafts).map(([id, d]) => ({ listingId: id as Id<"listings">, ...d })) };
+      localStorage.setItem(PENDING_KEY, JSON.stringify(operation));
+      setPending(operation);
+      const saved = await saveTags({ token, ...operation });
+      localStorage.removeItem(PENDING_KEY);
+      setPending(null); setDrafts({});
+      let draftNotice = "";
+      if (restoredId) {
+        try { await removeSavedDraft({ token, draftId: restoredId }); setRestoredId(null); }
+        catch { draftNotice = " The old preserved draft could not be removed; you can delete it below."; }
+      }
+      setMessage(`Saved ${saved.saved} ${saved.saved === 1 ? "listing" : "listings"}. Baskets update immediately.${draftNotice}`);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save tags."); }
     finally { setBusy(false); }
   }
@@ -43,11 +67,24 @@ export function MarketingListingsAdmin({ token }: { token: string }) {
       <div role="group" aria-label="Filter listings" className="flex w-full flex-wrap gap-2 sm:w-auto">
         {[["all", "All listings"], ["marketing", "Marketing only"], ["other", "Not marketing only"]].map(([value,label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className={`rounded-lg px-3 py-2 text-xs ${filter === value ? "bg-white text-black" : "bg-white/5 text-white/60"}`}>{label}</button>)}
       </div>
-      <button data-testid="save-marketing-tags" disabled={!dirty || busy} onClick={save} className="btn-primary px-4 py-2 text-sm disabled:opacity-40">{busy ? "Saving…" : `Save${dirty ? ` ${dirty} ${dirty === 1 ? "change" : "changes"}` : " changes"}`}</button>
-      {dirty > 0 && <button disabled={busy} onClick={() => { setDrafts({}); setError(""); }} className="text-xs text-white/60 underline">Discard changes</button>}
+      <button data-testid="save-marketing-tags" disabled={!dirty || busy} onClick={save} className="btn-primary px-4 py-2 text-sm disabled:opacity-40">{busy ? "Saving…" : pending ? "Retry pending save" : `Save${dirty ? ` ${dirty} ${dirty === 1 ? "change" : "changes"}` : " changes"}`}</button>
+      {dirty > 0 && !pending && <button disabled={busy} onClick={() => { setDrafts({}); setRestoredId(null); setError(""); }} className="text-xs text-white/60 underline">Discard changes</button>}
     </div>
     {message && <p role="status" className="text-sm text-emerald-300">{message}</p>}
     {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
+    {pending && <p role="status" className="text-sm text-amber-200">This save has not been confirmed. Retry it before editing; your choices remain on this device.</p>}
+    {!!savedDrafts?.drafts.length && <div className="space-y-2 rounded-xl border border-amber-400/30 bg-amber-400/5 p-4 text-sm text-amber-100">
+      <p>Preserved drafts are not live. Restore one to review its choices.</p>
+      {savedDrafts.drafts.map(draft => <div key={draft._id} className="flex flex-wrap items-center gap-3">
+        <span>{draft.changes.length} changes · {new Date(draft.createdAt).toLocaleString("en-GB")}</span>
+        <button type="button" disabled={busy || dirty > 0} onClick={() => {
+          setDrafts(Object.fromEntries(draft.changes.map(({ listingId, ...value }) => [listingId, value])));
+          setRestoredId(draft._id);
+          setMessage("Draft restored. Its choices are not live until saved."); setError("");
+        }} className="underline disabled:opacity-40">Restore draft</button>
+        <button type="button" disabled={busy} onClick={() => void removeSavedDraft({ token, draftId: draft._id }).catch(e => setError(e instanceof Error ? e.message : "Could not remove draft."))} className="underline disabled:opacity-40">Delete draft</button>
+      </div>)}
+    </div>}
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {visible.map(l => {
         const draft = drafts[l._id];
@@ -58,13 +95,13 @@ export function MarketingListingsAdmin({ token }: { token: string }) {
             <span className="mb-3 block break-words text-sm font-medium text-white/85">{l.title}</span>
             <span className="mb-4 block text-xs text-white/45">{l.category} · {l.source === "admin" ? "Manual choice" : "Automatic"}{!l.active ? " · Inactive listing" : ""}{draft ? " · Unsaved" : ""}</span>
             <span className="mt-auto flex items-center gap-3">
-            <input data-testid="marketing-toggle" type="checkbox" aria-label={`Marketing only: ${l.title}`} checked={selected} disabled={busy} onChange={e => {
+            <input data-testid="marketing-toggle" type="checkbox" aria-label={`Marketing only: ${l.title}`} checked={selected} disabled={busy || !!pending} onChange={e => {
               setMessage(""); setDrafts(prev => ({ ...prev, [l._id]: { marketingOnly: e.target.checked, expectedUpdatedAt: prev[l._id] ? prev[l._id].expectedUpdatedAt : l.updatedAt } }));
             }} className="mt-1 h-5 w-5 shrink-0 accent-[#ff7a00]" />
               <span className={`rounded-full px-3 py-1 text-xs ${selected ? "bg-amber-500/10 text-amber-300" : "bg-white/5 text-white/45"}`}>{selected ? "Marketing only" : "Not marketing only"}</span>
             </span>
           </label>
-          {l.source === "admin" && <button disabled={busy} onClick={() => setDrafts(prev => ({ ...prev, [l._id]: { marketingOnly: null, expectedUpdatedAt: prev[l._id] ? prev[l._id].expectedUpdatedAt : l.updatedAt } }))} className="border-t border-white/10 p-3 text-xs text-white/55 underline">Use automatic tagging</button>}
+          {l.source === "admin" && <button disabled={busy || !!pending} onClick={() => setDrafts(prev => ({ ...prev, [l._id]: { marketingOnly: null, expectedUpdatedAt: prev[l._id] ? prev[l._id].expectedUpdatedAt : l.updatedAt } }))} className="border-t border-white/10 p-3 text-xs text-white/55 underline">Use automatic tagging</button>}
         </div>;
       })}
       {!visible.length && <p className="p-4 text-sm text-white/45">No listings match this search.</p>}
