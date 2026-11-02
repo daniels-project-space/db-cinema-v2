@@ -44,7 +44,6 @@ export const bookingSession = action({
     checkoutSessionId: v.optional(v.string()),
   },
   handler: async (ctx, a): Promise<{ url: string | null; reused?: boolean; updated?: boolean }> => {
-    const cfg = config();
     let booking: any = await ctx.runQuery(internal.bookings.verificationAccess, { bookingId: a.bookingId });
     if (!booking || booking.verificationProvider !== "didit" || !["confirmed", "active"].includes(booking.status) ||
         (!["required", "processing", "requires_input"].includes(booking.idVerifyStatus ?? "required") && !(booking.idVerifyStatus === "verified" && verificationExpired(booking))))
@@ -63,6 +62,9 @@ export const bookingSession = action({
     }
     if (!authorized) throw new Error("Please sign in to verify this booking.");
 
+    const originalSessionId = booking.diditSessionId;
+    try {
+    const cfg = config();
     if (!booking.diditSessionId && booking.idVerifyStatus === "required") {
       // Finish the eligible previous-check revalidation before starting a fresh upload workflow.
       await ctx.runAction(internal.didit.reuseVerification, { bookingId: a.bookingId });
@@ -142,6 +144,16 @@ export const bookingSession = action({
       throw new Error("The rental changed while verification opened. Refresh its progress before continuing.");
     }
     return { url: result.url };
+    } catch (error) {
+      try {
+        await ctx.runMutation(internal.bookings.flagDiditOpeningFailure, {
+          bookingId: a.bookingId, sessionId: originalSessionId,
+        });
+      } catch {
+        console.error("Verification opening failure alert could not be queued");
+      }
+      throw error;
+    }
   },
 });
 
