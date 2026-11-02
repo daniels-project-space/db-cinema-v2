@@ -20,6 +20,7 @@ import { useBasketPrice } from "@/components/cart/useBasketPrice";
 import { useCartStockCheck } from "@/components/cart/useCartStockCheck";
 import { CartStockNotice } from "@/components/cart/CartStockNotice";
 import { useAccount } from "@/components/account/AccountProvider";
+import { useFreshVerification } from "@/components/account/useFreshVerification";
 import { AGREEMENTS, agreementsForSecurityPolicy } from "@/lib/legal";
 import { DELIVERY_TERMS_VERSION, DELIVERY_ACCEPTANCE_TEXT } from "../../../shared/rentalAgreement";
 import { depositFor, depositChargeFor, smallDamageHold, formatGbp, type Protection } from "@/lib/pricing";
@@ -207,6 +208,10 @@ export default function CheckoutPage() {
     promoCode: promo.applied ?? undefined,
     protection,useAccountCredit,
   };
+  const reuseStarts=items.map(item=>ms(item.start));
+  const reuseVerification=useQuery(api.accounts.checkoutVerification,account.token && account.me && signature.trim() && billingAddress.trim() && reuseStarts.length && reuseStarts.every(Number.isFinite)
+    ? {token:account.token,name:signature,address:billingAddress,starts:reuseStarts} : "skip");
+  const reuseVerificationFresh=useFreshVerification(reuseVerification?.proofExpiresAt);
   const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, creditReservation:creditAvailability?.available??null, policy:{assessment:checkoutSettings?.assessmentSecurityEnabled,deposit:checkoutSettings?.refundableDepositEnabled,cancellation:checkoutSettings?.cancellationProtectionEnabled}, account: accountPricingContext(account.me) });
   const offerContext = membershipOfferContext({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, account: accountPricingContext(account.me) });
   const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
@@ -407,7 +412,8 @@ export default function CheckoutPage() {
                 <div>
                   <label className={label} htmlFor="co-billing-address">Billing address *</label>
                   <textarea id="co-billing-address" value={billingAddress} onChange={(e) => setBillingAddress(e.target.value)} rows={2} placeholder="Street, town or city, postcode" className="input w-full" />
-                  <p className="mt-1 text-[11px] text-white/40">Used on your rental statement. You will separately submit proof of address through the verification provider.</p>
+                  <p className="mt-1 text-[11px] text-white/40">Used on your rental statement. If needed, you will submit proof of address through the verification provider.</p>
+                  {!account.me && <p className="mt-2 text-xs text-accent-200/80">Create an account to reuse a fully approved verification for eligible rentals starting within 90 days. Your name and address must remain unchanged and your ID valid.</p>}
                 </div>
               </div>
             </StepCard>
@@ -505,6 +511,7 @@ export default function CheckoutPage() {
                   placeholder="Your signature"
                   className="input serif-accent w-full border-b-2 border-b-accent-400/30 !text-xl text-white/90 placeholder:font-sans placeholder:text-sm"
                 />
+                {reuseVerification && reuseVerificationFresh && <p role="status" className="mt-2 text-xs text-emerald-300">Previously verified · eligible for reuse until {new Intl.DateTimeFormat("en-GB",{dateStyle:"medium",timeZone:"Europe/London"}).format(new Date(reuseVerification.expiresAt))}. Other handover checks still apply.</p>}
               </div>
             </StepCard>
           </div>

@@ -20,8 +20,11 @@ const replyDb={...db,query(table){const q=db.query(table);q.first=async()=> (awa
  msg('owner',now+1000);assert.equal((await conversationReplyState({db:replyDb},account._id,booking._id,true)).awaitingTeam,false);
  assert.equal((await conversationReplyState({db:replyDb},account._id,undefined,false)).awaitingReply,false,'Rental messages do not leak into general support');
 
- const archive={status:'complete',copiesReady:true,retention:{status:'expires',viewable:true,expiresAt:now+2*day},documents:[{kind:'identity-0-front_image',available:true},{kind:'address-0',available:true}]};
+ const archive={status:'complete',copiesReady:true,readProofExpiresAt:now+day,retention:{status:'expires',viewable:true,expiresAt:now+2*day},documents:[{kind:'identity-0-front_image',available:true},{kind:'address-0',available:true}]};
  let state=documentReadiness([archive],true,now+3*day,now);assert.equal(state.ready,true);assert.equal(state.approval,'Approval expiring soon');assert.equal(state.daysLeft,2);
+ assert.equal(documentReadiness([archive],true,now+3*day,now+day-1).ready,true,'a current proof remains usable until its deadline');
+ assert.equal(documentReadiness([archive],true,now+3*day,now+day).ready,false,'an open admin view stops reporting ready as soon as the read proof expires');
+ assert.equal(documentReadiness([{...archive,readProofExpiresAt:null}],true,now+3*day,now).ready,false,'missing proof is not considered ready');
  assert.equal(documentReadiness([archive],false,null,now).ready,false,'Stored documents do not imply verification approval');
  assert.equal(documentReadiness([{...archive,copiesReady:false}],true,null,now).identitySaved,false);
  assert.equal(documentReadiness([{...archive,documents:[archive.documents[0]]}],true,null,now).addressSaved,false);
