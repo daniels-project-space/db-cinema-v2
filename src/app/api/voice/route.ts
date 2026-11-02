@@ -446,7 +446,6 @@ export async function POST(req: NextRequest) {
         const bits: string[] = [];
         if (st?.openingHours) bits.push(`We're open ${st.openingHours}`);
         if (st?.deliveryMaxKm) bits.push(`we deliver up to about ${st.deliveryMaxKm} kilometres across London`);
-        if (st?.businessAddress) bits.push(`we're at ${st.businessAddress}`);
         bits.push("pickup is from central London and we'll confirm the exact spot when the booking's set");
         return say(`${bits.join(", ")}. Anything else I can help with?`);
       }

@@ -149,7 +149,7 @@ export const _gafferContext = internalQuery({
       latestRenterId:[...msgs].reverse().find(m=>m.sender==="renter")?._id??null,
       booking,
       // An unpaid draft must never receive depot details or pickup confirmation.
-      location: pick && ["confirmed", "active"].includes(pick.status) && pick.fulfilment === "pickup"
+      location: pick && ["confirmed", "active"].includes(pick.status) && pick.idVerifyStatus === "verified" && !verificationExpired(pick) && pick.fulfilment === "pickup"
         ? settings?.businessAddress || null : null,
       hours: settings?.openingHours || "09:00–22:00, daily",
     };
@@ -290,7 +290,7 @@ export const postBookingMessages = internalMutation({
     const start = Math.min(...b.lineItems.map(li => li.start));
     const end = Math.max(...b.lineItems.map(li => li.end));
     const collection = b.fulfilment === "pickup"
-      ? `Collection: ${day(start)}${b.pickupTime ? ` at ${b.pickupTime} (London time)` : "; time to be confirmed"}.${settings?.businessAddress ? ` Location: ${settings.businessAddress}.` : " We will confirm the collection location here."}`
+      ? `Collection: ${day(start)}${b.pickupTime ? ` at ${b.pickupTime} (London time)` : "; time to be confirmed"}.${b.idVerifyStatus === "verified" && !verificationExpired(b) && settings?.businessAddress ? ` Location: ${settings.businessAddress}.` : " The collection location will be shared after verification is approved."}`
       : `Delivery: ${day(start)}${b.pickupTime ? ` at ${b.pickupTime} (London time)` : "; time to be confirmed"}, to the address on your booking.`;
     const id = await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system",
       text: `${b.status === "active" ? "Your rental is on hire." : "Your rental is confirmed."}\n${collection}\nReturn: ${day(end)}${b.returnTime ? ` at ${b.returnTime} (London time)` : "; time to be confirmed"}.\nYour kit and any updates are in this conversation.`,

@@ -8,6 +8,7 @@ import { v } from "convex/values";
 import { OWNER_EMAIL, sendMail } from "./lib/mailer";
 import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { bookingStockLines } from "../shared/rentalWindow";
+import { verificationExpired } from "../shared/verificationProgress";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -89,7 +90,7 @@ export const verificationEmail = internalAction({
   args: { prepareOnly:v.optional(v.boolean()), deliveryKey:v.optional(v.string()), bookingId: v.id("bookings"), status: v.string() },
   handler: async (ctx, { prepareOnly, deliveryKey, bookingId, status }):Promise<any> => {
     const b: any = await ctx.runQuery(internal.bookings.get, { bookingId });
-    if (!b || !b.guestEmail || b.idVerifyStatus!==status || !["confirmed","active"].includes(b.status)) return null;
+    if (!b || !b.guestEmail || b.idVerifyStatus!==status || !["confirmed","active"].includes(b.status) || status === "verified" && verificationExpired(b)) return null;
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
     const messages:Record<string,{title:string;body:string;button:string}>={
@@ -104,7 +105,7 @@ export const verificationEmail = internalAction({
     let detail="",attachments: Array<{filename:string;content:string}>|undefined;
     if(status==="verified"){
       if(b.fulfilment==="pickup"){
-        const settings:any=await ctx.runQuery(api.settings.get,{});
+        const settings:any=await ctx.runQuery(internal.settings.pickupAddress,{});
         const rows:Array<[string,string]>=bookingStockLines(b).map((line:any)=>[line.title,`${day(line.start)} · ${line.pickupTime ?? "time to be confirmed"}`]);
         detail=`<h2>Pickup details</h2>${settings?.businessAddress ? `<p>${emailEscape(settings.businessAddress)}</p>` : "<p>The team will confirm the pickup location in your rental conversation.</p>"}${emailRows(rows)}<p>All times are London local time.</p>`;
       }

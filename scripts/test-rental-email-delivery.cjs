@@ -8,7 +8,7 @@ const stored=new Map();let storageSerial=0;const scheduled=[],ctx={db:h.db,stora
  if(ref==='rentalEmailDelivery.ready')return delivery.ready.handler(ctx,a);
  if(ref==='bookings.get')return bookings.get.handler(ctx,a);
  if(ref==='bookings.receiptContext')return bookings.receiptContext.handler(ctx,a);
- if(ref==='settings.get')return {businessAddress:'Test collection location'};
+ if(ref==='settings.pickupAddress')return {businessAddress:'Test collection location'};
  if(ref==='rentalOperations.changeRecipient')return h.load('convex/rentalOperations.ts').changeRecipient.handler(ctx,a);
  throw Error('Unexpected query '+ref);
 },runMutation:async(ref,a)=>{if(ref==='rentalEmailDelivery.prepare')return delivery.prepare.handler(ctx,a);assert.equal(ref,'rentalEmailDelivery.finish');return delivery.finish.handler(ctx,a)},runAction:async(ref,a)=>{

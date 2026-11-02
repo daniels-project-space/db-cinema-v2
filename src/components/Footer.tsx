@@ -40,7 +40,7 @@ export async function Footer() {
           {/* NAP — consistent name/address/phone for local SEO */}
           <address className="mt-4 not-italic font-mono text-[11px] leading-relaxed text-white/30">
             <div className="text-white/45">Db Cinema Rentals</div>
-            {cfg.businessAddress ? <div>{cfg.businessAddress}</div> : <div>London, United Kingdom</div>}
+            <div>London, United Kingdom</div>
             {cfg.businessPhone && (
               <div>
                 <a href={`tel:${String(cfg.businessPhone).replace(/\s/g, "")}`} className="transition-colors hover:text-white">
