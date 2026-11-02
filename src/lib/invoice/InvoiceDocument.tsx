@@ -34,6 +34,8 @@ import type { ReturnStatementData } from "../../../shared/returnStatement";
 export type { ReturnStatementData } from "../../../shared/returnStatement";
 
 const gbp = (n: number) => `£${(Math.round(n * 100) / 100).toLocaleString("en-GB", { minimumFractionDigits: 2 })}`;
+const COMPANY_NAME = "DB CINEMA RENTALS LTD";
+const COMPANY_ADDRESS = ["The Grand Building", "Trafalgar Square", "London", "WC2N 5EJ"];
 const d = (ms: number) =>
   new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" }).format(new Date(ms));
 const dateTime = (ms: number) =>
@@ -72,7 +74,7 @@ const s = StyleSheet.create({
 
 export function InvoiceDocument({ data }: { data: InvoiceData }) {
   return (
-    <Document title={`Db Cinema Receipt ${data.number}`}>
+    <Document title={`DB Cinema Rentals Invoice ${data.number}`}>
       <Page size="A4" style={s.page}>
         <View style={s.topbar} />
         <View style={s.headRow}>
@@ -81,8 +83,8 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
             <Text style={s.brandSub}>RENTALS · LONDON</Text>
           </View>
           <View>
-            <Text style={s.docTitle}>RECEIPT</Text>
-            <Text style={s.meta}>{data.number}</Text>
+            <Text style={s.docTitle}>INVOICE</Text>
+            <Text style={s.meta}>Invoice no. {data.number}</Text>
             <Text style={s.meta}>Issued {d(data.issuedAt)}</Text>
             <Text style={s.meta}>Payment received</Text>
           </View>
@@ -96,11 +98,18 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
               {data.email ? <Text>{data.email}</Text> : null}
             </View>
             <View style={s.col}>
-              <Text style={s.label}>Supplier & fulfilment</Text>
-              <Text style={s.strong}>DB Cinema Rentals</Text>
-              <Text style={s.strong}>{data.fulfilment === "delivery" ? "Delivery" : "Collection"}</Text>
-              <Text>{data.fulfilment === "delivery" ? data.address ?? "—" : "Central London"}</Text>
+              <Text style={s.label}>Supplier</Text>
+              <Text style={s.strong}>{COMPANY_NAME}</Text>
+              {COMPANY_ADDRESS.map((line) => <Text key={line}>{line}</Text>)}
+              <Text>{CONTACT_EMAIL}</Text>
             </View>
+          </View>
+          <View style={{ marginTop: 14 }}>
+            <Text style={s.label}>Fulfilment</Text>
+            {data.fulfilment === "delivery" ? <Text>Delivery · {data.address ?? "Address confirmed separately"}</Text> : <>
+              <Text>Collection · The Grand Building, Trafalgar Square, London WC2N 5EJ</Text>
+              <Text style={s.note}>Please meet us at the confirmed time outside the Waterstones bookstore at Trafalgar Square.</Text>
+            </>}
           </View>
         </View>
 
@@ -139,12 +148,12 @@ export function InvoiceDocument({ data }: { data: InvoiceData }) {
           {(data.cancellationRefund??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>Cancellation card refund</Text><Text style={s.totValue}>{gbp(data.cancellationRefund!)}</Text></View>}
           {(data.accountCreditIssued??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>Account credit issued · see credit receipts</Text><Text style={s.totValue}>{gbp(data.accountCreditIssued!)}</Text></View>}
           {(data.accountCreditBonus??0)>0&&<View style={s.totRow}><Text style={s.totLabel}>30% bonus included in that credit</Text><Text style={s.totValue}>{gbp(data.accountCreditBonus!)}</Text></View>}
-          <Text style={s.note}>Db Cinema Rentals is not VAT registered. No VAT is charged. This receipt is not a VAT invoice.</Text>
+          <Text style={s.note}>{COMPANY_NAME} is not VAT registered. No VAT is charged.</Text>
         </View>
 
         <Text style={s.footer}>
-          Db Cinema Rentals · dbcinemarentals.com · {CONTACT_EMAIL}{"\n"}
-          Thank you for renting with us.
+          {COMPANY_NAME} · dbcinemarentals.com · {CONTACT_EMAIL}{"\n"}
+          Paid rental invoice · Thank you for renting with us.
         </Text>
       </Page>
     </Document>
@@ -168,7 +177,8 @@ export function ReturnStatementDocument({ data, draft = false }: { data: ReturnS
       <View style={s.section}>
         <View style={s.billRow}>
           <View style={s.col}>
-            <Text style={s.label}>Supplier</Text><Text style={s.strong}>DB Cinema Rentals</Text>
+            <Text style={s.label}>Supplier</Text><Text style={s.strong}>{COMPANY_NAME}</Text>
+            {COMPANY_ADDRESS.map((line) => <Text key={line}>{line}</Text>)}
             <Text>{CONTACT_EMAIL}</Text>
           </View>
           <View style={s.col}>

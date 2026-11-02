@@ -8,7 +8,7 @@ const DEFAULTS = {
   openingHours: "09:00–22:00, daily",
   acceptingOrders: true,
   googleReviewUrl: "",
-  businessAddress: "",
+  businessAddress: "The Grand Building\nTrafalgar Square\nLondon\nWC2N 5EJ\nPlease meet us at the confirmed time outside the Waterstones bookstore at Trafalgar Square.",
   businessPhone: "",
 };
 
@@ -23,7 +23,7 @@ function configFrom(d: any) {
     assessmentSecurityEnabled:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true",
     checkoutEnabled: process.env.RENTAL_CHECKOUT_ENABLED === "true" && (d?.acceptingOrders ?? DEFAULTS.acceptingOrders),
     googleReviewUrl: d?.googleReviewUrl ?? DEFAULTS.googleReviewUrl,
-    businessAddress: d?.businessAddress ?? DEFAULTS.businessAddress,
+    businessAddress: typeof d?.businessAddress === "string" && d.businessAddress.trim() ? d.businessAddress : DEFAULTS.businessAddress,
     businessPhone: d?.businessPhone ?? DEFAULTS.businessPhone,
   };
 }
@@ -40,7 +40,7 @@ export const get = query({
 
 export const pickupAddress = internalQuery({
   args: {},
-  handler: async ctx => ({ businessAddress: (await ctx.db.query("settings").first())?.businessAddress ?? "" }),
+  handler: async ctx => ({ businessAddress: configFrom(await ctx.db.query("settings").first()).businessAddress }),
 });
 
 export const adminGet = query({

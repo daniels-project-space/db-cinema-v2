@@ -222,6 +222,7 @@ export const changePickupTime = mutation({
   handler:async(ctx,args)=>{
     await assertAdmin(ctx,args.token,"rentalOperations.changePickupTime");
     if(!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId))throw Error("Invalid change request.");
+    if(!args.expectedSnapshot.trim())throw Error("The rental changed. Refresh and review the pickup time.");
     const fingerprint=JSON.stringify([args.lineIndex,args.pickupTime,args.expectedSnapshot,args.reason.trim()]);
     const prior=await ctx.db.query("rental_time_changes").withIndex("by_request",q=>q.eq("bookingId",args.bookingId).eq("requestId",args.requestId)).unique();
     if(prior){if(prior.fingerprint!==fingerprint)throw Error("This request was already used for a different change.");return {ok:true,detail:prior.detail};}

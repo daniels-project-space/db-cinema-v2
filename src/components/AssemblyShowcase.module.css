@@ -158,10 +158,6 @@
 .budgetCopy { min-width: 0; flex: 1; }
 .budgetCopy>strong { display: block; margin-top: 7px; color: #fff; font: 500 clamp(15px, 1.8vw, 21px)/1.2 var(--font-display), sans-serif; }
 .budgetCopy p { margin: 5px 0 15px; color: #ffffff69; font-size: 9px; }
-.budgetTrack { position: relative; height: 2px; margin: 0 2px; overflow: visible; background: #ffffff1c; }
-.budgetTrack i { position: absolute; inset: 0 auto 0 0; width: var(--budget-position, 58%); background: linear-gradient(90deg, color-mix(in srgb, var(--assembly-accent) 35%, transparent), var(--assembly-accent)); transition: width 1.2s cubic-bezier(.16, 1, .3, 1); }
-.budgetTrack span { position: absolute; top: 50%; left: var(--budget-position, 58%); width: 10px; height: 10px; border: 1px solid #fff; border-radius: 50%; background: var(--assembly-accent); box-shadow: 0 0 12px var(--assembly-accent); transform: translate(-50%, -50%); transition: left 1.2s cubic-bezier(.16, 1, .3, 1); }
-.budgetEnds { display: flex; justify-content: space-between; margin-top: 7px; color: #ffffff50; font: 6px var(--font-mono), monospace; letter-spacing: .12em; }
 .budgetEcho { position: absolute; top: 50%; left: -38px; width: 210px; height: 210px; border: 1px solid #fb923c0c; border-radius: 50%; pointer-events: none; transform: translateY(-50%); animation: haloBreath 4.2s ease-in-out infinite; }
 
 .refinedScene { gap: clamp(15px, 3vw, 38px); }
@@ -214,7 +210,6 @@
 @keyframes audioBreath { 0%, 100% { opacity: .5; stroke-dasharray: 40; } 50% { opacity: 1; stroke-dasharray: 70; } }
 @keyframes gimbalSettle { 0%, 100% { transform: rotate(-5deg) translateY(1px); } 50% { transform: rotate(5deg) translateY(-2px); } }
 @keyframes gaugeTrace { 0% { stroke-dashoffset: 280; opacity: .45; } 58%, 100% { stroke-dashoffset: 0; opacity: 1; } }
-@keyframes trackFill { from { width: 3%; } to { width: var(--budget-position, 58%); } }
 @keyframes cameraFloat { 0%, 100% { transform: translateY(1px) rotate(-1deg); } 50% { transform: translateY(-4px) rotate(1deg); } }
 @keyframes preferenceDrift { 0%, 100% { opacity: .56; transform: translateY(0) scale(.92); } 50% { opacity: 1; transform: translateY(-5px) scale(1.06); } }
 @keyframes arcPulse { 0%, 100% { opacity: .32; transform: rotate(0) scale(.88); } 50% { opacity: .95; transform: rotate(20deg) scale(1.08); } }

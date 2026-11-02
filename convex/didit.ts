@@ -395,6 +395,13 @@ function canonical(value: any): any {
   return value;
 }
 
+function validSignature(secret: string, signature: string | undefined, content: string): boolean {
+  if (typeof signature !== "string" || !/^[a-f0-9]{64}$/i.test(signature)) return false;
+  const expected = createHmac("sha256", secret).update(content, "utf8").digest();
+  const actual = Buffer.from(signature, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
 function allApproved(items: unknown): boolean {
   return Array.isArray(items) && items.length > 0 && items.every((item) => item?.status === "Approved");
 }
@@ -442,24 +449,42 @@ function mapDecision(rawStatus: unknown, decision: any): {
  * A top-level Approved alone is insufficient: every required ID, selfie and
  * address feature must have its own Approved decision. */
 export const webhook = internalAction({
-  args: { body: v.string(), signature: v.string(), timestamp: v.string() },
-  handler: async (ctx, { body, signature, timestamp }): Promise<boolean | "processing_error"> => {
+  args: {
+    body: v.string(),
+    signature: v.string(),
+    previousSignature: v.optional(v.string()),
+    rawSignature: v.optional(v.string()),
+    previousRawSignature: v.optional(v.string()),
+    timestamp: v.string(),
+  },
+  handler: async (ctx, { body, signature, previousSignature, rawSignature, previousRawSignature, timestamp }): Promise<boolean | "processing_error"> => {
+    const reject=async(reason:"configuration"|"signature"|"timestamp"|"provider_context"|"payload",alertOwner=false):Promise<false>=>{
+      console.warn(`[didit/webhook] rejected: ${reason}`);
+      if(alertOwner)try{await ctx.runMutation(internal.bookings.flagDiditWebhookRejection,{reason});}
+      catch{console.error("Didit webhook rejection alert could not be queued");}
+      return false;
+    };
     let cfg: ReturnType<typeof config>;
-    try { cfg = config(); } catch { return false; }
-    if (body.length > 1_000_000 || !/^[a-f0-9]{64}$/i.test(signature) || !/^\d{10}$/.test(timestamp) ||
-        Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
+    try { cfg = config(); } catch { return reject("configuration",true); }
+    if (body.length > 1_000_000) return reject("payload");
     let event: any;
-    try { event = JSON.parse(body); } catch { return false; }
+    try { event = JSON.parse(body); } catch { return reject("payload"); }
+    const expectedProviderContext=event.application_id===cfg.applicationId&&event.workflow_id===cfg.workflowId&&event.environment===cfg.environment;
+    if (!/^\d{10}$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300)
+      return reject("timestamp",expectedProviderContext);
     const signed = JSON.stringify(canonical(event));
-    const expected = createHmac("sha256", cfg.webhookSecret).update(signed, "utf8").digest();
-    const actual = Buffer.from(signature, "hex");
-    if (actual.length !== expected.length || !timingSafeEqual(actual, expected) || event.timestamp !== Number(timestamp)) return false;
+    const authenticated = validSignature(cfg.webhookSecret, signature, signed) ||
+      validSignature(cfg.webhookSecret, previousSignature, signed) ||
+      validSignature(cfg.webhookSecret, rawSignature, body) ||
+      validSignature(cfg.webhookSecret, previousRawSignature, body);
+    if (!authenticated) return reject("signature",expectedProviderContext);
+    if (event.timestamp !== Number(timestamp)) return reject("timestamp",true);
     if (event.webhook_type !== "status.updated" && event.webhook_type !== "data.updated") return true;
     if (event.environment !== cfg.environment || event.application_id !== cfg.applicationId ||
-        event.workflow_id !== cfg.workflowId || event.session_kind === "business") return false;
+        event.workflow_id !== cfg.workflowId || event.session_kind === "business") return reject("provider_context",true);
     if (typeof event.vendor_data !== "string" || !event.vendor_data.startsWith("dbc-booking-") ||
         typeof event.session_id !== "string" || typeof event.event_id !== "string" ||
-        !Number.isSafeInteger(event.created_at)) return false;
+        !Number.isSafeInteger(event.created_at)) return reject("payload",true);
     const bookingId = event.vendor_data.slice("dbc-booking-".length);
     try {
       const mapped = mapDecision(event.status, event.decision);

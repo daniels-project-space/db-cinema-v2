@@ -597,6 +597,42 @@ body {
 }
 .marquee:hover .marquee-track { animation-play-state: paused; }
 
+@keyframes hygglo-marquee-x {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.hygglo-review-marquee {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+}
+.hygglo-review-track {
+  display: flex;
+  width: max-content;
+  animation: hygglo-marquee-x var(--review-speed, 56s) linear infinite;
+  will-change: transform;
+}
+.hygglo-review-track[data-direction="reverse"] { animation-direction: reverse; }
+.hygglo-review-group { display: flex; flex: 0 0 auto; gap: 1rem; padding-right: 1rem; }
+.hygglo-review-quote {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.hygglo-trust-review-fade { animation: hygglo-trust-review-fade 550ms ease-out both; }
+@keyframes hygglo-trust-review-fade {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.hygglo-review-marquee:hover .hygglo-review-track,
+.hygglo-review-marquee:focus-within .hygglo-review-track { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .hygglo-review-marquee { overflow-x: auto; }
+  .hygglo-review-track { animation: none; will-change: auto; }
+  .hygglo-trust-review-fade { animation: none; }
+}
+
 /* ── Scroll reveals ──────────────────────────────────────────── */
 .reveal {
   opacity: 1;

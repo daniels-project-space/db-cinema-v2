@@ -1592,6 +1592,14 @@ export const flagDiditProcessingFailure = internalMutation({
   },
 });
 
+export const flagDiditWebhookRejection = internalMutation({
+  args:{reason:v.union(v.literal("configuration"),v.literal("signature"),v.literal("timestamp"),v.literal("provider_context"),v.literal("payload"))},
+  handler:async(ctx,{reason})=>{
+    const window=Math.floor(Date.now()/3600000);
+    await queueOwnerNotification(ctx,{eventKey:`didit-webhook-rejected:${reason}:${window}`,kind:"verification_failure",title:"Didit webhook rejected",body:`A Didit callback was rejected (${reason}). No renter verification state was changed. Check the Didit webhook configuration and Convex logs.`});
+  },
+});
+
 export const flagDiditOpeningFailure = internalMutation({
   args: {bookingId:v.id("bookings"),sessionId:v.optional(v.string())},
   handler: async (ctx,{bookingId,sessionId}) => {

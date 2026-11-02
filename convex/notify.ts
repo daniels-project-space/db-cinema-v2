@@ -110,10 +110,10 @@ export const verificationEmail = internalAction({
         const rows:Array<[string,string]>=bookingStockLines(b).map((line:any)=>[line.title,`${day(line.start)} · ${line.pickupTime ?? "time to be confirmed"}`]);
         detail=`<h2>Pickup details</h2>${settings?.businessAddress ? `<p>${emailEscape(settings.businessAddress).replace(/\r?\n/g,"<br>")}</p>` : "<p>The team will confirm the pickup location in your rental conversation.</p>"}${emailRows(rows)}<p>All times are London local time.</p>`;
       }
-      const receipt:any=await ctx.runAction(internal.invoice.invoiceEmail,{bookingId,prepareOnly:true,deliveryKey});
-      if(!receipt?.attachments?.length)throw Error("Verification receipt PDF is unavailable");
-      attachments=receipt.attachments;
-      detail+=`<p>Your payment receipt is attached as a PDF. For help, email ${emailEscape(CONTACT_EMAIL)} or use your rental conversation.</p>`;
+      const invoice:any=await ctx.runAction(internal.invoice.invoiceEmail,{bookingId,prepareOnly:true,deliveryKey});
+      if(!invoice?.attachments?.length)throw Error("Verification invoice PDF is unavailable");
+      attachments=invoice.attachments;
+      detail+=`<p>Your rental invoice is attached as a PDF. For help, email ${emailEscape(CONTACT_EMAIL)} or use your rental conversation.</p>`;
     }
     const conversation=`${app}/account?rental=${encodeURIComponent(bookingId)}#chat`;
     const payload={to:b.guestEmail,subject:message.title,html:rentalEmail({title:message.title,preview:message.body,url:status==="verified"?conversation:url,button:message.button,body:`<p>${emailEscape(message.body)}</p>${detail}`,helpText:"Need help? Open your rental conversation to message our team."}),attachments,deliveryKey};
