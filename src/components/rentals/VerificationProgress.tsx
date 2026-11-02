@@ -18,6 +18,7 @@ import { IconCheck, IconLock } from "@/components/icons";
 import { ManagementShell } from "@/components/management/ManagementShell";
 import styles from "./VerificationProgress.module.css";
 import { DroneLicenceUpload } from "./DroneLicence";
+import { VerificationReuseClaim } from "./VerificationReuseClaim";
 import { useVerificationRefresh } from "./useVerificationRefresh";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
 import {isSavedCardRental} from '../../../shared/savedCardSecurity';
@@ -287,6 +288,7 @@ export function VerificationProgress({
             : rentalStageLabel(booking);
   const content = (
     <section aria-label="Rental verification" className={styles.journey}>
+      {account.token && booking.idVerifyStatus === "verified" && <VerificationReuseClaim bookingId={bookingId} />}
       <div className={wide ? styles.layout : undefined}>
         <div className={styles.main}>
           <span className={styles.badge}>{stage}</span>
