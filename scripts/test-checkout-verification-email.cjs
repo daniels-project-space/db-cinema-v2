@@ -23,5 +23,15 @@ delete process.env.INVOICE_SECRET;
   assert.match(payload.html,/card authorisation is separate/);
   assert(!payload.html.includes('Saved-card collection permission'),'Historical accepted security terms remain intact');
  }
+ let address='The Grand Building\nMeet outside <Waterstones> & wait';
+ const verificationCtx={runQuery:async ref=>ref==='settings.pickupAddress'?{businessAddress:address}:{...booking,fulfilment:'pickup',idVerifyStatus:'verified'},
+  runAction:async()=>({attachments:[{filename:'receipt.pdf',content:'fixture'}]})};
+ const verification=await notify.verificationEmail.handler(verificationCtx,{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
+ assert.match(verification.html,/The Grand Building<br>Meet outside &lt;Waterstones&gt; &amp; wait/,'pickup instructions retain line breaks and escape HTML');
+ assert.match(verification.html,/dbcinemarentals@gmail\.com/,'verified renters receive the current support address');
+ address='Updated location';
+ const updated=await notify.verificationEmail.handler(verificationCtx,{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
+ assert.match(updated.html,/Updated location/,'new verification emails read the current saved address');
+ assert(!updated.html.includes('The Grand Building'));
  console.log('PASS actual confirmation and receipt renderers: new saved-card permission outside paid total, no obsolete deposit/hold copy, historical deposit/hold preserved. No emails sent.');
 })().catch(e=>{console.error(e);process.exitCode=1});
