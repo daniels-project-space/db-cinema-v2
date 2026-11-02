@@ -115,7 +115,12 @@ const window={start:'2026-11-20',end:'2026-11-21',pickupTime:'10:00',returnTime:
  // catalogue policy controls the actual recommended lens.
  setMock('@/lib/mount',load('convex/lib/mount.ts'));
  setMock('@/lib/compat',load('src/lib/compat.ts'));
- setMock('@/lib/kitRank',load('src/lib/kitRank.ts'));
+ const kitRank=load('src/lib/kitRank.ts');
+ setMock('@/lib/kitRank',kitRank);
+ const budgetChoices=[{title:'Entry camera',total:80,demandScore:0},{title:'Popular camera',total:300,demandScore:400}];
+ assert.equal([...budgetChoices].sort((a,b)=>kitRank.compareAssemblyBudget(a,b,100,{key:'camera'}))[0].title,'Entry camera','limited remaining budget promotes an affordable option');
+ assert.equal([...budgetChoices].sort((a,b)=>kitRank.compareAssemblyBudget(a,b,400,{key:'camera'}))[0].title,'Popular camera','a larger budget permits the better-ranked option');
+ assert.equal([...budgetChoices].sort((a,b)=>kitRank.compareAssemblyBudget(a,b,0,{key:'camera'}))[0].title,'Popular camera','over-budget items remain available when nothing fits');
  setMock('@/lib/dates',load('src/lib/dates.ts'));
  setMock('@/lib/site',load('src/lib/site.ts'));
  setMock('@/lib/ai',{botModel:()=>({})});

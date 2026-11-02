@@ -21,7 +21,7 @@ import { GlowSlider } from "@/components/GlowSlider";
 import { TimeSlotPicker } from "@/components/checkout/TimeSlotPicker";
 import { Calendar, daysInclusive } from "@/components/booking/Calendar";
 import { filterThreadsFor } from "../../../shared/opticalFacts";
-import { scoreOption } from "@/lib/kitRank";
+import { compareAssemblyBudget } from "@/lib/kitRank";
 import { alreadySupplied, automaticRecommendation, documentedIncludedTypes, includedLensFocals, lensFit, matchesAssemblyBrief, matchesAssemblyCamera } from "../../../shared/recommendationPolicy";
 
 const EMPTY_DATES = new Set<string>();
@@ -77,10 +77,13 @@ export default function AssemblePage() {
   const [err, setErr] = useState<string | null>(null);
 
   const rawSelection = Object.values(sel) as any[];
-  const live:any = useLiveRecommendations(data ? {
+  const liveFresh:any = useLiveRecommendations(data ? {
     groups:data.stages.map((s:any)=>({key:s.key,types:[STAGE_TYPE[s.key]??s.key],listingId:rawSelection.find(i=>i.stageKey===s.key)?.listingId || (s.key === "camera" || s.briefConstraint ? s.recommendedId || s.briefPreferredId || s.cameraPreferredId : undefined) || undefined,...liveWindow({start,end,pickupTime,returnTime})})),
     basket:stockLines(cart.items),selectedIds:rawSelection.map(i=>i.listingId),
   } : null);
+  const [lastLive, setLastLive] = useState<any>(null);
+  useEffect(() => { if (liveFresh) setLastLive(liveFresh); }, [liveFresh]);
+  const live = liveFresh ?? lastLive;
   const selList = rawSelection.map(item=>({...item,...live?.groups[item.stageKey]?.selection?.find((current:any)=>current.listingId===item.listingId)}));
   const contextList = [...selList,...(live?.basket??[])];
   const cams = contextList.filter((x) => x.role === "camera");
@@ -102,8 +105,11 @@ export default function AssemblePage() {
   const lensPref = /large/i.test(size) ? "cine" : "af";
   const smallShoot = /solo|small/i.test(size) || !size;
   // ONE scoring formula, shared with /api/assemble — re-ranks the live selection's downstream stages.
-  const dynScore = (o: any, key: string) =>
-    scoreOption(o, { key, camMounts, camCoverage: camCov, camBatts, cinemaRig, hasGimbal, includedFocal: inclFocal, small: smallShoot, lensPref });
+  const compareFor = (a: any, b: any, key: string) => {
+    const otherTotal = selList.filter(item => item.stageKey !== key).reduce((total, item) => total + (Number(item.total) || 0), 0);
+    const grossBudget = memberPct < 100 ? budget / (1 - memberPct / 100) : Infinity;
+    return compareAssemblyBudget(a, b, grossBudget - otherTotal, { key, camMounts, camCoverage: camCov, camBatts, cinemaRig, hasGimbal, includedFocal: inclFocal, small: smallShoot, lensPref });
+  };
   const cameraConstraintFor = (stage: any) => {
     const constraint = stage?.cameraConstraint;
     if (!constraint?.requiresLens) return constraint;
@@ -127,8 +133,10 @@ export default function AssemblePage() {
       (s.key !== "camera" || !s.cameraConstraint || matchesAssemblyCamera(o, cameraConstraintFor(s))) &&
       (!s.briefConstraint || matchesAssemblyBrief(o, s.briefConstraint)) &&
       (s.key === "lens" && s.briefConstraint && cams.length === 0 || automaticRecommendation(o, context.filter(i => i.listingId !== o.listingId), live.compatibilityKits)));
-    if((s.key==="camera" || s.briefConstraint)&&v.some((o:any)=>o.listingId===s.recommendedId))return s.recommendedId;
-    return v.length ? [...v].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key))[0].listingId : "";
+    const ranked = [...v].sort((a: any, b: any) => compareFor(a, b, s.key));
+    const suggested = ranked.find((o:any)=>o.listingId===s.recommendedId);
+    if((s.key==="camera" || s.briefConstraint)&&suggested&&compareFor(suggested,ranked[0],s.key)<=0)return s.recommendedId;
+    return ranked[0]?.listingId ?? "";
   };
 
   const subtotal = selList.reduce((n, c) => n + (c.total || 0), 0);
@@ -238,7 +246,8 @@ export default function AssemblePage() {
     const group = live?.groups[s?.key];
     const options = group?.options ?? [];
     const preferred = group?.preferred;
-    const withPreferred = preferred && !options.some((option: any) => option.listingId === preferred.listingId) ? [preferred, ...options] : options;
+    const withPreferred = (preferred && !options.some((option: any) => option.listingId === preferred.listingId) ? [preferred, ...options] : options)
+      .filter((option:any) => option.marketingOnly !== true && option.bookable === true);
     if (s?.key === "camera" && s.cameraConstraint) {
       const constraint = cameraConstraintFor(s);
       return [...withPreferred].sort((a: any, b: any) => Number(!matchesAssemblyCamera(a, constraint)) - Number(!matchesAssemblyCamera(b, constraint)));
@@ -256,11 +265,11 @@ export default function AssemblePage() {
       return `Ø${o.specs.filterThreadMm}mm — smaller than your lens (needs a step-up ring)`;
     return null;
   };
-  const requestReady = selList.length > 0 && selList.every((item:any) => {
+  const canAddSelection = !!liveFresh && selList.length > 0 && liveFresh.selectionOk === true && selList.every((item:any) => {
     const stage=data?.stages?.find((candidate:any)=>candidate.key===item.stageKey);
-    return !!stage && live?.groups?.[stage.key]?.ready === true && item.requestCompatible === true && !incompatOf(item,stage);
+    const current=liveFresh.groups?.[item.stageKey]?.selection?.find((option:any)=>option.listingId===item.listingId);
+    return !!stage && current?.bookable === true && current.available === true && !incompatOf(current,stage);
   });
-  const canAddSelection = !!live && (live.selectionOk === true || requestReady);
 
   // compatibility warnings for the review — the SAME shared engine the cart + bot use
   // (mount / sensor-coverage / filter-thread / battery / redundant / fixed-lens), so the
@@ -405,12 +414,15 @@ export default function AssemblePage() {
             </div>
 
             <Ai mood="talking"><Stream text={data.reply || "Let's build your kit."} /></Ai>
-            {!live&&<p role="status" className="pl-12 text-sm text-white/60">Refreshing choices for your basket and current inventory…</p>}
+            {!liveFresh&&<p role="status" className="pl-12 text-sm text-white/60">Refreshing choices for your basket and current inventory…</p>}
 
             {flowStages.slice(0, onReview ? flowStages.length : stageIdx + 1).map((s: any, si: number) => {
               const recId = dynRec(s); // dynamic Pick, re-ranked from the current selection
-              const dyn = s.key === "lens" || s.key === "battery";
-              const opts = dyn ? [...visibleFor(s)].sort((a: any, b: any) => dynScore(b, s.key) - dynScore(a, s.key)) : visibleFor(s);
+              const opts = [...visibleFor(s)].sort((a: any, b: any) =>
+                Number(b.available === true) - Number(a.available === true) ||
+                Number(!!incompatOf(a,s)) - Number(!!incompatOf(b,s)) ||
+                (s.key === "camera" && s.cameraConstraint ? Number(!matchesAssemblyCamera(a,cameraConstraintFor(s))) - Number(!matchesAssemblyCamera(b,cameraConstraintFor(s))) : 0) ||
+                (s.briefConstraint ? Number(!matchesAssemblyBrief(a,s.briefConstraint)) - Number(!matchesAssemblyBrief(b,s.briefConstraint)) : 0) || compareFor(a,b,s.key));
               const isSkip = skipped(s);
               let stageNote = s.note;
               const cameraRequest = s.key === "camera" && (s.cameraConstraint?.model || s.cameraConstraint?.named || s.cameraConstraint?.strict || s.cameraConstraint?.requiresLens);
@@ -422,7 +434,7 @@ export default function AssemblePage() {
                   : "No matching option is currently verified for this kit and time. You can choose an alternative.";
               }
               return (
-                <div key={si} className="stage-in space-y-2">
+                <div key={s.key} className="stage-in space-y-2">
                   <div className="msg-left flex items-start gap-3">
                     <BotAvatarBadge mood={si === stageIdx && !onReview ? "talking" : "idle"} size={34} />
                     <div className="rounded-2xl rounded-tl-md border border-white/[0.07] bg-white/[0.045] px-4 py-3">
@@ -453,7 +465,7 @@ export default function AssemblePage() {
                           : s.key === "gimbal" && !automaticRecommendation(o, contextList.filter(i => i.listingId !== o.listingId), live?.compatibilityKits)
                             ? "Confirm payload, mounting and balance for your selected camera and lenses." : null;
                         return (
-                          <button key={o.listingId} onClick={() => toggle(o, s)} disabled={!live||o.needsTimes||!!bad} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all disabled:opacity-40 ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
+                          <button key={o.listingId} onClick={() => toggle(o, s)} disabled={!liveFresh||o.needsTimes||!!bad||(!on&&o.available!==true)} style={{ animationDelay: `${Math.min(i, 10) * 55}ms` }} className={`card-in lift relative w-40 shrink-0 overflow-hidden rounded-xl border text-left transition-all disabled:opacity-40 ${on ? "border-emerald-400 ring-2 ring-emerald-400/40" : bad ? "border-red-500/30 opacity-55 grayscale hover:opacity-80" : rec ? "border-amber-400/70 ring-2 ring-amber-400/30" : "border-white/10 hover:border-white/25"}`}>
                             {rec && !on && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">Pick</span>}
                             {bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Won't fit</span>}
                             {adapter && !bad && <span className="absolute left-2 top-2 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Adapter</span>}
@@ -465,7 +477,7 @@ export default function AssemblePage() {
                               <div className="line-clamp-2 text-xs font-medium text-white/85">{o.title}</div>
                               <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-white/45">
                                 <span>£{o.total} · {o.days}d</span>
-                                {!o.needsTimes&&o.available===false&&<span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-amber-200">Unavailable · request only</span>}
+                                {!o.needsTimes&&o.available===false&&<span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-amber-200">Unavailable for these dates</span>}
                                 {o.mount && o.mount !== "any" && o.mount !== "fixed" && (
                                   // non-E camera systems (Blackmagic EF/MFT, Canon RF…) get a blue "other-mount" tag
                                   s.key === "camera" && o.mount !== "E"
@@ -568,9 +580,9 @@ export default function AssemblePage() {
                   />
                 </div>
               </div>
-              {live?.selectionOk===false&&<p role="status" className="text-sm text-amber-200">Some selected gear is unavailable for this window. You can add it as a request; checkout will show alternatives and keep payment blocked until the full kit passes the stock check.</p>}
+              {liveFresh && !canAddSelection && selList.length>0&&<p role="status" className="text-sm text-amber-200">Review or remove unavailable items before adding your kit to the basket.</p>}
               <button onClick={addAll} disabled={selList.length === 0||!canAddSelection} className="btn-primary shrink-0 px-6 py-3">
-                {live?.selectionOk===true?`Add ${selList.length || ""} to kit`:"Add request to kit"}
+                {`Add ${selList.length || ""} to basket`}
               </button>
             </div>
           </div>
