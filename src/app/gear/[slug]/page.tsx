@@ -63,7 +63,6 @@ export default async function Page({
               price: l.pricing?.daily ?? undefined,
               businessFunction: "http://purl.org/goodrelations/v1#LeaseOut",
               seller:{"@id":`${BASE}/#organization`},
-              availability: l.bookable ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
               priceSpecification:{"@type":"UnitPriceSpecification",price:l.pricing.daily,priceCurrency:"GBP",unitCode:"DAY"},
               url: `${BASE}/gear/${slug}`,
 
