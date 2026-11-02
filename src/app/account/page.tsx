@@ -106,6 +106,7 @@ function AuthForm() {
           {mode === "signup" ? "Sign in" : "Create one"}
         </button>
       </p>
+      {mode === "signup" && <p className="mt-4 rounded-xl border border-accent-400/15 bg-accent-400/5 px-4 py-3 text-xs leading-relaxed text-white/65">Create an account to reuse a fully approved ID and proof-of-address check for eligible rentals starting within 90 days. We show a verified badge only while your details, ID and saved documents remain valid and accessible; otherwise, we’ll ask you to verify again. Files are kept through an active rental and for 90 days after it closes, or longer while a case is open.</p>}
       <form className="mt-6 flex flex-col gap-3" onSubmit={e => { e.preventDefault(); if (!busy) void go(new FormData(e.currentTarget)); }}>
         {mode === "signup" && (
           <input

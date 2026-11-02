@@ -1,6 +1,7 @@
 import { postRentalMessage } from "./rentalChat";
 import { accountForRental } from "./rentalAccount";
 import { bookingStockLines } from "../../shared/rentalWindow";
+import { CONTACT_EMAIL } from "../../src/lib/site";
 
 /** Rental risk policy, separate from a Collective membership badge. */
 export const VERIFICATION_REUSE_DAYS = 90;
@@ -61,7 +62,7 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
       const schedule=bookingStockLines(booking).map((line:any)=>`${line.title}: ${new Date(line.start).toISOString().slice(0,10)}${line.pickupTime ? ` at ${line.pickupTime}` : " (time to be confirmed)"}`).join("\n");
       message+=`${settings?.businessAddress ? `\n\nPickup location:\n${settings.businessAddress}` : "\n\nThe team will confirm the pickup location here."}${schedule ? `\n\nPickup schedule (London time):\n${schedule}` : ""}`;
     }
-    message+="\n\nHandover remains subject to any remaining checks and approval. Message us here if you need help.";
+    message+=`\n\nHandover remains subject to any remaining checks and approval. Message us here or email ${CONTACT_EMAIL} if you need help.`;
   }
   await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system", text: message, meta: { kind: "verification_update", status } });
 }

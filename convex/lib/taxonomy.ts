@@ -218,12 +218,9 @@ export const CATEGORY_OF: Record<ItemType, string> = {
 };
 
 /**
- * A GENUINE bundle (→ "Packages") is a curated, CROSS-DEPARTMENT package — not
- * just a camera kit with its natural accessories (lens / ND / battery / cage /
- * gimbal / monitor). It either announces itself ("package" / "production kit") or
- * a camera kit that also crosses into a separate department (lighting AND audio).
- * A plain "set" / "kit" / "+ lens" is NOT a genuine bundle — it's categorised by
- * its main item (a camera kit lives in Cameras, a lens set in Lenses).
+ * A GENUINE bundle (→ "Packages") either explicitly identifies itself as a
+ * package/bundle or combines at least three distinct major rental gear types.
+ * Batteries, filters, and small accessories do not count as major gear types.
  */
 export function isGenuineBundle(title: string): boolean {
   // strip SEO "(like … Bundle)" / "(such as …)" comparisons first so a gimbal rig
@@ -233,13 +230,13 @@ export function isGenuineBundle(title: string): boolean {
     .replace(/\bcannon\b/g, "canon")
     .replace(/\((?:like|such as|similar to|comparable to)[^)]*\)/g, " ");
   if (/\b(package|bundle|production kit|full (?:film|video|production|studio) kit|complete (?:kit|set ?up|package)|all[-\s]?in[-\s]?one|everything you need|filmmaker kit|content(?: creator)? kit)\b/.test(t)) return true;
-  // a camera kit that ALSO spans lighting AND audio = a multi-department production bundle
-  if (deriveItemType(title) === "camera-body") {
-    const hasLight = /\b(aputure|godox|nanlite|amaran|forza|softbox|hmi|key ?light|rgb ?tube|pavotube|led (?:panel|light)|\blighting\b)\b/.test(t);
-    const hasAudio = /\b(mic|microphone|wireless ?go|dji ?mic|\blav\b|lavalier|sennheiser|rode|røde|field recorder|zoom h\d)\b/.test(t);
-    if (hasLight && hasAudio) return true;
+  const majorTypes = new Set<ItemType>();
+  const hero = deriveItemType(t);
+  if (MAJOR_BUNDLE_TYPES.has(hero)) majorTypes.add(hero);
+  for (const includedType of bundleIncludes(t)) {
+    if (MAJOR_BUNDLE_TYPES.has(includedType)) majorTypes.add(includedType);
   }
-  return false;
+  return majorTypes.size >= 3;
 }
 
 /** Storefront category for a listing — hero-driven, genuine bundles → Packages. */
@@ -257,23 +254,40 @@ export function categoryFor(title: string): string {
  *   "Sony 24-70mm GM" (a lone lens)                →  []   (hero is the lens)
  */
 const INCLUDE_CUES: [ItemType, RegExp][] = [
+  ["camera-body", /\b(camera body|camcorder|camera|bmpcc|pyxis|fx3|fx6|fx30|fx9|a7s?|a7r|a7c|a7iii|a7iv|a7v|venice|burano|alexa|ursa|c70|c300|c200|c500|c400|komodo|raptor|gh5|gh6|gh7|pocket cinema|z ?cam|gopro|osmo ?(?:action|pocket)|insta ?360)\b/i],
   ["lens", /\b(lens|lenses|\d{2,3}\s?-\s?\d{2,3}\s?mm|\d{2,3}\s?mm\b|prime|\bgm\b|g ?master|anamorphic|cine lens|zoom lens)\b/i],
   ["battery", /\b(v-?mount|v-?lock|np-?fz?100|np-?f\b|lp-?e6|d-?tap|spare batter|extra batter|\d+x?\s*batter|\bbatteries\b)\b/i],
   ["monitor", /\b(atomos|ninja|shinobi|smallhd|feelworld|field monitor|on-?camera monitor|\bmonitor\b)\b/i],
   ["gimbal", /\b(gimbal|ronin|\brs ?[234]\b|rsc|crane|zhiyun|moza)\b/i],
-  ["tripod", /\b(tripod|fluid head|monopod|\blegs\b|sticks)\b/i],
+  ["tripod", /\b(tripod(?!\s+screen)|fluid head|monopod|\blegs\b|sticks)\b/i],
   ["nd-filter", /\b(nd ?filter|variable nd|\bvnd\b|nd ?kit|nd ?set)\b/i],
   ["slider", /\b(slider|dolly)\b/i],
   ["light", /\b(aputure|godox|nanlite|amaran|forza|softbox|\bhmi\b|led (?:panel|light)|rgb ?tube|pavotube|key ?light|\blighting\b)\b/i],
   ["wireless-mic", /\b(wireless ?mic|wireless ?go|dji ?mic|lavalier|\blav\b|rode ?wireless|rode ?mic)\b/i],
+  ["boom-mic", /\b(boom ?mic|boom ?pole|shotgun mic|\bntg\b|\bmkh\b|hypercardioid)\b/i],
   ["recorder", /\b(field recorder|zoom h\d|tascam|mixpre)\b/i],
+  ["speaker", /\b(speaker|partybox|\bjbl\b|\bpa\b|sub ?woofer|sound ?system)\b/i],
+  ["dj-deck", /\b(\bdj\b|cdj|ddj|xdj|pioneer|turntable|rekordbox|serato)\b/i],
+  ["mixer", /\b(mixer|mixing desk|djm)\b/i],
+  ["headphones", /\b(headphone|headphones)\b/i],
+  ["projector", /\b(projector|nebula|epson|viewsonic)\b/i],
+  ["drone", /\b(drone|mavic|\bfpv\b|avata|air ?[23]|mini ?[34]|inspire|neo)\b/i],
   ["accessory", /\b(cage|matte ?box|follow ?focus|sd ?card|cf-?express|\bssd\b|memory ?card)\b/i],
 ];
+const MAJOR_BUNDLE_TYPES = new Set<ItemType>([
+  "camera-body", "lens", "gimbal", "tripod", "slider", "wireless-mic", "boom-mic",
+  "recorder", "speaker", "dj-deck", "mixer", "headphones", "light", "monitor",
+  "projector", "drone",
+]);
 export function bundleIncludes(title: string): ItemType[] {
   const t = String(title || "");
   const hero = deriveItemType(title);
   const found: ItemType[] = [];
-  for (const [it, re] of INCLUDE_CUES) if (it !== hero && re.test(t) && !found.includes(it)) found.push(it);
+  const cameraSearchText = modelGuardName(t);
+  for (const [it, re] of INCLUDE_CUES) {
+    const source = it === "camera-body" ? cameraSearchText : t;
+    if (it !== hero && re.test(source) && !found.includes(it)) found.push(it);
+  }
   return found;
 }
 

@@ -16,7 +16,7 @@ export function ChatAvatar({ sender, name, photo, className = "" }: { sender: st
   if (sender === "bot") return <span className={`${base} bg-emerald-300/15 text-emerald-200`}><GafferIcon /></span>;
   if (sender === "owner") return <span className={`${base} bg-white/10`}>
     {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img src="/db-cinema-logo-512.png" alt="DB Cinema team" className="h-full w-full object-contain" />
+    <img src="/brand/collab/db-cinema-aperture.png" alt="DB Cinema team" className="h-full w-full object-contain" />
   </span>;
   if (sender === "system") return <span className={`${base} border border-sky-200/20 bg-sky-300/10 text-sky-200`} aria-label="Automatic rental update"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4m8-4v4M4 10h16m-10 4 2 2 4-4"/></svg></span>;
   return <span className={`${base} rounded-full bg-violet-300/15 text-xs font-semibold text-violet-200`}>

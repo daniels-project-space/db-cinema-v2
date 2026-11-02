@@ -513,10 +513,8 @@ export function AssemblyShowcase({ listings, loading = false }: { listings: Prev
                 <BudgetDial total={budgetRaised ? examples.high.total : examples.low.total} position={budgetRaised ? highPosition : lowPosition} loading={loading} animateChanges={moving && !loading && !reducedMotion} />
                 <div className={styles.budgetCopy}>
                   <span className={styles.sceneKicker}>{budgetRaised ? "MORE ROOM" : "STARTING FIT"}</span>
-                  <strong>{loading ? "Matching live gear" : budgetRaised && hasHigherKit ? "Explore a higher budget" : "Balanced to the brief"}</strong>
+                  <strong>{loading ? "Matching live gear" : budgetRaised && hasHigherKit ? "Higher-budget example" : "Balanced example"}</strong>
                   <p>Example daily rates from the live catalogue.</p>
-                  <div className={styles.budgetTrack} style={{ "--budget-position": `${budgetRaised ? highPosition : lowPosition}%` } as CSSProperties}><i /><span /></div>
-                  <div className={styles.budgetEnds}><span>LEAN</span><span>MORE OPTIONS</span></div>
                 </div>
                 <div className={styles.budgetEcho} aria-hidden="true" />
               </div>

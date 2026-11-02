@@ -482,11 +482,19 @@ export default defineSchema({
     date: v.number(),
     verifiedBookingId: v.optional(v.id("bookings")),
     published: v.boolean(),
+    sourceRatingVerified: v.optional(v.boolean()),
+    sourceRating: v.optional(v.number()),
+    sourceRatingVerifiedAt: v.optional(v.number()),
+    sourcePhotoVerified: v.optional(v.boolean()),
+    sourcePhotoVerifiedAt: v.optional(v.number()),
     incentivized: v.optional(v.boolean()),encoreReward:v.optional(v.boolean()),prizeEntry:v.optional(v.boolean()),
   })
     .index("by_listing", ["listingId"])
     .index("by_booking", ["verifiedBookingId"])
-    .index("by_published", ["published"]),
+    .index("by_published", ["published"])
+    .index("by_published_source_rating_date", ["published", "source", "rating", "date"])
+    .index("by_source_hygglo_review_id", ["source", "hyggloReviewId"])
+    .index("by_published_source_verified_date", ["published", "source", "sourceRating", "sourceRatingVerified", "sourcePhotoVerified", "date"]),
 
   // ── Crew for hire (booked THROUGH us — first name only, keep the middleman) ──
   review_prize_evidence: defineTable({storageId:v.id("_storage"),accountId:v.id("accounts"),claimedAt:v.number()}).index("by_storage",["storageId"]),

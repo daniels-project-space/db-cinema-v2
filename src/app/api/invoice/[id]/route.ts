@@ -41,7 +41,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="DbCinema-${isReturn ? "return" : "receipt"}-${id.slice(-8)}.pdf"`,
+      "Content-Disposition": `inline; filename="DbCinema-${isReturn ? "return" : "invoice"}-${id.slice(-8)}.pdf"`,
       "Cache-Control": "private, no-store",
     },
   });
