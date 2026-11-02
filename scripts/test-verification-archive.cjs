@@ -22,7 +22,7 @@ const booking=put('bookings',{accountId:account._id,guestEmail:account.email,did
  await archive.finish.handler(ctx,{archiveId:job._id,generation:nextLease.generation,complete:true});
  await assert.rejects(()=>archive.assertVerificationArchive(ctx,booking),/fully archived/,'archive completion alone is not a direct byte proof');
  const proof=await archive.reuseReadCandidate.handler(ctx,{bookingId:booking._id});
- await archive.recordReadProof.handler(ctx,{archiveId:job._id,generation:proof.generation,proofGeneration:job.readProofGeneration,snapshot:JSON.stringify(proof.documents)});await archive.assertVerificationArchive(ctx,booking);
+ await archive.recordReadProof.handler(ctx,{archiveId:job._id,generation:proof.generation,proofGeneration:job.readProofGeneration,snapshot:load('convex/lib/verificationReadProof.ts').verificationReadSnapshot(proof.documents)});await archive.assertVerificationArchive(ctx,booking);
  await assert.rejects(()=>archive.downloadAccess.handler(ctx,{token:'bad',documentId:tables.get('verification_documents')[0]._id}),/unauthorized/);
  const listed=await archive.accountDocuments.handler(ctx,{token:'archive-test',accountId:account._id});assert.equal(listed[0].documents[0].storageId,undefined,'No public storage URL/id exposed in listing');
  assert.equal(listed[0].retention.status,'active-rental');assert.equal(listed[0].retention.activeRentals,1);assert.equal(listed[0].retention.expiresAt,null);

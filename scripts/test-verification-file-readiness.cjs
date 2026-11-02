@@ -36,7 +36,7 @@ const list=()=>archive.accountDocuments.handler(ctx,{token:process.env.ADMIN_TOK
  assert.equal(await archive.reportDisplayFailure.handler(ctx,{token:process.env.ADMIN_TOKEN,documentId:files[0]._id,generation}),false,'stale reports cannot repeatedly invalidate a newer archive');
  await archive.retry.handler(ctx,{token:process.env.ADMIN_TOKEN,archiveId:job._id});assert.equal(job.status,'complete');await assert.rejects(check,/fully archived/,'retry cannot reinstate approval before bytes are checked');
  const candidate=await archive.reuseReadCandidate.handler(ctx,{bookingId:booking._id});
- assert.equal(await archive.recordReadProof.handler(ctx,{archiveId:job._id,generation:candidate.generation,proofGeneration:job.readProofGeneration,snapshot:JSON.stringify(candidate.documents)}),true);await check();
+ assert.equal(await archive.recordReadProof.handler(ctx,{archiveId:job._id,generation:candidate.generation,proofGeneration:job.readProofGeneration,snapshot:load('convex/lib/verificationReadProof.ts').verificationReadSnapshot(candidate.documents)}),true);await check();
  booking.status='returned';booking.returnedAt=Date.now()-91*86400000;await assert.rejects(()=>archive.retry.handler(ctx,{token:process.env.ADMIN_TOKEN,archiveId:job._id}),/retention period/,'Expired healthy archives cannot be retried');
  await assert.rejects(()=>archive.retry.handler(ctx,{token:'wrong',archiveId:job._id}),/unauthorized/);
  console.log('PASS actual file readiness: missing storage, digest/size/MIME and owner/session binding, required address, private listing/download, complete archive repair, healthy no-op and expired/unauthorized denial. No provider writes.');

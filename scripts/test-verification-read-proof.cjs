@@ -1,12 +1,14 @@
 const assert=require('node:assert/strict');
 const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
+const {convexToJson,jsonToConvex}=require('convex/values');
+const {verificationReadSnapshot}=load('convex/lib/verificationReadProof.ts');
 const archive=load('convex/verificationArchive.ts'),worker=load('convex/verificationArchiveWorker.ts');
 const booking=put('bookings',{status:'confirmed',diditSessionId:'proof-session'});
 const job=put('verification_archives',{bookingId:booking._id,sessionId:booking.diditSessionId,status:'complete',attempts:0,dueAt:0,createdAt:Date.now()});
 const files=require('./lib/verificationFiles.cjs').seedVerificationFiles(put,job);
 const tasks=[],stored=new Map([[files[0].storageId,new Blob([Buffer.from([255,216,255,217])],{type:'image/jpeg'})],[files[1].storageId,new Blob([Buffer.from('%PDF-1.7\nQA fixture\n%%EOF')],{type:'application/pdf'})]]);
 const context={db,scheduler:{runAfter:async(_delay,ref,args)=>tasks.push({ref,args})}};
-const workerContext={storage:{get:async id=>stored.get(id)??null},runQuery:async(ref,args)=>archive[ref.split('.')[1]].handler(context,args),runMutation:async(ref,args)=>archive[ref.split('.')[1]].handler(context,args)};
+const workerContext={storage:{get:async id=>stored.get(id)??null},runQuery:async(ref,args)=>jsonToConvex(convexToJson(await archive[ref.split('.')[1]].handler(context,args))),runMutation:async(ref,args)=>archive[ref.split('.')[1]].handler(context,args)};
 (async()=>{
  job.readVerifiedAt=Date.now()-25*3600000;job.readProofDueAt=0;
  await assert.rejects(()=>archive.assertVerificationArchive(context,booking),/fully archived/,'expired byte proof fails closed');
@@ -16,7 +18,15 @@ const workerContext={storage:{get:async id=>stored.get(id)??null},runQuery:async
  assert.ok(job.readProofDueAt>Date.now()+3600000,'successful proof has bounded freshness and a scheduled refresh');
  job.readProofDueAt=0;await archive.scheduleReadProofs.handler(context,{});const second=tasks.at(-1).args;
  const candidate=await archive.readProofCandidate.handler(context,second);
- assert.equal(await archive.recordReadProof.handler(context,{archiveId:job._id,generation:candidate.generation,proofGeneration:first.proofGeneration,snapshot:JSON.stringify(candidate.documents)}),false,'stale proof workers cannot renew readiness');
+ const transported=jsonToConvex(convexToJson(candidate));
+ assert.notDeepEqual(Object.keys(transported.documents[0]),Object.keys(candidate.documents[0]),'real Convex serialization reorders object keys');
+ assert.equal(verificationReadSnapshot(transported.documents),verificationReadSnapshot(candidate.documents),'snapshot ignores transport object-key order');
+ for(const field of ['storageId','sha256','size','contentType']){
+  const changed=transported.documents.map(document=>({...document}));changed[0][field]=field==='size'?changed[0][field]+1:changed[0][field]+'-changed';
+  assert.equal(await archive.recordReadProof.handler(context,{archiveId:job._id,generation:candidate.generation,proofGeneration:second.proofGeneration,snapshot:verificationReadSnapshot(changed)}),false,`changed ${field} cannot renew proof`);
+ }
+ assert.equal(await archive.recordReadProof.handler(context,{archiveId:job._id,generation:candidate.generation,proofGeneration:second.proofGeneration,snapshot:verificationReadSnapshot([...transported.documents].reverse())}),false,'reordered document identities cannot renew proof');
+ assert.equal(await archive.recordReadProof.handler(context,{archiveId:job._id,generation:candidate.generation,proofGeneration:first.proofGeneration,snapshot:verificationReadSnapshot(candidate.documents)}),false,'stale proof workers cannot renew readiness');
  const savedAddress=stored.get(files[1].storageId);stored.delete(files[1].storageId);await worker.checkReadability.handler(workerContext,second);
  assert.equal(job.status,'complete');assert.equal(job.readVerifiedAt,undefined,'an unreadable byte immediately invalidates proof while retrying');await assert.rejects(()=>archive.assertVerificationArchive(context,booking),/fully archived/);
  stored.set(files[1].storageId,savedAddress);job.readProofDueAt=0;await archive.scheduleReadProofs.handler(context,{});await worker.checkReadability.handler(workerContext,tasks.at(-1).args);
