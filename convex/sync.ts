@@ -749,7 +749,7 @@ export const reconcileCameras = action({
     const items: any[] = await rmv2Query("items:listForReconcile", {});
     const owned = new Set<string>();
     for (const i of items) { const m = camModel(i.name); if (m) owned.add(m); }
-    const cams: any[] = await ctx.runQuery(api.catalog.byItemType, { types: ["camera-body"] });
+    const cams: any[] = await ctx.runQuery(internal.catalog.byItemTypeInternal, { types: ["camera-body"] });
     const phantom = cams.filter((x) => { const m = camModel(x.title); return m != null && !owned.has(m); });
     const ids = phantom.map((p) => p._id);
     if (apply && ids.length) await ctx.runMutation(internal.sync.suppressByIds, { ids, suppressed: true });

@@ -56,8 +56,10 @@ export const repriceLines = internalQuery({
 /** Public catalog reads. heroImage/gallery prefer migrated R2 over source. */
 
 const images = listingImages;
+const publicVisible = (listing: { title: string; active?: boolean; suppressed?: boolean; itemType?: string | null; marketingOnly?: boolean; marketingOnlySource?: "auto" | "admin" | "rental_manager" }) =>
+  !!listing.active && !listing.suppressed && !isMarketingOnly(listing);
 
-export const publicRevision = query({ args: {}, handler: async ctx => `v1:${await catalogRevision(ctx)}` });
+export const publicRevision = query({ args: {}, handler: async ctx => `v2:${await catalogRevision(ctx)}` });
 
 const card = (l: any) => ({
   _id: l._id,
@@ -95,7 +97,7 @@ export const allBasic = query({
       .query("listings")
       .withIndex("by_active", (q) => q.eq("active", true))
       .collect();
-    return ls.map((l) => ({ _id: l._id, title: l.title }));
+    return ls.filter(publicVisible).map((l) => ({ _id: l._id, title: l.title }));
   },
 });
 
@@ -113,7 +115,7 @@ export const bestSellers = query({
       .query("listings")
       .withIndex("by_active", (q) => q.eq("active", true))
       .collect();
-    const scored = ls.map((l: any) => {
+    const scored = ls.filter(publicVisible).map((l: any) => {
       const t = (l.title || "").toLowerCase();
       let base = 0;
       if (l.category === "Packages") base += 3;
@@ -144,20 +146,26 @@ export const adminListListings = query({
   },
 });
 
-export const byItemType = query({
-  args: { types: v.array(v.string()) },
-  handler: async (ctx, { types }) => {
+async function listingsForTypes(ctx: any, types: string[]) {
     const unique = [...new Set(types)];
     if (unique.length > 50) throw new Error("Too many equipment types requested");
     const groups = await Promise.all(unique.map(type => ctx.db.query("listings")
-      .withIndex("by_active_itemType", q => q.eq("active", true).eq("itemType", type as any))
+      .withIndex("by_active_itemType", (q: any) => q.eq("active", true).eq("itemType", type as any))
       .take(MAX_GAFFER_CANDIDATES_PER_TYPE + 1)));
-    if (groups.some(rows => rows.length > MAX_GAFFER_CANDIDATES_PER_TYPE)) {
+    if (groups.some((rows: any[]) => rows.length > MAX_GAFFER_CANDIDATES_PER_TYPE)) {
       throw new Error("The live catalogue exceeds the safe quote-candidate limit for an equipment type");
     }
-    const listings = groups.flat().sort((a,b) => a._creationTime - b._creationTime);
-    return await toPublicCards(ctx, listings);
-  },
+    return groups.flat().sort((a: any,b: any) => a._creationTime - b._creationTime);
+}
+
+export const byItemType = query({
+  args: { types: v.array(v.string()) },
+  handler: async (ctx, { types }) => toPublicCards(ctx, (await listingsForTypes(ctx, types)).filter(publicVisible)),
+});
+
+export const byItemTypeInternal = internalQuery({
+  args: { types: v.array(v.string()) },
+  handler: async (ctx, { types }) => toPublicCards(ctx, await listingsForTypes(ctx, types)),
 });
 
 export const listListings = query({
@@ -176,8 +184,7 @@ export const listListings = query({
     } else {
       rows = await ctx.db.query("listings").collect();
     }
-    // bookable items + display-only (marketing) items that have an image; hide truly-dead rows
-    rows = rows.filter((r) => r.active || (r.suppressed && images(r).length > 0));
+    rows = rows.filter(publicVisible);
     if (search) {
       const s = search.toLowerCase();
       rows = rows.filter((r) => r.title.toLowerCase().includes(s));
@@ -230,18 +237,18 @@ export const searchHomeGear = query({
     // A department-only request should browse its best gear, rather than
     // require the literal word "Audio" or "Cameras" in every product title.
     if (searchText && (!categoryName || specificWords.length > 0)) {
-      let candidates = await ctx.db
+      const candidates: Doc<"listings">[] = [];
+      let scanned = 0, searchLimited = false;
+      const search = ctx.db
         .query("listings")
         .withSearchIndex("search_title", (q) => {
           const searchFilter = q.search("title", searchText).eq("active", true);
           return categoryName ? searchFilter.eq("category", categoryName) : searchFilter;
-        })
-        .take(24);
-
-      if (specificWords.length) {
-        candidates = candidates.filter((listing) =>
-          specificWords.some((word) => listing.title.toLowerCase().includes(word)),
-        );
+        });
+      for await (const listing of search) {
+        if (++scanned > 100) { searchLimited = true; break; }
+        if (publicVisible(listing) && (!specificWords.length || specificWords.some(word => listing.title.toLowerCase().includes(word)))) candidates.push(listing);
+        if (candidates.length >= 24) break;
       }
 
       candidates.sort((a, b) => {
@@ -251,7 +258,8 @@ export const searchHomeGear = query({
           ((b as any).demandScore ?? 0) - ((a as any).demandScore ?? 0) ||
           a.title.localeCompare(b.title);
       });
-        matching = candidates.slice(0, 8);
+      matching = candidates.slice(0, 8);
+      if (!matching.length && searchLimited) throw Error("Too many search matches. Refine your search.");
     }
 
     if (matching.length) {
@@ -263,13 +271,20 @@ export const searchHomeGear = query({
     }
 
     if (categoryName) {
-      const alternatives = await ctx.db
+      const candidates = ctx.db
         .query("listings")
         .withIndex("by_category_active_demand", (q) =>
           q.eq("category", categoryName).eq("active", true),
         )
-        .order("desc")
-        .take(4);
+        .order("desc");
+      const alternatives: Doc<"listings">[] = [];
+      let scanned = 0, searchLimited = false;
+      for await (const candidate of candidates) {
+        if (++scanned > 100) { searchLimited = true; break; }
+        if (publicVisible(candidate)) alternatives.push(candidate);
+        if (alternatives.length >= 4) break;
+      }
+      if (!alternatives.length && searchLimited) throw Error("Too many category results. Refine your search.");
       return {
         mode: alternatives.length ? "category" as const : "empty" as const,
         category: categoryName,
@@ -364,7 +379,7 @@ export const allSlugs = query({
       .query("listings")
       .withIndex("by_active", (q) => q.eq("active", true))
       .collect();
-    return ls.map((l) => ({ slug: l.slug }));
+    return ls.filter(publicVisible).map((l) => ({ slug: l.slug }));
   },
 });
 
@@ -386,7 +401,7 @@ export const listingsByIds = query({
     const out: any[] = [];
     for (const id of new Set(ids)) {
       const l = await ctx.db.get(id);
-      if (l && l.active) out.push(l);
+      if (l && publicVisible(l)) out.push(l);
     }
     return await toPublicCards(ctx, out);
   },
@@ -399,8 +414,7 @@ export const getListingBySlug = query({
       .query("listings")
       .withIndex("by_slug", (q) => q.eq("slug", slug))
       .first();
-    // bookable items + display-only (marketing) items; truly-dead rows 404
-    if (!l || (!l.active && !l.suppressed)) return null;
+    if (!l || !publicVisible(l)) return null;
     const [publicListing] = await createPublicListingCopy(ctx)([l]);
     return {
       _id: publicListing._id,
@@ -437,7 +451,7 @@ export const categories = query({
       .withIndex("by_active", (q) => q.eq("active", true))
       .collect();
     const counts = new Map<string, number>();
-    for (const r of rows) counts.set(r.category, (counts.get(r.category) ?? 0) + 1);
+    for (const r of rows.filter(publicVisible)) counts.set(r.category, (counts.get(r.category) ?? 0) + 1);
     return Array.from(counts.entries())
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count);
@@ -488,12 +502,14 @@ export const recommendations = query({
 
 // ── R2 image migration helpers ────────────────────────────────
 export const listForMigration = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.optional(v.string()) },
+  handler: async (ctx, { token }) => {
+    const includeHidden = !!token && checkAdminToken(token);
     const rows = await ctx.db.query("listings").collect();
     return rows
       .filter(
         (l) =>
+          (includeHidden || publicVisible(l)) &&
           (l.sourceImages?.length ?? 0) > 0 && (l.r2Images?.length ?? 0) === 0,
       )
       .map((l) => ({
@@ -537,7 +553,7 @@ export const featured = query({
       .query("listings")
       .withIndex("by_active", (q) => q.eq("active", true))
       .take(300);
-    const withImg = rows.filter((r) => images(r).length > 0);
+    const withImg = rows.filter((r) => publicVisible(r) && images(r).length > 0);
     withImg.sort((a, b) => (b.pricing?.daily ?? 0) - (a.pricing?.daily ?? 0));
     return await toPublicCards(ctx, withImg.slice(0, limit ?? 12));
   },

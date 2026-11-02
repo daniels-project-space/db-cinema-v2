@@ -40,7 +40,7 @@ const discovery=h.load('convex/catalog.ts').discovery;
  assert.deepEqual(gearSearchIntent('Sony FX3',departments).categories,['Cameras']);
  const remusTitles=['Blazar Remus 100mm T2.8 1.5× Anamorphic Lens','Blazar Remus 65mm T2 1.5× Anamorphic Lens','Blazar Remus 45mm T2 1.5× PL Anamorphic Lens','Blazar Remus 45mm, 65mm and 100mm Anamorphic Lens Set','BLAZAR Remus 33mm T1.8 · 1.5× Anamorphic Prime','Blazar Remus 1.5× Anamorphic Four-Lens Set · PL','Blackmagic Cinema Camera 6K Full Frame · BLAZAR Remus Anamorphic Kit'];
  const searchRows=remusTitles.map((title,index)=>({_id:`remus-${index}`,active:true,slug:`remus-${index}`,title,category:index===6?'Cameras':'Lenses',itemType:index===6?'camera-body':'lens',pricing:{daily:30},r2Images:['https://images.example/remus.jpg'],components:[],demandScore:100-index}));
- const searchDb={query(table){assert.equal(table,'listings');return{withSearchIndex(name,build){assert.equal(name,'search_title');const filter={text:'',values:{},search(field,text){assert.equal(field,'title');this.text=text;return this;},eq(field,value){this.values[field]=value;return this;}};build(filter);return{async take(limit){const terms=filter.text.toLowerCase().split(/\s+/);return searchRows.filter(row=>(!filter.values.active||row.active===filter.values.active)&&(!filter.values.category||row.category===filter.values.category)&&terms.every(term=>row.title.toLowerCase().includes(term))).slice(0,limit);}};}};}};
+ const searchDb={query(table){assert.equal(table,'listings');return{withSearchIndex(name,build){assert.equal(name,'search_title');const filter={text:'',values:{},search(field,text){assert.equal(field,'title');this.text=text;return this;},eq(field,value){this.values[field]=value;return this;}};build(filter);return{async *[Symbol.asyncIterator](){const terms=filter.text.toLowerCase().split(/\s+/);yield* searchRows.filter(row=>(!filter.values.active||row.active===filter.values.active)&&(!filter.values.category||row.category===filter.values.category)&&terms.every(term=>row.title.toLowerCase().includes(term)));}};}};}};
  const searchHomeGear=h.load('convex/catalog.ts').searchHomeGear;
  for(const query of ['Blazar Remus','Remus lenses']){
    const intent=gearSearchIntent(query,departments);
@@ -51,6 +51,13 @@ const discovery=h.load('convex/catalog.ts').discovery;
    assert(result.listings.some(item=>item.title.includes('65mm T2')));
    assert(result.listings.every(item=>item.category==='Lenses'));
  }
+ for(let index=0;index<35;index++)searchRows.push({_id:`hidden-search-${index}`,slug:`hidden-search-${index}`,title:`Uniquefixture Lens ${index}`,category:'Lenses',active:true,marketingOnly:true,pricing:{daily:10}});
+ searchRows.push({_id:'visible-search',slug:'visible-search',title:'Uniquefixture Lens owned',category:'Lenses',active:true,marketingOnly:false,marketingOnlySource:'admin',pricing:{daily:10}});
+ const sparse=await searchHomeGear.handler({db:searchDb},{search:'Uniquefixture',category:'Lenses'});
+ assert.deepEqual(sparse.listings.map(item=>item._id),['visible-search'],'Hidden matches do not displace later eligible search results');
+ for(let index=0;index<101;index++)searchRows.push({_id:`limited-search-${index}`,slug:`limited-search-${index}`,title:`Saturatedfixture Lens ${index}`,category:'Lenses',active:true,marketingOnly:true,pricing:{daily:10}});
+ searchRows.push({_id:'limited-owned',slug:'limited-owned',title:'Saturatedfixture Lens owned',category:'Lenses',active:true,marketingOnly:false,marketingOnlySource:'admin',pricing:{daily:10}});
+ await assert.rejects(searchHomeGear.handler({db:searchDb},{search:'Saturatedfixture',category:'Lenses'}),/Refine your search/,'A bounded hidden-only prefix must not falsely report that no eligible gear exists');
  assert(fs.readFileSync('src/components/HomeGearSearch.tsx','utf8').includes('index < 8'),'home search should retain the eight-card carousel limit');
  const guides=h.load('src/lib/guides.ts').GUIDES;for(const c of categories)assert(guides.some(g=>g.slug===c.guide));
  const detail=fs.readFileSync('src/app/gear/[slug]/page.tsx','utf8');assert(!/availability\s*:/.test(detail),'date-dependent rental stock must not be inferred from whether a listing is bookable');assert(!detail.includes('aggregateRating'),'business-wide ratings must not be labelled as product reviews');assert(!detail.includes('priceValidUntil'));assert(detail.includes('initialListing={l}'));assert(detail.includes('notFound()'));assert(detail.includes('LeaseOut'));

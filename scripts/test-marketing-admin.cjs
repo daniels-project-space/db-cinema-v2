@@ -10,11 +10,12 @@ const lines=l=>({items:[{listingId:l._id,start,end}]});
 const save=(l,marketingOnly,token=process.env.ADMIN_TOKEN,expectedUpdatedAt=l.marketingOnlyUpdatedAt)=>admin.save.handler(ctx,{token,changes:[{listingId:l._id,marketingOnly,expectedUpdatedAt}]});
 const importItem=(l,title=l.title)=>({hyggloProductId:l===owned?10:20,stockMappingStatus:'complete',stockComponents:[{masterItemId:'fixture-camera',name:'FX3',qty:1,quantityOwned:10,active:true,replacementCost:1000}],slug:l.slug,title,category:'Cameras',itemType:'camera-body',sizeScore:1,weightKg:1,sourceImages:[],pricing:{daily:40},depositAmount:1000,minimumRentalDays:1,unavailableDates:[]});
 (async()=>{
+ assert.equal(await catalog.publicRevision.handler(ctx,{}),'v2:0');
  assert.deepEqual(await admin.list.handler(ctx,{token:'wrong'}),{authorized:false,items:[]});await assert.rejects(save(owned,true,'wrong'),/unauthorized/);assert.equal(owned.marketingOnly,undefined);
- const seed=await admin.seedIdentified.handler(ctx,{});assert.equal(seed.tagged,1);assert.equal(marketing.marketingOnly,true);assert.equal(marketing.marketingOnlySource,'auto');assert.equal((await admin.seedIdentified.handler(ctx,{})).updated,0);
+ const seed=await admin.seedIdentified.handler(ctx,{});assert.equal(seed.tagged,1);assert.equal(marketing.marketingOnly,true);assert.equal(marketing.marketingOnlySource,'auto');const revision=await catalog.publicRevision.handler(ctx,{});assert.equal(revision,'v2:1');assert.equal((await admin.seedIdentified.handler(ctx,{})).updated,0);assert.equal(await catalog.publicRevision.handler(ctx,{}),revision,'Unchanged automatic tags do not invalidate public caches');
  assert.equal((await availability.forCart.handler(ctx,lines(owned)))[owned._id].ok,true);
- await save(owned,true);assert.equal((await availability.forCart.handler(ctx,lines(owned)))[owned._id].ok,false);await assert.rejects(assertRentalInventory(ctx,[{listingId:owned._id,start,end,qty:1}]),/no longer available/);
- const choices=await replacements.forCart.handler(ctx,{items:[{key:'owned',listingId:owned._id,start,end}]});assert(choices.owned.length>0);assert(!choices.owned.some(c=>c.listingId===marketing._id));assert((await catalog.listListings.handler(ctx,{})).some(l=>l._id===owned._id),'Tagging must preserve browse selection');
+ await save(owned,true);assert.equal(await catalog.publicRevision.handler(ctx,{}),'v2:2','Visibility and cache version update together');assert.equal((await availability.forCart.handler(ctx,lines(owned)))[owned._id].ok,false);await assert.rejects(assertRentalInventory(ctx,[{listingId:owned._id,start,end,qty:1}]),/no longer available/);
+ const choices=await replacements.forCart.handler(ctx,{items:[{key:'owned',listingId:owned._id,start,end}]});assert(choices.owned.length>0);assert(!choices.owned.some(c=>c.listingId===marketing._id));assert(!(await catalog.listListings.handler(ctx,{})).some(l=>l._id===owned._id),'Tagged gear must be hidden from public browse');
  const stamp=owned.marketingOnlyUpdatedAt;await assert.rejects(admin.save.handler(ctx,{token:process.env.ADMIN_TOKEN,changes:[{listingId:alt._id,marketingOnly:true,expectedUpdatedAt:alt.marketingOnlyUpdatedAt},{listingId:owned._id,marketingOnly:false,expectedUpdatedAt:stamp-1}]}),/another session/);assert.equal(alt.marketingOnly,false,'Batch validation cannot partially save');
  await save(marketing,false);assert.equal((await availability.forCart.handler(ctx,lines(marketing)))[marketing._id].ok,true,'Explicit owner untag overrides automatic family classification');
  await sync.applyCatalog.handler(ctx,{items:[importItem(owned),importItem(marketing)]});assert.equal(owned.marketingOnly,true);assert.equal(owned.marketingOnlySource,'admin');assert.equal(marketing.marketingOnly,false);assert.equal(marketing.marketingOnlySource,'admin');
@@ -41,11 +42,13 @@ const importItem=(l,title=l.title)=>({hyggloProductId:l===owned?10:20,stockMappi
  await assert.rejects(admin.finishSave.handler(ctx,{requestId,results:[{productId:31,marketingOnly:true,mode:'manual',updatedAt:501}]}),/does not match/);
  assert.equal(rmListing.marketingOnly,true,'Invalid manager receipts never alter the listing');
  assert.deepEqual(await admin.finishSave.handler(ctx,{requestId,results:[{productId:31,marketingOnly:false,mode:'manual',updatedAt:501}]}),{saved:1});
+ const settledRevision=await catalog.publicRevision.handler(ctx,{});
  assert.deepEqual(await admin.finishSave.handler(ctx,{requestId,results:[]}),{saved:1},'A confirmed result is replayed safely');
  const pushed=await sync.applyManagerMarketingTags.handler(ctx,{changes:[{productId:31,marketingOnly:false,mode:'manual',updatedAt:501}]});
  assert.deepEqual(pushed,{protocolVersion:1,acknowledged:1,missing:0,stale:0});assert.equal(rmListing.marketingOnly,false);assert.equal((await availability.forCart.handler(ctx,lines(rmListing)))[rmListing._id].ok,true,'The live tag update changes cart availability');
  assert.deepEqual(await sync.applyManagerMarketingTags.handler(ctx,{changes:[{productId:31,marketingOnly:false,mode:'manual',updatedAt:501}]}),{protocolVersion:1,acknowledged:1,missing:0,stale:0},'Push retries are idempotent');
  assert.deepEqual(await sync.applyManagerMarketingTags.handler(ctx,{changes:[{productId:31,marketingOnly:true,mode:'manual',updatedAt:500}]}),{protocolVersion:1,acknowledged:0,missing:0,stale:1},'A delayed older push cannot undo a newer tag');
+ assert.equal(await catalog.publicRevision.handler(ctx,{}),settledRevision,'Duplicate and stale receipts do not churn cache revisions');
  assert.equal(rmListing.marketingOnly,false);assert.deepEqual(await sync.applyManagerMarketingTags.handler(ctx,{changes:[{productId:999,marketingOnly:true,mode:'manual',updatedAt:501}]}),{protocolVersion:1,acknowledged:0,missing:1,stale:0});
  const bridged=put('listings',{...owned,_id:'listings-manager-bridge',hyggloProductId:321,marketingOnly:false,marketingOnlySource:'rental_manager',marketingOnlyUpdatedAt:10,marketingOnlyMode:'manual'});
  const oldFetch=global.fetch,oldUrl=process.env.RMV2_WEBHOOK_URL,oldSecret=process.env.RMV2_MARKETING_WRITE_SECRET;
@@ -59,5 +62,5 @@ const importItem=(l,title=l.title)=>({hyggloProductId:l===owned?10:20,stockMappi
   assert.deepEqual(await admin.saveThroughManager.handler(bridgeCtx,request),{saved:1});assert.equal(attempts,2,'A completed website operation does not call the manager again');
  } finally {global.fetch=oldFetch;if(oldUrl===undefined)delete process.env.RMV2_WEBHOOK_URL;else process.env.RMV2_WEBHOOK_URL=oldUrl;if(oldSecret===undefined)delete process.env.RMV2_MARKETING_WRITE_SECRET;else process.env.RMV2_MARKETING_WRITE_SECRET=oldSecret;}
  assert(tables.get('admin_audit_log').some(l=>l.success&&l.fn==='marketingAdmin.save'));
- console.log('PASS marketing admin: protected reads/writes, seeded aliases, preserved browse selection, cart/checkout guards and replacements, untag/reset, conflict-safe batches, import persistence and new-listing auto-tagging.');
+ console.log('PASS marketing admin: protected reads/writes, seeded aliases, hidden public selection, cart/checkout guards and replacements, untag/reset, conflict-safe batches, import persistence and new-listing auto-tagging.');
 })().catch(e=>{console.error(e);process.exitCode=1});
