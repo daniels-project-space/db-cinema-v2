@@ -80,6 +80,11 @@ function signed(event) {
   assert.equal(await webhook.handler(ctx, signed({...event, event_id: 'event-expired', status: 'Expired'})), true);
   assert.equal(result.status, 'requires_input');
   assert.match(result.note, /link expired/);
+  const failureCalls=[];const broken={runMutation:async(ref,args)=>{failureCalls.push({ref,args});if(ref==='bookings:setDiditResult')throw Error('private provider detail');return true;}};
+  assert.equal(await webhook.handler(broken,signed(event)),'processing_error','a signed callback with an internal failure is retryable, not malformed');
+  assert.equal(failureCalls[1].ref,'bookings:flagDiditProcessingFailure');assert.equal(failureCalls[1].args.sessionId,event.session_id);
+  failureCalls.length=0;assert.equal(await webhook.handler(broken,{...signed(event),signature:'0'.repeat(64)}),false);assert.equal(failureCalls.length,0,'untrusted callbacks cannot trigger owner alerts');
+  failureCalls.length=0;assert.equal(await webhook.handler(broken,signed({...event,status:'Provider Added Status'})),'processing_error');assert.equal(failureCalls[0].ref,'bookings:flagDiditProcessingFailure','unknown signed statuses are surfaced instead of silently acknowledged');
 
   for (const idVerifyStatus of ['manual_review', 'rejected']) {
     let contactedProvider = false;
@@ -264,9 +269,13 @@ function signed(event) {
       runMutation: async (ref,args) => { reconciled.push({ref,args}); return true; },
     },{});
     const recovered = reconciled.find(x=>x.ref==='bookings:setDiditResult');
+    assert.equal(recovered.args.reconciliation,true,'periodic reads are distinguished from document-change events');
     assert.equal(recovered.args.status,'verified','missed webhooks are recovered from the provider decision');
     assert.deepEqual(recovered.args.poaPostcodes,['SW1A 1AA']);
     assert.ok(reconciled.some(x=>x.ref==='bookings:markDiditReconciled'));
+    reconciled.length=0;global.fetch=async()=>new Response('',{status:503});
+    await assert.rejects(()=>reconcileOpenSessions.handler({runQuery:async()=>[{bookingId:'booking-1',sessionId:'session-1',email:'renter@example.invalid'}],runMutation:async(ref,args)=>{reconciled.push({ref,args});return true;}},{}),/could not be reconciled/);
+    assert(reconciled.some(x=>x.ref==='bookings:flagDiditProcessingFailure'),'a failed reconciliation creates an owner alert');assert(reconciled.some(x=>x.ref==='bookings:markDiditReconciled'),'failed cases still rotate fairly');
   } finally { global.fetch = savedFetch; }
   const workflow = { workflow_id: 'workflow-1', status: 'published', version: 1,
     features: 'OCR + LIVENESS + FACE_MATCH + PROOF_OF_ADDRESS', max_price: 0.5 };

@@ -29,13 +29,15 @@ export default defineSchema({
     emailDeliveryId:v.optional(v.id("rental_email_deliveries")),lastError:v.optional(v.string()),
   }).index("by_booking",["bookingId"]).index("by_due",["dueAt"]),
   rental_email_deliveries: defineTable({
-    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("cancellation_choice")),
-    key: v.string(), sequence: v.number(), verificationStatus: v.optional(v.string()),
+    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("cancellation_choice"),v.literal("time_change")),
+    key: v.string(), sequence: v.number(), verificationStatus: v.optional(v.string()), verificationSchedule:v.optional(v.string()),
     mode: v.optional(v.string()), refundAmount: v.optional(v.number()), creditAmount: v.optional(v.number()),
+    changeDetail:v.optional(v.string()), changeSchedule:v.optional(v.string()),
     state: v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("skipped"),v.literal("failed")),
     attempts: v.number(), generation: v.number(), dueAt: v.number(), createdAt: v.number(), updatedAt: v.number(), sentAt: v.optional(v.number()),
     lastError: v.optional(v.string()), payloadStorageId:v.optional(v.id("_storage")), recipientEmail:v.optional(v.string()), preparedPromotional:v.optional(v.boolean()),preparedCleanReturnRequired:v.optional(v.boolean()),
   }).index("by_key",["key"]).index("by_booking_kind",["bookingId","kind"]).index("by_state_due",["state","dueAt"]),
+  rental_time_changes:defineTable({bookingId:v.id("bookings"),requestId:v.string(),fingerprint:v.string(),detail:v.string(),createdAt:v.number()}).index("by_request",["bookingId","requestId"]),
   rental_cancellations: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")),
     adminReason: v.optional(v.string()), legacy: v.boolean(), status: v.union(v.literal("processing"), v.literal("attention"), v.literal("succeeded")),
     receipts: v.array(cancellationReceipt), generation: v.number(), leaseUntil: v.number(), retryAt: v.optional(v.number()), updatedAt: v.number(),
@@ -46,7 +48,7 @@ export default defineSchema({
     details: v.string(), status: v.union(v.literal("open"), v.literal("closed")),
     openedAt: v.number(), closedAt: v.optional(v.number()), resolution: v.optional(v.string()),
   }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]),
-  verification_archives: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), email: v.string(), source: v.optional(v.union(v.literal("didit"),v.literal("drone"))), status: v.string(), attempts: v.number(), dueAt: v.number(), createdAt: v.number(), completedAt: v.optional(v.number()), error: v.optional(v.string()), retentionHoldReason: v.optional(v.string()), deletedAt: v.optional(v.number()),generation:v.optional(v.number()),leaseUntil:v.optional(v.number()) }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]).index("by_status_due", ["status", "dueAt"]),
+  verification_archives: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), email: v.string(), source: v.optional(v.union(v.literal("didit"),v.literal("drone"))), status: v.string(), attempts: v.number(), dueAt: v.number(), createdAt: v.number(), completedAt: v.optional(v.number()), error: v.optional(v.string()), retentionHoldReason: v.optional(v.string()), deletedAt: v.optional(v.number()),generation:v.optional(v.number()),leaseUntil:v.optional(v.number()), supplementalStatus:v.optional(v.string()),supplementalAttempts:v.optional(v.number()),supplementalDueAt:v.optional(v.number()),supplementalGeneration:v.optional(v.number()),supplementalLeaseUntil:v.optional(v.number()),supplementalError:v.optional(v.string()) }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]).index("by_status_due", ["status", "dueAt"]).index("by_supplemental_due",["supplementalStatus","supplementalDueAt"]),
   verification_documents: defineTable({ archiveId: v.id("verification_archives"), bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), kind: v.string(), storageId: v.id("_storage"), sha256: v.string(), size: v.number(), contentType: v.string(), savedAt: v.number() }).index("by_archive", ["archiveId"]).index("by_account", ["accountId"]),
   // ── Layer 1: physical stock (quantity truth) ──────────────────
   inventory_units: defineTable({
@@ -732,9 +734,13 @@ export default defineSchema({
     managerStatus: v.optional(v.string()), managerAttempts: v.optional(v.number()),
     managerDueAt: v.optional(v.number()), managerGeneration: v.optional(v.number()),
     managerPayload: v.optional(v.string()), managerLastError: v.optional(v.string()),
+    telegramStatus: v.optional(v.string()), telegramAttempts: v.optional(v.number()),
+    telegramDueAt: v.optional(v.number()), telegramGeneration: v.optional(v.number()),
+    telegramLastError: v.optional(v.string()), telegramMessageId: v.optional(v.number()),
   }).index("by_event", ["eventKey"]).index("by_read_created", ["read", "createdAt"])
     .index("by_account_booking_read", ["accountId", "bookingId", "read"])
-    .index("by_manager_due", ["managerStatus", "managerDueAt"]),
+    .index("by_manager_due", ["managerStatus", "managerDueAt"])
+    .index("by_telegram_due", ["telegramStatus", "telegramDueAt"]),
   admin_push_deliveries: defineTable({
     notificationId: v.id("admin_notifications"), subscriptionId: v.id("admin_push_subscriptions"),
     status: v.string(), attempts: v.number(), nextAttemptAt: v.number(), updatedAt: v.number(),

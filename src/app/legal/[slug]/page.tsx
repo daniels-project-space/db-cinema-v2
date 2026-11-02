@@ -5,6 +5,7 @@ export const dynamic="force-dynamic";
 import { LEGAL_VERSION } from "@/lib/legal";
 
 import { LEGAL_DOCS as DOCS, LEGAL_ARCHIVE } from "../../../../shared/legalDocuments";
+import { CURRENT_PRIVACY_NOTICE, CURRENT_PRIVACY_NOTICE_VERSION } from "../../../../shared/currentPrivacyNotice";
 
 export function generateStaticParams() {
   return Object.keys(DOCS).map((slug) => ({ slug }));
@@ -20,7 +21,8 @@ export default async function LegalPage({
   const { slug } = await params;
   const selected=await searchParams;
   const version=selected.version??await currentLegalVersion();
-  const doc = version === LEGAL_VERSION ? DOCS[slug] : LEGAL_ARCHIVE[version]?.[slug];
+  const currentPrivacy = slug === "privacy" && !selected.version;
+  const doc = currentPrivacy ? CURRENT_PRIVACY_NOTICE : version === LEGAL_VERSION ? DOCS[slug] : LEGAL_ARCHIVE[version]?.[slug];
   if (!doc) notFound();
   return (
     <>
@@ -31,7 +33,7 @@ export default async function LegalPage({
           <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
             {doc.title}
           </h1>
-          <p className="mt-2 font-mono text-xs text-white/30">Last updated {doc.updated} · Agreement version {version}</p>
+          <p className="mt-2 font-mono text-xs text-white/30">Last updated {doc.updated} · {currentPrivacy ? `Privacy notice ${CURRENT_PRIVACY_NOTICE_VERSION}` : `Agreement version ${version}`}</p>
         </div>
         <div className="mt-10 flex flex-col gap-7">
           {doc.sections.map((s, i) => (

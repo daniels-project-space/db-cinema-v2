@@ -30,7 +30,7 @@ const list=()=>archive.accountDocuments.handler(ctx,{token:process.env.ADMIN_TOK
  }
  job.accountId='foreign-account';files.forEach(f=>f.accountId=job.accountId);await assert.rejects(check,/fully archived/,'An internally consistent archive cannot be assigned to another rental account');job.accountId=account._id;files.forEach(f=>f.accountId=account._id);await check();
  await db.delete(files[1]._id);await assert.rejects(check,/fully archived/,'Identity alone cannot replace required proof of address');put('verification_documents',files[1]);await check();
- booking.status='returned';booking.returnedAt=Date.now()-31*86400000;await assert.rejects(()=>archive.retry.handler(ctx,{token:process.env.ADMIN_TOKEN,archiveId:job._id}),/retention period/,'Expired healthy archives cannot be retried');
+ booking.status='returned';booking.returnedAt=Date.now()-91*86400000;await assert.rejects(()=>archive.retry.handler(ctx,{token:process.env.ADMIN_TOKEN,archiveId:job._id}),/retention period/,'Expired healthy archives cannot be retried');
  await assert.rejects(()=>archive.retry.handler(ctx,{token:'wrong',archiveId:job._id}),/unauthorized/);
  console.log('PASS actual file readiness: missing storage, digest/size/MIME and owner/session binding, required address, private listing/download, complete archive repair, healthy no-op and expired/unauthorized denial. No provider writes.');
 })().catch(e=>{console.error(e);process.exitCode=1});

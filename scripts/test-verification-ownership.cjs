@@ -28,7 +28,7 @@ process.env.ADMIN_TOKEN = 'ownership-test';
   assert.equal((await archive.accountDocuments.handler(ctx, { token: 'ownership-test', accountId: account._id }))[0].documents[0].id, copy._id, 'Existing copies become visible through the actual account query');
   await claims.ensurePaidBookingAccount(ctx, booking);
   assert.equal(tables.get('verification_archives').length, 1, 'Payment replay creates no extra archive');
-  await archive.queueVerificationArchive(ctx,booking);const lateLease=await archive.claim.handler(ctx,{archiveId:saved._id});
+  await archive.queueVerificationArchive(ctx,booking);assert.equal(saved.status,'complete','a routine check does not reopen a complete archive');await archive.queueVerificationArchive(ctx,booking,true);const lateLease=await archive.claim.handler(ctx,{archiveId:saved._id});
   await archive.save.handler(ctx, { archiveId: saved._id,generation:lateLease.generation, kind: 'address-0', storageId: 'late-worker-file', sha256: 'late-worker-hash', size: 90, contentType: 'image/png' });
   assert.equal(tables.get('verification_documents')[1].accountId, account._id, 'A capture finishing after account creation uses current archive ownership');
 

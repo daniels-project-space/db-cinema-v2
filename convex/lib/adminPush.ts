@@ -22,9 +22,12 @@ export async function queueOwnerNotification(ctx: any, args: {
   const existing = await ctx.db.query("admin_notifications").withIndex("by_event", (q: any) => q.eq("eventKey", args.eventKey)).first();
   if (existing) return existing._id;
   const managerEnabled = !!process.env.RMV2_WEBHOOK_URL && !!process.env.RMV2_WEBHOOK_SECRET;
+  const directTelegram = managerEnabled && ["renter_message", "human_request", "verification_archive", "verification_failure", "email_failure"].includes(args.kind);
   const id = await ctx.db.insert("admin_notifications", { ...args, createdAt: Date.now(), read: false,
-    ...(managerEnabled ? { managerStatus: "queued", managerAttempts: 0, managerDueAt: Date.now() } : {}) });
+    ...(managerEnabled ? { managerStatus: "queued", managerAttempts: 0, managerDueAt: Date.now() } : {}),
+    ...(directTelegram ? { telegramStatus: "queued", telegramAttempts: 0, telegramDueAt: Date.now() } : {}) });
   if (managerEnabled) await ctx.scheduler.runAfter(0, internal.managerNotifications.deliver, { notificationId: id });
+  if (directTelegram) await ctx.scheduler.runAfter(0, internal.ownerTelegram.deliver, { notificationId: id });
   const subscriptions = await ctx.db.query("admin_push_subscriptions").withIndex("by_enabled", (q: any) => q.eq("enabled", true)).collect();
   for (const subscription of subscriptions) {
     if (!ownerPushAllowed(subscription,args.kind)) continue;

@@ -1,3 +1,7 @@
+import { postRentalMessage } from "./rentalChat";
+import { accountForRental } from "./rentalAccount";
+import { bookingStockLines } from "../../shared/rentalWindow";
+
 /** Rental risk policy, separate from a Collective membership badge. */
 export const VERIFICATION_REUSE_DAYS = 90;
 export function verificationDetail(value: unknown) {
@@ -12,7 +16,7 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
   if (previous === status) return;
   const booking = await ctx.db.get(bookingId);
   if (!booking || !["confirmed", "active"].includes(booking.status)) return;
-  const account = await ctx.db.query("accounts").withIndex("by_email", (q: any) => q.eq("email", (booking.guestEmail ?? "").trim().toLowerCase())).first();
+  const account = await accountForRental(ctx, booking);
   if (!account) return;
   const text: Record<string, string> = {
     verified: "Your identity and address verification is approved for this rental.",
@@ -21,6 +25,14 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
     rejected: "Your verification has not been approved. Contact the team here before arranging handover.",
   };
   if (!text[status]) return;
-  const { postRentalMessage } = await import("./rentalChat");
-  await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system", text: text[status], meta: { kind: "verification_update", status } });
+  let message=text[status];
+  if(status==="verified"){
+    const settings=await ctx.db.query("settings").first();
+    if(booking.fulfilment==="pickup"){
+      const schedule=bookingStockLines(booking).map((line:any)=>`${line.title}: ${new Date(line.start).toISOString().slice(0,10)}${line.pickupTime ? ` at ${line.pickupTime}` : " (time to be confirmed)"}`).join("\n");
+      message+=`${settings?.businessAddress ? `\n\nPickup location:\n${settings.businessAddress}` : "\n\nThe team will confirm the pickup location here."}${schedule ? `\n\nPickup schedule (London time):\n${schedule}` : ""}`;
+    }
+    message+="\n\nHandover remains subject to any remaining checks and approval. Message us here if you need help.";
+  }
+  await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system", text: message, meta: { kind: "verification_update", status } });
 }

@@ -14,6 +14,7 @@ const subscription={deviceId:'fixture-device',endpoint:'https://fcm.googleapis.c
 async function message(sender='owner',bookingId=rental._id){await postRentalMessage(ctx,{accountId:a._id,bookingId,sender,text:'Private customer document and charge details'});return tables.get('renter_push_deliveries')?.at(-1);}
 async function enable(){await notifications.subscribe.handler(ctx,{token:'a-token',...subscription});}
 (async()=>{
+ const manifest=JSON.parse(fs.readFileSync('public/account.webmanifest','utf8'));assert.equal(manifest.start_url,'/account#chat');assert.equal(manifest.scope,'/account');
  await assert.rejects(notifications.device.handler(ctx,{token:'bad',deviceId:subscription.deviceId}));
  await assert.rejects(notifications.subscribe.handler(ctx,{token:'a-token',...subscription,endpoint:'https://localhost/private'}));
  await enable();await enable();assert.equal(tables.get('renter_push_subscriptions').length,1);
@@ -26,6 +27,7 @@ async function enable(){await notifications.subscribe.handler(ctx,{token:'a-toke
  await notifications.preferences.handler(ctx,{token:'a-token',deviceId:subscription.deviceId,messagesEnabled:false,bookingEnabled:true});const count=tables.get('renter_push_deliveries').length;await message();assert.equal(tables.get('renter_push_deliveries').length,count);
  const update=await message('system');assert.equal(tables.get('renter_notifications').at(-1).kind,'booking');await delivery.deliver.handler(ctx,{deliveryId:update._id});assert.equal(update.status,'sent');
  await notifications.preferences.handler(ctx,{token:'a-token',deviceId:subscription.deviceId,messagesEnabled:true,bookingEnabled:true});
+ const bot=await message('bot');assert.equal(tables.get('renter_notifications').at(-1).kind,'messages');await delivery.deliver.handler(ctx,{deliveryId:bot._id});assert.equal(bot.status,'sent');assert.ok(!JSON.stringify(sent.at(-1)).includes('Private customer'));
  const read=await message();const thread=tables.get('chat_threads').find(t=>t.bookingId===rental._id);await db.patch(thread._id,{renterReadAt:tables.get('renter_notifications').at(-1).messageAt});await delivery.deliver.handler(ctx,{deliveryId:read._id});assert.equal(read.status,'skipped');
  const retry=await message();failure=503;await delivery.deliver.handler(ctx,{deliveryId:retry._id});assert.equal(retry.status,'retry');assert.equal(retry.lastError,'Push delivery failed (503)');const stale=retry.claimId;await db.patch(retry._id,{nextAttemptAt:0});failure=0;await delivery.deliver.handler(ctx,{deliveryId:retry._id});assert.equal(retry.status,'sent');await notifications.finish.handler(ctx,{deliveryId:retry._id,claimId:stale,sent:false,expired:true});assert.equal(retry.status,'sent');
  const renewed=await message();await enable();await delivery.deliver.handler(ctx,{deliveryId:renewed._id});assert.equal(renewed.status,'skipped','subscription generation change invalidates old queued work');

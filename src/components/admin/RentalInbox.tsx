@@ -2,6 +2,7 @@
 import { formatGbp } from "@/lib/pricing";
 import { RentalKit } from "@/components/rentals/RentalKit";
 import { RentalOrderTools } from "./RentalOrderTools";
+import { AccountDocuments } from "./AccountDocuments";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, usePaginatedQuery, useMutation, useAction } from "convex/react";
@@ -474,7 +475,7 @@ export function RentalInbox({
               escalated={focus.escalated}
               tools={
                 focus.status !== "support" ? (
-                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><RentalKit items={focus.items} compact expanded /><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div><details className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
+                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><RentalKit items={focus.items} compact expanded /><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div>{focus.accountId && <details className={chatStyles.operationDetails}><summary>Verification documents</summary><AccountDocuments token={token} accountId={focus.accountId} verified={"idVerifyStatus" in focus && focus.idVerifyStatus === "verified"} embedded /></details>}<details className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
                 ) : undefined
               }
             />

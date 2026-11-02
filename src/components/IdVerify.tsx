@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useAction } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { useAccount } from "@/components/account/AccountProvider";
@@ -98,7 +99,7 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
           <p className="mt-2 text-xs text-white/45">Your result will update here automatically. If the camera does not open, <a href={sessionUrl} target="_blank" rel="noreferrer" className="underline">open verification in a new tab</a>.</p>
         </div>
       )}
-      {err && <div role="alert" className="mt-2 text-xs text-red-300">{err}</div>}
+      {err && <div role="alert" className="mt-2 text-xs text-red-300"><p>{err}</p><Link href={`/account?rental=${encodeURIComponent(bookingId)}#chat`} className="mt-2 inline-block underline underline-offset-4">Open this rental’s chat</Link></div>}
     </div>
   );
 }

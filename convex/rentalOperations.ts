@@ -4,7 +4,8 @@ import type { Doc } from "./_generated/dataModel";
 import { rentalControlsSnapshot } from "./lib/rentalControlsSnapshot";
 import { stockWindow } from "./lib/stockWindows";
 import { schedulePickupHold } from "./pickupSecurity";
-import { bookingStockLines, rentalWindow } from "../shared/rentalWindow";
+import { bookingStockLines, londonRentalInstant, RENTAL_TIME_SLOTS, rentalWindow } from "../shared/rentalWindow";
+import { pickupScheduleFingerprint, queueRentalEmail, refreshQueuedVerificationEmail } from "./lib/rentalEmailQueue";
 import { assertRentalAllocation } from "./lib/rentalAllocation";
 import { accountForRental } from "./lib/rentalAccount";
 import { listingImages } from "./lib/catalogImages";
@@ -75,6 +76,7 @@ export const details = query({
       .collect();
     return {
       ...b,
+      documentAccountId: (await accountForRental(ctx,b))?._id ?? null,
       requiresDroneLicence: await requiresDroneLicence(ctx, b),
       droneLicenceStatus: await droneLicenceStatusForRental(ctx, b),
       verificationArchiveReady,
@@ -100,9 +102,10 @@ async function qualifyReschedule(
     keepAgreedPrice?: boolean;
     reason: string;
     expectedSnapshot?: string;
+    pickupChange?: {lineIndex:number;time:string};
   },
 ) {
-  const { start, end, keepAgreedPrice, reason, expectedSnapshot } = args;
+  const { start, end, keepAgreedPrice, reason, expectedSnapshot, pickupChange } = args;
   if (!b || b.status !== "confirmed")
     throw Error("Only an upcoming rental can be rescheduled");
   const bookingId = b._id;
@@ -156,11 +159,18 @@ async function qualifyReschedule(
     throw Error(
       "Confirm that the changed duration keeps the agreed charges; extra days are complimentary.",
     );
-  const lines = bookingStockLines(b).map((li) => ({
+  const lines = bookingStockLines(b).map((li,index) => ({
     ...li,
     start: li.start + shift,
     end: li.end + shift + endShift,
+    ...(pickupChange?.lineIndex===index ? {pickupTime:pickupChange.time} : {}),
   }));
+  if(pickupChange){
+    if(!Number.isSafeInteger(pickupChange.lineIndex)||!lines[pickupChange.lineIndex]||!RENTAL_TIME_SLOTS.includes(pickupChange.time))throw Error("Choose a valid item and available pickup time.");
+    const selected=lines[pickupChange.lineIndex];
+    rentalWindow(selected);
+    if(londonRentalInstant(selected.start,pickupChange.time)<=Date.now())throw Error("Choose a future pickup time.");
+  }
   await assertRenterExposure(ctx, b, lines);
   await assertRentalInventory(ctx, lines, bookingId);
   return {
@@ -204,6 +214,44 @@ export const previewReschedule = query({
             : "The date change could not be checked.",
       };
     }
+  },
+});
+
+export const changePickupTime = mutation({
+  args:{token:v.string(),bookingId:v.id("bookings"),requestId:v.string(),lineIndex:v.number(),pickupTime:v.string(),expectedSnapshot:v.string(),reason:v.string()},
+  handler:async(ctx,args)=>{
+    await assertAdmin(ctx,args.token,"rentalOperations.changePickupTime");
+    if(!/^[a-zA-Z0-9-]{16,80}$/.test(args.requestId))throw Error("Invalid change request.");
+    const fingerprint=JSON.stringify([args.lineIndex,args.pickupTime,args.expectedSnapshot,args.reason.trim()]);
+    const prior=await ctx.db.query("rental_time_changes").withIndex("by_request",q=>q.eq("bookingId",args.bookingId).eq("requestId",args.requestId)).unique();
+    if(prior){if(prior.fingerprint!==fingerprint)throw Error("This request was already used for a different change.");return {ok:true,detail:prior.detail};}
+    const booking=await ctx.db.get(args.bookingId);
+    if(!booking||!booking.lineItems.length)throw Error("Rental not found.");
+    const oldLines=bookingStockLines(booking),oldLine=oldLines[args.lineIndex];
+    if(!oldLine)throw Error("Choose an item from this rental.");
+    if(oldLine.pickupTime===args.pickupTime)throw Error("Choose a different pickup time.");
+    const start=Math.min(...oldLines.map(line=>line.start));
+    const {lines,reservations,allocationMode}=await qualifyReschedule(ctx,booking,{start,reason:args.reason,expectedSnapshot:args.expectedSnapshot,pickupChange:{lineIndex:args.lineIndex,time:args.pickupTime}});
+    const earliest=lines.reduce((best,line)=>line.start<best.start||line.start===best.start&&(line.pickupTime??"00:00")<(best.pickupTime??"00:00")?line:best);
+    const updated={...booking,lineItems:lines,pickupTime:earliest.pickupTime ?? undefined};
+    await schedulePickupHold(ctx,updated);
+    await ctx.db.patch(args.bookingId,{lineItems:lines,pickupTime:updated.pickupTime});
+    await refreshQueuedVerificationEmail(ctx,args.bookingId);
+    for(const reservation of reservations)if(["confirmed","hold"].includes(reservation.status))await ctx.db.patch(reservation._id,{status:"cancelled"});
+    for(const line of lines){
+      const listing=await ctx.db.get(line.listingId);
+      const window=allocationMode==="legacy"?{start:line.start,end:line.end}:stockWindow(line,allocationMode==="precise");
+      for(const component of listing!.components)await ctx.db.insert("reservations",{inventoryUnitId:component.inventoryUnitId,listingId:line.listingId,bookingId:args.bookingId,...window,qty:component.qty*line.qty,source:"site",status:"confirmed"});
+    }
+    const day=(value:number)=>new Date(value).toISOString().slice(0,10);
+    const schedule=lines.map(line=>`${line.qty}× ${line.title}: ${day(line.start)} at ${line.pickupTime ?? "time to be confirmed"}`).join("; ");
+    const detail=`${oldLine.title} pickup on ${day(oldLine.start)} changed from ${oldLine.pickupTime ?? "time to be confirmed"} to ${args.pickupTime}. Current pickup schedule: ${schedule}.`;
+    const account=await accountForRental(ctx,booking);
+    if(account)await postRentalMessage(ctx,{accountId:account._id,bookingId:args.bookingId,sender:"system",text:`${detail} All times are London local time. Agreed charges and security are unchanged. ${args.reason.trim()}`});
+    await queueRentalEmail(ctx,args.bookingId,"time_change",{changeDetail:detail,changeSchedule:pickupScheduleFingerprint(updated)});
+    await queueRmv2Sync(ctx,args.bookingId);
+    await ctx.db.insert("rental_time_changes",{bookingId:args.bookingId,requestId:args.requestId,fingerprint,detail,createdAt:Date.now()});
+    return {ok:true,detail};
   },
 });
 
@@ -259,6 +307,7 @@ export const reschedule = mutation({
       lineItems: lines,
       cancellationPolicyStart: start,
     });
+    await refreshQueuedVerificationEmail(ctx,bookingId);
     await schedulePickupHold(ctx, { ...b, lineItems: lines });
     for (const r of reservations)
       if (["confirmed", "hold"].includes(r.status))

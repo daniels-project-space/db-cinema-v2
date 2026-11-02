@@ -13,7 +13,7 @@ process.env.ADMIN_TOKEN = 'backfill-test';
   for (let i = 0; i < 55; i++) wanted.push(put('bookings', {
     guestEmail: owner.email, status: 'active', diditSessionId: `legacy-${i}`,
   }));
-  const closed = { accountId: owner._id, guestEmail: owner.email, status: 'returned', returnedAt: Date.now() - 31 * 86400000 };
+  const closed = { accountId: owner._id, guestEmail: owner.email, status: 'returned', returnedAt: Date.now() - 91 * 86400000 };
   const expired = put('bookings', { ...closed, diditSessionId: 'expired' });
   const claimed = put('bookings', { ...closed, diditSessionId: 'open-claim' });
   put('rental_damage_cases', { bookingId: claimed._id, status: 'open' });

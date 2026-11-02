@@ -21,6 +21,8 @@ export function rentalControlsSnapshot(
     booking.activePriceAdjustmentId ?? null,
     !!booking.cancellationDecision,
     !!booking.returnDecision,
+    booking.pickupTime ?? null,
+    booking.returnTime ?? null,
     (booking.lineItems ?? []).map((line: any) => [
       String(line.listingId),
       line.qty,

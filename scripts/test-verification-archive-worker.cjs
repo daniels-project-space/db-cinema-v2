@@ -47,7 +47,7 @@ async function run(options = {}) {
     if (url.includes('/decision/')) return new Response(JSON.stringify(report), { status: options.providerError ? 503 : 200 });
     assert.equal(init.redirect, 'error', 'Provider document redirects cannot escape the host boundary');
     if (url.endsWith('/address') && options.addressError) return new Response('', { status: 403 });
-    return new Response(url.endsWith('/id') ? image : address,
+    return new Response(/\/(id|selfie|source|target|portrait)$/.test(url) ? image : address,
       options.oversize ? { headers: { 'content-length': String(16 * 1024 * 1024) } } : {});
   };
   await worker.capture.handler(ctx, { archiveId: job._id });
@@ -58,6 +58,25 @@ async function run(options = {}) {
 (async () => {
   const good = await run();
   assert.equal(good.job.status, 'complete'); assert.equal(good.documents.length, 2);
+  assert.equal(good.job.supplementalStatus,'pending','missing extra images are retried without reopening the required archive');
+  good.report.liveness_checks=[{reference_image:'https://media.didit.me/selfie',video_url:'https://media.didit.me/video'}];
+  good.report.face_matches=[{source_image:'https://media.didit.me/source',target_image:'https://media.didit.me/target'}];
+  await worker.capture.handler(good.ctx,{archiveId:good.job._id,supplemental:true});
+  assert.equal(good.job.status,'complete');assert.equal(good.job.supplementalStatus,'complete');
+  const extra=(tables.get('verification_documents')??[]).filter(d=>d.archiveId===good.job._id);
+  assert.equal(extra.length,5);assert(extra.some(d=>d.kind.startsWith('selfie-')));assert.equal(extra.filter(d=>d.kind.startsWith('face-match-')).length,2);
+  assert(!good.requests.some(request=>request.url.endsWith('/video')),'liveness video is never captured');
+  const missingImages=await run();await worker.capture.handler(missingImages.ctx,{archiveId:missingImages.job._id,supplemental:true});
+  assert.equal(missingImages.job.status,'complete','an unavailable selfie does not invalidate existing ID and address copies');
+  assert.equal(missingImages.job.supplementalStatus,'pending');assert.equal(missingImages.job.supplementalAttempts,1);assert(missingImages.job.supplementalDueAt>Date.now());
+  missingImages.job.supplementalDueAt=0;missingImages.report.vendor_data='dbc-booking-other';
+  await worker.capture.handler(missingImages.ctx,{archiveId:missingImages.job._id,supplemental:true});
+  assert.equal(missingImages.job.status,'complete');assert.equal(missingImages.job.supplementalAttempts,2,'case mismatch is retried without exposing or replacing saved evidence');
+  const supplementalOwner=put('accounts',{email:'supplemental-alert@example.invalid'});await db.patch(missingImages.booking._id,{accountId:supplementalOwner._id});
+  missingImages.job.supplementalAttempts=12;missingImages.job.supplementalDueAt=0;missingImages.job.supplementalLeaseUntil=0;
+  assert.equal(await archive.claimSupplemental.handler(missingImages.mutationCtx,{archiveId:missingImages.job._id}),null);
+  assert.equal(missingImages.job.supplementalStatus,'attention');assert.equal(missingImages.job.status,'complete');
+  assert((tables.get('admin_notifications')??[]).some(n=>n.bookingId===missingImages.booking._id&&n.title==='Verification images need attention'),'crashed supplemental workers alert the owner after their final lease');
   for (const d of good.documents) assert.equal(sha(Buffer.from(await good.stored.get(d.storageId).arrayBuffer())), d.sha256);
   const partial=await run({report:{poa_verifications:[]}});
   assert.equal(partial.job.status,'pending');assert.equal(partial.documents.length,1,'Identity is saved while address is still missing');
