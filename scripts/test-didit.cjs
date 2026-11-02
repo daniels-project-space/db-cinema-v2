@@ -189,6 +189,26 @@ function signed(event) {
       {bookingId:'booking-1',accountToken:'account-token'}),{url:sessionUrl},'resubmission resumes the same case URL');
     assert.equal(calls.some(x=>x.url==='https://verification.didit.me/v3/session/' && x.options?.method==='POST'),false);
     calls.length = 0;
+    const savedSessionUrl = report.session_url;
+    report.status = 'In Progress';
+    report.session_url = null;
+    let boundNewSession = false;
+    global.fetch = async (url, options = {}) => {
+      calls.push({url,options});
+      if (options.method === 'POST') return new Response(JSON.stringify({session_id:'session-1',workflow_id:'workflow-1',url:sessionUrl,status:'In Progress'}),{status:201});
+      return new Response(JSON.stringify(report),{status:200});
+    };
+    const reopenCtx = {
+      runQuery:async ref=>ref==='accounts:_byToken' ? {email:'renter@example.invalid'} : {...reviewBooking,idVerifyStatus:'processing'},
+      runMutation:async()=>{boundNewSession = true; return true;},
+    };
+    assert.deepEqual(await bookingSession.handler(reopenCtx,{bookingId:'booking-1',accountToken:'account-token'}),
+      {url:sessionUrl},'an active case with no retrieved URL reopens the same session');
+    assert.equal(calls.filter(x=>x.options?.method==='POST').length,1);
+    assert.equal(boundNewSession,false,'reopening an active case preserves its recorded progress');
+    report.status = 'Resubmitted';
+    report.session_url = savedSessionUrl;
+    calls.length = 0;
     report.status = 'Declined';
     global.fetch = async (url, options = {}) => {
       calls.push({url,options});

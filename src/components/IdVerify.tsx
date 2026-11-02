@@ -84,7 +84,7 @@ function IdVerifySession({ bookingId, status, note, compact, autoStart = false, 
       {reused && <p role="status" className="mt-2 text-sm text-emerald-300">Your recent verification has been reused. We’re updating your rental progress.</p>}
       {status !== "rejected" && status !== "manual_review" && !sessionUrl && !reused && (
         <button onClick={() => void open()} disabled={busy} className="btn-primary mt-2 px-5 py-2 text-sm">
-          {busy ? "Opening…" : restart ? "Restart verification" : status === "requires_input" ? "Replace requested document" : "Continue verification"}
+          {busy ? "Opening…" : err ? "Try again" : restart ? "Restart verification" : status === "requires_input" ? "Replace requested document" : "Continue verification"}
         </button>
       )}
       {sessionUrl && status !== "rejected" && status !== "manual_review" && (
