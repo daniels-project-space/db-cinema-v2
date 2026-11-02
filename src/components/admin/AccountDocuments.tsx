@@ -16,7 +16,7 @@ function documentTitle(kind: string) {
 function DocumentReadinessCard({ archives, verified, verificationExpiresAt }: { archives: Parameters<typeof documentReadiness>[0] | undefined; verified: boolean; verificationExpiresAt: number | null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const deadlines = [...(archives ?? []).map(a => a.retention.expiresAt), verificationExpiresAt].filter((at): at is number => at !== null && at > now);
+    const deadlines = [...(archives ?? []).flatMap(a => [a.retention.expiresAt, a.readProofExpiresAt]), verificationExpiresAt].filter((at): at is number => at !== null && at > now);
     const timer = setTimeout(() => setNow(Date.now()), Math.min(60000, ...deadlines.map(at => Math.max(1, at - Date.now()))));
     return () => clearTimeout(timer);
   }, [archives, verificationExpiresAt, now]);
@@ -28,7 +28,7 @@ function DocumentReadinessCard({ archives, verified, verificationExpiresAt }: { 
     <div><dt>Proof of identity</dt><dd data-good={state.identitySaved}>{state.identitySaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : "Private copy missing"}</dd></div>
     <div><dt>Proof of address</dt><dd data-good={state.addressSaved}>{state.addressSaved ? state.approved ? "Approved · copy saved" : "Copy saved · awaiting approval" : "Private copy missing"}</dd></div></dl>
     <p>{state.daysLeft !== null ? `Earliest archive deletion in ${state.daysLeft} ${state.daysLeft === 1 ? "day" : "days"} · ${new Date(state.archiveExpiry!).toLocaleDateString("en-GB")}` : state.protectedArchive ? "Copies retained while a rental or insurance hold is active." : "Retention countdown begins after the rental closes."}</p>
-    <small>Copies are admin-only. Retention normally ends 90 days after rental closure; verification expiry is separate.</small>
+    <small>Copies are admin-only. Retention normally ends 90 days after rental closure; verification expiry is separate. Readability checks cannot guarantee a browser or connection will open a file. If a file fails to open, retry or contact the team; the failure is reported when the connection allows.</small>
   </section>;
 }
 
@@ -136,6 +136,7 @@ export function AccountDocuments({
     accountId: accountId as any,
   });
   const retry = useMutation(api.verificationArchive.retry);
+  const reportDisplayFailure = useMutation(api.verificationArchive.reportDisplayFailure);
   const retryImages = useMutation(api.verificationArchive.retrySupplemental);
   const backfill = useMutation(api.verificationArchive.backfillAccount);
   const retentionHold = useMutation(api.verificationArchive.retentionHold);
@@ -216,6 +217,7 @@ export function AccountDocuments({
     id: string;
     kind: string;
     contentType: string;
+    archive: { generation?: number };
   }, download: boolean | "open" = false) {
     const currentScope = scope.current;
     request.current?.abort();
@@ -241,6 +243,9 @@ export function AccountDocuments({
           "Document could not be opened. Please retry or check admin access.",
         );
       const blob = await response.blob();
+      if(document.contentType.startsWith("image/")&&typeof createImageBitmap==="function"){
+        const bitmap=await createImageBitmap(blob);bitmap.close();
+      }
       if (controller.signal.aborted || currentScope !== scope.current) return;
       if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
       const url = URL.createObjectURL(blob);
@@ -254,8 +259,10 @@ export function AccountDocuments({
       if (download === "open")setOriginalOpen(true);
       setPreview({ url, type: document.contentType, title: documentTitle(document.kind),documentId:document.id,accountId,token });
     } catch (e) {
-      if (!controller.signal.aborted && currentScope === scope.current)
+      if (!controller.signal.aborted && currentScope === scope.current) {
+        void reportDisplayFailure({token,documentId:document.id as any,generation:document.archive.generation??0}).catch(()=>{});
         setError(e instanceof Error ? e.message : "Could not open document.");
+      }
     } finally {
       if (currentScope === scope.current) setBusy(false);
       if (request.current === controller) request.current = null;
@@ -268,6 +275,11 @@ export function AccountDocuments({
     try { await action(); }
     catch (e) { if (currentScope === scope.current) setError(e instanceof Error ? e.message : "Document action failed."); }
     finally { if (currentScope === scope.current) setBusy(false); }
+  }
+  function failedPreview() {
+    if (!selectedFile || preview?.documentId !== selectedFile.id) return;
+    void reportDisplayFailure({token,documentId:selectedFile.id as any,generation:selectedFile.archive.generation??0}).catch(()=>{});
+    setError("The saved document could not be displayed. Review document access and retry the archive.");
   }
   return (
     <section className={`${styles.page} ${embedded ? styles.embedded : ""}`} aria-label="Account documents" data-testid="retained-documents-page">
@@ -309,7 +321,7 @@ export function AccountDocuments({
         <section className={styles.preview} aria-label="Document preview">
           <header><h3>{selectedFile ? documentTitle(selectedFile.kind) : "Document preview"}</h3><span className={styles.private}><DocumentIcon type="lock" /> Private document</span></header>
           <div className={styles.previewCanvas}>
-            {preview && preview.accountId === accountId && preview.token === token && preview.documentId === selectedFile?.id ? preview.type === "application/pdf" ? <iframe src={preview.url} title={preview.title} /> : <img src={preview.url} alt={preview.title} /> : <div className={styles.previewEmpty}><DocumentIcon /><strong>{busy ? "Opening private document…" : selectedFile?.available ? "Open the saved original" : "No available preview"}</strong><p>{selectedFile?.available ? "Select a document to securely view its saved copy." : "Files become viewable once their private archive is complete."}</p></div>}
+            {preview && preview.accountId === accountId && preview.token === token && preview.documentId === selectedFile?.id ? preview.type === "application/pdf" ? <iframe src={preview.url} title={preview.title} onError={failedPreview} /> : <img src={preview.url} alt={preview.title} onError={failedPreview} /> : <div className={styles.previewEmpty}><DocumentIcon /><strong>{busy ? "Opening private document…" : selectedFile?.available ? "Open the saved original" : "No available preview"}</strong><p>{selectedFile?.available ? "Select a document to securely view its saved copy." : "Files become viewable once their private archive is complete."}</p></div>}
           </div>
           {selectedFile && <div className={styles.original}><div><strong>{selectedFile.available ? "Original file saved" : "Copy unavailable"}</strong><small>{selectedFile.contentType === "application/pdf" ? "PDF" : "Image"} · {Math.ceil(selectedFile.size / 1024)} KB</small><small>Linked to {customer?.name ?? "this account"} · {selectedFile.archive.bookingId.slice(-8)}</small></div>{selectedFile.available && <div><button type="button" disabled={busy} onClick={() => void view(selectedFile,"open")}>↗ Open original</button><button type="button" disabled={busy} className={styles.primary} onClick={() => void view(selectedFile,true)}>↓ Download</button></div>}</div>}
           <div className={styles.retention}><h4>Retention</h4>{selectedArchive ? <>
@@ -321,7 +333,7 @@ export function AccountDocuments({
         </section>
       </div>
       <dialog ref={originalDialog} className={styles.originalDialog} aria-label="Saved original document" onCancel={()=>setOriginalOpen(false)} onClose={()=>setOriginalOpen(false)}>
-        {preview && preview.accountId===accountId && preview.token===token && <><header><h3>{preview.title}</h3><button type="button" onClick={()=>setOriginalOpen(false)} aria-label="Close original document">×</button></header>{preview.type==="application/pdf" ? <iframe src={preview.url} title={preview.title} /> : <img src={preview.url} alt={preview.title} />}</>}
+        {preview && preview.accountId===accountId && preview.token===token && <><header><h3>{preview.title}</h3><button type="button" onClick={()=>setOriginalOpen(false)} aria-label="Close original document">×</button></header>{preview.type==="application/pdf" ? <iframe src={preview.url} title={preview.title} onError={failedPreview} /> : <img src={preview.url} alt={preview.title} onError={failedPreview} />}</>}
       </dialog>
       <footer className={styles.activity}><h3>◷ Recent activity</h3>{[...allFiles].sort((a,b)=>b.savedAt-a.savedAt).slice(0,3).map(d => <div key={d.id}><DocumentIcon /><span><strong>Document saved</strong><small>{documentTitle(d.kind)} · {shortDate(d.savedAt)}</small></span></div>)}<span className={styles.private}><DocumentIcon type="lock" /> Admin access only · Downloads are logged</span></footer>
     </section>

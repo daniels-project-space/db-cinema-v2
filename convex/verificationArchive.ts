@@ -7,6 +7,7 @@ import { queueRmv2Sync } from "./lib/rmv2SyncQueue";
 import { linkVerificationCopies } from "./lib/verificationOwnership";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { deletePrivateFile } from "./lib/privateStorage";
+import { verificationReadSnapshot } from "./lib/verificationReadProof";
 
 const DOCUMENT_RETENTION_MS = 90 * 86400000;
 const CAPTURE_LEASE_MS = 5 * 60000;
@@ -179,7 +180,7 @@ export const recordReadProof=internalMutation({args:{archiveId:v.id("verificatio
   if(!archive||archive.status!=="complete"||(archive.generation??0)!==args.generation||archive.readProofGeneration!==args.proofGeneration||(archive.readProofDueAt??0)<=Date.now()||!(await archiveRetention(ctx,archive)).viewable)return false;
   const copies=await archiveCopies(ctx,archive);if(!copies.ready)return false;
   const documents=requiredReadDocuments(copies);if(!documents)return false;
-  const snapshot=JSON.stringify(documents);
+  const snapshot=verificationReadSnapshot(documents);
   if(snapshot!==args.snapshot)return false;
   const wasFresh=hasFreshReadProof(archive);
   await ctx.db.patch(archive._id,{readVerifiedAt:Date.now(),readProofDueAt:Date.now()+READ_PROOF_INTERVAL_MS,readProofFailures:0,error:undefined});

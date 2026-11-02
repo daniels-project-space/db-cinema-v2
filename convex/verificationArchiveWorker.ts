@@ -3,6 +3,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { createHash } from "node:crypto";
+import { verificationReadSnapshot } from "./lib/verificationReadProof";
 
 export function documentMedia(report: any): { kind: string; url: string }[] {
   const media: { kind: string; url: string }[] = [];
@@ -103,5 +104,5 @@ export const checkReadability=internalAction({args:{archiveId:v.id("verification
   }catch{
     await ctx.runMutation(internal.verificationArchive.reuseReadFailure,{archiveId:args.archiveId,generation:candidate.generation,proofGeneration:args.proofGeneration});return;
   }
-  await ctx.runMutation(internal.verificationArchive.recordReadProof,{archiveId:args.archiveId,generation:candidate.generation,proofGeneration:args.proofGeneration,snapshot:JSON.stringify(candidate.documents)});
+  await ctx.runMutation(internal.verificationArchive.recordReadProof,{archiveId:args.archiveId,generation:candidate.generation,proofGeneration:args.proofGeneration,snapshot:verificationReadSnapshot(candidate.documents)});
 }});
