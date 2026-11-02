@@ -9,19 +9,32 @@ import { assertAdmin } from "./adminAuth";
 export const listPublished = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit }) => {
-    const rows = await ctx.db
-      .query("reviews")
-      .withIndex("by_published", (q) => q.eq("published", true))
-      .collect();
-    // carousel shows only reviews that actually have text
-    const withText = rows.filter((r) => r.text && r.text.trim().length > 8);
-    withText.sort((a, b) => b.date - a.date || b._creationTime - a._creationTime);
     const count = Math.min(50, Math.max(1, Math.floor(limit ?? 30)));
+    const latestTextBySource = async (source: "native" | "hygglo") => {
+      const pageSize = Math.max(40, count);
+      const ordered = () => ctx.db
+        .query("reviews")
+        .withIndex("by_published_source_date", (q) =>
+          q.eq("published", true).eq("source", source),
+        )
+        .order("desc");
+      let page = await ordered().paginate({ cursor: null, numItems: pageSize });
+      const selected = page.page.filter((r) => r.text && r.text.trim().length > 8);
+      while (selected.length < count && !page.isDone) {
+        page = await ordered().paginate({ cursor: page.continueCursor, numItems: pageSize });
+        selected.push(...page.page.filter((r) => r.text && r.text.trim().length > 8));
+      }
+      return selected.slice(0, count).sort((a, b) => b.date - a.date || b._creationTime - a._creationTime);
+    };
+    // Read the newest text-bearing rows per source. Paging continues when a
+    // source has sparse/short text, preserving the former full-scan result.
+    const [native, imported] = await Promise.all([
+      latestTextBySource("native"),
+      latestTextBySource("hygglo"),
+    ]);
     // Reserve one card per desktop page for website reviews while both sources
     // have content. Fill unused places from either source; never filter ratings.
-    const native = withText.filter(r => r.source === "native");
-    const imported = withText.filter(r => r.source !== "native");
-    const selected: typeof withText = [];
+    const selected: (typeof native)[number][] = [];
     let n = 0, h = 0;
     while (selected.length < count && (n < native.length || h < imported.length)) {
       const useNative = n < native.length && (selected.length % 3 === 0 || h >= imported.length);
