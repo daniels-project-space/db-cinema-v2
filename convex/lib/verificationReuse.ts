@@ -7,6 +7,17 @@ export const VERIFICATION_REUSE_DAYS = 90;
 export function verificationDetail(value: unknown) {
   return typeof value === "string" ? value.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ") : "";
 }
+export async function verificationReuseIdentityDigest(booking:any,recipientEmail:string) {
+  const bytes=new TextEncoder().encode(JSON.stringify([verificationDetail(booking.agreementName),verificationDetail(booking.billingAddress),verificationDetail(booking.guestEmail),verificationDetail(recipientEmail)]));
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))).map(byte=>byte.toString(16).padStart(2,"0")).join("");
+}
+export async function verificationReuseOwnerMatches(ctx:any,booking:any) {
+  if(!booking?.accountId)return false;
+  if(booking.accountAccessRequired===false)return true;
+  if(booking.verificationReuseOwnershipAccountId!==booking.accountId || booking.verificationReuseOwnershipSessionId!==booking.diditSessionId || !booking.verificationReuseOwnershipDigest)return false;
+  const account=await ctx.db.get(booking.accountId);
+  return !!account && verificationDetail(account.email)===verificationDetail(booking.guestEmail) && await verificationReuseIdentityDigest(booking,account.email)===booking.verificationReuseOwnershipDigest;
+}
 export function validReuse(record: any, booking: any, now = Date.now()) {
   return !!record && Array.isArray(booking.lineItems) && booking.lineItems.length > 0 &&
     booking.lineItems.every((li: any) => Number.isFinite(li.start) && record.expiresAt > li.start) && record.expiresAt > now &&
@@ -14,7 +25,7 @@ export function validReuse(record: any, booking: any, now = Date.now()) {
     record.name === verificationDetail(booking.agreementName) && record.address === verificationDetail(booking.billingAddress);
 }
 export async function saveAccountDiditVerification(ctx: any, booking: any, verifiedAt: number, documentExpiresAt: number | undefined, checks: any, personKey: string | undefined) {
-  if (!booking.accountId || booking.accountAccessRequired !== false || !booking.diditSessionId || booking.verificationReuseBlockedSessionId === booking.diditSessionId ||
+  if (!await verificationReuseOwnerMatches(ctx,booking) || !booking.diditSessionId || booking.verificationReuseBlockedSessionId === booking.diditSessionId ||
       !["identity", "selfie", "address"].every(key => checks?.[key] === "approved") ||
       !personKey || !Number.isFinite(verifiedAt) || !Number.isFinite(documentExpiresAt)) return false;
   const name = verificationDetail(booking.agreementName), address = verificationDetail(booking.billingAddress);
@@ -24,6 +35,9 @@ export async function saveAccountDiditVerification(ctx: any, booking: any, verif
   if (!account || account.blockedAt != null || account.emailVerificationRequired && !account.emailVerifiedAt) return false;
   if (account.name && verificationDetail(account.name) !== name || account.address && verificationDetail(account.address) !== address) return false;
   if ((account.rentalVerification?.verifiedAt ?? 0) > verifiedAt) return false;
+  const current=account.rentalVerification;
+  if(current && current.verifiedAt===verifiedAt && current.sourceBookingId!==booking._id)return false;
+  if(current?.sourceBookingId===booking._id && current.name===name && current.address===address && current.verifiedAt===verifiedAt && current.expiresAt===expiresAt)return true;
   await ctx.db.patch(account._id, { rentalVerification: { sourceBookingId: booking._id, name, address, verifiedAt, expiresAt } });
   return true;
 }

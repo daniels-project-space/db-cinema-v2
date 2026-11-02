@@ -58,7 +58,7 @@ export default defineSchema({
     details: v.string(), status: v.union(v.literal("open"), v.literal("closed")),
     openedAt: v.number(), closedAt: v.optional(v.number()), resolution: v.optional(v.string()),
   }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]),
-  verification_archives: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), email: v.string(), source: v.optional(v.union(v.literal("didit"),v.literal("drone"))), status: v.string(), attempts: v.number(), dueAt: v.number(), createdAt: v.number(), completedAt: v.optional(v.number()), error: v.optional(v.string()), retentionHoldReason: v.optional(v.string()), deletedAt: v.optional(v.number()),generation:v.optional(v.number()),leaseUntil:v.optional(v.number()),readVerifiedAt:v.optional(v.number()),readProofDueAt:v.optional(v.number()),readProofGeneration:v.optional(v.number()),readProofFailures:v.optional(v.number()), supplementalStatus:v.optional(v.string()),supplementalAttempts:v.optional(v.number()),supplementalDueAt:v.optional(v.number()),supplementalGeneration:v.optional(v.number()),supplementalLeaseUntil:v.optional(v.number()),supplementalError:v.optional(v.string()) }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]).index("by_status_due", ["status", "dueAt"]).index("by_status_read_proof",["status","readProofDueAt"]).index("by_supplemental_due",["supplementalStatus","supplementalDueAt"]),
+  verification_archives: defineTable({ bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), email: v.string(), source: v.optional(v.union(v.literal("didit"),v.literal("drone"))), status: v.string(), attempts: v.number(), dueAt: v.number(), createdAt: v.number(), completedAt: v.optional(v.number()), error: v.optional(v.string()), retentionHoldReason: v.optional(v.string()), deletedAt: v.optional(v.number()),generation:v.optional(v.number()),leaseUntil:v.optional(v.number()),readVerifiedAt:v.optional(v.number()),readProofVersion:v.optional(v.number()),readProofDueAt:v.optional(v.number()),readProofGeneration:v.optional(v.number()),readProofFailures:v.optional(v.number()), supplementalAssetsPending:v.optional(v.boolean()),supplementalCheckVersion:v.optional(v.number()),supplementalStatus:v.optional(v.string()),supplementalAttempts:v.optional(v.number()),supplementalDueAt:v.optional(v.number()),supplementalGeneration:v.optional(v.number()),supplementalLeaseUntil:v.optional(v.number()),supplementalError:v.optional(v.string()) }).index("by_booking", ["bookingId"]).index("by_account", ["accountId"]).index("by_status_due", ["status", "dueAt"]).index("by_status_read_proof",["status","readProofDueAt"]).index("by_status_read_version",["status","readProofVersion"]).index("by_supplemental_due",["supplementalStatus","supplementalDueAt"]),
   verification_documents: defineTable({ archiveId: v.id("verification_archives"), bookingId: v.id("bookings"), accountId: v.optional(v.id("accounts")), sessionId: v.string(), kind: v.string(), storageId: v.id("_storage"), sha256: v.string(), size: v.number(), contentType: v.string(), savedAt: v.number() }).index("by_archive", ["archiveId"]).index("by_account", ["accountId"]),
   // ── Layer 1: physical stock (quantity truth) ──────────────────
   inventory_units: defineTable({
@@ -320,6 +320,9 @@ export default defineSchema({
     diditSessionId: v.optional(v.string()),
     verificationReuseBlockReason: v.optional(v.string()),
     verificationReuseBlockedSessionId: v.optional(v.string()),
+    verificationReuseOwnershipAccountId: v.optional(v.id("accounts")),
+    verificationReuseOwnershipSessionId: v.optional(v.string()),
+    verificationReuseOwnershipDigest: v.optional(v.string()),
     diditEventId: v.optional(v.string()),
     diditEventAt: v.optional(v.number()),
     diditManualDecisionAt: v.optional(v.number()),
@@ -1102,6 +1105,8 @@ export default defineSchema({
     cursor: v.optional(v.string()),
     candidates: v.array(v.object({ bookingId: v.id("bookings"), sessionId: v.string(), email: v.string(), checkedAt: v.number(), createdAt: v.number(), status: v.string() })),
   }).index("by_key", ["key"]),
+
+  verification_reuse_claims: defineTable({ accountId:v.id("accounts"), bookingId:v.id("bookings"), recipientEmail:v.string(), sessionId:v.string(), eventId:v.optional(v.string()), eventAt:v.optional(v.number()), manualDecisionAt:v.optional(v.number()), verifiedAt:v.number(), documentExpiresAt:v.number(), personKey:v.string(), identityDigest:v.string(), secretHash:v.string(), state:v.string(), createdAt:v.number(), expiresAt:v.number(), usedAt:v.optional(v.number()) }).index("by_hash",["secretHash"]).index("by_account",["accountId"]).index("by_expiry",["expiresAt"]),
 
   rental_security_charges: defineTable({
     bookingId:v.id("bookings"),accountId:v.id("accounts"),requestId:v.string(),

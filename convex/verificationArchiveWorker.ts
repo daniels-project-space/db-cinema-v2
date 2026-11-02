@@ -7,6 +7,12 @@ import { verificationReadSnapshot } from "./lib/verificationReadProof";
 
 export function documentMedia(report: any): { kind: string; url: string }[] {
   const media: { kind: string; url: string }[] = [];
+  for(const key of ["id_verifications","poa_verifications","liveness_checks","face_matches"]){
+    const rows=report[key];
+    if(rows!=null&&(!Array.isArray(rows)||rows.some((row:any)=>!row||typeof row!=="object"||Array.isArray(row))))throw Error("Malformed provider media collection");
+  }
+  for(const [key,fields] of [["id_verifications",["front_image","back_image","full_front_image","full_back_image","portrait_image","front_image_camera_front","back_image_camera_front"]],["poa_verifications",["document_file"]],["liveness_checks",["reference_image"]],["face_matches",["source_image","target_image"]]] as const)
+    for(const row of report[key]??[])for(const field of fields)if(row[field]!=null&&typeof row[field]!=="string")throw Error("Malformed provider media field");
   for (const [i, row] of (report.id_verifications ?? []).entries()) {
     for (const field of ["front_image", "back_image", "full_front_image", "full_back_image"])
       if (typeof row[field] === "string" && row[field]) media.push({ kind: `identity-${i}-${field}`, url: row[field] });
@@ -36,6 +42,9 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
   const generation=archive.generation,documents=archive.documents;
   let complete = false;
   let imagesPresent = false;
+  let observedKinds:string[] = [];
+  let observedSaved=false;
+  let observedResponse=false;
   try {
     const key = process.env.DIDIT_API_KEY;
     if (!key || !/^[A-Za-z0-9_-]{8,100}$/.test(archive.sessionId)) throw Error("Provider configuration unavailable");
@@ -44,8 +53,16 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
     const report = await response.json();
     if (report.session_id !== archive.sessionId || report.vendor_data !== `dbc-booking-${archive.bookingId}` || report.contact_details?.email?.trim().toLowerCase() !== archive.email.trim().toLowerCase() || report.workflow_id !== process.env.DIDIT_WORKFLOW_ID || report.session_kind !== "user") throw Error("Verification case mismatch");
     const media = documentMedia(report).filter(file=>!supplemental || /^(selfie-|face-match-|id-extra-)/.test(file.kind));
+    observedResponse=true;
     imagesPresent=media.some(m=>m.kind.startsWith("selfie-"))&&media.some(m=>m.kind.startsWith("face-match-")&&m.kind.endsWith("source_image"))&&media.some(m=>m.kind.startsWith("face-match-")&&m.kind.endsWith("target_image"));
-    if (media.length > 30) throw Error("Too many provider documents");
+    if (media.length > 30) {
+      if(supplemental){observedKinds=media.slice(0,30).map(file=>file.kind);await ctx.runMutation(internal.verificationArchive.markSupplementalExpected,{archiveId,generation,kinds:observedKinds});}
+      throw Error("Too many provider documents");
+    }
+    if(supplemental){
+      observedKinds=media.map(file=>file.kind);
+      if(observedKinds.length && !await ctx.runMutation(internal.verificationArchive.markSupplementalExpected,{archiveId,generation,kinds:observedKinds}))throw Error("Archive revision changed");
+    }
     async function saveFile(file:{kind:string;url:string}) {
       if (!trustedMediaUrl(file.url)) throw Error("Unapproved provider media host");
       // Never follow arbitrary redirects or expose provider URLs in public queries.
@@ -83,9 +100,10 @@ export const capture = internalAction({ args: { archiveId: v.id("verification_ar
       const results=await Promise.allSettled(media.slice(offset,offset+3).map(saveFile));
       if(results.some(r=>r.status==="rejected"))failed=true;
     }
+    observedSaved=!failed&&observedKinds.length>0;
     complete = !failed && (supplemental ? imagesPresent : media.some(m=>m.kind.startsWith("identity-")) && media.some(m=>m.kind.startsWith("address-")));
   } catch { /* Persist a bounded, non-sensitive failure; cron/admin retries fetch fresh URLs. */ }
-  await ctx.runMutation(supplemental ? internal.verificationArchive.finishSupplemental : internal.verificationArchive.finish, { archiveId,generation:archive.generation,complete,...(!supplemental?{imagesPresent}: {}) });
+  await ctx.runMutation(supplemental ? internal.verificationArchive.finishSupplemental : internal.verificationArchive.finish, { archiveId,generation:archive.generation,complete,...(supplemental?{observedKinds,observedSaved,observedResponse}:{imagesPresent}) });
 } });
 export const retryDue = internalAction({ args: {}, handler: async ctx => {
   const jobs = await ctx.runQuery(internal.verificationArchive.due, {});

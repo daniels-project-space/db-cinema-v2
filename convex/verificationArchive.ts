@@ -8,12 +8,13 @@ import { linkVerificationCopies } from "./lib/verificationOwnership";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { deletePrivateFile } from "./lib/privateStorage";
 import { verificationReadSnapshot } from "./lib/verificationReadProof";
+import { saveAccountDiditVerification } from "./lib/verificationReuse";
 
 const DOCUMENT_RETENTION_MS = 90 * 86400000;
 const CAPTURE_LEASE_MS = 5 * 60000;
 const READ_PROOF_MAX_AGE_MS=24*3600000;
 const READ_PROOF_INTERVAL_MS=12*3600000;
-function hasFreshReadProof(archive:any){return Number.isFinite(archive.readVerifiedAt)&&archive.readVerifiedAt<=Date.now()&&archive.readVerifiedAt>Date.now()-READ_PROOF_MAX_AGE_MS;}
+function hasFreshReadProof(archive:any){return archive.supplementalAssetsPending!==true&&(archive.supplementalStatus==="complete"||archive.supplementalCheckVersion===2)&&archive.readProofVersion===2&&Number.isFinite(archive.readVerifiedAt)&&archive.readVerifiedAt<=Date.now()&&archive.readVerifiedAt>Date.now()-READ_PROOF_MAX_AGE_MS;}
 async function flagArchiveFailure(ctx:any,archive:any){
  const booking=await ctx.db.get(archive.bookingId),account=await accountForRental(ctx,booking);
  await queueOwnerNotification(ctx,{eventKey:`verification-archive-failed:${archive._id}:${archive.generation??0}`,kind:"verification_archive",...(account?{accountId:account._id}:{}),bookingId:archive.bookingId,
@@ -90,17 +91,19 @@ export async function documentCopyAvailable(ctx: any, archive: any, document: an
     (metadata.sha256 === document.sha256 || metadata.sha256 === encodedHash) &&
     metadata.contentType === document.contentType;
 }
-async function archiveCopies(ctx: any, archive: any) {
-  const documents = await ctx.db.query("verification_documents").withIndex("by_archive", (q: any) => q.eq("archiveId", archive._id)).collect();
+async function archiveCopies(ctx: any, archive: any, adminView=false) {
+  const query = ctx.db.query("verification_documents").withIndex("by_archive", (q: any) => q.eq("archiveId", archive._id));
+  const documents = adminView ? await query.collect() : await query.take(31);
+  if(!adminView && documents.length>30)return {copies:[],ready:false};
   const ownerMatches = await archiveOwnerMatches(ctx, archive);
   const copies = await Promise.all(documents.map(async (document: any) => ({ document, available: await documentCopyAvailable(ctx, archive, document, ownerMatches) })));
   const required = archive.source === "drone"
     ? documents.some((d: any) => d.kind === "drone-operator-licence")
     : documents.some((d: any) => d.kind.startsWith("identity-")) && documents.some((d: any) => d.kind.startsWith("address-"));
-  return { copies, ready: required && copies.every(copy => copy.available) };
+  return { copies, ready: documents.length<=30 && required && copies.every(copy => copy.available) };
 }
 function requiredReadDocuments(copies:any){
-  const documents=copies.copies.map((copy:any)=>copy.document).filter((document:any)=>document.kind.startsWith("identity-")||document.kind.startsWith("address-"))
+  const documents=copies.copies.map((copy:any)=>copy.document)
     .sort((left:any,right:any)=>left.kind.localeCompare(right.kind)||String(left._id).localeCompare(String(right._id)));
   if(documents.length>30||!documents.some((document:any)=>document.kind.startsWith("identity-"))||!documents.some((document:any)=>document.kind.startsWith("address-")))return null;
   return documents.map((document:any)=>({storageId:document.storageId,sha256:document.sha256,size:document.size,contentType:document.contentType}));
@@ -160,18 +163,19 @@ export const context = internalQuery({ args: { archiveId: v.id("verification_arc
 } });
 export const scheduleReadProofs=internalMutation({args:{},handler:async ctx=>{
   const now=Date.now();
-  const legacyQuery=()=>ctx.db.query("verification_archives").withIndex("by_status_read_proof",query=>query.eq("status","complete").eq("readProofDueAt",undefined));
+  const legacyQuery=()=>ctx.db.query("verification_archives").withIndex("by_status_read_version",query=>query.eq("status","complete").eq("readProofVersion",undefined));
   const dueQuery=()=>ctx.db.query("verification_archives").withIndex("by_status_read_proof",query=>query.eq("status","complete").gte("readProofDueAt",0).lte("readProofDueAt",now));
-  let [legacy,due]=await Promise.all([legacyQuery().take(10),dueQuery().take(10)]);
-  if(legacy.length<10)due=await dueQuery().take(20-legacy.length);
-  else if(due.length<10)legacy=await legacyQuery().take(20-due.length);
+  const [legacy,due]=await Promise.all([legacyQuery().take(20),dueQuery().take(20)]);
   if(due[0]&&now-(due[0].readProofDueAt??now)>6*3600000)await queueOwnerNotification(ctx,{eventKey:`verification-proof-backlog:${Math.floor(now/86400000)}`,kind:"verification_archive",title:"Verification document checks are delayed",body:"Private document integrity checks are behind schedule. Some verification badges may be temporarily unavailable; review the archive worker capacity."});
-  const rows=[...legacy,...due];
+  const rows:any[]=[],selected=new Set<string>();
+  const add=(archive:any)=>{if(rows.length<20&&!selected.has(String(archive._id))){selected.add(String(archive._id));rows.push(archive);}};
+  legacy.slice(0,10).forEach(add);due.forEach(add);legacy.forEach(add);
   for(const archive of rows){
-    if((archive.readProofDueAt??0)>now)continue;
-    if(archive.source==="drone"||!(await archiveRetention(ctx,archive)).viewable){await ctx.db.patch(archive._id,{readProofDueAt:now+READ_PROOF_MAX_AGE_MS});continue;}
+    if(archive.readProofVersion!==undefined&&(archive.readProofDueAt??0)>now)continue;
+    if(archive.source==="drone"||!(await archiveRetention(ctx,archive)).viewable){await ctx.db.patch(archive._id,{readProofVersion:1,readProofDueAt:now+READ_PROOF_MAX_AGE_MS});continue;}
     const proofGeneration=(archive.readProofGeneration??0)+1;
-    await ctx.db.patch(archive._id,{readProofGeneration:proofGeneration,readProofDueAt:now+CAPTURE_LEASE_MS});
+    const legacySupplemental=archive.supplementalCheckVersion===undefined&&archive.supplementalStatus!=="complete";
+    await ctx.db.patch(archive._id,{readProofVersion:archive.readProofVersion??1,readProofGeneration:proofGeneration,readProofDueAt:now+CAPTURE_LEASE_MS,...(legacySupplemental?{supplementalCheckVersion:1,supplementalStatus:"pending",supplementalAttempts:0,supplementalDueAt:now,supplementalGeneration:(archive.supplementalGeneration??0)+1,supplementalLeaseUntil:undefined}: {})});
     await ctx.scheduler.runAfter(0,internal.verificationArchiveWorker.checkReadability,{archiveId:archive._id,proofGeneration});
   }
 }});
@@ -183,7 +187,10 @@ export const recordReadProof=internalMutation({args:{archiveId:v.id("verificatio
   const snapshot=verificationReadSnapshot(documents);
   if(snapshot!==args.snapshot)return false;
   const wasFresh=hasFreshReadProof(archive);
-  await ctx.db.patch(archive._id,{readVerifiedAt:Date.now(),readProofDueAt:Date.now()+READ_PROOF_INTERVAL_MS,readProofFailures:0,error:undefined});
+  await ctx.db.patch(archive._id,{readProofVersion:2,readVerifiedAt:Date.now(),readProofDueAt:Date.now()+READ_PROOF_INTERVAL_MS,readProofFailures:0,error:undefined});
+  const booking=await ctx.db.get(archive.bookingId);
+  if(process.env.VERIFICATION_ARCHIVE_REUSE_ENABLED==="true" && booking && booking.accountAccessRequired===false && booking.accountId===archive.accountId && booking.diditSessionId===archive.sessionId && booking.idVerifyStatus==="verified" && booking.idVerificationSource==="didit" && booking.idVerifiedAt)
+    await saveAccountDiditVerification(ctx,booking,booking.idVerifiedAt,booking.documentExpiresAt,booking.verificationChecks,booking.renterPersonKey);
   if(!wasFresh&&archive.accountId)await ctx.scheduler.runAfter(0,internal.verificationArchive.resumeReuses,{accountId:archive.accountId,sourceBookingId:archive.bookingId,cursor:null});
   return true;
 }});
@@ -218,25 +225,38 @@ export const save = internalMutation({ args: { archiveId: v.id("verification_arc
   const archive = await ctx.db.get(args.archiveId);
   const validLease=archive && (args.supplemental ? archive.status==="complete" && archive.supplementalStatus==="pending" && archive.supplementalGeneration===args.generation && (archive.supplementalLeaseUntil??0)>Date.now() && /^(selfie-|face-match-|id-extra-)/.test(args.kind) : archive.status==="pending" && archive.generation===args.generation && (archive.leaseUntil??0)>Date.now());
   if (!archive || !validLease || !(await archiveRetention(ctx,archive)).viewable) { await deletePrivateFile(ctx,args.storageId); return false; }
-  const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", args.archiveId)).collect();
+  const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", args.archiveId)).take(31);
   const existing = documents.find(d => d.kind === args.kind && d.sha256 === args.sha256);
   if (existing) {
     if (args.replaceStorageId === existing.storageId) {
       const replacedStorageId = existing.storageId;
       await ctx.db.patch(existing._id, { storageId: args.storageId, size: args.size, contentType: args.contentType });
+      if(args.supplemental)await ctx.db.patch(archive._id,{readVerifiedAt:undefined,readProofGeneration:(archive.readProofGeneration??0)+1,readProofDueAt:Date.now()});
       await deletePrivateFile(ctx,replacedStorageId);
     } else await deletePrivateFile(ctx,args.storageId);
     return true;
   }
+  if(documents.length>=30){await deletePrivateFile(ctx,args.storageId);return false;}
   const { replaceStorageId: _replaceStorageId,generation:_generation,supplemental:_supplemental, ...document } = args;
   await ctx.db.insert("verification_documents", { ...document, bookingId: archive.bookingId, accountId: archive.accountId, sessionId: archive.sessionId, savedAt: Date.now() });
+  if(args.supplemental)await ctx.db.patch(archive._id,{readVerifiedAt:undefined,readProofGeneration:(archive.readProofGeneration??0)+1,readProofDueAt:Date.now()});
   return true;
 } });
-export const finishSupplemental=internalMutation({args:{archiveId:v.id("verification_archives"),generation:v.number(),complete:v.boolean()},handler:async(ctx,args)=>{
+export const markSupplementalExpected=internalMutation({args:{archiveId:v.id("verification_archives"),generation:v.number(),kinds:v.array(v.string())},handler:async(ctx,args)=>{
+ const archive=await ctx.db.get(args.archiveId);
+ if(!archive||archive.status!=="complete"||archive.supplementalStatus!=="pending"||archive.supplementalGeneration!==args.generation||(archive.supplementalLeaseUntil??0)<=Date.now()||args.kinds.length>30||!(await archiveRetention(ctx,archive)).viewable)return false;
+ if(args.kinds.length)await ctx.db.patch(archive._id,{supplementalAssetsPending:true,readVerifiedAt:undefined,readProofGeneration:(archive.readProofGeneration??0)+1,readProofDueAt:Date.now()});
+ return true;
+}});
+export const finishSupplemental=internalMutation({args:{archiveId:v.id("verification_archives"),generation:v.number(),complete:v.boolean(),observedKinds:v.optional(v.array(v.string())),observedSaved:v.optional(v.boolean()),observedResponse:v.optional(v.boolean())},handler:async(ctx,args)=>{
  const archive=await ctx.db.get(args.archiveId);
  if(!archive||archive.status!=="complete"||archive.supplementalStatus!=="pending"||archive.supplementalGeneration!==args.generation||(archive.supplementalLeaseUntil??0)<=Date.now()||!(await archiveRetention(ctx,archive)).viewable)return;
  const attempts=archive.supplementalAttempts??0,attention=!args.complete&&attempts>=12;
- await ctx.db.patch(archive._id,{supplementalLeaseUntil:undefined,supplementalStatus:args.complete?"complete":attention?"attention":"pending",supplementalDueAt:Date.now()+Math.min(3600000,30000*2**Math.min(attempts,7)),supplementalError:args.complete?undefined:"Additional verification images are unavailable or could not be copied."});
+ const copies=await archiveCopies(ctx,archive);
+ const supplied=args.observedKinds??[];
+ const saved=args.observedSaved===true&&supplied.length>0&&supplied.length<=30&&supplied.every(kind=>copies.copies.some(copy=>copy.document.kind===kind&&copy.available));
+ const confirmedOmission=args.observedResponse===true&&supplied.length===0&&archive.supplementalAssetsPending!==true;
+ await ctx.db.patch(archive._id,{...(saved?{supplementalAssetsPending:false,supplementalCheckVersion:2}:confirmedOmission?{supplementalCheckVersion:2}:{}),supplementalLeaseUntil:undefined,supplementalStatus:args.complete?"complete":attention?"attention":"pending",supplementalDueAt:Date.now()+Math.min(3600000,30000*2**Math.min(attempts,7)),supplementalError:args.complete?undefined:"Additional verification images are unavailable or could not be copied."});
  if(attention)await flagSupplementalFailure(ctx,archive);
 }});
 async function queueSupplemental(ctx:any,archive:any){
@@ -275,7 +295,7 @@ export const accountDocuments = query({ args: { token: v.string(), accountId: v.
   const jobs = await ctx.db.query("verification_archives").withIndex("by_account", q => q.eq("accountId", args.accountId)).collect();
   return Promise.all(jobs.map(async archive => {
     const retention = await archiveRetention(ctx, archive);
-    const { copies, ready } = await archiveCopies(ctx, archive);
+    const { copies, ready } = await archiveCopies(ctx, archive, true);
     return { ...archive, email: undefined, retention, readProofExpiresAt: archive.source === "drone" || !Number.isFinite(archive.readVerifiedAt) ? null : archive.readVerifiedAt! + READ_PROOF_MAX_AGE_MS, copiesReady: archive.status==="complete" && retention.viewable && ready && (archive.source==="drone"||hasFreshReadProof(archive)),
       documents: copies.map(({ document: d, available }) => ({ id: d._id, kind: d.kind, size: d.size, sha256: d.sha256, savedAt: d.savedAt, contentType: d.contentType, available: retention.viewable && available })) };
   }));
