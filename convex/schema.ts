@@ -18,6 +18,16 @@ import { cancellationReceipt } from "./lib/cancellationFields";
  * Trigger sync job through an httpAction bridge. `rmv2_sync_state` tracks it.
  */
 export default defineSchema({
+  marketing_saved_drafts: defineTable({
+    changes: v.array(v.object({ listingId: v.id("listings"), marketingOnly: v.union(v.boolean(), v.null()), expectedUpdatedAt: v.optional(v.number()) })),
+    createdAt: v.number(),
+  }).index("by_created", ["createdAt"]),
+  marketing_save_operations: defineTable({
+    requestId: v.string(), requestBody: v.string(), createdAt: v.number(),
+    state: v.union(v.literal("pending"), v.literal("complete")),
+    changes: v.array(v.object({ listingId: v.id("listings"), marketingOnly: v.union(v.boolean(), v.null()), expectedUpdatedAt: v.optional(v.number()), productId: v.optional(v.number()) })),
+    saved: v.optional(v.number()),
+  }).index("by_request", ["requestId"]),
   catalog_copy_batches:defineTable({requestId:v.string(),inputFingerprint:v.string(),updated:v.number(),appliedAt:v.number()}).index("by_request",["requestId"]),
   operator_cancellation_offers:defineTable({
     bookingId:v.id("bookings"),accountId:v.id("accounts"),recipientEmail:v.string(),reason:v.string(),
