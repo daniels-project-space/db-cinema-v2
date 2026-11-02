@@ -2,6 +2,7 @@ import { mutation } from './_generated/server';
 import { v } from 'convex/values';
 import { checkAdminToken } from './adminAuth';
 import {canonicalCatalogValue,catalogCopyFingerprint} from '../shared/catalogCopy';
+import { bumpCatalogRevision } from './lib/catalogRevision';
 
 /** Read-only Hygglo acquisition is performed by the maintenance script. Only
  * this authenticated boundary can attach its evidence to an exact product. */
@@ -35,6 +36,7 @@ export const apply = mutation({
         await ctx.db.patch(listing._id,{title:copy.title??listing.title,description:copy.description,knowledge:copy.knowledge,rentalContents:item.contents,copyReview:{...copy.review,sourceTitle:listing.copyReview?.sourceTitle??listing.title,...(listing.copySourceFingerprint?{sourceFingerprint:listing.copySourceFingerprint}:{}),reviewedAt:Date.now()}});
       }else await ctx.db.patch(listing._id,{rentalContents:item.contents});updated++;
     }
+    if(updated)await bumpCatalogRevision(ctx);
     if(requestId)await ctx.db.insert('catalog_copy_batches',{requestId,inputFingerprint:fingerprint!,updated,appliedAt:Date.now()});
     return {updated};
   },

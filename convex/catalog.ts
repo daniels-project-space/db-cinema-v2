@@ -9,9 +9,10 @@ import { weekendDays } from "../shared/membership";
 import { listingImages } from "./lib/catalogImages";
 import { isMarketingOnly, rentalUnavailable } from "./lib/marketingInventory";
 import { alreadySupplied, automaticRecommendation } from "../shared/recommendationPolicy";
-import { assertAdmin } from "./adminAuth";
+import { assertAdmin, checkAdminToken } from "./adminAuth";
 import { createPublicListingCopy } from "./lib/publicListingCopy";
 import { rentalPricingDays } from "../shared/rentalDuration";
+import { bumpCatalogRevision, catalogRevision } from "./lib/catalogRevision";
 
 /**
  * SERVER-AUTHORITATIVE line pricing for checkout (anti-tamper). Recomputes each line's
@@ -55,6 +56,8 @@ export const repriceLines = internalQuery({
 /** Public catalog reads. heroImage/gallery prefer migrated R2 over source. */
 
 const images = listingImages;
+
+export const publicRevision = query({ args: {}, handler: async ctx => `v1:${await catalogRevision(ctx)}` });
 
 const card = (l: any) => ({
   _id: l._id,
@@ -126,6 +129,20 @@ export const bestSellers = query({
 });
 
 const MAX_GAFFER_CANDIDATES_PER_TYPE = 500;
+
+export const adminListListings = query({
+  args: { token: v.string(), search: v.optional(v.string()), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { token, search, paginationOpts }) => {
+    if (!checkAdminToken(token)) throw Error("Unauthorized");
+    if (!Number.isSafeInteger(paginationOpts.numItems) || paginationOpts.numItems < 1 || paginationOpts.numItems > 100) throw Error("Invalid page size");
+    const term = search?.trim().slice(0, 96).split(/\s+/).slice(0, 16).join(" ");
+    const page = term
+      ? await ctx.db.query("listings").withSearchIndex("search_title", q => q.search("title", term)).paginate(paginationOpts)
+      : await ctx.db.query("listings").withIndex("by_active", q => q).order("desc").paginate(paginationOpts);
+    const rows = page.page.filter(row => row.active || (row.suppressed && images(row).length > 0));
+    return { ...page, page: await toPublicCards(ctx, rows) };
+  },
+});
 
 export const byItemType = query({
   args: { types: v.array(v.string()) },
@@ -335,6 +352,7 @@ export const refreshQuietDeals = mutation({
         want ? set++ : cleared++;
       }
     }
+    if (set || cleared) await bumpCatalogRevision(ctx);
     return { discounted: set, cleared, scanned: ls.length, picks: idle.map((x) => x.l.title.slice(0, 50)) };
   },
 });
@@ -507,6 +525,7 @@ export const applyR2Images = mutation({
         n++;
       }
     }
+    if (n) await bumpCatalogRevision(ctx);
     return { updated: n };
   },
 });
