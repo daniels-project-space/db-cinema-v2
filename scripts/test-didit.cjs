@@ -157,6 +157,12 @@ function signed(event) {
     await bookingSession.handler(createCtx,{bookingId:'booking-1',accountToken:'account-token'});
     assert.deepEqual(sentBody.expected_details,{first_name:'Test',last_name:'Rental Customer',address:'25 Whitcomb Street, London WC2H 7ER',poa_country:'GBR'});
     assert.equal(sentBody.expected_details.id_country,undefined,'a UK address must not restrict the issuing country of the ID');
+    const failures=[];
+    global.fetch=async()=>{throw new Error('provider unavailable');};
+    await assert.rejects(bookingSession.handler({...createCtx,runMutation:async(ref,args)=>{failures.push({ref,args});}},
+      {bookingId:'booking-1',accountToken:'account-token'}),/provider unavailable/);
+    assert.deepEqual(failures,[{ref:'bookings:flagDiditOpeningFailure',args:{bookingId:'booking-1',sessionId:undefined}}],
+      'an authenticated initial provider failure alerts without exposing its details');
   } finally { global.fetch = originalFetch; }
   try {
     global.fetch = async (url, options = {}) => {
@@ -218,6 +224,10 @@ function signed(event) {
       runQuery:async ref=>ref==='accounts:_byToken' ? {email:'renter@example.invalid'} : {...reviewBooking,idVerifyStatus:'processing'},
       runMutation:async(ref,args)=>{recovered.push({ref,args});return true;},
     };
+    await assert.rejects(bookingSession.handler({...completedCtx,runQuery:async ref=>ref==='accounts:_byToken'
+      ? {email:'foreign@example.invalid'} : {...reviewBooking,idVerifyStatus:'processing'}},
+      {bookingId:'booking-1',accountToken:'foreign'}),/sign in/);
+    assert.equal(recovered.length,0,'unauthorized callers cannot generate owner alerts');
     calls.length = 0;
     assert.deepEqual(await bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'}),
       {url:null,updated:true},'a completed provider case reconciles instead of failing to open');
@@ -230,7 +240,8 @@ function signed(event) {
     await assert.rejects(bookingSession.handler({...completedCtx,runQuery:async ref=>ref==='accounts:_byToken'
       ? {email:'renter@example.invalid'} : {...reviewBooking,idVerifyStatus:'requires_input',idVerificationSource:'manual'}},
       {bookingId:'booking-1',accountToken:'account-token'}),/replacement request/);
-    assert.equal(recovered.length,0,'an outstanding manual resubmission cannot be overwritten by an old decision');
+    assert.equal(recovered.some(call=>call.ref==='bookings:setDiditResult'),false,'an outstanding manual resubmission cannot be overwritten by an old decision');
+    assert.equal(recovered.some(call=>call.ref==='bookings:flagDiditOpeningFailure'),true,'a blocked replacement request alerts the team');
     report.poa_verifications = [];
     recovered.length = 0;
     await bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'});
@@ -238,7 +249,8 @@ function signed(event) {
     report.vendor_data = 'dbc-booking-another';
     recovered.length = 0;
     await assert.rejects(bookingSession.handler(completedCtx,{bookingId:'booking-1',accountToken:'account-token'}),/does not match/);
-    assert.equal(recovered.length,0,'a foreign decision is never reconciled');
+    assert.equal(recovered.some(call=>call.ref==='bookings:setDiditResult'),false,'a foreign decision is never reconciled');
+    assert.equal(recovered.some(call=>call.ref==='bookings:flagDiditOpeningFailure'),true,'a provider mismatch alerts the team');
     report.vendor_data = 'dbc-booking-booking-1';
     report.poa_verifications = [{status:'Approved',node_id:'feature_poa'}];
     report.status = 'Resubmitted';

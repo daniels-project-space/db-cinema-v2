@@ -1604,6 +1604,17 @@ export const flagDiditProcessingFailure = internalMutation({
   },
 });
 
+export const flagDiditOpeningFailure = internalMutation({
+  args: {bookingId:v.id("bookings"),sessionId:v.optional(v.string())},
+  handler: async (ctx,{bookingId,sessionId}) => {
+    const booking=await ctx.db.get(bookingId);
+    if(!booking||booking.verificationProvider!=="didit"||!["confirmed","active"].includes(booking.status)||
+      booking.diditSessionId!==sessionId||!verificationSessionCanOpen(booking))return;
+    const account=await accountForRental(ctx,booking);
+    if(account)await queueOwnerNotification(ctx,{eventKey:`didit-opening-failed:${bookingId}:${Math.floor(Date.now()/900000)}`,kind:"verification_failure",accountId:account._id,bookingId,title:"Verification could not open",body:"A renter could not open verification. Check this rental's verification progress."});
+  },
+});
+
 export const setIdentity = internalMutation({
   args: {
     bookingId: v.id("bookings"),
