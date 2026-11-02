@@ -784,7 +784,6 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     zeroAndNegativeSavingsHidden: true,
     largeWeekdayImmediateCredit: true,
     modal,
-    placement,
     screenshots: "/tmp/dbc-basket-*.png",
   });
   c.close();
