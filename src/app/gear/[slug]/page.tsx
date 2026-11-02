@@ -4,7 +4,7 @@ import { publicListing } from "@/lib/discovery";
 import GearDetailClient from "./GearDetailClient";
 import { SITE_URL as BASE } from "@/lib/site";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,

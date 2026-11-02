@@ -1,4 +1,5 @@
 export const metadata = { alternates: { canonical: "/" } };
+export const dynamic = "force-dynamic";
 import Link from "next/link";
 import Image from "next/image";
 import { ConvexHttpClient } from "convex/browser";
@@ -19,6 +20,11 @@ import { Magnetic } from "@/components/Magnetic";
 import { IconArrowRight } from "@/components/icons";
 import { BadgeTruck, BadgeBrowse, BadgeCalendar, BadgeLock, BadgeSquare, BadgeShield, BadgeClock } from "@/components/AnimatedIcons";
 import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
+import { unstable_cache } from "next/cache";
+
+const homeReviews = unstable_cache(async () => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.stats, {}), ["public-home-reviews-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 3600 });
+const homeBest = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.bestSellers, { limit: 8 }), ["public-home-best-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
+const homeCategories = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.categories, {}), ["public-home-categories-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
 
 const trustTiles = [
   {
@@ -59,13 +65,12 @@ export default async function Home() {
   let rating: { ratingValue: number; reviewCount: number } | null = null;
   let featured: GearListing[] = [];
   let categories: { name: string; count: number }[] = [];
+  let catalogVersion: string | null = null;
   try {
     const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
-    const [s, best, cats] = await Promise.all([
-      c.query(api.reviews.stats, {}).catch(() => null),
-      c.query(api.catalog.bestSellers, { limit: 8 }).catch(() => []),
-      c.query(api.catalog.categories, {}).catch(() => []),
-    ]);
+    const revision = await c.query(api.catalog.publicRevision, {});
+    catalogVersion = revision;
+    const [s, best, cats] = await Promise.all([homeReviews().catch(() => null), homeBest(revision).catch(() => []), homeCategories(revision).catch(() => [])]);
     if ((s as any)?.count) rating = { ratingValue: Number((s as any).average ?? 4.9), reviewCount: (s as any).count };
     featured = (best as any) ?? [];
     categories = ((cats as any) ?? []).filter((x: any) => x.count > 0);
@@ -182,7 +187,7 @@ export default async function Home() {
       <div className="film-strip" aria-hidden />
 
       {/* ───────────────── featured gear ───────────────── */}
-      <HomeGearSearch categories={categories} featured={featured} />
+      <HomeGearSearch categories={categories} featured={featured} initialRevision={catalogVersion} />
 
       {/* ───────────────── categories ───────────────── */}
       {categories.length > 0 && (

@@ -18,6 +18,7 @@ import { BookingPanel } from "@/components/booking/BookingPanel";
 import { pickRentalDates } from "@/lib/dateSelection";
 import { IconX } from "@/components/icons";
 import styles from "./HomeGearSearch.module.css";
+import { useCatalogRevisionRefresh } from "./useCatalogRevisionRefresh";
 
 function QuickBook({ listing, onClose }: { listing: GearListing; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -41,14 +42,15 @@ function QuickBook({ listing, onClose }: { listing: GearListing; onClose: () => 
         <button type="button" onClick={onClose} aria-label="Close rental selection" className="rounded-full bg-white/10 p-3 text-white"><IconX className="h-4 w-4" /></button>
       </div>
       <p className="mb-4 text-sm text-white/55">Pick your dates and times, then choose “Add to kit” when you’re ready.</p>
-      {full ? <BookingPanel listing={full} start={start} end={end} month={month} onMonthChange={setMonth} unavailable={new Set()} onAdded={onClose} onPick={day => { const next = pickRentalDates(start, end, day); setStart(next.start); setEnd(next.end); }} /> : <p role="status">Loading rental options…</p>}
+      {full ? <BookingPanel listing={full} start={start} end={end} month={month} onMonthChange={setMonth} unavailable={new Set()} onAdded={onClose} onPick={day => { const next = pickRentalDates(start, end, day); setStart(next.start); setEnd(next.end); }} /> : <p role="status">{full === null ? "This item is no longer available. Please choose another item." : "Loading rental options…"}</p>}
     </div>
   </dialog>;
 }
 
 /** Two layout modes share live matching; neither paints results over neighbouring tiles. */
-export function HomeGearSearch({ categories, featured }: { categories: Category[]; featured?: GearListing[] }) {
+export function HomeGearSearch({ categories, featured, initialRevision }: { categories: Category[]; featured?: GearListing[]; initialRevision?: string | null }) {
   const id = useId();
+  const { stale: catalogStale, refresh: refreshCatalog } = useCatalogRevisionRefresh(initialRevision);
   const [value, setValue] = useState("");
   const [settledValue, setSettledValue] = useState("");
   const [selected, setSelected] = useState<GearListing | null>(null);
@@ -81,7 +83,7 @@ export function HomeGearSearch({ categories, featured }: { categories: Category[
   const displayedResult = result ?? retainedResult;
   const searching = query.length > 0;
   const loading = searching && (query !== settledValue || (query.length >= 2 && result === undefined));
-  const listings = (featured ? searching ? query.length >= 2 && query === settledValue ? result?.listings ?? [] : [] : featured : displayedResult?.listings ?? []) as GearListing[];
+  const listings = (catalogStale ? [] : featured ? searching ? query.length >= 2 && query === settledValue ? result?.listings ?? [] : [] : featured : displayedResult?.listings ?? []) as GearListing[];
   const showDetails = searching || (!featured && listings.length > 0);
   const browseCategories = displayedResult?.categories.length ? displayedResult.categories : displayedResult?.category ? [displayedResult.category] : [];
   const input = <form onSubmit={event => event.preventDefault()} className={styles.inputShell} role="search">
@@ -93,7 +95,7 @@ export function HomeGearSearch({ categories, featured }: { categories: Category[
   const browse = showDetails && !loading && <nav aria-label="Matching gear departments" className="mb-5 flex flex-wrap gap-2">{(browseCategories.length ? browseCategories.map(name => categories.find(item => item.name === name)).filter((item): item is Category => !!item) : categories.slice(0, 6)).map(category => <Link key={category.name} href={`/gear?cat=${encodeURIComponent(category.name)}`} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-accent-300/25 bg-accent-500/[0.08] px-4 py-2 text-sm text-white/85 transition-colors hover:border-accent-300/60 hover:bg-accent-500/20"><CategoryIcon name={category.name} className="h-5 w-5 text-accent-300" /><span>{category.name}</span><span className="text-xs text-white/40">{category.count}</span><IconArrowRight className="h-3.5 w-3.5 text-accent-300" /></Link>)}</nav>;
   if (featured) return <section className="section-window px-6 py-20"><div className="mx-auto max-w-7xl">
     <div className="flex flex-wrap items-end justify-between gap-5"><div><div className="hud-label !text-accent-400/90">Most booked</div><h2 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">The kit crews <span className="serif-accent gradient-text">fight over</span></h2></div><div className="w-full max-w-[34rem]">{input}</div></div>
-    <div id={id} className="mt-8" aria-label="Most booked gear results" aria-busy={loading}>{status}{browse}<div className="dim-grid rail flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">{listings.map(l => <div key={l._id} className="w-[240px] shrink-0 snap-start animate-[fade-in_.3s_ease-out] lg:w-auto"><GearCard listing={l} /></div>)}</div></div>
+    <div id={id} className="mt-8" aria-label="Most booked gear results" aria-busy={loading || catalogStale}>{catalogStale && <p role="status" className="mb-4 text-sm text-white/55">The catalogue changed. Refreshing current equipment… <button type="button" onClick={refreshCatalog} className="underline">Retry</button></p>}{status}{browse}<div className="dim-grid rail flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">{listings.map(l => <div key={l._id} className="w-[240px] shrink-0 snap-start animate-[fade-in_.3s_ease-out] lg:w-auto"><GearCard listing={l} /></div>)}</div></div>
   </div></section>;
   return <div className={styles.root}>
     <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="hud-label text-accent-300">Your next shoot starts here</p><h2 className="mt-2 font-display text-2xl font-semibold text-white">Find it. Pick your time. Make it yours.</h2></div><div className="w-full max-w-[34rem]">{input}</div></div>

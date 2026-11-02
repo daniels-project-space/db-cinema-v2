@@ -1,7 +1,7 @@
 "use client";
 import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { useRef, useState, useEffect } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import { ReturnRentalForm } from "./ReturnRentalForm";
 import { ReturnInspectionHistory } from "./ReturnInspectionHistory";
@@ -42,6 +42,11 @@ export function RentalOrderTools({
     [listingId, setListingId] = useState(""),
     [quantity, setQuantity] = useState(1),
     [complimentary, setComplimentary] = useState(false);
+  const [debouncedLookup, setDebouncedLookup] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedLookup(lookup), 250);
+    return () => window.clearTimeout(timer);
+  }, [lookup]);
   const add = useAction(api.rentalAdditions.start),
     withdraw = useAction(api.rentalAdditions.withdrawByOwner);
   const setStatus = useMutation(api.bookings.adminSetStatus);
@@ -69,9 +74,10 @@ export function RentalOrderTools({
   useEffect(() => {
     if (b?.activeAdditionId && mode === "add" && !busy) setMode(null);
   }, [b?.activeAdditionId, mode, busy]);
-  const catalog = useQuery(
-    api.catalog.listListings,
-    mode === "add" ? { search: lookup } : "skip",
+  const catalog = usePaginatedQuery(
+    api.catalog.adminListListings,
+    mode === "add" ? { token, search: debouncedLookup } : "skip",
+    { initialNumItems: 40 },
   );
   if (!b) return null;
   const processing = b.rentalRefunds.find(
@@ -434,9 +440,8 @@ export function RentalOrderTools({
                 className="w-full rounded-xl bg-[#151515] p-3 text-sm text-white"
               />
               <div className="mt-2 grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
-                {catalog
-                  ?.filter((l) => !l.displayOnly)
-                  .slice(0, 10)
+                {catalog.results
+                  .filter((l) => !l.displayOnly)
                   .map((l) => (
                     <button
                       type="button"
@@ -456,6 +461,7 @@ export function RentalOrderTools({
                     </button>
                   ))}
               </div>
+              {catalog.status === "CanLoadMore" && <button type="button" onClick={() => catalog.loadMore(40)} className="mt-2 text-xs text-white/70 underline">Load more items</button>}
               <label className="mt-3 block text-xs text-white/55">
                 Quantity
                 <input
