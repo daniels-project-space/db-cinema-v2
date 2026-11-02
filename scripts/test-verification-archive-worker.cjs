@@ -46,8 +46,9 @@ async function run(options = {}) {
     requests.push({ url, redirect: init.redirect });
     if (url.includes('/decision/')) return new Response(JSON.stringify(report), { status: options.providerError ? 503 : 200 });
     assert.equal(init.redirect, 'error', 'Provider document redirects cannot escape the host boundary');
-    if (url.endsWith('/address') && options.addressError) return new Response('', { status: 403 });
-    return new Response(/\/(id|selfie|source|target|portrait)$/.test(url) ? image : address,
+    if (url.endsWith('/address') && options.addressError || url.endsWith('/selfie') && options.selfieError) return new Response('', { status: 403 });
+    if(url.endsWith('/selfie')&&options.onSelfie)options.onSelfie();
+    return new Response(/\/(id|selfie|source|target|portrait)$/.test(url) ? (url.endsWith('/selfie')&&options.selfieBytes?options.selfieBytes:image) : address,
       options.oversize ? { headers: { 'content-length': String(16 * 1024 * 1024) } } : {});
   };
   await worker.capture.handler(ctx, { archiveId: job._id });
@@ -66,9 +67,40 @@ async function run(options = {}) {
   const extra=(tables.get('verification_documents')??[]).filter(d=>d.archiveId===good.job._id);
   assert.equal(extra.length,5);assert(extra.some(d=>d.kind.startsWith('selfie-')));assert.equal(extra.filter(d=>d.kind.startsWith('face-match-')).length,2);
   assert(!good.requests.some(request=>request.url.endsWith('/video')),'liveness video is never captured');
-  const missingImages=await run();await worker.capture.handler(missingImages.ctx,{archiveId:missingImages.job._id,supplemental:true});
+  const missingImages=await run();missingImages.job.readProofVersion=2;missingImages.job.readVerifiedAt=Date.now();
+  await assert.rejects(()=>archive.assertVerificationArchive(missingImages.mutationCtx,missingImages.booking),/fully archived/,'legacy unknown supplemental state is not reused');
+  await worker.capture.handler(missingImages.ctx,{archiveId:missingImages.job._id,supplemental:true});
   assert.equal(missingImages.job.status,'complete','an unavailable selfie does not invalidate existing ID and address copies');
   assert.equal(missingImages.job.supplementalStatus,'pending');assert.equal(missingImages.job.supplementalAttempts,1);assert(missingImages.job.supplementalDueAt>Date.now());
+  assert.notEqual(missingImages.job.supplementalAssetsPending,true,'provider-omitted optional images do not blanket-block readiness');
+  assert.equal(missingImages.job.supplementalCheckVersion,2,'a successful provider response proves optional media is absent');await archive.assertVerificationArchive(missingImages.mutationCtx,missingImages.booking);
+  const malformed=await run();malformed.job.readProofVersion=2;malformed.job.readVerifiedAt=Date.now();
+  for(const value of [{reference_image:'https://media.didit.me/selfie'},['invalid'],[{reference_image:{url:'bad'}}]]){
+    malformed.report.liveness_checks=value;malformed.job.supplementalDueAt=0;
+    await worker.capture.handler(malformed.ctx,{archiveId:malformed.job._id,supplemental:true});
+    assert.notEqual(malformed.job.supplementalCheckVersion,2,'malformed provider media cannot confirm omission');
+    await assert.rejects(()=>archive.assertVerificationArchive(malformed.mutationCtx,malformed.booking),/fully archived/);
+  }
+  const failedOptions={selfieError:true},failedImages=await run(failedOptions);
+  failedImages.job.readProofVersion=2;failedImages.job.readVerifiedAt=Date.now();failedImages.report.liveness_checks=[{reference_image:'https://media.didit.me/selfie'}];
+  await worker.capture.handler(failedImages.ctx,{archiveId:failedImages.job._id,supplemental:true});
+  assert.equal(failedImages.job.supplementalAssetsPending,true,'a provider-supplied image missing from storage is tracked');
+  await assert.rejects(()=>archive.assertVerificationArchive(failedImages.mutationCtx,failedImages.booking),/fully archived/,'known failed supplemental assets suppress reuse');
+  failedImages.job.supplementalDueAt=0;failedOptions.selfieError=false;
+  await worker.capture.handler(failedImages.ctx,{archiveId:failedImages.job._id,supplemental:true});
+  assert.equal(failedImages.job.supplementalAssetsPending,false,'saving every supplied kind resolves the pending-assets gate');
+  assert.equal(failedImages.job.readVerifiedAt,undefined,'saved supplemental files still require a new complete byte proof');
+  failedImages.job.readProofVersion=2;failedImages.job.readVerifiedAt=Date.now();failedImages.job.supplementalDueAt=0;
+  failedOptions.selfieBytes=Buffer.from([255,216,1,2]);let pendingDuringDownload=false;failedOptions.onSelfie=()=>{pendingDuringDownload=failedImages.job.supplementalAssetsPending===true};
+  await worker.capture.handler(failedImages.ctx,{archiveId:failedImages.job._id,supplemental:true});
+  assert.equal(pendingDuringDownload,true,'same-kind provider bytes cannot race an old proof');
+  assert.equal(failedImages.job.readVerifiedAt,undefined,'changed bytes of the same kind require a fresh full-set proof');
+  assert((tables.get('verification_documents')??[]).some(document=>document.archiveId===failedImages.job._id&&document.kind==='selfie-0-reference_image'&&document.sha256===sha(failedOptions.selfieBytes)));
+  const overLimit=await run();overLimit.job.readProofVersion=2;overLimit.job.readVerifiedAt=Date.now();overLimit.job.supplementalCheckVersion=2;
+  overLimit.report.liveness_checks=Array.from({length:31},(_,index)=>({reference_image:`https://media.didit.me/selfie?i=${index}`}));
+  await worker.capture.handler(overLimit.ctx,{archiveId:overLimit.job._id,supplemental:true});
+  assert.equal(overLimit.job.supplementalAssetsPending,true,'an over-limit provider report blocks rather than overlooking supplied assets');
+  assert.equal(overLimit.job.readVerifiedAt,undefined);
   missingImages.job.supplementalDueAt=0;missingImages.report.vendor_data='dbc-booking-other';
   await worker.capture.handler(missingImages.ctx,{archiveId:missingImages.job._id,supplemental:true});
   assert.equal(missingImages.job.status,'complete');assert.equal(missingImages.job.supplementalAttempts,2,'case mismatch is retried without exposing or replacing saved evidence');

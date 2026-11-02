@@ -32,6 +32,7 @@ crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {
 crons.daily("review-story-prize-deadlines", { hourUTC: 8, minuteUTC: 15 }, internal.reviewPrize.maintenance, {});
 crons.interval("settled-rental-review-emails", { hours: 12 }, internal.reviewFollowUp.processDue, {});
 crons.interval("verify-archived-document-readability", { minutes: 5 }, internal.verificationArchive.scheduleReadProofs, {});
+crons.interval("purge-verification-reuse-claims", { hours: 1 }, internal.verificationReuseClaimState.purgeExpired, {});
 crons.interval("late-fee-notices-and-collection", { hours: 1 }, internal.lateFees.processDue, {});
 // Provider reads only: an administrator must explicitly initiate each collection.
 crons.interval("saved-card-charge-reconciliation", { minutes: 5 }, internal.securityCharges.processPending, {});
