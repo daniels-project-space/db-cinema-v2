@@ -251,6 +251,16 @@ export const start = action({
     const checkoutInputFingerprint=createHash("sha256").update(agreementRequestFingerprint({...a,token:undefined})).digest("hex");
     const priorAttempt=await ctx.runQuery(internal.bookings.checkoutAttempt,{requestId:a.agreement.requestId,checkoutInputFingerprint});
     if(priorAttempt?.sessionId){
+      if(process.env.STRICT_SECURITY_POLICY_ENABLED==="true"&&priorAttempt.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION&&priorAttempt.securityWaiverReason){
+        const staleSession=await stripe().checkout.sessions.retrieve(priorAttempt.sessionId);
+        if(staleSession.id!==priorAttempt.sessionId||staleSession.metadata?.bookingId!==String(priorAttempt.bookingId))throw Error("This payment session does not match the saved booking. Contact us before retrying.");
+        if(staleSession.status==="open"){
+          try{const expired=await stripe().checkout.sessions.expire(priorAttempt.sessionId);if(expired.status!=="expired")throw Error("Stripe did not confirm checkout expiration.");}
+          catch{throw Error("We couldn't safely close this older checkout. Contact us before starting another payment.");}
+          throw Error("This waived checkout uses an older security policy and was closed. Refresh checkout, review the current terms, and start again.");
+        }
+        throw Error("This checkout has completed or expired. Use the existing booking or contact us.");
+      }
       await ctx.runQuery(internal.bookings.assertCheckoutReservation,{bookingId:priorAttempt.bookingId});
       const session=await stripe().checkout.sessions.retrieve(priorAttempt.sessionId);
       if(session.id!==priorAttempt.sessionId||session.metadata?.bookingId!==String(priorAttempt.bookingId))throw Error("This payment session does not match the saved booking. Contact us before retrying.");

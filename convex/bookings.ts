@@ -142,7 +142,7 @@ export const checkoutAttempt = internalQuery({
     if(!b?.checkoutInputFingerprint)return null;
     if(b.checkoutInputFingerprint!==a.checkoutInputFingerprint)throw Error("This acceptance attempt belongs to different booking details. Review and accept again.");
     if(b.status!=="pending_payment")throw new ConvexError({code:"CHECKOUT_CLOSED",message:"This checkout has completed or closed. Open your existing booking, or refresh checkout and review a new attempt."});
-    return {bookingId:b._id,sessionId:b.stripeCheckoutSessionId,membershipCheckoutId:b.membershipCheckoutId};
+    return {bookingId:b._id,sessionId:b.stripeCheckoutSessionId,membershipCheckoutId:b.membershipCheckoutId,securityPolicyVersion:b.securityPolicyVersion,securityWaiverReason:b.securityWaiverReason};
   },
 });
 
@@ -216,6 +216,7 @@ export const createPending = internalMutation({
         return {bookingId:previous._id,creditApplied:previous.creditApplied??0,reused:true,sessionId:previous.stripeCheckoutSessionId};
       }
     }
+    if(process.env.STRICT_SECURITY_POLICY_ENABLED==="true"&&a.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION&&a.securityWaiverReason)throw Error("A waived checkout under the older security policy cannot be created. Refresh checkout and review the current rental terms.");
     if(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && a.securityWaiverReason)throw Error("The refundable deposit cannot be waived by membership or a prior rental.");
     if(a.securityPolicyVersion && a.securityPolicyVersion!==SECURITY_POLICY_VERSION && !(a.securityPolicyVersion===REFUNDABLE_DEPOSIT_POLICY_VERSION && process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true") && !(a.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION && process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true") && !(a.securityPolicyVersion===STRICT_ASSESSMENT_SECURITY_POLICY_VERSION && process.env.STRICT_SECURITY_POLICY_ENABLED==="true" && process.env.ENCORE_EVIDENCE_READ_ENABLED==="true" && process.env.MEMBERSHIP_BOUNDED_RECONCILE_ENABLED==="true"))throw Error("Unsupported security policy.");
     if(a.cancellationProtectionEnabled && (process.env.CANCELLATION_PROTECTION_POLICY_ENABLED!=="true"||!hasAssessmentSecurityPolicy(a.securityPolicyVersion)))throw Error("The cancellation protection policy is not enabled.");
