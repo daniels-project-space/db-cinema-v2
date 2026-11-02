@@ -537,5 +537,36 @@ export const discovery = query({
   },
 });
 
+export const discoveryOffers = query({
+  args: { slugs: v.array(v.string()) },
+  handler: async (ctx, { slugs }) => {
+    if (slugs.length > 24 || new Set(slugs).size !== slugs.length) throw Error("Invalid discovery offer selection");
+    const rows = (await Promise.all(slugs.map(slug => ctx.db.query("listings").withIndex("by_slug", q => q.eq("slug", slug)).first())))
+      .filter((row): row is NonNullable<typeof row> => !!row && !rentalUnavailable(row));
+    const publicRows = await createPublicListingCopy(ctx)(rows);
+    return publicRows.map(row => ({
+      slug: row.slug, title: row.title, category: row.category, image: images(row)[0] ?? null,
+      daily: Number.isFinite(row.pricing?.daily) && row.pricing.daily > 0
+        ? Math.round(row.pricing.daily * (1 - (row.quietDeal ?? 0) / 100)) : null,
+      minimumRentalDays: row.minimumRentalDays ?? 1,
+    }));
+  },
+});
+
+export const discoveryCameraPage = query({
+  args: { after: v.optional(v.string()) },
+  handler: async (ctx, { after }) => {
+    if (after !== undefined && !/^[a-z0-9-]{1,200}$/.test(after)) throw Error("Invalid camera directory position");
+    const rows = await ctx.db.query("listings").withIndex("by_category_slug", q =>
+      after ? q.eq("category", "Cameras").gt("slug", after) : q.eq("category", "Cameras")).take(49);
+    const page = rows.slice(0, 48);
+    const visible = await createPublicListingCopy(ctx)(page.filter(row => !rentalUnavailable(row)));
+    return {
+      page: visible.map(row => ({ slug: row.slug, title: row.title, category: row.category })),
+      nextAfter: rows.length > 48 ? page[page.length - 1].slug : null,
+    };
+  },
+});
+
 /** Public physical pairing evidence; no customer or private inventory fields. */
 export const compatibilityKits = query({ args: {}, handler: verifiedKitEvidence });
