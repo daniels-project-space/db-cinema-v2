@@ -7,6 +7,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { BOT_MODEL_DEFAULT, BOT_PROVIDER_ROUTING } from "./lib/botModel";
+import { verificationRecovery } from "./lib/gafferVerificationGuidance";
 
 /** Owner-selected suggestions only: never posts a message or executes a rental action. */
 export const ownerDrafts = action({
@@ -45,6 +46,12 @@ export const gafferReply = internalAction({
       } catch {
         verificationRefresh = "unavailable";
       }
+    }
+
+    const recovery = bookingId && latestRenter ? verificationRecovery(latestRenter.text, cx.booking?.verification) : null;
+    if (recovery) {
+      await ctx.runMutation(internal.chat._postBot, { accountId, bookingId, generation: cx.gafferGeneration, replyTo: messageId ?? cx.latestRenterId ?? undefined, text: recovery });
+      return;
     }
 
     const fallback=async()=>{
