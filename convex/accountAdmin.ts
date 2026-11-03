@@ -7,6 +7,7 @@ import { availableCreditRows } from "./lib/checkoutCredit";
 import { listingImages } from "./lib/catalogImages";
 import { paginationOptsValidator } from "convex/server";
 import { accountVerificationReady } from "./lib/accountVerificationReady";
+import { customerAdminVisual } from "../shared/customerAdminVisual";
 
 export const directoryAccess = query({
   args: { token: v.string() },
@@ -41,11 +42,51 @@ export const directory = query({
       id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
       tier: membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard",
       override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel), blocked: account.blockedAt != null,
-      blockedReason: account.blockedReason ?? "", hasSubscription: !!account.stripeSubscriptionId,
+      blockedReason: account.blockedReason ?? "", hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account),
       subscriptionTier: account.membershipTier ?? null,
       verified,
       avatarUrl: account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
     }))) };
+  },
+});
+
+export const searchMessages = query({
+  args: {
+    token: v.string(), search: v.string(),
+    filter: v.union(v.literal("all"), v.literal("members"), v.literal("verified"), v.literal("pending")),
+    tier: v.union(v.literal("all"), v.literal("standard"), v.literal("plus"), v.literal("pro"), v.literal("studio")),
+    verification: v.optional(v.union(v.literal("all"), v.literal("verified"), v.literal("pending"))),
+  },
+  handler: async (ctx, args) => {
+    if (!checkAdminToken(args.token)) return { items: [], truncated: false };
+    const search = args.search.trim();
+    if (search.length > 254) throw Error("Customer search is too long.");
+    if (search.length < 2) return { items: [], truncated: false };
+    const messages = await ctx.db.query("messages").withSearchIndex("search_text", q => q.search("text", search)).take(101);
+    const seen = new Set<string>();
+    const items = [];
+    for (const message of messages.slice(0, 100)) {
+      const accountId = String(message.accountId);
+      if (seen.has(accountId)) continue;
+      seen.add(accountId);
+      const account = await ctx.db.get(message.accountId);
+      if (!account) continue;
+      const verified = !!await accountVerificationReady(ctx, account);
+      const tier = membershipActiveNow(account) ? membershipTierFor(account) ?? "standard" : "standard";
+      if (args.tier !== "all" && tier !== args.tier) continue;
+      if (args.verification && args.verification !== "all" && (args.verification === "verified" ? !verified : verified)) continue;
+      if (!(args.filter === "all" || args.filter === "members" && tier !== "standard" || args.filter === "verified" && verified || args.filter === "pending" && !verified)) continue;
+      items.push({
+        id: account._id, email: account.email, name: account.name ?? "", createdAt: account.createdAt,
+        tier, override: account.adminMembershipTier ?? "automatic", encoreOverride: account.adminEncoreLevel == null ? "automatic" : String(account.adminEncoreLevel),
+        blocked: account.blockedAt != null, blockedReason: account.blockedReason ?? "", hasSubscription: !!account.stripeSubscriptionId, visualTier: customerAdminVisual(account),
+        subscriptionTier: account.membershipTier ?? null, verified,
+        avatarUrl: account.avatarStorageId ? await ctx.storage.getUrl(account.avatarStorageId) : account.googleAvatarUrl ?? null,
+        matchedMessage: message.text.slice(0, 150),
+      });
+      if (items.length >= 50) break;
+    }
+    return { items, truncated: messages.length > 100 || items.length >= 50 };
   },
 });
 
