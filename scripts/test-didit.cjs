@@ -4,6 +4,7 @@ const { createHmac } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
+const reviewNotices = [];
 
 function load(file) {
   const filename = path.resolve(__dirname, '..', file);
@@ -18,6 +19,7 @@ function load(file) {
     './adminAuth': { assertAdmin: () => {} },
     './availability': { peak: () => 0 },
     './lib/rmv2SyncQueue': { queueRmv2Sync: async () => {} },
+    './lib/adminPush': { queueOwnerNotification: async (_ctx, notice) => { reviewNotices.push(notice); } },
     './verificationArchive': { queueVerificationArchive: async () => {}, assertVerificationArchive: async () => {} },
   };
   new Function('require', 'module', 'exports', source)((name) => {
@@ -70,6 +72,11 @@ function signed(event) {
   assert.equal(await webhook.handler(ctx, signed(event)), true);
   assert.equal(result.status, 'verified');
   assert.deepEqual(result.poaPostcodes, ['SW1A 1AA']);
+  const flagged = {...event.decision, id_verifications: [{...event.decision.id_verifications[0], warnings: [{risk: 'FRAME_INJECTION_SUSPECTED', log_type: 'information'}]}]};
+  assert.equal(await webhook.handler(ctx, signed({...event, event_id:'event-warning', decision:flagged})), true);
+  assert.equal(result.status, 'verified', 'an informational warning does not override Didit approval');
+  assert.equal(await webhook.handler(ctx, signed({...event, event_id:'event-top-warning', decision:{...event.decision, warnings:[{risk:'OTHER'}]}})), true);
+  assert.equal(result.status, 'verified', 'a provider warning does not override Didit approval');
   const currentSignature = signed({...event, event_id: 'event-previous'});
   assert.equal(await webhook.handler(ctx, {...currentSignature, signature: '0'.repeat(64), previousSignature: currentSignature.signature}), true,
     'a valid V2 previous-secret signature survives Didit secret rotation');
@@ -111,8 +118,8 @@ function signed(event) {
 
   for (const [billingAddress, expected] of [
     ['10 Downing Street, London SW1A 1AA', 'verified'],
-    ['10 Downing Street, London SW1A 2AA', 'manual_review'],
-    ['10 Downing Street, London', 'manual_review'],
+    ['10 Downing Street, London SW1A 2AA', 'verified'],
+    ['10 Downing Street, London', 'verified'],
   ]) {
     const booking = { _id:'booking-1',lineItems:[],verificationProvider: 'didit', diditSessionId: 'session-1', billingAddress, idVerifyStatus: 'processing', guestEmail: 'renter@example.invalid' };
     let patch;
@@ -128,6 +135,11 @@ function signed(event) {
     }), true);
     assert.equal(patch.idVerifyStatus, expected, billingAddress);
   }
+  const reviewCase = {_id:'booking-1',status:'confirmed',lineItems:[],verificationProvider:'didit',diditSessionId:'session-1',idVerifyStatus:'manual_review',verificationNote:'Old note'};
+  const reviewDb = {get:async()=>reviewCase,patch:async()=>{},query:()=>({withIndex:()=>({first:async()=>null,collect:async()=>[],take:async()=>[]})})};
+  await setDiditResult.handler({db:reviewDb,scheduler:{runAfter:async()=>{}}}, {bookingId:'booking-1',sessionId:'session-1',eventId:'new-warning',eventAt:now*1000,status:'manual_review',note:'Didit flagged a possible camera capture integrity issue.',poaPostcodes:[]});
+  assert.equal(reviewNotices.at(-1)?.kind, 'verification_failure');
+  assert.match(reviewNotices.at(-1)?.body, /camera capture integrity/);
   const manuallyApproved = {status:'confirmed',verificationProvider:'didit',diditSessionId:'session-1',
     billingAddress:'10 Downing Street SW1A 1AA',idVerifyStatus:'verified',idVerificationSource:'manual'};
   let manualPatch;

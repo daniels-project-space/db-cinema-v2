@@ -40,9 +40,12 @@ console.log("PASS stage-aware reply templates: no unpaid/cancelled/returned pick
   }
   await db.patch(rental._id, { status: "confirmed" });
   await postBookingMessages.handler(ctx, { bookingId: rental._id });
+  assert.equal((tables.get("messages") ?? []).length, 0, "Unverified rentals do not receive a confirmation message");
+  await db.patch(rental._id, { idVerifyStatus: "verified" });
+  await postBookingMessages.handler(ctx, { bookingId: rental._id });
   await postBookingMessages.handler(ctx, { bookingId: rental._id });
   assert.equal(tables.get("messages").length, 1, "Confirmation retry cannot duplicate");
-  assert.doesNotMatch(tables.get("messages")[0].text, /Private confirmed pickup depot/);
+  assert.match(tables.get("messages")[0].text, /Private confirmed pickup depot/);
   assert.match(tables.get("messages")[0].text, /10:30/);
   assert.match(tables.get("messages")[0].text, /16:00/);
   console.log("PASS confirmation transaction: current stage, recorded dates/location, persistent retry receipt.");
