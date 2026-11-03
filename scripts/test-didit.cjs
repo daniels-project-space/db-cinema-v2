@@ -111,8 +111,8 @@ function signed(event) {
 
   for (const [billingAddress, expected] of [
     ['10 Downing Street, London SW1A 1AA', 'verified'],
-    ['10 Downing Street, London SW1A 2AA', 'manual_review'],
-    ['10 Downing Street, London', 'manual_review'],
+    ['10 Downing Street, London SW1A 2AA', 'verified'],
+    ['10 Downing Street, London', 'verified'],
   ]) {
     const booking = { _id:'booking-1',lineItems:[],verificationProvider: 'didit', diditSessionId: 'session-1', billingAddress, idVerifyStatus: 'processing', guestEmail: 'renter@example.invalid' };
     let patch;

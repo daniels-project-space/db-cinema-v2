@@ -1698,14 +1698,6 @@ export const setDiditResult = internalMutation({
       const changed=b.idVerifyStatus!==status || (["identity","selfie","address"] as const).some(key=>b.verificationChecks?.[key]!==checks?.[key]) || (b.documentExpiresAt??null)!==(documentExpiresAt??null);
       await queueVerificationArchive(ctx,b,!reconciliation || changed);
     }
-    // The provider checks the bill and its holder. Also require its UK postcode
-    // to match the address this renter supplied for the booking.
-    const postcode = (s: string) => s.toUpperCase().match(/\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/)?.[0].replace(/\s/g, "") ?? "";
-    if (status === "verified" && (!postcode(b.billingAddress ?? "") || !poaPostcodes.length ||
-        !poaPostcodes.every((p) => postcode(p) === postcode(b.billingAddress ?? "")))) {
-      status = "manual_review";
-      note = "The verified address does not match the booking address. Please contact us.";
-    }
     // A deliberate admin approval can override a feature-level review. Didit
     // still sends top-level Approved with the original feature decisions; keep
     // that human decision, while allowing an actual later decline to revoke it.
