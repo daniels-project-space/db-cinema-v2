@@ -265,11 +265,8 @@ export default async function Home() {
             </h2>
           </div>
           <HomeStats />
-          {hyggloReviews.length >= 3 ? (
-            <HyggloReviewRows reviews={hyggloReviews} />
-          ) : (
-            <div className="mt-10"><ReviewCarousel /></div>
-          )}
+          {hyggloReviews.length >= 3 && <HyggloReviewRows reviews={hyggloReviews} />}
+          <div className={hyggloReviews.length >= 3 ? "mt-8" : "mt-10"}><ReviewCarousel /></div>
         </Reveal>
       </section>
 

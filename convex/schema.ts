@@ -492,6 +492,7 @@ export default defineSchema({
     .index("by_listing", ["listingId"])
     .index("by_booking", ["verifiedBookingId"])
     .index("by_published", ["published"])
+    .index("by_published_source_date", ["published", "source", "date"])
     .index("by_published_source_rating_date", ["published", "source", "rating", "date"])
     .index("by_source_hygglo_review_id", ["source", "hyggloReviewId"])
     .index("by_published_source_verified_date", ["published", "source", "sourceRating", "sourceRatingVerified", "sourcePhotoVerified", "date"]),
