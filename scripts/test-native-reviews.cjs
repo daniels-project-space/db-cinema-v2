@@ -70,7 +70,7 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  const home=fs.readFileSync('src/app/page.tsx','utf8'),header=fs.readFileSync('src/components/SiteHeader.tsx','utf8'),showcase=fs.readFileSync('src/components/HyggloReviewShowcase.tsx','utf8'),styles=fs.readFileSync('src/app/globals.css','utf8'),hero=fs.readFileSync('src/components/HeroCinematic.tsx','utf8'),homeStats=fs.readFileSync('src/components/HomeStats.tsx','utf8'),stepsStyles=fs.readFileSync('src/components/HowItWorksSteps.module.css','utf8');
  const reviewsRoute=fs.readFileSync('src/app/reviews/page.tsx','utf8');
  assert(home.indexOf('id="reviews"')>home.indexOf('Every department,'),'Place reviews after the department showcase');
- assert(home.indexOf('Every department,')<home.indexOf('<FilmFundInvite />')&&home.indexOf('<FilmFundInvite />')<home.indexOf('id="reviews"'),'Keep Film Fund directly after the catalogue and place reviews below it');
+ assert(home.indexOf('Every department,')<home.indexOf('id="reviews"')&&home.indexOf('id="reviews"')<home.indexOf('<FilmFundInvite />'),'Place reviews directly after departments and before the Film Fund section');
  assert(home.includes('lens-flare left-1/4 top-[85%] w-1/2'),'Keep the lower CTA flare clear of its headline and copy');
  assert(home.includes('<HowItWorksSteps />'),'Use the enlarged animated four-step feature cards');
  assert(stepsStyles.includes('.copy { padding-bottom: 4rem; }'),'Keep mobile step copy clear of the floating contact button');
