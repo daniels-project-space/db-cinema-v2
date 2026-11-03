@@ -67,11 +67,11 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
         await browser.cmd('Page.navigate', { url: `http://127.0.0.1:${webPort}/` });
         let placement = false;
         for (let attempt = 0; attempt < 100; attempt++) {
-          placement = await browser.evaluate(`(()=>{const fund=document.querySelector('.fund-invite');return !!fund?.previousElementSibling?.querySelector('a[href^="/gear"]')})()`);
+          placement = await browser.evaluate(`(()=>{const fund=document.querySelector('.fund-invite');const reviews=document.querySelector('#reviews');return !!reviews?.previousElementSibling?.querySelector('a[href^="/gear"]')&&fund?.previousElementSibling===reviews})()`);
           if (placement) break;
           await wait(100);
         }
-        assert.equal(placement, true, 'Film Fund must remain directly after the gear catalogue');
+        assert.equal(placement, true, 'Reviews must follow the gear catalogue and precede the Film Fund section');
       } finally {
         browser.close();
         await fetch((process.env.DBC_CDP_URL || 'http://localhost:9224') + '/json/close/' + browser.tabId, { signal: AbortSignal.timeout(3000) }).catch(() => {});

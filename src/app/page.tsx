@@ -256,8 +256,6 @@ export default async function Home() {
         </section>
       )}
 
-      <FilmFundInvite />
-
       <section id="reviews" className="section-glass scroll-mt-24 px-6 py-20">
         <Reveal className="mx-auto max-w-6xl">
           <div className="text-center">
@@ -274,6 +272,8 @@ export default async function Home() {
           )}
         </Reveal>
       </section>
+
+      <FilmFundInvite />
 
       <HowItWorksSteps />
 
