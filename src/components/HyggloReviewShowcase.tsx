@@ -82,7 +82,7 @@ export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[
       <div className="hygglo-trust-review-panel rounded-2xl border border-white/15 p-4 sm:p-5">
         <div aria-live="off">
           <Rating />
-          <blockquote key={review._id} className="hygglo-trust-review-fade mt-3 line-clamp-4 text-sm leading-relaxed text-white/90">
+          <blockquote key={review._id} className="hygglo-trust-review-fade mt-3 h-[5.6875rem] line-clamp-4 text-sm leading-relaxed text-white/90">
             “{review.text}”
           </blockquote>
         </div>

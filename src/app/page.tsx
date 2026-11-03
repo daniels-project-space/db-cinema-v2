@@ -309,7 +309,16 @@ export default async function Home() {
           <p className="hud-label !text-accent-300/80">Your story is waiting</p>
           <h2 id="home-closing-title" className="serif-accent mt-4 text-3xl text-white/85 sm:text-5xl">Your next shot <span className="gradient-text">starts here.</span></h2>
           <p className="mx-auto mt-4 max-w-md text-white/55">Pick your dates, build your kit, and get back to the work that matters.</p>
-          <Magnetic className="mt-9"><Link href="/gear" className="btn-primary px-9 py-3.5">Start your booking <IconArrowRight className="h-4 w-4" /></Link></Magnetic>
+          <Magnetic className="mt-9"><Link href="/gear" className={closingStyles.irisButton}>
+            <svg className={closingStyles.iris} viewBox="0 0 100 100" aria-hidden="true">
+              <defs><clipPath id="closing-iris-clip"><circle cx="50" cy="50" r="46" /></clipPath></defs>
+              <circle cx="50" cy="50" r="48" className={closingStyles.irisRim} />
+              <g clipPath="url(#closing-iris-clip)" className={closingStyles.irisBlades}>
+                {[0, 60, 120, 180, 240, 300].map(angle => <g key={angle} transform={`rotate(${angle} 50 50)`}><path d="M50 2 A48 48 0 0 1 91.6 26 L63 43 L50 36 Z" /></g>)}
+              </g>
+            </svg>
+            <span>Start your booking <IconArrowRight className="h-4 w-4" /></span>
+          </Link></Magnetic>
         </Reveal>
       </section>
 
