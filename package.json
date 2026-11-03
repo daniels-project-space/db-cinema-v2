@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "pretest": "node scripts/test-didit-embed.cjs && node scripts/test-rmv2-physical-ledger.cjs",
+    "pretest": "node scripts/test-didit-embed.cjs && node scripts/test-rmv2-physical-ledger.cjs && node scripts/test-ios-notification-steps.cjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
