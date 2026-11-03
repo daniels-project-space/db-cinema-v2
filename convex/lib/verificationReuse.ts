@@ -1,6 +1,7 @@
 import { postRentalMessage } from "./rentalChat";
 import { accountForRental } from "./rentalAccount";
 import { bookingStockLines } from "../../shared/rentalWindow";
+import { pickupMapAvailable } from "../../shared/pickupLocation";
 
 /** Rental risk policy, separate from a Collective membership badge. */
 export const VERIFICATION_REUSE_DAYS = 90;
@@ -55,13 +56,15 @@ export async function verificationUpdateMessage(ctx: any, bookingId: any, previo
   };
   if (!text[status]) return;
   let message=text[status];
+  let pickupMap = false;
   if(status==="verified"){
     const settings=await ctx.db.query("settings").first();
     if(booking.fulfilment==="pickup"){
+      pickupMap = pickupMapAvailable(settings?.businessAddress);
       const schedule=bookingStockLines(booking).map((line:any)=>`${line.title}: ${new Date(line.start).toISOString().slice(0,10)}${line.pickupTime ? ` at ${line.pickupTime}` : " (time to be confirmed)"}`).join("\n");
       message+=`${settings?.businessAddress ? `\n\nPickup location:\n${settings.businessAddress}` : "\n\nThe team will confirm the pickup location here."}${schedule ? `\n\nPickup schedule (London time):\n${schedule}` : ""}`;
     }
     message+="\n\nIf you have any issues at collection, you can reach Leo on +44 7933 019849. Please keep the conversation here in your rental chat where possible.";
   }
-  await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system", text: message, meta: { kind: "verification_update", status } });
+  await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system", text: message, meta: { kind: "verification_update", status, ...(pickupMap ? { pickupMap: true } : {}) } });
 }

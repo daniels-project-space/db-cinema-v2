@@ -9,6 +9,7 @@ import { v } from "convex/values";
 import { OWNER_EMAIL, sendMail } from "./lib/mailer";
 import { CANCELLATION_CREDIT_DAYS } from "../src/lib/cancellationPolicy";
 import { bookingStockLines } from "../shared/rentalWindow";
+import { pickupMapAvailable, WATERSTONES_MAP_URL } from "../shared/pickupLocation";
 import { verificationExpired } from "../shared/verificationProgress";
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -108,7 +109,7 @@ export const verificationEmail = internalAction({
       if(b.fulfilment==="pickup"){
         const settings:any=await ctx.runQuery(internal.settings.pickupAddress,{});
         const rows:Array<[string,string]>=bookingStockLines(b).map((line:any)=>[line.title,`${day(line.start)} · ${line.pickupTime ?? "time to be confirmed"}`]);
-        detail=`<h2>Pickup details</h2>${settings?.businessAddress ? `<p>${emailEscape(settings.businessAddress).replace(/\r?\n/g,"<br>")}</p>` : "<p>The team will confirm the pickup location in your rental conversation.</p>"}${emailRows(rows)}<p>All times are London local time.</p>`;
+        detail=`<h2>Pickup details</h2>${settings?.businessAddress ? `<p>${emailEscape(settings.businessAddress).replace(/\r?\n/g,"<br>")}</p>` : "<p>The team will confirm the pickup location in your rental conversation.</p>"}${pickupMapAvailable(settings?.businessAddress) ? `<p><a href="${emailEscape(WATERSTONES_MAP_URL)}">Open Waterstones, Trafalgar Square in Google Maps</a></p>` : ""}${emailRows(rows)}<p>All times are London local time.</p>`;
       }
       const invoice:any=await ctx.runAction(internal.invoice.invoiceEmail,{bookingId,prepareOnly:true,deliveryKey});
       if(!invoice?.attachments?.length)throw Error("Verification invoice PDF is unavailable");

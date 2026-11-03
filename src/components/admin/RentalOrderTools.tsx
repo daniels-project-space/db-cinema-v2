@@ -52,12 +52,12 @@ export function RentalOrderTools({
   const setStatus = useMutation(api.bookings.adminSetStatus);
   const [returnOpen, setReturnOpen] = useState(false);
   const reschedule = useMutation(api.rentalOperations.reschedule),
-    changePickupTime = useMutation(api.rentalOperations.changePickupTime),
+    changeHandoverTimes = useMutation(api.rentalOperations.changeHandoverTimes),
     remove = useMutation(api.rentalOperations.removeItem),
     cancel = useAction(api.checkout.cancelByAdmin),
     refund = useAction(api.checkout.refundRental);
   const [mode, setMode] = useState<
-      "reschedule" | "pickup-time" | "cancel" | "refund" | "add" | "remove" | null
+      "reschedule" | "pickup-time" | "return-time" | "cancel" | "refund" | "add" | "remove" | null
     >(initialMode??null),
     [date, setDate] = useState(""),
     [endDate, setEndDate] = useState(""),
@@ -65,7 +65,7 @@ export function RentalOrderTools({
     [amount, setAmount] = useState("");
   const [removeIndex, setRemoveIndex] = useState<number | null>(null);
   const [keepAgreedPrice, setKeepAgreedPrice] = useState(false);
-  const [pickupLine, setPickupLine] = useState(0), [pickupTime, setPickupTime] = useState(""), [pickupSnapshot, setPickupSnapshot] = useState("");
+  const [handoverLines, setHandoverLines] = useState<number[]>([]), [handoverTime, setHandoverTime] = useState(""), [handoverSnapshot, setHandoverSnapshot] = useState("");
   const removeSelection = useRef<{ lineIndex: number; listingId: any; expectedQty: number; expectedStart: number; expectedEnd: number } | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -127,9 +127,9 @@ export function RentalOrderTools({
           "Rental dates updated. The customer will receive confirmation.",
         );
       }
-      if (mode === "pickup-time") {
+      if (mode === "pickup-time" || mode === "return-time") {
         request.current ??= crypto.randomUUID();
-        const changed = await changePickupTime({token,bookingId:bookingId as any,requestId:request.current,lineIndex:pickupLine,pickupTime,expectedSnapshot:pickupSnapshot,reason});
+        const changed = await changeHandoverTimes({token,bookingId:bookingId as any,requestId:request.current,lineIndexes:handoverLines,kind:mode === "pickup-time" ? "pickup" : "return",time:handoverTime,expectedSnapshot:handoverSnapshot,reason});
         setResult(`${changed.detail} The conversation is updated and confirmation email is queued.`);
         request.current = null;
       }
@@ -285,7 +285,7 @@ export function RentalOrderTools({
             Change dates / reschedule
           </button>
         )}
-        {b.status === "confirmed" && <button type="button" disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || !!(b.activeAdditionId || b.activeExtensionId || b.activePriceAdjustmentId)} onClick={()=>{setPickupLine(0);setPickupTime("");setPickupSnapshot(b.controlsSnapshot);request.current=null;setMode("pickup-time");setError("");}} className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35">Change pickup time</button>}
+        {(["pickup-time","return-time"] as const).filter(kind=>b.status === "confirmed" || b.status === "active" && kind === "return-time").map(kind=><button key={kind} type="button" disabled={busy || !!b.returnDecision || !!processing || !!b.cancellationDecision || !!(b.activeAdditionId || b.activeExtensionId || b.activePriceAdjustmentId)} onClick={()=>{setHandoverLines(b.lineItems.map((_,index)=>index));setHandoverTime("");setHandoverSnapshot(b.controlsSnapshot);request.current=null;setMode(kind);setError("");}} className="rounded-full border border-white/10 px-3 py-2 text-white/65 disabled:opacity-35">Change {kind === "pickup-time" ? "pickup" : "return"} time</button>)}
         {["confirmed", "pending_payment"].includes(b.status) && (
           <button
             disabled={busy || !!b.returnDecision || !!processing || !!(b.activeAdditionId || b.activeExtensionId)}
@@ -399,6 +399,8 @@ export function RentalOrderTools({
                   ? "Move rental dates"
                   : mode === "pickup-time"
                     ? "Change pickup time"
+                  : mode === "return-time"
+                    ? "Change return time"
                   : mode === "remove"
                     ? "Remove kit from this rental"
                   : mode === "add"
@@ -425,8 +427,8 @@ export function RentalOrderTools({
                 ? "Choose real catalogue items. We check stock and calculate the rental charge and any security increase, then send a secure checkout link in this conversation. Items are confirmed after payment and bank approval."
                 : mode === "reschedule"
                   ? "Move the rental or set a new return date. Agreed charges and security stay the same: extra days are complimentary. Any eligible refund uses the separate refund control. Stock is checked before saving."
-                  : mode === "pickup-time"
-                    ? "Change one item's pickup time. Other items keep their own times. We recheck availability and security scheduling before saving, then notify the renter in chat and by email. Times are London local time."
+                  : mode === "pickup-time" || mode === "return-time"
+                    ? "Choose all items or select the affected items. Other items keep their times. We recheck availability before saving and notify the renter in chat and by email. Times are London local time."
                   : "Refund all remaining rental payment, or specify a smaller amount. Security payment is handled separately on return or cancellation."}
           </p>
           {mode === "remove" && <div className="mt-3 grid gap-2">{b.lineItems.map((line, i) => <button type="button" key={i} onClick={() => { setRemoveIndex(i); removeSelection.current = { lineIndex: i, listingId: line.listingId, expectedQty: line.qty, expectedStart: line.start, expectedEnd: line.end }; request.current = null; }} className={`rounded-xl border p-3 text-left text-xs ${removeIndex === i ? "border-rose-400/60 text-white" : "border-white/10 text-white/60"}`}>{line.qty}× {rentalTitle(line.title)} · {formatGbp(line.lineTotal)}</button>)}</div>}
@@ -501,7 +503,7 @@ export function RentalOrderTools({
               <span className="mt-1 block text-white/35">Leave blank to keep the same duration.</span>
             </label></div>
           )}
-          {mode === "pickup-time" && <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs text-white/55">Item<select value={pickupLine} onChange={event=>{setPickupLine(Number(event.target.value));request.current=null;}} className="mt-1 block w-full rounded-xl border border-white/10 bg-[#151515] p-3 text-white">{b.lineItems.map((line,index)=><option key={index} value={index}>{line.qty}× {rentalTitle(line.title)} · {new Date(line.start).toISOString().slice(0,10)} · {line.pickupTime ?? "time not set"}</option>)}</select></label><label className="text-xs text-white/55">New pickup time<select required value={pickupTime} onChange={event=>{setPickupTime(event.target.value);request.current=null;}} className="mt-1 block w-full rounded-xl border border-white/10 bg-[#151515] p-3 text-white"><option value="">Choose a time</option>{RENTAL_TIME_SLOTS.map(time=><option key={time} value={time}>{time}</option>)}</select></label></div>}
+          {(mode === "pickup-time" || mode === "return-time") && <div className="mt-3 grid gap-3"><fieldset className="grid gap-2"><legend className="text-xs text-white/55">Items affected</legend><label className="mt-2 flex items-center gap-2 text-xs text-white/80"><input type="checkbox" checked={handoverLines.length === b.lineItems.length} onChange={event=>{setHandoverLines(event.target.checked?b.lineItems.map((_,index)=>index):[]);request.current=null;}}/>All items</label>{b.lineItems.map((line,index)=><label key={index} className="flex items-center gap-2 rounded-xl border border-white/10 p-3 text-xs text-white/70"><input type="checkbox" checked={handoverLines.includes(index)} onChange={event=>{setHandoverLines(current=>event.target.checked?[...current,index]:current.filter(value=>value!==index));request.current=null;}}/>{line.qty}× {rentalTitle(line.title)} · {mode === "pickup-time" ? line.pickupTime ?? "pickup time not set" : line.returnTime ?? "return time not set"}</label>)}</fieldset><label className="text-xs text-white/55">New {mode === "pickup-time" ? "pickup" : "return"} time<select required value={handoverTime} onChange={event=>{setHandoverTime(event.target.value);request.current=null;}} className="mt-1 block w-full rounded-xl border border-white/10 bg-[#151515] p-3 text-white"><option value="">Choose a time</option>{RENTAL_TIME_SLOTS.map(time=><option key={time} value={time}>{time}</option>)}</select></label></div>}
           {mode === "reschedule" && endDate && <label className="mt-3 flex items-start gap-2 text-xs text-white/60"><input type="checkbox" required checked={keepAgreedPrice} onChange={e => setKeepAgreedPrice(e.target.checked)} className="mt-0.5" />Keep the agreed rental charge for these dates. I approve any extra days as complimentary; any eligible refund is handled separately.</label>}
           {mode === "refund" && (
             <label className="mt-3 block text-xs text-white/55">
@@ -526,12 +528,12 @@ export function RentalOrderTools({
               minLength={mode==="cancel"?undefined:5}
               maxLength={400}
               value={reason}
-              onChange={(e) => {setReason(e.target.value);if(mode === "pickup-time") request.current=null;}}
+              onChange={(e) => {setReason(e.target.value);if(mode === "pickup-time" || mode === "return-time") request.current=null;}}
               className="mt-1 w-full rounded-xl bg-[#151515] p-3 text-sm text-white"
             />
           </label>
           <button
-            disabled={busy || (mode === "add" && !listingId) || (mode === "remove" && removeIndex === null)}
+            disabled={busy || (mode === "add" && !listingId) || (mode === "remove" && removeIndex === null) || ((mode === "pickup-time" || mode === "return-time") && !handoverLines.length)}
             className={`mt-3 rounded-full px-4 py-2 text-xs font-semibold text-white ${mode === "cancel" ? "bg-rose-600" : "bg-accent-500"}`}
           >
             {busy
@@ -542,6 +544,8 @@ export function RentalOrderTools({
                   ? "Save new dates"
                   : mode === "pickup-time"
                     ? "Save pickup time"
+                  : mode === "return-time"
+                    ? "Save return time"
                   : mode === "remove"
                     ? "Confirm item removal"
                   : mode === "add"
