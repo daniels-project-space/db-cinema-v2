@@ -627,9 +627,19 @@ body {
 }
 .hygglo-review-marquee:hover .hygglo-review-track,
 .hygglo-review-marquee:focus-within .hygglo-review-track { animation-play-state: paused; }
-@media (prefers-reduced-motion: reduce) {
-  .hygglo-review-marquee { overflow-x: auto; }
+@media (max-width: 640px), (prefers-reduced-motion: reduce) {
+  .hygglo-review-marquee {
+    overflow-x: auto;
+    -webkit-mask-image: none;
+    mask-image: none;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+  .hygglo-review-marquee::-webkit-scrollbar { display: none; }
   .hygglo-review-track { animation: none; will-change: auto; }
+  .hygglo-review-group[aria-hidden="true"] { display: none; }
+  .hygglo-review-group figure { scroll-snap-align: start; }
   .hygglo-trust-review-fade { animation: none; }
 }
 
