@@ -73,8 +73,9 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  const reviewsRoute=fs.readFileSync('src/app/reviews/page.tsx','utf8');
  assert(home.indexOf('id="reviews"')>home.indexOf('Every department,'),'Place reviews after the department showcase');
  assert(home.indexOf('Every department,')<home.indexOf('id="reviews"'),'Place reviews after the department showcase');
- assert(home.indexOf('<FilmFundInvite />')>home.indexOf('Your next shoot')&&home.indexOf('<FilmFundInvite />')<home.indexOf('aria-labelledby="hygglo-profile-title"'),'Place Film Fund near the bottom, immediately before the Hygglo profile');
- assert(home.includes('lens-flare left-1/4 top-[85%] w-1/2'),'Keep the lower CTA flare clear of its headline and copy');
+ assert(home.indexOf('<FilmFundInvite />')<home.indexOf('aria-labelledby="hygglo-profile-title"')&&home.indexOf('aria-labelledby="hygglo-profile-title"')<home.indexOf('id="home-closing-title"'),'Place Film Fund and the Hygglo profile before the closing CTA');
+ const closingStyles=fs.readFileSync('src/app/HomeClosing.module.css','utf8');
+ assert(closingStyles.includes('pointer-events: none')&&closingStyles.includes('prefers-reduced-motion: reduce'),'Keep the closing lights decorative and respect reduced motion');
  assert(home.includes('<HowItWorksSteps />'),'Use the enlarged animated four-step feature cards');
  assert.match(home,/<HyggloReviewRows reviews=\{hyggloReviews\} \/>[\s\S]*<ReviewCarousel \/>[\s\S]*<HomeStats ratingValue=\{rating\.ratingValue\} reviewCount=\{rating\.reviewCount\} itemCount=\{itemCount\} \/>/,'Place the three animated trust figures below both review carousels');
  assert.match(home,/\{hyggloReviews\.length >= 3 && <HyggloReviewRows reviews=\{hyggloReviews\} \/>\}/,'Imported rows render independently of the native carousel');
