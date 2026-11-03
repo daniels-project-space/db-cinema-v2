@@ -5,6 +5,11 @@ const chat = load('convex/rentalChat.ts');
 const origin='https://dbcinemarentals.com';
 const events={},opened=[],shown=[];
 let windows=[];
+const botAvatar=fs.readFileSync('src/components/chat/BotAvatar.tsx','utf8'),chatIdentity=fs.readFileSync('src/components/rentals/ChatIdentity.tsx','utf8'),botBubble=fs.readFileSync('src/components/BotBubble.tsx','utf8'),aperture=fs.readFileSync('public/db-cinema-aperture-blue.png');
+assert(botAvatar.includes('src="/db-cinema-aperture-blue.png"'),'Gaffer uses the blue Aperture avatar');
+assert(chatIdentity.includes('<Image src="/db-cinema-aperture-blue.png" alt="Gaffer"'),'Website and rental-chat Gaffer messages use the blue Aperture avatar');
+assert(botBubble.includes('BotAvatarBadge'),'The shared chat bubble uses the avatar component');
+assert.equal(aperture.subarray(0,8).toString('hex'),'89504e470d0a1a0a','The blue Aperture asset is a valid PNG');
 vm.runInNewContext(fs.readFileSync('public/admin-notifications-sw.js','utf8'),{URL,self:{
  location:{origin},addEventListener:(name,fn)=>events[name]=fn,
  registration:{showNotification:async(title,options)=>shown.push({title,options})},

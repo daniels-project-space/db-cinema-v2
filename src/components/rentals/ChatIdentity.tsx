@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 
 export function GafferIcon({ className = "h-5 w-5" }: { className?: string }) {
@@ -13,7 +14,7 @@ export function ChatAvatar({ sender, name, photo, className = "" }: { sender: st
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [photo]);
   const base = `flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl ${className}`;
-  if (sender === "bot") return <span className={`${base} bg-emerald-300/15 text-emerald-200`}><GafferIcon /></span>;
+  if (sender === "bot") return <span className={`${base} bg-black ring-1 ring-sky-300/45`}><Image src="/db-cinema-aperture-blue.png" alt="Gaffer" width={32} height={32} className="h-full w-full object-contain" /></span>;
   if (sender === "owner") return <span className={`${base} bg-white/10`}>
     {/* eslint-disable-next-line @next/next/no-img-element */}
     <img src="/brand/collab/db-cinema-aperture.png" alt="DB Cinema team" className="h-full w-full object-contain" />
