@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prebuild": "node scripts/generate-voice-worklets.cjs",
+    "predev": "node scripts/generate-voice-worklets.cjs",
     "pretest": "node scripts/test-didit-embed.cjs && node scripts/test-rmv2-physical-ledger.cjs && node scripts/test-ios-notification-steps.cjs",
     "dev": "next dev",
     "build": "next build",
@@ -25,7 +27,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1062.0",
     "@aws-sdk/s3-request-presigner": "^3.1062.0",
-    "@elevenlabs/client": "^1.12.0",
+    "@elevenlabs/client": "1.12.0",
     "@mastra/core": "^1.41.0",
     "@openrouter/ai-sdk-provider": "^2.9.0",
     "@react-pdf/renderer": "^4.5.1",

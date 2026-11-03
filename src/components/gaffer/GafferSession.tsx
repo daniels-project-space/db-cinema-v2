@@ -407,6 +407,10 @@ export function GafferSessionProvider({ children }: { children: ReactNode }) {
       const cfg: any = {
         agentId,
         connectionType: "websocket",
+        workletPaths: {
+          rawAudioProcessor: "/voice-worklets/rawAudioProcessor.js?v=1.12.0",
+          audioConcatProcessor: "/voice-worklets/audioConcatProcessor.js?v=1.12.0",
+        },
         onAudioAlignment: (alignment: any) => { if (mine()) noteAgentAlignment(alignment); },
         onInterruption: () => { if (mine()) resetSpokenFocus(); },
         clientTools: tools,

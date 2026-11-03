@@ -253,7 +253,7 @@ const { createCallMemory } = load('src/components/gaffer/callMemory.ts');
   },{Date:{now:()=>now},navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})}},localStorage:{getItem:()=>null,removeItem(){},setItem(){}},setTimeout:()=>1,clearTimeout:()=>{},console:{warn(){},error(){}}});
   const render=()=>{cursor=0;return GafferSessionProvider({children:null}).value;};
   await render().toggle();assert.equal(render().state,'live');
-  const first=sessions[0];assert.equal(first.cfg.connectionType,"websocket");first.cfg.onAudioAlignment({chars:["F"],char_start_times_ms:[0],char_durations_ms:[100]});assert.equal(alignments,1,"Current audio alignment reaches the catalog tracker");
+  const first=sessions[0];assert.equal(first.cfg.connectionType,"websocket");assert.deepEqual(first.cfg.workletPaths,{rawAudioProcessor:'/voice-worklets/rawAudioProcessor.js?v=1.12.0',audioConcatProcessor:'/voice-worklets/audioConcatProcessor.js?v=1.12.0'});first.cfg.onAudioAlignment({chars:["F"],char_start_times_ms:[0],char_durations_ms:[100]});assert.equal(alignments,1,"Current audio alignment reaches the catalog tracker");
   first.cfg.onMessage({source:'user',message:'My name is Alex; FX3 next Friday.'});
   await first.cfg.clientTools.add_to_basket({item:'FX3'});
   first.cfg.onMessage({source:'user',message:'Could you do a better price?'});assert.equal(priceAllowed,true);

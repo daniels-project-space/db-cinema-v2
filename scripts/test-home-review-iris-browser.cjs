@@ -26,13 +26,13 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert(Math.abs(extremes.short - extremes.long) < 1, `Short and long review text retain the same tile height at ${width}px`);
       assert(await client.evaluate('document.documentElement.scrollWidth <= innerWidth'), `No horizontal overflow at ${width}px`);
     }
-    await client.evaluate('document.getElementById("home-closing-title").scrollIntoView({block:"center"})');
+    await client.evaluate('document.documentElement.style.scrollBehavior="auto";document.getElementById("home-closing-title").scrollIntoView({block:"center",behavior:"instant"})');
     await delay(1500);
-    const button = await client.evaluate(`(() => { const link = document.querySelector('a[href="/gear"] svg[viewBox="0 0 100 100"]').parentElement, rect = link.getBoundingClientRect(), blade = link.querySelector('path'); return {x:rect.left+rect.width/2,y:rect.top+rect.height/2,transform:getComputedStyle(blade).transform}; })()`);
+    const button = await client.evaluate(`(() => { const iris = document.querySelector('a[href="/gear"] svg[viewBox="0 0 100 100"]'), rect = iris.getBoundingClientRect(), blade = iris.querySelector('path'); return {x:rect.left+rect.width/2,y:rect.top+rect.height/2,transform:getComputedStyle(blade).transform}; })()`);
     const initial = await client.cmd('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync('/tmp/dbc-iris-initial.png', Buffer.from(initial.data, 'base64'));
     await client.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: button.x, y: button.y });
-    await delay(900);
+    for (let attempt = 0; attempt < 30 && (await client.evaluate(`getComputedStyle(document.querySelector('a[href="/gear"] svg[viewBox="0 0 100 100"] path')).transform`)) === button.transform; attempt++) await delay(100);
     const transform = await client.evaluate(`getComputedStyle(document.querySelector('a[href="/gear"] svg[viewBox="0 0 100 100"] path')).transform`);
     assert.notEqual(transform, button.transform, 'The aperture opens on hover');
     const hovered = await client.cmd('Page.captureScreenshot', { format: 'png' });

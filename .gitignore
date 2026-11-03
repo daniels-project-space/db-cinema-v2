@@ -19,6 +19,7 @@
 
 # production
 /build
+/public/voice-worklets/
 
 # misc
 .DS_Store
