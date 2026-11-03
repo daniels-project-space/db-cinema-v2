@@ -80,7 +80,7 @@ export function AdminRentalCards({
                 </div>
                 <span className="shrink-0 rounded-full bg-white/[0.05] px-2.5 py-1 text-[10px] text-white/65">{rentalStageLabel(r)}</span>
               </div>
-              <div className="mt-4"><RentalKit items={r.items} /></div>
+              <div className="mt-4"><RentalKit items={r.items} allPhotos /></div>
               <div className="mt-3 flex items-baseline justify-between text-xs text-white/35"><span>Rental total</span><span className="text-sm font-semibold text-white/85">{formatGbp(r.total)}</span></div>
               <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
                 <button

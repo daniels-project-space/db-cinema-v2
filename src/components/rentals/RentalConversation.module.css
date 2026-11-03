@@ -136,6 +136,8 @@
 .attentionPanel { margin-top:16px; flex-shrink:0; border:1px solid #6d4d39; border-radius:6px; background:#241f1c; padding:12px; }
 .attentionToggle { display:flex; width:100%; justify-content:space-between; align-items:center; gap:10px; color:#d7b49b; font-size:12px; }
 .attentionList { display:grid; gap:8px; max-height:240px; overflow-y:auto; margin-top:12px; }
+.attentionList section { display:grid; gap:8px; }
+.attentionList section h3 { margin:0; }
 .attentionItem { padding:12px!important; border:1px solid #ffffff0c!important; border-radius:4px!important; background:#ffffff03; text-align:left; overflow-wrap:anywhere; }
 @media(max-width:1023px) { .inboxScreen .directory[data-conversation-open=true] { display:none; } }
 

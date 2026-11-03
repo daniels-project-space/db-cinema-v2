@@ -95,7 +95,7 @@ export const verificationEmail = internalAction({
     const app = process.env.APP_URL ?? "https://dbcinemarentals.com";
     const url=`${app}/account/verification/${encodeURIComponent(bookingId)}`;
     const messages:Record<string,{title:string;body:string;button:string}>={
-      verified:{title:"Your identity check passed",body:"Your identity check passed. Your rental still needs any remaining document checks and approval before handover.",button:"Follow your rental"},
+      verified:{title:"Your identity check passed",body:"Your identity and address verification is approved for this rental.",button:"Follow your rental"},
       manual_review:{title:"Your verification is being reviewed",body:"Your documents have been referred for a human review. We will contact you if anything else is needed.",button:"View verification progress"},
       rejected:{title:"Your verification needs support",body:"The automated check could not approve your documents. Reply to this email so we can review the result before handover.",button:"View your rental"},
       processing:{title:"Your verification is processing",body:"Your checks are still processing. You can follow their progress in your rental.",button:"View verification progress"},

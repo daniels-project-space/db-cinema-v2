@@ -32,6 +32,8 @@ delete process.env.INVOICE_SECRET;
  const verificationCtx={runQuery:async ref=>ref==='settings.pickupAddress'?{businessAddress:address}:{...booking,fulfilment:'pickup',idVerifyStatus:'verified'},
   runAction:async()=>({attachments:[{filename:'receipt.pdf',content:'fixture'}]})};
  const verification=await notify.verificationEmail.handler(verificationCtx,{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
+ assert.match(verification.html,/Your identity and address verification is approved for this rental\./);
+ assert.doesNotMatch(verification.html,/remaining document checks and approval before handover/);
  assert.match(verification.html,/The Grand Building<br>Meet outside &lt;Waterstones&gt; &amp; wait/,'pickup instructions retain line breaks and escape HTML');
  assert.match(verification.html,/rental invoice is attached as a PDF/,'verification emails describe the attached PDF as an invoice');
  assert.doesNotMatch(verification.html,/payment receipt is attached/);
@@ -40,5 +42,9 @@ delete process.env.INVOICE_SECRET;
  const updated=await notify.verificationEmail.handler(verificationCtx,{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
  assert.match(updated.html,/Updated location/,'new verification emails read the current saved address');
  assert(!updated.html.includes('The Grand Building'));
+ const pending=await notify.verificationEmail.handler({runQuery:async()=>({...booking,idVerifyStatus:'requires_input'}),runAction:async()=>{throw Error('Invoice must not run');}},{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
+ assert.equal(pending,null,'An outdated approval email cannot send while verification needs input');
+ const expired=await notify.verificationEmail.handler({runQuery:async()=>({...booking,idVerifyStatus:'verified',verificationExpiresAt:Date.now()-1}),runAction:async()=>{throw Error('Invoice must not run');}},{bookingId:'owned-fixture',status:'verified',prepareOnly:true});
+ assert.equal(expired,null,'An outdated approval email cannot send after verification expires');
  console.log('PASS actual confirmation and receipt renderers: new saved-card permission outside paid total, no obsolete deposit/hold copy, historical deposit/hold preserved. No emails sent.');
 })().catch(e=>{console.error(e);process.exitCode=1});

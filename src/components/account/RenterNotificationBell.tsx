@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@cvx/_generated/api";
 import styles from "./RenterNotificationBell.module.css";
 type InstallEvent=Event&{prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>};
-export function RenterNotificationBell({token}:{token:string}) {
+export function RenterNotificationBell({token,chatOpen=false}:{token:string;chatOpen?:boolean}) {
   const [open,setOpen]=useState(false),[deviceId,setDeviceId]=useState<string|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null);
   const [supported,setSupported]=useState(false),[ios,setIos]=useState(false),[installed,setInstalled]=useState(false),[install,setInstall]=useState<InstallEvent|null>(null);
   const [connected,setConnected]=useState(false);
@@ -43,6 +43,11 @@ export function RenterNotificationBell({token}:{token:string}) {
     return()=>window.removeEventListener("dbc:open-renter-notifications",openFromChat);
   },[]);
   useEffect(()=>{if(open&&focusOnOpen.current){panelRef.current?.focus();focusOnOpen.current=false;}},[open]);
+  useEffect(()=>{
+    if(!chatOpen||!state||state.enabled&&connected&&permission==="granted"||supported&&state.configured&&(!ios||installed)&&!ready&&!error)return;
+    try {if(sessionStorage.getItem("dbc_renter_chat_notification_prompt"))return;sessionStorage.setItem("dbc_renter_chat_notification_prompt","shown");}catch{return;}
+    setOpen(true);
+  },[chatOpen,state,connected,permission,supported,ios,installed,ready,error]);
   async function enable() {
     if(busy||!deviceId||!state?.publicKey||!registration.current)return;
     const generation=epoch.current;setBusy(true);setError(null);
@@ -52,9 +57,10 @@ export function RenterNotificationBell({token}:{token:string}) {
       const key=Uint8Array.from(atob(state.publicKey.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
       const subscription=browserSubscription.current??await registration.current.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
       if(epoch.current!==generation)return;
-      setPermission(Notification.permission);setConnected(true);browserSubscription.current=subscription;const json=subscription.toJSON();
+      setPermission(Notification.permission);browserSubscription.current=subscription;const json=subscription.toJSON();
       if(!json.endpoint||!json.keys?.p256dh||!json.keys.auth)throw Error("The browser returned an incomplete subscription.");
       await subscribe({token,deviceId,endpoint:json.endpoint,p256dh:json.keys.p256dh,auth:json.keys.auth});
+      if(epoch.current===generation)setConnected(true);
     }catch(e){if(epoch.current===generation){setPermission(Notification.permission);setError(e instanceof Error?e.message:"Notifications could not be enabled.");}}
     finally{if(epoch.current===generation)setBusy(false);}
   }

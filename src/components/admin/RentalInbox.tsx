@@ -11,6 +11,7 @@ import chatStyles from "@/components/rentals/RentalConversation.module.css";
 import { RentalConversation } from "@/components/rentals/RentalConversation";
 import { SmartImage } from "@/components/SmartImage";
 import { ownerConversationUrl } from "../../../shared/ownerConversationRoute";
+import { ADMIN_NOTIFICATION_CATEGORIES, adminNotificationCategory } from "../../../shared/adminNotificationPresentation";
 import { rentalStageLabel } from "../../../shared/rentalReadiness";
 import {
   rentalTitle,
@@ -311,7 +312,10 @@ export function RentalInbox({
       </div>
       {!!notifications.length && <div className={chatStyles.attentionPanel}>
         <button type="button" onClick={() => setShowAttention(v => !v)} aria-expanded={showAttention} aria-controls="rental-attention-list" className={chatStyles.attentionToggle}><span>Needs your attention</span><span className="rounded-full bg-[#b98160]/15 px-2 py-1">{notifications.length>=30?"30+":notifications.length}</span></button>
-        {showAttention && <div id="rental-attention-list" className={chatStyles.attentionList}>{notifications.map(n => <button key={n._id} type="button" onClick={() => {
+        {showAttention && <div id="rental-attention-list" className={chatStyles.attentionList}>{ADMIN_NOTIFICATION_CATEGORIES.map(category => {
+          const grouped = notifications.filter(n => adminNotificationCategory(n.kind) === category);
+          if (!grouped.length) return null;
+          return <section key={category} aria-label={category}><h3 className="px-3 pt-3 text-xs font-semibold text-white/65">{category} · {grouped.length}</h3>{grouped.map(n => <button key={n._id} type="button" onClick={() => {
           const target=n.bookingId??n.accountId;
           if(!target){void acknowledge({token,id:n._id}).catch(()=>setAttentionError("The notification could not be marked read. Please retry."));return;}
           setAttentionError("");setSearch("");setStage(n.bookingId?"all":"general");setSelected(target);
@@ -319,7 +323,8 @@ export function RentalInbox({
           window.history.replaceState(null,"",ownerConversationUrl(n.bookingId?{bookingId:n.bookingId}:{accountId:n.accountId}));
         }} aria-busy={pendingAttention?.id===n._id} className={chatStyles.attentionItem}>
           <span className="block text-xs font-medium text-white/85">{n.title} · {n.renterName}</span><span className="mt-1 block text-[10px] text-[#d7b49b]">{RENTAL_STAGE_LABELS[n.rentalStage] ?? "General support"}</span><span className="mt-2 block text-[11px] leading-5 text-white/50">{n.body}</span>
-        </button>)}</div>}
+        </button>)}</section>;
+        })}</div>}
       </div>}
       {attentionError && <p role="alert" className="mt-2 text-xs leading-5 text-rose-200">{attentionError}</p>}
       <div className={chatStyles.tabs}>
@@ -476,7 +481,7 @@ export function RentalInbox({
               escalated={focus.escalated}
               tools={
                 focus.status !== "support" ? (
-                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><RentalKit items={focus.items} compact expanded /><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div>{focus.accountId && <details className={chatStyles.operationDetails}><summary>Verification documents</summary><AccountDocuments token={token} accountId={focus.accountId} verified={"idVerifyStatus" in focus && focus.idVerifyStatus === "verified"} embedded /></details>}<details className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
+                  <><div className={chatStyles.rentalContext}><p className={chatStyles.eyebrow}>{rentalStageLabel(focus)}</p><h5>{rentalDate(focus.start, focus.end)}</h5><RentalKit items={focus.items} compact expanded allPhotos /><p className="mt-4 text-xs text-white/55">Rental total <strong className="float-right text-white">{formatGbp(focus.total)}</strong></p></div>{focus.accountId && <details className={chatStyles.operationDetails}><summary>Verification documents</summary><AccountDocuments token={token} accountId={focus.accountId} verified={"idVerifyStatus" in focus && focus.idVerifyStatus === "verified"} embedded /></details>}<details className={chatStyles.operationDetails}><summary>Manage this rental</summary><RentalOrderTools key={focus._id} token={token} bookingId={focus._id} /><AdminDroneLicence key={`licence-${focus._id}`} token={token} bookingId={focus._id} /></details></>
                 ) : undefined
               }
             />

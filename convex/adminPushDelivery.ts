@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { validatePushSubscription } from "./lib/adminPush";
 import { ownerConversationUrl } from "../shared/ownerConversationRoute";
+import { adminPushPresentation } from "../shared/adminNotificationPresentation";
 
 export const deliver = internalAction({
   args: { deliveryId: v.id("admin_push_deliveries") },
@@ -22,7 +23,7 @@ export const deliver = internalAction({
       const notification = data.notification;
       const url = ownerConversationUrl(notification);
       await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
-        JSON.stringify({ title: notification.title, body: notification.body, url, tag: notification.eventKey }),
+        JSON.stringify({ ...adminPushPresentation(notification), url, tag: notification.eventKey }),
         { vapidDetails: { subject: "https://dbcinemarentals.com", publicKey, privateKey }, TTL: 300, timeout: 10000,
           urgency: "high", topic: createHash("sha256").update(notification.eventKey).digest("hex").slice(0,32) });
       sent = true;

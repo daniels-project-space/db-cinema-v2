@@ -9,6 +9,7 @@ import { RentalKit } from "@/components/rentals/RentalKit";
 import { rentalDate, rentalTitle } from "@/lib/rentalPresentation";
 import styles from "./AdminDashboard.module.css";
 import { formatGbp } from "@/lib/pricing";
+import { groupRentalKit } from "@/lib/rentalKit";
 
 export function AdminDashboard({ token, unread, alerts, onRental, onRentals, onCalendar, onMessages, onReports, onInventory }: {
   token: string; unread: number; alerts: number;
@@ -44,8 +45,10 @@ export function AdminDashboard({ token, unread, alerts, onRental, onRentals, onC
         <header><div><h2>{group.title}<span>{group.rows.length}</span></h2><p>{group.description}</p></div><button onClick={onRentals}>View rentals →</button></header>
         {group.rows.length === 0 ? <p className={styles.empty}>{group.empty}</p> : <div className={styles.list}>
           {group.rows.slice(0, 4).map(rental => <article key={rental._id} className={styles.rental}>
+            <div className={styles.rentalPhotos} aria-label="Equipment in this rental">
+              {groupRentalKit(rental.kit).map((item, index) => <div key={index} className={styles.rentalPhoto} title={item.title}><SmartImage fit="contain" src={item.heroImage} fallbackSources={item.imageSources} alt={item.title} className={styles.rentalPhotoImage}/>{(item.qty ?? 1) > 1 && <span>×{item.qty}</span>}</div>)}
+            </div>
             <div className={styles.rentalSummary}>
-              <SmartImage fit="contain" src={rental.kit[0]?.heroImage} fallbackSources={rental.kit[0]?.imageSources} alt={rental.kit[0]?.title ?? "Rental kit"} className={styles.hero}/>
               <div className={styles.kitSummary}><h3 title={rental.kit[0]?.title ?? rental.items}>{rentalTitle(rental.kit[0]?.title ?? rental.items ?? "Rental kit")}</h3><span className={styles.source}>DB Cinema Web</span><p>{rental.start != null && rental.end != null ? rentalDate(rental.start, rental.end) : "Dates need review"}</p><small>{rental.kit.reduce((total,line)=>total+line.qty,0)} {rental.kit.reduce((total,line)=>total+line.qty,0)===1?"unit":"units"} · {rental.kit.length} {rental.kit.length===1?"listing":"listings"}</small></div>
               <div className={styles.customer}><h4>{rental.customerName || rental.guestEmail}</h4><p>{rental.guestEmail}</p><span className={rental.overdue || rental.deadlineNeedsReview ? styles.warning : styles.status}>{rental.deadlineNeedsReview ? "Check return time" : rental.overdue ? "Return overdue" : group.key === "active" ? "On hire" : "Needs verification"}</span></div>
             </div>

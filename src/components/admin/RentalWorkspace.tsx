@@ -129,7 +129,7 @@ export function RentalWorkspace({
       {section === "order" && (
         <div className="mt-5 grid gap-6 lg:grid-cols-[1fr_1fr]">
           <div>
-            <RentalKit items={b.lineItems} prices />
+            <RentalKit items={b.lineItems} prices allPhotos />
             <dl className="mt-5 grid grid-cols-2 gap-4 rounded-2xl bg-white/[0.025] p-4 text-xs">
               <div>
                 <dt className="text-white/35">Refundable security</dt>

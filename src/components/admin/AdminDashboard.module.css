@@ -209,3 +209,9 @@
 .hero { width:90px; height:90px; }
 .rentalActions { position:static; display:flex; flex-wrap:wrap; margin-top:12px; }
 @media(max-width:640px){.rentalSummary{grid-template-columns:72px minmax(0,1fr)}.hero{width:72px;height:76px}}
+.rentalPhotos { display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; }
+.rentalPhoto { position:relative; flex:0 0 88px; height:76px; border-radius:6px; overflow:hidden; background:#151817; }
+.rentalPhotoImage { width:100%; height:100%; }
+.rentalPhoto span { position:absolute; top:4px; right:4px; padding:2px 5px; border-radius:4px; background:#000b; color:white; font-size:10px; }
+.rentalSummary { grid-template-columns:minmax(0,1fr) minmax(100px,.7fr); }
+@media(max-width:640px){.rentalSummary{grid-template-columns:minmax(0,1fr)}.customer{grid-column:auto}}
