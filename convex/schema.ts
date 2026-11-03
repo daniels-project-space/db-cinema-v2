@@ -39,10 +39,10 @@ export default defineSchema({
     emailDeliveryId:v.optional(v.id("rental_email_deliveries")),lastError:v.optional(v.string()),
   }).index("by_booking",["bookingId"]).index("by_due",["dueAt"]),
   rental_email_deliveries: defineTable({
-    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("cancellation_choice"),v.literal("time_change")),
+    bookingId: v.id("bookings"), kind: v.union(v.literal("payment"),v.literal("receipt"),v.literal("verification"),v.literal("cancellation"),v.literal("review"),v.literal("encore"),v.literal("encore_guest_claim"),v.literal("cancellation_choice"),v.literal("time_change")),
     key: v.string(), sequence: v.number(), verificationStatus: v.optional(v.string()), verificationSchedule:v.optional(v.string()),
     mode: v.optional(v.string()), refundAmount: v.optional(v.number()), creditAmount: v.optional(v.number()),
-    changeDetail:v.optional(v.string()), changeSchedule:v.optional(v.string()),
+    changeDetail:v.optional(v.string()), changeSchedule:v.optional(v.string()), encoreLevel:v.optional(v.number()), encoreAccountId:v.optional(v.id("accounts")),encoreClaimId:v.optional(v.id("account_access_links")),
     state: v.union(v.literal("pending"),v.literal("sending"),v.literal("sent"),v.literal("skipped"),v.literal("failed")),
     attempts: v.number(), generation: v.number(), dueAt: v.number(), createdAt: v.number(), updatedAt: v.number(), sentAt: v.optional(v.number()),
     lastError: v.optional(v.string()), payloadStorageId:v.optional(v.id("_storage")), recipientEmail:v.optional(v.string()), preparedPromotional:v.optional(v.boolean()),preparedCleanReturnRequired:v.optional(v.boolean()),
@@ -219,6 +219,7 @@ export default defineSchema({
     accountAccessEmailLeaseUntil: v.optional(v.number()),
     accountAccessEmailClaimId: v.optional(v.id("account_access_links")),
     accountAccessRequired: v.optional(v.boolean()),
+    encoreOwnershipVerifiedAt: v.optional(v.number()),
     deliveryBenefitAccountId: v.optional(v.id("accounts")),
     deliveryBenefitMonth: v.optional(v.string()),
     deliveryBenefitConsumed: v.optional(v.boolean()),
@@ -664,7 +665,7 @@ export default defineSchema({
     membershipPerksPendingBookingId: v.optional(v.id("bookings")),
     referralCode:v.optional(v.string()),referralFirstUsedAt:v.optional(v.number()),firstRentalPaidAt:v.optional(v.number()),referralRewardGrantedAt:v.optional(v.number()),referralRewardUsedAt:v.optional(v.number()),paymentIdentityHashes:v.optional(v.array(v.string())),
     loyaltyPolicyVersion:v.optional(v.string()),
-    loyaltyLevel:v.optional(v.number()),loyaltyCelebratedLevel:v.optional(v.number()),
+    loyaltyLevel:v.optional(v.number()),loyaltyCelebratedLevel:v.optional(v.number()),loyaltyNoticeLevel:v.optional(v.number()),
     loyaltyUnlockedAt: v.optional(v.number()),
     loyaltyCelebratedAt: v.optional(v.number()),
     starterRentalOfferUsed: v.optional(v.boolean()), // accepted legacy receipts
@@ -689,6 +690,7 @@ export default defineSchema({
     membershipActive: v.optional(v.boolean()),
     membershipStatus: v.optional(v.string()),
     membershipSubscriptionCreatedAt: v.optional(v.number()),
+    membershipProviderReadAt: v.optional(v.number()),
     checkoutSeedHash: v.optional(v.string()),
     membershipCreditDebtPence: v.optional(v.number()),
     membershipPaidThrough: v.optional(v.number()),
@@ -1070,7 +1072,7 @@ export default defineSchema({
   }).index("by_account", ["accountId"]).index("by_state_due", ["state", "dueAt"]),
   account_codes: defineTable({email:v.string(),name:v.optional(v.string()),phone:v.optional(v.string()),purpose:v.union(v.literal("setup"),v.literal("reset")),challengeHash:v.string(),codeHash:v.string(),attempts:v.number(),expiresAt:v.number(),verifiedAt:v.optional(v.number()),setupHash:v.optional(v.string()),usedAt:v.optional(v.number()),cartKey:v.optional(v.string())}).index("by_challenge",["challengeHash"]).index("by_setup",["setupHash"]).index("by_email",["email"]),
   checkout_carts: defineTable({shareKey:v.string(),email:v.string(),accountId:v.optional(v.id("accounts")),lines:v.array(v.object({listingId:v.id("listings"),start:v.number(),end:v.number(),pickupTime:v.optional(v.string()),returnTime:v.optional(v.string())})),createdAt:v.number(),expiresAt:v.number()}).index("by_share",["shareKey"]),
-  account_access_links: defineTable({accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),secretHash:v.string(),purpose:v.optional(v.literal("signup")),credentialHash:v.optional(v.string()),expiresAt:v.number(),usedAt:v.optional(v.number()),createdAt:v.number()}).index("by_hash",["secretHash"]).index("by_booking",["bookingId"]).index("by_account",["accountId"]),
+  account_access_links: defineTable({accountId:v.id("accounts"),bookingId:v.optional(v.id("bookings")),recipientEmail:v.optional(v.string()),secretHash:v.string(),purpose:v.optional(v.literal("signup")),credentialHash:v.optional(v.string()),expiresAt:v.number(),usedAt:v.optional(v.number()),createdAt:v.number()}).index("by_hash",["secretHash"]).index("by_booking",["bookingId"]).index("by_account",["accountId"]),
   film_fund_rounds: defineTable({
     slug:v.string(),name:v.string(),state:v.union(v.literal("coming_soon"),v.literal("open"),v.literal("closed")),
     opensAt:v.number(),deadline:v.number(),announcementAt:v.number(),updatedAt:v.number(),closedAt:v.optional(v.number()),
@@ -1105,8 +1107,19 @@ export default defineSchema({
   membership_credit_grants: defineTable({
     accountId:v.id("accounts"),subscriptionId:v.string(),invoiceId:v.string(),paidMembershipPence:v.number(),creditPence:v.number(),earnedCreditPence:v.optional(v.number()),
     bonusPence:v.number(),revokedPence:v.number(),membershipRefundedPence:v.optional(v.number()),periodEnd:v.number(),createdAt:v.number(),creditId:v.optional(v.id("credits")),bonusCreditId:v.optional(v.id("credits")),
-    initialCreditAppliedPence:v.optional(v.number()),
-  }).index("by_invoice",["invoiceId"]).index("by_account",["accountId"]),
+    initialCreditAppliedPence:v.optional(v.number()),waiverProofGeneration:v.optional(v.number()),waiverProofReadyAt:v.optional(v.number()),waiverProofError:v.optional(v.string()),
+  }).index("by_invoice",["invoiceId"]).index("by_account",["accountId"]).index("by_account_subscription_period",["accountId","subscriptionId","periodEnd"]),
+
+  membership_invoice_refunds: defineTable({invoiceId:v.string(),membershipRefundedPence:v.number(),generation:v.number(),updatedAt:v.number(),ambiguous:v.optional(v.boolean())}).index("by_invoice",["invoiceId"]),
+  membership_waiver_resolution_audits: defineTable({invoiceId:v.string(),accountId:v.id("accounts"),reason:v.string(),resolvedAt:v.number(),proof:v.string(),membershipRefundedPence:v.number(),refundIds:v.array(v.string()),creditNoteIds:v.array(v.string())}).index("by_invoice",["invoiceId"]),
+  membership_reconcile_sweeps: defineTable({key:v.string(),generation:v.number(),state:v.string(),cursor:v.optional(v.string()),startedAt:v.number(),dueAt:v.number(),updatedAt:v.number(),leaseRecoveries:v.optional(v.number())}).index("by_key",["key"]),
+  membership_provider_reads: defineTable({subscriptionId:v.string(),generation:v.number(),appliedGeneration:v.optional(v.number()),unsettledSince:v.optional(v.number()),mutationKey:v.optional(v.string())}).index("by_subscription",["subscriptionId"]),
+  encore_settlement_checks: defineTable({ bookingId:v.id("bookings"),state:v.string(),attempts:v.number(),generation:v.number(),dueAt:v.number(),updatedAt:v.number(),error:v.optional(v.string()),notifyEligible:v.optional(v.boolean()) }).index("by_booking",["bookingId"]).index("by_state_due",["state","dueAt"]),
+  encore_eligibility_evidence: defineTable({bookingId:v.id("bookings"),accountId:v.id("accounts"),checkoutKey:v.string(),fingerprint:v.string(),verifiedAt:v.number()}).index("by_booking",["bookingId"]).index("by_account",["accountId"]),
+  encore_account_rollups: defineTable({accountId:v.id("accounts"),generation:v.number(),state:v.string(),cursor:v.optional(v.string()),updatedAt:v.number(),dueAt:v.number(),recoveryStartedAt:v.optional(v.number()),candidates:v.array(v.object({evidenceId:v.id("encore_eligibility_evidence"),bookingId:v.id("bookings"),checkoutKey:v.string(),fingerprint:v.string()})),published:v.optional(v.array(v.object({evidenceId:v.id("encore_eligibility_evidence"),bookingId:v.id("bookings"),checkoutKey:v.string(),fingerprint:v.string()})))}).index("by_account",["accountId"]).index("by_state_due",["state","dueAt"]),
+  encore_rollup_sweeps: defineTable({key:v.string(),generation:v.number(),state:v.string(),leaseUntil:v.number(),alertDueAt:v.optional(v.number())}).index("by_key",["key"]),
+  encore_notice_events: defineTable({bookingId:v.id("bookings"),accountId:v.id("accounts"),beforeLevel:v.number(),state:v.string(),createdAt:v.number(),updatedAt:v.number()}).index("by_booking",["bookingId"]).index("by_account_state",["accountId","state"]),
+  encore_backfills: defineTable({key:v.string(),generation:v.number(),state:v.string(),cursor:v.optional(v.string()),updatedAt:v.number()}).index("by_key",["key"]),
 
   didit_reconcile_sweeps: defineTable({
     key: v.string(), generation: v.number(), phase: v.string(), updatedAt: v.number(),

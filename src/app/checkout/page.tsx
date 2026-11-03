@@ -34,7 +34,7 @@ import { groupDeliveryItems } from "../../../shared/deliveryGroups";
 
 import {useCreditBalance} from "@/components/account/useCreditBalance";
 import {CancellationProtection} from "@/components/cart/CancellationProtection";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, savedCardChargeLimit, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../../shared/rentalSecurity";
+import { hasAssessmentSecurityPolicy, hasCashDepositPolicy, savedCardChargeLimit, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../../../shared/rentalSecurity";
 
 const PC_RE = /\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i;
 const DRAFT_TERMS = JSON.stringify({ documents: AGREEMENTS, delivery: DELIVERY_TERMS_VERSION });
@@ -212,7 +212,7 @@ export default function CheckoutPage() {
   const reuseVerification=useQuery(api.accounts.checkoutVerification,account.token && account.me && signature.trim() && billingAddress.trim() && reuseStarts.length && reuseStarts.every(Number.isFinite)
     ? {token:account.token,name:signature,address:billingAddress,starts:reuseStarts} : "skip");
   const reuseVerificationFresh=useFreshVerification(reuseVerification?.proofExpiresAt);
-  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, creditReservation:creditAvailability?.available??null, policy:{assessment:checkoutSettings?.assessmentSecurityEnabled,deposit:checkoutSettings?.refundableDepositEnabled,cancellation:checkoutSettings?.cancellationProtectionEnabled}, account: accountPricingContext(account.me) });
+  const quoteKey = JSON.stringify({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, creditReservation:creditAvailability?.available??null, policy:{assessment:checkoutSettings?.assessmentSecurityEnabled,strict:checkoutSettings?.strictSecurityEnabled,deposit:checkoutSettings?.refundableDepositEnabled,cancellation:checkoutSettings?.cancellationProtectionEnabled}, account: accountPricingContext(account.me) });
   const offerContext = membershipOfferContext({ ...priceArgs, quotedDeliveryFee: deliveryQuoteCurrent ? dq.fee : null, account: accountPricingContext(account.me) });
   const currentQuote = quoted?.key === quoteKey ? quoted.value : null;
   // Delivery details are not needed to quote the rental-only joining saving.
@@ -268,7 +268,7 @@ export default function CheckoutPage() {
 
   const futureChargeLimit = currentQuote?.savedCardLimit ?? savedCardChargeLimit(equipmentValue);
   const refundablePolicy = hasCashDepositPolicy(currentQuote?.securityPolicyVersion);
-  const assessmentPolicy=currentQuote?.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION;
+  const assessmentPolicy=hasAssessmentSecurityPolicy(currentQuote?.securityPolicyVersion);
   const rentalAgreements = agreementsForSecurityPolicy(currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled);
   const savedCardQuoteReady = !!currentQuote && (currentQuote.securityPolicyVersion === SECURITY_POLICY_VERSION || refundablePolicy) && Number.isFinite(currentQuote.savedCardLimit) && (refundablePolicy ? [0,20,50,100].includes(currentQuote.depositAmount) : currentQuote.depositAmount === 0) && currentQuote.depositHoldAmount === 0;
   useEffect(()=>{setAgreed(false);setSignature("");agreementRequest.current=null;},[futureChargeLimit,currentQuote?.depositAmount,currentQuote?.securityPolicyVersion,currentQuote?.cancellationProtectionEnabled]);

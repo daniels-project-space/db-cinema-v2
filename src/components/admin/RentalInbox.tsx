@@ -3,6 +3,7 @@ import { formatGbp } from "@/lib/pricing";
 import { RentalKit } from "@/components/rentals/RentalKit";
 import { RentalOrderTools } from "./RentalOrderTools";
 import { AccountDocuments } from "./AccountDocuments";
+import { MembershipProofRepair, MembershipProviderRepair } from "./MembershipProofRepair";
 import { AdminDroneLicence } from "@/components/rentals/DroneLicence";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, usePaginatedQuery, useMutation, useAction } from "convex/react";
@@ -311,15 +312,15 @@ export function RentalInbox({
       </div>
       {!!notifications.length && <div className={chatStyles.attentionPanel}>
         <button type="button" onClick={() => setShowAttention(v => !v)} aria-expanded={showAttention} aria-controls="rental-attention-list" className={chatStyles.attentionToggle}><span>Needs your attention</span><span className="rounded-full bg-[#b98160]/15 px-2 py-1">{notifications.length>=30?"30+":notifications.length}</span></button>
-        {showAttention && <div id="rental-attention-list" className={chatStyles.attentionList}>{notifications.map(n => <button key={n._id} type="button" onClick={() => {
+        {showAttention && <div id="rental-attention-list" className={chatStyles.attentionList}>{notifications.map(n => <div key={n._id}><button type="button" onClick={() => {
           const target=n.bookingId??n.accountId;
           if(!target){void acknowledge({token,id:n._id}).catch(()=>setAttentionError("The notification could not be marked read. Please retry."));return;}
           setAttentionError("");setSearch("");setStage(n.bookingId?"all":"general");setSelected(target);
           setPendingAttention({id:n._id,target,general:!n.bookingId});setNavigationRevision(v=>v+1);
           window.history.replaceState(null,"",ownerConversationUrl(n.bookingId?{bookingId:n.bookingId}:{accountId:n.accountId}));
-        }} aria-busy={pendingAttention?.id===n._id} className={chatStyles.attentionItem}>
+        }} aria-busy={pendingAttention?.id===n._id} className={`${chatStyles.attentionItem} w-full`}>
           <span className="block text-xs font-medium text-white/85">{n.title} · {n.renterName}</span><span className="mt-1 block text-[10px] text-[#d7b49b]">{RENTAL_STAGE_LABELS[n.rentalStage] ?? "General support"}</span><span className="mt-2 block text-[11px] leading-5 text-white/50">{n.body}</span>
-        </button>)}</div>}
+        </button>{n.eventKey.startsWith("membership-waiver-proof:")&&<MembershipProofRepair token={token} invoiceId={n.eventKey.slice("membership-waiver-proof:".length)}/>} {n.eventKey.startsWith("membership-provider-unsettled:")&&<MembershipProviderRepair token={token} subscriptionId={n.eventKey.split(":")[1]}/>}</div>)}</div>}
       </div>}
       {attentionError && <p role="alert" className="mt-2 text-xs leading-5 text-rose-200">{attentionError}</p>}
       <div className={chatStyles.tabs}>

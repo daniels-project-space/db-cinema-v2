@@ -5,12 +5,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 
+const cache=new Map();
 function load(file) {
   const filename = path.resolve(__dirname, '..', file);
+  if(cache.has(filename))return cache.get(filename).exports;
+  const mod = { exports: {} };cache.set(filename,mod);
   const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
   }).outputText;
-  const mod = { exports: {} };
   const refs = new Proxy({}, { get: (_, group) => new Proxy({}, { get: (_, name) => `${String(group)}:${String(name)}` }) });
   const mock = {
     './_generated/server': { action: x => x, internalAction: x => x, internalMutation: x => x, internalQuery: x => x, mutation: x => x, query: x => x },

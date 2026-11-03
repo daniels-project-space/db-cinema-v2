@@ -5,7 +5,7 @@ import {isAllowedReturnTime} from "../src/lib/site";
 import Stripe from "stripe";
 import {operatorCancellationOptions} from "../shared/operatorCancellationCredit";
 import { PICKUP_HOLD_POLICY } from "../shared/pickupSecurity";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, STRICT_ASSESSMENT_SECURITY_POLICY_VERSION, hasAssessmentSecurityPolicy, hasCashDepositPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION } from "../shared/rentalSecurity";
 import { isSavedCardRental, savedCardRentalValue } from "../shared/savedCardSecurity";
 import { returnSecurityPlan, refundableDepositPlan } from "../shared/returnSettlement";
 import { returnStatementEmail, type ReturnStatementData } from "../shared/returnStatement";
@@ -141,7 +141,7 @@ export const priceQuote = action({
       replacementValue: price.replacementSum,
       savedCardLimit: price.savedCardLimit,
       securityPolicyVersion: price.securityPolicyVersion,
-      cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&price.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION,
+      cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&hasAssessmentSecurityPolicy(price.securityPolicyVersion),
       // Renewed membership credit is stored as earned credit. Count what is
       // actually applied to this rental, never the monthly allowance or refunds.
       membershipNetSaving,
@@ -251,6 +251,16 @@ export const start = action({
     const checkoutInputFingerprint=createHash("sha256").update(agreementRequestFingerprint({...a,token:undefined})).digest("hex");
     const priorAttempt=await ctx.runQuery(internal.bookings.checkoutAttempt,{requestId:a.agreement.requestId,checkoutInputFingerprint});
     if(priorAttempt?.sessionId){
+      if(process.env.STRICT_SECURITY_POLICY_ENABLED==="true"&&priorAttempt.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION&&priorAttempt.securityWaiverReason){
+        const staleSession=await stripe().checkout.sessions.retrieve(priorAttempt.sessionId);
+        if(staleSession.id!==priorAttempt.sessionId||staleSession.metadata?.bookingId!==String(priorAttempt.bookingId))throw Error("This payment session does not match the saved booking. Contact us before retrying.");
+        if(staleSession.status==="open"){
+          try{const expired=await stripe().checkout.sessions.expire(priorAttempt.sessionId);if(expired.status!=="expired")throw Error("Stripe did not confirm checkout expiration.");}
+          catch{throw Error("We couldn't safely close this older checkout. Contact us before starting another payment.");}
+          throw Error("This waived checkout uses an older security policy and was closed. Refresh checkout, review the current terms, and start again.");
+        }
+        throw Error("This checkout has completed or expired. Use the existing booking or contact us.");
+      }
       await ctx.runQuery(internal.bookings.assertCheckoutReservation,{bookingId:priorAttempt.bookingId});
       const session=await stripe().checkout.sessions.retrieve(priorAttempt.sessionId);
       if(session.id!==priorAttempt.sessionId||session.metadata?.bookingId!==String(priorAttempt.bookingId))throw Error("This payment session does not match the saved booking. Contact us before retrying.");
@@ -289,7 +299,7 @@ export const start = action({
       }
     }
 
-    assertCurrentAgreement({...a.agreement,cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true",securityPolicyVersion:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"?ASSESSMENT_SECURITY_POLICY_VERSION:process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"?REFUNDABLE_DEPOSIT_POLICY_VERSION:SECURITY_POLICY_VERSION}, a.fulfilment);
+    assertCurrentAgreement({...a.agreement,cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true",securityPolicyVersion:process.env.STRICT_SECURITY_POLICY_ENABLED==="true"?STRICT_ASSESSMENT_SECURITY_POLICY_VERSION:process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true"?ASSESSMENT_SECURITY_POLICY_VERSION:process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED==="true"?REFUNDABLE_DEPOSIT_POLICY_VERSION:SECURITY_POLICY_VERSION}, a.fulfilment);
 
     // New checkout must read current upstream stock, not only the scheduled
     // mirror. Existing bound membership recovery above retains its saved URL.
@@ -372,7 +382,7 @@ export const start = action({
       depositAmount,
       depositHoldAmount,
       securityPolicyVersion: price.securityPolicyVersion,
-      cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&price.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION,
+      cancellationProtectionEnabled:process.env.CANCELLATION_PROTECTION_POLICY_ENABLED==="true"&&hasAssessmentSecurityPolicy(price.securityPolicyVersion),
       savedCardLimit: price.savedCardLimit,
       promoCode: appliedCode,
       discount: totalReduction,
@@ -483,7 +493,7 @@ export const start = action({
     if(membershipCheckout)checkoutLines.push({price:await ensurePrice(sb,tierByKey(membershipCheckout.tier)!),quantity:1});
     const meta = {bookingId,rentalPaidPence:String(pence(price.totalDue)),securityPolicyVersion:price.securityPolicyVersion,savedCardLimitPence:String(pence(price.savedCardLimit)),...(membershipCheckout ? {membershipTier:membershipCheckout.tier,accountEmail:acct.email,membershipCheckoutId:String(membershipCheckout._id),membershipTerms:MEMBERSHIP_TERMS_VERSION}: {})};
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
-      custom_text:{submit:{message:`${depositAmount>0?`A refundable £${depositAmount.toFixed(2)} deposit is included; no extra funds are blocked. Retained deposit reduces later collection for the same loss.`:"No security money is taken or blocked."} You agreed to save this card for evidenced damage/loss and late-return payments ${price.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?"for the itemised assessment,":`up to £${price.savedCardLimit.toFixed(2)} combined,`} after an itemised notice and at least seven days to raise a dispute. Bank approval may be required.`}},
+      custom_text:{submit:{message:`${depositAmount>0?`A refundable £${depositAmount.toFixed(2)} deposit is included; no extra funds are blocked. Retained deposit reduces later collection for the same loss.`:"No security money is taken or blocked."} You agreed to save this card for evidenced damage/loss and late-return payments ${hasAssessmentSecurityPolicy(price.securityPolicyVersion)?"for the itemised assessment,":`up to £${price.savedCardLimit.toFixed(2)} combined,`} after an itemised notice and at least seven days to raise a dispute. Bank approval may be required.`}},
       mode: membershipCheckout ? "subscription" : price.totalDue === 0 ? "setup" : "payment",
       ...(!membershipCheckout&&price.totalDue===0?{currency:"gbp"}:{}),
       ...(membershipCheckout || price.totalDue > 0 ? {adaptive_pricing:{enabled:false}} : {}),
@@ -743,7 +753,29 @@ function checkoutOrigin(origin: string) {
   return requested;
 }
 
-export async function syncStripeMembership(ctx: any, sub: Stripe.Subscription, checkoutId?: string) {
+export async function beginMembershipProviderRead(ctx:any,subscriptionId:string,mutationKey?:string):Promise<number|undefined>{
+  if(process.env.MEMBERSHIP_BOUNDED_RECONCILE_ENABLED!=="true"&&process.env.STRICT_SECURITY_POLICY_ENABLED!=="true")return undefined;
+  return await ctx.runMutation(internal.membershipBenefits.beginProviderRead,{subscriptionId,...(mutationKey?{mutationKey}:{})});
+}
+
+export const retryMembershipProviderRead=action({args:{token:v.string(),subscriptionId:v.string()},handler:async(ctx,{token,subscriptionId}):Promise<"ready"|"needs_review">=>{
+  await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"checkout.retryMembershipProviderRead"});
+  if(process.env.MEMBERSHIP_BOUNDED_RECONCILE_ENABLED!=="true"&&process.env.STRICT_SECURITY_POLICY_ENABLED!=="true")throw Error("Membership provider checks are not enabled.");
+  const candidate=await ctx.runQuery(internal.membershipBenefits.providerReadRepairContext,{subscriptionId});
+  if(!candidate)throw Error("This subscription needs manual account review.");
+  if(!candidate.unsettled)return "ready";
+  const providerGeneration=await beginMembershipProviderRead(ctx,subscriptionId),providerReadAt=Date.now();
+  let sub:Stripe.Subscription;
+  try{sub=await stripe().subscriptions.retrieve(subscriptionId);}catch(error:any){
+    if(error?.code!=="resource_missing")throw Error("Stripe is unavailable. Please try again later.");
+    await ctx.runMutation(internal.accounts._applyMembershipReconcile,{accountId:candidate.accountId,active:false,expectedSubscriptionId:subscriptionId,providerReadAt,...(providerGeneration!==undefined?{providerGeneration}:{})});
+    return "needs_review";
+  }
+  const applied=await syncStripeMembership(ctx,sub,sub.metadata.membershipCheckoutId,providerReadAt,providerGeneration);
+  return applied&&!candidate.mutationInProgress?"ready":"needs_review";
+}});
+
+export async function syncStripeMembership(ctx: any, sub: Stripe.Subscription, checkoutId?: string,providerReadAt?:number,providerGeneration?:number) {
   const tier = tierKeyFromSub(sub);
   const email = sub.metadata.accountEmail;
   if (!tier || !email) return;
@@ -762,11 +794,12 @@ export async function syncStripeMembership(ctx: any, sub: Stripe.Subscription, c
       if(recurring.length)paidThrough=Math.max(...recurring.map(l=>l.period.end))*1000;
     }
   }
-  await ctx.runMutation(internal.membershipBenefits.syncSubscription, {
+  const applied=await ctx.runMutation(internal.membershipBenefits.syncSubscription, {
     accountId: acct._id, subscriptionId: sub.id, tier, status: sub.status, subscriptionCreatedAt: sub.created * 1000,
-    trialEnd: sub.trial_end ? sub.trial_end * 1000 : undefined, cancelAtPeriodEnd: sub.cancel_at_period_end, paidThrough,
+    trialEnd: sub.trial_end ? sub.trial_end * 1000 : undefined, cancelAtPeriodEnd: sub.cancel_at_period_end, paidThrough,...(providerReadAt!==undefined?{providerReadAt}:{}),...(providerGeneration!==undefined?{providerGeneration}:{}),
     ...(checkoutId && ["active","trialing"].includes(sub.status) ? { checkoutId } : {}),
   });
+  if(applied===false)return;
   return acct;
 }
 
@@ -778,9 +811,84 @@ async function grantStripeMembershipInvoice(ctx: any, invoice: Stripe.Invoice, s
   const grant = paidRecurringMembership(invoice, lines, sub);
   if (grant) {
     await ctx.runMutation(internal.membershipBenefits.grantPaidInvoice, { accountId: acct._id, subscriptionId: sub.id, invoiceId: invoice.id, ...(invoice.billing_reason === "subscription_create" && sub.metadata.membershipCheckoutId ? {checkoutId:sub.metadata.membershipCheckoutId as any} : {}), ...grant });
-    await reconcileMembershipCreditNotes(ctx,invoice,sub);
+    if(grant.periodEnd<=Date.now()||(process.env.STRICT_WAIVER_PROOF_CAPTURE_ENABLED!=="true"&&process.env.STRICT_SECURITY_POLICY_ENABLED!=="true")){
+      await reconcileMembershipCreditNotes(ctx,invoice,sub);
+      return;
+    }
+    let proofReady=false;
+    try{for(let attempt=0;attempt<2;attempt++){
+      const generation=await ctx.runMutation(internal.membershipBenefits.beginWaiverProof,{invoiceId:invoice.id});
+      if(generation===null)break;
+      await reconcileMembershipCreditNotes(ctx,invoice,sub);
+      let covered=0,refundedTotal=0,unsupported=false;
+      for await(const payment of stripe().invoicePayments.list({invoice:invoice.id,status:"paid",limit:100})){
+        const paymentIntent=payment.payment.type==="payment_intent"?payment.payment.payment_intent:null;
+        if(!paymentIntent||!Number.isSafeInteger(payment.amount_paid)||!payment.amount_paid||payment.amount_paid<0){unsupported=true;continue;}
+        const id=typeof paymentIntent==="string"?paymentIntent:paymentIntent.id;
+        const intent=await stripe().paymentIntents.retrieve(id);
+        let refunded=0;for await(const refund of stripe().refunds.list({payment_intent:id,limit:100})){if(refund.status==="succeeded")refunded+=refund.amount;else if(refund.status!=="failed"&&refund.status!=="canceled")unsupported=true;}
+        if(intent.amount_received!==payment.amount_paid){unsupported=true;continue;}
+        covered+=payment.amount_paid;refundedTotal+=Math.min(refunded,payment.amount_paid);
+      }
+      if(unsupported||covered!==invoice.amount_paid)break;
+      if(refundedTotal>0&&refundedTotal<covered)break;
+      if(covered>0&&refundedTotal>=covered)await ctx.runMutation(internal.membershipBenefits.revokeRefundedInvoice,{invoiceId:invoice.id,membershipRefundedPence:grant.paidMembershipPence});
+      if(await ctx.runMutation(internal.membershipBenefits.finishWaiverProof,{invoiceId:invoice.id,generation})){proofReady=true;break;}
+    }}catch(error){await ctx.runMutation(internal.membershipBenefits.flagWaiverProofAttention,{invoiceId:invoice.id,reason:"Provider payment evidence could not be read."});throw error;}
+    if(!proofReady)await ctx.runMutation(internal.membershipBenefits.flagWaiverProofAttention,{invoiceId:invoice.id,reason:"Payment or refund allocation needs review."});
   }
 }
+
+export const retryMembershipWaiverProof=action({args:{token:v.string(),invoiceId:v.string()},handler:async(ctx,{token,invoiceId}):Promise<"ready"|"needs_review"|"unavailable">=>{
+  await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"checkout.retryMembershipWaiverProof"});
+  if(process.env.STRICT_WAIVER_PROOF_CAPTURE_ENABLED!=="true"&&process.env.STRICT_SECURITY_POLICY_ENABLED!=="true")throw Error("Membership waiver proof collection is not enabled.");
+  const invoice=await stripe().invoices.retrieve(invoiceId),parent=invoice.parent?.subscription_details?.subscription;
+  const subscriptionId=typeof parent==="string"?parent:parent?.id;
+  if(!subscriptionId)throw Error("Invoice has no subscription.");
+  await grantStripeMembershipInvoice(ctx,invoice,await stripe().subscriptions.retrieve(subscriptionId));
+  return ctx.runQuery(internal.membershipBenefits.waiverProofStatus,{invoiceId});
+}});
+
+export const resolveMembershipWaiverAmbiguity=action({args:{token:v.string(),invoiceId:v.string(),reason:v.string()},handler:async(ctx,{token,invoiceId,reason}):Promise<boolean>=>{
+  await ctx.runMutation(internal.adminAuth.assertAdminInternal,{token,fn:"checkout.resolveMembershipWaiverAmbiguity"});
+  const note=reason.trim();if(note.length<10||note.length>500)throw Error("Record a reason of 10 to 500 characters.");
+  if(process.env.STRICT_WAIVER_PROOF_CAPTURE_ENABLED!=="true"&&process.env.STRICT_SECURITY_POLICY_ENABLED!=="true")throw Error("Membership waiver proof collection is not enabled.");
+  const snapshot=await ctx.runMutation(internal.membershipBenefits.beginWaiverResolution,{invoiceId});if(!snapshot)throw Error("This payment requires separate review.");
+  const invoice=await stripe().invoices.retrieve(invoiceId),parent=invoice.parent?.subscription_details?.subscription,subscriptionId=typeof parent==="string"?parent:parent?.id;
+  if(subscriptionId!==snapshot.subscriptionId)throw Error("The provider subscription changed.");
+  const subscription=await stripe().subscriptions.retrieve(subscriptionId),lines:Stripe.InvoiceLineItem[]=[];
+  for await(const line of stripe().invoices.listLineItems(invoiceId,{limit:100}))lines.push(line);
+  const grant=paidRecurringMembership(invoice,lines,subscription);if(!grant||grant.paidMembershipPence!==snapshot.paidMembershipPence)throw Error("Provider invoice evidence does not match.");
+  const invoiceLines=new Map(lines.map(line=>[line.id,line])),memberItems=new Set(subscription.items.data.map(item=>item.id)),memberLines=new Set(lines.filter(line=>line.parent?.type==="subscription_item_details"&&!line.parent.subscription_item_details?.proration&&memberItems.has(line.parent.subscription_item_details?.subscription_item??"")).map(line=>line.id));
+  const attributedRefunds=new Map<string,number>(),creditNoteIds:string[]=[],refundIds:string[]=[];let membershipRefundedPence=0;
+  for await(const creditNote of stripe().creditNotes.list({invoice:invoiceId,limit:100})){
+    if(creditNote.status!=="issued")continue;
+    if(creditNoteIds.length>=50)throw Error("Too many credit notes for automatic review.");creditNoteIds.push(creditNote.id);
+    if(creditNote.out_of_band_amount||creditNote.customer_balance_transaction||creditNote.amount_shipping||creditNote.discount_amount||(creditNote.total_taxes??[]).some(tax=>tax.amount!==0))throw Error("Credit note allocation requires separate review.");
+    let lineTotal=0,noteRefundTotal=0;
+    for await(const line of stripe().creditNotes.listLineItems(creditNote.id,{limit:100})){
+      if(!line.invoice_line_item||!invoiceLines.has(line.invoice_line_item)||!Number.isSafeInteger(line.amount)||line.amount<0||line.discount_amount||(line.taxes??[]).some(tax=>tax.amount!==0)||(line.pretax_credit_amounts??[]).length)throw Error("Credit note line allocation requires separate review.");
+      if(invoiceLines.get(line.invoice_line_item)?.parent?.type==="subscription_item_details"&&!memberLines.has(line.invoice_line_item))throw Error("Subscription line allocation requires separate review.");
+      lineTotal+=line.amount;if(memberLines.has(line.invoice_line_item))membershipRefundedPence+=line.amount;
+    }
+    for(const reference of creditNote.refunds??[]){const id=typeof reference.refund==="string"?reference.refund:reference.refund?.id;if(!id||reference.type!=="refund"||!Number.isSafeInteger(reference.amount_refunded)||reference.amount_refunded<=0||attributedRefunds.has(id)||attributedRefunds.size>=50)throw Error("Credit note refund allocation requires separate review.");attributedRefunds.set(id,reference.amount_refunded);noteRefundTotal+=reference.amount_refunded;}
+    if(!noteRefundTotal||creditNote.amount!==lineTotal||lineTotal!==noteRefundTotal)throw Error("Credit note totals require separate review.");
+  }
+  let covered=0;
+  for await(const payment of stripe().invoicePayments.list({invoice:invoiceId,status:"paid",limit:100})){
+    const paymentIntent=payment.payment.type==="payment_intent"?payment.payment.payment_intent:null;
+    if(!paymentIntent||!Number.isSafeInteger(payment.amount_paid)||!payment.amount_paid||payment.amount_paid<0)throw Error("Unsupported payment evidence requires separate review.");
+    const id=typeof paymentIntent==="string"?paymentIntent:paymentIntent.id,intent=await stripe().paymentIntents.retrieve(id);
+    if(intent.amount_received!==payment.amount_paid)throw Error("Payment allocation requires separate review.");
+    for await(const refund of stripe().refunds.list({payment_intent:id,limit:100})){
+      if(refund.status==="failed"||refund.status==="canceled")continue;
+      if(refund.status!=="succeeded"||attributedRefunds.get(refund.id)!==refund.amount||refundIds.length>=50)throw Error("An active or unattributed refund requires separate review.");attributedRefunds.delete(refund.id);refundIds.push(refund.id);
+    }
+    covered+=payment.amount_paid;
+  }
+  if(covered!==invoice.amount_paid||attributedRefunds.size)throw Error("Invoice payment or refund coverage is incomplete.");
+  return ctx.runMutation(internal.membershipBenefits.finishWaiverResolution,{invoiceId,generation:snapshot.generation,refundGeneration:snapshot.refundGeneration,reason:note,membershipRefundedPence,refundIds,creditNoteIds});
+}});
 
 async function reconcileMembershipCreditNotes(ctx:any, invoice:Stripe.Invoice, sub:Stripe.Subscription) {
   const lines:Stripe.InvoiceLineItem[]=[];
@@ -796,19 +904,21 @@ async function reconcileMembershipCreditNotes(ctx:any, invoice:Stripe.Invoice, s
 }
 
 async function reconcileFullyRefundedMembership(ctx:any, refund:Stripe.Refund) {
-  if(refund.status!=="succeeded"||!refund.payment_intent)return;
+  const capture=process.env.STRICT_WAIVER_PROOF_CAPTURE_ENABLED==="true"||process.env.STRICT_SECURITY_POLICY_ENABLED==="true";
+  if(!capture&&refund.status!=="succeeded")return;
+  if(["failed","canceled"].includes(refund.status??"")||!refund.payment_intent)return;
   const pi=await stripe().paymentIntents.retrieve(typeof refund.payment_intent==="string"?refund.payment_intent:refund.payment_intent.id);
   let refunded=0;for await(const r of stripe().refunds.list({payment_intent:pi.id,limit:100}))if(r.status==="succeeded")refunded+=r.amount;
-  if(refunded<pi.amount_received)return;
-  const payments=await stripe().invoicePayments.list({payment:{type:"payment_intent",payment_intent:pi.id},status:"paid",limit:100});
-  for(const p of payments.data){const id=typeof p.invoice==="string"?p.invoice:p.invoice.id;const invoice=await stripe().invoices.retrieve(id);const parent=invoice.parent?.subscription_details?.subscription;const subId=typeof parent==="string"?parent:parent?.id;if(!subId)continue;const sub=await stripe().subscriptions.retrieve(subId);const lines:Stripe.InvoiceLineItem[]=[];for await(const line of stripe().invoices.listLineItems(id,{limit:100}))lines.push(line);const grant=paidRecurringMembership(invoice,lines,sub);if(grant)await ctx.runMutation(internal.membershipBenefits.revokeRefundedInvoice,{invoiceId:id,membershipRefundedPence:grant.paidMembershipPence});}
+  if(!capture&&refunded<pi.amount_received)return;
+  const payments=stripe().invoicePayments.list({payment:{type:"payment_intent",payment_intent:pi.id},status:"paid",limit:100});
+  for await(const p of payments){const id=typeof p.invoice==="string"?p.invoice:p.invoice.id;if(process.env.STRICT_WAIVER_PROOF_CAPTURE_ENABLED==="true"||process.env.STRICT_SECURITY_POLICY_ENABLED==="true")await ctx.runMutation(internal.membershipBenefits.invalidateWaiverProof,{invoiceId:id});if(refund.status!=="succeeded"||refunded<pi.amount_received)continue;const invoice=await stripe().invoices.retrieve(id);const parent=invoice.parent?.subscription_details?.subscription;const subId=typeof parent==="string"?parent:parent?.id;if(!subId)continue;const sub=await stripe().subscriptions.retrieve(subId);const lines:Stripe.InvoiceLineItem[]=[];for await(const line of stripe().invoices.listLineItems(id,{limit:100}))lines.push(line);const grant=paidRecurringMembership(invoice,lines,sub);if(grant)await ctx.runMutation(internal.membershipBenefits.revokeRefundedInvoice,{invoiceId:id,membershipRefundedPence:grant.paidMembershipPence});}
 }
 
 async function fulfillMembership(ctx: any, session: Stripe.Checkout.Session) {
   const subId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
   if (!subId || !session.metadata?.membershipTier || session.status !== "complete") return;
-  const sub = await stripe().subscriptions.retrieve(subId);
-  await syncStripeMembership(ctx, sub, session.metadata.membershipCheckoutId);
+  const providerGeneration=await beginMembershipProviderRead(ctx,subId),providerReadAt=Date.now(),sub = await stripe().subscriptions.retrieve(subId);
+  await syncStripeMembership(ctx, sub, session.metadata.membershipCheckoutId,providerReadAt,providerGeneration);
   const invoiceId = typeof session.invoice === "string" ? session.invoice : session.invoice?.id;
   if (invoiceId) await grantStripeMembershipInvoice(ctx, await stripe().invoices.retrieve(invoiceId), sub);
 }
@@ -895,7 +1005,7 @@ export const previewReturned = action({
       lateAssessed: selection.late.amount, lateWaived: selection.waiver.waivedAmount ?? 0, lateBreakdown: selection.late.breakdown,
     };
     if(hasCashDepositPolicy(b.securityPolicyVersion))Object.assign(statement,depositRefundStatementFields(b));
-    if(isSavedCardRental(b)){statement.securityPolicyVersion=b.securityPolicyVersion;if(b.securityPolicyVersion!==ASSESSMENT_SECURITY_POLICY_VERSION)statement.savedCardLimit=b.savedCardLimit;statement.damageAssessed=damage;statement.damageTotal=hasCashDepositPolicy(b.securityPolicyVersion)?plan.damageFromDeposit:0;}
+    if(isSavedCardRental(b)){statement.securityPolicyVersion=b.securityPolicyVersion;if(!hasAssessmentSecurityPolicy(b.securityPolicyVersion))statement.savedCardLimit=b.savedCardLimit;statement.damageAssessed=damage;statement.damageTotal=hasCashDepositPolicy(b.securityPolicyVersion)?plan.damageFromDeposit:0;}
     const draft = !invoice.returnStatement;
     const secret = process.env.INVOICE_SECRET;
     if (!secret) throw Error("Return statement PDF previews are not configured");
@@ -905,7 +1015,7 @@ export const previewReturned = action({
     if (!response.ok) throw Error("The return statement PDF preview is unavailable. No settlement has been executed.");
     const pdf = Buffer.from(await response.arrayBuffer());
     if (pdf.length > 1_000_000 || pdf.subarray(0, 5).toString() !== "%PDF-") throw Error("The return statement preview did not produce a valid PDF");
-    return { snapshot:b.returnDecision?.expectedSnapshot??b.controlsSnapshot, draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement, securityAlreadySettled: !!b.depositRefunded, financial: { ...plan, ...(isSavedCardRental(b)?{...(b.securityPolicyVersion===ASSESSMENT_SECURITY_POLICY_VERSION?{}:{savedCardLimit:b.savedCardLimit}),damageAssessed:damage}:{}), holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email: returnStatementEmail(statement, draft), pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
+    return { snapshot:b.returnDecision?.expectedSnapshot??b.controlsSnapshot, draft, observedAt: Date.now(), alreadySettled: !!invoice.returnStatement, securityAlreadySettled: !!b.depositRefunded, financial: { ...plan, ...(isSavedCardRental(b)?{...(hasAssessmentSecurityPolicy(b.securityPolicyVersion)?{}:{savedCardLimit:b.savedCardLimit}),damageAssessed:damage}:{}), holdRelease: retainedForLate ? 0 : plan.holdRelease, holdRetainedForLate: retainedForLate, lateAssessed: statement.lateAssessed, lateWaived: statement.lateWaived }, statement, email: returnStatementEmail(statement, draft), pdf: { base64: pdf.toString("base64"), filename: `DbCinema-${draft ? "draft-" : ""}return-${String(args.bookingId).slice(-8)}.pdf` } };
   },
 });
 
@@ -1233,8 +1343,8 @@ export const stripeWebhook = internalAction({
     // Retrieve current state: delayed webhook snapshots must not re-enable a canceled subscription.
     if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "customer.subscription.paused", "customer.subscription.resumed"].includes(event.type)) {
       const snapshot = event.data.object as Stripe.Subscription;
-      const current = await stripe().subscriptions.retrieve(snapshot.id);
-      await syncStripeMembership(ctx, current, current.metadata.membershipCheckoutId);
+      const providerGeneration=await beginMembershipProviderRead(ctx,snapshot.id),providerReadAt=Date.now(),current = await stripe().subscriptions.retrieve(snapshot.id);
+      await syncStripeMembership(ctx, current, current.metadata.membershipCheckoutId,providerReadAt,providerGeneration);
     }
     if (["credit_note.created","credit_note.updated","credit_note.voided"].includes(event.type)) {
       const note=event.data.object as Stripe.CreditNote;
@@ -1247,8 +1357,8 @@ export const stripeWebhook = internalAction({
       const parent = invoice.parent?.subscription_details?.subscription;
       const subId = typeof parent === "string" ? parent : parent?.id;
       if (subId) {
-        const sub = await stripe().subscriptions.retrieve(subId);
-        await syncStripeMembership(ctx, sub, sub.metadata.membershipCheckoutId);
+        const providerGeneration=await beginMembershipProviderRead(ctx,subId),providerReadAt=Date.now(),sub = await stripe().subscriptions.retrieve(subId);
+        await syncStripeMembership(ctx, sub, sub.metadata.membershipCheckoutId,providerReadAt,providerGeneration);
         if (event.type === "invoice.paid") await grantStripeMembershipInvoice(ctx, invoice, sub);
       }
     }
@@ -1259,35 +1369,41 @@ export const stripeWebhook = internalAction({
 /** Safety net for membership perks: reconcile every subscriber's membershipActive/tier against the
  *  REAL Stripe subscription so perks lapse with billing even when the Stripe webhook isn't configured.
  *  Runs on a cron. Stripe outage/transient errors leave the flag untouched (fail-safe, retried next run). */
+export const reconcileMembershipsLegacy = internalAction({args:{generation:v.number()},handler:async(ctx,{generation}):Promise<void>=>{
+ if(!process.env.STRIPE_SECRET_KEY){await ctx.runMutation(internal.membershipReconcileState.pause,{generation});return;}
+ const subscribers:any[]=await ctx.runQuery(internal.accounts._listSubscribers,{}),provider=stripe();
+ for(const subscriber of subscribers){
+  const providerGeneration=await beginMembershipProviderRead(ctx,subscriber.subscriptionId),providerReadAt=Date.now();let subscription:Stripe.Subscription|null=null;
+  try{subscription=await provider.subscriptions.retrieve(subscriber.subscriptionId);}catch(error:any){if(error?.code!=="resource_missing")continue;}
+  if(!subscription){await ctx.runMutation(internal.accounts._applyMembershipReconcile,{accountId:subscriber.accountId,active:false,expectedSubscriptionId:subscriber.subscriptionId,providerReadAt,...(providerGeneration!==undefined?{providerGeneration}:{})});continue;}
+  try{if(!await syncStripeMembership(ctx,subscription,subscription.metadata.membershipCheckoutId,providerReadAt,providerGeneration))throw Error("Membership reconciliation did not apply");const invoices=await provider.invoices.list({subscription:subscription.id,status:"paid",limit:100});for(const invoice of invoices.data)await grantStripeMembershipInvoice(ctx,invoice,subscription);}catch{console.error("Membership reconciliation will retry",subscription.id);}
+ }
+ await ctx.runMutation(internal.membershipReconcileState.advance,{generation,cursor:"",done:true});
+}});
+
 export const reconcileMemberships = internalAction({
-  args: {},
-  handler: async (ctx): Promise<{ checked: number; changed: number }> => {
-    if (!process.env.STRIPE_SECRET_KEY) return { checked: 0, changed: 0 };
-    const subs: any[] = await ctx.runQuery(internal.accounts._listSubscribers, {});
-    const sb = stripe();
-    let changed = 0;
-    for (const s of subs) {
-      let sub: Stripe.Subscription | null = null;
+  args: {generation:v.number()},
+  handler: async (ctx,{generation}): Promise<void> => {
+    if (!process.env.STRIPE_SECRET_KEY){await ctx.runMutation(internal.membershipReconcileState.pause,{generation});return;}
+    const page:any=await ctx.runQuery(internal.membershipReconcileState.next,{generation});if(!page)return;
+    const s=page.account,sb=stripe();let failure:string|undefined;
+    if(s){
+      let sub: Stripe.Subscription | null = null;const providerGeneration=await beginMembershipProviderRead(ctx,s.stripeSubscriptionId),providerReadAt=Date.now();
       try {
-        sub = await sb.subscriptions.retrieve(s.subscriptionId);
+        sub = await sb.subscriptions.retrieve(s.stripeSubscriptionId);
       } catch (e: any) {
         if (e?.code === "resource_missing") sub = null; // deleted at Stripe → deactivate
-        else continue; // transient error — leave as-is, retry next cron
+        else failure="provider_unavailable";
       }
-      if (!sub) {
-        await ctx.runMutation(internal.accounts._applyMembershipReconcile, { accountId: s.accountId, active: false });
-        changed++;
-        continue;
-      }
-      try {
-        await syncStripeMembership(ctx, sub, sub.metadata.membershipCheckoutId);
+      if(!failure&&!sub)await ctx.runMutation(internal.accounts._applyMembershipReconcile,{accountId:s._id,active:false,expectedSubscriptionId:s.stripeSubscriptionId,providerReadAt,...(providerGeneration!==undefined?{providerGeneration}:{})});
+      else if(!failure&&sub)try {
+        if(!await syncStripeMembership(ctx, sub, sub.metadata.membershipCheckoutId,providerReadAt,providerGeneration))throw Error("Membership reconciliation did not apply");
         // Catch up paid invoices independently of delivery of webhooks, newest first.
         const invoices = await sb.invoices.list({ subscription: sub.id, status: "paid", limit: 100 });
         for (const invoice of invoices.data) await grantStripeMembershipInvoice(ctx, invoice, sub);
-        changed++;
-      } catch (e) { console.error("Membership reconciliation will retry", sub.id, e); }
+      } catch { failure="provider_reconciliation_failed"; }
     }
-    return { checked: subs.length, changed };
+    await ctx.runMutation(internal.membershipReconcileState.advance,{generation,cursor:page.cursor,done:page.done,...(failure?{failure,accountId:s._id}:{})});
   },
 });
 

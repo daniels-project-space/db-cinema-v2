@@ -16,6 +16,8 @@ export const deliver=internalAction({args:{deliveryId:v.id("rental_email_deliver
       else if(row.kind==="verification")payload=await ctx.runAction(internal.notify.verificationEmail,{...args,status:row.verificationStatus!}) as MailInput|null;
       else if(row.kind==="time_change")payload=await ctx.runAction(internal.notify.timeChangeEmail,{...args,detail:row.changeDetail!}) as MailInput|null;
       else if(row.kind==="review")payload=await ctx.runAction(internal.reviewFollowUp.prepareEmail,{bookingId:row.bookingId,deliveryKey:row.key}) as MailInput|null;
+      else if(row.kind==="encore")payload=await ctx.runAction(internal.notify.encoreEmail,{bookingId:row.bookingId,accountId:row.encoreAccountId!,deliveryKey:row.key,level:row.encoreLevel!}) as MailInput|null;
+      else if(row.kind==="encore_guest_claim")payload=await ctx.runAction(internal.accountAccess.prepareEncoreEmail,{deliveryId:row._id,generation:a.generation,deliveryKey:row.key}) as MailInput|null;
       else if(row.kind==="cancellation_choice")payload=await ctx.runAction(internal.operatorCancellation.prepareEmail,{bookingId:row.bookingId,deliveryKey:row.key}) as MailInput|null;
       else payload=await ctx.runAction(internal.notify.cancellationEmail,{...args,mode:row.mode!,refundAmount:row.refundAmount!,creditAmount:row.creditAmount!}) as MailInput|null;
       if(payload){

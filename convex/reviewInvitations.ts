@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { accountForToken, ownedBooking, postRentalMessage } from "./lib/rentalChat";
 import { reviewContext } from "./lib/reviewContext";
 import { customerReviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
+import { queueEncoreCheck } from "./lib/encoreCheckQueue";
 
 export const eligibility = query({
   args: { token: v.string(), bookingId: v.id("bookings") },
@@ -28,13 +29,17 @@ export const recordEligibility = internalMutation({
     const b = await ctx.db.get(bookingId);
     if (!b || fingerprint !== reviewSettlementFingerprint(await reviewContext(ctx, b))) return false;
     const allowed = eligible && !customerReviewGate(b);
+    const account = await accountForRental(ctx,b);
     await ctx.db.patch(bookingId, { reviewEligibilityFingerprint: allowed ? fingerprint : undefined, reviewEligibilityCheckedAt: Date.now() });
+    if(process.env.ENCORE_EVIDENCE_READ_ENABLED==="true"&&allowed&&!encoreGate(b)){
+      const evidence=await ctx.db.query("encore_eligibility_evidence").withIndex("by_booking",q=>q.eq("bookingId",bookingId)).unique();
+      if(!evidence||evidence.fingerprint!==fingerprint)await queueEncoreCheck(ctx,bookingId,{quiet:true});
+    }
     if (allowed && !b.reviewInvitationMessageId) {
       const reviewed = await ctx.db.query("reviews").withIndex("by_booking", q => q.eq("verifiedBookingId", bookingId)).first();
-      const account = await accountForRental(ctx,b);
       if (account && !reviewed) {
         const messageId = await postRentalMessage(ctx, { accountId: account._id, bookingId, sender: "system",
-          text: !encoreGate(b)?"Your clean return and security settlement are complete. Leave an honest review to earn your next Encore rental saving. Every star rating counts equally.":"Your rental is returned and its refundable security has been settled. How was your rental? You can leave a rating and review here.",
+          text: process.env.ENCORE_EVIDENCE_READ_ENABLED!=="true"&&!encoreGate(b)?"Your clean return and security settlement are complete. Leave an honest review to earn your next Encore rental saving. Every star rating counts equally.":"Your rental is returned and its refundable security has been settled. How was your rental? You can leave a rating and review here.",
           meta: { kind: "review_invitation" } });
         await ctx.db.patch(bookingId, { reviewInvitationMessageId: messageId });
       }

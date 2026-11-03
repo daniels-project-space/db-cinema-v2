@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict');
+const {load,db,put,tables}=require('./lib/rentalTestHarness.cjs');
+const {loyaltyProgress,encorePolicyVersion}=load('convex/lib/loyalty.ts');
+const {queueEncoreCheck}=load('convex/lib/encoreCheckQueue.ts');
+const {reviewContext}=load('convex/lib/reviewContext.ts'),{reviewSettlementFingerprint}=load('convex/lib/reviewEligibility.ts');
+const ctx={db,scheduler:{runAfter:async()=>{}}};
+(async()=>{
+ delete process.env.ENCORE_EVIDENCE_READ_ENABLED;delete process.env.ENCORE_EVIDENCE_CAPTURE_ENABLED;
+ const now=Date.now(),account=put('accounts',{email:'dark@example.invalid'});
+ const booking=put('bookings',{accountId:account._id,accountAccessRequired:false,guestEmail:account.email,status:'returned',stripeCheckoutSessionId:'dark-checkout',depositAmount:0,actualReturnedAt:now,lineItems:[{start:now,end:now,qty:1}],returnDecision:{inspection:[{key:'camera',condition:'good',details:'',openCase:false}]}});
+ booking.reviewEligibilityFingerprint=reviewSettlementFingerprint(await reviewContext(ctx,booking));
+ assert.equal(encorePolicyVersion(),'review-earned-v1');assert.equal((await loyaltyProgress(ctx,account)).level,0);
+ await queueEncoreCheck(ctx,booking._id);assert.equal(tables.get('encore_settlement_checks'),undefined);
+ put('reviews',{verifiedBookingId:booking._id,authorAccountId:account._id,source:'native'});assert.equal((await loyaltyProgress(ctx,account)).level,1);
+ const queued=put('rental_email_deliveries',{bookingId:booking._id,kind:'encore',encoreAccountId:account._id,encoreLevel:1,state:'pending',attempts:0,generation:0,dueAt:now,createdAt:now,updatedAt:now,key:'dark-mail',sequence:1});
+ await load('convex/rentalEmailDelivery.ts').dispatchOne.handler(ctx,{deliveryId:queued._id});assert.equal(queued.state,'pending');assert(queued.dueAt>now,'paused notices are deferred rather than sent or discarded');
+ process.env.ENCORE_EVIDENCE_CAPTURE_ENABLED='true';await queueEncoreCheck(ctx,booking._id);
+ assert.equal(tables.get('encore_settlement_checks')[0].notifyEligible,false);assert.equal((await loyaltyProgress(ctx,account)).level,1);
+ process.env.ENCORE_EVIDENCE_READ_ENABLED='true';assert.equal(encorePolicyVersion(),'clean-return-v2');assert.equal((await loyaltyProgress(ctx,account)).level,0,'unpublished proof cannot grant clean-return benefits');
+ console.log('PASS Encore dark launch: flags off preserve reviewed-rental eligibility, capture is silent, and activation requires published proof.');
+})().catch(error=>{console.error(error);process.exitCode=1});

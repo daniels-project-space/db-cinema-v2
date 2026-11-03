@@ -1,0 +1,25 @@
+const assert=require('node:assert/strict');
+const {load,db,put,setMock}=require('./lib/rentalTestHarness.cjs');
+process.env.ADMIN_TOKEN='strict-amendment-fixture';
+setMock('./lib/rentalChat',{...load('convex/lib/rentalChat.ts'),postRentalMessage:async()=>{}});
+const state=load('convex/rentalAdditionState.ts'),security=load('shared/savedCardSecurity.ts'),policy=load('shared/rentalSecurity.ts'),agreement=load('shared/rentalAgreement.ts'),legal=load('src/lib/legal.ts');
+const account=put('accounts',{email:'strict-amendment@example.invalid'});put('sessions',{token:'strict-renter',accountId:account._id,expiresAt:Date.now()+86400000});
+const unit=put('inventory_units',{quantityOwned:10,name:'Fixture equipment'}),camera=put('listings',{title:'Camera',active:true,depositAmount:3900,pricing:{daily:10},components:[{inventoryUnitId:unit._id,qty:1}]}),lens=put('listings',{title:'Lens',active:true,depositAmount:100,pricing:{daily:10},components:[{inventoryUnitId:unit._id,qty:1}]});
+const line={listingId:camera._id,title:'Camera',qty:1,start:Date.UTC(2030,10,1),end:Date.UTC(2030,10,2),lineTotal:20},signedAt=Date.now()-1000;
+const base={customerName:'Fixture Renter',customerEmail:account.email,billingAddress:'Fixture road',fulfilment:'pickup',pickupTime:'10:00',returnTime:'18:00',lineItems:[line],subtotal:20,deliveryFee:0,depositAmount:0,depositHoldAmount:0,currency:'GBP',securityPolicyVersion:policy.STRICT_ASSESSMENT_SECURITY_POLICY_VERSION,securityWaiverReason:'paid_membership',savedCardLimit:0,savedCardConsentText:security.assessmentConsentText(0),agreementName:'Fixture Renter',agreementDocs:legal.agreementsForSecurityPolicy(policy.STRICT_ASSESSMENT_SECURITY_POLICY_VERSION),securityHoldConsent:true,laterChargeConsent:true};
+const snapshot=agreement.snapshotAgreement(base,signedAt,20,0),booking=put('bookings',{...base,accountId:account._id,guestEmail:account.email,status:'confirmed',total:20,agreementSignedAt:signedAt,laterChargeConsentAt:signedAt,agreementSnapshot:snapshot,replacementValues:[{listingId:camera._id,unitPence:390000}]});
+const ctx={db,scheduler:{runAfter:async()=>{}}};
+(async()=>{
+ assert.equal(JSON.parse(snapshot).version,'2026-11-v17');assert.equal(security.assertSavedCardConsent(booking),0);
+ assert.equal(policy.depositForBookingPolicy(booking,3999.99),0);assert.equal(policy.depositForBookingPolicy(booking,4000),100);
+ assert.equal(policy.depositForBookingPolicy({...booking,securityPolicyVersion:policy.ASSESSMENT_SECURITY_POLICY_VERSION},4000),0,'historic accepted v2 waivers keep their original meaning');
+ const proposal=await state.prepare.handler(ctx,{token:process.env.ADMIN_TOKEN,bookingId:booking._id,requestId:'strict-threshold-proposal-1234',listingId:lens._id,qty:1,reason:'Equipment change',start:line.start,end:line.end});
+ assert.equal(proposal.securityCharge,100,'crossing £4,000 requires the full refundable security top-up');assert.equal(proposal.proposedSavedCardLimit,0);
+ await assert.rejects(state.apply.handler(ctx,{id:proposal._id}),/accept|Payment/);
+ await state.acceptSecurity.handler(ctx,{token:'strict-renter',bookingId:booking._id,additionId:proposal._id,expectedDeposit:100,expectedLimit:0,confirmed:true});
+ await assert.rejects(state.apply.handler(ctx,{id:proposal._id}),/Payment/);
+ await state.markPaid.handler(ctx,{id:proposal._id,paymentIntentId:'pi_strict_fixture'});await state.apply.handler(ctx,{id:proposal._id});
+ assert.equal(booking.depositAmount,100);assert.equal(booking.agreementSnapshot,snapshot,'original signed terms remain immutable');assert.equal(security.assertSavedCardConsent(booking),0);
+ assert.throws(()=>security.assertSavedCardConsent({...booking,securityAmendments:booking.securityAmendments.map(row=>({...row,paymentIntentId:undefined}))}),/inconsistent/);
+ console.log('PASS strict deposit amendment: immutable v17 consent, exact £4,000 crossing, explicit acceptance and paid top-up with old v2 reconstruction preserved.');
+})().catch(error=>{console.error(error);process.exitCode=1});

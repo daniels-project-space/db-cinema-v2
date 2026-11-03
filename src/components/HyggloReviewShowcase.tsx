@@ -19,7 +19,6 @@ function Rating({ label = "5 out of 5 stars" }: { label?: string }) {
     </span>
   );
 }
-
 function Reviewer({ review }: { review: VerifiedHyggloHighlight }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
@@ -39,7 +38,6 @@ function Reviewer({ review }: { review: VerifiedHyggloHighlight }) {
     </div>
   );
 }
-
 export function HyggloTrustTile({ reviews }: { reviews: VerifiedHyggloHighlight[] }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -154,4 +152,3 @@ export function HyggloReviewRows({ reviews }: { reviews: VerifiedHyggloHighlight
     </div>
   );
 }
-

@@ -9,6 +9,7 @@ import { returnInspectionSchedule } from "./lib/returnInspection";
 import { inspectionInput } from "./lib/returnInspectionFields";
 import { normalizeReturnInspection } from "../shared/returnInspection";
 import { listingImages } from "./lib/catalogImages";
+import { refreshVerificationArchiveRetention } from "./verificationArchive";
 import type { InspectionItem } from "../shared/returnInspection";
 
 /** Presentation only: a kit's photograph cannot stand in for one component.
@@ -55,6 +56,7 @@ export const closeCase = mutation({ args: { token: v.string(), caseId: v.id("ren
   if (record.status === "closed") return;
   await ctx.db.patch(record._id, { status: "closed", resolution: args.resolution.trim().slice(0, 2000), closedAt: Date.now() });
   await queueRmv2Sync(ctx, record.bookingId);
+  await refreshVerificationArchiveRetention(ctx, record.bookingId);
 } });
 
 /** Safe cross-app admin inspection context; Stripe identifiers stay server-side. */

@@ -10,7 +10,7 @@ import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
 import { depositFor, depositChargeFor } from "./pricing";
-import { ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardLimitForPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit } from "../../shared/rentalSecurity";
+import { ASSESSMENT_SECURITY_POLICY_VERSION, STRICT_ASSESSMENT_SECURITY_POLICY_VERSION, assessmentDepositFor, cardLimitForPolicy, SECURITY_POLICY_VERSION, REFUNDABLE_DEPOSIT_POLICY_VERSION, refundableDepositFor, savedCardChargeLimit } from "../../shared/rentalSecurity";
 import { londonMonth } from "./memberDelivery";
 import { tierByKey, paidDepositExempt } from "./membership";
 import { groupDeliveryItems } from "../../shared/deliveryGroups";
@@ -129,9 +129,11 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
   const protection = a.protection ?? "verify";
   const replacementSum = items.reduce((n, i) => n + Math.round(i.deposit*100), 0)/100;
   // Only enable after checkout, immutable terms and both admin surfaces qualify.
-  const assessmentPolicy=process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true";
+  const strictPolicy=process.env.STRICT_SECURITY_POLICY_ENABLED==="true";
+  if(strictPolicy&&(process.env.ENCORE_EVIDENCE_READ_ENABLED!=="true"||process.env.MEMBERSHIP_BOUNDED_RECONCILE_ENABLED!=="true"))throw Error("The current security policy is not ready. Please contact the team.");
+  const assessmentPolicy=strictPolicy||process.env.ASSESSMENT_SECURITY_POLICY_ENABLED==="true";
   const refundablePolicy = assessmentPolicy || process.env.REFUNDABLE_DEPOSIT_POLICY_ENABLED === "true";
-  const securityPolicyVersion = assessmentPolicy?ASSESSMENT_SECURITY_POLICY_VERSION:refundablePolicy ? REFUNDABLE_DEPOSIT_POLICY_VERSION : SECURITY_POLICY_VERSION;
+  const securityPolicyVersion = strictPolicy?STRICT_ASSESSMENT_SECURITY_POLICY_VERSION:assessmentPolicy?ASSESSMENT_SECURITY_POLICY_VERSION:refundablePolicy ? REFUNDABLE_DEPOSIT_POLICY_VERSION : SECURITY_POLICY_VERSION;
   const cashDeposit = assessmentPolicy?assessmentDepositFor(replacementSum):refundablePolicy ? refundableDepositFor(replacementSum) : depositChargeFor(protection, replacementSum);
   const depositHoldAmount = refundablePolicy ? 0 : depositFor(protection, replacementSum);
   let repeatSourceBookingId: Id<"bookings"> | undefined;
@@ -144,7 +146,8 @@ export async function calculateRentalPrice(ctx: ActionCtx, a: RentalPriceInput):
     }
   }
   let securityWaiverReason = !refundablePolicy && !selected && paidDepositExempt(acct) ? "paid_membership" : repeatSourceBookingId ? "safe_repeat_kit" : undefined;
-  if(assessmentPolicy)securityWaiverReason=membershipActiveNow(acct)?"active_membership":acct?.loyaltyEligible && acct.loyaltyLevel>=3 ? "encore": selected ? "membership_checkout" : undefined;
+  if(strictPolicy)securityWaiverReason=acct&&a.token?await ctx.runQuery(internal.strictDepositPolicy.quote,{token:a.token,valuePence:Math.round(replacementSum*100)})??undefined:undefined;
+  else if(assessmentPolicy)securityWaiverReason=membershipActiveNow(acct)?"active_membership":acct?.loyaltyEligible && acct.loyaltyLevel>=3 ? "encore": selected ? "membership_checkout" : undefined;
   let depositAmount = securityWaiverReason ? 0 : cashDeposit;
   const month = londonMonth();
   const freedCount = 0;

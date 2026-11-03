@@ -1,4 +1,4 @@
-import { encoreGate } from "./lib/loyalty";
+import { encoreGate, encoreAccountOwnsRental, loyaltyProgress } from "./lib/loyalty";
 import { customerReviewGate, reviewSettlementFingerprint } from "./lib/reviewEligibility";
 import { reviewContext } from "./lib/reviewContext";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -9,13 +9,23 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { queueOwnerNotification } from "./lib/adminPush";
 import { accountForRental } from "./lib/rentalAccount";
 import { pickupScheduleFingerprint } from "./lib/rentalEmailQueue";
+import { encoreGuestClaimEligible } from "./lib/encoreGuestClaim";
 const LEASE_MS=10*60_000, MAX_ATTEMPTS=8;
 
 async function current(ctx: QueryCtx | MutationCtx, row: Doc<"rental_email_deliveries">) {
+  if((row.kind==="encore"||row.kind==="encore_guest_claim")&&process.env.ENCORE_EVIDENCE_READ_ENABLED!=="true")return false;
   const b=await ctx.db.get(row.bookingId); if(!b)return false;
   const account=await accountForRental(ctx,b);
   const recipient=account?.email ?? (b.accountId ? null : b.guestEmail);
   if(!recipient || (row.recipientEmail && row.recipientEmail!==recipient)) return false;
+  if(row.kind === "encore") return !!account && row.encoreAccountId===account._id && encoreAccountOwnsRental(b,account) && !encoreGate(b) && !await ctx.db.query("rental_damage_cases").withIndex("by_booking",q=>q.eq("bookingId",b._id)).first() && !!row.encoreLevel &&
+    b.reviewEligibilityFingerprint===reviewSettlementFingerprint(await reviewContext(ctx,b)) &&
+    (await loyaltyProgress(ctx,account)).level>=row.encoreLevel;
+  if(row.kind === "encore_guest_claim"){
+    if(!account||row.encoreAccountId!==account._id||!await encoreGuestClaimEligible(ctx,b,account))return false;
+    if(!row.encoreClaimId)return true;
+    const link=await ctx.db.get(row.encoreClaimId);return !!link&&!link.usedAt&&link.expiresAt>Date.now()&&link.accountId===account._id&&link.bookingId===b._id&&link.recipientEmail===account.email.trim().toLowerCase();
+  }
   if(row.kind === "cancellation_choice"){
     const offer=b.cancellationDecision?.operatorOfferId?await ctx.db.get(b.cancellationDecision.operatorOfferId):null;
     return !!offer&&offer.emailDeliveryId===row._id&&offer.state==="email_pending"&&account?.blockedAt==null&&offer.recipientEmail===recipient&&Date.now()<(offer.choiceDeadline??0);
@@ -51,6 +61,7 @@ async function flagFailure(ctx:MutationCtx,row:Doc<"rental_email_deliveries">) {
 async function dispatch(ctx:MutationCtx,id:Id<"rental_email_deliveries">) {
   const row=await ctx.db.get(id),now=Date.now();
   if(!row || !["pending","sending"].includes(row.state) || row.dueAt>now)return false;
+  if((row.kind==="encore"||row.kind==="encore_guest_claim")&&process.env.ENCORE_EVIDENCE_READ_ENABLED!=="true"){await ctx.db.patch(id,{state:"pending",generation:row.generation+1,dueAt:now+10*60_000,updatedAt:now});return false;}
   if(!await current(ctx,row)){await ctx.db.patch(id,{state:"skipped",updatedAt:now,lastError:"Notice no longer applicable"});if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:"suppressed",remindedReview:true,reviewFollowUpReason:"notice_no_longer_applicable"});return false;}
   if(row.attempts>=MAX_ATTEMPTS){await ctx.db.patch(id,{state:"failed",updatedAt:now,lastError:"Delivery attempts exhausted; requires support"});await flagFailure(ctx,row);if(row.kind==="review")await markReviewState(ctx,row.bookingId,{reviewFollowUpStatus:"failed",reviewFollowUpReason:"email_failed"});return false;}
   const generation=row.generation+1;

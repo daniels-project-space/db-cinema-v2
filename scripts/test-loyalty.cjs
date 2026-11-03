@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const {load,db,put}=require('./lib/rentalTestHarness.cjs');
-const {qualifyingRentalCount}=load('shared/loyalty.ts');
+const {legacyQualifyingRentalCount:qualifyingRentalCount}=load('shared/loyalty.ts');
 const accounts=load('convex/accounts.ts'),bookings=load('convex/bookings.ts'),reviews=load('convex/reviews.ts');
 const {reviewContext}=load('convex/lib/reviewContext.ts'),{reviewSettlementFingerprint}=load('convex/lib/reviewEligibility.ts'),{loyaltyProgress,encoreGate}=load('convex/lib/loyalty.ts');
 const {calculateRentalPrice}=load('convex/lib/rentalPrice.ts'),catalog=load('convex/catalog.ts');

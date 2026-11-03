@@ -1,10 +1,39 @@
 import { ensureReferralCode } from "./lib/referrals";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { queueOwnerNotification } from "./lib/adminPush";
 import { v } from "convex/values";
 import { studioDeliveryAvailable } from "./lib/memberDelivery";
 import { monthlyCreditPence, tierByKey, MEMBERSHIP_TERMS_VERSION } from "../shared/membership";
+import { currentMembershipRead, markMembershipReadApplied, membershipReadFenceEnabled } from "./lib/membershipReadFence";
 
 const intro = v.union(v.literal("trial"), v.literal("credit"), v.literal("none"));
+
+export const beginProviderRead = internalMutation({args:{subscriptionId:v.string(),mutationKey:v.optional(v.string())},handler:async(ctx,{subscriptionId,mutationKey})=>{
+  const row=await ctx.db.query("membership_provider_reads").withIndex("by_subscription",query=>query.eq("subscriptionId",subscriptionId)).unique();
+  if(mutationKey&&row?.mutationKey&&row.mutationKey!==mutationKey)throw Error("A different membership operation is still being resolved.");
+  const generation=(row?.generation??0)+1;
+  const unsettledSince=row&&(row.mutationKey||row.appliedGeneration!==row.generation)&&row.unsettledSince!==undefined?row.unsettledSince:Date.now();
+  if(row)await ctx.db.patch(row._id,{generation,unsettledSince,...(mutationKey?{mutationKey}:{})});else await ctx.db.insert("membership_provider_reads",{subscriptionId,generation,unsettledSince,...(mutationKey?{mutationKey}:{})});
+  await ctx.scheduler.runAfter(5*60000,internal.membershipBenefits.alertUnsettledProviderRead,{subscriptionId,generation});
+  return generation;
+}});
+export const alertUnsettledProviderRead=internalMutation({args:{subscriptionId:v.string(),generation:v.number()},handler:async(ctx,{subscriptionId})=>{
+  const row=await ctx.db.query("membership_provider_reads").withIndex("by_subscription",query=>query.eq("subscriptionId",subscriptionId)).unique();
+  if(!row||!row.mutationKey&&row.appliedGeneration===row.generation||row.unsettledSince===undefined||Date.now()-row.unsettledSince<5*60000)return;
+  const account=await ctx.db.query("accounts").withIndex("by_subscription",query=>query.eq("stripeSubscriptionId",subscriptionId)).first();
+  await queueOwnerNotification(ctx,{eventKey:`membership-provider-unsettled:${subscriptionId}:${Math.floor(Date.now()/86400000)}`,kind:"payment_attention",...(account?{accountId:account._id}:{}),title:"Membership check needs attention",body:`The provider check or withdrawal for subscription ${subscriptionId} did not finish. Membership deposit-waiver eligibility is paused. Check Stripe and resume the saved withdrawal if one is pending; reconciliation will retry provider reads.`});
+}});
+export const providerReadRepairContext=internalQuery({args:{subscriptionId:v.string()},handler:async(ctx,{subscriptionId})=>{
+  const row=await ctx.db.query("membership_provider_reads").withIndex("by_subscription",query=>query.eq("subscriptionId",subscriptionId)).unique();
+  const account=await ctx.db.query("accounts").withIndex("by_subscription",query=>query.eq("stripeSubscriptionId",subscriptionId)).first();
+  return row&&account?{accountId:account._id,unsettled:row.generation!==row.appliedGeneration||!!row.mutationKey,mutationInProgress:!!row.mutationKey}:null;
+}});
+export const finishProviderMutation=internalMutation({args:{subscriptionId:v.string(),mutationKey:v.string(),generation:v.number(),accountId:v.id("accounts")},handler:async(ctx,args)=>{
+  const row=await ctx.db.query("membership_provider_reads").withIndex("by_subscription",query=>query.eq("subscriptionId",args.subscriptionId)).unique(),account=await ctx.db.get(args.accountId);
+  if(!row||row.mutationKey!==args.mutationKey||row.generation!==args.generation||row.appliedGeneration!==args.generation||!account||account.stripeSubscriptionId!==args.subscriptionId||account.membershipStatus!=="canceled")return false;
+  await ctx.db.patch(row._id,{mutationKey:undefined,unsettledSince:undefined});return true;
+}});
 
 /** Convex serializes these transactions: two tabs cannot open two subscriptions. */
 export const reserveCheckout = internalMutation({
@@ -52,12 +81,15 @@ export const abandonCheckout = internalMutation({
 
 /** Only a server-retrieved Stripe subscription may call this internal mutation. */
 export const syncSubscription = internalMutation({
-  args: { accountId: v.id("accounts"), subscriptionId: v.string(), tier: v.string(), status: v.string(), subscriptionCreatedAt: v.number(), trialEnd: v.optional(v.number()), cancelAtPeriodEnd: v.boolean(), paidThrough: v.optional(v.number()), checkoutId: v.optional(v.id("membership_checkouts")) },
+  args: { accountId: v.id("accounts"), subscriptionId: v.string(), tier: v.string(), status: v.string(), subscriptionCreatedAt: v.number(), trialEnd: v.optional(v.number()), cancelAtPeriodEnd: v.boolean(), paidThrough: v.optional(v.number()), checkoutId: v.optional(v.id("membership_checkouts")),providerReadAt:v.optional(v.number()),providerGeneration:v.optional(v.number()) },
   handler: async (ctx, a) => {
     if (!tierByKey(a.tier)) throw Error("Unknown Stripe membership plan.");
     const account = await ctx.db.get(a.accountId);
     if (!account) throw Error("Membership account is missing.");
-    if (account.membershipSubscriptionCreatedAt && account.membershipSubscriptionCreatedAt > a.subscriptionCreatedAt) return;
+    if(!await currentMembershipRead(ctx,a.subscriptionId,a.providerGeneration))return false;
+    if(!membershipReadFenceEnabled()&&a.providerReadAt!==undefined&&(a.providerReadAt<(account.membershipProviderReadAt??0)||a.providerReadAt===account.membershipProviderReadAt&&a.status==="active"))return false;
+    if (account.membershipSubscriptionCreatedAt && account.membershipSubscriptionCreatedAt > a.subscriptionCreatedAt) return false;
+    if(membershipReadFenceEnabled()&&account.stripeSubscriptionId&&account.stripeSubscriptionId!==a.subscriptionId&&(!account.membershipSubscriptionCreatedAt||account.membershipSubscriptionCreatedAt>=a.subscriptionCreatedAt))return false;
     if (account.stripeSubscriptionId && account.stripeSubscriptionId !== a.subscriptionId && account.membershipActive)
       throw Error("Account already has another active subscription.");
     if (a.checkoutId) {
@@ -69,6 +101,7 @@ export const syncSubscription = internalMutation({
     }
     await ctx.db.patch(a.accountId, {
       membershipSubscriptionCreatedAt: a.subscriptionCreatedAt,
+      ...(a.providerReadAt!==undefined?{membershipProviderReadAt:a.providerReadAt}:{}),
       stripeSubscriptionId: a.subscriptionId, membershipTier: a.tier,
       membershipStatus: a.status, membershipActive: ["active", "trialing"].includes(a.status),
       ...(a.paidThrough ? { membershipPaidThrough: a.paidThrough } : {}),
@@ -77,6 +110,8 @@ export const syncSubscription = internalMutation({
       // A lifecycle event cannot manufacture paid entitlement. Only paid invoices extend it.
       ...(!["active", "trialing"].includes(a.status) ? { membershipPaidThrough: undefined } : {}),
     });
+    await markMembershipReadApplied(ctx,a.subscriptionId,a.providerGeneration);
+    return true;
   },
 });
 
@@ -165,11 +200,60 @@ export const saveSessionParams = internalMutation({
  handler:async(ctx,a)=>{const row=await ctx.db.get(a.id);if(!row||row.state!=="creating")throw Error("Membership checkout is no longer being prepared.");if(row.sessionParams&&row.sessionParams!==a.sessionParams)throw Error("Membership checkout has already been prepared.");await ctx.db.patch(a.id,{bookingId:a.bookingId,sessionParams:a.sessionParams});}
 });
 
+export const beginWaiverProof = internalMutation({args:{invoiceId:v.string()},handler:async(ctx,{invoiceId})=>{
+ const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",invoiceId)).unique();if(!grant)return null;
+ const generation=(grant.waiverProofGeneration??0)+1;
+ await ctx.db.patch(grant._id,{waiverProofGeneration:generation,waiverProofReadyAt:undefined});
+ return generation;
+}});
+export const invalidateWaiverProof = internalMutation({args:{invoiceId:v.string()},handler:async(ctx,{invoiceId})=>{
+ const refund=await ctx.db.query("membership_invoice_refunds").withIndex("by_invoice",q=>q.eq("invoiceId",invoiceId)).unique();
+ if(refund)await ctx.db.patch(refund._id,{ambiguous:true,generation:refund.generation+1,updatedAt:Date.now()});
+ else await ctx.db.insert("membership_invoice_refunds",{invoiceId,membershipRefundedPence:0,generation:1,updatedAt:Date.now(),ambiguous:true});
+ const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",invoiceId)).unique();
+ if(grant)await ctx.db.patch(grant._id,{waiverProofGeneration:(grant.waiverProofGeneration??0)+1,waiverProofReadyAt:undefined});
+}});
+export const finishWaiverProof = internalMutation({args:{invoiceId:v.string(),generation:v.number()},handler:async(ctx,{invoiceId,generation})=>{
+ const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",invoiceId)).unique();
+ const refund=await ctx.db.query("membership_invoice_refunds").withIndex("by_invoice",q=>q.eq("invoiceId",invoiceId)).unique();
+ if(!grant||grant.waiverProofGeneration!==generation||refund?.ambiguous||(refund?.membershipRefundedPence??0)>(grant.membershipRefundedPence??0))return false;
+ await ctx.db.patch(grant._id,{waiverProofReadyAt:Date.now(),waiverProofError:undefined});return true;
+}});
+export const beginWaiverResolution = internalMutation({args:{invoiceId:v.string()},handler:async(ctx,{invoiceId})=>{
+ const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",invoiceId)).unique();
+ const refund=await ctx.db.query("membership_invoice_refunds").withIndex("by_invoice",q=>q.eq("invoiceId",invoiceId)).unique();
+ if(!grant||!refund?.ambiguous||refund.membershipRefundedPence!==(grant.membershipRefundedPence??0)||refund.membershipRefundedPence>=grant.paidMembershipPence)return null;
+ const generation=(grant.waiverProofGeneration??0)+1;await ctx.db.patch(grant._id,{waiverProofGeneration:generation,waiverProofReadyAt:undefined});
+ return {generation,refundGeneration:refund.generation,subscriptionId:grant.subscriptionId,paidMembershipPence:grant.paidMembershipPence};
+}});
+export const finishWaiverResolution = internalMutation({args:{invoiceId:v.string(),generation:v.number(),refundGeneration:v.number(),reason:v.string(),membershipRefundedPence:v.number(),refundIds:v.array(v.string()),creditNoteIds:v.array(v.string())},handler:async(ctx,args)=>{
+ const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",args.invoiceId)).unique();
+ const refund=await ctx.db.query("membership_invoice_refunds").withIndex("by_invoice",q=>q.eq("invoiceId",args.invoiceId)).unique();
+ if(!grant||grant.waiverProofGeneration!==args.generation||!refund?.ambiguous||refund.generation!==args.refundGeneration||refund.membershipRefundedPence!==args.membershipRefundedPence||(grant.membershipRefundedPence??0)!==args.membershipRefundedPence||args.membershipRefundedPence>=grant.paidMembershipPence)return false;
+ await ctx.db.patch(refund._id,{ambiguous:false,generation:refund.generation+1,updatedAt:Date.now()});
+ await ctx.db.patch(grant._id,{waiverProofReadyAt:Date.now(),waiverProofError:undefined});
+ await ctx.db.insert("membership_waiver_resolution_audits",{invoiceId:args.invoiceId,accountId:grant.accountId,reason:args.reason,resolvedAt:Date.now(),proof:args.refundIds.length?"provider_attributed_partial_refund":"provider_no_refunds",membershipRefundedPence:args.membershipRefundedPence,refundIds:args.refundIds,creditNoteIds:args.creditNoteIds});return true;
+}});
+export const flagWaiverProofAttention = internalMutation({args:{invoiceId:v.string(),reason:v.string()},handler:async(ctx,{invoiceId,reason})=>{
+ const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",invoiceId)).unique();if(!grant)return;
+ await ctx.db.patch(grant._id,{waiverProofReadyAt:undefined,waiverProofError:reason.slice(0,160)});
+ await queueOwnerNotification(ctx,{eventKey:`membership-waiver-proof:${invoiceId}`,kind:"payment_attention",accountId:grant.accountId,title:"Membership payment proof needs review",body:`Invoice ${invoiceId} needs a provider payment/refund review. The deposit remains required until an authorised operator retries or resolves the evidence.`});
+}});
+export const waiverProofStatus=internalQuery({args:{invoiceId:v.string()},handler:async(ctx,{invoiceId})=>{
+ const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",invoiceId)).unique();
+ if(!grant)return "unavailable" as const;
+ const now=Date.now();return grant.waiverProofReadyAt&&grant.waiverProofReadyAt<=now&&grant.waiverProofReadyAt>now-24*3600000&&grant.periodEnd>now&&(grant.membershipRefundedPence??0)<grant.paidMembershipPence?"ready" as const:"needs_review" as const;
+}});
+
 export const revokeRefundedInvoice = internalMutation({
  args:{invoiceId:v.string(),membershipRefundedPence:v.number()},
  handler:async(ctx,a)=>{
-  const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",a.invoiceId)).unique();if(!grant)return;
   if(!Number.isSafeInteger(a.membershipRefundedPence)||a.membershipRefundedPence<0)throw Error("Invalid membership refund.");
+  const tombstone=await ctx.db.query("membership_invoice_refunds").withIndex("by_invoice",q=>q.eq("invoiceId",a.invoiceId)).unique();
+  if(tombstone){if(a.membershipRefundedPence>tombstone.membershipRefundedPence)await ctx.db.patch(tombstone._id,{membershipRefundedPence:a.membershipRefundedPence,generation:tombstone.generation+1,updatedAt:Date.now()});}
+  else await ctx.db.insert("membership_invoice_refunds",{invoiceId:a.invoiceId,membershipRefundedPence:a.membershipRefundedPence,generation:1,updatedAt:Date.now()});
+  const grant=await ctx.db.query("membership_credit_grants").withIndex("by_invoice",q=>q.eq("invoiceId",a.invoiceId)).unique();if(!grant)return;
+  if(a.membershipRefundedPence>(grant.membershipRefundedPence??0))await ctx.db.patch(grant._id,{waiverProofGeneration:(grant.waiverProofGeneration??0)+1,waiverProofReadyAt:undefined});
   const refunded=Math.min(grant.paidMembershipPence,a.membershipRefundedPence);
   if(refunded<=(grant.membershipRefundedPence??0))return;
   const target=Math.round((grant.earnedCreditPence??monthlyCreditPence(grant.paidMembershipPence))*refunded/grant.paidMembershipPence)+(refunded===grant.paidMembershipPence?grant.bonusPence:0);

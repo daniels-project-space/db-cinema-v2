@@ -194,7 +194,7 @@ export const submitNative = mutation({
       verifiedBookingId: bookingId,
       date: Date.now(),
       published: true,
-      incentivized:!encoreGate(b),encoreReward:!encoreGate(b),
+      incentivized:process.env.ENCORE_EVIDENCE_READ_ENABLED!=="true"&&!encoreGate(b),encoreReward:process.env.ENCORE_EVIDENCE_READ_ENABLED!=="true"&&!encoreGate(b),
     });
     const encore=await unlockLoyalty(ctx,acct);
     return { ok: true,encoreLevel:encore.level };

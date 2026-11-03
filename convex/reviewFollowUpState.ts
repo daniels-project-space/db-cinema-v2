@@ -1,6 +1,7 @@
 import { queueRentalEmail } from "./lib/rentalEmailQueue";
 import { accountForRental } from "./lib/rentalAccount";
-import { encoreGate } from "./lib/loyalty";
+import { encoreGate, encoreAccountOwnsRental } from "./lib/loyalty";
+import { loyaltyProgress } from "./lib/loyalty";
 import { reviewContext } from "./lib/reviewContext";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
@@ -68,4 +69,9 @@ export const emailContext=internalQuery({args:{bookingId:v.id("bookings")},handl
  const account=await accountForRental(ctx,b);
  return {...b,customerEmail:account?.email??(b.accountId?undefined:b.guestEmail),
   encoreOffersAllowed:!!account?.marketingEmails&&!encoreGate(b),prizeOffersAllowed:!!account?.marketingEmails&&!encoreGate(b)};
+}});
+export const encoreContext=internalQuery({args:{bookingId:v.id("bookings"),accountId:v.id("accounts")},handler:async(ctx,{bookingId,accountId})=>{
+ const booking=await ctx.db.get(bookingId);if(!booking||encoreGate(booking))return null;
+ const account=await accountForRental(ctx,booking);if(!account||account._id!==accountId||!encoreAccountOwnsRental(booking,account))return null;
+ return {email:account.email,level:(await loyaltyProgress(ctx,account)).level};
 }});

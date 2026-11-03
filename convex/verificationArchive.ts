@@ -382,17 +382,44 @@ export const retentionHold = mutation({ args: { token: v.string(), archiveId: v.
   await ctx.db.patch(archive._id, { retentionHoldReason: args.reason.trim().slice(0, 500) || undefined });
 } });
 /** Retain during rental/claim; remove bytes 90 days after actual return or cancellation. */
-export const purgeExpired = internalMutation({ args: {}, handler: async ctx => {
-  const archives = await ctx.db.query("verification_archives").collect();
-  let removed = 0;
-  for (const archive of archives) {
-    if (removed >= 25 || archive.status === "deleted" || archive.retentionHoldReason) continue;
-    const retention = await archiveRetention(ctx, archive);
-    if (retention.status !== "expires" || retention.expiresAt === null || retention.expiresAt > Date.now()) continue;
-    const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archive._id)).collect();
-    for (const document of documents) await deletePrivateFile(ctx,document.storageId);
-    await ctx.db.patch(archive._id, { status: "deleted", deletedAt: Date.now(), error: undefined,supplementalStatus:undefined,supplementalDueAt:undefined,supplementalLeaseUntil:undefined });
-    removed++;
+export async function refreshVerificationArchiveRetention(ctx: any, bookingId: any) {
+  const booking = await ctx.db.get(bookingId);
+  if (!booking) return;
+  const sourceIds = [...new Set([booking._id, booking.verificationReusedFrom].filter(Boolean))];
+  for (const sourceId of sourceIds) {
+    const archives = await ctx.db.query("verification_archives").withIndex("by_booking", (q: any) => q.eq("bookingId", sourceId)).take(100);
+    for (const archive of archives) {
+      if (archive.status !== "deleted" && !archive.retentionHoldReason) await ctx.db.patch(archive._id, { dueAt: Date.now() });
+    }
   }
+}
+export const purgeExpired = internalMutation({ args: {}, handler: async ctx => {
+  const now = Date.now();
+  let removed = 0;
+  let continueSweep = false;
+  let remaining = 25;
+  for (const status of ["pending", "attention", "complete"]) {
+    const due = await ctx.db.query("verification_archives").withIndex("by_status_due", q => q.eq("status", status).lte("dueAt", now)).take(remaining);
+    if (due.length === remaining && remaining > 0) continueSweep = true;
+    for (const archive of due) {
+      if (archive.retentionHoldReason) {
+        await ctx.db.patch(archive._id, { dueAt: Number.MAX_SAFE_INTEGER });
+        continue;
+      }
+      const retention = await archiveRetention(ctx, archive);
+      if (retention.status === "expires" && retention.expiresAt !== null && retention.expiresAt <= now) {
+        const documents = await ctx.db.query("verification_documents").withIndex("by_archive", q => q.eq("archiveId", archive._id)).collect();
+        for (const document of documents) await deletePrivateFile(ctx,document.storageId);
+        await ctx.db.patch(archive._id, { status: "deleted", deletedAt: now, error: undefined,supplementalStatus:undefined,supplementalDueAt:undefined,supplementalLeaseUntil:undefined });
+        removed++;
+      } else {
+        const nextDueAt = archive.status === "pending" ? now + 300000 : retention.status === "expires" && retention.expiresAt !== null ? retention.expiresAt : now + 86400000;
+        await ctx.db.patch(archive._id, { dueAt: nextDueAt });
+      }
+    }
+    remaining -= due.length;
+    if (!remaining) break;
+  }
+  if (continueSweep) await ctx.scheduler.runAfter(5000, internal.verificationArchive.purgeExpired, {});
   return removed;
 } });

@@ -22,7 +22,7 @@ crons.interval("retry-owner-telegram-alerts", { minutes: 2 }, internal.ownerTele
 crons.interval("retry-rental-account-links", { minutes: 5 }, internal.accountAccess.retryRentalAccess, {});
 
 // Lapse membership perks with the real Stripe subscription (deactivates cancelled/unpaid members).
-crons.interval("reconcile-memberships", { hours: 6 }, internal.checkout.reconcileMemberships, {});
+crons.interval("reconcile-memberships", { minutes: 5 }, internal.membershipReconcileState.schedule, {});
 
 // Expire old login sessions (enforces session TTL — queries can't read the clock).
 crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSessions, {});
@@ -31,6 +31,9 @@ crons.interval("sweep-sessions", { hours: 1 }, internal.accounts.sweepExpiredSes
 crons.interval("send-reminders", { hours: 12 }, internal.notify.sendReminders, {});
 crons.daily("review-story-prize-deadlines", { hourUTC: 8, minuteUTC: 15 }, internal.reviewPrize.maintenance, {});
 crons.interval("settled-rental-review-emails", { hours: 12 }, internal.reviewFollowUp.processDue, {});
+crons.interval("retry-encore-settlement", { minutes: 5 }, internal.encoreSettlementState.retryDue, {});
+crons.interval("recover-encore-backfill", { minutes: 5 }, internal.encoreBackfill.recover, {});
+crons.interval("recover-encore-rollups", { minutes: 5 }, internal.encoreRollups.recover, {});
 crons.interval("verify-archived-document-readability", { minutes: 5 }, internal.verificationArchive.scheduleReadProofs, {});
 crons.interval("purge-verification-reuse-claims", { hours: 1 }, internal.verificationReuseClaimState.purgeExpired, {});
 crons.interval("late-fee-notices-and-collection", { hours: 1 }, internal.lateFees.processDue, {});
