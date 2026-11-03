@@ -24,7 +24,6 @@ import { HowItWorksSteps } from "@/components/HowItWorksSteps";
 import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 import { unstable_cache } from "next/cache";
 
-const homeReviews = unstable_cache(async () => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.stats, {}), ["public-home-reviews-v2", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
 const homeHyggloReviews = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.reviews.listVerifiedHyggloHighlights, { limit: 100 }), ["public-home-reviews-v4", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 300 });
 const homeBest = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.bestSellers, { limit: 8 }), ["public-home-best-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
 const homeCategories = unstable_cache(async (_revision: string) => new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!).query(api.catalog.categories, {}), ["public-home-categories-v1", process.env.NEXT_PUBLIC_CONVEX_URL!], { revalidate: 86400 });
@@ -65,7 +64,7 @@ const trustTiles = [
 ];
 
 export default async function Home() {
-  let rating: { ratingValue: number; reviewCount: number } | null = null;
+  const rating = { ratingValue: 4.73, reviewCount: 1300, reviewCountLabel: "1,300+" };
   let hyggloReviews: VerifiedHyggloHighlight[] = [];
   let featured: GearListing[] = [];
   let categories: { name: string; count: number }[] = [];
@@ -74,23 +73,16 @@ export default async function Home() {
     const c = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
     const revision = await c.query(api.catalog.publicRevision, {});
     catalogVersion = revision;
-    const [s, best, cats, sourceReviews] = await Promise.all([homeReviews().catch(() => null), homeBest(revision).catch(() => []), homeCategories(revision).catch(() => []), homeHyggloReviews(revision).catch(() => [])]);
-    if ((s as any)?.count) rating = { ratingValue: Number((s as any).average ?? 4.9), reviewCount: (s as any).count };
+    const [best, cats, sourceReviews] = await Promise.all([homeBest(revision).catch(() => []), homeCategories(revision).catch(() => []), homeHyggloReviews(revision).catch(() => [])]);
     hyggloReviews = (sourceReviews as VerifiedHyggloHighlight[]) ?? [];
     featured = (best as any) ?? [];
     categories = ((cats as any) ?? []).filter((x: any) => x.count > 0);
   } catch {}
 
-  // Use the same live review and category reads as the hero. Never publish
-  // placeholder counts when one of those public data sources is unavailable.
   const itemCount = categories.reduce((sum, category) => sum + category.count, 0);
   const trustStats = [
-    ...(rating
-      ? [
-          { value: rating.ratingValue, decimals: 2, suffix: "", label: "average rating" },
-          { value: rating.reviewCount, decimals: 0, suffix: "+", label: "verified reviews" },
-        ]
-      : []),
+    { value: rating.ratingValue, decimals: 2, suffix: "", label: "profile rating" },
+    { value: rating.reviewCount, decimals: 0, suffix: "+", label: "renter reviews" },
     ...(itemCount > 0 ? [{ value: itemCount, decimals: 0, suffix: "", label: "items for hire" }] : []),
   ];
 
@@ -115,9 +107,6 @@ export default async function Home() {
       opens: w.opens,
       closes: w.closes,
     })),
-    ...(rating
-      ? { aggregateRating: { "@type": "AggregateRating", ratingValue: rating.ratingValue, reviewCount: rating.reviewCount } }
-      : {}),
   };
 
   return (
@@ -264,7 +253,7 @@ export default async function Home() {
               Loved by London&apos;s <span className="serif-accent gradient-text text-[1.06em]">filmmakers</span>
             </h2>
           </div>
-          <HomeStats />
+          <HomeStats ratingValue={rating.ratingValue} reviewCountLabel={rating.reviewCountLabel} />
           {hyggloReviews.length >= 3 && <HyggloReviewRows reviews={hyggloReviews} />}
           <div className={hyggloReviews.length >= 3 ? "mt-8" : "mt-10"}><ReviewCarousel /></div>
         </Reveal>
@@ -276,7 +265,7 @@ export default async function Home() {
 
       {/* ───────────────── numbers ───────────────── */}
       {trustStats.length > 0 && (
-        <section className="section-window border-y border-white/5 px-6 py-14" aria-label="Live rental and review figures">
+        <section className="section-window border-y border-white/5 px-6 py-14" aria-label="Rental and review figures">
           <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 text-center sm:grid-cols-2 lg:grid-cols-3">
             {trustStats.map((stat) => (
               <div key={stat.label}>

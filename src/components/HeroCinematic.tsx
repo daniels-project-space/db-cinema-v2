@@ -5,7 +5,7 @@ import Link from "next/link";
 import { GafferCall } from "@/components/GafferCall";
 import { IconArrowRight, IconStar } from "@/components/icons";
 
-type Rating = { ratingValue: number; reviewCount: number } | null;
+type Rating = { ratingValue: number; reviewCount: number; reviewCountLabel: string } | null;
 type Cat = { name: string; count: number };
 
 /**
@@ -312,7 +312,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
                 scroll-behavior: smooth, and drops it under prefers-reduced-motion). */}
             <a
               href="#reviews"
-              aria-label={`Rated ${rating.ratingValue.toFixed(2)} out of 5 from ${rating.reviewCount} reviews; read all reviews`}
+              aria-label={`Rated ${rating.ratingValue.toFixed(2)} out of 5 from ${rating.reviewCountLabel} renter reviews; read all reviews`}
               className="group mt-3 inline-flex items-center gap-3 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm text-white/70 shadow-lg backdrop-blur-md transition-colors hover:border-accent-400/40 hover:bg-black/45 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-400/70 lg:mt-5"
             >
               <span aria-hidden="true" className="flex text-accent-400">
@@ -324,7 +324,7 @@ export function HeroCinematic({ rating, categories }: { rating: Rating; categori
               <span className="text-white/40">/ 5</span>
               <span className="text-white/35">·</span>
               <span className="font-medium underline decoration-white/30 decoration-dotted underline-offset-4 transition-colors group-hover:decoration-accent-400/70">
-                {rating.reviewCount} reviews
+                {rating.reviewCountLabel} reviews
               </span>
             </a>
           </div>

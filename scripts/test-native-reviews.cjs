@@ -82,9 +82,11 @@ const old=process.env.STRIPE_SECRET_KEY,oldAdmin=process.env.ADMIN_TOKEN;process
  assert(stepsStyles.includes('.copy { padding-bottom: 4rem; }'),'Keep mobile step copy clear of the floating contact button');
  assert(header.includes('{ href: "/#reviews", label: "Reviews" }'),'Give visitors a direct navigation link to the reviews');
  assert.match(reviewsRoute,/redirect\("\/#reviews"\)/,'Make the direct /reviews path land on the homepage review section');
- assert.match(hero,/rating\.reviewCount\} reviews/,'Show the exact all-review count in the hero');
- assert.match(hero,/Rated \$\{rating\.ratingValue\.toFixed\(2\)\} out of 5 from \$\{rating\.reviewCount\} reviews/,'Expose the accurate aggregate score and total in the hero label');
- assert(homeStats.includes('{stats.count} reviews'),'Show the total count in the review section without implying a restricted subset');
+ assert.match(home,/ratingValue: 4\.73, reviewCount: 1300, reviewCountLabel: "1,300\+"/,'Use the full profile-wide rating and review-count floor');
+ assert.match(hero,/rating\.reviewCountLabel\} reviews/,'Show the full review-count label in the hero');
+ assert.match(hero,/Rated \$\{rating\.ratingValue\.toFixed\(2\)\} out of 5 from \$\{rating\.reviewCountLabel\} renter reviews/,'Expose the accurate profile score and count in the hero label');
+ assert(homeStats.includes('{reviewCountLabel} renter reviews'),'Show the full review total below the review heading');
+ assert(!home.includes('"aggregateRating"'),'Do not mark up third-party business ratings as a self-serving review snippet');
  assert(!showcase.includes('Hygglo renter')&&!showcase.includes('Hygglo · verified review'),'Do not expose the review source brand on public cards');
  assert(showcase.includes('Trust that is earned')&&!showcase.includes('5-star'),'Use the requested trust tile wording without a five-star text badge');
  assert(showcase.includes('aria-roledescription="review carousel"'),'Expose the review rows as carousels');
