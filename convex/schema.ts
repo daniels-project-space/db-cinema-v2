@@ -733,7 +733,8 @@ export default defineSchema({
     .index("by_unread", ["sender", "readByOwner"])
     .index("by_booking_at", ["bookingId", "at"])
     .index("by_booking_account_sender_at", ["bookingId", "accountId", "sender", "at"])
-    .index("by_account_at", ["accountId", "at"]),
+    .index("by_account_at", ["accountId", "at"])
+    .searchIndex("search_text", { searchField: "text" }),
 
   renter_push_subscriptions: defineTable({
     accountId: v.id("accounts"), sessionId: v.id("sessions"), deviceId: v.string(), endpoint: v.string(), p256dh: v.string(), auth: v.string(),
@@ -939,6 +940,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_account", ["accountId"])
+    .index("by_account_unread_owner", ["accountId", "unreadOwner"])
     .index("by_tgMessageId", ["tgMessageId"])
     .index("by_account_booking", ["accountId", "bookingId"])
     .index("by_account_updated", ["accountId", "updatedAt"])

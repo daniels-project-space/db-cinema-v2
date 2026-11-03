@@ -246,6 +246,9 @@ export const messages = query({
         : [],
       renter: {
         name: a.name?.split(/\s+/)[0] ?? "Renter",
+        phone: admin
+          ? (bookingId ? (await ctx.db.get(bookingId))?.guestPhone : null) || a.phone || null
+          : null,
         photo:
           (a.avatarStorageId
             ? await ctx.storage.getUrl(a.avatarStorageId)

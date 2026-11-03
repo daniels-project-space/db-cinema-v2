@@ -46,6 +46,8 @@ export function RentalConversation({
     admin,
     paginationOpts: { numItems: 50, cursor: null },
   });
+  const renterPhone = admin && thread && "renter" in thread ? thread.renter?.phone : null;
+  const dialablePhone = renterPhone?.replace(/[^\d+]/g, "");
   const [before, setBefore] = useState<string | undefined>();
   const older = useQuery(
     api.rentalChat.messages,
@@ -233,6 +235,7 @@ export function RentalConversation({
           <ChatAvatar sender={admin ? "renter" : "owner"} name={thread && "renter" in thread ? thread.renter?.name : null} photo={thread && "renter" in thread ? thread.renter?.photo : null} />
           <div><p className={styles.eyebrow}>{admin ? "Rental conversation" : "Your rental team"}</p>
             <h3>{admin && thread && "renter" in thread ? thread.renter?.name || "Guest renter" : "DB Cinema Rentals"}</h3>
+            {renterPhone && dialablePhone && /^\+?\d+$/.test(dialablePhone) && <a className={styles.phone} href={`tel:${dialablePhone}`} aria-label={`Call ${thread && "renter" in thread ? thread.renter?.name || "renter" : "renter"} at ${renterPhone}`}>{renterPhone} <span aria-hidden="true">·</span> Call</a>}
             <p className={styles.supportStatus}><span />{teamHandling ? "Team handling your conversation" : "Gaffer available · team can join"}</p>
             {!admin && teamHandling && <p className="mt-1 max-w-sm text-xs leading-relaxed text-white/45">The team has your enquiry. Add any other details here; replies will appear in this conversation.</p>}
           </div>

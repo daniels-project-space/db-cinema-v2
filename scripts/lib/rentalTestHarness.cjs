@@ -90,6 +90,11 @@ const db = {
     let rows = [...(tables.get(table) ?? [])],
       descending = false;
     const query = {
+      withSearchIndex(_, fn) {
+        const search = { search(key, value) { rows = rows.filter(row => String(row[key] ?? "").toLowerCase().includes(value.toLowerCase())); return search; } };
+        fn(search);
+        return query;
+      },
       withIndex(_, fn) {
         const q = {
           eq(k, v) {

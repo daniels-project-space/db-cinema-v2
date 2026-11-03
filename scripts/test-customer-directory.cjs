@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const { load, db, put } = require("./lib/rentalTestHarness.cjs");
 const admin = load("convex/accountAdmin.ts");
+const { customerAdminVisual } = load("shared/customerAdminVisual.ts");
 process.env.ADMIN_TOKEN = "fixture-admin";
 process.env.VERIFICATION_ARCHIVE_REUSE_ENABLED = "true";
 let scans = 0, avatarReads = 0;
@@ -22,6 +23,18 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  return { rows, pageCount };
 }
 (async () => {
+ assert.equal(customerAdminVisual({}), "guest");
+ for (const level of [1, 2, 3]) {
+  assert.equal(customerAdminVisual({ adminEncoreLevel: level }), `encore${level}`);
+ }
+ assert.equal(customerAdminVisual({ loyaltyPolicyVersion: "review-earned-v1", loyaltyLevel: 3 }), "guest", "Cached earned levels can remain stale after an override is removed");
+ assert.equal(customerAdminVisual({ loyaltyLevel: 3 }), "guest", "Legacy levels do not imply Encore");
+ assert.equal(customerAdminVisual({ adminMembershipTier: "studio" }), "guest", "An administrative grant is not a subscription");
+ const subscriber = { stripeSubscriptionId: "sub_fixture", membershipTier: "plus", membershipActive: true, membershipStatus: "active", membershipPaidThrough: Date.now() + 60000 };
+ assert.equal(customerAdminVisual({ ...subscriber, adminEncoreLevel: 3 }), "subscriber");
+ assert.equal(customerAdminVisual({ ...subscriber, membershipPaidThrough: 1 }), "guest");
+ assert.equal(customerAdminVisual({ ...subscriber, membershipStatus: "trialing", membershipTrialEnd: Date.now() + 60000 }), "subscriber");
+ assert.equal(customerAdminVisual({ ...subscriber, membershipSource: "collective-comp" }), "guest");
  const denied = await admin.directory.handler(ctx, { token: "wrong", search: "", filter: "all", tier: "all", paginationOpts: { numItems: 100, cursor: null } });
  assert.deepEqual(denied, { page: [], isDone: true, continueCursor: "" }); assert.equal(scans, 0); assert.equal(avatarReads, 0);
  assert.equal(await admin.directoryAccess.handler(ctx, { token: "wrong" }), false);
@@ -34,6 +47,24 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  const pending = await find("", "pending"); assert.equal(pending.rows.length, 220); assert(pending.rows.some(row=>row.email==='customer3@example.invalid'));
  assert.equal((await find("", "members", "pro", "verified")).rows.length, 1);
  assert.equal((await find("", "members", "pro", "pending")).rows.length, 0, "Membership and verification filters must compose");
+ put("messages", { accountId: old._id, sender: "renter", text: "Need a cinema camera for Tuesday", at: 1 });
+ put("messages", { accountId: old._id, sender: "owner", text: "Cinema camera details", at: 2 });
+ const messageArgs = { token: "fixture-admin", search: "cinema camera", filter: "all", tier: "all", verification: "all" };
+ const beforeMessageSearch = scans;
+ assert.deepEqual(await admin.searchMessages.handler(ctx, { ...messageArgs, token: "wrong" }), { items: [], truncated: false });
+ assert.equal(scans, beforeMessageSearch, "Unauthorized message search must not query customer data");
+ const messageResults = await admin.searchMessages.handler(ctx, messageArgs);
+ assert.equal(messageResults.items.length, 1, "Multiple matching messages for one customer must be deduplicated");
+ assert.equal(messageResults.items[0].id, old._id);
+ assert.equal(messageResults.items[0].visualTier, "guest");
+ assert.equal(messageResults.items[0].matchedMessage, "Need a cinema camera for Tuesday");
+ assert.equal(JSON.stringify(messageResults).includes("private-hash"), false);
+ assert.equal((await admin.searchMessages.handler(ctx, { ...messageArgs, tier: "standard" })).items.length, 0);
+ assert.equal((await admin.searchMessages.handler(ctx, { ...messageArgs, filter: "verified" })).items.length, 1);
+ assert.equal((await admin.searchMessages.handler(ctx, { ...messageArgs, verification: "pending" })).items.length, 0);
+ assert.deepEqual(await admin.searchMessages.handler(ctx, { ...messageArgs, search: "x" }), { items: [], truncated: false });
+ for (let i = 0; i < 101; i++) put("messages", { accountId: old._id, sender: "renter", text: "excessive matches", at: i });
+ assert.equal((await admin.searchMessages.handler(ctx, { ...messageArgs, search: "excessive" })).truncated, true);
  proof.status='deleted';assert.equal((await find('Cinematographer')).rows[0].verified,false,'deleted archives cannot retain an admin directory verification badge');
  assert.equal((await admin.search.handler(ctx,{token:'fixture-admin',email:old.email})).items[0].verified,false,'admin search shares the same archive gate');proof.status='complete';
  put("bookings", { accountId: old._id, guestEmail: "different@example.invalid", status: "active" });
@@ -44,10 +75,13 @@ async function find(search, filter = "all", tier = "all", verification = "all") 
  put("credits", { accountId: old._id, amount: 100, remaining: 100, status: "active", expiresAt: 1 });
  put("bookings", { guestEmail: old.email, status: "pending_payment", creditAllocations: [{ creditId: credit._id, amount: 5 }] });
  const beforeMetrics = scans;
+ put("chat_threads", { accountId: old._id, unreadOwner: 2, escalated: false, updatedAt: 1 });
+ put("chat_threads", { accountId: old._id, unreadOwner: 3, escalated: false, updatedAt: 2 });
+ put("chat_threads", { accountId: "foreign-account", unreadOwner: 9, escalated: false, updatedAt: 3 });
  assert.deepEqual(await admin.directoryMetrics.handler(ctx, { token: "wrong", accountIds: [old._id] }), []);
  assert.equal(scans, beforeMetrics, "Unauthorized metrics must not query data");
  const [metric] = await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [old._id, old._id] });
- assert.deepEqual(metric, { id: old._id, activeRentals: 2, activeRentalsMore: false, credit: 20 }, "Count owned and unclaimed legacy rentals; exclude foreign links, past rentals, expired and reserved credit");
+ assert.deepEqual(metric, { id: old._id, activeRentals: 2, activeRentalsMore: false, credit: 20, unreadMessages: 5 }, "Count owned and unclaimed legacy rentals, credit, and this customer's unread messages only");
  await assert.rejects(admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: Array(11).fill(old._id) }), /metrics page/);
  for (let i = 0; i < 105; i++) put("bookings", { accountId: old._id, status: "active" });
  const capped = (await admin.directoryMetrics.handler(ctx, { token: "fixture-admin", accountIds: [old._id] }))[0];

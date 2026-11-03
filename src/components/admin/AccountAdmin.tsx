@@ -111,6 +111,7 @@ export function AccountAdmin({
   const displayRows = searchPending ? [] : visible.slice(page * 10, page * 10 + 10);
   const metrics = useQuery(api.accountAdmin.directoryMetrics, authorized && !searchPending
     ? { token, accountIds: displayRows.map(a => a.id) } : "skip");
+  const unreadMessagesFor = (accountId: string) => metrics?.find(metric => metric.id === accountId)?.unreadMessages ?? 0;
   useEffect(() => setChecked([]), [token, page, email, filter, tierFilter, verificationFilter]);
   const exhausted = status === "Exhausted";
   const loading = searchPending || status === "LoadingMore" || status === "CanLoadMore" && visible.length < (page + 1) * 10 + 1;
@@ -401,6 +402,9 @@ export function AccountAdmin({
                       )}
                       <span>
                         <strong>{account.name || "DB Cinema renter"}</strong>
+                        {unreadMessagesFor(account.id) > 0 && <small className={styles.unreadBadge} aria-label={`${unreadMessagesFor(account.id) >= 100 ? "99 or more" : unreadMessagesFor(account.id)} unread messages`}>
+                          {unreadMessagesFor(account.id) >= 100 ? "99+" : unreadMessagesFor(account.id)} unread
+                        </small>}
                         <small className={styles.mobileEmail}>{account.email}</small>
                         <small className={styles.mobileVerification}>
                           {account.blocked
