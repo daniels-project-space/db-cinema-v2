@@ -689,6 +689,14 @@
 .customer > span:last-child { min-width:0; flex:1; }
 .customer strong { max-width:100%; }
 .customer .unreadBadge { display:inline-block; margin-top:3px; padding:2px 6px; border-radius:999px; color:#171819; background:#e3ba8e; font-size:10px; font-weight:700; }
+.customer .messageMatch { display:block; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#d8bc9f; }
+.customer { border:1px solid transparent; border-radius:7px; padding:5px; }
+.customer.guest { border-color:transparent; box-shadow:none; }
+.customer.encore1 { border-color:#cbd3d53d; box-shadow:0 0 8px #cbd3d51a; }
+.customer.encore2 { border-color:#cbd3d56b; box-shadow:0 0 11px #cbd3d52d; }
+.customer.encore3 { border-color:#e3e9e99c; box-shadow:0 0 15px #dce2e244; }
+.customer.subscriber { border-color:#e4bd87a8; background:linear-gradient(110deg,#373026,#222220); box-shadow:0 0 17px #e0b77d45,inset 0 0 12px #e0b77d12; }
+.customer:focus-visible { outline:2px solid #f5dec0; outline-offset:2px; }
 @media(min-width:1101px) { .overviewGrid { grid-template-rows:minmax(255px,auto) minmax(207px,auto); } }
 
 .contacts svg { width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:7px; }
