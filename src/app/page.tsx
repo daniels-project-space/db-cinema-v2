@@ -21,6 +21,7 @@ import { Magnetic } from "@/components/Magnetic";
 import { IconArrowRight } from "@/components/icons";
 import { BadgeTruck, BadgeSquare, BadgeShield, BadgeClock } from "@/components/AnimatedIcons";
 import { HowItWorksSteps } from "@/components/HowItWorksSteps";
+import { DeliveryProtectionTile } from "@/components/DeliveryProtectionTile";
 import { CONTACT_EMAIL, SITE_URL, SITE_NAME, BRANDS, HOURS_WINDOWS } from "@/lib/site";
 import { unstable_cache } from "next/cache";
 import closingStyles from "./HomeClosing.module.css";
@@ -58,7 +59,7 @@ const trustTiles = [
     eyebrow: "Booking",
     icon: BadgeClock,
     title: "Ready when you are",
-    copy: "Book online in minutes with instant confirmation.",
+    copy: "Choose your kit and request your rental online in minutes.",
     image: "/images/home/ready-to-shoot-kit-20261028.webp",
     alt: "A complete cinema kit prepared for a film shoot",
   },
@@ -137,7 +138,7 @@ export default async function Home() {
             <Reveal key={tile.title} delay={i * 70} className="h-full">
               {tile.title === "Pro kit, meticulously maintained" && hyggloReviews[0] ? (
                 <HyggloTrustTile reviews={hyggloReviews} />
-              ) : <article className="trust-card group relative isolate h-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:h-[304px]">
+              ) : tile.title === "Delivered across London" ? <DeliveryProtectionTile /> : <article className="trust-card group relative isolate h-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[#101013] shadow-[0_20px_60px_-32px_rgba(0,0,0,.9)] sm:h-[304px]">
                 <Image
                   src={tile.image}
                   alt={tile.alt}
